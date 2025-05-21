@@ -1,0 +1,916 @@
+===============Fail===============
+ (0): error Renew: Your license will expire in 8 days. Click 'Renew' to learn more or contact us via Feedback form on our website. This is an information message. You can continue using the analyzer with your current license. To hide this message, use the '--disableLicenseExpirationCheck' flag.
+
+===============General Analysis (GA)===============
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (75): error V677: Custom declaration of a standard 'INT8' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (75): error V677: Custom declaration of a standard 'PINT8' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (76): error V677: Custom declaration of a standard 'INT16' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (76): error V677: Custom declaration of a standard 'PINT16' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (77): error V677: Custom declaration of a standard 'INT32' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (77): error V677: Custom declaration of a standard 'PINT32' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (78): error V677: Custom declaration of a standard 'INT64' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (78): error V677: Custom declaration of a standard 'PINT64' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (79): error V677: Custom declaration of a standard 'PUINT8' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (79): error V677: Custom declaration of a standard 'UINT8' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (80): error V677: Custom declaration of a standard 'PUINT16' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (80): error V677: Custom declaration of a standard 'UINT16' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (81): error V677: Custom declaration of a standard 'PUINT32' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (81): error V677: Custom declaration of a standard 'UINT32' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (82): error V677: Custom declaration of a standard 'PUINT64' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (82): error V677: Custom declaration of a standard 'UINT64' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (88): error V677: Custom declaration of a standard 'LONG32' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (88): error V677: Custom declaration of a standard 'PLONG32' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (94): error V677: Custom declaration of a standard 'PULONG32' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (94): error V677: Custom declaration of a standard 'ULONG32' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (95): error V677: Custom declaration of a standard 'DWORD32' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (95): error V677: Custom declaration of a standard 'PDWORD32' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (125): error V677: Custom declaration of a standard 'INT_PTR' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (125): error V677: Custom declaration of a standard 'PINT_PTR' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (126): error V677: Custom declaration of a standard 'PUINT_PTR' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (126): error V677: Custom declaration of a standard 'UINT_PTR' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (128): error V677: Custom declaration of a standard 'LONG_PTR' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (128): error V677: Custom declaration of a standard 'PLONG_PTR' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (129): error V677: Custom declaration of a standard 'PULONG_PTR' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (129): error V677: Custom declaration of a standard 'ULONG_PTR' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (170): error V677: Custom declaration of a standard 'HANDLE_PTR' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (171): error V677: Custom declaration of a standard 'PUHALF_PTR' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (171): error V677: Custom declaration of a standard 'UHALF_PTR' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (172): error V677: Custom declaration of a standard 'HALF_PTR' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (172): error V677: Custom declaration of a standard 'PHALF_PTR' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (434): error V677: Custom declaration of a standard 'PSIZE_T' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (434): error V677: Custom declaration of a standard 'SIZE_T' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (435): error V677: Custom declaration of a standard 'PSSIZE_T' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (435): error V677: Custom declaration of a standard 'SSIZE_T' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (483): error V677: Custom declaration of a standard 'DWORD_PTR' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (483): error V677: Custom declaration of a standard 'PDWORD_PTR' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (489): error V677: Custom declaration of a standard 'LONG64' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (489): error V677: Custom declaration of a standard 'PLONG64' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (496): error V677: Custom declaration of a standard 'PULONG64' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (496): error V677: Custom declaration of a standard 'ULONG64' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (497): error V677: Custom declaration of a standard 'DWORD64' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetsd.h (497): error V677: Custom declaration of a standard 'PDWORD64' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetyps.h (181): error V1003: The macro 'STDMETHOD' is a dangerous expression. The parameter 'method' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetyps.h (182): error V1003: The macro 'STDMETHOD_' is a dangerous expression. The parameter 'method' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetyps.h (183): error V1003: The macro 'STDMETHODV' is a dangerous expression. The parameter 'method' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\basetyps.h (184): error V1003: The macro 'STDMETHODV_' is a dangerous expression. The parameter 'method' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (7762): error V1051: Consider checking for misprints. It's possible that the 'ullResultLow' should be checked here.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (40): error V677: Custom declaration of a standard 'CHAR' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (41): error V677: Custom declaration of a standard 'INT8' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (42): error V677: Custom declaration of a standard 'UCHAR' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (43): error V677: Custom declaration of a standard 'UINT8' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (44): error V677: Custom declaration of a standard 'BYTE' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (45): error V677: Custom declaration of a standard 'SHORT' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (46): error V677: Custom declaration of a standard 'INT16' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (47): error V677: Custom declaration of a standard 'USHORT' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (48): error V677: Custom declaration of a standard 'UINT16' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (49): error V677: Custom declaration of a standard 'WORD' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (50): error V677: Custom declaration of a standard 'INT' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (51): error V677: Custom declaration of a standard 'INT32' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (52): error V677: Custom declaration of a standard 'UINT' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (53): error V677: Custom declaration of a standard 'UINT32' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (54): error V677: Custom declaration of a standard 'LONG' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (55): error V677: Custom declaration of a standard 'ULONG' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (56): error V677: Custom declaration of a standard 'DWORD' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (57): error V677: Custom declaration of a standard 'LONGLONG' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (58): error V677: Custom declaration of a standard 'LONG64' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (59): error V677: Custom declaration of a standard 'INT64' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (60): error V677: Custom declaration of a standard 'ULONGLONG' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (61): error V677: Custom declaration of a standard 'DWORDLONG' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (62): error V677: Custom declaration of a standard 'ULONG64' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (63): error V677: Custom declaration of a standard 'DWORD64' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (64): error V677: Custom declaration of a standard 'UINT64' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (73): error V677: Custom declaration of a standard 'INT_PTR' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (74): error V677: Custom declaration of a standard 'UINT_PTR' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (75): error V677: Custom declaration of a standard 'LONG_PTR' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (76): error V677: Custom declaration of a standard 'ULONG_PTR' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (86): error V677: Custom declaration of a standard 'ptrdiff_t' type. The system header file should be used: #include <CRTDEFS.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (87): error V677: Custom declaration of a standard 'size_t' type. The system header file should be used: #include <CRTDEFS.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (93): error V677: Custom declaration of a standard 'DWORD_PTR' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (94): error V677: Custom declaration of a standard 'SSIZE_T' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (95): error V677: Custom declaration of a standard 'SIZE_T' type. The system header file should be used: #include <BaseTsd.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (172): error V677: Custom declaration of a standard 'HRESULT' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\intsafe.h (7761): error V764: Possible incorrect order of arguments passed to '_umul128' function: 'ullMultiplicand' and 'ullMultiplier'.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (51): error V677: Custom declaration of a standard 'ULONG' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (52): error V677: Custom declaration of a standard 'PULONG' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (53): error V677: Custom declaration of a standard 'USHORT' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (54): error V677: Custom declaration of a standard 'PUSHORT' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (55): error V677: Custom declaration of a standard 'UCHAR' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (56): error V677: Custom declaration of a standard 'PUCHAR' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (156): error V677: Custom declaration of a standard 'DWORD' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (157): error V677: Custom declaration of a standard 'BOOL' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (158): error V677: Custom declaration of a standard 'BYTE' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (159): error V677: Custom declaration of a standard 'WORD' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (160): error V677: Custom declaration of a standard 'FLOAT' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (161): error V677: Custom declaration of a standard 'PFLOAT' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (162): error V677: Custom declaration of a standard 'PBOOL' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (163): error V677: Custom declaration of a standard 'LPBOOL' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (164): error V677: Custom declaration of a standard 'PBYTE' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (165): error V677: Custom declaration of a standard 'LPBYTE' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (166): error V677: Custom declaration of a standard 'PINT' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (167): error V677: Custom declaration of a standard 'LPINT' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (168): error V677: Custom declaration of a standard 'PWORD' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (169): error V677: Custom declaration of a standard 'LPWORD' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (170): error V677: Custom declaration of a standard 'LPLONG' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (171): error V677: Custom declaration of a standard 'PDWORD' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (172): error V677: Custom declaration of a standard 'LPDWORD' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (173): error V677: Custom declaration of a standard 'LPVOID' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (174): error V677: Custom declaration of a standard 'LPCVOID' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (176): error V677: Custom declaration of a standard 'INT' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (177): error V677: Custom declaration of a standard 'UINT' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (178): error V677: Custom declaration of a standard 'PUINT' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (186): error V677: Custom declaration of a standard 'WPARAM' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (187): error V677: Custom declaration of a standard 'LPARAM' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (188): error V677: Custom declaration of a standard 'LRESULT' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (210): error V677: Custom declaration of a standard 'LPHANDLE' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (211): error V677: Custom declaration of a standard 'HGLOBAL' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (212): error V677: Custom declaration of a standard 'HLOCAL' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (245): error V677: Custom declaration of a standard 'ATOM' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (247): error V677: Custom declaration of a standard 'HKEY' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (248): error V677: Custom declaration of a standard 'PHKEY' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (249): error V677: Custom declaration of a standard 'HMETAFILE' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (250): error V677: Custom declaration of a standard 'HINSTANCE' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (251): error V677: Custom declaration of a standard 'HMODULE' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (252): error V677: Custom declaration of a standard 'HRGN' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (253): error V677: Custom declaration of a standard 'HRSRC' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (258): error V677: Custom declaration of a standard 'HWINSTA' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (259): error V677: Custom declaration of a standard 'HKL' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\minwindef.h (262): error V677: Custom declaration of a standard 'HFILE' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1378): error V1003: The macro 'MM_SOUNDSCAPE_WAVEOUT' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1379): error V1003: The macro 'MM_SOUNDSCAPE_WAVEOUT_AUX' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1380): error V1003: The macro 'MM_SOUNDSCAPE_WAVEIN' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1381): error V1003: The macro 'MM_SOUNDSCAPE_MIDIOUT' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1382): error V1003: The macro 'MM_SOUNDSCAPE_MIDIIN' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1383): error V1003: The macro 'MM_SOUNDSCAPE_SYNTH' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1384): error V1003: The macro 'MM_SOUNDSCAPE_MIXER' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1385): error V1003: The macro 'MM_SOUNDSCAPE_AUX' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1398): error V1003: The macro 'MM_OKSORI_OSR8_WAVEOUT' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1399): error V1003: The macro 'MM_OKSORI_OSR8_WAVEIN' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1400): error V1003: The macro 'MM_OKSORI_OSR16_WAVEOUT' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1401): error V1003: The macro 'MM_OKSORI_OSR16_WAVEIN' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1402): error V1003: The macro 'MM_OKSORI_FM_OPL4' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1403): error V1003: The macro 'MM_OKSORI_MIX_MASTER' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1404): error V1003: The macro 'MM_OKSORI_MIX_WAVE' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1405): error V1003: The macro 'MM_OKSORI_MIX_FM' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1406): error V1003: The macro 'MM_OKSORI_MIX_LINE' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1407): error V1003: The macro 'MM_OKSORI_MIX_CD' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1408): error V1003: The macro 'MM_OKSORI_MIX_MIC' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1409): error V1003: The macro 'MM_OKSORI_MIX_ECHO' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1410): error V1003: The macro 'MM_OKSORI_MIX_AUX1' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1411): error V1003: The macro 'MM_OKSORI_MIX_LINE1' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1412): error V1003: The macro 'MM_OKSORI_EXT_MIC1' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1413): error V1003: The macro 'MM_OKSORI_EXT_MIC2' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1414): error V1003: The macro 'MM_OKSORI_MIDIOUT' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1415): error V1003: The macro 'MM_OKSORI_MIDIIN' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\mmreg.h (1416): error V1003: The macro 'MM_OKSORI_MPEG_CDVISION' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcndr.h (493): error V1003: The macro '_midl_fa2' is a dangerous expression. The parameter 'p' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcndr.h (494): error V1003: The macro '_midl_fa4' is a dangerous expression. The parameter 'p' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcndr.h (495): error V1003: The macro '_midl_fa8' is a dangerous expression. The parameter 'p' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcndr.h (521): error V1003: The macro 'NdrMarshCCtxtHdl' is a dangerous expression. The parameter 'p' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcndr.h (523): error V1003: The macro 'NdrUnMarshCCtxtHdl' is a dangerous expression. The parameter 'p' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\windef.h (39): error V677: Custom declaration of a standard 'HWND' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\windef.h (40): error V677: Custom declaration of a standard 'HHOOK' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\windef.h (63): error V677: Custom declaration of a standard 'HGDIOBJ' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\windef.h (70): error V677: Custom declaration of a standard 'HACCEL' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\windef.h (73): error V677: Custom declaration of a standard 'HBITMAP' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\windef.h (74): error V677: Custom declaration of a standard 'HBRUSH' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\windef.h (77): error V677: Custom declaration of a standard 'HCOLORSPACE' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\windef.h (80): error V677: Custom declaration of a standard 'HDC' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\windef.h (83): error V677: Custom declaration of a standard 'HDESK' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\windef.h (84): error V677: Custom declaration of a standard 'HENHMETAFILE' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\windef.h (86): error V677: Custom declaration of a standard 'HFONT' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\windef.h (88): error V677: Custom declaration of a standard 'HICON' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\windef.h (90): error V677: Custom declaration of a standard 'HMENU' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\windef.h (93): error V677: Custom declaration of a standard 'HPALETTE' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\windef.h (94): error V677: Custom declaration of a standard 'HPEN' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\windef.h (110): error V677: Custom declaration of a standard 'HMONITOR' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\windef.h (131): error V677: Custom declaration of a standard 'HCURSOR' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\windef.h (136): error V677: Custom declaration of a standard 'COLORREF' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\windef.h (144): error V677: Custom declaration of a standard 'LPCOLORREF' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\winsmcrd.h (36): error V677: Custom declaration of a standard 'ULONG' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\winsmcrd.h (38): error V677: Custom declaration of a standard 'UCHAR' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\assert.h (21): error V1059: Macro name overrides the 'static_assert' keyword. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\assert.h (25): error V1059: Undefining the 'assert' reserved macro may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\assert.h (29): error V1059: The 'assert' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\assert.h (39): error V1059: The 'assert' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt.h (604): error V677: Custom declaration of a standard 'errno_t' type. The system header file should be used: #include <STDDEF.H> or <CRTDEFS.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt.h (605): error V677: Custom declaration of a standard 'wint_t' type. The system header file should be used: #include <WCHAR.H> or <CRTDEFS.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt.h (606): error V677: Custom declaration of a standard 'wctype_t' type. The system header file should be used: #include <WCHAR.H> or <CRTDEFS.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt.h (607): error V677: Custom declaration of a standard '__time32_t' type. The system header file should be used: #include <CRTDEFS.H> or <SYS\STAT.H> or <SYS\TIMEB.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt.h (608): error V677: Custom declaration of a standard '__time64_t' type. The system header file should be used: #include <TIME.H> or <SYS\STAT.H> or <SYS\TIMEB.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt.h (623): error V677: Custom declaration of a standard '_locale_t' type. The system header file should be used: #include <CRTDEF.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt.h (631): error V677: Custom declaration of a standard 'mbstate_t' type. The system header file should be used: #include <WCHAR.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt.h (645): error V677: Custom declaration of a standard 'time_t' type. The system header file should be used: #include <TIME.H> or <SYS\STAT.H> or <SYS\TIMEB.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt_terminate.h (23): error V677: Custom declaration of a standard 'terminate_function' type. The system header file should be used: #include <EH.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt_wctype.h (128): error V1059: The 'iswalpha' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt_wctype.h (129): error V1059: The 'iswupper' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt_wctype.h (130): error V1059: The 'iswlower' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt_wctype.h (131): error V1059: The 'iswdigit' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt_wctype.h (132): error V1059: The 'iswxdigit' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt_wctype.h (133): error V1059: The 'iswspace' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt_wctype.h (134): error V1059: The 'iswpunct' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt_wctype.h (135): error V1059: The 'iswblank' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt_wctype.h (136): error V1059: The 'iswalnum' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt_wctype.h (137): error V1059: The 'iswprint' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt_wctype.h (138): error V1059: The 'iswgraph' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt_wctype.h (139): error V1059: The 'iswcntrl' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt_wio.h (33): error V677: Custom declaration of a standard '_fsize_t' type. The system header file should be used: #include <IO.H> or <WCHAR.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt_wstdio.h (31): error V677: Custom declaration of a standard 'FILE' type. The system header file should be used: #include <STDIO.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt_wstdio.h (252): error V1059: The 'fgetwc' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt_wstdio.h (253): error V1059: The 'fputwc' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt_wstdio.h (254): error V1059: The 'ungetwc' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt_wstdio.h (1230): error V524: It is odd that the body of 'vswprintf' function is fully equivalent to the body of '_vswprintf_c' function.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt_wstdio.h (1585): error V524: It is odd that the body of '_swprintf_c_l' function is fully equivalent to the body of '_swprintf_l' function.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt_wstdio.h (1606): error V524: It is odd that the body of '_swprintf_c' function is fully equivalent to the body of 'swprintf' function.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt_wstring.h (244): error V575: The null pointer is passed into 'wcstok' function. Inspect the third argument.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\corecrt_wstring.h (258): error V575: The null pointer is passed into 'wcstok' function. Inspect the third argument.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\crtdbg.h (23): error V677: Custom declaration of a standard '_HFILE' type. The system header file should be used: #include <CRTDBG.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\crtdbg.h (49): error V677: Custom declaration of a standard '_CRT_REPORT_HOOK' type. The system header file should be used: #include <CRTDBG.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\crtdbg.h (50): error V677: Custom declaration of a standard '_CRT_REPORT_HOOKW' type. The system header file should be used: #include <CRTDBG.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\crtdbg.h (56): error V677: Custom declaration of a standard '_CRT_ALLOC_HOOK' type. The system header file should be used: #include <CRTDBG.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\crtdbg.h (112): error V677: Custom declaration of a standard '_CRT_DUMP_CLIENT' type. The system header file should be used: #include <CRTDBG.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\crtdbg.h (127): error V677: Custom declaration of a standard '_CrtMemState' type. The system header file should be used: #include <CRTDBG.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\crtdbg.h (94): error V1003: The macro '_BLOCK_TYPE' is a dangerous expression. The parameter 'block' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\crtdbg.h (95): error V1003: The macro '_BLOCK_SUBTYPE' is a dangerous expression. The parameter 'block' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\crtdbg.h (289): error V1059: The 'calloc' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\crtdbg.h (291): error V1059: The 'free' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\crtdbg.h (292): error V1059: The 'malloc' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\crtdbg.h (294): error V1059: The 'realloc' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\ctype.h (194): error V1059: The 'isalpha' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\ctype.h (195): error V1059: The 'isupper' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\ctype.h (196): error V1059: The 'islower' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\ctype.h (197): error V1059: The 'isdigit' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\ctype.h (198): error V1059: The 'isxdigit' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\ctype.h (199): error V1059: The 'isspace' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\ctype.h (200): error V1059: The 'ispunct' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\ctype.h (201): error V1059: The 'isblank' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\ctype.h (202): error V1059: The 'isalnum' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\ctype.h (203): error V1059: The 'isprint' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\ctype.h (204): error V1059: The 'isgraph' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\ctype.h (205): error V1059: The 'iscntrl' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\malloc.h (47): error V677: Custom declaration of a standard '_HEAPINFO' type. The system header file should be used: #include <MALLOC.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\stddef.h (23): error V1061: Extending the 'std' namespace may result in undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\stdio.h (1919): error V1071: Consider inspecting the 'snprintf' function. The return value is not always used. Total calls: 10, discarded results: 1.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\stdio.h (73): error V677: Custom declaration of a standard 'fpos_t' type. The system header file should be used: #include <STDIO.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\stdio.h (571): error V1059: The 'fclose' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\stdio.h (572): error V1059: The 'fflush' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\stdio.h (573): error V1059: The 'fgetc' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\stdio.h (574): error V1059: The 'fputc' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\stdio.h (575): error V1059: The 'fread' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\stdio.h (577): error V1059: The 'fseek' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\stdio.h (579): error V1059: The 'ftell' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\stdio.h (581): error V1059: The 'fwrite' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\stdio.h (582): error V1059: The 'getc' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\stdio.h (583): error V1059: The 'putc' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\stdio.h (584): error V1059: The 'ungetc' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\stdio.h (1422): error V1059: The 'vsnprintf' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\stdio.h (1912): error V1059: The 'snprintf' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\stdlib.h (77): error V677: Custom declaration of a standard '_onexit_t' type. The system header file should be used: #include <STDLIB.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\stdlib.h (159): error V677: Custom declaration of a standard '_purecall_handler' type. The system header file should be used: #include <STDLIB.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\stdlib.h (279): error V677: Custom declaration of a standard 'div_t' type. The system header file should be used: #include <STDLIB.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\stdlib.h (285): error V677: Custom declaration of a standard 'ldiv_t' type. The system header file should be used: #include <STDLIB.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\stdlib.h (398): error V677: Custom declaration of a standard '_LDOUBLE' type. The system header file should be used: #include <STDLIB.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\stdlib.h (432): error V677: Custom declaration of a standard '_LONGDOUBLE' type. The system header file should be used: #include <STDLIB.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\stdlib.h (440): error V677: Custom declaration of a standard '_LDBL12' type. The system header file should be used: #include <STDLIB.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\sys\types.h (19): error V677: Custom declaration of a standard '_ino_t' type. The system header file should be used: #include <WCHAR.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\sys\types.h (22): error V677: Custom declaration of a standard 'ino_t' type. The system header file should be used: #include <WCHAR.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\sys\types.h (31): error V677: Custom declaration of a standard '_dev_t' type. The system header file should be used: #include <SYS\TYPES.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\sys\types.h (34): error V677: Custom declaration of a standard 'dev_t' type. The system header file should be used: #include <SYS\TYPES.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\sys\types.h (43): error V677: Custom declaration of a standard '_off_t' type. The system header file should be used: #include <WCHAR.H> or <SYS\TYPES.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\sys\types.h (46): error V677: Custom declaration of a standard 'off_t' type. The system header file should be used: #include <WCHAR.H> or <SYS\TYPES.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\time.h (30): error V677: Custom declaration of a standard 'clock_t' type. The system header file should be used: #include <TIME.H>.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\wchar.h (277): error V1032: The pointer 'S' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\wchar.h (399): error V1032: The pointer 'S1' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\wchar.h (400): error V1032: The pointer 'S2' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\um\combaseapi.h (213): error V1003: The macro 'STDMETHOD' is a dangerous expression. The parameter 'method' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\combaseapi.h (214): error V1003: The macro 'STDMETHOD_' is a dangerous expression. The parameter 'method' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\combaseapi.h (215): error V1003: The macro 'STDMETHODV' is a dangerous expression. The parameter 'method' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\combaseapi.h (216): error V1003: The macro 'STDMETHODV_' is a dangerous expression. The parameter 'method' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (929): error V550: An odd precise comparison: _11 == 1.f. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (929): error V550: An odd precise comparison: _12 == 0.f. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (930): error V550: An odd precise comparison: _21 == 0.f. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (930): error V550: An odd precise comparison: _22 == 1.f. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (931): error V550: An odd precise comparison: _31 == 0.f. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (931): error V550: An odd precise comparison: _32 == 0.f. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (673): error V688: The 'a' function argument possesses the same name as one of the class members, which can result in a confusion.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (683): error V688: The 'a' function argument possesses the same name as one of the class members, which can result in a confusion.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (736): error V688: The 'm11' function argument possesses the same name as one of the class members, which can result in a confusion.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (737): error V688: The 'm12' function argument possesses the same name as one of the class members, which can result in a confusion.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (738): error V688: The 'm21' function argument possesses the same name as one of the class members, which can result in a confusion.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (739): error V688: The 'm22' function argument possesses the same name as one of the class members, which can result in a confusion.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (885): error V571: Recurring check. The 'if (((HRESULT)(hr)) >= 0)' condition was already verified in line 883.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (891): error V595: The 'dpiCompensationEffect' pointer was utilized before it was verified against nullptr. Check lines: 891, 909.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (163): error V550: An odd precise comparison: _11 == r._11. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (163): error V550: An odd precise comparison: _12 == r._12. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (163): error V550: An odd precise comparison: _13 == r._13. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (163): error V550: An odd precise comparison: _14 == r._14. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (164): error V550: An odd precise comparison: _21 == r._21. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (164): error V550: An odd precise comparison: _22 == r._22. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (164): error V550: An odd precise comparison: _23 == r._23. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (164): error V550: An odd precise comparison: _24 == r._24. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (165): error V550: An odd precise comparison: _31 == r._31. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (165): error V550: An odd precise comparison: _32 == r._32. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (165): error V550: An odd precise comparison: _33 == r._33. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (165): error V550: An odd precise comparison: _34 == r._34. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (166): error V550: An odd precise comparison: _41 == r._41. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (166): error V550: An odd precise comparison: _42 == r._42. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (166): error V550: An odd precise comparison: _43 == r._43. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (166): error V550: An odd precise comparison: _44 == r._44. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (426): error V550: An odd precise comparison: _11 == 1.f. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (426): error V550: An odd precise comparison: _12 == 0.f. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (426): error V550: An odd precise comparison: _13 == 0.f. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (426): error V550: An odd precise comparison: _14 == 0.f. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (427): error V550: An odd precise comparison: _21 == 0.f. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (427): error V550: An odd precise comparison: _22 == 1.f. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (427): error V550: An odd precise comparison: _23 == 0.f. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (427): error V550: An odd precise comparison: _24 == 0.f. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (428): error V550: An odd precise comparison: _31 == 0.f. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (428): error V550: An odd precise comparison: _32 == 0.f. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (428): error V550: An odd precise comparison: _33 == 1.f. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (428): error V550: An odd precise comparison: _34 == 0.f. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (429): error V550: An odd precise comparison: _41 == 0.f. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (429): error V550: An odd precise comparison: _42 == 0.f. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (429): error V550: An odd precise comparison: _43 == 0.f. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (429): error V550: An odd precise comparison: _44 == 1.f. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d3dcommon.h (1108): error V1003: The macro 'D3D_SET_OBJECT_NAME_N_W' is a dangerous expression. The parameter 'Chars' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\ddeml.h (35): error V677: Custom declaration of a standard 'HCONVLIST' type. The system header file should be used: #include <Ddeml.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\ddeml.h (36): error V677: Custom declaration of a standard 'HCONV' type. The system header file should be used: #include <Ddeml.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\ddeml.h (37): error V677: Custom declaration of a standard 'HSZ' type. The system header file should be used: #include <Ddeml.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\ddeml.h (38): error V677: Custom declaration of a standard 'HDDEDATA' type. The system header file should be used: #include <Ddeml.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (290): error V1032: The pointer 'pSource' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (316): error V1032: The pointer 'pSource' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (337): error V1032: The pointer 'pSource' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (385): error V1032: The pointer 'pSource' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (408): error V1032: The pointer 'pSource' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (447): error V1032: The pointer 'pSource' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (479): error V1032: The pointer 'pSource' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (507): error V1032: The pointer 'pSource' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (562): error V1032: The pointer 'pSource' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (588): error V1032: The pointer 'pSource' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (623): error V1032: The pointer 'pSource' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (648): error V1032: The pointer 'pSource' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (1293): error V1032: The pointer 'pDestination' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (1318): error V1032: The pointer 'pDestination' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (1338): error V1032: The pointer 'pDestination' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (1393): error V1032: The pointer 'pDestination' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (1432): error V1032: The pointer 'pDestination' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (1454): error V1032: The pointer 'pDestination' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (1483): error V1032: The pointer 'pDestination' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (1511): error V1032: The pointer 'pDestination' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (1577): error V1032: The pointer 'pDestination' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (1620): error V1032: The pointer 'pDestination' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (1643): error V1032: The pointer 'pDestination' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (1669): error V1032: The pointer 'pDestination' is cast to a more strictly aligned pointer type.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (290): error V512: A call of the '_mm_load_sd' function will lead to overflow of the buffer 'pSource'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (316): error V512: A call of the '_mm_load_sd' function will lead to overflow of the buffer 'pSource'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (447): error V512: A call of the '_mm_load_sd' function will lead to overflow of the buffer 'pSource'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (479): error V512: A call of the '_mm_load_sd' function will lead to overflow of the buffer 'pSource'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (1293): error V512: A call of the '_mm_store_sd' function will lead to overflow of the buffer 'pDestination'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (1318): error V512: A call of the '_mm_store_sd' function will lead to overflow of the buffer 'pDestination'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (1454): error V512: A call of the '_mm_store_sd' function will lead to overflow of the buffer 'pDestination'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (1483): error V512: A call of the '_mm_store_sd' function will lead to overflow of the buffer 'pDestination'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (795): error V525: The code contains the collection of similar blocks. Check items '_mm_loadu_ps', '_mm_loadu_ps', '_mm_load_ss' in lines 795, 796, 797.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMatrix.inl (85): error V537: Consider reviewing the correctness of 'vY' item's usage.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMatrix.inl (373): error V537: Consider reviewing the correctness of 'vY' item's usage.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMatrix.inl (394): error V537: Consider reviewing the correctness of 'vY' item's usage.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMatrix.inl (414): error V537: Consider reviewing the correctness of 'vY' item's usage.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMatrix.inl (434): error V537: Consider reviewing the correctness of 'vY' item's usage.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMatrix.inl (608): error V537: Consider reviewing the correctness of 'vY' item's usage.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMatrix.inl (629): error V537: Consider reviewing the correctness of 'vY' item's usage.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMatrix.inl (649): error V537: Consider reviewing the correctness of 'vY' item's usage.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMatrix.inl (669): error V537: Consider reviewing the correctness of 'vY' item's usage.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMisc.inl (1975): error V1009: Check the array initialization. Only the first element is initialized explicitly. The rest elements are initialized with zeros.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMisc.inl (309): error V550: An odd precise comparison: XMVectorGetW(T) == XMVectorGetX(T). It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMisc.inl (309): error V550: An odd precise comparison: XMVectorGetY(T) == XMVectorGetX(T). It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMisc.inl (309): error V550: An odd precise comparison: XMVectorGetZ(T) == XMVectorGetX(T). It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMisc.inl (424): error V550: An odd precise comparison: XMVectorGetW(T) == XMVectorGetX(T). It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMisc.inl (424): error V550: An odd precise comparison: XMVectorGetY(T) == XMVectorGetX(T). It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMisc.inl (424): error V550: An odd precise comparison: XMVectorGetZ(T) == XMVectorGetX(T). It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMisc.inl (538): error V550: An odd precise comparison: XMVectorGetW(F) == XMVectorGetX(F). It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMisc.inl (538): error V550: An odd precise comparison: XMVectorGetY(F) == XMVectorGetX(F). It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMisc.inl (538): error V550: An odd precise comparison: XMVectorGetZ(F) == XMVectorGetX(F). It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMisc.inl (539): error V550: An odd precise comparison: XMVectorGetW(G) == XMVectorGetX(G). It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMisc.inl (539): error V550: An odd precise comparison: XMVectorGetY(G) == XMVectorGetX(G). It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMisc.inl (539): error V550: An odd precise comparison: XMVectorGetZ(G) == XMVectorGetX(G). It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMisc.inl (2443): error V624: There is probably a misprint in '1.5707288f' constant. Consider using the M_PI_2 constant from <math.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMisc.inl (2487): error V624: There is probably a misprint in '1.5707288f' constant. Consider using the M_PI_2 constant from <math.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (203): error V524: It is odd that the body of 'XMVectorFalseInt' function is fully equivalent to the body of 'XMVectorZero' function.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (1430): error V524: It is odd that the body of 'XMVectorMergeXY' function is fully equivalent to the body of 'XMVectorPermute' function (DirectXMath.h, line 1815).
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (1455): error V524: It is odd that the body of 'XMVectorMergeZW' function is fully equivalent to the body of 'XMVectorPermute' function (DirectXMath.h, line 1816).
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (3167): error V524: It is odd that the body of 'XMVectorSqrt' function is fully equivalent to the body of 'XMVectorSqrtEst' function.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (9747): error V524: It is odd that the body of 'XMVector3Length' function is fully equivalent to the body of 'XMVector3LengthEst' function.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (13730): error V524: It is odd that the body of 'XMVector4Length' function is fully equivalent to the body of 'XMVector4LengthEst' function.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (2080): error V537: Consider reviewing the correctness of 'vTemp2' item's usage.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (2142): error V537: Consider reviewing the correctness of 'vTemp2' item's usage.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (6625): error V537: Consider reviewing the correctness of 'vTemp2' item's usage.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (9385): error V537: Consider reviewing the correctness of 'vTemp2' item's usage.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (13277): error V537: Consider reviewing the correctness of 'vTemp2' item's usage.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (2310): error V550: An odd precise comparison: (2.f * int_part) == i. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (7157): error V550: An odd precise comparison. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (7158): error V550: An odd precise comparison. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (10008): error V550: An odd precise comparison. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (10009): error V550: An odd precise comparison. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (13996): error V550: An odd precise comparison. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (13997): error V550: An odd precise comparison. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+D:\Windows Kits\10\Include\10.0.26100.0\um\dwrite.h (5132): error V1003: The macro 'MAKE_DWRITE_HR' is a dangerous expression. The parameter 'code' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\minwinbase.h (64): error V677: Custom declaration of a standard 'LPOVERLAPPED' type. The system header file should be used: #include <WinBase.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\minwinbase.h (64): error V677: Custom declaration of a standard 'OVERLAPPED' type. The system header file should be used: #include <WinBase.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\ncrypt.h (428): error V665: Possibly, the usage of '#pragma warning(default: X)' is incorrect in this context. The '#pragma warning(push/pop)' should be used instead. Check lines: 415, 428.
+D:\Windows Kits\10\Include\10.0.26100.0\um\shellapi.h (79): error V677: Custom declaration of a standard 'HDROP' type. The system header file should be used: #include <ShellApi.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\Shlwapi.h (1088): error V1003: The macro 'UrlUnescapeInPlace' is a dangerous expression. The parameter 'dwFlags' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\WinBase.h (3562): error V1003: The macro 'ProcThreadAttributeValue' is a dangerous expression. The parameters 'Thread', 'Input', 'Additive' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (149): error V1003: The macro 'GET_ALG_CLASS' is a dangerous expression. The parameter 'x' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (150): error V1003: The macro 'GET_ALG_TYPE' is a dangerous expression. The parameter 'x' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (151): error V1003: The macro 'GET_ALG_SID' is a dangerous expression. The parameter 'x' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (2562): error V1003: The macro 'GET_CERT_ENCODING_TYPE' is a dangerous expression. The parameter 'X' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (2563): error V1003: The macro 'GET_CMSG_ENCODING_TYPE' is a dangerous expression. The parameter 'X' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (3905): error V1003: The macro 'GET_CERT_UNICODE_RDN_ERR_INDEX' is a dangerous expression. The parameter 'X' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (3907): error V1003: The macro 'GET_CERT_UNICODE_ATTR_ERR_INDEX' is a dangerous expression. The parameter 'X' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (3909): error V1003: The macro 'GET_CERT_UNICODE_VALUE_ERR_INDEX' is a dangerous expression. The parameter 'X' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (4049): error V1003: The macro 'GET_CERT_ALT_NAME_ENTRY_ERR_INDEX' is a dangerous expression. The parameter 'X' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (4052): error V1003: The macro 'GET_CERT_ALT_NAME_VALUE_ERR_INDEX' is a dangerous expression. The parameter 'X' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (4507): error V1003: The macro 'GET_CRL_DIST_POINT_ERR_INDEX' is a dangerous expression. The parameter 'X' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (4511): error V1003: The macro 'IS_CRL_DIST_POINT_ERR_CRL_ISSUER' is a dangerous expression. The parameter 'X' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (4541): error V1003: The macro 'GET_CROSS_CERT_DIST_POINT_ERR_INDEX' is a dangerous expression. The parameter 'X' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (4638): error V1003: The macro 'IS_CERT_EXCLUDED_SUBTREE' is a dangerous expression. The parameter 'X' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (6227): error V1003: The macro 'IS_SPECIAL_OID_INFO_ALGID' is a dangerous expression. The parameter 'Algid' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winefs.h (180): error V1003: The macro 'EFS_IS_DESCRIPTOR_VERSION' is a dangerous expression. The parameter '__v' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winefs.h (196): error V1003: The macro 'EFS_IS_APPX_VERSION' is a dangerous expression. The parameters '__v', '__subV' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winioctl.h (276): error V1003: The macro 'DEVICE_TYPE_FROM_CTL_CODE' is a dangerous expression. The parameter 'ctrlCode' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winioctl.h (281): error V1003: The macro 'METHOD_FROM_CTL_CODE' is a dangerous expression. The parameter 'ctrlCode' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winioctl.h (932): error V1003: The macro 'SupportsDeviceSharing' is a dangerous expression. The parameter 'BusType' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winioctl.h (3322): error V1003: The macro 'IsDsmActionNonDestructive' is a dangerous expression. The parameter '_Action' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winioctl.h (7033): error V1003: The macro 'SCMBUS_FUNCTION' is a dangerous expression. The parameter 'x' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winioctl.h (7034): error V1003: The macro 'SCM_LOGICAL_DEVICE_FUNCTION' is a dangerous expression. The parameter 'x' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winioctl.h (7035): error V1003: The macro 'SCM_PHYSICAL_DEVICE_FUNCTION' is a dangerous expression. The parameter 'x' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winioctl.h (8934): error V1003: The macro 'IsContainerPartition' is a dangerous expression. The parameter 'PartitionType' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winioctl.h (8960): error V1003: The macro 'IsFTPartition' is a dangerous expression. The parameter 'PartitionType' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\WinNls.h (1067): error V677: Custom declaration of a standard 'LGRPID' type. The system header file should be used: #include <WinNls.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\WinNls.h (1072): error V677: Custom declaration of a standard 'LCTYPE' type. The system header file should be used: #include <WinNls.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\WinNls.h (1572): error V1003: The macro 'FILEMUIINFO_GET_MAIN_TYPEID' is a dangerous expression. The parameter 'iType' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\WinNls.h (1584): error V1003: The macro 'FILEMUIINFO_GET_MUI_TYPEID' is a dangerous expression. The parameter 'iType' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (450): error V677: Custom declaration of a standard 'PVOID' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (494): error V677: Custom declaration of a standard 'CHAR' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (495): error V677: Custom declaration of a standard 'SHORT' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (496): error V677: Custom declaration of a standard 'LONG' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (498): error V677: Custom declaration of a standard 'INT' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (507): error V677: Custom declaration of a standard 'WCHAR' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (513): error V677: Custom declaration of a standard 'PWCHAR' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (516): error V677: Custom declaration of a standard 'LPWSTR' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (516): error V677: Custom declaration of a standard 'PWSTR' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (520): error V677: Custom declaration of a standard 'LPCWSTR' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (520): error V677: Custom declaration of a standard 'PCWSTR' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (582): error V677: Custom declaration of a standard 'PCHAR' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (585): error V677: Custom declaration of a standard 'LPSTR' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (585): error V677: Custom declaration of a standard 'PSTR' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (588): error V677: Custom declaration of a standard 'LPCSTR' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (588): error V677: Custom declaration of a standard 'PCSTR' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (604): error V677: Custom declaration of a standard 'PTCHAR' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (604): error V677: Custom declaration of a standard 'TCHAR' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (605): error V677: Custom declaration of a standard 'PTBYTE' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (605): error V677: Custom declaration of a standard 'TBYTE' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (611): error V677: Custom declaration of a standard 'LPTSTR' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (611): error V677: Custom declaration of a standard 'PTSTR' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (612): error V677: Custom declaration of a standard 'LPCTSTR' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (612): error V677: Custom declaration of a standard 'PCTSTR' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (650): error V677: Custom declaration of a standard 'PSHORT' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (651): error V677: Custom declaration of a standard 'PLONG' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (712): error V677: Custom declaration of a standard 'HANDLE' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (722): error V677: Custom declaration of a standard 'PHANDLE' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (743): error V677: Custom declaration of a standard 'HRESULT' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (836): error V677: Custom declaration of a standard 'CCHAR' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (837): error V677: Custom declaration of a standard 'LCID' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (838): error V677: Custom declaration of a standard 'PLCID' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (839): error V677: Custom declaration of a standard 'LANGID' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (894): error V677: Custom declaration of a standard 'LONGLONG' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (895): error V677: Custom declaration of a standard 'ULONGLONG' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (916): error V677: Custom declaration of a standard 'PLONGLONG' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (917): error V677: Custom declaration of a standard 'PULONGLONG' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (921): error V677: Custom declaration of a standard 'USN' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (984): error V677: Custom declaration of a standard 'DWORDLONG' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (985): error V677: Custom declaration of a standard 'PDWORDLONG' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (1217): error V677: Custom declaration of a standard 'BOOLEAN' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (1218): error V677: Custom declaration of a standard 'PBOOLEAN' type. The system header file should be used: #include <WinNT.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (6182): error V1003: The macro 'ARM64_SYSREG' is a dangerous expression. The parameters 'op0', 'op1', 'crn', 'crm', 'op2' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (6190): error V1003: The macro 'ARM64_SYSINSTR' is a dangerous expression. The parameters 'op1', 'crn', 'crm', 'op2' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (10075): error V1003: The macro 'IS_UNWINDING' is a dangerous expression. The parameter 'Flag' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (10076): error V1003: The macro 'IS_DISPATCHING' is a dangerous expression. The parameter 'Flag' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (10077): error V1003: The macro 'IS_TARGET_UNWIND' is a dangerous expression. The parameter 'Flag' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (10766): error V1003: The macro 'MANDATORY_LEVEL_TO_MANDATORY_RID' is a dangerous expression. The parameter 'IL' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (20269): error V1003: The macro 'EXT_IMM64' is a dangerous expression. The parameters 'Size', 'InstPos', 'ValPos' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (20272): error V1003: The macro 'INS_IMM64' is a dangerous expression. The parameters 'Size', 'InstPos', 'ValPos' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (20510): error V1003: The macro 'IMAGE_ORDINAL64' is a dangerous expression. The parameter 'Ordinal' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (20511): error V1003: The macro 'IMAGE_ORDINAL32' is a dangerous expression. The parameter 'Ordinal' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (20512): error V1003: The macro 'IMAGE_SNAP_BY_ORDINAL64' is a dangerous expression. The parameter 'Ordinal' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (20513): error V1003: The macro 'IMAGE_SNAP_BY_ORDINAL32' is a dangerous expression. The parameter 'Ordinal' must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (22715): error V1059: The 'memcpy' macro name overrides a reserved name from C standard. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (8665): error V524: It is odd that the body of 'ReadNoFence8' function is fully equivalent to the body of 'ReadAcquire8' function.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (8719): error V524: It is odd that the body of 'ReadNoFence16' function is fully equivalent to the body of 'ReadAcquire16' function.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (8773): error V524: It is odd that the body of 'ReadNoFence' function is fully equivalent to the body of 'ReadAcquire' function.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (8827): error V524: It is odd that the body of 'ReadNoFence64' function is fully equivalent to the body of 'ReadAcquire64' function.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (22818): error V524: It is odd that the body of 'RtlFillDeviceMemory' function is fully equivalent to the body of 'RtlFillVolatileMemory' function.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (25770): error V524: It is odd that the body of 'NtReadCurrentTebUlonglong' function is fully equivalent to the body of 'NtReadCurrentTebUlongPtr' function.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winscard.h (56): error V677: Custom declaration of a standard 'LPCVOID' type. The system header file should be used: #include <WinDef.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winspool.h (908): error V1003: The macro 'MAX_FORM_KEYWORD_LENGTH' is a dangerous expression. The expression must be surrounded by parentheses.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winsvc.h (698): error V677: Custom declaration of a standard 'SC_HANDLE' type. The system header file should be used: #include <WinSvc.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winsvc.h (701): error V677: Custom declaration of a standard 'SERVICE_STATUS_HANDLE' type. The system header file should be used: #include <WinSvc.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winsvc.h (790): error V677: Custom declaration of a standard 'SC_LOCK' type. The system header file should be used: #include <WinSvc.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\um\WinUser.h (69): error V677: Custom declaration of a standard 'HDWP' type. The system header file should be used: #include <WinUser.h>.
+D:\Windows Kits\10\Include\10.0.26100.0\winrt\wrl\def.h (59): error V1059: Macro name overrides the 'nullptr' keyword. This may lead to undefined behavior.
+D:\Windows Kits\10\Include\10.0.26100.0\winrt\wrl\internal.h (31): error V1003: The macro '__WRL_IMPLEMENTS_FTM_BASE__' is a dangerous expression. The parameter 'flags' must be surrounded by parentheses.
+F:\Projects\C++\CPGE-1\Configuration.cpp (75): error V601: The bool type is implicitly cast to the class type.
+F:\Projects\C++\CPGE-1\Configuration.cpp (81): error V601: The bool type is implicitly cast to the class type.
+F:\Projects\C++\CPGE-1\Configuration.cpp (82): error V601: The bool type is implicitly cast to the class type.
+F:\Projects\C++\CPGE-1\Configuration.cpp (83): error V601: The bool type is implicitly cast to the class type.
+F:\Projects\C++\CPGE-1\Configuration.cpp (84): error V601: The bool type is implicitly cast to the class type.
+F:\Projects\C++\CPGE-1\Configuration.cpp (85): error V601: The bool type is implicitly cast to the class type.
+F:\Projects\C++\CPGE-1\Constants.h (168): error V1043: A global object variable 'SingleXMFilename' is declared in the header. Multiple copies of it will be created in all translation units that include this header file.
+F:\Projects\C++\CPGE-1\Constants.h (170): error V1043: A global object variable 'SingleXMFilename' is declared in the header. Multiple copies of it will be created in all translation units that include this header file.
+F:\Projects\C++\CPGE-1\DX11Renderer.cpp (25): error V1053: Calling the 'Cleanup' virtual function in the destructor may lead to unexpected result at runtime.
+F:\Projects\C++\CPGE-1\DX11Renderer.cpp (1418): error V519: The 'myLastTime' variable is assigned values twice successively. Perhaps this is a mistake. Check lines: 1416, 1418.
+F:\Projects\C++\CPGE-1\DX11Renderer.cpp (1417): error V656: Variables 'myLastTime', 'myCurrentTime' are initialized through the call to the same function. It's probably an error or un-optimized code. Check lines: 1416, 1417.
+F:\Projects\C++\CPGE-1\DX11Renderer.cpp (415): error V688: The 'dxgiSurface' local variable possesses the same name as one of the class members, which can result in a confusion.
+F:\Projects\C++\CPGE-1\FXManager.cpp (590): error V656: Variables 'lastTweenTime', 'now' are initialized through the call to the same function. It's probably an error or un-optimized code. Consider inspecting the 'std::chrono::steady_clock::now()' expression. Check lines: 589, 590.
+F:\Projects\C++\CPGE-1\FXManager.h (65): error V730: Not all members of a class are initialized inside the compiler generated constructor. Consider inspecting: from, to, duration.
+F:\Projects\C++\CPGE-1\FXManager.h (41): error V730: Not all members of a class are initialized inside the compiler generated constructor. Consider inspecting: type, subtype, pixelSize, duration, progress, delay, ...
+F:\Projects\C++\CPGE-1\GUIManager.cpp (406): error V537: Consider reviewing the correctness of 'CalculateTextHeight' item's usage.
+F:\Projects\C++\CPGE-1\GUIManager.cpp (462): error V537: Consider reviewing the correctness of 'CalculateTextHeight' item's usage.
+F:\Projects\C++\CPGE-1\GUIManager.cpp (291): error V550: An odd precise comparison: delta.x != 0. It's probably better to use a comparison with defined precision: fabs(A - B) > Epsilon.
+F:\Projects\C++\CPGE-1\GUIManager.cpp (291): error V550: An odd precise comparison: delta.y != 0. It's probably better to use a comparison with defined precision: fabs(A - B) > Epsilon.
+F:\Projects\C++\CPGE-1\GUIManager.cpp (407): error V656: Variables 'textWidth', 'textHeight' are initialized through the call to the same function. It's probably an error or un-optimized code. Check lines: 406, 407.
+F:\Projects\C++\CPGE-1\GUIManager.cpp (463): error V656: Variables 'textWidth', 'textHeight' are initialized through the call to the same function. It's probably an error or un-optimized code. Check lines: 462, 463.
+F:\Projects\C++\CPGE-1\GUIManager.cpp (172): error V669: The 'isLeftClick' argument is a non-constant reference. The analyzer is unable to determine the position at which this argument is being modified. It is possible that the function contains an error.
+F:\Projects\C++\CPGE-1\GUIManager.h (35): error V730: Not all members of a class are initialized inside the compiler generated constructor. Consider inspecting: lblFontSize, type.
+F:\Projects\C++\CPGE-1\GUIWindows.cpp (83): error V1048: The 'textArea.isVisible' variable was assigned the same value.
+F:\Projects\C++\CPGE-1\GUIWindows.cpp (114): error V1048: The 'okayButton.isVisible' variable was assigned the same value.
+F:\Projects\C++\CPGE-1\GUIWindows.cpp (136): error V1048: The 'btnClose.isVisible' variable was assigned the same value.
+F:\Projects\C++\CPGE-1\Models.cpp (385): error V547: Expression is always true.
+F:\Projects\C++\CPGE-1\Models.cpp (388): error V547: Expression is always true.
+F:\Projects\C++\CPGE-1\Models.h (80): error V730: Not all members of a class are initialized inside the compiler generated constructor. Consider inspecting: lighting.
+F:\Projects\C++\CPGE-1\ThreadManager.cpp (79): error V730: Not all members of a class are initialized inside the constructor. Consider inspecting: buffer.
+F:\Projects\C++\CPGE-1\ThreadManager.cpp (304): error V1020: The function exited without calling the 'lock.unlock' function. Check lines: 304, 276.
+F:\Projects\C++\CPGE-1\ThreadManager.cpp (304): error V1020: The function exited without calling the 'lock.unlock' function. Check lines: 304, 288.
+F:\Projects\C++\CPGE-1\ThreadManager.h (50): error V730: Not all members of a class are initialized inside the compiler generated constructor. Consider inspecting: status.
+F:\Projects\C++\CPGE-1\ThreadManager.h (34): error V1096: The 'instance' variable with static storage duration is declared inside the inline function with external linkage. This may lead to ODR violation.
+F:\Projects\C++\CPGE-1\Vector2.h (19): error V550: An odd precise comparison: scalar != 0. It's probably better to use a comparison with defined precision: fabs(A - B) > Epsilon.
+F:\Projects\C++\CPGE-1\WinMediaPlayer.cpp (104): error V1109: The 'MFPCreateMediaPlayer' function is deprecated. Consider switching to an equivalent newer function.
+F:\Projects\C++\CPGE-1\WinMediaPlayer.cpp (7): error V730: Not all members of a class are initialized inside the constructor. Consider inspecting: hwnd.
+F:\Projects\C++\CPGE-1\WinMediaPlayer.cpp (176): error V1034: Do not use real type variables as loop counters.
+F:\Projects\C++\CPGE-1\WinMediaPlayer.cpp (186): error V1034: Do not use real type variables as loop counters.
+F:\Projects\C++\CPGE-1\WinMediaPlayer.cpp (63): error V688: The 'filePath' function argument possesses the same name as one of the class members, which can result in a confusion.
+F:\Projects\C++\CPGE-1\WinMediaPlayer.cpp (95): error V688: The 'filePath' function argument possesses the same name as one of the class members, which can result in a confusion.
+F:\Projects\C++\CPGE-1\WinMediaPlayer.cpp (235): error V688: The 'filePath' function argument possesses the same name as one of the class members, which can result in a confusion.
+F:\Projects\C++\CPGE-1\WinSystem.cpp (75): error V1065: Expression can be simplified, check 'rectScreen.left' and similar operands.
+F:\Projects\C++\CPGE-1\WinSystem.cpp (76): error V1065: Expression can be simplified, check 'rectScreen.top' and similar operands.
+F:\Projects\C++\CPGE-1\XMMODPlayer.cpp (806): error V547: Expression '!patternJumped' is always true.
+F:\Projects\C++\CPGE-1\XMMODPlayer.cpp (568): error V668: There is no sense in testing the 'mixTemp' pointer against null, as the memory was allocated using the 'new' operator. The exception will be generated in the case of memory allocation error.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (19817): error V547: Expression 't == value_t::null' is always false.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (425): error V1003: The macro 'JSON_HEDLEY_MSVC_VERSION_CHECK' is a dangerous expression. The parameters 'major', 'minor' must be surrounded by parentheses.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (427): error V1003: The macro 'JSON_HEDLEY_MSVC_VERSION_CHECK' is a dangerous expression. The parameters 'major', 'minor' must be surrounded by parentheses.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (429): error V1003: The macro 'JSON_HEDLEY_MSVC_VERSION_CHECK' is a dangerous expression. The parameter 'major' must be surrounded by parentheses.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (23154): error V1037: Two or more case-branches perform the same actions. Check lines: 23154, 23154
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (5328): error V509: The noexcept function 'begin' calls function 'iteration_proxy_value' which can potentially throw an exception. Consider wrapping it in a try..catch block.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (5334): error V509: The noexcept function 'end' calls function 'iteration_proxy_value' which can potentially throw an exception. Consider wrapping it in a try..catch block.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (19876): error V522: There might be dereferencing of a potential null pointer 'array'.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (19881): error V522: There might be dereferencing of a potential null pointer 'object'.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (10005): error V547: Expression 'mant <= 1024' is always true.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (11552): error V547: Expression 'mant <= 1024' is always true.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (18930): error V547: Expression 'byte < utf8d.size()' is always true. The value range of unsigned char type: [0, 255].
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (16808): error V550: An odd precise comparison. It's probably better to use a comparison with defined precision: fabs(A - B) < Epsilon.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (9211): error V553: The length of 'binary_reader' class's declaration is more than 2000 lines long. You should consider refactoring the code.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (19399): error V553: The length of 'basic_json' class's declaration is more than 2000 lines long. You should consider refactoring the code.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (24246): error V565: An empty exception handler. Silent suppression of exceptions can hide the presence of bugs in source code during testing.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (19098): error V659: Declarations of functions with 'operator []' name differ in the 'const' keyword only, but the bodies of these functions have different composition. This is suspicious and can possibly be an error. Check lines: 19086, 19098.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (21263): error V659: Declarations of functions with 'at' name differ in the 'const' keyword only, but the bodies of these functions have different composition. This is suspicious and can possibly be an error. Check lines: 21240, 21263.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (19399): error V690: The 'basic_json' class implements a move constructor, but lacks the move assignment operator. It is dangerous to use such a class.
+F:\Projects\C++\CrossPlatformGameEngine\steam\isteammatchmaking.h (544): error V1003: The macro 'BChatMemberStateChangeRemoved' is a dangerous expression. The parameter 'rgfChatMemberStateChangeFlags' must be surrounded by parentheses.
+F:\Projects\C++\CrossPlatformGameEngine\steam\matchmakingtypes.h (135): error V1096: The 's' variable with static storage duration is declared inside the inline function with external linkage. This may lead to ODR violation.
+F:\Projects\C++\CrossPlatformGameEngine\steam\matchmakingtypes.h (136): error V1096: The 'nBuf' variable with static storage duration is declared inside the inline function with external linkage. This may lead to ODR violation.
+F:\Projects\C++\CrossPlatformGameEngine\steam\matchmakingtypes.h (54): error V690: The 'servernetadr_t' class implements the copy assignment operator, but lacks a copy constructor. It is dangerous to use such a class.
+
+===============Optimization (OP)===============
+D:\Windows Kits\10\Include\10.0.26100.0\shared\bcrypt.h (1734): error V802: On 64-bit platform, structure size can be reduced from 56 to 48 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\bcrypt.h (241): error V802: On 64-bit platform, structure size can be reduced from 88 to 72 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\guiddef.h (150): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\guiddef.h (150): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\guiddef.h (159): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\guiddef.h (159): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\guiddef.h (192): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\guiddef.h (192): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\guiddef.h (197): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\guiddef.h (197): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\ktmtypes.h (137): error V802: On 64-bit platform, structure size can be reduced from 32 to 24 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcasync.h (475): error V802: On 64-bit platform, structure size can be reduced from 56 to 48 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcasync.h (488): error V802: On 64-bit platform, structure size can be reduced from 56 to 48 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcasync.h (283): error V802: On 64-bit platform, structure size can be reduced from 152 to 144 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcasync.h (523): error V802: On 64-bit platform, structure size can be reduced from 112 to 104 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcasync.h (545): error V802: On 64-bit platform, structure size can be reduced from 112 to 104 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcasync.h (569): error V802: On 64-bit platform, structure size can be reduced from 120 to 112 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcasync.h (593): error V802: On 64-bit platform, structure size can be reduced from 120 to 112 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcdce.h (1670): error V802: On 64-bit platform, structure size can be reduced from 48 to 40 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcdce.h (1684): error V802: On 64-bit platform, structure size can be reduced from 48 to 40 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcdce.h (1758): error V802: On 64-bit platform, structure size can be reduced from 64 to 56 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcdce.h (1771): error V802: On 64-bit platform, structure size can be reduced from 64 to 56 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcdce.h (1788): error V802: On 64-bit platform, structure size can be reduced from 64 to 56 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcdce.h (1801): error V802: On 64-bit platform, structure size can be reduced from 64 to 56 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcdce.h (1873): error V802: On 64-bit platform, structure size can be reduced from 48 to 40 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcdce.h (1887): error V802: On 64-bit platform, structure size can be reduced from 48 to 40 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcdce.h (1906): error V802: On 64-bit platform, structure size can be reduced from 56 to 48 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcdce.h (1921): error V802: On 64-bit platform, structure size can be reduced from 56 to 48 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcdce.h (3157): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcdce.h (3166): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcdcep.h (207): error V802: On 64-bit platform, structure size can be reduced from 96 to 88 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcdcep.h (220): error V802: On 64-bit platform, structure size can be reduced from 96 to 88 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcndr.h (1258): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\shared\rpcndr.h (1267): error V802: On 64-bit platform, structure size can be reduced from 32 to 24 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\ucrt\sys\stat.h (40): error V802: On 64-bit platform, structure size can be reduced from 48 to 40 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (1292): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (2249): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, replace the first argument 'const D2D1_QUADRATIC_BEZIER_SEGMENT& bezier' with 'D2D1_QUADRATIC_BEZIER_SEGMENT bezier'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (2831): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, replace the fourth argument 'const D2D1_BITMAP_PROPERTIES& bitmapProperties' with 'D2D1_BITMAP_PROPERTIES bitmapProperties'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (2842): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, replace the second argument 'const D2D1_BITMAP_PROPERTIES& bitmapProperties' with 'D2D1_BITMAP_PROPERTIES bitmapProperties'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (2856): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, replace the second argument 'const D2D1_BITMAP_PROPERTIES& bitmapProperties' with 'D2D1_BITMAP_PROPERTIES bitmapProperties'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (2898): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, replace the second argument 'const D2D1_BITMAP_BRUSH_PROPERTIES& bitmapBrushProperties' with 'D2D1_BITMAP_BRUSH_PROPERTIES bitmapBrushProperties'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (2913): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, replace the second argument 'const D2D1_BITMAP_BRUSH_PROPERTIES& bitmapBrushProperties' with 'D2D1_BITMAP_BRUSH_PROPERTIES bitmapBrushProperties'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (2924): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (2934): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (2956): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, replace the first argument 'const D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES& linearGradientBrushProperties' with 'D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES linearGradientBrushProperties'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (2967): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, replace the first argument 'const D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES& linearGradientBrushProperties' with 'D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES linearGradientBrushProperties'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (3076): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (3088): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (3120): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, replace the first argument 'const D2D1_ELLIPSE& ellipse' with 'D2D1_ELLIPSE ellipse'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (3132): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, replace the first argument 'const D2D1_ELLIPSE& ellipse' with 'D2D1_ELLIPSE ellipse'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (3145): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the fourth argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (3146): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the fifth argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (3156): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (3169): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (3172): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the fifth argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (3200): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (3210): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (3226): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the fourth argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (3286): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (3459): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (3479): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, replace the first argument 'const D2D1_ELLIPSE& ellipse' with 'D2D1_ELLIPSE ellipse'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (3719): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1.h (3752): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, replace the second argument 'const D2D1_FACTORY_OPTIONS& factoryOptions' with 'D2D1_FACTORY_OPTIONS factoryOptions'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (757): error V832: It's better to use '= default;' syntax instead of empty constructor body.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (473): error V813: Decreased performance. The 'maskTransform' argument should probably be rendered as a constant reference.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (197): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (198): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (213): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (214): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (215): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the third argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (227): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (245): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (280): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (292): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (293): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (349): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (350): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (365): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (366): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (407): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, replace the first argument 'const D2D1_PIXEL_FORMAT& pixelFormat' with 'D2D1_PIXEL_FORMAT pixelFormat'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (429): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, replace the second argument 'const D2D1_PIXEL_FORMAT& pixelFormat' with 'D2D1_PIXEL_FORMAT pixelFormat'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (470): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (984): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (1016): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (1016): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (1024): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1helper.h (1024): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1.h (1949): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, replace the second argument 'const D2D1_BITMAP_BRUSH_PROPERTIES1& bitmapBrushProperties' with 'D2D1_BITMAP_BRUSH_PROPERTIES1 bitmapBrushProperties'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1.h (1960): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, replace the second argument 'const D2D1_BITMAP_BRUSH_PROPERTIES1& bitmapBrushProperties' with 'D2D1_BITMAP_BRUSH_PROPERTIES1 bitmapBrushProperties'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1.h (2039): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the third argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1.h (2052): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the third argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1.h (2084): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1.h (2098): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1.h (2101): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the fifth argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1.h (2112): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1.h (2115): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the fifth argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1.h (2127): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the third argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1.h (2139): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the third argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1.h (2140): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the fourth argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1.h (2152): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, replace the first argument 'const D2D1_RENDERING_CONTROLS& renderingControls' with 'D2D1_RENDERING_CONTROLS renderingControls'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1.h (2211): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, replace the third argument 'const D2D1_PRINT_CONTROL_PROPERTIES& printControlProperties' with 'D2D1_PRINT_CONTROL_PROPERTIES printControlProperties'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1.h (2500): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, replace the second argument 'const D2D1_CREATION_PROPERTIES& creationProperties' with 'D2D1_CREATION_PROPERTIES creationProperties'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1.h (2515): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, replace the second argument 'const D2D1_CREATION_PROPERTIES& creationProperties' with 'D2D1_CREATION_PROPERTIES creationProperties'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (638): error V813: Decreased performance. The 'maskTransform' argument should probably be rendered as a constant reference.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (549): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the third argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d2d1_1helper.h (635): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d3d10effect.h (884): error V802: On 64-bit platform, structure size can be reduced from 48 to 40 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d3d11shader.h (179): error V802: On 64-bit platform, structure size can be reduced from 152 to 144 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\d3d12shader.h (218): error V802: On 64-bit platform, structure size can be reduced from 152 to 144 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\ddeml.h (580): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\ddeml.h (588): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\ddraw.h (276): error V802: On 64-bit platform, structure size can be reduced from 128 to 120 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\ddraw.h (769): error V802: On 64-bit platform, structure size can be reduced from 72 to 64 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\ddraw.h (2263): error V802: On 64-bit platform, structure size can be reduced from 136 to 128 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMath.h (550): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the fourth argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (1794): error V801: Decreased performance. It is better to redefine the second function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (1841): error V801: Decreased performance. It is better to redefine the second function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (1896): error V801: Decreased performance. It is better to redefine the second function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (1976): error V801: Decreased performance. It is better to redefine the second function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (2035): error V801: Decreased performance. It is better to redefine the second function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (2101): error V801: Decreased performance. It is better to redefine the second function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathConvert.inl (2145): error V801: Decreased performance. It is better to redefine the second function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMatrix.inl (30): error V801: Decreased performance. It is better to redefine the first function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMatrix.inl (99): error V801: Decreased performance. It is better to redefine the first function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMatrix.inl (167): error V801: Decreased performance. It is better to redefine the first function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMatrix.inl (230): error V801: Decreased performance. It is better to redefine the first function argument as a reference. Consider replacing 'const .. M1' with 'const .. &M1'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMatrix.inl (444): error V801: Decreased performance. It is better to redefine the first function argument as a reference. Consider replacing 'const .. M1' with 'const .. &M1'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMatrix.inl (697): error V801: Decreased performance. It is better to redefine the first function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMatrix.inl (784): error V801: Decreased performance. It is better to redefine the second function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMatrix.inl (1020): error V801: Decreased performance. It is better to redefine the first function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMatrix.inl (1116): error V801: Decreased performance. It is better to redefine the fourth function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMatrix.inl (3253): error V801: Decreased performance. It is better to redefine the first function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMatrix.inl (3264): error V801: Decreased performance. It is better to redefine the first function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMatrix.inl (3275): error V801: Decreased performance. It is better to redefine the first function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMatrix.inl (3337): error V801: Decreased performance. It is better to redefine the first function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMatrix.inl (3349): error V801: Decreased performance. It is better to redefine the first function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMatrix.inl (3361): error V801: Decreased performance. It is better to redefine the first function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMatrix.inl (3430): error V801: Decreased performance. It is better to redefine the second function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMisc.inl (711): error V801: Decreased performance. It is better to redefine the first function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMisc.inl (1220): error V801: Decreased performance. It is better to redefine the second function argument as a reference. Consider replacing 'const .. ITM' with 'const .. &ITM'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathMisc.inl (1244): error V801: Decreased performance. It is better to redefine the sixth function argument as a reference. Consider replacing 'const .. ITM' with 'const .. &ITM'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (7509): error V801: Decreased performance. It is better to redefine the second function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (7545): error V801: Decreased performance. It is better to redefine the sixth function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (7958): error V801: Decreased performance. It is better to redefine the second function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (7981): error V801: Decreased performance. It is better to redefine the sixth function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (8488): error V801: Decreased performance. It is better to redefine the second function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (8524): error V801: Decreased performance. It is better to redefine the sixth function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (10341): error V801: Decreased performance. It is better to redefine the second function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (10387): error V801: Decreased performance. It is better to redefine the sixth function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (10730): error V801: Decreased performance. It is better to redefine the second function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (10760): error V801: Decreased performance. It is better to redefine the sixth function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (11229): error V801: Decreased performance. It is better to redefine the second function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (11275): error V801: Decreased performance. It is better to redefine the sixth function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (11661): error V801: Decreased performance. It is better to redefine the eighth function argument as a reference. Consider replacing 'const .. Projection' with 'const .. &Projection'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (11703): error V801: Decreased performance. It is better to redefine the 12th function argument as a reference. Consider replacing 'const .. Projection' with 'const .. &Projection'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (12205): error V801: Decreased performance. It is better to redefine the eighth function argument as a reference. Consider replacing 'const .. Projection' with 'const .. &Projection'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (12248): error V801: Decreased performance. It is better to redefine the 12th function argument as a reference. Consider replacing 'const .. Projection' with 'const .. &Projection'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (14253): error V801: Decreased performance. It is better to redefine the second function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\DirectXMathVector.inl (14294): error V801: Decreased performance. It is better to redefine the sixth function argument as a reference. Consider replacing 'const .. M' with 'const .. &M'.
+D:\Windows Kits\10\Include\10.0.26100.0\um\dwrite.h (3093): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\dwrite.h (3190): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\mfapi.h (4293): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\mfapi.h (4308): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\mfapi.h (4323): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\mfapi.h (4342): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\mfapi.h (4363): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\mfapi.h (4375): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\mfapi.h (4387): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\mfapi.h (4399): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\mfapi.h (4411): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\mfapi.h (4424): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the second argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\minwinbase.h (46): error V802: On 64-bit platform, structure size can be reduced from 24 to 16 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\nb30.h (48): error V802: On 64-bit platform, structure size can be reduced from 96 to 88 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\ncrypt.h (280): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\ncrypt.h (331): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\ncrypt.h (540): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\propvarutil.h (520): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\propvarutil.h (729): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\um\shellapi.h (1470): error V802: On 64-bit platform, structure size can be reduced from 32 to 24 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\shellapi.h (1478): error V802: On 64-bit platform, structure size can be reduced from 32 to 24 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\Shlwapi.h (1091): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\Shlwapi.h (1100): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\WinBase.h (8629): error V802: On 64-bit platform, structure size can be reduced from 72 to 56 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\WinBase.h (8643): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\WinBase.h (8652): error V802: On 64-bit platform, structure size can be reduced from 112 to 104 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\WinBase.h (9172): error V802: On 64-bit platform, structure size can be reduced from 112 to 104 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (907): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (1594): error V802: On 64-bit platform, structure size can be reduced from 24 to 16 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (4630): error V802: On 64-bit platform, structure size can be reduced from 32 to 24 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (5295): error V802: On 64-bit platform, structure size can be reduced from 64 to 48 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (5308): error V802: On 64-bit platform, structure size can be reduced from 48 to 40 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (5544): error V802: On 64-bit platform, structure size can be reduced from 32 to 24 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (5575): error V802: On 64-bit platform, structure size can be reduced from 48 to 40 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (5665): error V802: On 64-bit platform, structure size can be reduced from 48 to 40 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (5746): error V802: On 64-bit platform, structure size can be reduced from 64 to 56 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (6802): error V802: On 64-bit platform, structure size can be reduced from 48 to 40 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (6863): error V802: On 64-bit platform, structure size can be reduced from 64 to 56 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (8084): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (8128): error V802: On 64-bit platform, structure size can be reduced from 64 to 56 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (9034): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (9053): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (9072): error V802: On 64-bit platform, structure size can be reduced from 64 to 56 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (9378): error V802: On 64-bit platform, structure size can be reduced from 48 to 40 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (9411): error V802: On 64-bit platform, structure size can be reduced from 24 to 16 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (12640): error V802: On 64-bit platform, structure size can be reduced from 32 to 24 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (13748): error V802: On 64-bit platform, structure size can be reduced from 56 to 48 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (13757): error V802: On 64-bit platform, structure size can be reduced from 48 to 40 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (13857): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (13898): error V802: On 64-bit platform, structure size can be reduced from 48 to 40 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (14398): error V802: On 64-bit platform, structure size can be reduced from 24 to 16 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (17480): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (19880): error V802: On 64-bit platform, structure size can be reduced from 56 to 48 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (20016): error V802: On 64-bit platform, structure size can be reduced from 56 to 48 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (21135): error V802: On 64-bit platform, structure size can be reduced from 24 to 16 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (21601): error V802: On 64-bit platform, structure size can be reduced from 48 to 40 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (2382): error V802: On 64-bit platform, structure size can be reduced from 96 to 88 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (2425): error V802: On 64-bit platform, structure size can be reduced from 88 to 80 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (5722): error V802: On 64-bit platform, structure size can be reduced from 120 to 112 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (6770): error V802: On 64-bit platform, structure size can be reduced from 96 to 80 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (6972): error V802: On 64-bit platform, structure size can be reduced from 128 to 120 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (7028): error V802: On 64-bit platform, structure size can be reduced from 96 to 88 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (8652): error V802: On 64-bit platform, structure size can be reduced from 128 to 120 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (8856): error V802: On 64-bit platform, structure size can be reduced from 88 to 80 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (19338): error V802: On 64-bit platform, structure size can be reduced from 88 to 80 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wincrypt.h (19622): error V802: On 64-bit platform, structure size can be reduced from 72 to 64 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wingdi.h (3513): error V802: On 64-bit platform, structure size can be reduced from 56 to 48 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wingdi.h (3523): error V802: On 64-bit platform, structure size can be reduced from 56 to 48 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wingdi.h (5125): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wingdi.h (5134): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\wingdi.h (5023): error V802: On 64-bit platform, structure size can be reduced from 104 to 96 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winioctl.h (3442): error V802: On 64-bit platform, structure size can be reduced from 28 to 24 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winioctl.h (9393): error V802: On 64-bit platform, structure size can be reduced from 16 to 12 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winioctl.h (9539): error V802: On 64-bit platform, structure size can be reduced from 24 to 20 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winioctl.h (9720): error V802: On 64-bit platform, structure size can be reduced from 24 to 16 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winioctl.h (11554): error V802: On 64-bit platform, structure size can be reduced from 32 to 24 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winioctl.h (11914): error V802: On 64-bit platform, structure size can be reduced from 24 to 16 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winioctl.h (13664): error V802: On 64-bit platform, structure size can be reduced from 48 to 40 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winioctl.h (7961): error V802: On 64-bit platform, structure size can be reduced from 120 to 112 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\WinNls.h (1166): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\WinNls.h (1174): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (11819): error V802: On 64-bit platform, structure size can be reduced from 56 to 48 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (13323): error V802: On 64-bit platform, structure size can be reduced from 64 to 56 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winnt.h (25400): error V802: On 64-bit platform, structure size can be reduced from 72 to 64 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winreg.h (139): error V802: On 64-bit platform, structure size can be reduced from 32 to 24 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winreg.h (145): error V802: On 64-bit platform, structure size can be reduced from 32 to 24 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winreg.h (177): error V802: On 64-bit platform, structure size can be reduced from 32 to 24 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winreg.h (183): error V802: On 64-bit platform, structure size can be reduced from 32 to 24 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winsock.h (950): error V802: On 64-bit platform, structure size can be reduced from 32 to 24 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winspool.h (679): error V802: On 64-bit platform, structure size can be reduced from 64 to 56 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winspool.h (690): error V802: On 64-bit platform, structure size can be reduced from 64 to 56 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winspool.h (1116): error V802: On 64-bit platform, structure size can be reduced from 24 to 16 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winspool.h (1121): error V802: On 64-bit platform, structure size can be reduced from 24 to 16 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winspool.h (910): error V802: On 64-bit platform, structure size can be reduced from 88 to 72 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winspool.h (922): error V802: On 64-bit platform, structure size can be reduced from 88 to 72 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winsvc.h (535): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winsvc.h (548): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winsvc.h (792): error V802: On 64-bit platform, structure size can be reduced from 24 to 16 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winsvc.h (797): error V802: On 64-bit platform, structure size can be reduced from 24 to 16 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winsvc.h (816): error V802: On 64-bit platform, structure size can be reduced from 64 to 56 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winsvc.h (827): error V802: On 64-bit platform, structure size can be reduced from 64 to 56 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winsvc.h (990): error V802: On 64-bit platform, structure size can be reduced from 56 to 48 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winsvc.h (998): error V802: On 64-bit platform, structure size can be reduced from 56 to 48 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winsvc.h (951): error V802: On 64-bit platform, structure size can be reduced from 80 to 72 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\winsvc.h (960): error V802: On 64-bit platform, structure size can be reduced from 80 to 72 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\um\WinUser.h (6481): error V802: On 64-bit platform, structure size can be reduced from 32 to 28 bytes by rearranging the fields according to their sizes in decreasing order.
+D:\Windows Kits\10\Include\10.0.26100.0\winrt\wrl\client.h (562): error V832: It's better to use '= default;' syntax instead of empty destructor body.
+D:\Windows Kits\10\Include\10.0.26100.0\winrt\wrl\client.h (701): error V832: It's better to use '= default;' syntax instead of empty destructor body.
+D:\Windows Kits\10\Include\10.0.26100.0\winrt\wrl\client.h (457): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\winrt\wrl\client.h (483): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\winrt\wrl\client.h (515): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\winrt\wrl\client.h (585): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\winrt\wrl\client.h (592): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\winrt\wrl\client.h (654): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\winrt\wrl\client.h (723): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+D:\Windows Kits\10\Include\10.0.26100.0\winrt\wrl\client.h (730): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+F:\Projects\C++\CPGE-1\Configuration.h (18): error V802: On 64-bit platform, structure size can be reduced from 56 to 48 bytes by rearranging the fields according to their sizes in decreasing order.
+F:\Projects\C++\CPGE-1\Debug.cpp (61): error V808: 'str' object of 'basic_string' type was created but was not utilized.
+F:\Projects\C++\CPGE-1\DX11Renderer.cpp (67): error V813: Decreased performance. The 'objDetails' argument should probably be rendered as a constant reference.
+F:\Projects\C++\CPGE-1\DX11Renderer.cpp (772): error V820: The 'sThisName' variable is not used after copying. Copying can be replaced with move/swap for optimization.
+F:\Projects\C++\CPGE-1\FXManager.cpp (329): error V823: Decreased performance. Object may be created in-place in the 'pendingCallbacks' container. Consider replacing methods: 'push_back' -> 'emplace_back'.
+F:\Projects\C++\CPGE-1\GUIManager.cpp (21): error V832: It's better to use '= default;' syntax instead of empty constructor body.
+F:\Projects\C++\CPGE-1\GUIWindows.cpp (26): error V807: Decreased performance. Consider creating a reference to avoid using the 'alertWindow->position' expression repeatedly.
+F:\Projects\C++\CPGE-1\GUIWindows.cpp (77): error V807: Decreased performance. Consider creating a reference to avoid using the 'alertWindow->size' expression repeatedly.
+F:\Projects\C++\CPGE-1\GUIWindows.cpp (134): error V815: Decreased performance. Consider replacing the expression 'btnClose.label = L""' with 'btnClose.label.clear()'.
+F:\Projects\C++\CPGE-1\IOStreamThread.cpp (58): error V814: Decreased performance. The 'strlen' function was called multiple times inside the body of a loop.
+F:\Projects\C++\CPGE-1\IOStreamThread.cpp (125): error V814: Decreased performance. The 'strlen' function was called multiple times inside the body of a loop.
+F:\Projects\C++\CPGE-1\IOStreamThread.cpp (94): error V815: Decreased performance. Consider replacing the expression 'modelFilePath[i] != L""' with '!modelFilePath[i].empty()'.
+F:\Projects\C++\CPGE-1\Joystick.cpp (91): error V808: 'msg' object of 'basic_string' type was created but was not utilized.
+F:\Projects\C++\CPGE-1\Models.cpp (22): error V832: It's better to use '= default;' syntax instead of empty destructor body.
+F:\Projects\C++\CPGE-1\SceneManager.cpp (12): error V832: It's better to use '= default;' syntax instead of empty destructor body.
+F:\Projects\C++\CPGE-1\ThreadManager.cpp (158): error V837: The 'emplace' function does not guarantee that arguments will not be copied or moved if there is no insertion. Consider using the 'try_emplace' function.
+F:\Projects\C++\CPGE-1\WinMediaPlayer.cpp (27): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, pass the first argument by value.
+F:\Projects\C++\CPGE-1\XMMODPlayer.h (146): error V802: On 64-bit platform, structure size can be reduced from 48 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (6955): error V807: Decreased performance. Consider creating a pointer to avoid using the 'ref_stack.back()' expression repeatedly.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (7105): error V807: Decreased performance. Consider creating a pointer to avoid using the 'ref_stack.back()' expression repeatedly.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (7242): error V807: Decreased performance. Consider creating a pointer to avoid using the 'ref_stack.back()' expression repeatedly.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (11307): error V831: Decreased performance. Consider replacing the call to the 'at()' method with the 'operator[]'.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (5733): error V833: Passing the const-qualified object 'arr' to the 'std::move' function disables move semantics.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (11862): error V833: Passing the const-qualified object 'number_string' to the 'std::move' function disables move semantics.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (12240): error V801: Decreased performance. It is better to redefine the second function argument as a reference. Consider replacing 'const .. cb' with 'const .. &cb'.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (23318): error V801: Decreased performance. It is better to redefine the second function argument as a reference. Consider replacing 'const .. cb' with 'const .. &cb'.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (23333): error V801: Decreased performance. It is better to redefine the third function argument as a reference. Consider replacing 'const .. cb' with 'const .. &cb'.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (23345): error V801: Decreased performance. It is better to redefine the second function argument as a reference. Consider replacing 'const .. cb' with 'const .. &cb'.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (6092): error V807: Decreased performance. Consider creating a reference to avoid using the 'j.get_binary()' expression repeatedly.
+F:\Projects\C++\CrossPlatformGameEngine\nlohmann\json.hpp (4779): error V826: Consider replacing the 'l' std::forward_list with std::vector. Contiguous placement of elements in memory can be more efficient.
+F:\Projects\C++\CrossPlatformGameEngine\steam\isteamhtmlsurface.h (256): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+F:\Projects\C++\CrossPlatformGameEngine\steam\isteamhtmlsurface.h (276): error V802: On 64-bit platform, structure size can be reduced from 48 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+F:\Projects\C++\CrossPlatformGameEngine\steam\isteamhtmlsurface.h (363): error V802: On 64-bit platform, structure size can be reduced from 32 to 24 bytes by rearranging the fields according to their sizes in decreasing order.
+F:\Projects\C++\CrossPlatformGameEngine\steam\isteamhtmlsurface.h (414): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+F:\Projects\C++\CrossPlatformGameEngine\steam\isteamhttp.h (163): error V802: On 64-bit platform, structure size can be reduced from 32 to 24 bytes by rearranging the fields according to their sizes in decreasing order.
+F:\Projects\C++\CrossPlatformGameEngine\steam\isteaminput.h (975): error V802: On 64-bit platform, structure size can be reduced from 40 to 32 bytes by rearranging the fields according to their sizes in decreasing order.
+F:\Projects\C++\CrossPlatformGameEngine\steam\isteaminput.h (993): error V802: On 64-bit platform, structure size can be reduced from 32 to 24 bytes by rearranging the fields according to their sizes in decreasing order.
+F:\Projects\C++\CrossPlatformGameEngine\steam\isteammatchmaking.h (953): error V802: On 64-bit platform, structure size can be reduced from 64 to 56 bytes by rearranging the fields according to their sizes in decreasing order.
+F:\Projects\C++\CrossPlatformGameEngine\steam\isteamnetworkingutils.h (464): error V835: Passing cheap-to-copy argument by reference may lead to decreased performance. To avoid this, replace the first argument 'const SteamNetworkingConfigValue_t& opt' with 'SteamNetworkingConfigValue_t opt'.
+F:\Projects\C++\CrossPlatformGameEngine\steam\isteamremotestorage.h (361): error V802: On 64-bit platform, structure size can be reduced from 24 to 16 bytes by rearranging the fields according to their sizes in decreasing order.
+F:\Projects\C++\CrossPlatformGameEngine\steam\isteamremotestorage.h (443): error V802: On 64-bit platform, structure size can be reduced from 24 to 16 bytes by rearranging the fields according to their sizes in decreasing order.
+F:\Projects\C++\CrossPlatformGameEngine\steam\isteamremotestorage.h (571): error V802: On 64-bit platform, structure size can be reduced from 24 to 16 bytes by rearranging the fields according to their sizes in decreasing order.
+F:\Projects\C++\CrossPlatformGameEngine\steam\isteamremotestorage.h (588): error V802: On 64-bit platform, structure size can be reduced from 24 to 16 bytes by rearranging the fields according to their sizes in decreasing order.
+F:\Projects\C++\CrossPlatformGameEngine\steam\isteamugc.h (445): error V802: On 64-bit platform, structure size can be reduced from 24 to 16 bytes by rearranging the fields according to their sizes in decreasing order.
+F:\Projects\C++\CrossPlatformGameEngine\steam\isteamugc.h (482): error V802: On 64-bit platform, structure size can be reduced from 24 to 16 bytes by rearranging the fields according to their sizes in decreasing order.
+F:\Projects\C++\CrossPlatformGameEngine\steam\isteamugc.h (569): error V802: On 64-bit platform, structure size can be reduced from 24 to 16 bytes by rearranging the fields according to their sizes in decreasing order.
+F:\Projects\C++\CrossPlatformGameEngine\steam\isteamugc.h (580): error V802: On 64-bit platform, structure size can be reduced from 24 to 16 bytes by rearranging the fields according to their sizes in decreasing order.
+F:\Projects\C++\CrossPlatformGameEngine\steam\isteamuser.h (334): error V802: On 64-bit platform, structure size can be reduced from 24 to 16 bytes by rearranging the fields according to their sizes in decreasing order.
+F:\Projects\C++\CrossPlatformGameEngine\steam\isteamuserstats.h (394): error V802: On 64-bit platform, structure size can be reduced from 32 to 24 bytes by rearranging the fields according to their sizes in decreasing order.
+F:\Projects\C++\CrossPlatformGameEngine\steam\steamclientpublic.h (1181): error V802: On 64-bit platform, structure size can be reduced from 32 to 24 bytes by rearranging the fields according to their sizes in decreasing order.
+F:\Projects\C++\CrossPlatformGameEngine\steam\steamnetworkingtypes.h (936): error V832: It's better to use '= default;' syntax instead of empty destructor body.

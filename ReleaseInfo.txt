@@ -1,0 +1,196 @@
+/* --------------------------------------------------------------------------------------------------------------------------------- 
+DirectX 11 & 12, OpenGL & Vulkan Game Engine originally started and programmed for Windows 11, Linux, MacOS and Android
+and future operating systems by Daniel J. Hobson of Australia 2023-2025
+
+The Licence of use of this software system comes under Docs\LICENSE.md
+
+The simple idea behind all this, is that the engine is Cross Platform functional, which includes textures,
+lighting, shading, blending, shadowing, specular effects, Input Handling (ie. Keyboard, Joystick),
+Extensive Debugging Programmatical Options, Sound FX (SoundManager) / and a Multi Music system that plays either 
+.MP3 or .XM (Fast Tracker 2) file formats.
+
+Please note that all code for now here is C++17 Standard Compliant!
+
+Once a base (Direct X11) is complete, project will be released to open community for Future Contribution, Growth and Potential Use
+by any given user.
+
+As more is to be implemented, more case tools will be introduced which help game developers
+setup their required gaming environment and to use with the selected Engine.
+------------------------------------------------------------------------------------------------------------------------------------- 
+====================
+DEVELOPMENT HISTORY: -
+====================
+------------------------------------------------------------------------------------------------------------------------------------- 
+11/09/2023 - Original Project Started (Many writes, rewrites as building core Interface Modules was the focus here)
+01/01/2025 - Restarted Conceptual idea and restructured code more efficiently as prior project lead to many problems in the end.
+             Engine was fine and working, but very poorly designed as it was a build/test and learnt various things as we went along.
+02/01/2025 - Put Project into GITHUB privately and to learn its' abilities with projects.  So for myself, Daniel, I had to learn GITHUB!!!
+07/01/2025 - XM Module Player and Class created (Not completed yet nor working!)
+11/03/2025 - A Proper Debug Class for Debug Execution so level information can be displayed
+             to the Output window of Microsoft Visual Studio 2019/2022.
+
+12/03/2025 - Created a ThreadManager Class that manages safely our required threads (ThreadManager.h/.cpp)
+
+14/03/2025 - Added DirectX Camera class object.  See DXCamera.h/.cpp for more info.
+
+15/03/2025 - Now we see FPS and Our Mouse Cursor on Screen.
+           - The Startup, Processing and Closure of the Loader Thread (LoaderTaskThread)
+             is now implemented and working.
+
+           - The Startup, Processing and Closure of the Render Thread (RenderFrame)
+             is now implemented and working at this point.
+
+           - Loading of 2D Textures is now implemented.
+           - Our Custom Mouse Pointer now working and showing on screen. Basic DirectDraw pipe-line is considered working!
+           - Basic Scene Functionality is now operational.
+
+           - Blitting of 2D Objects with Transparency now operational.
+           - Added the SteamWorks Class & SDK include files to work with Steam Gaming Platform (Currently not implemented)
+		   
+16/03/2025 - Implemented a full functional MP3 Player (Threaded) using the
+             WindowsMedia API.  See (WinMediaPlayer.h) for more details.
+
+           - Implemented a full functional Joystick/Gamepad Handler that supports the loading &
+             saving of gamepad mappings.  This will need some more work later down the track
+             where we will actually run a mapping interface for users. May or May NOT need to
+             use as I am NOT sure what the SteamWorks API offers in regards to this for gamepads 
+             currently at the moment.
+
+             UPDATE: (14/05/2025) CPGE Engine now supports its own Joystick/Gamepad controlling!
+             Please revise Joystick.h/.cpp for more more information.
+
+           - Made it optional so that the engine can run the RenderFrame() as a thread or as
+             a call within the Main Message Loop.  
+
+           - Implemented a SysUtils class that contains functions that are related specifically
+             to the Windows Operating system (see WinSystem.h for more info).
+           - Added a system check in main.cpp to ensure users are operating on Windows 10 or above for DirectX usage. 
+17/03/2025 - Detection of a GPU Presence.
+18/03/2025 - Added support for a Playlist in the MP3Player Class.
+           - Single song when played through the MP3Player Class will now restart the song again when finished.
+             I will update this later to support DirectX and other playback devices. 
+
+21/03/2025 - Improvements to the ThreadManager Class.  See ThreadManager.h for more details.
+25/03/2025 - Implemented the GUIManager system which is responsible for creating custom windows with
+             supported custom controls.  In turn, this manages the handling of all input and assigned events
+             before rendering (2D Draw/Image support only atm).
+26/03/2025 - More Improvements to the GUIManager class (see GUIManager.h/.cpp files for more info)
+27/03/2025 - Started in the individual .cpp files (Classes) on how to use the classes appropriately.  These will be updated
+             and revised upon changes.  The idea is that way, developers understand their true implementation process.
+28/03/2025 - Implemented the Sound Manager system that is responsible for Sound Playback. see SoundManager.h/.cpp files for more info.
+29/03/2025 - Implemented the FX Manager which now handles various screen fading routines. see FXManager.h/.cpp files for more info.
+30/03/2025 - FX Manager now supports various scrolling fx for Tiled Images.  Many more FX Types to come!
+           - Moving Windows in GUIManager is fluent and are snappable.
+01/04/2025 - Big update here and Major restructuring has taken place:-
+             1) XMMODPlayer class is now fully functional and complete (A lot of people are going to love this module alone)
+                uses DirectX Sound for playback.  More options will be implemented later.
+
+                I will start writing up some documents soon to explain how this is to be used.  
+                See the Constants.h, IOThreadStream.cpp & XMMODPlayer.h/.cpp files for more info.
+
+             2) The Major work has gone towards the restructuring of the project and preparing it 
+                more ready for Cross Platform systems which I cannot wait to start.
+
+03/04/2025 - More restructuring in regards to the rendering system with much more simplier usage against appropriate renderer.
+             See main.cpp, Render.h, RendererMacros.h & RendererFactory.cpp for more info.
+             
+           - Reworked the SoundManager Class and enhanced it as well.  It was currently using XAudio2, but now uses DirectSound
+             for the Windows Platform.  XAudio2 was causing major problems so it was dropped for now, will re-introduce this support later!
+             
+04/04/2025 - Window Resizing is now fully operational.
+           - More Enhancements to the XMMODPlayer Class (see XMMODPlayer.h/.cpp) for more details.
+
+05/04/2025 - Added AI Assistance Documentation under the GIT /Docs folder (Open in MS Word / Browser or HTML Compliant Application.
+
+09/04/2025 - 3D OBJ Models are now showing up using textures, normalMaps, lighting and shading without a scene manager (Consider this as 
+             a manual load option to render model objects for learners).  All models here are allocated as BASE models only!
+
+           - Working Possible way to debug your pixel shader! See ModelPShader.hlsl and RenderFrame() for more info.
+           - For systems like mine, which have multiple GPU's, system will use detected NVIDIA/AMD devices as priority!
+           - Camera system now fully implemented, while movement is done whilst the right mouse button is held  
+             down and the mouse wheel to zoom in & out.  General movement will come a little later after the Scene Manager is more working.
+           - Basic model animations has been implemented (Needs much more work)
+           - Atomics properly corrected and used (May need to fix a few more, but working on them!)
+
+15/04/2025 - Wireframe Switching now operational, press F2 to toggle the mode.
+
+16/04/2025 - Major work on the Scene Manager using the .GLTF/.bin 2.0 format, approximately about 75% completed at this point (So NOT working fully atm!)
+
+17/04/2025 - Debugging Enhancements: logLevelMessage() and logDebugMessage() (paramatized) also output to given debug file and utilising date/time 
+             stamping as well.  See Debug.h/cpp for more info.
+
+18/04/2025 - DXCamera.h/.cpp has had a major re-work and is now functioning correctly.
+           - You can now move through your scene using the Cursor Keys to navigate; use Mouse with right button down for changing your yaw/pitch movements
+             and your Mouse Wheel to Zoom in/out.
+
+19/04/2025 - Teaching AI Policy / Rules Enforcement!!!  See policies Docs/POLICIES.txt for more information!  This is something I, only me, 
+             will generate and update over time - Keep Sharp! if your are new and/or considered as a VIBE AI Programmer and wanting
+             to learn how to USE AI (ChatGPT / Claude / Gemini etc) command programming / debugging task purposing CORRECTLY!
+             See Docs folder for more info.
+
+           - Configuration update to hold new mandatory settings see Configuration.h/.cpp for more information; In Conclusion, this 
+             will be CheckSum Enforced!
+
+24/04/2025 - STABLE: Basic GLTF 2.0 Scene Model Parsing and Rendering is now functional, wireframe works great, but pixel shader atm 
+             is not functioning properly.
+
+26/04/2025 - STABLE: GLTF 2.0 Parser has been optimized and is now fully functional, and now supporting basic lighting 
+             (See SceneManager.h/.cpp & Models.h/.cpp for more info).  I will add Documentation later as this will explain a few
+             things that you will need to be aware of, especially, if you are wanting this to work correctly.
+29/04/2025 - Resizing Window / Reloading / Re-Initialization of Scene Lost Data / Clean exit.
+
+30/04/2025 - STABLE: On Rezing, Camera is left at current position and NOT reset.
+           - Fixed Loader-Ring Animation Bug.
+
+05/05/2025 - Fixed SceneManager to handle Sketchfab GLTF parsing (More work will be needed here), but generally works good!
+             2D Particle Explosion (Fireworks) Effect has now been added to the FXManager Class.  See DX_FXManager.h/.cpp for more details.
+
+12/05/2025 - Game Pad/Joystick Implementation has now been fully integrated and working 100% and supports both 2D and 3D scenarios
+             (Camera movement).  More work will be done with the Camera at a later date such as Animate Movement to (x, y, z) etc.
+
+16/05/2025 - STABLE: Thread Safe Video Rendering which supports .AVI/.MP4 or .MKV files.  This interface allows you to use video 
+             streaming without sound.  The idea behind this is that most game developers will create a video and overlap that video 
+             playback with a music/audio sound track to support their own video. For games, video is usually rendered via a 3rd 
+             party rendering system that is external to this gaming engine platform.  See MoviePlayer.h/.cpp for more info.
+
+17/05/2025 - Scene Sequencing is now in place, the application starts with a splash screen and then into the SCENE_GAMEINTRO (Game Start Area)
+           - 3D Starfield effect has now been implemented into the FXManager.  Run CPGE-Demo-3dStarfield.exe for a demonstration.
+
+18/05/2025 - Set Exclusive Fullscreen and Transitioning is now fully working.
+             RenderFrame() now invidilises (Or HTFUSI (How To Fully Utilize Scene Implementation)) and appropriately renderers scene phases. 
+
+21/05/2025 - ThreadManager now supports Locking/Unlocking and CheckLock/TryLock functions.  See ThreadManager.h/.cpp for more info.
+
+[ FUTURE ]   OK EVERYONE, PEOPLE NEED TO RELISE HERE THAT THIS IS VERY CLOSE TO GAMING PRODUCTION FOR DIRECTX 11 SYSTEMS! (WINDOWS 10 64BIT)
+             Alot of this work, MY TIME and for free, it's what you get paid for right? Your story, your graphics and your 
+             enginuity based on this platform!  Please DO NOT START A GAME until your comfortable with a release of our marked as [STABLE]
+             release! Which means, there should be no crashes nor any cleanup faults!
+
+             Always fully test the GITHUB (Base) code, before starting your project!
+
+             I will be always be updating the CPGE Engine until I die and your code base here is always here for free!
+
+             I will announce an official stable release on GitHub AND then make public so it is ready for gaming production 
+             for those who are eager to try this out and right now, or DirectX 11 Gaming Platforms on Windows 10/11 
+             64 Bit operating systems AS it is not completely gone yet!
+            
+------------------------------------------------------------------------------------------------------------------------------------- 
+==================
+IMPORTANT NOTES:-
+==================
+1) WARNING: Since this is still early days, major reconstruction on things may occur.  Please use at your OWN risk!
+
+============
+NEED TO DO:-
+============
+15/03/2025 - Create and Implement the OpenGL3 Renderer for Windows / Linux / MacOS & Android
+             Create and Implement the Vulkan Renderer for Windows / Linux & Android.
+16/03/2025 - Investigate more into the Renderer as been a thread (Conflicting Issues are present when enabled!)
+           - Get the Steam Class working and implement
+27/03/2025 - Our system will need to support GooglePlay interfacing as well especially for the Android Platform.
+           - Our system will need to support AppStore interfacing as well especially for the iOS Platform.
+
+26/04/2025 - Expand the GLTF Parser so it also parses a GLB 2.0 (GLTF, but binary format instead).
+------------------------------------------------------------------------------------------------------------------------------------- 
+*/
+EOF
