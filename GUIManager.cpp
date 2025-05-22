@@ -178,6 +178,19 @@ void GUIWindow::HandleMouseMove(const Vector2& mousePosition, const std::unorder
 
                 break;
             }
+
+            case GUIControlType::Button:
+            {
+                if (isMouseOver)
+                {
+                   if (control.onMouseOver) control.onMouseOver();
+                }
+
+                break;
+            }
+
+            default:
+                break;
         }
     }
 }

@@ -1,4 +1,5 @@
 #include "DX11Renderer.h"
+#include "DX_FXManager.h"
 #include "RendererMacros.h"
 #include "SoundManager.h"
 #include "GUIManager.h"
@@ -8,6 +9,7 @@
 extern Vector2 myMouseCoords;
 extern SoundManager soundManager;
 extern WindowMetrics winMetrics;
+extern FXManager fxManager;
 
 void GUIManager::CreateAlertWindow(const std::wstring& message) {
     const std::string WINDOW_NAME = "AlertWindow";
@@ -208,6 +210,16 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     configButton.label = L"      Configuration";                                                               // Button label
     configButton.lblFontSize = 16.0f;
     configButton.isVisible = true;
+
+    configButton.onMouseOver = [this, configButton]()
+        {
+            Vector2 pos = configButton.position;
+            Vector2 size = configButton.size;
+            XMFLOAT4 yellow(1.0f, 1.0f, 0.0f, 0.7f);
+
+//            fxManager.CreateOutlineFX(yellow, pos, size, 1, true, 7, 5);
+        };
+
     configButton.onMouseBtnDown = [this, WINDOW_NAME]()
     {
         // Handle Okay button click event
@@ -235,6 +247,15 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     gameplayButton.label = L"        Game Play";                                                                 // Button label
     gameplayButton.lblFontSize = 16.0f;
     gameplayButton.isVisible = true;
+    gameplayButton.onMouseOver = [this, gameplayButton]()
+        {
+            Vector2 pos = gameplayButton.position;
+            Vector2 size = gameplayButton.size;
+            XMFLOAT4 yellow(1.0f, 1.0f, 0.0f, 1.0f);
+
+//            fxManager.CreateOutlineFX(yellow, pos, size, 1, true, 7, 5);
+        };
+
     gameplayButton.onMouseBtnDown = [this, WINDOW_NAME]()
     {
         // Handle Okay button click event
@@ -262,6 +283,15 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     hiscoresButton.label = L"      High Scores Table";                                                          // Button label
     hiscoresButton.lblFontSize = 16.0f;
     hiscoresButton.isVisible = true;
+    hiscoresButton.onMouseOver = [this, hiscoresButton]()
+        {
+            Vector2 pos = hiscoresButton.position;
+            Vector2 size = hiscoresButton.size;
+            XMFLOAT4 yellow(1.0f, 1.0f, 0.0f, 1.0f);
+
+//            fxManager.CreateOutlineFX(yellow, pos, size, 1, true, 7, 5);
+        };
+    
     hiscoresButton.onMouseBtnDown = [this, WINDOW_NAME]()
         {
             // Handle Okay button click event

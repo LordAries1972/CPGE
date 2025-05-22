@@ -1,0 +1,2 @@
+[22-05-2025 (AEST/AEDT) 09:07:21]: [INFO]: Direct2D render target created successfully
+[22-05-2025 (AEST/AEDT) 09:07:21]: Critical Error: 

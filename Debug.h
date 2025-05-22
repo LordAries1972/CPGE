@@ -7,7 +7,7 @@
 // If you are to implement a new system of your own, then please add your own 
 // debug defines exclusively and include them strictly in this file for your given debugging purposes.  
 // 
-// As a Contributor, please always be considerate for other developers and always explain what 
+// As a Contributor, please always be considerate towards other developers and always explain what 
 // you are doing throughout your code by utilising this debugging engine, especially when
 // error handling needs to be done!  Thank you!
 // ----------------------------------------------------------------------------------------------
@@ -24,7 +24,7 @@
 //#define _DEBUG_SCENEMANAGER_                                          // Define this line, to show all debug output to runtime console for the SceneManager class.
 //#define _DEBUG_GUI_
 
-#define _DEBUG_MOVIEPLAYER_                                             // Define this line for MoviePlayer class.
+//#define _DEBUG_MOVIEPLAYER_                                             // Define this line for MoviePlayer class.
 
 //#define _DUBUG_JOYSTICK_
 

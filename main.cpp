@@ -201,6 +201,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
     ShowWindow(hwnd, nCmdShow);
     UpdateWindow(hwnd);
+    sysUtils.CenterSystemWindow(hwnd);
 
     try
     {
@@ -248,11 +249,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
 //        guiManager.CreateAlertWindow(alert);
 
-#ifndef _DEBUG || DEBUG_
+#ifndef _DEBUG
         renderer->SetFullScreen();
 #endif
-
-        sysUtils.CenterSystemWindow(hwnd);
 
         fxManager.FadeToImage(1.0f, 0.04f);
 //        fxManager.StartScrollEffect(BlitObj2DIndexType::IMG_SCROLLBG1, FXSubType::ScrollRight, 2, 800, 600, 0.016f);
@@ -536,6 +535,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     }
                 }
 
+                guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
                 return 0;
             });
 

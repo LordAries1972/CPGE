@@ -2303,6 +2303,9 @@ void DX11Renderer::RenderFrame()
             return;
         }
 
+        // Invalidate FX Manager pixel data at start of new frame
+        fxManager.InvalidatePixelData();
+
         // Clear buffers & Initialize
         HRESULT hr = S_OK;
         HWND hWnd = hwnd;

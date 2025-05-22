@@ -137,18 +137,19 @@ public:
     ComPtr<ID3D11Device> m_d3dDevice{ nullptr };
     ComPtr<IDXGIAdapter1> adapter{ nullptr };
     ComPtr<ID3D11DeviceContext> m_d3dContext{ nullptr };
-    ComPtr<IDXGISwapChain1> m_swapChain;                                        // Corrected declaration
+    ComPtr<ID3D11RenderTargetView> m_renderTargetView{ nullptr };
+    ComPtr<IDXGISwapChain1> m_swapChain{ nullptr };                             // Corrected declaration
     ComPtr<ID2D1Bitmap> m_d2dTextures[MAX_TEXTURE_BUFFERS] = {};
     ComPtr<ID3D11ShaderResourceView> m_d3dTextures[MAX_TEXTURE_BUFFERS_3D] = {};
-    ComPtr<ID3D11Buffer> m_globalLightBuffer;
-	ComPtr<ID3D11Buffer> m_cameraConstantBuffer;
-    ComPtr<ID3D11Buffer> m_debugBuffer;
+    ComPtr<ID3D11Buffer> m_globalLightBuffer{ nullptr };
+	ComPtr<ID3D11Buffer> m_cameraConstantBuffer{ nullptr };
+    ComPtr<ID3D11Buffer> m_debugBuffer{ nullptr };
 
-    ComPtr<ID2D1RenderTarget> m_d2dRenderTarget;
-    ComPtr<IDXGISurface> dxgiSurface;
-    ComPtr<ID2D1Device> m_d2dDevice;                                            // Direct2D Device
-    ComPtr<ID2D1DeviceContext> m_d2dContext;                                    // Direct2D Device Context
-    ComPtr<ID2D1Factory1> m_d2dFactory;                                         // Direct2D Factory
+    ComPtr<ID2D1RenderTarget> m_d2dRenderTarget{ nullptr };
+    ComPtr<IDXGISurface> dxgiSurface{ nullptr };
+    ComPtr<ID2D1Device> m_d2dDevice{ nullptr };                                 // Direct2D Device
+    ComPtr<ID2D1DeviceContext> m_d2dContext{ nullptr };                         // Direct2D Device Context
+    ComPtr<ID2D1Factory1> m_d2dFactory{ nullptr };                              // Direct2D Factory
 
     ComPtr<ID3D11DeviceContext> GetImmediateContext() const;
 
@@ -252,7 +253,6 @@ private:
     std::atomic<bool> playing{ false };
 
     ComPtr<ID3DBlob> CompileShader(const std::wstring& filename, const std::string& entryPoint, const std::string& target);
-    ComPtr<ID3D11RenderTargetView> m_renderTargetView;
     ComPtr<ID3D11DepthStencilView> m_depthStencilView;
     ComPtr<ID3D11Texture2D> m_depthStencilBuffer;
 

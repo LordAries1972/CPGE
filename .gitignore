@@ -7,3 +7,9 @@
 /x64/Release
 *.bak
 *.exe
+*.tlog
+/CrossPla.2bd3f178/x64/Debug
+/CrossPla.2bd3f178/x64/Release
+*.pdb
+*.map
+/x64/Debug
