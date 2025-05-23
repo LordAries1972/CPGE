@@ -26,7 +26,7 @@ If you like to know more about me and my history, please click below to read my 
 - Active community support
 
 ## What you could achieve with CPGE so far!
-- With our First Release, you can now create a full working 2D game using the 2D Rendering system.  Music, Sounds, Faders, File Loader System, ASync Thread Management, Mouse input, Keyboard, Custom Windows and Controls. Basically everything you need to create a standard looking game on Windows Operating systems.
+- With our First Release, you can now create a full working 2D game using the 2D Rendering system via DirectX 11 (DirectX 12 will be soon).  Music, Sounds, Faders, File Loader System, ASync Thread Management, Mouse input, Keyboard, Custom Windows and Controls. Basically everything you need to create a standard looking game on Windows Operating systems.
 
 - We are now using scenes which consist of all models (including textures, bumps etc), Camera and lighting within a 3D Project.  For you to use this successfully, consider using a 3D Modeller package that can export GLTF 2.0 formats (Free to use system).  I, myself, uses Blender v4 and above which is also free to use.  You can find it above under the Important Links section above.
 
