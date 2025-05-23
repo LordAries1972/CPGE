@@ -160,6 +160,8 @@ DEVELOPMENT HISTORY: -
              RenderFrame() now invidilises (Or HTFUSI (How To Fully Utilize Scene Implementation)) and appropriately renderers scene phases. 
 
 21/05/2025 - ThreadManager now supports Locking/Unlocking and CheckLock/TryLock functions.  See ThreadManager.h/.cpp for more info.
+23/05/2025 - FXManager now supports various text scroller routines such LTOR, RTOL, Consistent and Movie Scroller.
+             See DX_FXManager.h/.cpp for more details.  Example usage can be found under Docs/FXManager-TextScrollers-Example-Usage.txt
 
 [ FUTURE ]   OK EVERYONE, PEOPLE NEED TO RELISE HERE THAT THIS IS VERY CLOSE TO GAMING PRODUCTION FOR DIRECTX 11 SYSTEMS! (WINDOWS 10 64BIT)
              Alot of this work, MY TIME and for free, it's what you get paid for right? Your story, your graphics and your 
