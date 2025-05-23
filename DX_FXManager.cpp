@@ -3,6 +3,7 @@
 #include "Includes.h"
 #include "DX_FXManager.h"
 #include "Debug.h"
+#include "MathPrecalculation.h"
 #include "ThreadManager.h"
 #include "ThreadLockHelper.h"
 
@@ -750,8 +751,10 @@ void FXManager::RenderParticles(FXItem& fxItem)
 
         // Compute position using proper angle as a float
         // This is key: using the float angle with trig functions for correct circular dispersion
-        float xPos = fxItem.originX + cosf(p.angle) * p.radius;
-        float yPos = fxItem.originY + sinf(p.angle) * p.radius;
+        float sinVal, cosVal;
+        FAST_MATH.FastSinCos(p.angle, sinVal, cosVal);
+        float xPos = fxItem.originX + cosVal * p.radius;
+        float yPos = fxItem.originY + sinVal * p.radius;
 
         // Update the particle's stored position
         p.x = xPos;
@@ -1053,8 +1056,10 @@ void FXManager::UpdateStarfield(float deltaTime)
                 float dist = (0.1f + (static_cast<float>(rand()) / RAND_MAX) * 0.9f) *
                     (resetDepth * 0.1f); // Smaller radius at distance
 
-                p.x = cosf(angle) * dist;
-                p.y = sinf(angle) * dist;
+                float outCos, outSin;
+                FAST_MATH.FastSinCos(angle, outSin, outCos);
+                p.x = outCos * dist;
+                p.y = outSin * dist;
                 p.angle = resetDepth * (0.9f + 0.1f * static_cast<float>(rand()) / RAND_MAX);
 
                 // Randomize properties slightly

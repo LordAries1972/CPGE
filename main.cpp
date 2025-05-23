@@ -44,6 +44,7 @@
 /* ------------------------------------------------------------------------------ */
 #include "Includes.h"
 // Engine Subsystems
+#include "MathPrecalculation.h"
 #include "DX_FXManager.h"
 #include "Debug.h"
 #include "GUIManager.h"
@@ -216,6 +217,14 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         if (!soundManager.Initialize(hwnd)) {
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Sound system initialization or loading failed.");
             return EXIT_FAILURE;
+        }
+
+        if (!FAST_MATH.Initialize())
+        {
+            #if defined(_DEBUG_MATHPRECALC_)
+                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Example] Failed to initialize MathPrecalculation!");
+            #endif
+            return -1;
         }
 
         // Now Initialise our Renderer

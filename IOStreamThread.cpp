@@ -2,6 +2,7 @@
 // DO NOT INCLUDE THIS FILE, THE PROJECT SCOPES THIS FILE!
 /* -------------------------------------------------------------- */
 #include "Includes.h"
+#include "MathPrecalculation.h"
 #include "IOStreamThread.h"
 #include "ThreadManager.h"
 #include "WinSystem.h"

@@ -189,6 +189,7 @@
     <ClCompile Include="Joystick.cpp" />
     <ClCompile Include="Lights.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="MathPrecalculation.cpp" />
     <ClCompile Include="Models.cpp" />
     <ClCompile Include="MoviePlayer.cpp" />
     <ClCompile Include="NetworkManager.cpp" />
@@ -214,6 +215,7 @@
     <ClInclude Include="IOStreamThread.h" />
     <ClInclude Include="Joystick.h" />
     <ClInclude Include="Lights.h" />
+    <ClInclude Include="MathPrecalculation.h" />
     <ClInclude Include="Models.h" />
     <ClInclude Include="MoviePlayer.h" />
     <ClInclude Include="NetworkManager.h" />

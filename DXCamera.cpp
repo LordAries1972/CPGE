@@ -1,4 +1,5 @@
 ﻿#include "Includes.h"
+#include "MathPrecalculation.h"
 #include "Configuration.h"
 #include "DXCamera.h"
 #include "Debug.h"
@@ -52,10 +53,12 @@ void Camera::SetYawPitch(float newYaw, float newPitch)
     m_pitch = newPitch;
 
     // Compute forward vector from yaw and pitch
+    
+
     XMVECTOR fwd = XMVectorSet(
-        cosf(m_pitch) * sinf(m_yaw),
-        sinf(m_pitch),
-        cosf(m_pitch) * cosf(m_yaw),
+        FAST_COS(m_pitch) * FAST_SIN(m_yaw),
+        FAST_SIN(m_pitch),
+        FAST_COS(m_pitch) * FAST_COS(m_yaw),
         0.0f
     );
     fwd = XMVector3Normalize(fwd);
@@ -156,7 +159,7 @@ void Camera::SetTarget(const XMFLOAT3& newTarget)
 void Camera::SetNearFar(float nearPlane, float farPlane)
 {
     float aspect = static_cast<float>(config.myConfig.aspectRatio);
-    float fovY = 2.0f * atanf(tanf(static_cast<float>(config.myConfig.fov) * 0.5f * XM_PI / 180.0f) / aspect);
+    float fovY = 2.0f * atanf(FAST_TAN(static_cast<float>(config.myConfig.fov) * 0.5f * XM_PI / 180.0f) / aspect);
 
     projectionMatrix = XMMatrixPerspectiveFovLH(fovY, aspect, nearPlane, farPlane);
 
@@ -234,10 +237,10 @@ void Camera::SetProjectionMatrix(const XMMATRIX& matrix) {
 void Camera::UpdateViewMatrix()
 {
     // --- Calculate new forward from yaw and pitch ---
-    float cosPitch = cosf(m_pitch);
-    float sinPitch = sinf(m_pitch);
-    float cosYaw = cosf(m_yaw);
-    float sinYaw = sinf(m_yaw);
+    float cosPitch = FAST_COS(m_pitch);
+    float sinPitch = FAST_SIN(m_pitch);
+    float cosYaw = FAST_COS(m_yaw);
+    float sinYaw = FAST_SIN(m_yaw);
 
     XMVECTOR fwd = XMVectorSet(
         cosPitch * sinYaw,

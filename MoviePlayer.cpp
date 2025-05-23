@@ -9,7 +9,7 @@
 #define NOMINMAX										// allows us to use std::min, std::max
 
 #include "Includes.h"
-
+#include "MathPrecalculation.h"
 #include "MoviePlayer.h"
 #include "DX11Renderer.h"
 #include "RendererMacros.h"
@@ -937,9 +937,8 @@ bool MoviePlayer::UpdateVideoTexture()
                         }
 
                         // Convert YUV to RGB using standard conversion formulas
-                        int r = yValue + 1.402f * (vValue - 128);
-                        int g = yValue - 0.344f * (uValue - 128) - 0.714f * (vValue - 128);
-                        int b = yValue + 1.772f * (uValue - 128);
+                        uint8_t r, g, b;
+                        FAST_MATH.FastYuvToRgb(yValue, uValue, vValue, r, g, b);
 
                         // Clamp values to 0-255 range
                         r = (r < 0) ? 0 : ((r > 255) ? 255 : r);

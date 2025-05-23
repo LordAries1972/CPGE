@@ -1,0 +1,1166 @@
+//-------------------------------------------------------------------------------------------------
+// MathPrecalculationExample.cpp - Comprehensive Usage Example for MathPrecalculation Class
+//
+// This example demonstrates the complete usage of the MathPrecalculation class in a gaming
+// context, showing all features including trigonometric functions, color conversions,
+// interpolations, particle systems, and matrix transformations.
+//
+// Purpose: Educational example showing optimal usage patterns for high-performance gaming
+/*
+This comprehensive example demonstrates the complete usage of the MathPrecalculation class in various gaming scenarios. Here's what the example covers:
+
+Key Features Demonstrated:
+1. Basic Trigonometric Functions
+
+Usage of all fast trigonometric macros (FAST_SIN, FAST_COS, FAST_TAN)
+Inverse trigonometric functions (FAST_ASIN, FAST_ACOS, FAST_ATAN, FAST_ATAN2)
+Simultaneous sin/cos calculations for efficiency
+Performance comparison with standard math functions
+
+2. Color Conversion Systems
+
+RGB to YUV and YUV to RGB conversions for video processing
+Gamma correction for proper color display
+Float-based color conversions for shader usage
+Fast color clamping operations
+
+3. Interpolation Functions
+
+All interpolation types: Linear, SmoothStep, SmootherStep
+Easing functions: EaseIn, EaseOut, EaseInOut
+Animation curve comparisons with visual feedback
+
+4. Particle System Integration
+
+Precalculated particle directions for explosions
+Particle velocity calculations using fast math
+Real-time particle physics simulation
+Distance calculations and vector normalization
+
+5. Matrix Transformations
+
+3D entity transformation matrices
+Camera view matrix calculations
+Fast matrix multiplication operations
+Scale, rotation, and translation combinations
+
+6. Text Rendering Optimizations
+
+Character width calculations for text layout
+Transparency calculations for scrolling text effects
+Font rendering performance optimizations
+
+7. Advanced Gaming Scenarios
+
+Complete game loop integration
+Multi-entity management systems
+Lighting calculations with multiple light sources
+Real-time animation systems
+//------------------------------------------------------------------------------------------------- */
+
+#include "Includes.h"
+#include "MathPrecalculation.h"
+#include "Debug.h"
+
+// External reference for global debug instance
+extern Debug debug;
+
+//==============================================================================
+// Example Game Entity Classes for Demonstration
+//==============================================================================
+
+// Simple 2D game entity with position, rotation, and scale
+struct GameEntity {
+    XMFLOAT3 position;                                                          // World position (x, y, z)
+    XMFLOAT3 rotation;                                                          // Rotation angles in radians
+    XMFLOAT3 scale;                                                             // Scale factors
+    XMFLOAT4 color;                                                             // RGBA color
+    float animationTime;                                                        // Current animation time
+    bool isActive;                                                              // Entity active state
+    
+    // Constructor to initialize entity with default values
+    GameEntity() : 
+        position(0.0f, 0.0f, 0.0f), 
+        rotation(0.0f, 0.0f, 0.0f),
+        scale(1.0f, 1.0f, 1.0f),
+        color(1.0f, 1.0f, 1.0f, 1.0f),
+        animationTime(0.0f),
+        isActive(true) {}
+};
+
+// Particle structure for particle system demonstration
+struct GameParticle {
+    XMFLOAT2 position;                                                          // 2D position
+    XMFLOAT2 velocity;                                                          // 2D velocity vector
+    float life;                                                                 // Remaining life (0.0 to 1.0)
+    float size;                                                                 // Particle size
+    XMFLOAT4 color;                                                             // Particle color with alpha
+    float rotationAngle;                                                        // Current rotation angle
+    float rotationSpeed;                                                        // Rotation speed in radians/second
+    
+    // Constructor to initialize particle with default values
+    GameParticle() : 
+        position(0.0f, 0.0f), 
+        velocity(0.0f, 0.0f),
+        life(1.0f),
+        size(1.0f),
+        color(1.0f, 1.0f, 1.0f, 1.0f),
+        rotationAngle(0.0f),
+        rotationSpeed(0.0f) {}
+};
+
+//==============================================================================
+// Example Functions Demonstrating MathPrecalculation Usage
+//==============================================================================
+
+// Demonstrate basic trigonometric function usage with performance comparison
+void DemonstrateTrigonometricFunctions()
+{
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[Example] Starting trigonometric functions demonstration");
+#endif
+
+    // Test angles for demonstration
+    std::vector<float> testAngles = { 0.0f, XM_PIDIV4, XM_PIDIV2, XM_PI, 3.0f * XM_PIDIV2, 2.0f * XM_PI };
+    
+    // Demonstrate fast trigonometric functions using macros
+    for (float angle : testAngles)
+    {
+        // Using the convenient macros for fast trigonometric calculations
+        float fastSin = FAST_SIN(angle);                                        // Fast sine lookup
+        float fastCos = FAST_COS(angle);                                        // Fast cosine lookup
+        float fastTan = FAST_TAN(angle);                                        // Fast tangent lookup
+        
+        // Using the class methods directly for inverse trigonometric functions
+        float fastAsin = FAST_ASIN(fastSin);                                    // Fast arcsine lookup
+        float fastAcos = FAST_ACOS(fastCos);                                    // Fast arccosine lookup
+        float fastAtan = FAST_ATAN(fastTan);                                    // Fast arctangent lookup
+        
+        // Demonstrate simultaneous sin/cos calculation for efficiency
+        float sinResult, cosResult;
+        FAST_MATH.FastSinCos(angle, sinResult, cosResult);                      // Get both values in single call
+        
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[Example] Angle: %.4f - Sin: %.4f, Cos: %.4f, Tan: %.4f",
+            angle, fastSin, fastCos, fastTan);
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[Example] Inverse - ASin: %.4f, ACos: %.4f, ATan: %.4f",
+            fastAsin, fastAcos, fastAtan);
+#endif
+    }
+    
+    // Demonstrate ATan2 for angle calculation from coordinates
+    std::vector<XMFLOAT2> testPoints = { 
+        XMFLOAT2(1.0f, 1.0f),   // 45 degrees
+        XMFLOAT2(-1.0f, 1.0f),  // 135 degrees
+        XMFLOAT2(-1.0f, -1.0f), // -135 degrees
+        XMFLOAT2(1.0f, -1.0f)   // -45 degrees
+    };
+    
+    for (const XMFLOAT2& point : testPoints)
+    {
+        float angle = FAST_ATAN2(point.y, point.x);                             // Calculate angle from coordinates
+        float degrees = angle * 180.0f / XM_PI;                                 // Convert to degrees for display
+        
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[Example] Point (%.2f, %.2f) - Angle: %.4f rad (%.2f deg)",
+            point.x, point.y, angle, degrees);
+#endif
+    }
+}
+
+// Demonstrate color conversion functions for video processing
+void DemonstrateColorConversions()
+{
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[Example] Starting color conversion demonstration");
+#endif
+
+    // Test color values for demonstration
+    std::vector<std::tuple<uint8_t, uint8_t, uint8_t>> testColors = {
+        {255, 0, 0},    // Pure red
+        {0, 255, 0},    // Pure green
+        {0, 0, 255},    // Pure blue
+        {255, 255, 255}, // White
+        {128, 128, 128}, // Gray
+        {0, 0, 0}       // Black
+    };
+    
+    for (const auto& color : testColors)
+    {
+        uint8_t r = std::get<0>(color);
+        uint8_t g = std::get<1>(color);
+        uint8_t b = std::get<2>(color);
+        
+        // Convert RGB to YUV using fast conversion
+        uint8_t y, u, v;
+        FAST_MATH.FastRgbToYuv(r, g, b, y, u, v);
+        
+        // Convert back from YUV to RGB to verify accuracy
+        uint8_t convertedR, convertedG, convertedB;
+        FAST_MATH.FastYuvToRgb(y, u, v, convertedR, convertedG, convertedB);
+        
+        // Demonstrate gamma correction
+        uint8_t gammaCorrectedR = FAST_MATH.FastGammaCorrect(r, 2.2f);
+        uint8_t gammaCorrectedG = FAST_MATH.FastGammaCorrect(g, 2.2f);
+        uint8_t gammaCorrectedB = FAST_MATH.FastGammaCorrect(b, 2.2f);
+        
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[Example] RGB(%d,%d,%d) -> YUV(%d,%d,%d) -> RGB(%d,%d,%d)",
+            r, g, b, y, u, v, convertedR, convertedG, convertedB);
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[Example] Gamma corrected: RGB(%d,%d,%d)",
+            gammaCorrectedR, gammaCorrectedG, gammaCorrectedB);
+#endif
+    }
+    
+    // Demonstrate float-based YUV to RGB conversion for shader usage
+    XMFLOAT4 floatColor = FAST_MATH.FastYuvToRgbFloat(0.5f, 0.3f, 0.7f);
+    
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logDebugMessage(LogLevel::LOG_DEBUG,
+        L"[Example] Float YUV(0.5,0.3,0.7) -> RGB(%.3f,%.3f,%.3f,%.3f)",
+        floatColor.x, floatColor.y, floatColor.z, floatColor.w);
+#endif
+}
+
+// Demonstrate interpolation functions for smooth animations
+void DemonstrateInterpolationFunctions()
+{
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[Example] Starting interpolation functions demonstration");
+#endif
+
+    const float startValue = 0.0f;
+    const float endValue = 100.0f;
+    const int steps = 11;  // 0% to 100% in 10% increments
+    
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[Example] Interpolation comparison (Start: 0.0, End: 100.0):");
+    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[Example] T%    Linear  Smooth  Smoother EaseIn  EaseOut EaseInOut");
+#endif
+    
+    for (int i = 0; i <= steps; ++i)
+    {
+        float t = static_cast<float>(i) / static_cast<float>(steps);
+        
+        // Demonstrate all interpolation types using the class methods
+        float linearResult = FAST_LERP(startValue, endValue, t);                // Linear interpolation macro
+        float smoothResult = FAST_MATH.FastSmoothStep(startValue, endValue, t); // Smooth step interpolation
+        float smootherResult = FAST_MATH.FastSmootherStep(startValue, endValue, t); // Smoother step interpolation
+        float easeInResult = FAST_MATH.FastEaseIn(startValue, endValue, t);     // Ease-in interpolation
+        float easeOutResult = FAST_MATH.FastEaseOut(startValue, endValue, t);   // Ease-out interpolation
+        float easeInOutResult = FAST_MATH.FastEaseInOut(startValue, endValue, t); // Ease-in-out interpolation
+        
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[Example] %3.0f%% %6.2f  %6.2f  %7.2f   %6.2f  %7.2f  %8.2f",
+            t * 100.0f, linearResult, smoothResult, smootherResult, 
+            easeInResult, easeOutResult, easeInOutResult);
+#endif
+    }
+}
+
+// Demonstrate particle system usage with precalculated directions
+void DemonstrateParticleSystem()
+{
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[Example] Starting particle system demonstration");
+#endif
+
+    const int particleCount = 16;                                               // Number of particles in explosion
+    const float explosionSpeed = 150.0f;                                       // Explosion speed in units/second
+    const XMFLOAT2 explosionCenter(400.0f, 300.0f);                            // Center of explosion
+    
+    // Create particle array for demonstration
+    std::vector<GameParticle> particles(particleCount);
+    
+    // Initialize particles using precalculated directions
+    for (int i = 0; i < particleCount; ++i)
+    {
+        GameParticle& particle = particles[i];
+        
+        // Get precalculated direction from the MathPrecalculation class
+        XMFLOAT2 direction = FAST_MATH.GetParticleDirection(i, particleCount);
+        
+        // Set particle properties
+        particle.position = explosionCenter;
+        particle.velocity = XMFLOAT2(direction.x * explosionSpeed, direction.y * explosionSpeed);
+        particle.life = 1.0f;                                                   // Full life at start
+        particle.size = 2.0f + (static_cast<float>(rand()) / RAND_MAX) * 3.0f; // Random size 2-5
+        particle.rotationSpeed = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 6.28f; // Random rotation speed
+        
+        // Set color based on particle index for variety
+        float hue = static_cast<float>(i) / static_cast<float>(particleCount) * 2.0f * XM_PI;
+        particle.color.x = (FAST_SIN(hue) + 1.0f) * 0.5f;                      // Red component using fast sine
+        particle.color.y = (FAST_SIN(hue + 2.09f) + 1.0f) * 0.5f;             // Green component (120° offset)
+        particle.color.z = (FAST_SIN(hue + 4.18f) + 1.0f) * 0.5f;             // Blue component (240° offset)
+        particle.color.w = 1.0f;                                                // Full alpha initially
+        
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[Example] Particle %d: Dir(%.3f,%.3f), Vel(%.1f,%.1f), Color(%.2f,%.2f,%.2f)",
+            i, direction.x, direction.y, particle.velocity.x, particle.velocity.y,
+            particle.color.x, particle.color.y, particle.color.z);
+#endif
+    }
+    
+    // Simulate particle update for a few frames
+    const float deltaTime = 1.0f / 60.0f;                                      // 60 FPS simulation
+    const int simulationFrames = 5;
+    
+    for (int frame = 0; frame < simulationFrames; ++frame)
+    {
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[Example] === Frame %d ===", frame + 1);
+#endif
+        
+        for (int i = 0; i < particleCount; ++i)
+        {
+            GameParticle& particle = particles[i];
+            
+            // Update particle position using velocity
+            particle.position.x += particle.velocity.x * deltaTime;
+            particle.position.y += particle.velocity.y * deltaTime;
+            
+            // Update particle rotation
+            particle.rotationAngle += particle.rotationSpeed * deltaTime;
+            
+            // Update particle life (linear decay)
+            particle.life -= deltaTime * 0.5f;                                 // 2 second lifespan
+            
+            // Update particle alpha based on remaining life using fast interpolation
+            particle.color.w = FAST_LERP(0.0f, 1.0f, particle.life);
+            
+            // Calculate distance from explosion center using fast distance calculation
+            XMFLOAT2 currentPos(particle.position.x, particle.position.y);
+            float distanceFromCenter = FAST_MATH.FastDistance(explosionCenter, currentPos);
+            
+            // Only log first few particles to avoid spam
+            if (i < 3)
+            {
+#if defined(_DEBUG_MATHPRECALC_)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                    L"[Example] P%d: Pos(%.1f,%.1f), Life: %.2f, Dist: %.1f, Rot: %.2f",
+                    i, particle.position.x, particle.position.y, particle.life, 
+                    distanceFromCenter, particle.rotationAngle);
+#endif
+            }
+        }
+    }
+}
+
+// Demonstrate matrix transformation usage for 3D objects
+void DemonstrateMatrixTransformations()
+{
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[Example] Starting matrix transformation demonstration");
+#endif
+
+    // Create test game entities with different properties
+    std::vector<GameEntity> entities(5);
+    
+    // Initialize entities with different transformations
+    entities[0].position = XMFLOAT3(10.0f, 5.0f, 0.0f);
+    entities[0].rotation = XMFLOAT3(0.0f, 0.0f, XM_PIDIV4);                    // 45° Z rotation
+    entities[0].scale = XMFLOAT3(2.0f, 2.0f, 2.0f);                            // Uniform scale
+    
+    entities[1].position = XMFLOAT3(-5.0f, 10.0f, 3.0f);
+    entities[1].rotation = XMFLOAT3(XM_PIDIV6, 0.0f, 0.0f);                    // 30° X rotation
+    entities[1].scale = XMFLOAT3(1.5f, 1.0f, 0.5f);                            // Non-uniform scale
+    
+    entities[2].position = XMFLOAT3(0.0f, 0.0f, -8.0f);
+    entities[2].rotation = XMFLOAT3(0.0f, XM_PIDIV2, 0.0f);                    // 90° Y rotation
+    entities[2].scale = XMFLOAT3(0.75f, 0.75f, 0.75f);                         // Smaller uniform scale
+    
+    entities[3] = GameEntity();  // Default entity at origin
+    entities[4].position = XMFLOAT3(1.0f, 1.0f, 1.0f);
+    entities[4].rotation = XMFLOAT3(XM_PIDIV4, XM_PIDIV4, XM_PIDIV4);          // 45° on all axes
+    
+    // Process each entity and create transformation matrices
+    for (size_t i = 0; i < entities.size(); ++i)
+    {
+        GameEntity& entity = entities[i];
+        
+        // Get optimized transformation matrices using MathPrecalculation
+        XMMATRIX scaleMatrix = FAST_MATH.GetScaleMatrix(
+            entity.scale.x, entity.scale.y, entity.scale.z);
+        
+        XMMATRIX rotationMatrix = FAST_MATH.GetRotationMatrix(
+            entity.rotation.x, entity.rotation.y, entity.rotation.z);
+        
+        // Create translation matrix (no precalculation needed for translation)
+        XMMATRIX translationMatrix = XMMatrixTranslation(
+            entity.position.x, entity.position.y, entity.position.z);
+        
+        // Combine matrices using fast matrix multiplication (Scale * Rotation * Translation)
+        XMMATRIX worldMatrix = FAST_MATH.FastMatrixMultiply(scaleMatrix, rotationMatrix);
+        worldMatrix = FAST_MATH.FastMatrixMultiply(worldMatrix, translationMatrix);
+        
+        // Extract final transformation values for verification
+        XMFLOAT4X4 worldMatrixFloat;
+        XMStoreFloat4x4(&worldMatrixFloat, worldMatrix);
+        
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[Example] Entity %zu - Pos(%.2f,%.2f,%.2f), Rot(%.2f,%.2f,%.2f), Scale(%.2f,%.2f,%.2f)",
+            i, entity.position.x, entity.position.y, entity.position.z,
+            entity.rotation.x * 180.0f / XM_PI, entity.rotation.y * 180.0f / XM_PI, entity.rotation.z * 180.0f / XM_PI,
+            entity.scale.x, entity.scale.y, entity.scale.z);
+        
+        // Show first row of transformation matrix for verification
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[Example] World Matrix Row 0: [%.3f, %.3f, %.3f, %.3f]",
+            worldMatrixFloat._11, worldMatrixFloat._12, worldMatrixFloat._13, worldMatrixFloat._14);
+#endif
+    }
+    
+    // Demonstrate camera view matrix calculation
+    XMFLOAT3 cameraPos(0.0f, 5.0f, -10.0f);                                   // Camera position
+    XMFLOAT3 lookAtTarget(0.0f, 0.0f, 0.0f);                                   // Look at world origin
+    XMFLOAT3 upVector(0.0f, 1.0f, 0.0f);                                       // Up vector (Y-axis)
+    
+    XMMATRIX viewMatrix = FAST_MATH.GetViewMatrix(cameraPos, lookAtTarget, upVector);
+    
+    XMFLOAT4X4 viewMatrixFloat;
+    XMStoreFloat4x4(&viewMatrixFloat, viewMatrix);
+    
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logDebugMessage(LogLevel::LOG_DEBUG,
+        L"[Example] Camera - Pos(%.1f,%.1f,%.1f), Target(%.1f,%.1f,%.1f)",
+        cameraPos.x, cameraPos.y, cameraPos.z, lookAtTarget.x, lookAtTarget.y, lookAtTarget.z);
+    debug.logDebugMessage(LogLevel::LOG_DEBUG,
+        L"[Example] View Matrix Row 0: [%.3f, %.3f, %.3f, %.3f]",
+        viewMatrixFloat._11, viewMatrixFloat._12, viewMatrixFloat._13, viewMatrixFloat._14);
+#endif
+}
+
+// Demonstrate text rendering optimizations
+void DemonstrateTextOptimizations()
+{
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[Example] Starting text rendering optimization demonstration");
+#endif
+
+    // Test string for width calculation
+    const std::wstring testText = L"Hello Gaming World! 123";
+    const float fontSize = 16.0f;
+    
+    // Calculate total text width using fast character width lookup
+    float totalWidth = 0.0f;
+    for (wchar_t ch : testText)
+    {
+        float charWidth = FAST_MATH.GetCharacterWidthFast(ch, fontSize);
+        totalWidth += charWidth;
+        
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[Example] Character '%c': Width %.2f pixels", ch, charWidth);
+#endif
+    }
+    
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logDebugMessage(LogLevel::LOG_INFO,
+        L"[Example] Text \"%s\" total width: %.2f pixels at %.1f pt",
+        testText.c_str(), totalWidth, fontSize);
+#endif
+    
+    // Demonstrate text transparency calculation for scrolling text
+    const float scrollRegionStart = 100.0f;
+    const float scrollRegionEnd = 700.0f;
+    const float fadeDistance = 50.0f;
+    const int positions = 15;
+    
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logLevelMessage(LogLevel::LOG_DEBUG, 
+        L"[Example] Text transparency for scrolling region (%.0f to %.0f, fade: %.0f):",
+        scrollRegionStart, scrollRegionEnd, fadeDistance);
+#endif
+    
+    for (int i = 0; i <= positions; ++i)
+    {
+        float position = 0.0f + (static_cast<float>(i) / static_cast<float>(positions)) * 800.0f;
+        float transparency = FAST_MATH.GetTextTransparencyFast(
+            position, scrollRegionStart, scrollRegionEnd, fadeDistance);
+        
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[Example] Position %.0f: Transparency %.3f", position, transparency);
+#endif
+    }
+}
+
+// Demonstrate performance comparison between standard and fast math functions
+void DemonstratePerformanceComparison()
+{
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[Example] Starting performance comparison demonstration");
+#endif
+
+    const int iterations = 10000;                                              // Number of calculations for timing
+    const float testAngle = 1.23456f;                                          // Test angle for calculations
+    
+    // Variables to store results (prevent compiler optimization)
+    volatile float standardResult = 0.0f;
+    volatile float fastResult = 0.0f;
+    
+    // Note: Actual timing would require high-resolution timer
+    // This example shows the usage pattern for performance comparison
+    
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logDebugMessage(LogLevel::LOG_INFO,
+        L"[Example] Performing %d iterations of trigonometric calculations", iterations);
+#endif
+    
+    // Simulate standard math function calls
+    for (int i = 0; i < iterations; ++i)
+    {
+        float angle = testAngle + static_cast<float>(i) * 0.001f;
+        standardResult += std::sin(angle) + std::cos(angle) + std::tan(angle);
+    }
+    
+    // Simulate fast math function calls using macros
+    for (int i = 0; i < iterations; ++i)
+    {
+        float angle = testAngle + static_cast<float>(i) * 0.001f;
+        fastResult += FAST_SIN(angle) + FAST_COS(angle) + FAST_TAN(angle);
+    }
+    
+    // Calculate accuracy comparison
+    float accuracyDifference = std::abs(standardResult - fastResult);
+    
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logDebugMessage(LogLevel::LOG_INFO,
+        L"[Example] Standard result: %.6f, Fast result: %.6f", 
+        standardResult, fastResult);
+    debug.logDebugMessage(LogLevel::LOG_INFO,
+        L"[Example] Accuracy difference: %.6f (%.6f%%)", 
+        accuracyDifference, (accuracyDifference / std::abs(standardResult)) * 100.0f);
+#endif
+}
+
+//==============================================================================
+// Main Example Function
+//==============================================================================
+
+// Main function demonstrating comprehensive usage of MathPrecalculation class
+int MathPrecalculationUsageExample()
+{
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[Example] ===============================================");
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[Example] MathPrecalculation Comprehensive Usage Example");
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[Example] ===============================================");
+#endif
+
+    // Initialize the MathPrecalculation singleton
+    if (!FAST_MATH.Initialize())
+    {
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Example] Failed to initialize MathPrecalculation!");
+#endif
+        return -1;
+    }
+
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logDebugMessage(LogLevel::LOG_INFO, 
+        L"[Example] MathPrecalculation initialized successfully - Memory usage: %zu bytes",
+        FAST_MATH.GetMemoryUsage());
+#endif
+
+    // Validate lookup tables before usage
+    if (!FAST_MATH.ValidateTables())
+    {
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[Example] Lookup table validation failed!");
+#endif
+        return -2;
+    }
+
+    try
+    {
+        // Run all demonstration functions
+        DemonstrateTrigonometricFunctions();                                    // Basic trigonometric operations
+        DemonstrateColorConversions();                                          // Color space conversions
+        DemonstrateInterpolationFunctions();                                    // Animation interpolations
+        DemonstrateParticleSystem();                                            // Particle system usage
+        DemonstrateMatrixTransformations();                                     // 3D transformations
+        DemonstrateTextOptimizations();                                         // Text rendering optimizations
+        DemonstratePerformanceComparison();                                     // Performance comparison
+        
+        // Dump final statistics
+        FAST_MATH.DumpTableStatistics();
+        
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[Example] All demonstrations completed successfully!");
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[Example] ===============================================");
+#endif
+        
+        return 0;  // Success
+    }
+    catch (const std::exception& e)
+    {
+        // Convert exception message to wide string for logging
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logLevelMessage(LogLevel::LOG_CRITICAL, 
+            L"[Example] Exception occurred: " + wErrorMsg);
+#endif
+        return -3;
+    }
+    catch (...)
+    {
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Example] Unknown exception occurred during demonstration");
+#endif
+        return -4;
+    }
+}
+
+//==============================================================================
+// Advanced Usage Examples
+//==============================================================================
+
+// Demonstrate real-time game loop integration with MathPrecalculation
+void DemonstrateGameLoopIntegration()
+{
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[Example] Starting game loop integration demonstration");
+#endif
+
+    // Simulate game loop with multiple entities and effects
+    const int maxEntities = 50;                                                 // Maximum number of game entities
+    const int maxParticles = 200;                                               // Maximum number of particles
+    const float deltaTime = 1.0f / 60.0f;                                      // 60 FPS target
+    const int simulationFrames = 10;                                            // Number of frames to simulate
+    
+    // Create entity and particle arrays
+    std::vector<GameEntity> gameEntities(maxEntities);
+    std::vector<GameParticle> gameParticles(maxParticles);
+    
+    // Initialize entities with random properties
+    for (int i = 0; i < maxEntities; ++i)
+    {
+        GameEntity& entity = gameEntities[i];
+        
+        // Random position within game world
+        entity.position.x = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 200.0f;
+        entity.position.y = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 200.0f;
+        entity.position.z = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 200.0f;
+        
+        // Random rotation speeds
+        entity.rotation.x = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 2.0f;
+        entity.rotation.y = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 2.0f;
+        entity.rotation.z = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 2.0f;
+        
+        // Random scale factors
+        float scaleValue = 0.5f + (static_cast<float>(rand()) / RAND_MAX) * 2.0f;
+        entity.scale = XMFLOAT3(scaleValue, scaleValue, scaleValue);
+        
+        // Random colors using fast trigonometric functions
+        float hue = static_cast<float>(i) / static_cast<float>(maxEntities) * 2.0f * XM_PI;
+        entity.color.x = (FAST_SIN(hue) + 1.0f) * 0.5f;
+        entity.color.y = (FAST_SIN(hue + 2.094f) + 1.0f) * 0.5f;               // 120° phase shift
+        entity.color.z = (FAST_SIN(hue + 4.188f) + 1.0f) * 0.5f;               // 240° phase shift
+        entity.color.w = 1.0f;
+        
+        entity.animationTime = 0.0f;
+        entity.isActive = true;
+    }
+    
+    // Initialize particles in circular formation
+    for (int i = 0; i < maxParticles; ++i)
+    {
+        GameParticle& particle = gameParticles[i];
+        
+        // Create particle ring formation using precalculated directions
+        XMFLOAT2 direction = FAST_MATH.GetParticleDirection(i, maxParticles);
+        float radius = 50.0f + (static_cast<float>(rand()) / RAND_MAX) * 100.0f;
+        
+        particle.position.x = direction.x * radius;
+        particle.position.y = direction.y * radius;
+        particle.velocity = FAST_MATH.GetParticleVelocity(
+            FAST_ATAN2(direction.y, direction.x), 
+            25.0f + (static_cast<float>(rand()) / RAND_MAX) * 50.0f);
+        
+        particle.life = 1.0f;
+        particle.size = 1.0f + (static_cast<float>(rand()) / RAND_MAX) * 3.0f;
+        particle.rotationSpeed = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 10.0f;
+        
+        // Particle colors based on position
+        float angle = FAST_ATAN2(particle.position.y, particle.position.x);
+        particle.color.x = (FAST_SIN(angle) + 1.0f) * 0.5f;
+        particle.color.y = (FAST_COS(angle) + 1.0f) * 0.5f;
+        particle.color.z = (FAST_SIN(angle * 2.0f) + 1.0f) * 0.5f;
+        particle.color.w = 1.0f;
+        
+        particle.rotationAngle = 0.0f;
+    }
+    
+    // Simulate game loop frames
+    for (int frame = 0; frame < simulationFrames; ++frame)
+    {
+        float frameTime = static_cast<float>(frame) * deltaTime;
+        
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[Example] === Game Loop Frame %d (Time: %.3f) ===", frame + 1, frameTime);
+#endif
+        
+        // Update all game entities
+        for (int i = 0; i < maxEntities; ++i)
+        {
+            GameEntity& entity = gameEntities[i];
+            
+            if (!entity.isActive) continue;
+            
+            // Update animation time
+            entity.animationTime += deltaTime;
+            
+            // Animate rotation using smooth interpolation
+            float rotationT = FAST_MATH.FastSmoothStep(0.0f, 1.0f, 
+                fmod(entity.animationTime * 0.5f, 1.0f));
+            
+            // Apply rotation animation
+            entity.rotation.x += entity.rotation.x * deltaTime * rotationT;
+            entity.rotation.y += entity.rotation.y * deltaTime * rotationT;
+            entity.rotation.z += entity.rotation.z * deltaTime * rotationT;
+            
+            // Animate scale using sine wave
+            float scaleAnimation = FAST_SIN(entity.animationTime * 2.0f) * 0.2f + 1.0f;
+            entity.scale.x = entity.scale.x * scaleAnimation;
+            entity.scale.y = entity.scale.y * scaleAnimation;
+            entity.scale.z = entity.scale.z * scaleAnimation;
+            
+            // Animate color using fast trigonometric functions
+            entity.color.w = (FAST_SIN(entity.animationTime * 3.0f) + 1.0f) * 0.5f;
+            
+            // Calculate transformation matrix for this entity
+            XMMATRIX worldMatrix = FAST_MATH.GetScaleMatrix(
+                entity.scale.x, entity.scale.y, entity.scale.z);
+            worldMatrix = FAST_MATH.FastMatrixMultiply(worldMatrix,
+                FAST_MATH.GetRotationMatrix(entity.rotation.x, entity.rotation.y, entity.rotation.z));
+            
+            // Show details for first few entities only
+            if (i < 3)
+            {
+#if defined(_DEBUG_MATHPRECALC_)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                    L"[Example] Entity %d: Pos(%.1f,%.1f,%.1f), Alpha: %.3f, Scale: %.3f",
+                    i, entity.position.x, entity.position.y, entity.position.z,
+                    entity.color.w, scaleAnimation);
+#endif
+            }
+        }
+        
+        // Update all particles
+        int activeParticleCount = 0;
+        for (int i = 0; i < maxParticles; ++i)
+        {
+            GameParticle& particle = gameParticles[i];
+            
+            if (particle.life <= 0.0f) continue;
+            
+            // Update particle physics
+            particle.position.x += particle.velocity.x * deltaTime;
+            particle.position.y += particle.velocity.y * deltaTime;
+            
+            // Apply drag to velocity
+            particle.velocity.x *= 0.98f;
+            particle.velocity.y *= 0.98f;
+            
+            // Update rotation
+            particle.rotationAngle += particle.rotationSpeed * deltaTime;
+            
+            // Update life with non-linear decay
+            float lifeDecay = FAST_MATH.FastEaseIn(0.0f, 1.0f, 1.0f - particle.life) * deltaTime;
+            particle.life -= lifeDecay;
+            
+            // Update alpha based on life using smooth interpolation
+            particle.color.w = FAST_MATH.FastSmoothStep(0.0f, 1.0f, particle.life);
+            
+            // Update size based on life
+            particle.size = FAST_LERP(0.1f, particle.size, particle.life);
+            
+            activeParticleCount++;
+        }
+        
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[Example] Frame %d complete - Active particles: %d/%d",
+            frame + 1, activeParticleCount, maxParticles);
+#endif
+    }
+}
+
+// Demonstrate advanced color and lighting calculations
+void DemonstrateAdvancedColorCalculations()
+{
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[Example] Starting advanced color calculations demonstration");
+#endif
+
+    // Simulate lighting calculations for multiple light sources
+    const int lightCount = 8;
+    const int surfaceCount = 16;
+    
+    // Light positions and colors
+    struct Light {
+        XMFLOAT3 position;
+        XMFLOAT3 color;
+        float intensity;
+        float range;
+    };
+    
+    // Surface properties
+    struct Surface {
+        XMFLOAT3 position;
+        XMFLOAT3 normal;
+        XMFLOAT3 albedo;
+        float roughness;
+    };
+    
+    // Create lights in circular formation
+    std::vector<Light> lights(lightCount);
+    for (int i = 0; i < lightCount; ++i)
+    {
+        float angle = static_cast<float>(i) / static_cast<float>(lightCount) * 2.0f * XM_PI;
+        lights[i].position.x = FAST_COS(angle) * 20.0f;
+        lights[i].position.y = 5.0f + FAST_SIN(angle * 2.0f) * 3.0f;
+        lights[i].position.z = FAST_SIN(angle) * 20.0f;
+        
+        // Generate light colors using fast trigonometric functions
+        float hue = angle;
+        lights[i].color.x = (FAST_SIN(hue) + 1.0f) * 0.5f;
+        lights[i].color.y = (FAST_SIN(hue + 2.094f) + 1.0f) * 0.5f;
+        lights[i].color.z = (FAST_SIN(hue + 4.188f) + 1.0f) * 0.5f;
+        
+        lights[i].intensity = 0.8f + (static_cast<float>(rand()) / RAND_MAX) * 0.4f;
+        lights[i].range = 15.0f + (static_cast<float>(rand()) / RAND_MAX) * 10.0f;
+    }
+    
+    // Create surfaces in grid formation
+    std::vector<Surface> surfaces(surfaceCount);
+    for (int i = 0; i < surfaceCount; ++i)
+    {
+        int x = i % 4;
+        int z = i / 4;
+        
+        surfaces[i].position.x = (static_cast<float>(x) - 1.5f) * 5.0f;
+        surfaces[i].position.y = 0.0f;
+        surfaces[i].position.z = (static_cast<float>(z) - 1.5f) * 5.0f;
+        
+        // Surface normal pointing upward with slight random variation
+        float normalAngle = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 0.5f;
+        surfaces[i].normal.x = FAST_SIN(normalAngle);
+        surfaces[i].normal.y = FAST_COS(normalAngle);
+        surfaces[i].normal.z = 0.0f;
+        
+        // Random surface properties
+        surfaces[i].albedo.x = 0.3f + (static_cast<float>(rand()) / RAND_MAX) * 0.7f;
+        surfaces[i].albedo.y = 0.3f + (static_cast<float>(rand()) / RAND_MAX) * 0.7f;
+        surfaces[i].albedo.z = 0.3f + (static_cast<float>(rand()) / RAND_MAX) * 0.7f;
+        surfaces[i].roughness = 0.1f + (static_cast<float>(rand()) / RAND_MAX) * 0.8f;
+    }
+    
+    // Calculate lighting for each surface
+    for (int s = 0; s < surfaceCount; ++s)
+    {
+        const Surface& surface = surfaces[s];
+        XMFLOAT3 finalColor(0.0f, 0.0f, 0.0f);
+        
+        for (int l = 0; l < lightCount; ++l)
+        {
+            const Light& light = lights[l];
+            
+            // Calculate distance using fast distance calculation
+            XMFLOAT2 surfacePos2D(surface.position.x, surface.position.z);
+            XMFLOAT2 lightPos2D(light.position.x, light.position.z);
+            float distance = FAST_MATH.FastDistance(surfacePos2D, lightPos2D);
+            
+            // Skip if light is out of range
+            if (distance > light.range) continue;
+            
+            // Calculate light direction
+            XMFLOAT3 lightDir;
+            lightDir.x = light.position.x - surface.position.x;
+            lightDir.y = light.position.y - surface.position.y;
+            lightDir.z = light.position.z - surface.position.z;
+            
+            // Normalize light direction using fast normalize
+            XMFLOAT2 lightDir2D(lightDir.x, lightDir.z);
+            XMFLOAT2 normalizedDir = FAST_MATH.FastNormalize(lightDir2D);
+            lightDir.x = normalizedDir.x;
+            lightDir.z = normalizedDir.y;
+            lightDir.y = lightDir.y / FAST_SQRT(lightDir.y * lightDir.y + distance * distance);
+            
+            // Calculate dot product for Lambert lighting
+            float dotProduct = surface.normal.x * lightDir.x + 
+                              surface.normal.y * lightDir.y + 
+                              surface.normal.z * lightDir.z;
+            dotProduct = std::max(0.0f, dotProduct);
+            
+            // Calculate attenuation using fast interpolation
+            float attenuation = FAST_MATH.FastSmoothStep(1.0f, 0.0f, distance / light.range);
+            
+            // Apply lighting calculation
+            float lightStrength = dotProduct * attenuation * light.intensity;
+            
+            finalColor.x += surface.albedo.x * light.color.x * lightStrength;
+            finalColor.y += surface.albedo.y * light.color.y * lightStrength;
+            finalColor.z += surface.albedo.z * light.color.z * lightStrength;
+        }
+        
+        // Clamp final color values
+        finalColor.x = std::min(1.0f, finalColor.x);
+        finalColor.y = std::min(1.0f, finalColor.y);
+        finalColor.z = std::min(1.0f, finalColor.z);
+        
+        // Convert to 8-bit color values for display
+        uint8_t r = static_cast<uint8_t>(finalColor.x * 255.0f);
+        uint8_t g = static_cast<uint8_t>(finalColor.y * 255.0f);
+        uint8_t b = static_cast<uint8_t>(finalColor.z * 255.0f);
+        
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[Example] Surface %d at (%.1f,%.1f): Color RGB(%d,%d,%d) - Float(%.3f,%.3f,%.3f)",
+            s, surface.position.x, surface.position.z, r, g, b,
+            finalColor.x, finalColor.y, finalColor.z);
+#endif
+    }
+}
+
+// Demonstrate usage in a complete game scenario
+void DemonstrateCompleteGameScenario()
+{
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[Example] Starting complete game scenario demonstration");
+#endif
+
+    // Game state variables
+    float gameTime = 0.0f;
+    const float sceneDuration = 5.0f;                                           // 5 second scene
+    const float timeStep = 0.1f;                                                // 10 FPS for demo
+    
+    // Game objects
+    GameEntity player;
+    std::vector<GameEntity> enemies(5);
+    std::vector<GameParticle> explosionParticles;
+    
+    // Initialize player
+    player.position = XMFLOAT3(0.0f, 0.0f, 0.0f);
+    player.rotation = XMFLOAT3(0.0f, 0.0f, 0.0f);
+    player.scale = XMFLOAT3(1.0f, 1.0f, 1.0f);
+    player.color = XMFLOAT4(0.0f, 1.0f, 0.0f, 1.0f);                           // Green player
+    player.animationTime = 0.0f;
+    player.isActive = true;
+    
+    // Initialize enemies in formation
+    for (size_t i = 0; i < enemies.size(); ++i)
+    {
+        GameEntity& enemy = enemies[i];
+        float angle = static_cast<float>(i) / static_cast<float>(enemies.size()) * 2.0f * XM_PI;
+        
+        enemy.position.x = FAST_COS(angle) * 15.0f;
+        enemy.position.y = 2.0f;
+        enemy.position.z = FAST_SIN(angle) * 15.0f;
+        enemy.rotation = XMFLOAT3(0.0f, angle + XM_PI, 0.0f);                  // Face center
+        enemy.scale = XMFLOAT3(0.8f, 0.8f, 0.8f);
+        enemy.color = XMFLOAT4(1.0f, 0.0f, 0.0f, 1.0f);                        // Red enemies
+        enemy.animationTime = static_cast<float>(i) * 0.5f;                     // Stagger animations
+        enemy.isActive = true;
+    }
+    
+    // Game simulation loop
+    while (gameTime < sceneDuration)
+    {
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+            L"[Example] === Game Time: %.2f seconds ===", gameTime);
+#endif
+        
+        // Update player
+        player.animationTime += timeStep;
+        
+        // Player orbits around center
+        float playerOrbitRadius = 5.0f;
+        float playerOrbitSpeed = 1.0f;
+        player.position.x = FAST_COS(gameTime * playerOrbitSpeed) * playerOrbitRadius;
+        player.position.z = FAST_SIN(gameTime * playerOrbitSpeed) * playerOrbitRadius;
+        
+        // Player rotation follows movement
+        player.rotation.y = FAST_ATAN2(player.position.z, player.position.x) + XM_PIDIV2;
+        
+        // Player color pulse
+        player.color.w = (FAST_SIN(gameTime * 4.0f) + 1.0f) * 0.5f + 0.5f;
+        
+        // Update enemies
+        for (size_t i = 0; i < enemies.size(); ++i)
+        {
+            GameEntity& enemy = enemies[i];
+            
+            if (!enemy.isActive) continue;
+            
+            enemy.animationTime += timeStep;
+            
+            // Enemies rotate around their positions
+            enemy.rotation.y += timeStep * 2.0f;
+            
+            // Enemies bob up and down
+            float bobOffset = FAST_SIN(enemy.animationTime * 3.0f) * 1.0f;
+            enemy.position.y = 2.0f + bobOffset;
+            
+            // Enemy color changes
+            float colorPhase = enemy.animationTime * 2.0f;
+            enemy.color.x = (FAST_SIN(colorPhase) + 1.0f) * 0.5f;
+            enemy.color.z = (FAST_COS(colorPhase) + 1.0f) * 0.5f;
+            
+            // Check if enemy should be "destroyed" (create explosion)
+            if (enemy.animationTime > 3.0f && explosionParticles.empty())
+            {
+                enemy.isActive = false;
+                
+                // Create explosion particles
+                const int explosionParticleCount = 20;
+                explosionParticles.resize(explosionParticleCount);
+                
+                for (int p = 0; p < explosionParticleCount; ++p)
+                {
+                    GameParticle& particle = explosionParticles[p];
+                    
+                    XMFLOAT2 direction = FAST_MATH.GetParticleDirection(p, explosionParticleCount);
+                    float speed = 50.0f + (static_cast<float>(rand()) / RAND_MAX) * 100.0f;
+                    
+                    particle.position.x = enemy.position.x;
+                    particle.position.y = enemy.position.y;
+                    particle.velocity.x = direction.x * speed;
+                    particle.velocity.y = direction.y * speed;
+                    particle.life = 1.0f;
+                    particle.size = 1.0f + (static_cast<float>(rand()) / RAND_MAX) * 2.0f;
+                    particle.rotationSpeed = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 10.0f;
+                    
+                    // Explosion colors (yellow to red)
+                    particle.color.x = 1.0f;
+                    particle.color.y = 0.5f + (static_cast<float>(rand()) / RAND_MAX) * 0.5f;
+                    particle.color.z = 0.0f;
+                    particle.color.w = 1.0f;
+                }
+                
+#if defined(_DEBUG_MATHPRECALC_)
+                debug.logDebugMessage(LogLevel::LOG_INFO,
+                    L"[Example] Enemy %zu destroyed! Explosion created with %d particles",
+                    i, explosionParticleCount);
+#endif
+                break;  // Only one explosion per frame
+            }
+        }
+        
+        // Update explosion particles
+        for (GameParticle& particle : explosionParticles)
+        {
+            if (particle.life <= 0.0f) continue;
+            
+            // Update particle physics
+            particle.position.x += particle.velocity.x * timeStep;
+            particle.position.y += particle.velocity.y * timeStep;
+            
+            // Apply gravity and drag
+            particle.velocity.y -= 50.0f * timeStep;                            // Gravity
+            particle.velocity.x *= 0.95f;                                       // Drag
+            particle.velocity.y *= 0.95f;
+            
+            // Update life and appearance
+            particle.life -= timeStep * 1.5f;                                   // 0.67 second lifespan
+            particle.color.w = FAST_MATH.FastEaseOut(0.0f, 1.0f, particle.life);
+            particle.size = FAST_LERP(0.1f, particle.size, particle.life);
+            
+            // Update rotation
+            particle.rotationAngle += particle.rotationSpeed * timeStep;
+        }
+        
+        // Calculate camera position (orbiting around scene)
+        XMFLOAT3 cameraPos;
+        cameraPos.x = FAST_COS(gameTime * 0.3f) * 25.0f;
+        cameraPos.y = 10.0f + FAST_SIN(gameTime * 0.2f) * 5.0f;
+        cameraPos.z = FAST_SIN(gameTime * 0.3f) * 25.0f;
+        
+        XMFLOAT3 lookAtTarget(0.0f, 0.0f, 0.0f);
+        XMFLOAT3 upVector(0.0f, 1.0f, 0.0f);
+        
+        XMMATRIX viewMatrix = FAST_MATH.GetViewMatrix(cameraPos, lookAtTarget, upVector);
+        
+        // Create transformation matrices for visible objects
+        if (player.isActive)
+        {
+            XMMATRIX playerWorld = FAST_MATH.FastMatrixMultiply(
+                FAST_MATH.GetScaleMatrix(player.scale.x, player.scale.y, player.scale.z),
+                FAST_MATH.GetRotationMatrix(player.rotation.x, player.rotation.y, player.rotation.z));
+        }
+        
+        // Update game time
+        gameTime += timeStep;
+        
+        // Show periodic status
+        if (fmod(gameTime, 1.0f) < timeStep)
+        {
+            int activeEnemies = 0;
+            for (const GameEntity& enemy : enemies)
+            {
+                if (enemy.isActive) activeEnemies++;
+            }
+            
+            int activeParticles = 0;
+            for (const GameParticle& particle : explosionParticles)
+            {
+                if (particle.life > 0.0f) activeParticles++;
+            }
+            
+#if defined(_DEBUG_MATHPRECALC_)
+            debug.logDebugMessage(LogLevel::LOG_INFO,
+                L"[Example] Game Status - Time: %.1fs, Active Enemies: %d, Active Particles: %d",
+                gameTime, activeEnemies, activeParticles);
+            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                L"[Example] Player at (%.1f, %.1f, %.1f), Camera at (%.1f, %.1f, %.1f)",
+                player.position.x, player.position.y, player.position.z,
+                cameraPos.x, cameraPos.y, cameraPos.z);
+#endif
+        }
+    }
+    
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[Example] Complete game scenario finished!");
+#endif
+}
+
+//==============================================================================
+// Entry Point Function
+//==============================================================================
+
+// Complete example entry point that can be called from main()
+int RunMathPrecalculationExample()
+{
+    // Initialize random seed for demonstrations
+    srand(static_cast<unsigned int>(time(nullptr)));
+    
+    // Run the main example function
+    int result = MathPrecalculationUsageExample();
+    
+    if (result == 0)
+    {
+        // Run advanced examples if basic examples succeeded
+        DemonstrateGameLoopIntegration();
+        DemonstrateAdvancedColorCalculations();
+        DemonstrateCompleteGameScenario();
+        
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, 
+            L"[Example] All advanced demonstrations completed successfully!");
+#endif
+    }
+    
+    // Cleanup is handled automatically by the singleton destructor
+    return result;
+}
