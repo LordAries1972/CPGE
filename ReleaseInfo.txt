@@ -162,7 +162,9 @@ DEVELOPMENT HISTORY: -
 21/05/2025 - ThreadManager now supports Locking/Unlocking and CheckLock/TryLock functions.  See ThreadManager.h/.cpp for more info.
 23/05/2025 - FXManager now supports various text scroller routines such LTOR, RTOL, Consistent and Movie Scroller.
              See DX_FXManager.h/.cpp for more details.  Example usage can be found under Docs/FXManager-TextScrollers-Example-Usage.txt
-
+             Introduction to the MathPrecalculation Class see MathPrecalculation.h/.cpp for more information.
+             Comprehensive Example Usage can be found in Docs/MathPrecalculation-Example-Usage.txt
+			 
 [ FUTURE ]   OK EVERYONE, PEOPLE NEED TO RELISE HERE THAT THIS IS VERY CLOSE TO GAMING PRODUCTION FOR DIRECTX 11 SYSTEMS! (WINDOWS 10 64BIT)
              Alot of this work, MY TIME and for free, it's what you get paid for right? Your story, your graphics and your 
              enginuity based on this platform!  Please DO NOT START A GAME until your comfortable with a release of our marked as [STABLE]
