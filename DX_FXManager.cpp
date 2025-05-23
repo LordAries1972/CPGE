@@ -4,6 +4,7 @@
 #include "DX_FXManager.h"
 #include "Debug.h"
 #include "ThreadManager.h"
+#include "ThreadLockHelper.h"
 
 #if defined(__USE_DIRECTX_11__)
 #include "DX11Renderer.h"
@@ -303,9 +304,22 @@ void FXManager::RestoreRenderState() {
 }
 
 void FXManager::RemoveCompletedEffects() {
-    auto now = std::chrono::steady_clock::now();
+    auto now = std::chrono::steady_clock::now();                   // Get current time
     effects.erase(std::remove_if(effects.begin(), effects.end(), [now](const FXItem& fx) {
-        return std::chrono::duration<float>(now - fx.startTime).count() >= fx.timeout;
+        // Check for timeout-based completion
+        bool timedOut = std::chrono::duration<float>(now - fx.startTime).count() >= fx.timeout;
+
+        // Check for progress-based completion
+        bool progressCompleted = fx.progress >= 1.0f;
+
+        // Special handling for text scrollers that should loop (consistent type)
+        if (fx.type == FXType::TextScroller && fx.subtype == FXSubType::TXT_SCROLL_CONSISTANT) {
+            // Only remove if duration is not infinite and timed out
+            return fx.duration != FLT_MAX && timedOut;
+        }
+
+        // For all other effects, remove if timed out or progress completed
+        return timedOut || progressCompleted;
         }), effects.end());
 }
 
@@ -853,6 +867,13 @@ void FXManager::Render2D()
         {
             RenderParticles(fx);
         }
+
+        // NEW: Text Scroller
+        if (fx.type == FXType::TextScroller)
+        {
+            UpdateTextScroller(fx, deltaTime);                      // Update text scroller position and state
+            RenderTextScroller(fx);                                 // Render text scroller to screen
+        }
     }
 
     lastTweenTime = now;  // moved here to avoid premature zeroing
@@ -1114,4 +1135,878 @@ void FXManager::RenderStarfield(FXItem& fxItem, ID3D11DeviceContext* context, co
             }
         }
     });
+}
+
+// -------------------------------------------------------------------------------------------------------------
+// NEW TEXT SCROLLER IMPLEMENTATION
+// -------------------------------------------------------------------------------------------------------------
+// CreateTextScrollerLTOR - Creates a Left to Right text scroller effect
+// Text starts from left side with transparency, moves to center, holds, then continues to right side
+// Parameters:
+//   text - Text string to scroll
+//   fontSize - Size of the font for rendering
+//   textColor - Base color of the text (RGBA)
+//   regionX, regionY - Position of the scroll region
+//   regionWidth, regionHeight - Dimensions of the scroll region
+//   scrollSpeed - Speed of scrolling movement
+//   centerHoldTime - Time in seconds to hold text in center
+//   duration - Total duration of the effect
+// -------------------------------------------------------------------------------------------------------------
+void FXManager::CreateTextScrollerLTOR(const std::wstring& text, const std::wstring& fontName, float fontSize, XMFLOAT4 textColor,
+    float regionX, float regionY, float regionWidth, float regionHeight,
+    float scrollSpeed, float centerHoldTime, float duration, float characterSpacing, float wordSpacing)
+{
+#if defined(_DEBUG_FXMANAGER_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] CreateTextScrollerLTOR() invoked.");
+#endif
+
+    // Use ThreadLockHelper for safe locking
+    ThreadLockHelper lock(threadManager, "fxmanager_textscroller_lock", 1000);
+    if (!lock.IsLocked()) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Failed to acquire lock for CreateTextScrollerLTOR");
+        return;
+    }
+
+    // Create new text scroller FX item
+    FXItem newFX;
+    newFX.type = FXType::TextScroller;                              // Set effect type to TextScroller
+    newFX.subtype = FXSubType::TXT_SCROLL_LTOR;                     // Set subtype to Left to Right
+    newFX.fxID = static_cast<int>(effects.size()) + 1;             // Generate unique FX ID
+    newFX.duration = duration;                                      // Set total effect duration
+    newFX.timeout = duration + 1.0f;                               // Set timeout slightly longer than duration
+    newFX.progress = 0.0f;                                          // Initialize progress to zero
+
+    // Initialize text scroll data structure
+    newFX.textScrollData.text = text;                               // Store the text to scroll
+    newFX.textScrollData.fontSize = fontSize;                       // Store font size
+    newFX.textScrollData.textColor = textColor;                     // Store text color
+    newFX.textScrollData.scrollSpeed = scrollSpeed;                 // Store scroll speed
+    newFX.textScrollData.centerHoldTime = centerHoldTime;           // Store center hold time
+    newFX.textScrollData.centerHoldTimer = 0.0f;                    // Initialize center hold timer
+    newFX.textScrollData.regionX = regionX;                         // Store region position X
+    newFX.textScrollData.regionY = regionY;                         // Store region position Y
+    newFX.textScrollData.regionWidth = regionWidth;                 // Store region width
+    newFX.textScrollData.regionHeight = regionHeight;               // Store region height
+    newFX.textScrollData.currentXPosition = regionX - 100.0f;       // Start position (off-screen left)
+    newFX.textScrollData.currentYPosition = regionY + (regionHeight / 2.0f); // Center vertically
+    newFX.textScrollData.isInCenterPhase = false;                   // Not in center phase initially
+    newFX.textScrollData.hasReachedCenter = false;                  // Has not reached center yet
+
+    // Set start time and last update time
+    newFX.startTime = std::chrono::steady_clock::now();             // Record start time
+    newFX.lastUpdate = newFX.startTime;                             // Initialize last update time
+
+    // Add effect to the effects vector
+    effects.push_back(newFX);
+
+#if defined(_DEBUG_FXMANAGER_)
+    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[FXManager] TextScrollerLTOR created: Text='%s', FXID=%d, Region=(%.1f,%.1f,%.1f,%.1f)",
+        text.c_str(), newFX.fxID, regionX, regionY, regionWidth, regionHeight);
+#endif
+}
+
+// -------------------------------------------------------------------------------------------------------------
+// CreateTextScrollerRTOL - Creates a Right to Left text scroller effect
+// Text starts from right side with transparency, moves to center, holds, then continues to left side
+// Parameters: Same as CreateTextScrollerLTOR but movement direction is reversed
+// -------------------------------------------------------------------------------------------------------------
+void FXManager::CreateTextScrollerRTOL(const std::wstring& text, const std::wstring& fontName, float fontSize, XMFLOAT4 textColor,
+    float regionX, float regionY, float regionWidth, float regionHeight,
+    float scrollSpeed, float centerHoldTime, float duration, float characterSpacing, float wordSpacing)
+{
+#if defined(_DEBUG_FXMANAGER_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] CreateTextScrollerRTOL() invoked.");
+#endif
+
+    // Use ThreadLockHelper for safe locking
+    ThreadLockHelper lock(threadManager, "fxmanager_textscroller_lock", 1000);
+    if (!lock.IsLocked()) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Failed to acquire lock for CreateTextScrollerRTOL");
+        return;
+    }
+
+    // Create new text scroller FX item
+    FXItem newFX;
+    newFX.type = FXType::TextScroller;                              // Set effect type to TextScroller
+    newFX.subtype = FXSubType::TXT_SCROLL_RTOL;                     // Set subtype to Right to Left
+    newFX.fxID = static_cast<int>(effects.size()) + 1;             // Generate unique FX ID
+    newFX.duration = duration;                                      // Set total effect duration
+    newFX.timeout = duration + 1.0f;                               // Set timeout slightly longer than duration
+    newFX.progress = 0.0f;                                          // Initialize progress to zero
+
+    // Initialize text scroll data structure
+    newFX.textScrollData.text = text;                               // Store the text to scroll
+    newFX.textScrollData.fontSize = fontSize;                       // Store font size
+    newFX.textScrollData.textColor = textColor;                     // Store text color
+    newFX.textScrollData.scrollSpeed = scrollSpeed;                 // Store scroll speed
+    newFX.textScrollData.centerHoldTime = centerHoldTime;           // Store center hold time
+    newFX.textScrollData.centerHoldTimer = 0.0f;                    // Initialize center hold timer
+    newFX.textScrollData.regionX = regionX;                         // Store region position X
+    newFX.textScrollData.regionY = regionY;                         // Store region position Y
+    newFX.textScrollData.regionWidth = regionWidth;                 // Store region width
+    newFX.textScrollData.regionHeight = regionHeight;               // Store region height
+    newFX.textScrollData.currentXPosition = regionX + regionWidth + 100.0f; // Start position (off-screen right)
+    newFX.textScrollData.currentYPosition = regionY + (regionHeight / 2.0f); // Center vertically
+    newFX.textScrollData.isInCenterPhase = false;                   // Not in center phase initially
+    newFX.textScrollData.hasReachedCenter = false;                  // Has not reached center yet
+
+    // Set start time and last update time
+    newFX.startTime = std::chrono::steady_clock::now();             // Record start time
+    newFX.lastUpdate = newFX.startTime;                             // Initialize last update time
+
+    // Add effect to the effects vector
+    effects.push_back(newFX);
+
+#if defined(_DEBUG_FXMANAGER_)
+    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[FXManager] TextScrollerRTOL created: Text='%s', FXID=%d, Region=(%.1f,%.1f,%.1f,%.1f)",
+        text.c_str(), newFX.fxID, regionX, regionY, regionWidth, regionHeight);
+#endif
+}
+
+// -------------------------------------------------------------------------------------------------------------
+// CreateTextScrollerConsistent - Creates a consistent text scroller that moves from right to left continuously
+// Each character fades in from right and fades out as it approaches left side
+// Parameters:
+//   text - Text string to scroll
+//   fontName - Font family name to use for rendering (NEW)
+//   fontSize - Size of the font for rendering
+//   textColor - Base color of the text (RGBA)
+//   regionX, regionY - Position of the scroll region
+//   regionWidth, regionHeight - Dimensions of the scroll region
+//   scrollSpeed - Speed of scrolling movement per frame
+//   duration - Total duration of the effect (use FLT_MAX for infinite)
+//   characterSpacing - Additional spacing between characters (NEW)
+//   wordSpacing - Additional spacing between words (NEW)
+// -------------------------------------------------------------------------------------------------------------
+void FXManager::CreateTextScrollerConsistent(const std::wstring& text, const std::wstring& fontName, float fontSize, XMFLOAT4 textColor,
+    float regionX, float regionY, float regionWidth, float regionHeight,
+    float scrollSpeed, float duration, float characterSpacing, float wordSpacing)
+{
+#if defined(_DEBUG_FXMANAGER_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] CreateTextScrollerConsistent() invoked.");
+#endif
+
+    // Use ThreadLockHelper for safe locking
+    ThreadLockHelper lock(threadManager, "fxmanager_textscroller_lock", 1000);
+    if (!lock.IsLocked()) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Failed to acquire lock for CreateTextScrollerConsistent");
+        return;
+    }
+
+    // Create new text scroller FX item
+    FXItem newFX;
+    newFX.type = FXType::TextScroller;                              // Set effect type to TextScroller
+    newFX.subtype = FXSubType::TXT_SCROLL_CONSISTANT;               // Set subtype to Consistent
+    newFX.fxID = static_cast<int>(effects.size()) + 1;             // Generate unique FX ID
+    newFX.duration = duration;                                      // Set total effect duration
+    newFX.timeout = duration == FLT_MAX ? FLT_MAX : duration + 1.0f; // Set timeout based on duration
+    newFX.progress = 0.0f;                                          // Initialize progress to zero
+
+    // Initialize text scroll data structure
+    newFX.textScrollData.text = text;                               // Store the text to scroll
+    newFX.textScrollData.fontName = fontName;                       // Store font name for rendering (NEW)
+    newFX.textScrollData.fontSize = fontSize;                       // Store font size
+    newFX.textScrollData.textColor = textColor;                     // Store text color
+    newFX.textScrollData.scrollSpeed = scrollSpeed;                 // Store scroll speed
+    newFX.textScrollData.characterSpacing = characterSpacing;       // Store character spacing (NEW)
+    newFX.textScrollData.wordSpacing = wordSpacing;                 // Store word spacing (NEW)
+    newFX.textScrollData.regionX = regionX;                         // Store region position X
+    newFX.textScrollData.regionY = regionY;                         // Store region position Y
+    newFX.textScrollData.regionWidth = regionWidth;                 // Store region width
+    newFX.textScrollData.regionHeight = regionHeight;               // Store region height
+    newFX.textScrollData.currentXPosition = regionX + regionWidth;  // Start position (right side of region)
+    newFX.textScrollData.currentYPosition = regionY + (regionHeight / 2.0f); // Center vertically
+
+    // Set start time and last update time
+    newFX.startTime = std::chrono::steady_clock::now();             // Record start time
+    newFX.lastUpdate = newFX.startTime;                             // Initialize last update time
+
+    // Add effect to the effects vector
+    effects.push_back(newFX);
+
+#if defined(_DEBUG_FXMANAGER_)
+    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[FXManager] TextScrollerConsistent created: Text='%s', Font='%s', FXID=%d, Speed=%.2f",
+        text.c_str(), fontName.c_str(), newFX.fxID, scrollSpeed);
+#endif
+}
+
+// -------------------------------------------------------------------------------------------------------------
+// CreateTextScrollerMovie - Creates a movie credits style text scroller
+// Text lines move from bottom to top with transparency effects
+// Parameters:
+//   textLines - Vector of text lines to scroll
+//   fontSize - Size of the font for rendering
+//   textColor - Base color of the text (RGBA)
+//   regionX, regionY - Position of the scroll region
+//   regionWidth, regionHeight - Dimensions of the scroll region
+//   scrollSpeed - Speed of scrolling movement
+//   lineSpacing - Spacing between text lines
+//   duration - Total duration of the effect
+// -------------------------------------------------------------------------------------------------------------
+void FXManager::CreateTextScrollerMovie(const std::vector<std::wstring>& textLines, const std::wstring& fontName, float fontSize, XMFLOAT4 textColor,
+    float regionX, float regionY, float regionWidth, float regionHeight,
+    float scrollSpeed, float lineSpacing, float duration, float characterSpacing, float wordSpacing)
+{
+#if defined(_DEBUG_FXMANAGER_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] CreateTextScrollerMovie() invoked.");
+#endif
+
+    // Use ThreadLockHelper for safe locking
+    ThreadLockHelper lock(threadManager, "fxmanager_textscroller_lock", 1000);
+    if (!lock.IsLocked()) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Failed to acquire lock for CreateTextScrollerMovie");
+        return;
+    }
+
+    // Create new text scroller FX item
+    FXItem newFX;
+    newFX.type = FXType::TextScroller;                              // Set effect type to TextScroller
+    newFX.subtype = FXSubType::TXT_SCROLL_MOVIE;                    // Set subtype to Movie
+    newFX.fxID = static_cast<int>(effects.size()) + 1;             // Generate unique FX ID
+    newFX.duration = duration;                                      // Set total effect duration
+    newFX.timeout = duration + 1.0f;                               // Set timeout slightly longer than duration
+    newFX.progress = 0.0f;                                          // Initialize progress to zero
+
+    // Initialize text scroll data structure
+    newFX.textScrollData.textLines = textLines;                     // Store the text lines to scroll
+    newFX.textScrollData.fontSize = fontSize;                       // Store font size
+    newFX.textScrollData.textColor = textColor;                     // Store text color
+    newFX.textScrollData.scrollSpeed = scrollSpeed;                 // Store scroll speed
+    newFX.textScrollData.lineSpacing = lineSpacing;                 // Store line spacing
+    newFX.textScrollData.regionX = regionX;                         // Store region position X
+    newFX.textScrollData.regionY = regionY;                         // Store region position Y
+    newFX.textScrollData.regionWidth = regionWidth;                 // Store region width
+    newFX.textScrollData.regionHeight = regionHeight;               // Store region height
+    newFX.textScrollData.currentYPosition = regionY + regionHeight; // Start position (bottom of region)
+    newFX.textScrollData.currentLineIndex = 0;                      // Start with first line
+
+    // Set start time and last update time
+    newFX.startTime = std::chrono::steady_clock::now();             // Record start time
+    newFX.lastUpdate = newFX.startTime;                             // Initialize last update time
+
+    // Add effect to the effects vector
+    effects.push_back(newFX);
+
+#if defined(_DEBUG_FXMANAGER_)
+    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[FXManager] TextScrollerMovie created: Lines=%zu, FXID=%d, LineSpacing=%.2f",
+        textLines.size(), newFX.fxID, lineSpacing);
+#endif
+}
+
+// -------------------------------------------------------------------------------------------------------------
+// StopTextScroller - Stops a text scroller effect by its ID
+// Parameters:
+//   effectID - ID of the text scroller effect to stop
+// -------------------------------------------------------------------------------------------------------------
+void FXManager::StopTextScroller(int effectID)
+{
+#if defined(_DEBUG_FXMANAGER_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] StopTextScroller() invoked for ID: " + std::to_wstring(effectID));
+#endif
+
+    // Use ThreadLockHelper for safe locking
+    ThreadLockHelper lock(threadManager, "fxmanager_textscroller_lock", 1000);
+    if (!lock.IsLocked()) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Failed to acquire lock for StopTextScroller");
+        return;
+    }
+
+    // Find and remove the text scroller effect with the specified ID
+    effects.erase(
+        std::remove_if(effects.begin(), effects.end(), [effectID](const FXItem& fx) {
+            return fx.type == FXType::TextScroller && fx.fxID == effectID;
+            }),
+        effects.end()
+    );
+
+#if defined(_DEBUG_FXMANAGER_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Text scroller effect with ID " + std::to_wstring(effectID) + L" stopped.");
+#endif
+}
+
+// -------------------------------------------------------------------------------------------------------------
+// PauseTextScroller - Pauses a text scroller effect by its ID
+// Parameters:
+//   effectID - ID of the text scroller effect to pause
+// -------------------------------------------------------------------------------------------------------------
+void FXManager::PauseTextScroller(int effectID)
+{
+#if defined(_DEBUG_FXMANAGER_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] PauseTextScroller() invoked for ID: " + std::to_wstring(effectID));
+#endif
+
+    // Use ThreadLockHelper for safe locking
+    ThreadLockHelper lock(threadManager, "fxmanager_textscroller_lock", 1000);
+    if (!lock.IsLocked()) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Failed to acquire lock for PauseTextScroller");
+        return;
+    }
+
+    // Find the text scroller effect and pause it
+    for (auto& fx : effects) {
+        if (fx.type == FXType::TextScroller && fx.fxID == effectID) {
+            fx.isPaused = true;                                     // Set the paused flag
+#if defined(_DEBUG_FXMANAGER_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Text scroller with ID " + std::to_wstring(effectID) + L" paused.");
+#endif
+            return;
+        }
+    }
+
+#if defined(_DEBUG_FXMANAGER_)
+    debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] Text scroller with ID " + std::to_wstring(effectID) + L" not found for pausing.");
+#endif
+}
+
+// -------------------------------------------------------------------------------------------------------------
+// ResumeTextScroller - Resumes a paused text scroller effect by its ID
+// Parameters:
+//   effectID - ID of the text scroller effect to resume
+// -------------------------------------------------------------------------------------------------------------
+void FXManager::ResumeTextScroller(int effectID)
+{
+#if defined(_DEBUG_FXMANAGER_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] ResumeTextScroller() invoked for ID: " + std::to_wstring(effectID));
+#endif
+
+    // Use ThreadLockHelper for safe locking
+    ThreadLockHelper lock(threadManager, "fxmanager_textscroller_lock", 1000);
+    if (!lock.IsLocked()) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Failed to acquire lock for ResumeTextScroller");
+        return;
+    }
+
+    // Find the text scroller effect and resume it
+    for (auto& fx : effects) {
+        if (fx.type == FXType::TextScroller && fx.fxID == effectID) {
+            fx.isPaused = false;                                    // Clear the paused flag
+            fx.lastUpdate = std::chrono::steady_clock::now();       // Reset last update to avoid time jump
+#if defined(_DEBUG_FXMANAGER_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Text scroller with ID " + std::to_wstring(effectID) + L" resumed.");
+#endif
+            return;
+        }
+    }
+
+#if defined(_DEBUG_FXMANAGER_)
+    debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] Text scroller with ID " + std::to_wstring(effectID) + L" not found for resuming.");
+#endif
+}
+
+// -------------------------------------------------------------------------------------------------------------
+// UpdateTextScroller - Updates the position and state of a text scroller effect
+// Parameters:
+//   fxItem - Reference to the FX item to update
+//   deltaTime - Time elapsed since last update in seconds
+// -------------------------------------------------------------------------------------------------------------
+void FXManager::UpdateTextScroller(FXItem& fxItem, float deltaTime)
+{
+    // Early exit if paused or not a text scroller
+    if (fxItem.isPaused || fxItem.type != FXType::TextScroller) {
+        return;
+    }
+
+    // Update based on the text scroller subtype
+    switch (fxItem.subtype) {
+    case FXSubType::TXT_SCROLL_LTOR:
+    {
+        // Left to Right text scroller logic (keep existing implementation)
+        float centerX = fxItem.textScrollData.regionX + (fxItem.textScrollData.regionWidth / 2.0f);
+        float textWidth = 0.0f;                                 // Calculate text width using renderer
+
+        // Get text width from renderer for proper centering
+        WithDX11Renderer([&fxItem, &textWidth](std::shared_ptr<DX11Renderer> dx11) {
+            textWidth = dx11->CalculateTextWidth(fxItem.textScrollData.text,
+                fxItem.textScrollData.fontSize, fxItem.textScrollData.regionWidth);
+            });
+
+        float textCenterX = centerX - (textWidth / 2.0f);      // Calculate center position for text
+
+        if (!fxItem.textScrollData.hasReachedCenter) {
+            // Moving toward center - start slow, speed up as approaching center
+            float distanceToCenter = abs(fxItem.textScrollData.currentXPosition - textCenterX);
+            float maxDistance = fxItem.textScrollData.regionWidth / 2.0f;
+            float speedMultiplier = 1.0f + (1.0f - (distanceToCenter / maxDistance)) * 2.0f; // Speed increases as getting closer
+
+            fxItem.textScrollData.currentXPosition += fxItem.textScrollData.scrollSpeed * speedMultiplier * deltaTime;
+
+            // Check if reached center
+            if (fxItem.textScrollData.currentXPosition >= textCenterX) {
+                fxItem.textScrollData.currentXPosition = textCenterX;
+                fxItem.textScrollData.hasReachedCenter = true;
+                fxItem.textScrollData.isInCenterPhase = true;
+                fxItem.textScrollData.centerHoldTimer = 0.0f;
+            }
+        }
+        else if (fxItem.textScrollData.isInCenterPhase) {
+            // Hold in center phase
+            fxItem.textScrollData.centerHoldTimer += deltaTime;
+            if (fxItem.textScrollData.centerHoldTimer >= fxItem.textScrollData.centerHoldTime) {
+                fxItem.textScrollData.isInCenterPhase = false;  // Exit center phase
+            }
+        }
+        else {
+            // Moving away from center - start slow, speed up as leaving
+            float distanceFromCenter = abs(fxItem.textScrollData.currentXPosition - textCenterX);
+            float maxDistance = fxItem.textScrollData.regionWidth / 2.0f;
+            float speedMultiplier = 1.0f + (distanceFromCenter / maxDistance) * 2.0f; // Speed increases as getting farther
+
+            fxItem.textScrollData.currentXPosition += fxItem.textScrollData.scrollSpeed * speedMultiplier * deltaTime;
+
+            // Check if completely off screen
+            if (fxItem.textScrollData.currentXPosition > fxItem.textScrollData.regionX + fxItem.textScrollData.regionWidth + 100.0f) {
+                fxItem.progress = 1.0f;                         // Mark as completed
+            }
+        }
+        break;
+    }
+
+    case FXSubType::TXT_SCROLL_RTOL:
+    {
+        // Right to Left text scroller logic (keep existing implementation)
+        float centerX = fxItem.textScrollData.regionX + (fxItem.textScrollData.regionWidth / 2.0f);
+        float textWidth = 0.0f;                                 // Calculate text width using renderer
+
+        // Get text width from renderer for proper centering
+        WithDX11Renderer([&fxItem, &textWidth](std::shared_ptr<DX11Renderer> dx11) {
+            textWidth = dx11->CalculateTextWidth(fxItem.textScrollData.text,
+                fxItem.textScrollData.fontSize, fxItem.textScrollData.regionWidth);
+            });
+
+        float textCenterX = centerX - (textWidth / 2.0f);      // Calculate center position for text
+
+        if (!fxItem.textScrollData.hasReachedCenter) {
+            // Moving toward center - start slow, speed up as approaching center
+            float distanceToCenter = abs(fxItem.textScrollData.currentXPosition - textCenterX);
+            float maxDistance = fxItem.textScrollData.regionWidth / 2.0f;
+            float speedMultiplier = 1.0f + (1.0f - (distanceToCenter / maxDistance)) * 2.0f; // Speed increases as getting closer
+
+            fxItem.textScrollData.currentXPosition -= fxItem.textScrollData.scrollSpeed * speedMultiplier * deltaTime;
+
+            // Check if reached center
+            if (fxItem.textScrollData.currentXPosition <= textCenterX) {
+                fxItem.textScrollData.currentXPosition = textCenterX;
+                fxItem.textScrollData.hasReachedCenter = true;
+                fxItem.textScrollData.isInCenterPhase = true;
+                fxItem.textScrollData.centerHoldTimer = 0.0f;
+            }
+        }
+        else if (fxItem.textScrollData.isInCenterPhase) {
+            // Hold in center phase
+            fxItem.textScrollData.centerHoldTimer += deltaTime;
+            if (fxItem.textScrollData.centerHoldTimer >= fxItem.textScrollData.centerHoldTime) {
+                fxItem.textScrollData.isInCenterPhase = false;  // Exit center phase
+            }
+        }
+        else {
+            // Moving away from center - start slow, speed up as leaving
+            float distanceFromCenter = abs(fxItem.textScrollData.currentXPosition - textCenterX);
+            float maxDistance = fxItem.textScrollData.regionWidth / 2.0f;
+            float speedMultiplier = 1.0f + (distanceFromCenter / maxDistance) * 2.0f; // Speed increases as getting farther
+
+            fxItem.textScrollData.currentXPosition -= fxItem.textScrollData.scrollSpeed * speedMultiplier * deltaTime;
+
+            // Check if completely off screen
+            if (fxItem.textScrollData.currentXPosition < fxItem.textScrollData.regionX - 100.0f) {
+                fxItem.progress = 1.0f;                         // Mark as completed
+            }
+        }
+        break;
+    }
+
+    case FXSubType::TXT_SCROLL_CONSISTANT:
+    {
+        // CORRECTED: Consistent text scroller logic - continuous right to left movement
+        fxItem.textScrollData.currentXPosition -= fxItem.textScrollData.scrollSpeed * deltaTime;
+
+        // Calculate total text width to determine wrapping point
+        float totalTextWidth = 0.0f;
+        WithDX11Renderer([&fxItem, &totalTextWidth](std::shared_ptr<DX11Renderer> dx11) {
+            totalTextWidth = dx11->CalculateTextWidth(fxItem.textScrollData.text,
+                fxItem.textScrollData.fontSize, 9999.0f);       // Use large container to get actual text width
+            });
+
+        // FIXED: If text has completely scrolled off the left side, wrap to right side
+        if (fxItem.textScrollData.currentXPosition + totalTextWidth < fxItem.textScrollData.regionX) {
+            fxItem.textScrollData.currentXPosition = fxItem.textScrollData.regionX + fxItem.textScrollData.regionWidth;
+        }
+
+        // Check for duration completion (if not infinite)
+        if (fxItem.duration != FLT_MAX) {
+            auto now = std::chrono::steady_clock::now();
+            float elapsed = std::chrono::duration<float>(now - fxItem.startTime).count();
+            if (elapsed >= fxItem.duration) {
+                fxItem.progress = 1.0f;                         // Mark as completed
+            }
+        }
+        break;
+    }
+
+    case FXSubType::TXT_SCROLL_MOVIE:
+    {
+        // Movie credits style scroller logic - vertical scrolling (keep existing implementation)
+        fxItem.textScrollData.currentYPosition -= fxItem.textScrollData.scrollSpeed * deltaTime;
+
+        // Check if all lines have scrolled off the top
+        float totalHeight = fxItem.textScrollData.textLines.size() * fxItem.textScrollData.lineSpacing;
+        if (fxItem.textScrollData.currentYPosition + totalHeight < fxItem.textScrollData.regionY) {
+            fxItem.progress = 1.0f;                             // Mark as completed
+        }
+        break;
+    }
+
+    default:
+        break;
+    }
+
+#if defined(_DEBUG_FXMANAGER_)
+    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[FXManager] TextScroller FXID=%d updated: Pos=(%.2f,%.2f), Progress=%.2f",
+        fxItem.fxID, fxItem.textScrollData.currentXPosition, fxItem.textScrollData.currentYPosition, fxItem.progress);
+#endif
+}
+
+// -------------------------------------------------------------------------------------------------------------
+// RenderTextScroller - Renders a text scroller effect
+// Parameters:
+//   fxItem - Reference to the FX item to render
+// -------------------------------------------------------------------------------------------------------------
+void FXManager::RenderTextScroller(FXItem& fxItem)
+{
+    // Early exit if not a text scroller or if paused and shouldn't render
+    if (fxItem.type != FXType::TextScroller) {
+        return;
+    }
+
+    // Render based on the text scroller subtype
+    switch (fxItem.subtype) {
+    case FXSubType::TXT_SCROLL_LTOR:
+    case FXSubType::TXT_SCROLL_RTOL:
+    {
+        // Calculate transparency based on position for LTOR/RTOL scrollers (keep existing implementation)
+        float transparency = 1.0f;                              // Default to fully opaque
+
+        if (!fxItem.textScrollData.isInCenterPhase) {
+            // Calculate transparency based on distance from center
+            float centerX = fxItem.textScrollData.regionX + (fxItem.textScrollData.regionWidth / 2.0f);
+            float distanceFromCenter = abs(fxItem.textScrollData.currentXPosition - centerX);
+            float fadeDistance = fxItem.textScrollData.regionWidth / 4.0f; // 25% of region width for fade
+
+            if (distanceFromCenter > fadeDistance) {
+                transparency = std::max(0.0f, 1.0f - ((distanceFromCenter - fadeDistance) / fadeDistance));
+            }
+        }
+
+        // Apply transparency to text color
+        XMFLOAT4 renderColor = fxItem.textScrollData.textColor;
+        renderColor.w *= transparency;                          // Multiply alpha by transparency
+
+        // Convert float (0.0-1.0) to uint8_t (0-255) for MyColor
+        uint8_t colorR = static_cast<uint8_t>(renderColor.x * 255.0f);
+        uint8_t colorG = static_cast<uint8_t>(renderColor.y * 255.0f);
+        uint8_t colorB = static_cast<uint8_t>(renderColor.z * 255.0f);
+        uint8_t colorA = static_cast<uint8_t>(renderColor.w * 255.0f);
+        MyColor color(colorR, colorG, colorB, colorA);
+
+        // Render the text using the DX11 renderer
+        WithDX11Renderer([&fxItem, color](std::shared_ptr<DX11Renderer> dx11) {
+            Vector2 position(fxItem.textScrollData.currentXPosition, fxItem.textScrollData.currentYPosition);
+            dx11->DrawMyText(fxItem.textScrollData.text, position, color, fxItem.textScrollData.fontSize);
+            });
+        break;
+    }
+
+    case FXSubType::TXT_SCROLL_CONSISTANT:
+    {
+        // CORRECTED: Render consistent scroller with proper character-by-character transparency and spacing
+        WithDX11Renderer([this, &fxItem](std::shared_ptr<DX11Renderer> dx11) {
+            float currentCharX = fxItem.textScrollData.currentXPosition;        // Start position for rendering
+            const float fadeDistance = 100.0f;                                 // Distance for fade in/out effects
+
+            // Pre-calculate total text width for proper wrapping including spacing
+            float totalTextWidth = CalculateTextWidthWithSpacing(fxItem.textScrollData.text,
+                fxItem.textScrollData.fontName, fxItem.textScrollData.fontSize,
+                fxItem.textScrollData.characterSpacing, fxItem.textScrollData.wordSpacing);
+
+            // CORRECTED: Render each character individually with proper transparency calculation and spacing
+            for (size_t i = 0; i < fxItem.textScrollData.text.length(); ++i) {
+                wchar_t character = fxItem.textScrollData.text[i];
+
+                // Calculate character width for proper positioning using specified font
+                float charWidth = dx11->GetCharacterWidth(character, fxItem.textScrollData.fontSize, fxItem.textScrollData.fontName);
+
+                // Apply character spacing
+                charWidth += fxItem.textScrollData.characterSpacing;
+
+                // Apply additional word spacing for space characters
+                if (character == L' ') {
+                    charWidth += fxItem.textScrollData.wordSpacing;             // Add extra spacing for word separation
+                }
+
+                // FIXED: Calculate transparency based on character center position
+                float charCenterX = currentCharX + (charWidth / 2.0f);         // Use character center for transparency calc
+
+                // Calculate transparency using the corrected function
+                float transparency = CalculateCharacterTransparency(charCenterX,
+                    fxItem.textScrollData.regionX,                             // Left boundary of visible region
+                    fxItem.textScrollData.regionX + fxItem.textScrollData.regionWidth, // Right boundary of visible region
+                    fadeDistance);                                             // Fade distance for smooth transitions
+
+                // Only render if character has some visibility and is within reasonable bounds
+                if (transparency > 0.01f &&                                   // Minimum visibility threshold
+                    currentCharX > fxItem.textScrollData.regionX - fadeDistance - 50.0f &&  // Extended left boundary
+                    currentCharX < fxItem.textScrollData.regionX + fxItem.textScrollData.regionWidth + fadeDistance + 50.0f) { // Extended right boundary
+
+                    // CORRECTED: Convert float RGBA to uint8_t for MyColor constructor
+                    XMFLOAT4 renderColor = fxItem.textScrollData.textColor;
+                    renderColor.w *= transparency;                             // Multiply alpha by calculated transparency
+
+                    // Convert float (0.0-1.0) to uint8_t (0-255) for MyColor
+                    uint8_t colorR = static_cast<uint8_t>(renderColor.x * 255.0f);
+                    uint8_t colorG = static_cast<uint8_t>(renderColor.y * 255.0f);
+                    uint8_t colorB = static_cast<uint8_t>(renderColor.z * 255.0f);
+                    uint8_t colorA = static_cast<uint8_t>(renderColor.w * 255.0f);
+
+                    // Create render position and color objects with correct values
+                    Vector2 position(currentCharX, fxItem.textScrollData.currentYPosition);
+                    MyColor color(colorR, colorG, colorB, colorA);              // Use uint8_t values
+
+                    // ENHANCED: Render character with specified font instead of default
+                    dx11->DrawMyTextWithFont(std::wstring(1, character), position, color,
+                        fxItem.textScrollData.fontSize, fxItem.textScrollData.fontName);
+
+#if defined(_DEBUG_FXMANAGER_) && defined(_DEBUG)
+                    // Debug output for character transparency (only for first few characters to avoid spam)
+                    if (i < 5) {
+                        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                            L"[FXID=%d] Char='%c' Pos=%.1f CenterX=%.1f Trans=%.3f Width=%.1f",
+                            fxItem.fxID, character, currentCharX, charCenterX, transparency, charWidth);
+                    }
+#endif
+                }
+
+                // FIXED: Advance to next character position with proper spacing
+                currentCharX += charWidth;
+            }
+            });
+        break;
+    }
+
+    case FXSubType::TXT_SCROLL_MOVIE:
+    {
+        // Render movie credits style scroller line by line (keep existing implementation)
+        float lineY = fxItem.textScrollData.currentYPosition;
+
+        WithDX11Renderer([this, &fxItem, lineY](std::shared_ptr<DX11Renderer> dx11) {
+            for (size_t i = 0; i < fxItem.textScrollData.textLines.size(); ++i) {
+                float currentLineY = lineY + (i * fxItem.textScrollData.lineSpacing);
+
+                // Calculate transparency based on line position
+                float transparency = CalculateTextTransparency(currentLineY,
+                    fxItem.textScrollData.regionY,
+                    fxItem.textScrollData.regionY + fxItem.textScrollData.regionHeight,
+                    50.0f);                                     // Fade distance of 50 pixels
+
+                // Only render if line is visible (transparency > 0)
+                if (transparency > 0.0f) {
+                    XMFLOAT4 renderColor = fxItem.textScrollData.textColor;
+                    renderColor.w *= transparency;              // Apply transparency
+
+                    // Convert float (0.0-1.0) to uint8_t (0-255) for MyColor
+                    uint8_t colorR = static_cast<uint8_t>(renderColor.x * 255.0f);
+                    uint8_t colorG = static_cast<uint8_t>(renderColor.y * 255.0f);
+                    uint8_t colorB = static_cast<uint8_t>(renderColor.z * 255.0f);
+                    uint8_t colorA = static_cast<uint8_t>(renderColor.w * 255.0f);
+                    MyColor color(colorR, colorG, colorB, colorA);
+
+                    // Center the text horizontally
+                    float textWidth = dx11->CalculateTextWidth(fxItem.textScrollData.textLines[i],
+                        fxItem.textScrollData.fontSize, fxItem.textScrollData.regionWidth);
+                    float centeredX = fxItem.textScrollData.regionX +
+                        (fxItem.textScrollData.regionWidth - textWidth) / 2.0f;
+
+                    Vector2 position(centeredX, currentLineY);
+                    dx11->DrawMyText(fxItem.textScrollData.textLines[i], position, color, fxItem.textScrollData.fontSize);
+                }
+            }
+            });
+        break;
+    }
+
+    default:
+        break;
+    }
+}
+
+// -------------------------------------------------------------------------------------------------------------
+// CalculateTextTransparency - Helper function to calculate transparency based on position within region
+// Used for fade in/out effects at region boundaries
+// Parameters:
+//   position - Current position of the text element
+//   regionStart - Start boundary of the region
+//   regionEnd - End boundary of the region
+//   fadeDistance - Distance over which to apply fade effect
+// Returns:
+//   float - Transparency value between 0.0 and 1.0
+// -------------------------------------------------------------------------------------------------------------
+float FXManager::CalculateTextTransparency(float position, float regionStart, float regionEnd, float fadeDistance)
+{
+    // Check if position is completely outside the region
+    if (position < regionStart - fadeDistance || position > regionEnd + fadeDistance) {
+        return 0.0f;                                                // Completely transparent
+    }
+
+    // Calculate fade in from bottom
+    if (position < regionStart) {
+        float distanceFromStart = regionStart - position;
+        return 1.0f - (distanceFromStart / fadeDistance);
+    }
+
+    // Calculate fade out at top
+    if (position > regionEnd) {
+        float distanceFromEnd = position - regionEnd;
+        return 1.0f - (distanceFromEnd / fadeDistance);
+    }
+
+    // Within the main region - fully opaque
+    return 1.0f;
+}
+
+// -------------------------------------------------------------------------------------------------------------
+// CalculateCharacterTransparency - Helper function to calculate transparency for individual characters
+// Used for consistent scroller character-by-character fade effects
+// Parameters:
+//   charPosition - Current position of the character
+//   regionStart - Start boundary of the region
+//   regionEnd - End boundary of the region
+//   fadeDistance - Distance over which to apply fade effect
+// Returns:
+//   float - Transparency value between 0.0 and 1.0
+// -------------------------------------------------------------------------------------------------------------
+float FXManager::CalculateCharacterTransparency(float charPosition, float regionStart, float regionEnd, float fadeDistance)
+{
+    // Check if character is completely outside the visible region with fade zones
+    if (charPosition < regionStart - fadeDistance || charPosition > regionEnd + fadeDistance) {
+        return 0.0f;                                                // Completely transparent - outside fade zones
+    }
+
+    // CORRECTED: Fade in from right side (character entering the region from right)
+    if (charPosition > regionEnd) {
+        float distanceFromEnd = charPosition - regionEnd;           // Distance beyond right edge
+        float transparency = 1.0f - (distanceFromEnd / fadeDistance); // Fade in as distance decreases
+        return std::max(0.0f, std::min(1.0f, transparency));        // Clamp to valid range
+    }
+
+    // CORRECTED: Fade out at left side (character leaving the region to left)
+    if (charPosition < regionStart) {
+        float distanceFromStart = regionStart - charPosition;       // Distance beyond left edge
+        float transparency = 1.0f - (distanceFromStart / fadeDistance); // Fade out as distance increases
+        return std::max(0.0f, std::min(1.0f, transparency));        // Clamp to valid range
+    }
+
+    // Character is within the main visible region
+    float regionWidth = regionEnd - regionStart;                    // Calculate total region width
+    float positionInRegion = (charPosition - regionStart) / regionWidth; // Normalize position (0.0 to 1.0)
+
+    // IMPROVED: Apply smooth edge fading for better visual effect
+    const float edgeFadePercent = 0.15f;                            // 15% fade zone on each edge
+
+    if (positionInRegion < edgeFadePercent) {
+        // Fade in from left edge of visible region
+        float edgeTransparency = positionInRegion / edgeFadePercent; // 0.0 at edge, 1.0 at fade boundary
+        return std::max(0.0f, std::min(1.0f, edgeTransparency));    // Clamp to valid range
+    }
+
+    if (positionInRegion > (1.0f - edgeFadePercent)) {
+        // Fade out at right edge of visible region
+        float distanceFromRightEdge = 1.0f - positionInRegion;      // Distance from right edge
+        float edgeTransparency = distanceFromRightEdge / edgeFadePercent; // 1.0 at fade boundary, 0.0 at edge
+        return std::max(0.0f, std::min(1.0f, edgeTransparency));    // Clamp to valid range
+    }
+
+    // Center region - fully opaque
+    return 1.0f;
+}
+
+// -------------------------------------------------------------------------------------------------------------
+// CalculateTextWidthWithSpacing - Helper function to calculate text width including character and word spacing
+// Used for consistent scroller to determine total text width for wrapping calculations
+// Parameters:
+//   text - Text string to measure
+//   fontName - Font family name to use for measurements
+//   fontSize - Font size for measurements
+//   characterSpacing - Additional spacing between characters
+//   wordSpacing - Additional spacing between words
+// Returns:
+//   float - Total width of the text including all spacing
+// -------------------------------------------------------------------------------------------------------------
+float FXManager::CalculateTextWidthWithSpacing(const std::wstring& text, const std::wstring& fontName,
+    float fontSize, float characterSpacing, float wordSpacing)
+{
+    float totalWidth = 0.0f;                                                    // Initialize total width accumulator
+
+    // Calculate width character by character including spacing
+    WithDX11Renderer([&](std::shared_ptr<DX11Renderer> dx11) {
+        for (size_t i = 0; i < text.length(); ++i) {
+            wchar_t character = text[i];                                        // Get current character
+
+            // Get base character width using specified font
+            float charWidth = dx11->GetCharacterWidth(character, fontSize, fontName);
+
+            // Add character spacing
+            charWidth += characterSpacing;
+
+            // Add additional word spacing for space characters
+            if (character == L' ') {
+                charWidth += wordSpacing;                                       // Add extra spacing for word separation
+            }
+
+            // Accumulate total width
+            totalWidth += charWidth;
+        }
+        });
+
+    // Return the total calculated width
+    return totalWidth;
+}
+
+// -------------------------------------------------------------------------------------------------------------
+// SplitTextIntoLines - Helper function to split text into lines for movie scroller
+// Parameters:
+//   text - Input text string to split
+//   lines - Output vector to store the split lines
+//   maxWidth - Maximum width allowed per line
+//   fontSize - Font size for width calculations
+// -------------------------------------------------------------------------------------------------------------
+void FXManager::SplitTextIntoLines(const std::wstring& text, std::vector<std::wstring>& lines, float maxWidth, float fontSize)
+{
+    lines.clear();                                                  // Clear existing lines
+
+    std::wstringstream ss(text);                                    // Create string stream for processing
+    std::wstring word;
+    std::wstring currentLine;
+
+    // Process text word by word
+    while (std::getline(ss, word, L' ')) {                         // Split by spaces
+        std::wstring testLine = currentLine.empty() ? word : currentLine + L" " + word;
+
+        // Check if adding this word exceeds the maximum width
+        float lineWidth = 0.0f;
+        WithDX11Renderer([&testLine, fontSize, &lineWidth](std::shared_ptr<DX11Renderer> dx11) {
+            lineWidth = dx11->CalculateTextWidth(testLine, fontSize, 1000.0f);
+            });
+
+        if (lineWidth > maxWidth && !currentLine.empty()) {
+            // Adding this word would exceed max width, so finalize current line
+            lines.push_back(currentLine);
+            currentLine = word;                                     // Start new line with current word
+        }
+        else {
+            currentLine = testLine;                                 // Add word to current line
+        }
+    }
+
+    // Add the last line if it has content
+    if (!currentLine.empty()) {
+        lines.push_back(currentLine);
+    }
 }

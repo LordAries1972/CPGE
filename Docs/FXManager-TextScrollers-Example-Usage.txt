@@ -1,0 +1,231 @@
+// -------------------------------------------------------------------------------------------------------------
+// TextScroller Usage Examples
+// These examples show how to use the new TextScroller functionality in your game code
+//
+// Pertaining files to this set of examples:
+//
+// DX_FXManager.h/.cpp
+// -------------------------------------------------------------------------------------------------------------
+
+// Example 1: Left to Right Text Scroller
+// Creates text that slides in from the left, pauses in center, then exits to the right
+void CreateLTORExample()
+{
+    std::wstring welcomeText = L"Welcome to our amazing game!";
+    XMFLOAT4 textColor(1.0f, 1.0f, 0.0f, 1.0f);                    // Yellow text color
+    float fontSize = 24.0f;                                         // Font size for text
+    float regionX = 100.0f;                                         // X position of scroll region
+    float regionY = 300.0f;                                         // Y position of scroll region  
+    float regionWidth = 600.0f;                                     // Width of scroll region
+    float regionHeight = 100.0f;                                    // Height of scroll region
+    float scrollSpeed = 100.0f;                                     // Pixels per second scroll speed
+    float centerHoldTime = 3.0f;                                    // Hold in center for 3 seconds
+    float totalDuration = 10.0f;                                    // Total effect duration
+
+    fxManager.CreateTextScrollerLTOR(welcomeText, fontSize, textColor,
+        regionX, regionY, regionWidth, regionHeight,
+        scrollSpeed, centerHoldTime, totalDuration);
+}
+
+// Example 2: Right to Left Text Scroller  
+// Creates text that slides in from the right, pauses in center, then exits to the left
+void CreateRTOLExample()
+{
+    std::wstring gameOverText = L"Game Over - Thanks for Playing!";
+    XMFLOAT4 textColor(1.0f, 0.0f, 0.0f, 1.0f);                    // Red text color
+    float fontSize = 28.0f;                                         // Font size for text
+    float regionX = 50.0f;                                          // X position of scroll region
+    float regionY = 250.0f;                                         // Y position of scroll region
+    float regionWidth = 700.0f;                                     // Width of scroll region
+    float regionHeight = 120.0f;                                    // Height of scroll region
+    float scrollSpeed = 120.0f;                                     // Pixels per second scroll speed
+    float centerHoldTime = 4.0f;                                    // Hold in center for 4 seconds
+    float totalDuration = 12.0f;                                    // Total effect duration
+
+    fxManager.CreateTextScrollerRTOL(gameOverText, fontSize, textColor,
+        regionX, regionY, regionWidth, regionHeight,
+        scrollSpeed, centerHoldTime, totalDuration);
+}
+
+// Example 3: Consistent Text Scroller (Continuous)
+// Creates continuously scrolling text that loops indefinitely
+void CreateConsistentScrollerExample()
+{
+    std::wstring newsText = L"Breaking News: This is a demonstration of CPGE 2D Text Scroller that scrolls horizonally and consistently from the Right to the left side of a given region.          ";
+    XMFLOAT4 textColor(0.0f, 1.0f, 0.0f, 1.0f);                    // Green text color
+    float fontSize = 16.0f;                                         // Font size for text
+    float regionX = 0.0f;                                           // X position of scroll region
+    float regionY = 50.0f;                                          // Y position of scroll region (top of screen)
+    float regionWidth = 800.0f;                                     // Width of scroll region (full screen width)
+    float regionHeight = 30.0f;                                     // Height of scroll region
+    float scrollSpeed = 80.0f;                                      // Pixels per second scroll speed
+    float duration = FLT_MAX;                                       // Infinite duration (continuous)
+
+    fxManager.CreateTextScrollerConsistent(newsText, fontSize, textColor,
+        regionX, regionY, regionWidth, regionHeight,
+        scrollSpeed, duration);
+}
+
+// Example 4: Movie Credits Style Scroller
+// Creates credits that scroll from bottom to top like movie end credits
+void CreateMovieCreditsExample()
+{
+    // Create vector of credit lines
+    std::vector<std::wstring> creditLines = {
+        L"GAME CREDITS",
+        L"",
+        L"Director",
+        L"John Smith",
+        L"",
+        L"Lead Programmer", 
+        L"Jane Doe",
+        L"",
+        L"Graphics Artist",
+        L"Bob Johnson",
+        L"",
+        L"Sound Designer",
+        L"Alice Wilson",
+        L"",
+        L"Special Thanks",
+        L"To all our beta testers",
+        L"and the gaming community",
+        L"",
+        L"Thank you for playing!"
+    };
+
+    XMFLOAT4 textColor(1.0f, 1.0f, 1.0f, 1.0f);                    // White text color
+    float fontSize = 20.0f;                                         // Font size for text
+    float regionX = 200.0f;                                         // X position of scroll region
+    float regionY = 100.0f;                                         // Y position of scroll region
+    float regionWidth = 400.0f;                                     // Width of scroll region
+    float regionHeight = 500.0f;                                    // Height of scroll region
+    float scrollSpeed = 50.0f;                                      // Pixels per second scroll speed
+    float lineSpacing = 25.0f;                                      // Spacing between lines
+    float totalDuration = 30.0f;                                    // 30 seconds for full credits
+
+    fxManager.CreateTextScrollerMovie(creditLines, fontSize, textColor,
+        regionX, regionY, regionWidth, regionHeight,
+        scrollSpeed, lineSpacing, totalDuration);
+}
+
+// Example 5: Managing Text Scroller Effects
+// Shows how to control text scroller effects after creation
+void ManageTextScrollerExamples()
+{
+    // Store effect ID when creating for later control
+    int scrollerEffectID = 0;
+
+    // Create a scroller and store its ID for management
+    std::wstring managedText = L"This text can be controlled!";
+    XMFLOAT4 textColor(0.5f, 0.5f, 1.0f, 1.0f);                    // Light blue text color
+    
+    // Before calling CreateTextScrollerLTOR, get the next ID that will be assigned
+    scrollerEffectID = static_cast<int>(fxManager.effects.size()) + 1;
+    
+    fxManager.CreateTextScrollerLTOR(managedText, 18.0f, textColor,
+        100.0f, 400.0f, 600.0f, 80.0f, 90.0f, 2.5f, 15.0f);
+
+    // Example of pausing the scroller after 5 seconds
+    // (In real code, you'd do this based on game events or timers)
+    // fxManager.PauseTextScroller(scrollerEffectID);
+
+    // Example of resuming the scroller
+    // fxManager.ResumeTextScroller(scrollerEffectID);
+
+    // Example of stopping the scroller completely
+    // fxManager.StopTextScroller(scrollerEffectID);
+}
+
+// Example 6: Advanced Usage with Custom Colors and Effects
+// Shows more sophisticated text scroller setups
+void CreateAdvancedTextScrollerExamples()
+{
+    // Flashing alert message with bright red color
+    std::wstring alertText = L"ALERT: System Warning Detected!";
+    XMFLOAT4 alertColor(1.0f, 0.2f, 0.2f, 1.0f);                   // Bright red with full alpha
+    
+    fxManager.CreateTextScrollerConsistent(alertText, 22.0f, alertColor,
+        0.0f, 10.0f, 800.0f, 35.0f, 150.0f, FLT_MAX);
+
+    // Story text with fade effects
+    std::wstring storyText = L"Long ago, in a galaxy far, far away...";
+    XMFLOAT4 storyColor(0.8f, 0.8f, 0.9f, 1.0f);                   // Soft white/blue color
+    
+    fxManager.CreateTextScrollerLTOR(storyText, 26.0f, storyColor,
+        50.0f, 200.0f, 700.0f, 100.0f, 60.0f, 5.0f, 20.0f);
+
+    // Multi-line ending sequence  
+    std::vector<std::wstring> endingLines = {
+        L"THE END",
+        L"",
+        L"Your journey has concluded,",
+        L"but the adventure continues...",
+        L"",
+        L"Press SPACE to continue"
+    };
+
+    XMFLOAT4 endingColor(1.0f, 0.9f, 0.7f, 1.0f);                  // Golden color
+    
+    fxManager.CreateTextScrollerMovie(endingLines, 24.0f, endingColor,
+        150.0f, 150.0f, 500.0f, 400.0f, 40.0f, 30.0f, 25.0f);
+}
+
+// Example 7: Using Text Scrollers in Game Scenes
+// Shows integration with existing scene management
+void IntegrateTextScrollersWithScenes()
+{
+    // Example for intro scene
+    if (scene.stSceneType == SceneType::SCENE_INTRO)
+    {
+        // Welcome message for intro scene
+        std::wstring introText = L"Prepare for an Epic Adventure!";
+        XMFLOAT4 introColor(1.0f, 1.0f, 0.0f, 1.0f);               // Yellow color
+        
+        fxManager.CreateTextScrollerLTOR(introText, 30.0f, introColor,
+            100.0f, 350.0f, 600.0f, 120.0f, 100.0f, 3.0f, 12.0f);
+    }
+
+    // Example for gameplay scene
+    if (scene.stSceneType == SceneType::SCENE_GAMEPLAY)
+    {
+        // HUD information scroller
+        std::wstring hudText = L"Mission Objective: Collect all crystals and reach the exit portal";
+        XMFLOAT4 hudColor(0.0f, 1.0f, 1.0f, 1.0f);                 // Cyan color
+        
+        fxManager.CreateTextScrollerConsistent(hudText, 14.0f, hudColor,
+            0.0f, 580.0f, 800.0f, 20.0f, 60.0f, FLT_MAX);
+    }
+}
+
+// -------------------------------------------------------------------------------------------------------------
+// IMPLEMENTATION NOTES:
+// 
+// 1. Line Numbers for Integration:
+//    - Add TextScrollData struct to FXItem around line 145 in DX_FXManager.h
+//    - Add TextScroller enum values around line 22-24 and 50-54 in DX_FXManager.h
+//    - Add function declarations around line 155-165 in DX_FXManager.h
+//    - Add the complete implementation functions to DX_FXManager.cpp after line 900
+//    - Update Render2D() function around line 739 in DX_FXManager.cpp
+//    - Update RemoveCompletedEffects() around line 426 in DX_FXManager.cpp
+//    - Add _DEBUG_FXMANAGER_ directive to Debug.h with other debug defines
+//
+// 2. Thread Safety:
+//    - All functions use ThreadLockHelper for safe mutex locking
+//    - Locks are automatically released when ThreadLockHelper goes out of scope
+//    - Uses "fxmanager_textscroller_lock" as the lock name for consistency
+//
+// 3. Performance Considerations:
+//    - Character-by-character transparency calculation only for TXT_SCROLL_CONSISTANT
+//    - Efficient text width calculations using existing DX11Renderer functions
+//    - Delta time based updates for smooth frame-rate independent animation
+//
+// 4. Debug Output:
+//    - All debug output is safely guarded with #if defined(_DEBUG_FXMANAGER_)
+//    - Uses appropriate log levels (LOG_INFO, LOG_DEBUG, LOG_ERROR, LOG_WARNING)
+//    - Provides detailed information for debugging and optimization
+//
+// 5. Compatibility:
+//    - Works with existing FXManager functionality
+//    - Uses existing renderer functions (DrawMyText, CalculateTextWidth, etc.)
+//    - Maintains all current code structure and conventions
+// -------------------------------------------------------------------------------------------------------------

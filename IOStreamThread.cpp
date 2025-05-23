@@ -33,6 +33,7 @@ extern GUIManager guiManager;
 extern FXManager fxManager;
 extern Model models[MAX_MODELS];
 extern LightsManager lightsManager;
+extern WindowMetrics winMetrics;
 extern bool bResizing;
 
 std::mutex DX11Renderer::s_loaderMutex;
@@ -127,9 +128,24 @@ void DX11Renderer::LoaderTaskThread()
 					myCamera.SetupDefaultCamera(static_cast<float>(iOrigWidth), static_cast<float>(iOrigHeight));
 					guiManager.CreateGameMenuWindow(L"");
 
-					// Create a starfield with 500 stars, a radius of 1000, and reset distance of 1000
-					fxManager.CreateStarfield(200, 1000.0f, 1000.0f);
+					// Create a starfield with 100 stars, a radius of 1000, and reset distance of 1000
+					fxManager.CreateStarfield(100, 1000.0f, 1000.0f);
 					fxManager.FadeToImage(1.0f, 0.08f);
+
+					std::wstring newsText = L"Breaking News: This is a demonstration of the CPGE 2D Consistent Horizontal Text Scroller that scrolls from the Right to Left side of a given rectangular region.";
+					XMFLOAT4 textColor(0.0f, 1.0f, 0.0f, 1.0f);                     // Green text color
+				
+					float fontSize = 16.0f;                                         // Font size for text
+					float regionX = -5.0f;                                          // X position of scroll region
+					float regionY = float(winMetrics.clientHeight) - 100.0f;        // Y position of scroll region (top of screen)
+					float regionWidth = float(winMetrics.clientWidth) + 10.0f;      // Width of scroll region (full screen width)
+					float regionHeight = 30.0f;                                     // Height of scroll region
+					float scrollSpeed = 70.0f;                                      // Pixels per second scroll speed
+					float duration = FLT_MAX;                                       // Infinite duration (continuous)
+
+					fxManager.CreateTextScrollerConsistent(newsText, L"MayaCulpa", fontSize, textColor,
+						regionX, regionY, regionWidth, regionHeight,
+						scrollSpeed, duration);
 				}
 				break;
 			}

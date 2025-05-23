@@ -200,10 +200,14 @@ public:
     void DrawRectangle(const Vector2& position, const Vector2& size, const MyColor& color, bool is2D) override;
     void DrawMyText(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize) override;
     void DrawMyText(const std::wstring& text, const Vector2& position, const Vector2& size, const MyColor& color, const float FontSize) override;
+    void DrawMyTextWithFont(const std::wstring& text, const Vector2& position, const MyColor& color,
+        const float FontSize, const std::wstring& fontName);
+
     void DrawTexture(int textureId, const Vector2& position, const Vector2& size, const MyColor& tintColor, bool is2D) override;
     void RendererName(std::string sThisName) override;
 
     float GetCharacterWidth(wchar_t character, float FontSize) override;
+    float GetCharacterWidth(wchar_t character, float FontSize, const std::wstring& fontName);
     float CalculateTextWidth(const std::wstring& text, float FontSize, float containerWidth) override;
     float CalculateTextHeight(const std::wstring& text, float FontSize, float containerHeight) override;
 

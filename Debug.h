@@ -42,7 +42,7 @@
 // ===== to determine problems with the pixel shader.  So I have to use this 
 //       approach instead until I can figure it out!
 // ----------------------------------------------------------------------------------------------
-#define _DEBUG_RENDERER_
+//#define _DEBUG_RENDERER_
 #define _DEBUG_PIXSHADER_
 
 //#define _DEBUG_CAMERA_

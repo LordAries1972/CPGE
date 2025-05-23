@@ -104,7 +104,7 @@ const int MAX_SCREEN_MONITORS = 4;
 const bool USE_FPS_DISPLAY = true;
 
 const int MAX_2D_IMG_QUEUE_OBJS = 512;
-const LPCWSTR FontName = L"Arial";
+const LPCWSTR FontName = L"MayaCulpa";
 
 const int MAX_RENDER_OPERATIONS = 4096;
 

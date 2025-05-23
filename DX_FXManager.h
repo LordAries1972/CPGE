@@ -24,6 +24,7 @@ enum class FXType {
     Scroller,
     ParticleExplosion,
     Starfield,
+    TextScroller,                                                               // NEW: Text scroller effect type
 };
 
 enum class FXSubType {
@@ -38,7 +39,7 @@ enum class FXSubType {
     WipeUp,
     WipeDown,
 
-    // NEW Scroll Sub-types
+    // Scroll Sub-types
     ScrollRight,
     ScrollLeft,
     ScrollUp,
@@ -47,6 +48,12 @@ enum class FXSubType {
     ScrollUpAndRight,
     ScrollDownAndLeft,
     ScrollDownAndRight,
+
+    // NEW: Text Scroller Sub-types
+    TXT_SCROLL_LTOR,                                                            // Left to Right text scroller
+    TXT_SCROLL_RTOL,                                                            // Right to Left text scroller
+    TXT_SCROLL_CONSISTANT,                                                      // Consistent text scroller
+    TXT_SCROLL_MOVIE,                                                           // Movie credits style scroller
 };
 
 // Structure representing an individual animated particle for explosions
@@ -74,11 +81,44 @@ struct Star
     float size;          // Star size
     float speed;         // Movement speed factor
     bool active;         // Whether the star is currently active
-}; 
+};
+
+// NEW: Structure representing text scroll data for text scrollers
+struct TextScrollData {
+    std::wstring text;                                                          // Text content to scroll
+    std::vector<std::wstring> textLines;                                        // Text split into lines for movie scroller
+    std::wstring fontName;                                                      // Font name for text rendering
+    float fontSize;                                                             // Font size for text rendering
+    XMFLOAT4 textColor;                                                         // Base text color (R, G, B, A)
+    float scrollSpeed;                                                          // Speed of scrolling movement
+    float currentXPosition;                                                     // Current X position for horizontal scrollers
+    float currentYPosition;                                                     // Current Y position for vertical scrollers
+    float centerHoldTime;                                                       // Time to hold text in center (LTOR/RTOL only)
+    float centerHoldTimer;                                                      // Current center hold timer
+    float regionWidth;                                                          // Width of scroll region
+    float regionHeight;                                                         // Height of scroll region
+    float regionX;                                                              // X position of scroll region
+    float regionY;                                                              // Y position of scroll region
+    int currentLineIndex;                                                       // Current line being displayed (movie scroller)
+    float lineSpacing;                                                          // Spacing between lines (movie scroller)
+    float characterSpacing;                                                     // Additional spacing between characters
+    float wordSpacing;                                                          // Additional spacing between words
+    bool isInCenterPhase;                                                       // Whether text is in center hold phase
+    bool hasReachedCenter;                                                      // Whether text has reached center position
+
+    // Constructor to initialize default values
+    TextScrollData() :
+        text(L""), fontName(L"Arial"), fontSize(16.0f), textColor(1.0f, 1.0f, 1.0f, 1.0f),
+        scrollSpeed(1.0f), currentXPosition(0.0f), currentYPosition(0.0f),
+        centerHoldTime(2.0f), centerHoldTimer(0.0f), regionWidth(800.0f), regionHeight(600.0f),
+        regionX(0.0f), regionY(0.0f), currentLineIndex(0), lineSpacing(20.0f),
+        characterSpacing(1.0f), wordSpacing(8.0f), isInCenterPhase(false), hasReachedCenter(false) {
+    }
+};
 
 struct FXItem {
-	int fxID; 												        // FX ID number
-	int nextEffectID; 										        // Next FX ID number, used for chaining
+    int fxID; 												        // FX ID number
+    int nextEffectID; 										        // Next FX ID number, used for chaining
     FXType type;                                                    // EFX Type
     FXSubType subtype;                                              // EFX Sub-Type
     int x = 0;
@@ -110,6 +150,9 @@ struct FXItem {
 
     int originX, originY;                                           // Explosion center
     std::vector<Particle> particles;                                // All particles for the effect
+
+    // NEW: Text Scroller support
+    TextScrollData textScrollData;                                  // Text scrolling data for text scroller effects
 };
 
 struct ScrollTween {
@@ -162,8 +205,8 @@ public:
     void FadeToWhite(float duration, float delay);
     void FadeToImage(float duration, float delay);
     void FadeOutThenCallback(XMFLOAT4 color, float duration, float delay, std::function<void()> callback);
-    void FadeOutInSequence(XMFLOAT4 fadeOutColor, XMFLOAT4 fadeInColor, float duration, float delay, 
-                                      std::function<void()> midpointCallback);
+    void FadeOutInSequence(XMFLOAT4 fadeOutColor, XMFLOAT4 fadeInColor, float duration, float delay,
+        std::function<void()> midpointCallback);
 
     // Scroller Utility Calls.
     void CancelEffect(int effectID);
@@ -183,9 +226,32 @@ public:
     void CreateParticleExplosion(int startX, int startY, int maxParticles, int maxRadius);
     void RenderParticles(FXItem& fxItem);
 
+    // Text Scroller Utility Calls
+    void CreateTextScrollerLTOR(const std::wstring& text, const std::wstring& fontName, float fontSize, XMFLOAT4 textColor,
+        float regionX, float regionY, float regionWidth, float regionHeight,
+        float scrollSpeed, float centerHoldTime, float duration, float characterSpacing = 0.5f, float wordSpacing = 8.0f);
+    void CreateTextScrollerRTOL(const std::wstring& text, const std::wstring& fontName, float fontSize, XMFLOAT4 textColor,
+        float regionX, float regionY, float regionWidth, float regionHeight,
+        float scrollSpeed, float centerHoldTime, float duration, float characterSpacing = 0.5f, float wordSpacing = 8.0f);
+    void CreateTextScrollerConsistent(const std::wstring& text, const std::wstring& fontName, float fontSize, XMFLOAT4 textColor,
+        float regionX, float regionY, float regionWidth, float regionHeight,
+        float scrollSpeed, float duration, float characterSpacing = 0.5f, float wordSpacing = 8.0f);
+    void CreateTextScrollerMovie(const std::vector<std::wstring>& textLines, const std::wstring& fontName, float fontSize, XMFLOAT4 textColor,
+        float regionX, float regionY, float regionWidth, float regionHeight,
+        float scrollSpeed, float lineSpacing, float duration, float characterSpacing = 0.5f, float wordSpacing = 8.0f);    
+    
+    float CalculateTextWidthWithSpacing(const std::wstring& text, const std::wstring& fontName,
+        float fontSize, float characterSpacing, float wordSpacing);
+
+    void StopTextScroller(int effectID);
+    void PauseTextScroller(int effectID);
+    void ResumeTextScroller(int effectID);
+    void UpdateTextScroller(FXItem& fxItem, float deltaTime);
+    void RenderTextScroller(FXItem& fxItem);
+
 private:
     std::mutex m_effectsMutex;
-    
+
     std::vector<FXItem> effects;
     std::vector<std::pair<FXItem, std::function<void()>>> pendingCallbacks;
     std::vector<ScrollTween> activeTweens;
@@ -198,6 +264,11 @@ private:
     void SaveRenderState();
     void RemoveCompletedEffects();
     void RenderFullScreenQuad(const XMFLOAT4& color);
+
+    // NEW: Private text scroller helper functions
+    float CalculateTextTransparency(float position, float regionStart, float regionEnd, float fadeDistance);
+    float CalculateCharacterTransparency(float charPosition, float regionStart, float regionEnd, float fadeDistance);
+    void SplitTextIntoLines(const std::wstring& text, std::vector<std::wstring>& lines, float maxWidth, float fontSize);
 
     ID3D11BlendState* originalBlendState = nullptr;
     ID3D11BlendState* fadeBlendState = nullptr;

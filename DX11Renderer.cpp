@@ -1,4 +1,5 @@
 ﻿#define NOMINMAX
+
 #include "Includes.h"
 
 // DirectX 11 Required Headers & Linking
@@ -713,6 +714,61 @@ float DX11Renderer::GetCharacterWidth(wchar_t character, float FontSize) {
     return textMetrics.width;
 }
 
+float DX11Renderer::GetCharacterWidth(wchar_t character, float FontSize, const std::wstring& fontName) {
+    // Early exit checks for invalid parameters
+    if (!m_dwriteFactory) {
+        ThrowError("DirectWrite factory is not initialized.");
+        return 0.0f;
+    }
+
+    // Create text format with specified font name
+    ComPtr<IDWriteTextFormat> m_txtFormat;
+    HRESULT hr = m_dwriteFactory->CreateTextFormat(
+        fontName.c_str(),                                   // Use specified font name instead of default
+        nullptr,                                            // No font collection (use system fonts)
+        DWRITE_FONT_WEIGHT_NORMAL,                          // Normal font weight
+        DWRITE_FONT_STYLE_NORMAL,                           // Normal font style
+        DWRITE_FONT_STRETCH_NORMAL,                         // Normal font stretch
+        FontSize,                                           // Font size parameter
+        L"en-us",                                           // Locale identifier
+        &m_txtFormat                                        // Output text format
+    );
+
+    // Check if text format creation was successful
+    if (FAILED(hr)) {
+        ThrowError("Failed to create text format for character width calculation with custom font.");
+        return 0.0f;
+    }
+
+    // Create a text layout for the character
+    ComPtr<IDWriteTextLayout> textLayout;
+    hr = m_dwriteFactory->CreateTextLayout(
+        &character,                                         // The character to measure
+        1,                                                  // Length of the character
+        m_txtFormat.Get(),                                  // Current text format with custom font
+        1000.0f,                                            // Maximum width (arbitrary large value)
+        1000.0f,                                            // Maximum height (arbitrary large value)
+        &textLayout                                         // Output text layout
+    );
+
+    // Check if text layout creation was successful
+    if (FAILED(hr)) {
+        ThrowError("Failed to create text layout for character width calculation with custom font.");
+        return 0.0f;
+    }
+
+    // Get the metrics of the text layout
+    DWRITE_TEXT_METRICS textMetrics;
+    hr = textLayout->GetMetrics(&textMetrics);
+    if (FAILED(hr)) {
+        ThrowError("Failed to get text metrics for character width calculation with custom font.");
+        return 0.0f;
+    }
+
+    // Return the width of the character using the specified font
+    return textMetrics.width;
+}
+
 // This function calculates the X position to center text within a container
 float DX11Renderer::CalculateTextWidth(const std::wstring& text, float FontSize, float containerWidth)
 {
@@ -914,27 +970,62 @@ void DX11Renderer::DrawMyTextCentered(const std::wstring& text, const Vector2& p
 }
 
 void DX11Renderer::DrawMyText(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize) {
+    // Early exit checks
     if (!m_d2dRenderTarget || !m_dwriteFactory) return;
+    if (text.empty() || FontSize <= 0.0f) return;
 
-    // Create text format if missing
-    ComPtr<IDWriteTextFormat> m_textFormat;
-    m_dwriteFactory->CreateTextFormat(
-            FontName, nullptr, DWRITE_FONT_WEIGHT_NORMAL,
-            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-            FontSize, L"en-us", &m_textFormat
-        );
+    // Create text format - keep it simple
+    ComPtr<IDWriteTextFormat> textFormat;
+    HRESULT hr = m_dwriteFactory->CreateTextFormat(
+        FontName, nullptr, DWRITE_FONT_WEIGHT_NORMAL,
+        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+        FontSize, L"en-us", &textFormat
+    );
 
+    if (FAILED(hr)) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"DrawMyText: Failed to create text format");
+        return;
+    }
+
+    // CORRECTED: Convert MyColor uint8_t (0-255) to float (0.0-1.0) for Direct2D
+    float r = static_cast<float>(color.r) / 255.0f;                            // Convert red from 0-255 to 0.0-1.0
+    float g = static_cast<float>(color.g) / 255.0f;                            // Convert green from 0-255 to 0.0-1.0
+    float b = static_cast<float>(color.b) / 255.0f;                            // Convert blue from 0-255 to 0.0-1.0
+    float a = static_cast<float>(color.a) / 255.0f;                            // Convert alpha from 0-255 to 0.0-1.0
+
+    // Create brush with the correct normalized values
     ComPtr<ID2D1SolidColorBrush> brush;
-    m_d2dRenderTarget->CreateSolidColorBrush(D2D1::ColorF(color.r, color.g, color.b, color.a), &brush);
+    hr = m_d2dRenderTarget->CreateSolidColorBrush(D2D1::ColorF(r, g, b, a), &brush);
+    if (FAILED(hr)) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"DrawMyText: Failed to create brush");
+        return;
+    }
 
-    std::wstring wtext(text.begin(), text.end());
+    // Simple destination rectangle
+    D2D1_RECT_F destRect = D2D1::RectF(
+        position.x,
+        position.y,
+        position.x + 1000.0f,
+        position.y + 200.0f
+    );
+
+    // Render the text with transparency support
     m_d2dRenderTarget->DrawText(
-        wtext.c_str(),
-        static_cast<UINT32>(wtext.size()),
-        m_textFormat.Get(),
-        D2D1::RectF(position.x, position.y, position.x + 1000, position.y + 1000),
+        text.c_str(),
+        static_cast<UINT32>(text.size()),
+        textFormat.Get(),
+        destRect,
         brush.Get()
     );
+
+/*
+#if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+    // Debug transparency values
+    debug.logDebugMessage(LogLevel::LOG_DEBUG,
+        L"DrawMyText: MyColor(%d,%d,%d,%d) -> Float(%.3f,%.3f,%.3f,%.3f) Text='%s'",
+        color.r, color.g, color.b, color.a, r, g, b, a, text.substr(0, 20).c_str());
+#endif
+*/
 }
 
 void DX11Renderer::DrawMyText(const std::wstring& text, const Vector2& position, const Vector2& size, const MyColor& color, const float FontSize) {
@@ -956,6 +1047,69 @@ void DX11Renderer::DrawMyText(const std::wstring& text, const Vector2& position,
         m_txtFormat.Get(),
         D2D1::RectF(position.x, position.y, position.x + size.x, position.y + size.y), brush.Get()
     );
+}
+
+void DX11Renderer::DrawMyTextWithFont(const std::wstring& text, const Vector2& position, const MyColor& color,
+    const float FontSize, const std::wstring& fontName) {
+    // Early exit checks
+    if (!m_d2dRenderTarget || !m_dwriteFactory) return;
+    if (text.empty() || FontSize <= 0.0f) return;
+
+    // Create text format with specified font name - keep it simple
+    ComPtr<IDWriteTextFormat> textFormat;
+    HRESULT hr = m_dwriteFactory->CreateTextFormat(
+        fontName.c_str(),                                                       // Use specified font name
+        nullptr,                                                                // No font collection
+        DWRITE_FONT_WEIGHT_NORMAL,                                              // Normal font weight
+        DWRITE_FONT_STYLE_NORMAL,                                               // Normal font style
+        DWRITE_FONT_STRETCH_NORMAL,                                             // Normal font stretch
+        FontSize,                                                               // Font size parameter
+        L"en-us",                                                               // Locale identifier
+        &textFormat                                                             // Output text format
+    );
+
+    if (FAILED(hr)) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"DrawMyTextWithFont: Failed to create text format with font: " + fontName);
+        return;
+    }
+
+    // CORRECTED: Convert MyColor uint8_t (0-255) to float (0.0-1.0) for Direct2D
+    float r = static_cast<float>(color.r) / 255.0f;                            // Convert red from 0-255 to 0.0-1.0
+    float g = static_cast<float>(color.g) / 255.0f;                            // Convert green from 0-255 to 0.0-1.0
+    float b = static_cast<float>(color.b) / 255.0f;                            // Convert blue from 0-255 to 0.0-1.0
+    float a = static_cast<float>(color.a) / 255.0f;                            // Convert alpha from 0-255 to 0.0-1.0
+
+    // Create brush with the correct normalized values
+    ComPtr<ID2D1SolidColorBrush> brush;
+    hr = m_d2dRenderTarget->CreateSolidColorBrush(D2D1::ColorF(r, g, b, a), &brush);
+    if (FAILED(hr)) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"DrawMyTextWithFont: Failed to create brush");
+        return;
+    }
+
+    // Simple destination rectangle
+    D2D1_RECT_F destRect = D2D1::RectF(
+        position.x,
+        position.y,
+        position.x + 1000.0f,
+        position.y + 200.0f
+    );
+
+    // Render the text with transparency support using specified font
+    m_d2dRenderTarget->DrawText(
+        text.c_str(),
+        static_cast<UINT32>(text.size()),
+        textFormat.Get(),                                                       // Use custom text format with specified font
+        destRect,
+        brush.Get()
+    );
+
+#if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+    // Debug font and transparency values
+    debug.logDebugMessage(LogLevel::LOG_DEBUG,
+        L"DrawMyTextWithFont: Font='%s' MyColor(%d,%d,%d,%d) -> Float(%.3f,%.3f,%.3f,%.3f) Text='%s'",
+        fontName.c_str(), color.r, color.g, color.b, color.a, r, g, b, a, text.substr(0, 20).c_str());
+#endif
 }
 
 void DX11Renderer::DrawTexture(int textureIndex, const Vector2& position, const Vector2& size, const MyColor& tintColor, bool is2D) {
@@ -2303,9 +2457,6 @@ void DX11Renderer::RenderFrame()
             return;
         }
 
-        // Invalidate FX Manager pixel data at start of new frame
-        fxManager.InvalidatePixelData();
-
         // Clear buffers & Initialize
         HRESULT hr = S_OK;
         HWND hWnd = hwnd;
@@ -2688,7 +2839,7 @@ void DX11Renderer::RenderFrame()
                             L", Yaw: " + std::to_wstring(myCamera.m_yaw) + L", Pitch: " + std::to_wstring(myCamera.m_pitch) + L"\n";
 						fpsText = fpsText + L"Global Light Count: " + std::to_wstring(lightsManager.GetLightCount()) + L"\n";
 
-                        DrawMyText(fpsText, Vector2(0, 0), MyColor(1.0f, 1.0f, 1.0f, 1.0f), 10.0f);
+                        DrawMyText(fpsText, Vector2(0, 0), MyColor(255, 255, 255, 255), 10.0f);
                     }
 
                     if (!threadManager.threadVars.bLoaderTaskFinished.load())
