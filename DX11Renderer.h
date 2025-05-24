@@ -165,6 +165,7 @@ public:
 
     // Override all pure virtual functions from the base class Renderer
     void Initialize(HWND hwnd, HINSTANCE hInstance) override;
+    bool StartRendererThreads();
     void RenderFrame() override;
     void LoaderTaskThread() override;
     void Cleanup() override;
@@ -194,6 +195,7 @@ public:
     
     // Helper Functions
     bool SetFullScreen(void) override;
+    bool SetFullExclusive(uint32_t width, uint32_t height) override;
     bool SetWindowedScreen(void) override;
 
 	// Base class overrides
@@ -280,5 +282,8 @@ private:
 extern std::shared_ptr<Renderer> renderer;
 // Other main base external references.
 extern Debug debug;
+
+extern std::atomic<bool> bResizeInProgress;                                    // Prevents multiple resize operations
+extern std::atomic<bool> bFullScreenTransition;                                // Prevents handling during fullscreen transitions
 
 #endif

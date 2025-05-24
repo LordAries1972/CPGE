@@ -1,2 +1,530 @@
-[22-05-2025 (AEST/AEDT) 09:07:21]: [INFO]: Direct2D render target created successfully
-[22-05-2025 (AEST/AEDT) 09:07:21]: Critical Error: 
+[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: ThreadManager destroyed.
+[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: DX Camera destroyed!
+[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: Renderer Cleaned up and Destroyed!
+[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: MoviePlayer: Resources cleaned up
+[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: MoviePlayer: Playback stopped
+[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: Renderer Successfully Cleaned Up.
+[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: All threads and locks cleaned up.
+[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: Thread 'GE-FileIO-Thread' terminated.
+[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[24-05-2025 (AEST/AEDT) 11:39:18]: [WARNING]: Thread with name 'GE-FileIO-Thread' already exists.
+[24-05-2025 (AEST/AEDT) 11:39:18]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: Direct2D render target created successfully
+[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: FXManager: Starfield effect manually stopped.
+[24-05-2025 (AEST/AEDT) 11:39:17]: [INFO]: WM_SIZE - Beginning resize to 784x561
+[24-05-2025 (AEST/AEDT) 11:39:17]: [INFO]: Thread 'GE-FileIO-Thread' finished.
+[24-05-2025 (AEST/AEDT) 11:39:16]: [INFO]: [LOADER]: Scene Loading Complete - Exiting Thread
+[24-05-2025 (AEST/AEDT) 11:15:12]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[24-05-2025 (AEST/AEDT) 11:15:11]: [INFO]: XM file loaded successfully.
+[24-05-2025 (AEST/AEDT) 11:15:11]: [INFO]: Patterns loaded successfully.
+[24-05-2025 (AEST/AEDT) 11:15:11]: [INFO]: Loading patterns...
+[24-05-2025 (AEST/AEDT) 11:15:11]: [INFO]: Loading XM file: ./Assets/thevoid.xm
+[24-05-2025 (AEST/AEDT) 11:15:11]: [INFO]: [LOADER]: Scene Intro.
+[24-05-2025 (AEST/AEDT) 11:15:10]: [INFO]: MoviePlayer: Playback stopped
+[24-05-2025 (AEST/AEDT) 11:15:10]: [INFO]: MoviePlayer: End of stream reached
+[24-05-2025 (AEST/AEDT) 11:14:57]: [INFO]: Thread 'GE-FileIO-Thread' resumed.
+[24-05-2025 (AEST/AEDT) 11:14:57]: [INFO]: MoviePlayer: Playback started
+[24-05-2025 (AEST/AEDT) 11:14:57]: [INFO]: Creating BGRA format texture for video
+[24-05-2025 (AEST/AEDT) 11:14:57]: [INFO]: Successfully set D3D manager for hardware decoding
+[24-05-2025 (AEST/AEDT) 11:14:57]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
+[24-05-2025 (AEST/AEDT) 11:14:56]: [INFO]: D3D11 multithreaded protection enabled
+[24-05-2025 (AEST/AEDT) 11:14:50]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[24-05-2025 (AEST/AEDT) 11:14:50]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[24-05-2025 (AEST/AEDT) 11:14:50]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[24-05-2025 (AEST/AEDT) 11:14:49]: [INFO]: Setting up thread: GE-FileIO-Thread
+[24-05-2025 (AEST/AEDT) 11:14:49]: [INFO]: Media Foundation multithreaded mode enabled
+[24-05-2025 (AEST/AEDT) 11:14:49]: [INFO]: FXManager: Successfully compiled and loaded fade shaders.
+[24-05-2025 (AEST/AEDT) 11:14:49]: [INFO]: Initializing GUIManager...
+
+[24-05-2025 (AEST/AEDT) 11:14:49]: [INFO]: Direct2D render target created successfully
+[24-05-2025 (AEST/AEDT) 11:14:49]: [INFO]: WM_SIZE - Resize completed successfully
+[24-05-2025 (AEST/AEDT) 11:14:49]: [WARNING]: Resize attempted in unsupported scene type
+[24-05-2025 (AEST/AEDT) 11:14:49]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 11:14:49]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 11:14:49]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 11:14:49]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
+[24-05-2025 (AEST/AEDT) 11:14:49]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 11:14:49]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 11:14:49]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 11:14:49]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[24-05-2025 (AEST/AEDT) 11:14:49]: [WARNING]: No Thread with name 'GE-FileIO-Thread' was found.
+[24-05-2025 (AEST/AEDT) 11:14:48]: [INFO]: Direct2D render target created successfully
+[24-05-2025 (AEST/AEDT) 11:14:48]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
+[24-05-2025 (AEST/AEDT) 11:14:48]: [INFO]: Found Adapter: Microsoft Basic Render Driver
+[24-05-2025 (AEST/AEDT) 11:14:48]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
+[24-05-2025 (AEST/AEDT) 11:14:48]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
+[24-05-2025 (AEST/AEDT) 11:14:48]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[24-05-2025 (AEST/AEDT) 11:14:48]: [INFO]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[24-05-2025 (AEST/AEDT) 11:14:47]: [INFO]: DX Camera created successfully
+[24-05-2025 (AEST/AEDT) 11:14:47]: [INFO]: Media Foundation multithreaded mode enabled
+[24-05-2025 (AEST/AEDT) 11:14:47]: [INFO]: ThreadManager initialized.
+[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: ThreadManager destroyed.
+[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: DX Camera destroyed!
+[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: Renderer Cleaned up and Destroyed!
+[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: MoviePlayer: Resources cleaned up
+[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: MoviePlayer: Playback stopped
+[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: Renderer Successfully Cleaned Up.
+[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: All threads and locks cleaned up.
+[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: Thread 'GE-FileIO-Thread' terminated.
+[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[24-05-2025 (AEST/AEDT) 10:40:34]: [WARNING]: Thread with name 'GE-FileIO-Thread' already exists.
+[24-05-2025 (AEST/AEDT) 10:40:34]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
+[24-05-2025 (AES0/AEDT) 10:40:34]: [INFO]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
+[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: Direct2D render target created successfully
+[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: FXManager: Starfield effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: WM_SIZE - Beginning resize to 1920x1009
+[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: Thread 'GE-FileIO-Thread' finished.
+[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: [LOADER]: Scene Loading Complete - Exiting Thread
+[24-05-2025 (AEST/AEDT) 10:37:54]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[24-05-2025 (AEST/AEDT) 10:37:54]: [INFO]: XM file loaded successfully.
+[24-05-2025 (AEST/AEDT) 10:37:54]: [INFO]: Patterns loaded successfully.
+[24-05-2025 (AEST/AEDT) 10:37:54]: [INFO]: Loading patterns...
+[24-05-2025 (AEST/AEDT) 10:37:54]: [INFO]: Loading XM file: ./Assets/thevoid.xm
+[24-05-2025 (AEST/AEDT) 10:37:54]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[24-05-2025 (AEST/AEDT) 10:37:52]: [INFO]: MoviePlayer: Playback stopped
+[24-05-2025 (AEST/AEDT) 10:37:52]: [INFO]: MoviePlayer: End of stream reached
+[24-05-2025 (AEST/AEDT) 10:37:37]: [INFO]: Thread 'GE-FileIO-Thread' resumed.
+[24-05-2025 (AEST/AEDT) 10:37:37]: [INFO]: MoviePlayer: Playback started
+[24-05-2025 (AEST/AEDT) 10:37:37]: [INFO]: Creating BGRA format texture for video
+[24-05-2025 (AEST/AEDT) 10:37:37]: [INFO]: Successfully set D3D manager for hardware decoding
+[24-05-2025 (AEST/AEDT) 10:37:37]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
+[24-05-2025 (AEST/AEDT) 10:37:37]: [INFO]: D3D11 multithreaded protection enabled
+[24-05-2025 (AEST/AEDT) 10:37:31]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: Setting up thread: GE-FileIO-Thread
+[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: Media Foundation multithreaded mode enabled
+[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: FXManager: Successfully compiled and loaded fade shaders.
+[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: Initializing GUIManager...
+
+[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: [RENDERER] Fullscreen mode set successfully
+[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: Direct2D render target created successfully
+[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: WM_SIZE - Resize completed successfully
+[24-05-2025 (AEST/AEDT) 10:37:30]: [WARNING]: Resize attempted in unsupported scene type
+[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
+[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:37:30]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[24-05-2025 (AEST/AEDT) 10:37:30]: [WARNING]: No Thread with name 'GE-FileIO-Thread' was found.
+[24-05-2025 (AEST/AEDT) 10:37:29]: [INFO]: Direct2D render target created successfully
+[24-05-2025 (AEST/AEDT) 10:37:29]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
+[24-05-2025 (AEST/AEDT) 10:37:29]: [INFO]: Found Adapter: Microsoft Basic Render Driver
+[24-05-2025 (AEST/AEDT) 10:37:29]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
+[24-05-2025 (AEST/AEDT) 10:37:29]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
+[24-05-2025 (AEST/AEDT) 10:37:29]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
+[24-05-2025 (AEST/AEDT) 10:37:29]: [INFO]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
+[24-05-2025 (AEST/AEDT) 10:37:28]: [INFO]: DX Camera created successfully
+[24-05-2025 (AEST/AEDT) 10:37:28]: [INFO]: Media Foundation multithreaded mode enabled
+[24-05-2025 (AEST/AEDT) 10:37:28]: [INFO]: ThreadManager initialized.
+[24-05-2025 (AEST/AEDT) 10:35:13]: [INFO]: ThreadManager destroyed.
+[24-05-2025 (AEST/AEDT) 10:35:13]: [INFO]: DX Camera destroyed!
+[24-05-2025 (AEST/AEDT) 10:35:13]: [INFO]: Renderer Cleaned up and Destroyed!
+[24-05-2025 (AEST/AEDT) 10:35:13]: [INFO]: MoviePlayer: Resources cleaned up
+[24-05-2025 (AEST/AEDT) 10:35:13]: [INFO]: MoviePlayer: Playback stopped
+[24-05-2025 (AEST/AEDT) 10:35:13]: [INFO]: Renderer Successfully Cleaned Up.
+[24-05-2025 (AEST/AEDT) 10:35:13]: [INFO]: All threads and locks cleaned up.
+[24-05-2025 (AEST/AEDT) 10:35:13]: [INFO]: Thread 'GE-FileIO-Thread' terminated.
+[24-05-2025 (AEST/AEDT) 10:35:13]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[24-05-2025 (AEST/AEDT) 10:35:13]: [WARNING]: Thread with name 'GE-FileIO-Thread' already exists.
+[24-05-2025 (AEST/AEDT) 10:35:13]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
+[24-05-2025 (AEST/AEDT) 10:35:13]: [INFO]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
+[24-05-2025 (AEST/AEDT) 10:35:13]: [INFO]: Direct2D render target created successfully
+[24-05-2025 (AEST/AEDT) 10:35:12]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:35:12]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:35:12]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:35:12]: [INFO]: FXManager: Starfield effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:35:12]: [INFO]: WM_SIZE - Beginning resize to 1920x1009
+[24-05-2025 (AEST/AEDT) 10:35:12]: [INFO]: Thread 'GE-FileIO-Thread' finished.
+[24-05-2025 (AEST/AEDT) 10:35:12]: [INFO]: [LOADER]: Scene Loading Complete - Exiting Thread
+[24-05-2025 (AEST/AEDT) 10:34:29]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[24-05-2025 (AEST/AEDT) 10:34:29]: [INFO]: XM file loaded successfully.
+[24-05-2025 (AEST/AEDT) 10:34:28]: [INFO]: Patterns loaded successfully.
+[24-05-2025 (AEST/AEDT) 10:34:28]: [INFO]: Loading patterns...
+[24-05-2025 (AEST/AEDT) 10:34:28]: [INFO]: Loading XM file: ./Assets/thevoid.xm
+[24-05-2025 (AEST/AEDT) 10:34:28]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[24-05-2025 (AEST/AEDT) 10:34:26]: [INFO]: MoviePlayer: Playback stopped
+[24-05-2025 (AEST/AEDT) 10:34:26]: [INFO]: MoviePlayer: End of stream reached
+[24-05-2025 (AEST/AEDT) 10:34:11]: [INFO]: Thread 'GE-FileIO-Thread' resumed.
+[24-05-2025 (AEST/AEDT) 10:34:11]: [INFO]: MoviePlayer: Playback started
+[24-05-2025 (AEST/AEDT) 10:34:11]: [INFO]: Creating BGRA format texture for video
+[24-05-2025 (AEST/AEDT) 10:34:11]: [INFO]: Successfully set D3D manager for hardware decoding
+[24-05-2025 (AEST/AEDT) 10:34:11]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
+[24-05-2025 (AEST/AEDT) 10:34:10]: [INFO]: D3D11 multithreaded protection enabled
+[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: Setting up thread: GE-FileIO-Thread
+[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: Media Foundation multithreaded mode enabled
+[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: FXManager: Successfully compiled and loaded fade shaders.
+[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: Initializing GUIManager...
+
+[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: [RENDERER] Fullscreen mode set successfully
+[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: Direct2D render target created successfully
+[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: WM_SIZE - Resize completed successfully
+[24-05-2025 (AEST/AEDT) 10:34:04]: [WARNING]: Resize attempted in unsupported scene type
+[24-05-2025 nAEST/AEDT) 10:34:04]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
+[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:34:04]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[24-05-2025 (AEST/AEDT) 10:34:04]: [WARNING]: No Thread with name 'GE-FileIO-Thread' was found.
+[24-05-2025 (AEST/AEDT) 10:34:03]: [INFO]: Direct2D render target created successfully
+[24-05-2025 (AEST/AEDT) 10:34:03]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
+[24-05-2025 (AEST/AEDT) 10:34:03]: [INFO]: Found Adapter: Microsoft Basic Render Driver
+[24-05-2025 (AEST/AEDT) 10:34:03]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
+[24-05-2025 (AEST/AEDT) 10:34:03]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
+[24-05-2025 (AEST/AEDT) 10:34:03]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
+[24-05-2025 (AEST/AEDT) 10:34:03]: [INFO]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
+[24-05-2025 (AEST/AEDT) 10:34:02]: [INFO]: DX Camera created successfully
+[24-05-2025 (AEST/AEDT) 10:34:02]: [INFO]: Media Foundation multithreaded mode enabled
+[24-05-2025 (AEST/AEDT) 10:34:02]: [INFO]: ThreadManager initialized.
+[24-05-2025 (AEST/AEDT) 10:20:50]: [INFO]: ThreadManager destroyed.
+[24-05-2025 (AEST/AEDT) 10:20:50]: [INFO]: DX Camera destroyed!
+[24-05-2025 (AEST/AEDT) 10:20:50]: [INFO]: Renderer Cleaned up and Destroyed!
+[24-05-2025 (AEST/AEDT) 10:20:50]: [INFO]: MoviePlayer: Resources cleaned up
+[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: MoviePlayer: Playback stopped
+[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: Renderer Successfully Cleaned Up.
+[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: All threads and locks cleaned up.
+[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: Thread 'GE-FileIO-Thread' terminated.
+[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[24-05-2025 (AEST/AEDT) 10:20:49]: [WARNING]: Thread with name 'GE-FileIO-Thread' already exists.
+[24-05-2025 (AEST/AEDT) 10:20:49]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
+[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
+[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: Direct2D render target created successfully
+[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: FXManager: Starfield effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: WM_SIZE - Beginning resize to 1920x1009
+[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: Thread 'GE-FileIO-Thread' finished.
+[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: [LOADER]: Scene Loading Complete - Exiting Thread
+[24-05-2025 (AEST/AEDT) 10:20:43]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[24-05-2025 (AEST/AEDT) 10:20:43]: [INFO]: XM file loaded successfully.
+[24-05-2025 (AEST/AEDT) 10:20:43]: [INFO]: Patterns loaded successfully.
+[24-05-2025 (AEST/AEDT) 10:20:43]: [INFO]: Loading patterns...
+[24-05-2025 (AEST/AEDT) 10:20:43]: [INFO]: Loading XM file: ./Assets/thevoid.xm
+[24-05-2025 (AEST/AEDT) 10:20:43]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[24-05-2025 (AEST/AEDT) 10:20:42]: [INFO]: MoviePlayer: Playback stopped
+[24-05-2025 (AEST/AEDT) 10:20:42]: [INFO]: MoviePlayer: End of stream reached
+[24-05-2025 (AEST/AEDT) 10:20:26]: [INFO]: Thread 'GE-FileIO-Thread' resumed.
+[24-05-2025 (AEST/AEDT) 10:20:26]: [INFO]: MoviePlayer: Playback started
+[24-05-2025 (AEST/AEDT) 10:20:26]: [INFO]: Creating BGRA format texture for video
+[24-05-2025 (AEST/AEDT) 10:20:26]: [INFO]: Successfully set D3D manager for hardware decoding
+[24-05-2025 (AEST/AEDT) 10:20:26]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
+[24-05-2025 (AEST/AEDT) 10:20:26]: [INFO]: D3D11 multithreaded protection enabled
+[24-05-2025 (AEST/AEDT) 10:20:20]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[24-05-2025 (AEST/AEDT) 10:20:19]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[24-05-2025 (AEST/AEDT) 10:20:19]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[24-05-2025 (AEST/AEDT) 10:20:19]: [INFO]: Setting up thread: GE-FileIO-Thread
+[24-05-2025 (AEST/AEDT) 10:20:19]: [INFO]: Media Foundation multithreaded mode enabled
+[24-05-2025 (AEST/AEDT) 10:20:19]: [INFO]: FXManager: Successfully compiled and loaded fade shaders.
+[24-05-2025 (AEST/AEDT) 10:20:19]: [INFO]: Initializing GUIManager...
+
+[24-05-2025 (AEST/AEDT) 10:20:19]: [INFO]: [RENDERER] Fullscreen mode set successfully
+[24-05-2025 (AEST/AEDT) 10:20:19]: [INFO]: Direct2D render target created successfully
+[24-05-2025 (AEST/AEDT) 10:20:19]: [INFO]: WM_SIZE - Resize completed successfully
+[24-05-2025 (AEST/AEDT) 10:20:19]: [WARNING]: Resize attempted in unsupported scene type
+[24-05-2025 (AEST/AEDT) 10:20:19]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:20:19]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:20:19]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:20:19]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
+[24-05-2025 (AEST/AEDT) 10:20:18]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:20:18]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:20:18]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 10:20:18]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[24-05-2025 (AEST/AEDT) 10:20:18]: [WARNING]: No Thread with name 'GE-FileIO-Thread' was found.
+[24-05-2025 (AEST/AEDT) 10:20:17]: [INFO]: Direct2D render target created successfully
+[24-05-2025 (AEST/AEDT) 10:20:17]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
+[24-05-2025 (AEST/AEDT) 10:20:17]: [INFO]: Found Adapter: Microsoft Basic Render Driver
+[24-05-2025 (AEST/AEDT) 10:20:17]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
+[24-05-2025 (AEST/AEDT) 10:20:17]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
+[24-05-2025 (AEST/AEDT) 10:20:17]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
+[24-05-2025 (AEST/AEDT) 10:20:17]: [INFO]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
+[24-05-2025 (AEST/AEDT) 10:20:16]: [INFO]: DX Camera created successfully
+[24-05-2025 (AEST/AEDT) 10:20:16]: [INFO]: Media Foundation multithreaded mode enabled
+[24-05-2025 (AEST/AEDT) 10:20:16]: [INFO]: ThreadManager initialized.
+[24-05-2025 (AEST/AEDT) 09:59:31]: [INFO]: ThreadManager destroyed.
+[24-05-2025 (AEST/AEDT) 09:59:31]: [INFO]: DX Camera destroyed!
+[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: Renderer Cleaned up and Destroyed!
+[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: MoviePlayer: Resources cleaned up
+[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: MoviePlayer: Playback stopped
+[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: Renderer Successfully Cleaned Up.
+[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: All threads and locks cleaned up.
+[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: Thread 'GE-FileIO-Thread' terminated.
+[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[24-05-2025 (AEST/AEDT) 09:59:30]: [WARNING]: Thread with name 'GE-FileIO-Thread' already exists.
+[24-05-2025 (AEST/AEDT) 09:59:30]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
+[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
+[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: Direct2D render target created successfully
+[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: FXManager: Starfield effect manually stopped.
+[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: WM_SIZE - Beginning resize to 1920x1009
+[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: Thread 'GE-FileIO-Thread' finished.
+[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: [LOADER]: Scene Loading Complete - Exiting Thread
+[24-05-2025 (AEST/AEDT) 09:57:55]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[24-05-2025 (AEST/AEDT) 09:57:55]: [INFO]: XM file loaded successfully.
+[24-05-2025 (AEST/AEDT) 09:57:55]: [INFO]: Patterns loaded successfully.
+[24-05-2025 (AEST/AEDT) 09:57:55]: [INFO]: Loading patterns...
+[24-05-2025 (AEST/AEDT) 09:57:55]: [INFO]: Loading XM file: ./Assets/thevoid.xm
+[24-05-2025 (AEST/AEDT) 09:57:55]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[24-05-2025 (AEST/AEDT) 09:57:54]: [INFO]: MoviePlayer: Playback stopped
+[24-05-2025 (AEST/AEDT) 09:57:54]: [INFO]: MoviePlayer: End of stream reached
+[24-05-2025 (AEST/AEDT) 09:57:39]: [INFO]: Thread 'GE-FileIO-Thread' resumed.
+[24-05-2025 (AEST/AEDT) 09:57:39]: [INFO]: MoviePlayer: Playback started
+[24-05-2025 (AEST/AEDT) 09:57:39]: [INFO]: Creating BGRA format texture for video
+[24-05-2025 (AEST/AEDT) 09:57:38]: [INFO]: Successfully set D3D manager for hardware decoding
+[24-05-2025 (AEST/AEDT) 09:57:38]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
+[24-05-2025 (AEST/AEDT) 09:57:38]: [INFO]: D3D11 multithreaded protection enabled
+[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: Setting up thread: GE-FileIO-Thread
+[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: Media Foundation multithreaded mode enabled
+[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: FXManager: Successfully compiled and loaded fade shaders.
+[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: Initializing GUIManager...
+
+[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: [RENDERER] Fullscreen mode set successfully
+[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: Direct2D render target created successfully
+[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: WM_SIZE - Resize completed successfully
+[24-05-2025 (AEST/AEDT) 09:57:32]: [WARNING]: Resize attempted in unsupported scene type
+[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
+[24-05-2025 (AEST/AEDT) 09:57:31]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 09:57:31]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 09:57:31]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 09:57:31]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[24-05-2025 (AEST/AEDT) 09:57:31]: [WARNING]: No Thread with name 'GE-FileIO-Thread' was found.
+[24-05-2025 (AEST/AEDT) 09:57:30]: [INFO]: Direct2D render target created successfully
+[24-05-2025 (AEST/AEDT) 09:57:29]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
+[24-05-2025 (AEST/AEDT) 09:57:29]: [INFO]: Found Adapter: Microsoft Basic Render Driver
+[24-05-2025 (AEST/AEDT) 09:57:29]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
+[24-05-2025 (AEST/AEDT) 09:57:29]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
+[24-05-2025 (AEST/AEDT) 09:57:29]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
+[24-05-2025 (AEST/AEDT) 09:57:29]: [INFO]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
+[24-05-2025 (AEST/AEDT) 09:57:28]: [INFO]: DX Camera created successfully
+[24-05-2025 (AEST/AEDT) 09:57:28]: [INFO]: Media Foundation multithreaded mode enabled
+[24-05-2025 (AEST/AEDT) 09:57:28]: [INFO]: ThreadManager initialized.
+[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: ThreadManager destroyed.
+[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: DX Camera destroyed!
+[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: Renderer Cleaned up and Destroyed!
+[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: MoviePlayer: Resources cleaned up
+[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: MoviePlayer: Playback stopped
+[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: Renderer Successfully Cleaned Up.
+[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: All threads and locks cleaned up.
+[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: Thread 'GE-FileIO-Thread' terminated.
+[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[24-05-2025 (AEST/AEDT) 08:52:04]: [WARNING]: Thread with name 'GE-FileIO-Thread' already exists.
+[24-05-2025 (AEST/AEDT) 08:52:04]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
+[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
+[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: Direct2D render target created successfully
+[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: FXManager: Starfield effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: WM_SIZE - Beginning resize to 1920x1009
+[24-05-2025 (AEST/AEDT) 08:52:03]: [INFO]: Thread 'GE-FileIO-Thread' finished.
+[24-05-2025 (AEST/AEDT) 08:52:03]: [INFO]: [LOADER]: Scene Loading Complete - Exiting Thread
+[24-05-2025 (AEST/AEDT) 08:48:26]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[24-05-2025 (AEST/AEDT) 08:48:26]: [INFO]: XM file loaded successfully.
+[24-05-2025 (AEST/AEDT) 08:48:26]: [INFO]: Patterns loaded successfully.
+[24-05-2025 (AEST/AEDT) 08:48:25]: [INFO]: Loading patterns...
+[24-05-2025 (AEST/AEDT) 08:48:25]: [INFO]: Loading XM file: ./Assets/thevoid.xm
+[24-05-2025 (AEST/AEDT) 08:48:25]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[24-05-2025 (AEST/AEDT) 08:48:24]: [INFO]: MoviePlayer: Playback stopped
+[24-05-2025 (AEST/AEDT) 08:48:24]: [INFO]: MoviePlayer: End of stream reached
+[24-05-2025 (AEST/AEDT) 08:48:09]: [INFO]: Thread 'GE-FileIO-Thread' resumed.
+[24-05-2025 (AEST/AEDT) 08:48:09]: [INFO]: MoviePlayer: Playback started
+[24-05-2025 (AEST/AEDT) 08:48:09]: [INFO]: Creating BGRA format texture for video
+[24-05-2025 (AEST/AEDT) 08:48:08]: [INFO]: Successfully set D3D manager for hardware decoding
+[24-05-2025 (AEST/AEDT) 08:48:08]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
+[24-05-2025 (AEST/AEDT) 08:48:07]: [INFO]: D3D11 multithreaded protection enabled
+[24-05-2025 (AEST/AEDT) 08:48:02]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: Setting up thread: GE-FileIO-Thread
+[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: Media Foundation multithreaded mode enabled
+[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: FXManager: Successfully compiled and loaded fade shaders.
+[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: Initializing GUIManager...
+
+[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: [RENDERER] Fullscreen mode set successfully
+[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: Direct2D render target created successfully
+[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: WM_SIZE - Resize completed successfully
+[24-05-2025 (AEST/AEDT) 08:48:01]: [WARNING]: Resize attempted in unsupported scene type
+[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
+[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:48:01]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[24-05-2025 (AEST/AEDT) 08:48:01]: [WARNING]: No Thread with name 'GE-FileIO-Thread' was found.
+[24-05-2025 (AEST/AEDT) 08:47:59]: [INFO]: Direct2D render target created successfully
+[24-05-2025 (AEST/AEDT) 08:47:59]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
+[24-05-2025 (AEST/AEDT) 08:47:59]: [INFO]: Found Adapter: Microsoft Basic Render Driver
+[24-05-2025 (AEST/AEDT) 08:47:59]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
+[24-05-2025 (AEST/AEDT) 08:47:59]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
+[24-05-2025 (AEST/AEDT) 08:47:59]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
+[24-05-2025 (AEST/AEDT) 08:47:59]: [INFO]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
+[24-05-2025 (AEST/AEDT) 08:47:59]: [INFO]: DX Camera created successfully
+[24-05-2025 (AEST/AEDT) 08:47:59]: [INFO]: Media Foundation multithreaded mode enabled
+[24-05-2025 (AEST/AEDT) 08:47:59]: [INFO]: ThreadManager initialized.
+[24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: ThreadManager destroyed.
+[24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: DX Camera destroyed!
+[24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: Renderer Cleaned up and Destroyed!
+[24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: MoviePlayer: Resources cleaned up
+[24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: MoviePlayer: Playback stopped
+[24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: Renderer Successfully Cleaned Up.
+[24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: All threads and locks cleaned up.
+[24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: Thread 'GE-FileIO-Thread' terminated.
+[24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[24-05-2025 (AEST/AEDT) 08:38:45]: [WARNING]: Thread with name 'GE-FileIO-Thread' already exists.
+[24-05-2025 (AEST/AEDT) 08:38:45]: Window metrics retrieved successfully: 136x39 (client: 120x0)
+[24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: Window metrics retrieved successfully: 136x39 (client: 120x0)
+[24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: Direct2D render target created successfully
+[24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: FXManager: Starfield effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: WM_SIZE - Beginning resize to 120x0
+[24-05-2025 (AEST/AEDT) 08:38:44]: [INFO]: Thread 'GE-FileIO-Thread' finished.
+[24-05-2025 (AEST/AEDT) 08:38:44]: [INFO]: [LOADER]: Scene Loading Complete - Exiting Thread
+[24-05-2025 (AEST/AEDT) 08:38:24]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[24-05-2025 (AEST/AEDT) 08:38:24]: [INFO]: XM file loaded successfully.
+[24-05-2025 (AEST/AEDT) 08:38:24]: [INFO]: Patterns loaded successfully.
+[24-05-2025 (AEST/AEDT) 08:38:24]: [INFO]: Loading patterns...
+[24-05-2025 (AEST/AEDT) 08:38:24]: [INFO]: Loading XM file: ./Assets/thevoid.xm
+[24-05-2025 (AEST/AEDT) 08:38:24]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[24-05-2025 (AEST/AEDT) 08:38:22]: [INFO]: MoviePlayer: Playback stopped
+[24-05-2025 (AEST/AEDT) 08:38:22]: [INFO]: MoviePlayer: End of stream reached
+[24-05-2025 (AEST/AEDT) 08:38:08]: [INFO]: Thread 'GE-FileIO-Thread' resumed.
+[24-05-2025 (AEST/AEDT) 08:38:08]: [INFO]: MoviePlayer: Playback started
+[24-05-2025 (AEST/AEDT) 08:38:08]: [INFO]: Creating BGRA format texture for video
+[24-05-2025 (AEST/AEDT) 08:38:08]: [INFO]: Successfully set D3D manager for hardware decoding
+[24-05-2025 (AEST/AEDT) 08:38:08]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
+[24-05-2025 (AEST/AEDT) 08:38:07]: [INFO]: D3D11 multithreaded protection enabled
+[24-05-2025 (AEST/AEDT) 08:38:02]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: Setting up thread: GE-FileIO-Thread
+[24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: Media Foundation multithreaded mode enabled
+[24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: FXManager: Successfully compiled and loaded fade shaders.
+[24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: Initializing GUIManager...
+
+[24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: [RENDERER] Fullscreen mode set successfully
+[24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: Direct2D render target created successfully
+[24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: WM_SIZE - Resize completed successfully
+[24-05-2025 (AEST/AEDT) 08:38:01]: [WARNING]: Resize attempted in unsupported scene type
+[24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
+[24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:38:01]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[24-05-2025 (AEST/AEDT) 08:38:01]: [WARNING]: No Thread with name 'GE-FileIO-Thread' was found.
+[24-05-2025 (AEST/AEDT) 08:38:00]: [INFO]: Direct2D render target created successfully
+[24-05-2025 (AEST/AEDT) 08:38:00]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
+[24-05-2025 (AEST/AEDT) 08:38:00]: [INFO]: Found Adapter: Microsoft Basic Render Driver
+[24-05-2025 (AEST/AEDT) 08:38:00]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
+[24-05-2025 (AEST/AEDT) 08:38:00]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
+[24-05-2025 (AEST/AEDT) 08:37:59]: Window metrics retrieved successfully: 136x39 (client: 120x0)
+[24-05-2025 (AEST/AEDT) 08:37:59]: [INFO]: Window metrics retrieved successfully: 136x39 (client: 120x0)
+[24-05-2025 (AEST/AEDT) 08:37:59]: [INFO]: DX Camera created successfully
+[24-05-2025 (AEST/AEDT) 08:37:59]: [INFO]: Media Foundation multithreaded mode enabled
+[24-05-2025 (AEST/AEDT) 08:37:59]: [INFO]: ThreadManager initialized.
+[24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: ThreadManager destroyed.
+[24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: DX Camera destroyed!
+[24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: Renderer Cleaned up and Destroyed!
+[24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: MoviePlayer: Resources cleaned up
+[24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: MoviePlayer: Playback stopped
+[24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: Renderer Successfully Cleaned Up.
+[24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: All threads and locks cleaned up.
+[24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: Thread 'GE-FileIO-Thread' terminated.
+[24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[24-05-2025 (AEST/AEDT) 08:34:42]: [WARNING]: Thread with name 'GE-FileIO-Thread' already exists.
+[24-05-2025 (AEST/AEDT) 08:34:42]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[24-05-2025 (AEST/AEDT) 08:34:42]: [Itrics retrieved successfully: 800x600 (client: 784x561)
+[24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: Direct2D render target created successfully
+[24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: FXManager: Starfield effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: WM_SIZE - Beginning resize to 784x561
+[24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: Thread 'GE-FileIO-Thread' finished.
+[24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: [LOADER]: Scene Loading Complete - Exiting Thread
+[24-05-2025 (AEST/AEDT) 08:34:26]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[24-05-2025 (AEST/AEDT) 08:34:26]: [INFO]: XM file loaded successfully.
+[24-05-2025 (AEST/AEDT) 08:34:26]: [INFO]: Patterns loaded successfully.
+[24-05-2025 (AEST/AEDT) 08:34:26]: [INFO]: Loading patterns...
+[24-05-2025 (AEST/AEDT) 08:34:26]: [INFO]: Loading XM file: ./Assets/thevoid.xm
+[24-05-2025 (AEST/AEDT) 08:34:26]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[24-05-2025 (AEST/AEDT) 08:34:25]: [INFO]: MoviePlayer: Playback stopped
+[24-05-2025 (AEST/AEDT) 08:34:25]: [INFO]: MoviePlayer: End of stream reached
+[24-05-2025 (AEST/AEDT) 08:34:09]: [INFO]: Thread 'GE-FileIO-Thread' resumed.
+[24-05-2025 (AEST/AEDT) 08:34:09]: [INFO]: MoviePlayer: Playback started
+[24-05-2025 (AEST/AEDT) 08:34:09]: [INFO]: Creating BGRA format texture for video
+[24-05-2025 (AEST/AEDT) 08:34:09]: [INFO]: Successfully set D3D manager for hardware decoding
+[24-05-2025 (AEST/AEDT) 08:34:09]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
+[24-05-2025 (AEST/AEDT) 08:34:09]: [INFO]: D3D11 multithreaded protection enabled
+[24-05-2025 (AEST/AEDT) 08:34:03]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[24-05-2025 (AEST/AEDT) 08:34:03]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[24-05-2025 (AEST/AEDT) 08:34:03]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[24-05-2025 (AEST/AEDT) 08:34:03]: [INFO]: Setting up thread: GE-FileIO-Thread
+[24-05-2025 (AEST/AEDT) 08:34:03]: [INFO]: Media Foundation multithreaded mode enabled
+[24-05-2025 (AEST/AEDT) 08:34:03]: [INFO]: FXManager: Successfully compiled and loaded fade shaders.
+[24-05-2025 (AEST/AEDT) 08:34:03]: [INFO]: Initializing GUIManager...
+
+[24-05-2025 (AEST/AEDT) 08:34:03]: [INFO]: [RENDERER] Fullscreen mode set successfully
+[24-05-2025 (AEST/AEDT) 08:34:03]: [INFO]: Direct2D render target created successfully
+[24-05-) 08:34:03]: [INFO]: WM_SIZE - Resize completed successfully
+[24-05-2025 (AEST/AEDT) 08:34:03]: [WARNING]: Resize attempted in unsupported scene type
+[24-05-2025 (AEST/AEDT) 08:34:03]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:34:03]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:3FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:34:03]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
+[24-05-2025 (AEST/AEDT) 08:34:02]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:34:02]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:34:02]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:34:02]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[24-05-2025 (AEST/AEDT) 08:34:02]: [WARNING]: No Thread with name 'GE-FileIO-Thread' was found.
+[24-05-2025 (AEST/AEDT) 08:34:02]: [INFO]: Direct2D render target created successfully
+[24-05-2025 (AEST/AEDT) 08:34:01]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
+[24-05-2025 (AEST/AEDT) 08:34:01]: [INFO]: Found Adapter: Microsoft Basic Render Driver
+[24-05-2025 (AEST/AEDT) 08:34:01]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
+[24-05-2025 (AEST/AEDT) 08:34:01]: [INFO]: Found AdapTX 960M
+[24-05-2025 (AEST/AEDT) 08:34:01]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[24-05-2025 (AEST/AEDT) 08:34:01]: [INFO]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[24-05-2025 (AEST/AEDT) 08:34:01]: [INFO]: DX Camera created successfully
+[24-05-2025 (AEST/AEDT) 08:34:01]: [INFO]: Media Foundation mu: Media Foundation multithreaded mode enabled
+[24-05-2025 (AEST/AEDT) 08:34:01]: [INFO]: ThreadManager initialized.
+[24-05-2025 (AEST/AEDT) 08:29:24]: [INFO]: [RENDERER] Windowed mode set successfully
+[24-05-2025 (AEST/AEDT) 08:29:24]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[24-05-2025 (AEST/AEDT) 08:29:24]: Window metrics retrieved successfully: 1920x1080 (client: 1904x1041)
+[24-05-2025 (AEST/AEDT) 08:29:24]: [INFO]: Window metrics retrieved successfully: 1920x1080 (client: 1904x1041)
+[24-05-2025 (AEST/AEDT) 08:29:24]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:29:24]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:29:24]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:29:24]: [INFO]: WM_SIZE - Beginning resize to 1904x1041
+[24-05-2025 (AEST/AEDT) 08:29:24]: [INFO]: Direct2D render target created successfully
+[24-05-2025 (AEST/AEDT) 08:29:24]: [INFO]: [LOADER]: Scene Intro.
+[24-05-2025 (AEST/AEDT) 08:29:24]: Critical Error: 

@@ -122,6 +122,146 @@ void FXManager::AddEffect(const FXItem& fxItem) {
     effects.push_back(newEffect);
 }
 
+// -------------------------------------------------------------------------------------------------------------
+// StopAllFXEffectsForResize - Stops all active FX effects before resize operation
+// This function safely stops all running effects to prevent crashes during DirectX resource recreation
+// Called from WM_SIZE message handler before resize begins
+// Parameters: None
+// Returns: None
+// -------------------------------------------------------------------------------------------------------------
+void FXManager::StopAllFXForResize()
+{
+#if defined(_DEBUG_FXMANAGER_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Stopping all FX effects for resize operation");
+#endif
+
+    // Clear the saved state structure
+    SecureZeroMemory(&savedFXState, sizeof(ActiveFXState));
+
+    try {
+        // Check and stop starfield effect
+        if (starfieldID > 0) {
+            savedFXState.starfieldActive = true;                                // Remember starfield was active
+            savedFXState.starfieldID = starfieldID;                             // Save the starfield ID
+            StopStarfield();                                                    // Stop the starfield effect
+#if defined(_DEBUG_FXMANAGER_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Starfield effect stopped for resize");
+#endif
+        }
+
+        // Stop all text scroller effects
+        // Note: This assumes we have a way to enumerate active text scrollers
+        // You may need to add this functionality to FXManager if not already present
+        for (int i = 1; i <= 10; ++i) {                                         // Check common text scroller IDs
+            try {
+                StopTextScroller(i);                                            // Stop text scroller if active
+                savedFXState.textScrollerIDs.push_back(i);                      // Add to saved list
+#if defined(_DEBUG_FXMANAGER_)
+                debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[FXManager] Text scroller ID " + std::to_wstring(i) + L" stopped");
+#endif
+            }
+            catch (...) {
+                // Text scroller with this ID wasn't active, continue
+                continue;
+            }
+        }
+
+        // Check if we had active text scrollers
+        if (!savedFXState.textScrollerIDs.empty()) {
+            savedFXState.textScrollerActive = true;                             // Mark that text scrollers were active
+#if defined(_DEBUG_FXMANAGER_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] " +
+                std::to_wstring(savedFXState.textScrollerIDs.size()) + L" text scroller effects stopped");
+#endif
+        }
+
+        // Stop scroll effects for common textures
+        BlitObj2DIndexType scrollTextures[] = {
+            BlitObj2DIndexType::IMG_SCROLLBG1,
+            BlitObj2DIndexType::IMG_SCROLLBG2,
+            BlitObj2DIndexType::IMG_SCROLLBG3
+        };
+
+        for (auto textureIndex : scrollTextures) {
+            try {
+                StopScrollEffect(textureIndex);                                 // Stop scroll effect for this texture
+                savedFXState.activeScrollTextures.push_back(textureIndex);      // Save texture index
+#if defined(_DEBUG_FXMANAGER_)
+                debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[FXManager] Scroll effect stopped for texture " +
+                    std::to_wstring(int(textureIndex)));
+#endif
+            }
+            catch (...) {
+                // Scroll effect wasn't active for this texture, continue
+                continue;
+            }
+        }
+
+        // Check if we had active scroll effects
+        if (!savedFXState.activeScrollTextures.empty()) {
+            savedFXState.scrollEffectsActive = true;                            // Mark that scroll effects were active
+#if defined(_DEBUG_FXMANAGER_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] " +
+                std::to_wstring(savedFXState.activeScrollTextures.size()) + L" scroll effects stopped");
+#endif
+        }
+
+        // Check for active fade effects
+        if (IsFadeActive()) {
+            savedFXState.fadeEffectActive = true;                               // Mark that fade was active
+#if defined(_DEBUG_FXMANAGER_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Fade effect was active during resize");
+#endif
+        }
+
+#if defined(_DEBUG_FXMANAGER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] All FX effects successfully stopped for resize");
+#endif
+    }
+    catch (const std::exception& e) {
+#if defined(_DEBUG_FXMANAGER_)
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Exception stopping FX effects for resize: " +
+            std::wstring(e.what(), e.what() + strlen(e.what())));
+#endif
+    }
+}
+
+// -------------------------------------------------------------------------------------------------------------
+// RestartFXEffectsAfterResize - Restarts FX effects that were active before resize
+// This function restores all effects that were running before the resize operation began
+// Called from WM_SIZE message handler after resize completes
+// Parameters: None
+// Returns: None
+// -------------------------------------------------------------------------------------------------------------
+void FXManager::RestartFXAfterResize()
+{
+#if defined(_DEBUG_FXMANAGER_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Restarting FX effects after resize operation");
+#endif
+
+    try {
+        // Wait a brief moment to ensure DirectX resources are fully recreated
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+        // Your FX Restart code goes here. (My Restarting happens when the Loader resumes 
+        // its thread see IOStreamThread.h/cpp) as you may want to take a different approach, 
+        // so this option is here for your effects if you chose to go this route.
+
+        
+        #if defined(_DEBUG_FXManager_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] All FX effects successfully restarted after resize");
+        #endif
+
+        // Clear the saved state since we're done with it
+        SecureZeroMemory(&savedFXState, sizeof(ActiveFXState));
+    }
+    catch (const std::exception& e) {
+        #if defined(_DEBUG_FXManager_)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Exception restarting FX effects after resize: " + std::wstring(e.what(), e.what() + strlen(e.what())));
+        #endif
+    }
+}
+
 void FXManager::LoadFadeShaders() 
 {
     WithDX11Renderer([this](std::shared_ptr<DX11Renderer> dx11) 

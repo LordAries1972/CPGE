@@ -18,10 +18,10 @@
 
 #if defined(_DEBUG)
 #define NO_DEBUGFILE_OUTPUT
-//#define _DEBUG_XMPlayer_                                              // Define this line, to show all debug output to runtime console for the XMMODPlayer class.
+//#define _DEBUG_XMPlayer_                                                // Define this line, to show all debug output to runtime console for the XMMODPlayer class.
 //#define _DEBUG_CONFIGURATION_
 //#define _DEBUG_SOUNDMANAGER_
-//#define _DEBUG_SCENEMANAGER_                                          // Define this line, to show all debug output to runtime console for the SceneManager class.
+//#define _DEBUG_SCENEMANAGER_                                            // Define this line, to show all debug output to runtime console for the SceneManager class.
 //#define _DEBUG_GUI_
 #define _DEBUG_MATHPRECALC_                                             // Define this line, to show all debug output for the MathPrecalculation class
 //#define _DEBUG_MOVIEPLAYER_                                             // Define this line for MoviePlayer class.

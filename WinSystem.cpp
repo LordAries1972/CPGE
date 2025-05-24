@@ -189,6 +189,212 @@ RECT SystemUtils::GetSystemWindowSize(HWND hWnd)
     return clientRect;
 }
 
+// ===== --------------------------------------------------------------------------------- =====
+// Name: SystemUtils::GetPrimaryMonitorFullScreenSize()
+// 
+// This function retrieves the full screen dimensions of the primary monitor
+// Returns a tuple containing (width, height) of the primary monitor's full screen area
+// This is optimized for gaming applications requiring precise monitor dimensions
+// ===== --------------------------------------------------------------------------------- =====
+std::tuple<int, int> SystemUtils::GetPrimaryMonitorFullScreenSize()
+{
+#if defined(_DEBUG_WINSYSTEM_)
+    // Log function entry for debugging purposes
+    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"GetPrimaryMonitorFullScreenSize() - Retrieving primary monitor dimensions");
+#endif
+
+    // Get the primary monitor handle - this is the main display
+    HMONITOR hPrimaryMonitor = MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY);
+
+    // Validate that we successfully obtained a monitor handle
+    if (!hPrimaryMonitor) {
+        // Log critical error if primary monitor cannot be found
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to obtain primary monitor handle");
+        return std::make_tuple(0, 0);
+    }
+
+    // Initialize monitor info structure for querying monitor properties
+    MONITORINFO monitorInfo;
+    monitorInfo.cbSize = sizeof(MONITORINFO);  // Set structure size for version compatibility
+
+    // Query the monitor information using the obtained handle
+    if (!GetMonitorInfo(hPrimaryMonitor, &monitorInfo)) {
+        // Log error with Windows error code for debugging
+        DWORD errorCode = GetLastError();
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"GetMonitorInfo failed with error code: %d", errorCode);
+        return std::make_tuple(0, 0);
+    }
+
+    // Extract full monitor dimensions from the monitor rectangle
+    // rcMonitor contains the full screen area including taskbar and other system UI
+    int fullWidth = monitorInfo.rcMonitor.right - monitorInfo.rcMonitor.left;
+    int fullHeight = monitorInfo.rcMonitor.bottom - monitorInfo.rcMonitor.top;
+
+    // Validate that we obtained valid dimensions (positive values)
+    if (fullWidth <= 0 || fullHeight <= 0) {
+        // Log warning for invalid monitor dimensions
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"Invalid monitor dimensions detected: %dx%d", fullWidth, fullHeight);
+        return std::make_tuple(0, 0);
+    }
+
+#if defined(_DEBUG_WINSYSTEM_)
+    // Log successful retrieval with dimensions for debugging
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"Primary monitor full screen size: %dx%d pixels", fullWidth, fullHeight);
+
+    // Also log work area for comparison (area excluding taskbar)
+    int workWidth = monitorInfo.rcWork.right - monitorInfo.rcWork.left;
+    int workHeight = monitorInfo.rcWork.bottom - monitorInfo.rcWork.top;
+    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"Primary monitor work area size: %dx%d pixels", workWidth, workHeight);
+#endif
+
+    // Return the full screen dimensions as a tuple for easy unpacking
+    return std::make_tuple(fullWidth, fullHeight);
+}
+
+// ===== --------------------------------------------------------------------------------- =====
+// Name: SystemUtils::Is64BitOperatingSystem()
+// 
+// This function determines if the current operating system is running on a 64-bit architecture
+// Returns true if the OS is 64-bit, false if 32-bit or if determination fails
+// This is critical for gaming applications that need to know system architecture capabilities
+// ===== --------------------------------------------------------------------------------- =====
+bool SystemUtils::Is64BitOperatingSystem()
+{
+#if defined(_DEBUG_WINSYSTEM_)
+    // Log function entry for debugging purposes
+    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"Is64BitOperatingSystem() - Checking OS architecture");
+#endif
+
+    // Method 1: Check if we're running as a 64-bit process
+    // If our process is 64-bit, then the OS must be 64-bit
+#ifdef _WIN64
+    // We are compiled as 64-bit, so OS must be 64-bit
+#if defined(_DEBUG_WINSYSTEM_)
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"Process compiled as 64-bit - OS is definitely 64-bit");
+#endif
+    return true;
+#else
+    // We are compiled as 32-bit, but OS could still be 64-bit
+    // Need to check if we're running under WOW64 (Windows on Windows 64)
+
+    // Declare function pointer for IsWow64Process
+    typedef BOOL(WINAPI* LPFN_ISWOW64PROCESS) (HANDLE, PBOOL);
+    LPFN_ISWOW64PROCESS fnIsWow64Process;
+
+    // Get handle to current process
+    HANDLE hProcess = GetCurrentProcess();
+    BOOL bIsWow64 = FALSE;
+
+    // Get the IsWow64Process function from kernel32.dll
+    fnIsWow64Process = (LPFN_ISWOW64PROCESS)GetProcAddress(
+        GetModuleHandle(TEXT("kernel32")), "IsWow64Process");
+
+    // Check if IsWow64Process function is available (Windows XP SP2 and later)
+    if (fnIsWow64Process != NULL) {
+        // Call IsWow64Process to determine if we're running under WOW64
+        if (!fnIsWow64Process(hProcess, &bIsWow64)) {
+            // Function call failed - log error and return false as fallback
+            DWORD errorCode = GetLastError();
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"IsWow64Process failed with error code: %d", errorCode);
+            return false;
+        }
+
+        // If bIsWow64 is TRUE, we're a 32-bit process running on 64-bit OS
+        if (bIsWow64) {
+#if defined(_DEBUG_WINSYSTEM_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"32-bit process running under WOW64 - OS is 64-bit");
+#endif
+            return true;
+        }
+        else {
+#if defined(_DEBUG_WINSYSTEM_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"32-bit process on native 32-bit OS");
+#endif
+            return false;
+        }
+    }
+    else {
+        // IsWow64Process not available - we're on very old Windows (pre-XP SP2)
+        // These systems don't support 64-bit, so return false
+#if defined(_DEBUG_WINSYSTEM_)
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"IsWow64Process not available - assuming 32-bit OS");
+#endif
+        return false;
+    }
+#endif
+}
+
+// ===== --------------------------------------------------------------------------------- =====
+// Name: SystemUtils::GetProcessorArchitecture()
+// 
+// This function returns a detailed string describing the processor architecture
+// Returns architecture string (e.g., "AMD64", "x86", "ARM64", etc.)
+// Useful for detailed system information and compatibility checking
+// ===== --------------------------------------------------------------------------------- =====
+std::wstring SystemUtils::GetProcessorArchitecture()
+{
+#if defined(_DEBUG_WINSYSTEM_)
+    // Log function entry for debugging purposes
+    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"GetProcessorArchitecture() - Determining processor architecture");
+#endif
+
+    // Get system information structure
+    SYSTEM_INFO systemInfo;
+
+    // Use GetNativeSystemInfo to get actual hardware architecture
+    // (not affected by WOW64 emulation layer)
+    GetNativeSystemInfo(&systemInfo);
+
+    // Convert processor architecture to readable string
+    std::wstring architecture;
+
+    switch (systemInfo.wProcessorArchitecture) {
+    case PROCESSOR_ARCHITECTURE_AMD64:
+        // 64-bit Intel/AMD processors
+        architecture = L"AMD64 (x86-64)";
+        break;
+
+    case PROCESSOR_ARCHITECTURE_INTEL:
+        // 32-bit Intel/AMD processors
+        architecture = L"x86 (32-bit)";
+        break;
+
+    case PROCESSOR_ARCHITECTURE_ARM:
+        // ARM processors (32-bit)
+        architecture = L"ARM (32-bit)";
+        break;
+
+    case PROCESSOR_ARCHITECTURE_ARM64:
+        // ARM processors (64-bit)
+        architecture = L"ARM64 (64-bit)";
+        break;
+
+    case PROCESSOR_ARCHITECTURE_IA64:
+        // Intel Itanium processors (64-bit)
+        architecture = L"IA64 (Itanium 64-bit)";
+        break;
+
+    case PROCESSOR_ARCHITECTURE_UNKNOWN:
+    default:
+        // Unknown or unsupported architecture
+        architecture = L"Unknown";
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"Unknown processor architecture detected: %d",
+            systemInfo.wProcessorArchitecture);
+        break;
+    }
+
+#if defined(_DEBUG_WINSYSTEM_)
+    // Log the detected architecture
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"Processor architecture: %ls", architecture.c_str());
+
+    // Log additional processor information
+    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"Number of processors: %d", systemInfo.dwNumberOfProcessors);
+    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"Page size: %d bytes", systemInfo.dwPageSize);
+#endif
+
+    return architecture;
+}
+
 // Function to scale mouse coordinates
 std::tuple<int, int> SystemUtils::ScaleMouseCoordinates(int originalX, int originalY, int originalWidth, int originalHeight, int newWidth, int newHeight)
 {
@@ -274,9 +480,6 @@ bool SystemUtils::GetWindowMetrics(HWND hWnd, WindowMetrics& outMetrics)
         debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid window handle provided to GetWindowMetrics");
         return false;
     }
-
-    // Initialize output struct with zeros
-    ZeroMemory(&outMetrics, sizeof(WindowMetrics));
 
     // Store the provided window handle
     outMetrics.hWnd = hWnd;

@@ -14,6 +14,7 @@ enum WindowsVersion
 struct WindowMetrics {
     // Window handle
     HWND hWnd;
+    bool isFullScreen;
 
     // Window position and size (screen coordinates)
     int x;
@@ -52,7 +53,7 @@ struct WindowMetrics {
 
     // Constructor - initialize with default values
     WindowMetrics() :
-        hWnd(NULL),
+        hWnd(NULL), isFullScreen(false),
         x(0), y(0), width(0), height(0),
         clientWidth(0), clientHeight(0),
         borderWidth(0), titleBarHeight(0),
@@ -84,6 +85,10 @@ public:
 	void ProcessMessages();
 	bool IsWindowMinimized();
     bool GetWindowMetrics(HWND hWnd, WindowMetrics& outMetrics);
+    bool Is64BitOperatingSystem();
+    std::wstring GetProcessorArchitecture();
+
+    std::tuple<int, int> GetPrimaryMonitorFullScreenSize();
 
 	std::wstring Get_Current_Directory();
 	std::wstring ToWString(const std::string& input);

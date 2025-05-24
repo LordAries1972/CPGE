@@ -153,26 +153,31 @@ DEVELOPMENT HISTORY: -
              playback with a music/audio sound track to support their own video. For games, video is usually rendered via a 3rd 
              party rendering system that is external to this gaming engine platform.  See MoviePlayer.h/.cpp for more info.
 
-17/05/2025 - Scene Sequencing is now in place, the application starts with a splash screen and then into the SCENE_GAMEINTRO (Game Start Area)
-           - 3D Starfield effect has now been implemented into the FXManager.  Run CPGE-Demo-3dStarfield.exe for a demonstration.
+17/05/2025 - Scene Sequencing is now in place, the application starts with a splash screen, a intro movie and then into the 
+             SCENE_GAMEINTRO (Game Start Area).
+           - 3D Starfield effect has now been implemented into the FXManager.
 
 18/05/2025 - Set Exclusive Fullscreen and Transitioning is now fully working.
-             RenderFrame() now invidilises (Or HTFUSI (How To Fully Utilize Scene Implementation)) and appropriately renderers scene phases. 
+             RenderFrame() now invidualises scenes aka FUSI (Fully Utilize Scene Implementation) appropriately with correct rendering stages. 
 
 21/05/2025 - ThreadManager now supports Locking/Unlocking and CheckLock/TryLock functions.  See ThreadManager.h/.cpp for more info.
 23/05/2025 - FXManager now supports various text scroller routines such LTOR, RTOL, Consistent and Movie Scroller.
              See DX_FXManager.h/.cpp for more details.  Example usage can be found under Docs/FXManager-TextScrollers-Example-Usage.txt
-             Introduction to the MathPrecalculation Class see MathPrecalculation.h/.cpp for more information.
+           - Introduction to the MathPrecalculation Class see MathPrecalculation.h/.cpp for more information.
              Comprehensive Example Usage can be found in Docs/MathPrecalculation-Example-Usage.txt
-			 
+
+25/05/2025 - Exclusive Full Screen mode via given screen mode (width, height) and transistioning is now working.  This mode 
+             is launched by default on RELEASE compiles.
+
+
 [ FUTURE ]   OK EVERYONE, PEOPLE NEED TO RELISE HERE THAT THIS IS VERY CLOSE TO GAMING PRODUCTION FOR DIRECTX 11 SYSTEMS! (WINDOWS 10 64BIT)
              Alot of this work, MY TIME and for free, it's what you get paid for right? Your story, your graphics and your 
              enginuity based on this platform!  Please DO NOT START A GAME until your comfortable with a release of our marked as [STABLE]
-             release! Which means, there should be no crashes nor any cleanup faults!
+             release! Which means, there should be no crashes nor any cleanup faults including memory leaks!
 
              Always fully test the GITHUB (Base) code, before starting your project!
 
-             I will be always be updating the CPGE Engine until I die and your code base here is always here for free!
+             I will always be updating the CPGE Engine until I die and your code base here is always free!
 
              I will announce an official stable release on GitHub AND then make public so it is ready for gaming production 
              for those who are eager to try this out and right now, or DirectX 11 Gaming Platforms on Windows 10/11 

@@ -124,9 +124,16 @@ bool isLeftClicked = false;
 bool isRightClicked = false;
 bool isMiddleClicked = false;
 bool isSystemInitialized = false;
+
 RECT rc;
 POINT cursorPos;
 Vector2 myMouseCoords;
+std::atomic<bool> bResizeInProgress{ false };                           // Prevents multiple resize operations
+std::atomic<bool> bFullScreenTransition{ false };                       // Prevents handling during fullscreen transitions
+
+static std::chrono::steady_clock::time_point lastResizeTime;            // Debounce resize messages
+static const int RESIZE_DEBOUNCE_MS = 100;                              // Minimum time between resize operations
+
 char errorMsg[512];
 POINT lastMousePos = {};
 float yaw = 0.0f;
@@ -151,18 +158,24 @@ void SwitchToMovieIntro();
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
     SecureZeroMemory(&errorMsg, sizeof(errorMsg));
+    // Initialize winMetrics struct with zeros
+    SecureZeroMemory(&winMetrics, sizeof(WindowMetrics));
+
     baseDir = sysUtils.Get_Current_Directory();
 
     WindowsVersion winVer = sysUtils.GetWindowsVersion();
     if (winVer < WindowsVersion::WINVER_WIN10)
     {
-        MessageBox(nullptr, L"Unsupported Windows Version.\nPlease use Windows 10 SP1 or later.", L"Error", MB_OK | MB_ICONERROR);
+        MessageBox(nullptr, L"Unsupported Windows Version.\nPlease use Windows 10 SP1 64Bit or later.", L"Error", MB_OK | MB_ICONERROR);
         return EXIT_FAILURE;
     }
-
     // We need to check for 64 Bit OS?
     // as we DO NOT support 32 bit no longer (Legacy!)
-    
+    else if (!sysUtils.Is64BitOperatingSystem())
+    {
+        MessageBox(nullptr, L"Unsupported Windows Version.\nPlease use Windows 10 SP1 64Bit or later.", L"Error", MB_OK | MB_ICONERROR);
+        return EXIT_FAILURE;
+    }
     
     // Create appropriate Render Interface
     if (CreateRendererInstance() != EXIT_SUCCESS)
@@ -200,9 +213,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         return EXIT_FAILURE;
     }
 
-    ShowWindow(hwnd, nCmdShow);
-    UpdateWindow(hwnd);
     sysUtils.CenterSystemWindow(hwnd);
+    ShowWindow(hwnd, nCmdShow);
 
     try
     {
@@ -224,43 +236,42 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             #if defined(_DEBUG_MATHPRECALC_)
                 debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Example] Failed to initialize MathPrecalculation!");
             #endif
-            return -1;
+            return EXIT_FAILURE;
         }
+
+        // Obtain Window Metrics
+        sysUtils.GetWindowMetrics(hwnd, winMetrics);
 
         // Now Initialise our Renderer
         renderer->Initialize(hwnd, hInstance);
+
         // Initialise our SceneManager
         scene.Initialize(renderer);
         scene.stSceneType = SceneType::SCENE_SPLASH;
         scene.SetGotoScene(SceneType::SCENE_INTRO);
-
-        // Obtain Window Metrics
-        sysUtils.GetWindowMetrics(hwnd, winMetrics);
+        #if defined(_DEBUG)
+            winMetrics.isFullScreen = false;
+            if (!renderer->StartRendererThreads())
+            {
+                MessageBox(nullptr, L"Problem Starting Renderer Threads!!!", L"Error", MB_OK | MB_ICONERROR);
+                return EXIT_FAILURE;
+            }
+        #else
+            sysUtils.DisableMouseCursor();
+            renderer->SetFullExclusive(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT);
+            winMetrics.isFullScreen = true;
+        #endif
 
         // Initialise our GUI Manager
         guiManager.Initialize(renderer.get());
 		// Initialise our FX Manager
         fxManager.Initialize();
-        // Initialise our Joysticks if we have any.
-        #if !defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)
-            WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
-            {
-                // Bind our Camera to the Joystick Controller.
-                js.setCamera(&dx11->myCamera);
-                // Configure for 3D usage (Like for FPS, TPS, 3D flight etc)
-                js.ConfigureFor3DMovement();
-            });
-        #endif
         
         std::wstring alert = L"This is an alert status message.\n\n"
         L"Congratulations if you're seeing this window!\n"
         L"It means the system initialized correctly.\n";
 
 //        guiManager.CreateAlertWindow(alert);
-
-#ifndef _DEBUG
-        renderer->SetFullScreen();
-#endif
 
         fxManager.FadeToImage(1.0f, 0.04f);
 //        fxManager.StartScrollEffect(BlitObj2DIndexType::IMG_SCROLLBG1, FXSubType::ScrollRight, 2, 800, 600, 0.016f);
@@ -270,6 +281,26 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         
         // Initialise our MoviePlayer
         moviePlayer.Initialize(renderer, &threadManager);
+
+#if defined(__USE_DIRECTX_11__)
+        WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
+        {
+            // Bind our Camera to the Joystick Controller.
+            js.setCamera(&dx11->myCamera);
+            // Configure for 3D usage (Like for FPS, TPS, 3D flight etc)
+            js.ConfigureFor3DMovement();
+
+            // Start Required Renderer Threads
+            #if !defined(_DEBUG)
+                if (!dx11->StartRendererThreads())
+                {
+                    MessageBox(nullptr, L"Problem Starting Renderer Threads!!!", L"Error", MB_OK | MB_ICONERROR);
+                    PostQuitMessage(0);
+                    return EXIT_FAILURE;
+                }
+            #endif
+        });
+#endif
 
         // --- Main Loop ---
         MSG msg = {};
@@ -338,13 +369,13 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                             scene.bSceneSwitching = true;
                             fxManager.FadeToBlack(1.0f, 0.06f);
                             WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
+                            {
+                                while (fxManager.IsFadeActive())
                                 {
-                                    while (fxManager.IsFadeActive())
-                                    {
-                                        dx11->RenderFrame();
-                                        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-                                    }
-                                });
+                                    dx11->RenderFrame();
+                                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                                }
+                            });
                         }
 
                         if ((fxManager.IsFadeActive()) && (scene.bSceneSwitching))
@@ -357,13 +388,13 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                             {
                                 SwitchToGameIntro();
                                 WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
+                                {
+                                    while (fxManager.IsFadeActive())
                                     {
-                                        while (fxManager.IsFadeActive())
-                                        {
-                                            dx11->RenderFrame();
-                                            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-                                        }
-                                    });
+                                        dx11->RenderFrame();
+                                        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                                    }
+                                });
 
                                 break;
                             }
@@ -489,323 +520,397 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     switch (uMsg)
     {
-        case WM_MOUSEMOVE:
-            if (threadManager.threadVars.bSettingFullScreen.load()) { return 0; };
-            GetCursorPos(&cursorPos);
-            ScreenToClient(hwnd, &cursorPos);
-            myMouseCoords.x = static_cast<float>(cursorPos.x);
-            myMouseCoords.y = static_cast<float>(cursorPos.y);
-            guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
+    case WM_MOUSEMOVE:
+        // Check if we are in fullscreen transition or resize - ignore mouse messages
+        if (threadManager.threadVars.bSettingFullScreen.load() ||
+            bResizeInProgress.load() ||
+            bFullScreenTransition.load()) {
+            return 0;
+        }
 
-            WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
+        GetCursorPos(&cursorPos);
+        ScreenToClient(hwnd, &cursorPos);
+        myMouseCoords.x = static_cast<float>(cursorPos.x);
+        myMouseCoords.y = static_cast<float>(cursorPos.y);
+        guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
+
+        WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
             {
                 switch (scene.stSceneType)
                 {
-                    case SceneType::SCENE_GAMEPLAY:
+                case SceneType::SCENE_GAMEPLAY:
+                {
+                    // Has the Right Mouse button been clicked?
+                    if (isRightClicked)
                     {
-                        // Has the Right Mouse button been clicked?
-                        if (isRightClicked)
+                        // Ensure we have no negative coordinates.
+                        if (lastMousePos.x == 0 && lastMousePos.y == 0)
                         {
-                            // Ensure we have no negative coordinates.
-                            if (lastMousePos.x == 0 && lastMousePos.y == 0)
-                            {
-                                lastMousePos = cursorPos;
-                                return 0; // prevent junk delta
-                            }
-
-                            // Adjust Camera to new position.
-                            int deltaX = cursorPos.x - lastMousePos.x;
-                            int deltaY = cursorPos.y - lastMousePos.y;
                             lastMousePos = cursorPos;
-
-                            float sensitivity = config.myConfig.moveSensitivity;
-
-                            yaw += deltaX * sensitivity;
-                            pitch += deltaY * sensitivity;
-                            float pitchMax = XMConvertToRadians(static_cast<float>(config.myConfig.maxPitch));
-                            float pitchMin = XMConvertToRadians(static_cast<float>(config.myConfig.minPitch));
-                            pitch = std::clamp(pitch, pitchMin, pitchMax);
-
-                            XMVECTOR forward = XMVectorSet(
-                                cosf(pitch) * sinf(yaw),
-                                sinf(pitch),
-                                cosf(pitch) * cosf(yaw),
-                                0.0f
-                            );
-
-                            XMVECTOR right = XMVector3Normalize(XMVector3Cross({ 0, 1, 0 }, forward));
-                            XMVECTOR up = XMVector3Normalize(XMVector3Cross(forward, right));
-
-                            dx11->myCamera.SetYawPitch(yaw, pitch);
+                            return 0; // prevent junk delta
                         }
 
-                        dx11->RenderFrame();
-                        break;
+                        // Adjust Camera to new position.
+                        int deltaX = cursorPos.x - lastMousePos.x;
+                        int deltaY = cursorPos.y - lastMousePos.y;
+                        lastMousePos = cursorPos;
+
+                        float sensitivity = config.myConfig.moveSensitivity;
+
+                        yaw += deltaX * sensitivity;
+                        pitch += deltaY * sensitivity;
+                        float pitchMax = XMConvertToRadians(static_cast<float>(config.myConfig.maxPitch));
+                        float pitchMin = XMConvertToRadians(static_cast<float>(config.myConfig.minPitch));
+                        pitch = std::clamp(pitch, pitchMin, pitchMax);
+
+                        XMVECTOR forward = XMVectorSet(
+                            cosf(pitch) * sinf(yaw),
+                            sinf(pitch),
+                            cosf(pitch) * cosf(yaw),
+                            0.0f
+                        );
+
+                        XMVECTOR right = XMVector3Normalize(XMVector3Cross({ 0, 1, 0 }, forward));
+                        XMVECTOR up = XMVector3Normalize(XMVector3Cross(forward, right));
+
+                        dx11->myCamera.SetYawPitch(yaw, pitch);
                     }
+
+                    // Only render if not resizing or in fullscreen transition
+                    if (!bResizeInProgress.load() && !bFullScreenTransition.load()) {
+                        dx11->RenderFrame();
+                    }
+                    break;
+                }
                 }
 
                 guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
                 return 0;
             });
 
-            return 0;
+        return 0;
 
-        case WM_LBUTTONDOWN:
-            isLeftClicked = true;
-            guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
-            return 0;
-
-        case WM_RBUTTONDOWN:
-            isRightClicked = true;
-            GetCursorPos(&lastMousePos);
-            ScreenToClient(hwnd, &lastMousePos);
-            return 0;
-
-        case WM_LBUTTONUP:
-            isLeftClicked = false;
-            guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
-            return 0;
-
-        case WM_RBUTTONUP:
-            isRightClicked = false;
-            guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
-    //        fxManager.CreateParticleExplosion(myMouseCoords.x, myMouseCoords.y, 30, 300);  // x, y, NumPixels, MaxRadius
-            return 0;
-
-        case WM_SIZE:
-		    if (!isSystemInitialized) return 0;
-		    if (wParam == SIZE_MINIMIZED) 
-            {
-                #if defined(__USE_DIRECTX_11__)
-                    WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
-                    {
-                        dx11->bIsMinimized.store(true);
-                    });
-                #endif
-                return 0;
-		    }
-
-            if (wParam != SIZE_MINIMIZED && renderer && renderer->bIsInitialized.load()) {
-                UINT width = LOWORD(lParam);
-                UINT height = HIWORD(lParam);
-                debug.logLevelMessage(LogLevel::LOG_INFO, L"WM_SIZE - Resizing to " +
-                    std::to_wstring(width) + L"x" + std::to_wstring(height));
-
-                switch (scene.stSceneType)
-                {
-                    case SceneType::SCENE_INTRO:
-                    {
-                        // Stop the 3D Starfield effect
-                        if (fxManager.starfieldID > 0)
-                        {
-                            fxManager.StopStarfield();
-                        }
-
-                        return 0;
-                    }
-
-                    case SceneType::SCENE_GAMEPLAY:
-                    {
-                        #if defined(__USE_DIRECTX_11__)
-                            WithDX11Renderer([width, height, hwnd](std::shared_ptr<DX11Renderer> dx11)
-                            {
-                                dx11->bIsMinimized.store(false);
-                                threadManager.threadVars.bIsResizing.store(true);
-                                // Reinitialise DirectX
-                                dx11->Resize(width, height);
-                                // Obtain New Window Metrics
-                                sysUtils.GetWindowMetrics(hwnd, winMetrics);
-                                // Resume the Loader thread and ensure nothing needs to be loaded / reloaded.
-                                dx11->ResumeLoader(true);
-                                // Resizing is now complete.
-                                threadManager.threadVars.bIsResizing.store(false);
-                            });
-                        #endif
-                        return 0;
-                    }
-
-                    default:
-                        return 0;
-                }
-            }
-            return 0;
-
-        case WM_KILLFOCUS:
-            return 0;
-
-        case WM_MOUSEWHEEL:
-        {
-            switch (scene.stSceneType)
-            {
-                case SceneType::SCENE_GAMEPLAY:
-                {
-                    short delta = GET_WHEEL_DELTA_WPARAM(wParam);
-
-                    // Zoom sensitivity scaling factor
-                    const float zoomStep = 1.0f;
-
-                    auto dx11 = std::dynamic_pointer_cast<DX11Renderer>(renderer);
-                    if (dx11)
-                    {
-                        if (delta > 0)
-                        {
-                            dx11->myCamera.MoveIn(zoomStep);
-                            #if defined(_DEBUG_CAMERA_)
-                                debug.logDebugMessage(LogLevel::LOG_INFO, L"Camera Zoom In: delta = %d", delta);
-                            #endif
-                        }
-                        else if (delta < 0)
-                        {
-                            dx11->myCamera.MoveOut(zoomStep);
-                            #if defined(_DEBUG_CAMERA_)
-                                debug.logDebugMessage(LogLevel::LOG_INFO, L"Camera Zoom Out: delta = %d", delta);
-                            #endif
-                        }
-                    }
-                    return 0;
-                }
-            }
+    case WM_LBUTTONDOWN:
+        // Ignore input during resize or fullscreen transitions
+        if (bResizeInProgress.load() || bFullScreenTransition.load()) {
             return 0;
         }
-    
-        case WM_ACTIVATE:
-            // Are we in an INACTIVE state?
-            if (wParam == WA_INACTIVE) {
-			    if (!isSystemInitialized) { return 0; }
-                #if defined(__USE_MP3PLAYER__)
-                    player.pause();
-                #elif defined(__USE_XMPLAYER__)
-    //            if (!xmPlayer.IsPaused())
-    //				xmPlayer.Pause();
-                #endif
-            }
-		    // Are we in an ACTIVE state?
-		    if (!isSystemInitialized) {
-                isSystemInitialized = true;
-                return 0; 
-            }
-            else if (wParam == WA_ACTIVE) {
-                #if defined(__USE_MP3PLAYER__)
-                    player.resume();
-                #elif defined(__USE_XMPLAYER__)
-    //                xmPlayer.HardResume();
-                #endif
-            }
 
+        isLeftClicked = true;
+        guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
+        return 0;
+
+    case WM_RBUTTONDOWN:
+        // Ignore input during resize or fullscreen transitions
+        if (bResizeInProgress.load() || bFullScreenTransition.load()) {
             return 0;
+        }
 
-        case WM_SETFOCUS:
+        isRightClicked = true;
+        GetCursorPos(&lastMousePos);
+        ScreenToClient(hwnd, &lastMousePos);
+        return 0;
+
+    case WM_LBUTTONUP:
+        // Ignore input during resize or fullscreen transitions
+        if (bResizeInProgress.load() || bFullScreenTransition.load()) {
             return 0;
+        }
 
-        case WM_KEYUP:
+        isLeftClicked = false;
+        guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
+        return 0;
+
+    case WM_RBUTTONUP:
+        // Ignore input during resize or fullscreen transitions
+        if (bResizeInProgress.load() || bFullScreenTransition.load()) {
+            return 0;
+        }
+
+        isRightClicked = false;
+        guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
+        return 0;
+
+    case WM_SIZE:
+        // Early exit if system not initialized or already resizing
+        if (!isSystemInitialized || bResizeInProgress.load()) {
+            return 0;
+        }
+
+        // Handle minimization state immediately
+        if (wParam == SIZE_MINIMIZED) {
+#if defined(__USE_DIRECTX_11__)
+            WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11) {
+                dx11->bIsMinimized.store(true);
+                });
+#endif
+            return 0;
+        }
+
+        // Only process resize if renderer is initialized and not minimized
+        if (wParam != SIZE_MINIMIZED && renderer && renderer->bIsInitialized.load()) {
+
+            // Implement debouncing to prevent rapid resize messages
+            auto currentTime = std::chrono::steady_clock::now();
+            auto timeSinceLastResize = std::chrono::duration_cast<std::chrono::milliseconds>(
+                currentTime - lastResizeTime).count();
+
+            if (timeSinceLastResize < RESIZE_DEBOUNCE_MS) {
+                return 0; // Too soon, ignore this resize message
+            }
+
+            lastResizeTime = currentTime;
+
+            // Set resize in progress flag to prevent race conditions
+            bResizeInProgress.store(true);
+
+            UINT width = LOWORD(lParam);
+            UINT height = HIWORD(lParam);
+
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"WM_SIZE - Beginning resize to " +
+                std::to_wstring(width) + L"x" + std::to_wstring(height));
+
+            // Stop all active FX effects before resize
+            fxManager.StopAllFXForResize();
+
             switch (scene.stSceneType)
             {
+                case SceneType::SCENE_INTRO:
                 case SceneType::SCENE_GAMEPLAY:
                 {
-                    if (wParam == VK_F2 && !threadManager.threadVars.bIsShuttingDown.load()) 
-                    {
-                        WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
+                    // Perform the resize operation
+                    #if defined(__USE_DIRECTX_11__)
+                        WithDX11Renderer([width, height, hwnd](std::shared_ptr<DX11Renderer> dx11) 
                         {
-                            dx11->bWireframeMode = !dx11->bWireframeMode;
+                            dx11->bIsMinimized.store(false);
+                            threadManager.threadVars.bIsResizing.store(true);
+
+                            // Perform DirectX resize
+                            dx11->Resize(width, height);
+
+                            // Update window metrics
+                            sysUtils.GetWindowMetrics(hwnd, winMetrics);
+
+                            // Resume loader with resize flag
+                            dx11->ResumeLoader(true);
+
+                            // Clear resize flag
+                            threadManager.threadVars.bIsResizing.store(false);
                         });
+                    #endif
 
-                        return 0;
-                    }
+                    break;
                 }
-            }
 
-            if (wParam == VK_ESCAPE && !threadManager.threadVars.bIsShuttingDown.load()) {
-                fxManager.FadeToBlack(1.0f, 0.03f);
-                soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
-                #if defined(__USE_DIRECTX_11__)
-                    WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
-                    {
-                        while (fxManager.IsFadeActive()) {
-                            dx11->RenderFrame();
-                            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-                        }
-                    });
-                #endif
-                threadManager.threadVars.bIsShuttingDown.store(true);
-                PostQuitMessage(0);
-            }
-            return 0;
-
-        case WM_CLOSE:
-            if (!threadManager.threadVars.bIsShuttingDown.load()) {
-                fxManager.FadeToBlack(1.0f, 0.03f);
-                soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
-                #if defined(__USE_DIRECTX_11__)
-                    WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
-                    {
-                        while (fxManager.IsFadeActive()) {
-                            dx11->RenderFrame();
-                            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-                        }
-                    });
-                #endif
-                threadManager.threadVars.bIsShuttingDown.store(true);
-                PostQuitMessage(0);
-            }
-            return 0;
-
-        case WM_DESTROY:
-            if (!threadManager.threadVars.bIsShuttingDown.load())
-                PostQuitMessage(0);
-            return 0;
-
-        case WM_KEYDOWN:
-        {
-            constexpr float moveStep = 0.75f;
-
-            switch (wParam)
-            {
-            case VK_UP:
-                #if defined(__USE_DIRECTX_11__)
-                    WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
-                    {
-                        dx11->myCamera.MoveUp(moveStep);
-                        dx11->RenderFrame();
-                    });
-                #endif
-                break;
-
-            case VK_DOWN:
-                #if defined(__USE_DIRECTX_11__)
-                    WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
-                    {
-                        dx11->myCamera.MoveDown(moveStep);
-                        dx11->RenderFrame();
-                    });
-                #endif
-                break;
-
-            case VK_LEFT:
-                #if defined(__USE_DIRECTX_11__)
-                    WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
-                    {
-                        dx11->myCamera.MoveLeft(moveStep);
-                        dx11->RenderFrame();
-                    });
-                #endif
-                break;
-
-            case VK_RIGHT:
-                #if defined(__USE_DIRECTX_11__)
-                    WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
-                    {
-                        dx11->myCamera.MoveRight(moveStep);
-                        dx11->RenderFrame();
-                    });
-                #endif
+            default:
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"Resize attempted in unsupported scene type");
                 break;
             }
 
+            // Clear resize in progress flag
+            bResizeInProgress.store(false);
+
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"WM_SIZE - Resize completed successfully");
+        }
+        return 0;
+
+    case WM_KILLFOCUS:
+        // No special handling needed during resize
+        return 0;
+
+    case WM_MOUSEWHEEL:
+    {
+        // Ignore mouse wheel during resize or fullscreen transitions
+        if (bResizeInProgress.load() || bFullScreenTransition.load()) {
             return 0;
         }
 
-        default:
-            return DefWindowProc(hwnd, uMsg, wParam, lParam);
+        switch (scene.stSceneType)
+        {
+        case SceneType::SCENE_GAMEPLAY:
+        {
+            short delta = GET_WHEEL_DELTA_WPARAM(wParam);
+
+            // Zoom sensitivity scaling factor
+            const float zoomStep = 1.0f;
+
+            auto dx11 = std::dynamic_pointer_cast<DX11Renderer>(renderer);
+            if (dx11)
+            {
+                if (delta > 0)
+                {
+                    dx11->myCamera.MoveIn(zoomStep);
+#if defined(_DEBUG_CAMERA_)
+                    debug.logDebugMessage(LogLevel::LOG_INFO, L"Camera Zoom In: delta = %d", delta);
+#endif
+                }
+                else if (delta < 0)
+                {
+                    dx11->myCamera.MoveOut(zoomStep);
+#if defined(_DEBUG_CAMERA_)
+                    debug.logDebugMessage(LogLevel::LOG_INFO, L"Camera Zoom Out: delta = %d", delta);
+#endif
+                }
+            }
+            return 0;
+        }
+        }
+        return 0;
+    }
+
+    case WM_ACTIVATE:
+        // Handle activation/deactivation, but be careful during resize
+        if (wParam == WA_INACTIVE) {
+            if (!isSystemInitialized || bResizeInProgress.load()) {
+                return 0;
+            }
+#if defined(__USE_MP3PLAYER__)
+            player.pause();
+#elif defined(__USE_XMPLAYER__)
+            // Uncomment if needed: if (!xmPlayer.IsPaused()) xmPlayer.Pause();
+#endif
+        }
+
+        if (!isSystemInitialized) {
+            isSystemInitialized = true;
+            return 0;
+        }
+        else if (wParam == WA_ACTIVE && !bResizeInProgress.load()) {
+#if defined(__USE_MP3PLAYER__)
+            player.resume();
+#elif defined(__USE_XMPLAYER__)
+            // Uncomment if needed: xmPlayer.HardResume();
+#endif
+        }
+
+        return 0;
+
+    case WM_SETFOCUS:
+        // No special handling needed
+        return 0;
+
+    case WM_KEYUP:
+        // Ignore key input during resize or fullscreen transitions
+        if (bResizeInProgress.load() || bFullScreenTransition.load()) {
+            return 0;
+        }
+
+        switch (scene.stSceneType)
+        {
+        case SceneType::SCENE_GAMEPLAY:
+        {
+            if (wParam == VK_F2 && !threadManager.threadVars.bIsShuttingDown.load())
+            {
+                WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11) {
+                    dx11->bWireframeMode = !dx11->bWireframeMode;
+                    });
+                return 0;
+            }
+        }
+        }
+
+        // Handle ESC key for shutdown
+        if (wParam == VK_ESCAPE && !threadManager.threadVars.bIsShuttingDown.load()) {
+            fxManager.FadeToBlack(1.0f, 0.03f);
+            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+#if defined(__USE_DIRECTX_11__)
+            WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11) {
+                while (fxManager.IsFadeActive()) {
+                    dx11->RenderFrame();
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                }
+                });
+#endif
+            threadManager.threadVars.bIsShuttingDown.store(true);
+            PostQuitMessage(0);
+        }
+        return 0;
+
+    case WM_CLOSE:
+        // Handle close request with proper fade effect
+        if (!threadManager.threadVars.bIsShuttingDown.load()) {
+            fxManager.FadeToBlack(1.0f, 0.03f);
+            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+#if defined(__USE_DIRECTX_11__)
+            WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11) {
+                while (fxManager.IsFadeActive()) {
+                    dx11->RenderFrame();
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                }
+                });
+#endif
+            threadManager.threadVars.bIsShuttingDown.store(true);
+            PostQuitMessage(0);
+        }
+        return 0;
+
+    case WM_DESTROY:
+        // Handle destroy message
+        if (!threadManager.threadVars.bIsShuttingDown.load())
+            PostQuitMessage(0);
+        return 0;
+
+    case WM_KEYDOWN:
+    {
+        // Ignore key input during resize or fullscreen transitions
+        if (bResizeInProgress.load() || bFullScreenTransition.load()) {
+            return 0;
+        }
+
+        constexpr float moveStep = 0.75f;
+
+        switch (wParam)
+        {
+        case VK_UP:
+#if defined(__USE_DIRECTX_11__)
+            WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11) {
+                dx11->myCamera.MoveUp(moveStep);
+                if (!bResizeInProgress.load()) {
+                    dx11->RenderFrame();
+                }
+                });
+#endif
+            break;
+
+        case VK_DOWN:
+#if defined(__USE_DIRECTX_11__)
+            WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11) {
+                dx11->myCamera.MoveDown(moveStep);
+                if (!bResizeInProgress.load()) {
+                    dx11->RenderFrame();
+                }
+                });
+#endif
+            break;
+
+        case VK_LEFT:
+#if defined(__USE_DIRECTX_11__)
+            WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11) {
+                dx11->myCamera.MoveLeft(moveStep);
+                if (!bResizeInProgress.load()) {
+                    dx11->RenderFrame();
+                }
+                });
+#endif
+            break;
+
+        case VK_RIGHT:
+#if defined(__USE_DIRECTX_11__)
+            WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11) {
+                dx11->myCamera.MoveRight(moveStep);
+                if (!bResizeInProgress.load()) {
+                    dx11->RenderFrame();
+                }
+                });
+#endif
+            break;
+        }
+
+        return 0;
+    }
+
+    default:
+        return DefWindowProc(hwnd, uMsg, wParam, lParam);
     }
 }
 

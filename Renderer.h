@@ -286,6 +286,7 @@ public:
     virtual void Cleanup() = 0;
     virtual void Resize(uint32_t width, uint32_t height) = 0;
     virtual bool SetFullScreen(void) = 0;
+    virtual bool SetFullExclusive(uint32_t width, uint32_t height) = 0;
     virtual bool SetWindowedScreen(void) = 0;
     virtual void DrawRectangle(const Vector2& position, const Vector2& size, const MyColor& color, bool is2D) = 0;
     virtual void DrawMyText(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize) = 0;

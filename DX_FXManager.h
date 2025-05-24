@@ -175,6 +175,17 @@ struct ParallaxLayerProfile {
     bool cameraLinked;
 };
 
+// Structure to store active FX state for restoration after resize
+struct ActiveFXState {
+    bool starfieldActive;                                                       // Whether starfield was active
+    int starfieldID;                                                            // Starfield effect ID
+    bool textScrollerActive;                                                    // Whether text scroller was active
+    std::vector<int> textScrollerIDs;                                           // Active text scroller IDs
+    bool fadeEffectActive;                                                      // Whether fade effect was active
+    bool scrollEffectsActive;                                                   // Whether scroll effects were active
+    std::vector<BlitObj2DIndexType> activeScrollTextures;                       // Textures with active scroll effects
+};
+
 // Our FXManager Class
 class FXManager {
 public:
@@ -187,9 +198,17 @@ public:
     void Initialize();
     void CleanUp();
     void AddEffect(const FXItem& fxItem);
+    
+    // Our Window Resize / RE-Initialize / Restart calls.
+    void StopAllFXForResize();
+    void RestartFXAfterResize();
+
+    // Our Render Calls
     void Render();
+    // For Rendering that requires 3D Device Contexting
     void RenderFX(int effectID, ID3D11DeviceContext* context, const XMMATRIX& worldMatrix);
-    void Render2D();                                                                // For effects like scroll that use Direct2D (ie. Tiled Img Scroller)
+    // For effects like scroll that use Direct2D (ie. Tiled Img Scroller, Particle Explosion etc)
+    void Render2D();                                                            
 
     // Starfield Utility Calls
     int starfieldID = 0;
@@ -250,40 +269,48 @@ public:
     void RenderTextScroller(FXItem& fxItem);
 
 private:
-    std::mutex m_effectsMutex;
+    // Internal Helper functions
+    void ApplyColorFader(FXItem& fxItem);
+    void ApplyScroller(FXItem& fxItem);
+    void LoadFadeShaders();
+    void RemoveCompletedEffects();
+    void RenderFullScreenQuad(const XMFLOAT4& color);
 
+    // Private text scroller helper functions
+    float CalculateTextTransparency(float position, float regionStart, float regionEnd, float fadeDistance);
+    float CalculateCharacterTransparency(float charPosition, float regionStart, float regionEnd, float fadeDistance);
+    void SplitTextIntoLines(const std::wstring& text, std::vector<std::wstring>& lines, float maxWidth, float fontSize);
+
+    // Render State Handlers
+    void RestoreRenderState();
+    void SaveRenderState();
+
+    // Store FX state during resize
+    ActiveFXState savedFXState;
+    
+    // Our Effects Mutex
+    std::mutex m_effectsMutex;
+    
+    // Our Vectors
     std::vector<FXItem> effects;
     std::vector<std::pair<FXItem, std::function<void()>>> pendingCallbacks;
     std::vector<ScrollTween> activeTweens;
     std::vector<ParallaxLayerProfile> myIntroSceneLayers;
 
-    void ApplyColorFader(FXItem& fxItem);
-    void ApplyScroller(FXItem& fxItem);
-    void LoadFadeShaders();
-    void RestoreRenderState();
-    void SaveRenderState();
-    void RemoveCompletedEffects();
-    void RenderFullScreenQuad(const XMFLOAT4& color);
-
-    // NEW: Private text scroller helper functions
-    float CalculateTextTransparency(float position, float regionStart, float regionEnd, float fadeDistance);
-    float CalculateCharacterTransparency(float charPosition, float regionStart, float regionEnd, float fadeDistance);
-    void SplitTextIntoLines(const std::wstring& text, std::vector<std::wstring>& lines, float maxWidth, float fontSize);
-
+    // Other required pointers and variables
     ID3D11BlendState* originalBlendState = nullptr;
     ID3D11BlendState* fadeBlendState = nullptr;
     ID3D11RenderTargetView* originalRenderTarget = nullptr;
     ID3D11DepthStencilView* originalDepthStencilView = nullptr;
     ID3D11RasterizerState* originalRasterState = nullptr;
     ID3D11DepthStencilState* originalDepthStencilState = nullptr;
-    UINT originalStencilRef = 0;
-
-    D3D11_VIEWPORT originalViewport = {};
-    UINT numViewports = 0;
-
     ID3D11Buffer* fullscreenQuadVertexBuffer = nullptr;
     ID3D11InputLayout* inputLayout = nullptr;
     ID3D11VertexShader* vertexShader = nullptr;
     ID3D11PixelShader* pixelShader = nullptr;
     ID3D11Buffer* constantBuffer = nullptr;
+    D3D11_VIEWPORT originalViewport = {};
+
+    UINT originalStencilRef = 0;
+    UINT numViewports = 0;
 };

@@ -52,6 +52,8 @@ extern MoviePlayer moviePlayer;
 extern WindowMetrics winMetrics;
 
 extern bool bResizing;
+extern std::atomic<bool> bResizeInProgress;                    // Prevents multiple resize operations
+extern std::atomic<bool> bFullScreenTransition;                // Prevents handling during fullscreen transitions
 
 #if defined(__USE_MP3PLAYER__)
 extern MediaPlayer player;
@@ -86,6 +88,8 @@ DX11Renderer::~DX11Renderer()
 void DX11Renderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
 	// Set the Renderer Name
     RendererName(RENDERER_NAME);
+    iOrigWidth = winMetrics.clientWidth;
+    iOrigHeight = winMetrics.clientHeight;
 
     // Initilize Direct2D & Direct3D 11 Device and Swap Chain
     CreateDeviceAndSwapChain(hwnd);
@@ -149,7 +153,24 @@ void DX11Renderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
 
     sysUtils.DisableMouseCursor();
 	
-    if (!threadManager.threadVars.bIsResizing.load())
+    if (threadManager.threadVars.bIsResizing.load())
+    {
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"Rendering Engine Initialised and Activated.");
+    }
+    else
+	{
+        // We are resizing the window, so restart the loading sequence.
+        threadManager.ResumeThread(THREAD_LOADER);
+    }
+    
+    bIsInitialized.store(true);
+	threadManager.threadVars.bIsResizing.store(false);
+}
+
+bool DX11Renderer::StartRendererThreads()
+{
+    bool result = true;
+    try
     {
         // Initialise and Start the Loader Thread
         threadManager.SetThread(THREAD_LOADER, [this]() { LoaderTaskThread(); }, true);
@@ -159,16 +180,13 @@ void DX11Renderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
         threadManager.SetThread(THREAD_RENDERER, [this]() { RenderFrame(); }, true);
         threadManager.StartThread(THREAD_RENDERER);
 #endif
-        debug.logLevelMessage(LogLevel::LOG_INFO, L"Rendering Engine Initialised and Activated.");
     }
-    else
-	{
-        // We are resizing the window, so we need to set the scene type to SCENE_RESIZE
-        threadManager.ResumeThread(THREAD_LOADER);
+    catch (const std::exception& e)
+    {
+        result = false;
     }
-    
-    bIsInitialized.store(true);
-	threadManager.threadVars.bIsResizing.store(false);
+
+    return result;
 }
 
 ComPtr<ID3D11DeviceContext> DX11Renderer::GetImmediateContext() const {
@@ -1993,265 +2011,653 @@ void DX11Renderer::Clean2DTextures()
 // Set full screen mode.
 bool DX11Renderer::SetFullScreen(void)
 {
-    std::lock_guard<std::mutex> lock(s_renderMutex); // Ensure thread safety
+#if defined(_DEBUG_RENDERER_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[RENDERER] SetFullScreen() called - beginning fullscreen transition");
+#endif
 
-    // Save current window size before going fullscreen (for potential return to windowed mode)
-    RECT rc;
-    GetClientRect(hwnd, &rc);
-    prevWindowedWidth = rc.right - rc.left;
-    prevWindowedHeight = rc.bottom - rc.top;
-
-    // Get the output (monitor) information
-    ComPtr<IDXGIOutput> output;
-    HRESULT hr = m_swapChain->GetContainingOutput(&output);
-    if (FAILED(hr)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to get containing output for swap chain");
+    // Check if already in fullscreen transition to prevent race conditions
+    if (bFullScreenTransition.load()) {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[RENDERER] Fullscreen transition already in progress");
         return false;
     }
 
-    DXGI_OUTPUT_DESC outputDesc;
-    hr = output->GetDesc(&outputDesc);
-    if (FAILED(hr)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to get output description");
-        return false;
-    }
-
-    // Calculate new width and height from the monitor
-    UINT fullscreenWidth = outputDesc.DesktopCoordinates.right - outputDesc.DesktopCoordinates.left;
-    UINT fullscreenHeight = outputDesc.DesktopCoordinates.bottom - outputDesc.DesktopCoordinates.top;
-
-    // Set the fullscreen state first
-    hr = m_swapChain->SetFullscreenState(TRUE, nullptr);
-    if (FAILED(hr)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to set fullscreen state");
-        return false;
-    }
-
-    // Now resize the swap chain buffers to match the fullscreen resolution
+    // Set fullscreen transition flag to block other operations
+    bFullScreenTransition.store(true);
     threadManager.threadVars.bSettingFullScreen.store(true);
-    threadManager.threadVars.bIsResizing.store(true);
 
-    // Clean up resources before resize
-    m_d2dContext->SetTarget(nullptr);
-    m_d2dContext->Flush();
-    D2DBusy.store(false);
+    try {
+        std::lock_guard<std::mutex> lock(s_renderMutex);                        // Ensure thread safety during fullscreen transition
 
-    // Release render target views and other resources
-    m_d2dRenderTarget.Reset();
-    m_d2dContext.Reset();
-    dxgiSurface.Reset();
-    Clean2DTextures();
-    m_renderTargetView.Reset();
-    m_depthStencilView.Reset();
-    m_depthStencilBuffer.Reset();
+        // Stop all FX effects before fullscreen transition
+        fxManager.StopAllFXForResize();
 
-    // Resize the buffers
-    hr = m_swapChain->ResizeBuffers(
-        0,                          // Keep existing buffer count
-        fullscreenWidth,
-        fullscreenHeight,
-        DXGI_FORMAT_UNKNOWN,        // Keep existing format
-        0                           // Default flags
-    );
+        // Save current window size before going fullscreen (for potential return to windowed mode)
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+        prevWindowedWidth = rc.right - rc.left;
+        prevWindowedHeight = rc.bottom - rc.top;
 
-    if (FAILED(hr)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to resize buffers for fullscreen");
-        m_swapChain->SetFullscreenState(FALSE, nullptr); // Try to go back to windowed
+#if defined(_DEBUG_RENDERER_)
+        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERER] Saved windowed size: " +
+            std::to_wstring(prevWindowedWidth) + L"x" + std::to_wstring(prevWindowedHeight));
+#endif
+
+        // Get the output (monitor) information
+        ComPtr<IDXGIOutput> output;
+        HRESULT hr = m_swapChain->GetContainingOutput(&output);
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to get containing output for swap chain");
+            bFullScreenTransition.store(false);
+            threadManager.threadVars.bSettingFullScreen.store(false);
+            return false;
+        }
+
+        DXGI_OUTPUT_DESC outputDesc;
+        hr = output->GetDesc(&outputDesc);
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to get output description");
+            bFullScreenTransition.store(false);
+            threadManager.threadVars.bSettingFullScreen.store(false);
+            return false;
+        }
+
+        // Calculate new width and height from the monitor
+        UINT fullscreenWidth = outputDesc.DesktopCoordinates.right - outputDesc.DesktopCoordinates.left;
+        UINT fullscreenHeight = outputDesc.DesktopCoordinates.bottom - outputDesc.DesktopCoordinates.top;
+
+#if defined(_DEBUG_RENDERER_)
+        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERER] Target fullscreen resolution: " +
+            std::to_wstring(fullscreenWidth) + L"x" + std::to_wstring(fullscreenHeight));
+#endif
+
+        // Set the fullscreen state first
+        hr = m_swapChain->SetFullscreenState(TRUE, nullptr);
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to set fullscreen state");
+            bFullScreenTransition.store(false);
+            threadManager.threadVars.bSettingFullScreen.store(false);
+            return false;
+        }
+
+        // Set resizing flag to prevent other operations during buffer resize
+        threadManager.threadVars.bIsResizing.store(true);
+
+        // Clean up resources before resize
+        if (m_d2dContext) {
+            m_d2dContext->SetTarget(nullptr);                                   // Clear D2D render target
+            m_d2dContext->Flush();                                              // Flush any pending D2D operations
+            D2DBusy.store(false);                                               // Mark D2D as not busy
+        }
+
+        // Release render target views and other resources
+        m_d2dRenderTarget.Reset();                                              // Release D2D render target
+        m_d2dContext.Reset();                                                   // Release D2D context
+        dxgiSurface.Reset();                                                    // Release DXGI surface
+        Clean2DTextures();                                                      // Clean up 2D textures
+        m_renderTargetView.Reset();                                             // Release 3D render target
+        m_depthStencilView.Reset();                                             // Release depth stencil view
+        m_depthStencilBuffer.Reset();                                           // Release depth stencil buffer
+
+        // Resize the buffers to fullscreen resolution
+        hr = m_swapChain->ResizeBuffers(
+            0,                                                                  // Keep existing buffer count
+            fullscreenWidth,                                                    // New width
+            fullscreenHeight,                                                   // New height
+            DXGI_FORMAT_UNKNOWN,                                                // Keep existing format
+            0                                                                   // Default flags
+        );
+
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to resize buffers for fullscreen");
+            m_swapChain->SetFullscreenState(FALSE, nullptr);                    // Try to go back to windowed
+            threadManager.threadVars.bIsResizing.store(false);
+            bFullScreenTransition.store(false);
+            threadManager.threadVars.bSettingFullScreen.store(false);
+            return false;
+        }
+
+        // Recreate render target view
+        ComPtr<ID3D11Texture2D> backBuffer;
+        hr = m_swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to get back buffer after resize");
+            threadManager.threadVars.bIsResizing.store(false);
+            bFullScreenTransition.store(false);
+            threadManager.threadVars.bSettingFullScreen.store(false);
+            return false;
+        }
+
+        hr = m_d3dDevice->CreateRenderTargetView(backBuffer.Get(), nullptr, m_renderTargetView.GetAddressOf());
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to create render target view after resize");
+            threadManager.threadVars.bIsResizing.store(false);
+            bFullScreenTransition.store(false);
+            threadManager.threadVars.bSettingFullScreen.store(false);
+            return false;
+        }
+
+        // Recreate depth buffer
+        D3D11_TEXTURE2D_DESC depthDesc = {};
+        depthDesc.Width = fullscreenWidth;                                      // Set depth buffer width
+        depthDesc.Height = fullscreenHeight;                                    // Set depth buffer height
+        depthDesc.MipLevels = 1;                                                // Single mip level
+        depthDesc.ArraySize = 1;                                                // Single array element
+        depthDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;                      // 24-bit depth, 8-bit stencil
+        depthDesc.SampleDesc.Count = 1;                                         // No multisampling
+        depthDesc.Usage = D3D11_USAGE_DEFAULT;                                  // Default usage
+        depthDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;                         // Bind as depth-stencil
+
+        hr = m_d3dDevice->CreateTexture2D(&depthDesc, nullptr, m_depthStencilBuffer.GetAddressOf());
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to create depth stencil buffer after resize");
+            threadManager.threadVars.bIsResizing.store(false);
+            bFullScreenTransition.store(false);
+            threadManager.threadVars.bSettingFullScreen.store(false);
+            return false;
+        }
+
+        hr = m_d3dDevice->CreateDepthStencilView(m_depthStencilBuffer.Get(), nullptr, m_depthStencilView.GetAddressOf());
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to create depth stencil view after resize");
+            threadManager.threadVars.bIsResizing.store(false);
+            bFullScreenTransition.store(false);
+            threadManager.threadVars.bSettingFullScreen.store(false);
+            return false;
+        }
+
+        // Set the viewport for fullscreen
+        D3D11_VIEWPORT vp = {};
+        vp.Width = static_cast<float>(fullscreenWidth);                         // Viewport width
+        vp.Height = static_cast<float>(fullscreenHeight);                       // Viewport height
+        vp.MinDepth = 0.0f;                                                     // Minimum depth
+        vp.MaxDepth = 1.0f;                                                     // Maximum depth
+        m_d3dContext->RSSetViewports(1, &vp);                                   // Set the viewport
+
+        // Bind the new render target and depth stencil
+        m_d3dContext->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
+
+        // Update rendering dimensions
+        iOrigWidth = fullscreenWidth;                                           // Update width
+        iOrigHeight = fullscreenHeight;                                         // Update height
+
+        // Recreate D2D resources
+        CreateDirect2DResources();
+
+        // Clear all flags
         threadManager.threadVars.bIsResizing.store(false);
+        bFullScreenTransition.store(false);
         threadManager.threadVars.bSettingFullScreen.store(false);
+
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[RENDERER] Fullscreen mode set successfully");
+
+        return true;
+    }
+    catch (const std::exception& e) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Exception in SetFullScreen: " +
+            std::wstring(e.what(), e.what() + strlen(e.what())));
+
+        // Clear all flags on exception
+        threadManager.threadVars.bIsResizing.store(false);
+        bFullScreenTransition.store(false);
+        threadManager.threadVars.bSettingFullScreen.store(false);
+
+        return false;
+    }
+}
+
+bool DX11Renderer::SetFullExclusive(uint32_t width, uint32_t height)
+{
+#if defined(_DEBUG_RENDERER_)
+    // Log the beginning of exclusive fullscreen transition with specified resolution
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"[RENDERER] SetFullExclusive(%d, %d) called - beginning exclusive fullscreen transition", width, height);
+#endif
+
+    // Check if already in fullscreen transition to prevent race conditions
+    if (bFullScreenTransition.load()) {
+        // Log warning that transition is already in progress
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[RENDERER] Fullscreen transition already in progress");
         return false;
     }
 
-    // Recreate render target view
-    ComPtr<ID3D11Texture2D> backBuffer;
-    hr = m_swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
-    if (FAILED(hr)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to get back buffer after resize");
+    // Set fullscreen transition flag to block other operations during transition
+    bFullScreenTransition.store(true);
+    // Set threading flag to indicate fullscreen mode is being configured
+    threadManager.threadVars.bSettingFullScreen.store(true);
+
+    try {
+        // Acquire render mutex to ensure thread safety during exclusive fullscreen transition
+        std::lock_guard<std::mutex> lock(s_renderMutex);
+
+        // Stop all FX effects before exclusive fullscreen transition to prevent rendering conflicts
+        fxManager.StopAllFXForResize();
+
+        // Save current window size before going to exclusive fullscreen (for potential return to windowed mode)
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+        prevWindowedWidth = rc.right - rc.left;
+        prevWindowedHeight = rc.bottom - rc.top;
+
+#if defined(_DEBUG_RENDERER_)
+        // Log the saved windowed size for debugging purposes
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[RENDERER] Saved windowed size: %dx%d", prevWindowedWidth, prevWindowedHeight);
+#endif
+
+        // Get the output (monitor) information to validate the requested resolution
+        ComPtr<IDXGIOutput> output;
+        HRESULT hr = m_swapChain->GetContainingOutput(&output);
+        if (FAILED(hr)) {
+            // Log error if we cannot get the containing output for the swap chain
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to get containing output for swap chain");
+            // Clear transition flags on failure
+            bFullScreenTransition.store(false);
+            threadManager.threadVars.bSettingFullScreen.store(false);
+            return false;
+        }
+
+        // Get output description to check available display modes
+        DXGI_OUTPUT_DESC outputDesc;
+        hr = output->GetDesc(&outputDesc);
+        if (FAILED(hr)) {
+            // Log error if we cannot get the output description
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to get output description");
+            // Clear transition flags on failure
+            bFullScreenTransition.store(false);
+            threadManager.threadVars.bSettingFullScreen.store(false);
+            return false;
+        }
+
+        // Enumerate available display modes to verify the requested resolution is supported
+        UINT numModes = 0;
+        DXGI_FORMAT format = DXGI_FORMAT_B8G8R8A8_UNORM;
+
+        // Get the number of available display modes for the specified format
+        hr = output->GetDisplayModeList(format, 0, &numModes, nullptr);
+        if (FAILED(hr) || numModes == 0) {
+            // Log error if we cannot enumerate display modes
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to enumerate display modes");
+            // Clear transition flags on failure
+            bFullScreenTransition.store(false);
+            threadManager.threadVars.bSettingFullScreen.store(false);
+            return false;
+        }
+
+        // Allocate memory for display mode list
+        std::vector<DXGI_MODE_DESC> displayModes(numModes);
+
+        // Get the actual display mode list
+        hr = output->GetDisplayModeList(format, 0, &numModes, displayModes.data());
+        if (FAILED(hr)) {
+            // Log error if we cannot get the display mode list
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to get display mode list");
+            // Clear transition flags on failure
+            bFullScreenTransition.store(false);
+            threadManager.threadVars.bSettingFullScreen.store(false);
+            return false;
+        }
+
+        // Find the closest matching display mode for the requested resolution
+        DXGI_MODE_DESC targetMode = {};
+        targetMode.Width = width;
+        targetMode.Height = height;
+        targetMode.Format = format;
+        targetMode.RefreshRate.Numerator = 60;     // Default to 60Hz refresh rate
+        targetMode.RefreshRate.Denominator = 1;    // Standard refresh rate denominator
+
+        DXGI_MODE_DESC closestMode = {};
+        hr = output->FindClosestMatchingMode(&targetMode, &closestMode, m_d3dDevice.Get());
+        if (FAILED(hr)) {
+            // Log error if we cannot find a matching display mode
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to find closest matching display mode");
+            // Clear transition flags on failure
+            bFullScreenTransition.store(false);
+            threadManager.threadVars.bSettingFullScreen.store(false);
+            return false;
+        }
+
+#if defined(_DEBUG_RENDERER_)
+        // Log the closest matching mode found for debugging purposes
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[RENDERER] Closest matching mode: %dx%d @%dHz",
+            closestMode.Width, closestMode.Height,
+            closestMode.RefreshRate.Numerator / closestMode.RefreshRate.Denominator);
+#endif
+
+        // Set resizing flag to prevent other operations during buffer resize
+        threadManager.threadVars.bIsResizing.store(true);
+
+        // Clean up Direct2D resources before resize operations
+        if (m_d2dContext) {
+            // Clear Direct2D render target to release references
+            m_d2dContext->SetTarget(nullptr);
+            // Flush any pending Direct2D operations
+            m_d2dContext->Flush();
+            // Mark Direct2D as not busy
+            D2DBusy.store(false);
+        }
+
+        // Release render target views and other resources before resize
+        m_d2dRenderTarget.Reset();      // Release Direct2D render target
+        m_d2dContext.Reset();           // Release Direct2D context
+        dxgiSurface.Reset();            // Release DXGI surface
+        Clean2DTextures();              // Clean up 2D textures
+        m_renderTargetView.Reset();     // Release 3D render target
+        m_depthStencilView.Reset();     // Release depth stencil view
+        m_depthStencilBuffer.Reset();   // Release depth stencil buffer
+
+        // Set to exclusive fullscreen mode with the closest matching mode
+        hr = m_swapChain->SetFullscreenState(TRUE, output.Get());
+        if (FAILED(hr)) {
+            // Log error if setting fullscreen state fails
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to set exclusive fullscreen state");
+            // Clear resizing and transition flags on failure
+            threadManager.threadVars.bIsResizing.store(false);
+            bFullScreenTransition.store(false);
+            threadManager.threadVars.bSettingFullScreen.store(false);
+            return false;
+        }
+
+        // Resize the swap chain buffers to the closest matching resolution
+        hr = m_swapChain->ResizeBuffers(
+            0,                          // Keep existing buffer count
+            closestMode.Width,          // Use closest matching width
+            closestMode.Height,         // Use closest matching height
+            closestMode.Format,         // Use closest matching format
+            DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH  // Allow mode switching for exclusive fullscreen
+        );
+
+        if (FAILED(hr)) {
+            // Log error if resize buffers fails
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to resize buffers for exclusive fullscreen");
+            // Try to revert to windowed mode if resize fails
+            m_swapChain->SetFullscreenState(FALSE, nullptr);
+            // Clear resizing and transition flags on failure
+            threadManager.threadVars.bIsResizing.store(false);
+            bFullScreenTransition.store(false);
+            threadManager.threadVars.bSettingFullScreen.store(false);
+            return false;
+        }
+
+        // Recreate render target view after buffer resize
+        ComPtr<ID3D11Texture2D> backBuffer;
+        hr = m_swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
+        if (FAILED(hr)) {
+            // Log error if getting back buffer fails
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to get back buffer after resize");
+            // Clear resizing and transition flags on failure
+            threadManager.threadVars.bIsResizing.store(false);
+            bFullScreenTransition.store(false);
+            threadManager.threadVars.bSettingFullScreen.store(false);
+            return false;
+        }
+
+        // Create new render target view from the back buffer
+        hr = m_d3dDevice->CreateRenderTargetView(backBuffer.Get(), nullptr, m_renderTargetView.GetAddressOf());
+        if (FAILED(hr)) {
+            // Log error if creating render target view fails
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to create render target view after resize");
+            // Clear resizing and transition flags on failure
+            threadManager.threadVars.bIsResizing.store(false);
+            bFullScreenTransition.store(false);
+            threadManager.threadVars.bSettingFullScreen.store(false);
+            return false;
+        }
+
+        // Recreate depth stencil buffer with the new resolution
+        D3D11_TEXTURE2D_DESC depthDesc = {};
+        depthDesc.Width = closestMode.Width;                        // Set depth buffer width to closest mode width
+        depthDesc.Height = closestMode.Height;                      // Set depth buffer height to closest mode height
+        depthDesc.MipLevels = 1;                                    // Single mip level for depth buffer
+        depthDesc.ArraySize = 1;                                    // Single array element
+        depthDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;          // 24-bit depth, 8-bit stencil format
+        depthDesc.SampleDesc.Count = 1;                             // No multisampling for compatibility
+        depthDesc.Usage = D3D11_USAGE_DEFAULT;                      // Default usage for GPU access
+        depthDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;             // Bind as depth-stencil buffer
+
+        // Create the new depth stencil buffer
+        hr = m_d3dDevice->CreateTexture2D(&depthDesc, nullptr, m_depthStencilBuffer.GetAddressOf());
+        if (FAILED(hr)) {
+            // Log error if creating depth stencil buffer fails
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to create depth stencil buffer after resize");
+            // Clear resizing and transition flags on failure
+            threadManager.threadVars.bIsResizing.store(false);
+            bFullScreenTransition.store(false);
+            threadManager.threadVars.bSettingFullScreen.store(false);
+            return false;
+        }
+
+        // Create the depth stencil view
+        hr = m_d3dDevice->CreateDepthStencilView(m_depthStencilBuffer.Get(), nullptr, m_depthStencilView.GetAddressOf());
+        if (FAILED(hr)) {
+            // Log error if creating depth stencil view fails
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to create depth stencil view after resize");
+            // Clear resizing and transition flags on failure
+            threadManager.threadVars.bIsResizing.store(false);
+            bFullScreenTransition.store(false);
+            threadManager.threadVars.bSettingFullScreen.store(false);
+            return false;
+        }
+
+        // Set the viewport for exclusive fullscreen with the actual resolution achieved
+        D3D11_VIEWPORT vp = {};
+        vp.Width = static_cast<float>(closestMode.Width);           // Viewport width from closest mode
+        vp.Height = static_cast<float>(closestMode.Height);         // Viewport height from closest mode
+        vp.MinDepth = 0.0f;                                         // Minimum depth value
+        vp.MaxDepth = 1.0f;                                         // Maximum depth value
+        vp.TopLeftX = 0;                                            // Top-left X coordinate
+        vp.TopLeftY = 0;                                            // Top-left Y coordinate
+        m_d3dContext->RSSetViewports(1, &vp);                       // Set the viewport in the rendering context
+
+        // Bind the new render target and depth stencil to the output merger stage
+        m_d3dContext->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
+
+        // Update rendering dimensions to reflect the actual resolution achieved
+        iOrigWidth = closestMode.Width;                             // Update internal width tracking
+        iOrigHeight = closestMode.Height;                           // Update internal height tracking
+
+        // Recreate Direct2D resources for the new resolution
+        CreateDirect2DResources();
+
+        // Clear all transition and resizing flags to indicate completion
         threadManager.threadVars.bIsResizing.store(false);
+        bFullScreenTransition.store(false);
         threadManager.threadVars.bSettingFullScreen.store(false);
-        return false;
-    }
 
-    hr = m_d3dDevice->CreateRenderTargetView(backBuffer.Get(), nullptr, m_renderTargetView.GetAddressOf());
-    if (FAILED(hr)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to create render target view after resize");
+#if defined(_DEBUG_RENDERER_)
+        // Log successful completion with actual resolution achieved
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[RENDERER] Exclusive fullscreen mode set successfully at %dx%d", closestMode.Width, closestMode.Height);
+#endif
+
+        // Return success
+        return true;
+    }
+    catch (const std::exception& e) {
+        // Log exception details for debugging purposes
+        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[RENDERER] Exception in SetFullExclusive: " +
+            std::wstring(e.what(), e.what() + strlen(e.what())));
+
+        // Clear all flags on exception to prevent deadlock
         threadManager.threadVars.bIsResizing.store(false);
+        bFullScreenTransition.store(false);
         threadManager.threadVars.bSettingFullScreen.store(false);
-        return false;
+
+        return false;   // Return failure
     }
-
-    // Recreate depth buffer
-    D3D11_TEXTURE2D_DESC depthDesc = {};
-    depthDesc.Width = fullscreenWidth;
-    depthDesc.Height = fullscreenHeight;
-    depthDesc.MipLevels = 1;
-    depthDesc.ArraySize = 1;
-    depthDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-    depthDesc.SampleDesc.Count = 1;
-    depthDesc.Usage = D3D11_USAGE_DEFAULT;
-    depthDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
-
-    hr = m_d3dDevice->CreateTexture2D(&depthDesc, nullptr, m_depthStencilBuffer.GetAddressOf());
-    if (FAILED(hr)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to create depth stencil buffer after resize");
-        threadManager.threadVars.bIsResizing.store(false);
-        threadManager.threadVars.bSettingFullScreen.store(false);
-        return false;
-    }
-
-    hr = m_d3dDevice->CreateDepthStencilView(m_depthStencilBuffer.Get(), nullptr, m_depthStencilView.GetAddressOf());
-    if (FAILED(hr)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to create depth stencil view after resize");
-        threadManager.threadVars.bIsResizing.store(false);
-        threadManager.threadVars.bSettingFullScreen.store(false);
-        return false;
-    }
-
-    // Set the viewport
-    D3D11_VIEWPORT vp = {};
-    vp.Width = static_cast<float>(fullscreenWidth);
-    vp.Height = static_cast<float>(fullscreenHeight);
-    vp.MinDepth = 0.0f;
-    vp.MaxDepth = 1.0f;
-    m_d3dContext->RSSetViewports(1, &vp);
-
-    // Bind the new render target and depth stencil
-    m_d3dContext->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
-
-    // Update rendering dimensions
-    iOrigWidth = fullscreenWidth;
-    iOrigHeight = fullscreenHeight;
-
-    // Recreate D2D resources
-    CreateDirect2DResources();
-
-    threadManager.threadVars.bSettingFullScreen.store(false);
-    threadManager.threadVars.bIsResizing.store(false);
-
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"Fullscreen mode set successfully");
-    return true;
 }
 
 bool DX11Renderer::SetWindowedScreen(void)
 {
-    std::lock_guard<std::mutex> lock(s_renderMutex); // Ensure thread safety
+#if defined(_DEBUG_RENDERER_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[RENDERER] SetWindowedScreen() called - beginning windowed transition");
+#endif
 
-    // Set to windowed mode first
-    HRESULT hr = m_swapChain->SetFullscreenState(FALSE, nullptr);
-    if (FAILED(hr)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to set windowed state");
+    // Check if already in fullscreen transition to prevent race conditions
+    if (bFullScreenTransition.load()) {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[RENDERER] Fullscreen transition already in progress");
         return false;
     }
 
-    // If we are shutting down, we do not need to worry about Resizing buffers.
-    if (threadManager.threadVars.bIsShuttingDown.load()) { return true; }
+    // Set fullscreen transition flag to block other operations
+    bFullScreenTransition.store(true);
+    threadManager.threadVars.bSettingFullScreen.store(true);
 
-    // Get appropriate window dimensions from stored values
-    UINT windowedWidth = prevWindowedWidth > 0 ? prevWindowedWidth : DEFAULT_WINDOW_WIDTH;
-    UINT windowedHeight = prevWindowedHeight > 0 ? prevWindowedHeight : DEFAULT_WINDOW_HEIGHT;
+    try {
+        std::lock_guard<std::mutex> lock(s_renderMutex);                        // Ensure thread safety during windowed transition
 
-    threadManager.threadVars.bIsResizing.store(true);
+        // Set to windowed mode first
+        HRESULT hr = m_swapChain->SetFullscreenState(FALSE, nullptr);
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to set windowed state");
+            bFullScreenTransition.store(false);
+            threadManager.threadVars.bSettingFullScreen.store(false);
+            return false;
+        }
 
-    // Clean up resources before resize
-    m_d2dContext->SetTarget(nullptr);
-    m_d2dContext->Flush();
-    D2DBusy.store(false);
+        // If we are shutting down, we do not need to worry about resizing buffers
+        if (threadManager.threadVars.bIsShuttingDown.load()) {
+            bFullScreenTransition.store(false);
+            threadManager.threadVars.bSettingFullScreen.store(false);
+            return true;
+        }
 
-    // Release render target views and other resources
-    m_d2dRenderTarget.Reset();
-    m_d2dContext.Reset();
-    dxgiSurface.Reset();
-    Clean2DTextures();
-    m_renderTargetView.Reset();
-    m_depthStencilView.Reset();
-    m_depthStencilBuffer.Reset();
+        // Get appropriate window dimensions from stored values
+        UINT windowedWidth = prevWindowedWidth > 0 ? prevWindowedWidth : DEFAULT_WINDOW_WIDTH;
+        UINT windowedHeight = prevWindowedHeight > 0 ? prevWindowedHeight : DEFAULT_WINDOW_HEIGHT;
 
-    // Resize the buffers
-    hr = m_swapChain->ResizeBuffers(
-        0,                          // Keep existing buffer count
-        windowedWidth,
-        windowedHeight,
-        DXGI_FORMAT_UNKNOWN,        // Keep existing format
-        0                           // Default flags
-    );
+#if defined(_DEBUG_RENDERER_)
+        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERER] Target windowed resolution: " +
+            std::to_wstring(windowedWidth) + L"x" + std::to_wstring(windowedHeight));
+#endif
 
-    if (FAILED(hr)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to resize buffers for windowed mode");
+        // Set resizing flag to prevent other operations during buffer resize
+        threadManager.threadVars.bIsResizing.store(true);
+
+        // Clean up resources before resize
+        if (m_d2dContext) {
+            m_d2dContext->SetTarget(nullptr);                                   // Clear D2D render target
+            m_d2dContext->Flush();                                              // Flush any pending D2D operations
+            D2DBusy.store(false);                                               // Mark D2D as not busy
+        }
+
+        // Release render target views and other resources
+        m_d2dRenderTarget.Reset();                                              // Release D2D render target
+        m_d2dContext.Reset();                                                   // Release D2D context
+        dxgiSurface.Reset();                                                    // Release DXGI surface
+        Clean2DTextures();                                                      // Clean up 2D textures
+        m_renderTargetView.Reset();                                             // Release 3D render target
+        m_depthStencilView.Reset();                                             // Release depth stencil view
+        m_depthStencilBuffer.Reset();                                           // Release depth stencil buffer
+
+        // Resize the buffers to windowed resolution
+        hr = m_swapChain->ResizeBuffers(
+            0,                                                                  // Keep existing buffer count
+            windowedWidth,                                                      // New width
+            windowedHeight,                                                     // New height
+            DXGI_FORMAT_UNKNOWN,                                                // Keep existing format
+            0                                                                   // Default flags
+        );
+
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to resize buffers for windowed mode");
+            threadManager.threadVars.bIsResizing.store(false);
+            bFullScreenTransition.store(false);
+            threadManager.threadVars.bSettingFullScreen.store(false);
+            return false;
+        }
+
+        // Recreate render target view
+        ComPtr<ID3D11Texture2D> backBuffer;
+        hr = m_swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to get back buffer after resize");
+            threadManager.threadVars.bIsResizing.store(false);
+            bFullScreenTransition.store(false);
+            threadManager.threadVars.bSettingFullScreen.store(false);
+            return false;
+        }
+
+        hr = m_d3dDevice->CreateRenderTargetView(backBuffer.Get(), nullptr, m_renderTargetView.GetAddressOf());
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to create render target view after resize");
+            threadManager.threadVars.bIsResizing.store(false);
+            bFullScreenTransition.store(false);
+            threadManager.threadVars.bSettingFullScreen.store(false);
+            return false;
+        }
+
+        // Recreate depth buffer
+        D3D11_TEXTURE2D_DESC depthDesc = {};
+        depthDesc.Width = windowedWidth;                                        // Set depth buffer width
+        depthDesc.Height = windowedHeight;                                      // Set depth buffer height
+        depthDesc.MipLevels = 1;                                                // Single mip level
+        depthDesc.ArraySize = 1;                                                // Single array element
+        depthDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;                      // 24-bit depth, 8-bit stencil
+        depthDesc.SampleDesc.Count = 1;                                         // No multisampling
+        depthDesc.Usage = D3D11_USAGE_DEFAULT;                                  // Default usage
+        depthDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;                         // Bind as depth-stencil
+
+        hr = m_d3dDevice->CreateTexture2D(&depthDesc, nullptr, m_depthStencilBuffer.GetAddressOf());
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to create depth stencil buffer after resize");
+            threadManager.threadVars.bIsResizing.store(false);
+            bFullScreenTransition.store(false);
+            threadManager.threadVars.bSettingFullScreen.store(false);
+            return false;
+        }
+
+        hr = m_d3dDevice->CreateDepthStencilView(m_depthStencilBuffer.Get(), nullptr, m_depthStencilView.GetAddressOf());
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to create depth stencil view after resize");
+            threadManager.threadVars.bIsResizing.store(false);
+            bFullScreenTransition.store(false);
+            threadManager.threadVars.bSettingFullScreen.store(false);
+            return false;
+        }
+
+        // Set the viewport for windowed mode
+        D3D11_VIEWPORT vp = {};
+        vp.Width = static_cast<float>(windowedWidth);                           // Viewport width
+        vp.Height = static_cast<float>(windowedHeight);                         // Viewport height
+        vp.MinDepth = 0.0f;                                                     // Minimum depth
+        vp.MaxDepth = 1.0f;                                                     // Maximum depth
+        m_d3dContext->RSSetViewports(1, &vp);                                   // Set the viewport
+
+        // Bind the new render target and depth stencil
+        m_d3dContext->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
+
+        // Update rendering dimensions
+        iOrigWidth = windowedWidth;                                             // Update width
+        iOrigHeight = windowedHeight;                                           // Update height
+
+        // Recreate D2D resources
+        CreateDirect2DResources();
+
+        // Clear all flags
         threadManager.threadVars.bIsResizing.store(false);
-        return false;
-    }
+        bFullScreenTransition.store(false);
+        threadManager.threadVars.bSettingFullScreen.store(false);
 
-    // Recreate render target view
-    ComPtr<ID3D11Texture2D> backBuffer;
-    hr = m_swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
-    if (FAILED(hr)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to get back buffer after resize");
+        // Reset window size and position to center it on screen
+        RECT workArea;
+        SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
+        int centerX = (workArea.right - workArea.left - windowedWidth) / 2;
+        int centerY = (workArea.bottom - workArea.top - windowedHeight) / 2;
+
+        SetWindowPos(hwnd, nullptr, centerX, centerY, windowedWidth, windowedHeight, SWP_NOZORDER);
+
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[RENDERER] Windowed mode set successfully");
+
+        return true;
+    }
+    catch (const std::exception& e) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Exception in SetWindowedScreen: " +
+            std::wstring(e.what(), e.what() + strlen(e.what())));
+
+        // Clear all flags on exception
         threadManager.threadVars.bIsResizing.store(false);
+        bFullScreenTransition.store(false);
+        threadManager.threadVars.bSettingFullScreen.store(false);
+
         return false;
     }
-
-    hr = m_d3dDevice->CreateRenderTargetView(backBuffer.Get(), nullptr, m_renderTargetView.GetAddressOf());
-    if (FAILED(hr)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to create render target view after resize");
-        threadManager.threadVars.bIsResizing.store(false);
-        return false;
-    }
-
-    // Recreate depth buffer
-    D3D11_TEXTURE2D_DESC depthDesc = {};
-    depthDesc.Width = windowedWidth;
-    depthDesc.Height = windowedHeight;
-    depthDesc.MipLevels = 1;
-    depthDesc.ArraySize = 1;
-    depthDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-    depthDesc.SampleDesc.Count = 1;
-    depthDesc.Usage = D3D11_USAGE_DEFAULT;
-    depthDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
-
-    hr = m_d3dDevice->CreateTexture2D(&depthDesc, nullptr, m_depthStencilBuffer.GetAddressOf());
-    if (FAILED(hr)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to create depth stencil buffer after resize");
-        threadManager.threadVars.bIsResizing.store(false);
-        return false;
-    }
-
-    hr = m_d3dDevice->CreateDepthStencilView(m_depthStencilBuffer.Get(), nullptr, m_depthStencilView.GetAddressOf());
-    if (FAILED(hr)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to create depth stencil view after resize");
-        threadManager.threadVars.bIsResizing.store(false);
-        return false;
-    }
-
-    // Set the viewport
-    D3D11_VIEWPORT vp = {};
-    vp.Width = static_cast<float>(windowedWidth);
-    vp.Height = static_cast<float>(windowedHeight);
-    vp.MinDepth = 0.0f;
-    vp.MaxDepth = 1.0f;
-    m_d3dContext->RSSetViewports(1, &vp);
-
-    // Bind the new render target and depth stencil
-    m_d3dContext->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
-
-    // Update rendering dimensions
-    iOrigWidth = windowedWidth;
-    iOrigHeight = windowedHeight;
-
-    // Recreate D2D resources
-    CreateDirect2DResources();
-
-    threadManager.threadVars.bIsResizing.store(false);
-
-    // Reset window size and position
-    RECT workArea;
-    SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
-    int centerX = (workArea.right - workArea.left - windowedWidth) / 2;
-    int centerY = (workArea.bottom - workArea.top - windowedHeight) / 2;
-
-    SetWindowPos(hwnd, nullptr, centerX, centerY, windowedWidth, windowedHeight, SWP_NOZORDER);
-
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"Windowed mode set successfully");
-    return true;
 }
 
 #if defined(_DEBUG_RENDERER_) && defined(_DEBUG) && defined(_DEBUG_PIXSHADER_)
@@ -2475,7 +2881,15 @@ void DX11Renderer::RenderFrame()
         D3D11_VIEWPORT viewport = {};
 		RECT rc;
 		POINT cursorPos;
-		GetClientRect(hWnd, &rc);
+        if (!winMetrics.isFullScreen)
+        {
+            GetClientRect(hWnd, &rc);
+        }
+        else
+        {
+            rc = winMetrics.monitorFullArea;
+        }
+
 		float width = float(rc.right - rc.left);
 		float height = float(rc.bottom - rc.top);
         viewport.Width = width;
@@ -2626,7 +3040,9 @@ void DX11Renderer::RenderFrame()
                             moviePlayer.UpdateFrame();
 
                             // Render the movie to fill the screen
-                            moviePlayer.Render(Vector2(0, 0), Vector2(static_cast<float>(winMetrics.clientWidth), static_cast<float>(winMetrics.clientHeight)));
+                            moviePlayer.Render(Vector2(0, 0), Vector2(width, height));
+
+                            // Check to see if the user has pressed the space bar
                             if (GetAsyncKeyState(' ') & 0x8000)
                             {
                                 // Stop Playback as this will switch the scene!
@@ -2793,7 +3209,7 @@ void DX11Renderer::RenderFrame()
                                 // Draw background image first.
                                 Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
                                 // Draw Logo image.
-                                Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, winMetrics.clientHeight - 47);
+                                Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - 47);
                                 // Render our 3D starfield.
                                 fxManager.RenderFX(fxManager.starfieldID, m_d3dContext.Get(), myCamera.GetViewMatrix());
                                 break;

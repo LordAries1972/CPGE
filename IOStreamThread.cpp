@@ -122,9 +122,6 @@ void DX11Renderer::LoaderTaskThread()
 						}
 					#endif
 
-					threadManager.PauseThread(THREAD_LOADER);
-					threadManager.threadVars.bLoaderTaskFinished.store(true);
-
 					// Create Game Menu
 					myCamera.SetupDefaultCamera(static_cast<float>(iOrigWidth), static_cast<float>(iOrigHeight));
 					guiManager.CreateGameMenuWindow(L"");
@@ -133,14 +130,14 @@ void DX11Renderer::LoaderTaskThread()
 					fxManager.CreateStarfield(100, 1000.0f, 1000.0f);
 					fxManager.FadeToImage(1.0f, 0.08f);
 
-					std::wstring newsText = L"Breaking News: This is a demonstration of the CPGE 2D Consistent Horizontal Text Scroller that scrolls from the Right to Left side of a given rectangular region.";
+					std::wstring newsText = L"BREAKING NEWS: [23/05/2025] => This is a demonstration of the CPGE 2D Consistent Horizontal Text Scroller that scrolls from the Right to Left side of a given rectangular region.";
 					XMFLOAT4 textColor(0.0f, 1.0f, 0.0f, 1.0f);                     // Green text color
 				
 					float fontSize = 16.0f;                                         // Font size for text
 					float regionX = -5.0f;                                          // X position of scroll region
-					float regionY = float(winMetrics.clientHeight) - 100.0f;        // Y position of scroll region (top of screen)
-					float regionWidth = float(winMetrics.clientWidth) + 10.0f;      // Width of scroll region (full screen width)
-					float regionHeight = 30.0f;                                     // Height of scroll region
+					float regionY = float(iOrigHeight) - 100.0f;                    // Y position of scroll region (top of screen)
+					float regionWidth = float(iOrigWidth) + 10.0f;                  // Width of scroll region (full screen width)
+					float regionHeight = 25.0f;                                     // Height of scroll region
 					float scrollSpeed = 70.0f;                                      // Pixels per second scroll speed
 					float duration = FLT_MAX;                                       // Infinite duration (continuous)
 
@@ -148,6 +145,10 @@ void DX11Renderer::LoaderTaskThread()
 						regionX, regionY, regionWidth, regionHeight,
 						scrollSpeed, duration);
 				}
+
+				// This must go at the end, so critical rendering can start
+				threadManager.PauseThread(THREAD_LOADER);
+				threadManager.threadVars.bLoaderTaskFinished.store(true);
 				break;
 			}
 
