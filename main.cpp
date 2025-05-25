@@ -326,14 +326,17 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                         {
                             scene.bSceneSwitching = true;
                             fxManager.FadeToBlack(1.0f, 0.06f);
-                            WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
-                            {
-                                while (fxManager.IsFadeActive())
+
+                            #if !defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)
+                                WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
                                 {
-                                    dx11->RenderFrame();
-                                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-                                }
-                            });
+                                    while (fxManager.IsFadeActive())
+                                    {
+                                        dx11->RenderFrame();
+                                        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                                    }
+                                });
+                            #endif
                         }
 
                         if ((fxManager.IsFadeActive()) && (scene.bSceneSwitching))
@@ -345,14 +348,16 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                             if (scene.bSceneSwitching)
                             {
                                 SwitchToMovieIntro();
-                                WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
-                                {
-                                    while (fxManager.IsFadeActive())
+                                #if !defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)
+                                    WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
                                     {
-                                        dx11->RenderFrame();
-                                        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-                                    }
-                                });
+                                        while (fxManager.IsFadeActive())
+                                        {
+                                            dx11->RenderFrame();
+                                            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                                        }
+                                    });
+                                #endif
 
                                 break;
                             }
@@ -368,14 +373,16 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                         {
                             scene.bSceneSwitching = true;
                             fxManager.FadeToBlack(1.0f, 0.06f);
-                            WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
-                            {
-                                while (fxManager.IsFadeActive())
+                            #if !defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)
+                                WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
                                 {
-                                    dx11->RenderFrame();
-                                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-                                }
-                            });
+                                    while (fxManager.IsFadeActive())
+                                    {
+                                        dx11->RenderFrame();
+                                        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                                    }
+                                });
+                            #endif      
                         }
 
                         if ((fxManager.IsFadeActive()) && (scene.bSceneSwitching))
@@ -387,14 +394,16 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                             if (scene.bSceneSwitching)
                             {
                                 SwitchToGameIntro();
-                                WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
-                                {
-                                    while (fxManager.IsFadeActive())
+                                #if !defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)
+                                    WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
                                     {
-                                        dx11->RenderFrame();
-                                        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-                                    }
-                                });
+                                        while (fxManager.IsFadeActive())
+                                        {
+                                            dx11->RenderFrame();
+                                            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                                        }
+                                    });
+                                #endif
 
                                 break;
                             }

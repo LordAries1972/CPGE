@@ -2921,7 +2921,7 @@ void DX11Renderer::RenderFrame()
         // Check the status of the rendering thread
 #ifdef RENDERER_IS_THREAD
         ThreadStatus status = threadManager.GetThreadStatus(THREAD_RENDERER);
-		while (((status == ThreadStatus::Running) || (status == ThreadStatus::Paused)) && (!threadVars.bIsShuttingDown.load()))
+		while (((status == ThreadStatus::Running) || (status == ThreadStatus::Paused)) && (!threadManager.threadVars.bIsShuttingDown.load()))
 		{
 			status = threadManager.GetThreadStatus(THREAD_RENDERER);
 			if (status == ThreadStatus::Paused)
@@ -3040,7 +3040,7 @@ void DX11Renderer::RenderFrame()
                             moviePlayer.UpdateFrame();
 
                             // Render the movie to fill the screen
-                            moviePlayer.Render(Vector2(0, 0), Vector2(width, height));
+                            moviePlayer.Render(Vector2(0, 0), Vector2(iOrigWidth, iOrigHeight));
 
                             // Check to see if the user has pressed the space bar
                             if (GetAsyncKeyState(' ') & 0x8000)

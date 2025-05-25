@@ -120,8 +120,8 @@ DEVELOPMENT HISTORY: -
              stamping as well.  See Debug.h/cpp for more info.
 
 18/04/2025 - DXCamera.h/.cpp has had a major re-work and is now functioning correctly.
-           - You can now move through your scene using the Cursor Keys to navigate; use Mouse with right button down for changing your yaw/pitch movements
-             and your Mouse Wheel to Zoom in/out.
+           - You can now move through your scene using the Cursor Keys to navigate; use Mouse with right button down for changing 
+             your yaw/pitch movements and your Mouse Wheel to Zoom in/out.
 
 19/04/2025 - Teaching AI Policy / Rules Enforcement!!!  See policies Docs/POLICIES.txt for more information!  This is something I, only me, 
              will generate and update over time - Keep Sharp! if your are new and/or considered as a VIBE AI Programmer and wanting
@@ -168,16 +168,17 @@ DEVELOPMENT HISTORY: -
 
 25/05/2025 - Exclusive Full Screen mode via given screen mode (width, height) and transistioning is now working.  This mode 
              is launched by default on RELEASE compiles.
+           - Renderer engine now working correctly as a thread - New Lock Mechanism done earlier in ThreadManager.h/.cpp has corrected
+             this issue (Sweet!)
 
-
-[ FUTURE ]   OK EVERYONE, PEOPLE NEED TO RELISE HERE THAT THIS IS VERY CLOSE TO GAMING PRODUCTION FOR DIRECTX 11 SYSTEMS! (WINDOWS 10 64BIT)
+[ FUTURE ]   OK EVERYONE, PEOPLE NEED TO RELISE HERE THAT THIS IS VERY CLOSE TO GAMING PRODUCTION FOR DIRECTX 11 SYSTEMS! (WINDOWS 10 SP1 & above 64BIT)
              Alot of this work, MY TIME and for free, it's what you get paid for right? Your story, your graphics and your 
              enginuity based on this platform!  Please DO NOT START A GAME until your comfortable with a release of our marked as [STABLE]
              release! Which means, there should be no crashes nor any cleanup faults including memory leaks!
 
              Always fully test the GITHUB (Base) code, before starting your project!
 
-             I will always be updating the CPGE Engine until I die and your code base here is always free!
+             I will always be updating the CPGE Engine until I die and your code base here is always free under the MIT License!
 
              I will announce an official stable release on GitHub AND then make public so it is ready for gaming production 
              for those who are eager to try this out and right now, or DirectX 11 Gaming Platforms on Windows 10/11 
@@ -194,12 +195,12 @@ NEED TO DO:-
 ============
 15/03/2025 - Create and Implement the OpenGL3 Renderer for Windows / Linux / MacOS & Android
              Create and Implement the Vulkan Renderer for Windows / Linux & Android.
-16/03/2025 - Investigate more into the Renderer as been a thread (Conflicting Issues are present when enabled!)
-           - Get the Steam Class working and implement
+16/03/2025 - Get the Steam Class working and implement
 27/03/2025 - Our system will need to support GooglePlay interfacing as well especially for the Android Platform.
            - Our system will need to support AppStore interfacing as well especially for the iOS Platform.
 
 26/04/2025 - Expand the GLTF Parser so it also parses a GLB 2.0 (GLTF, but binary format instead).
+25/05/2025 - Code Optimizations and Refactoring.
 ------------------------------------------------------------------------------------------------------------------------------------- 
 */
 EOF

@@ -63,34 +63,83 @@ void GUIManager::CreateMyWindow(const std::string& name, GUIWindowType type, con
 }
 
 void GUIManager::RemoveWindow(const std::string& name) {
-    // Attempt to lock the mutex without blocking
-    if (!mutex.try_lock()) {
-    }
-    else
-    {
-        // We got the lock - proceed
-        std::lock_guard<std::mutex> lock(mutex, std::adopt_lock); // Adopt the existing lock
+    // Make a local copy of the name to prevent iterator invalidation
+    std::string localWindowName = name;
+
+    // Use debug output with proper string handling to prevent iterator issues
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"GUIManager::RemoveWindow - Attempting to remove window: %s",
+        std::wstring(localWindowName.begin(), localWindowName.end()).c_str());
+
+    // Enforce thread safety with proper timeout handling
+    std::unique_lock<std::mutex> lock(mutex, std::try_to_lock);
+    if (!lock.owns_lock()) {
+        // Use debug output for mutex acquisition failure with safe string handling
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"GUIManager::RemoveWindow - Could not acquire mutex for window removal: %s",
+            std::wstring(localWindowName.begin(), localWindowName.end()).c_str());
+        return; // Exit early if we cannot acquire the lock
     }
 
-    auto it = windows.find(name);
-    if (it != windows.end()) {
-        // Clear all controls in the window
-        if (it->second->bWindowDestroy)
-            return;
-
-        it->second->bWindowDestroy = true;
-        it->second->controls.clear();
-
-        // Remove the window from the map
-        windows.erase(it);
-
-        // Log the removal
-        debug.Log("Window '" + name + "' removed.\n");
+    // Find the window with proper bounds checking using local copy
+    auto it = windows.find(localWindowName);
+    if (it == windows.end()) {
+        // Log error for non-existent window with safe string handling
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"GUIManager::RemoveWindow - Window '%s' does not exist",
+            std::wstring(localWindowName.begin(), localWindowName.end()).c_str());
+        return;
     }
-    else {
-        // Log an error if the window doesn't exist
-        debug.LogError("Failed to remove window '" + name + "'. It does not exist.\n");
+
+    // Verify window pointer is valid before accessing properties
+    if (!it->second) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"GUIManager::RemoveWindow - Window '%s' has null pointer",
+            std::wstring(localWindowName.begin(), localWindowName.end()).c_str());
+        windows.erase(it); // Remove the invalid entry
+        return;
     }
+
+    // Check if window is already marked for destruction to prevent double-destruction
+    if (it->second->bWindowDestroy) {
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"GUIManager::RemoveWindow - Window '%s' already marked for destruction",
+            std::wstring(localWindowName.begin(), localWindowName.end()).c_str());
+        return;
+    }
+
+    // Mark window for destruction first to prevent race conditions
+    it->second->bWindowDestroy = true;
+
+    // Store window reference to prevent premature destruction
+    std::shared_ptr<GUIWindow> windowToDestroy = it->second;
+
+    // Clear all controls safely by creating a copy first to avoid iterator invalidation
+    std::vector<GUIControl> controlsCopy = windowToDestroy->controls;
+
+    // Clear all lambda function pointers to break circular references
+    for (auto& control : controlsCopy) {
+        // Safely clear all function pointers to prevent dangling references
+        control.onMouseBtnDown = nullptr;
+        control.onMouseBtnUp = nullptr;
+        control.onMouseOver = nullptr;
+        control.onMouseMove = nullptr;
+        control.onScroll = nullptr;
+    }
+
+    // Clear the original controls vector completely
+    windowToDestroy->controls.clear();
+
+    // Remove the renderer reference to prevent dangling pointer
+    windowToDestroy->myRenderer = nullptr;
+
+    // Clear the content text to free memory
+    windowToDestroy->contentText.clear();
+
+    // Finally remove the window from the map using the iterator
+    windows.erase(it);
+
+    // Log successful removal with safe string handling
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"GUIManager::RemoveWindow - Window '%s' successfully removed",
+        std::wstring(localWindowName.begin(), localWindowName.end()).c_str());
+
+    // Explicitly reset the shared_ptr to ensure immediate cleanup
+    windowToDestroy.reset();
 }
 
 void GUIManager::Render() {
@@ -104,21 +153,60 @@ void GUIManager::Render() {
 }
 
 void GUIManager::HandleAllInput(const Vector2& mousePosition, bool& isLeftClick) {
-    std::lock_guard<std::mutex> lock(mutex);  // Ensure thread safety
+    // Use timeout-based lock acquisition to prevent hanging
+    std::unique_lock<std::mutex> lock(mutex, std::try_to_lock);
+    if (!lock.owns_lock()) {
+        // Use debug output for mutex acquisition failure
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"GUIManager::HandleAllInput - Could not acquire mutex, skipping input handling");
+        return; // Skip input handling if we cannot acquire the lock immediately
+    }
 
-    // Create a local copy of windows to avoid issues if windows are removed during iteration
-    auto windowsCopy = windows;
+    // Create a snapshot of valid windows to avoid iterator invalidation
+    std::vector<std::pair<std::string, std::shared_ptr<GUIWindow>>> validWindows;
+    validWindows.reserve(windows.size()); // Pre-allocate for performance
 
-    for (const auto& windowPair : windowsCopy) {
-        if (!windowPair.second) continue;  // Skip if window is null
+    for (const auto& windowPair : windows) {
+        // Perform null pointer check before accessing window properties
+        if (!windowPair.second) {
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"GUIManager::HandleAllInput - Null window pointer found for: %s",
+                std::wstring(windowPair.first.begin(), windowPair.first.end()).c_str());
+            continue;
+        }
 
-        // Check window state before processing
-        if (windowPair.second->bWindowDestroy) continue;
-        if (!windowPair.second->isVisible) continue;
+        // Skip windows marked for destruction
+        if (windowPair.second->bWindowDestroy) {
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"GUIManager::HandleAllInput - Skipping destroyed window: %s",
+                std::wstring(windowPair.first.begin(), windowPair.first.end()).c_str());
+            continue;
+        }
 
-        // Process input
-        windowPair.second->HandleMouseClick(mousePosition, isLeftClick);
-        windowPair.second->HandleMouseMove(mousePosition, windows);
+        // Skip invisible windows
+        if (!windowPair.second->isVisible) {
+            continue;
+        }
+
+        // Add to valid windows for processing
+        validWindows.emplace_back(windowPair.first, windowPair.second);
+    }
+
+    // Release the main mutex early to prevent holding it during event processing
+    lock.unlock();
+
+    // Process input for valid windows without holding the main mutex
+    for (const auto& windowPair : validWindows) {
+        try {
+            // Verify window is still valid before processing
+            if (windowPair.second && !windowPair.second->bWindowDestroy) {
+                windowPair.second->HandleMouseClick(mousePosition, isLeftClick);
+                windowPair.second->HandleMouseMove(mousePosition, windows);
+            }
+        }
+        catch (const std::exception& e) {
+            // Log any exceptions during input handling to prevent crashes
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"GUIManager::HandleAllInput - Exception processing window '%s': %s",
+                std::wstring(windowPair.first.begin(), windowPair.first.end()).c_str(),
+                std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
+        }
     }
 }
 

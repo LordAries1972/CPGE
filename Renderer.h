@@ -98,7 +98,7 @@
 
 // Uncomment this line if Renderer is to be a 
 // separate tasking thread
-//#define RENDERER_IS_THREAD
+#define RENDERER_IS_THREAD
 
 const int MAX_SCREEN_MONITORS = 4;
 const bool USE_FPS_DISPLAY = true;
@@ -111,7 +111,6 @@ const int MAX_RENDER_OPERATIONS = 4096;
 //------------------------------------------------
 // File Tables for Assets (AssetsDir is prepended)
 //------------------------------------------------
-
 const std::filesystem::path AssetsDir = L"./Assets/";
 const std::filesystem::path WinAssetsDir = L".\\Assets\\";
 
