@@ -5,7 +5,7 @@
 
 **Title**: Systems Analyst · Engine Architect · Software Developer.
 
-**Experience**: 35+ Years in Systems Engineering and Software/Systems Architecture.
+**Experience**: 35+ Years in Systems Engineering and Software/Systems Designs & Development.
 
 **Project**: Original Founder and Current Maintainer of the Cross Platform Gaming Engine (CPGE) Project. 
 
@@ -13,7 +13,7 @@
 
 ---
 
-Daniel J. Hobson of Australia is a veteran Systems Analyst and Architect with over 35+ years of professional experience designing for past and present 
+Daniel J. Hobson of Australia is a veteran Systems Analyst and Architect Designer with over 35+ years of professional experience designing for past and present 
 systems, analyzing, and building real-time, embedded, both gaming & business systems. He is the founder and lead developer of the 
 **CPGE – Cross Platform Gaming Engine**, a modular, high-performance engine written entirely in C++ 17 standards and strategies.
 
@@ -88,18 +88,19 @@ These four Render Engines above, will cover all OS (Operating System) platforms.
 Daniel's philosophy is built on precision and stability:
 - **Strict AI Compliance Mode** ensures code correctness, traceability, and standards adherence.
 
-- **No third-party wrappers** — all functionality (Besides only Steam, GooglePlay, iOS AppStore and is only for the
+- **No third-party wrappers** — all functionality (Besides only Steam, GooglePlay, iOS AppStore is only for the
   Commercial User! (Have NO Choice on this!)) is handcrafted, including model parsers, XM playback, MP3 streaming,
   and all the rest of it!!!
+
+- JSON Parser is by Niels Lohmann and his work also too falls under the MIT License.  See below for his GitHUB link.
 
 - **Debug-centric design** — with deep diagnostics, color-coded shader fallbacks, and verbose logging for every subsystem; do not worry, you mess up, I got ya back!
 - **Platform-first design** — ensuring compatibility across multiple operating systems and graphics backends.
 
 ## Licensing
 
-This kind of system has never been designed by no one, because they all want to make that super $$$ for their games!  
-
-Well guess what!! it is now our turn now!  
+This kind of system level of frame-work programming has never been released by no one, 
+because they all want to make their super $$$ for their games; which of course, is fair enough I suppose!
 
 This System comes Free-To-Use for study/personal or Commercial purposes for free.  
 
@@ -107,13 +108,13 @@ All that you are required to do, is simply state in your game or application, th
 "CPGE (Cross Platform Gaming Engine)" and that is it folks and that is the only mandatory thing I ask for using this engine.
 (Please always give recognition to those who ever helped you!!!).
 
-This Engine is a public goto system for Game Development and is strictly free to use, based on given recognition, including 
-alterations on your behalf and to ensure that the basis of your work is from CPGE.
+This Engine is a public go-to system for Game Development and is strictly free to use, based on given recognition, 
+including alterations on your behalf and to ensure that the basis of your work is from CPGE and is mentioned within.
 
 WHAT A GREAT DEAL IS WHAT I SAY and is the time to stop the RORTING ON gaming as well!!! 
 (ie. Mobile Gotcha games, absolutely wrong and criminal imho).  Keep ya prices low, everyone 
 then, has to follow if that is the said, marketing price.  With your help, we can make that happen and 
-more importantly, demonstrates the very power of the people!
+more importantly, demonstrates the very power of the people and FOSS (Free Open-Source Software)!
 
 ---
 ## Philosophy
@@ -123,7 +124,8 @@ more importantly, demonstrates the very power of the people!
 > * "Persistence is the key, without the key, you go no where!"
 > * "Never Hang Back or get stuck in the mudd, Forwards is the only way to get through it all!"
 > * "Old School programming is slowly been forgotten, it is vital for the newer generation of people to learn and keep it going!"
-> — Daniel J. Hobson of Australia
+> * Doing my Part for the Open Source Software Community.
+> — Daniel J. Hobson of Australia 2025
 ---
 
 ## Contact & Contributions
@@ -131,6 +133,7 @@ more importantly, demonstrates the very power of the people!
 For inquiries, collaboration, or contributions to CPGE:
 
 📂 GitHub Repository: [https://github.com/LordAries1972/CPGE](https://github.com/LordAries1972/CPGE)  
+📂 JSON Parser by Niels Lohmann GitHub Repository: [https://github.com/nlohmann/json](https://github.com/nlohmann/json)  
 💬 Open issues or discussions directly on the repo  
 📧 Contact via GitHub (or define a dedicated project email if desired)
 
