@@ -698,14 +698,16 @@ bool MoviePlayer::CreateVideoTexture(UINT width, UINT height, bool isHevcContent
 // ----------------------------------------------------------------------------------------------
 bool MoviePlayer::UpdateVideoTexture()
 {
+    // Check if we have a current sample to process
     if (!m_pCurrentSample)
     {
 #if defined(_DEBUG_MOVIEPLAYER_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"UpdateVideoTexture: No current sample");
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"UpdateVideoTexture: No current sample");
 #endif
         return false;
     }
 
+    // Check if we have valid video textures to update
     if (!m_videoTexture && !m_videoRenderTexture)
     {
 #if defined(_DEBUG_MOVIEPLAYER_)
@@ -714,6 +716,7 @@ bool MoviePlayer::UpdateVideoTexture()
         return false;
     }
 
+    // Cast the renderer to DX11Renderer for DirectX 11 specific operations
     auto dx11Renderer = std::dynamic_pointer_cast<DX11Renderer>(m_renderer);
     if (!dx11Renderer)
     {
@@ -727,6 +730,7 @@ bool MoviePlayer::UpdateVideoTexture()
     // at the same time as the renderer thread
     std::lock_guard<std::mutex> renderLock(DX11Renderer::GetRenderMutex());
 
+    // Get the DirectX 11 device context for texture operations
     ComPtr<ID3D11DeviceContext> context = dx11Renderer->GetImmediateContext();
     if (!context)
     {
@@ -736,7 +740,7 @@ bool MoviePlayer::UpdateVideoTexture()
         return false;
     }
 
-    // Get the buffer from the sample
+    // Get the media buffer from the sample
     ComPtr<IMFMediaBuffer> buffer;
     HRESULT hr = m_pCurrentSample->GetBufferByIndex(0, &buffer);
     if (FAILED(hr))
@@ -745,30 +749,33 @@ bool MoviePlayer::UpdateVideoTexture()
         return false;
     }
 
-    // Check for HEVC format
+    // Check if this is HEVC format for special handling
     bool isHevcFormat = (memcmp(&m_videoSubtype, "\x48\x45\x56\x43", 4) == 0);
 
-    // Get current media type to determine format
+    // Get current media type to determine the video format
     ComPtr<IMFMediaType> currentType;
     GUID videoFormat = GUID_NULL;
 
+    // Retrieve the current media type from the source reader
     hr = m_pSourceReader->GetCurrentMediaType(
         MF_SOURCE_READER_FIRST_VIDEO_STREAM,
         &currentType
     );
 
+    // Extract the video format GUID if successful
     if (SUCCEEDED(hr) && currentType)
     {
         currentType->GetGUID(MF_MT_SUBTYPE, &videoFormat);
 
 #if defined(_DEBUG_MOVIEPLAYER_)
+        // Convert GUID to string for debugging purposes
         WCHAR guidString[128];
         StringFromGUID2(videoFormat, guidString, 128);
         debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Current video format: " + std::wstring(guidString));
 #endif
     }
 
-    // Try to get buffer data
+    // Lock the media buffer to access the raw video data
     BYTE* pSrcData = nullptr;
     DWORD maxLength = 0;
     DWORD currentLength = 0;
@@ -781,6 +788,7 @@ bool MoviePlayer::UpdateVideoTexture()
     }
 
 #if defined(_DEBUG_MOVIEPLAYER_)
+    // Log buffer information for debugging
     debug.logLevelMessage(LogLevel::LOG_DEBUG,
         L"Buffer info - Length: " + std::to_wstring(currentLength) +
         L", Width: " + std::to_wstring(m_videoWidth) +
@@ -790,7 +798,7 @@ bool MoviePlayer::UpdateVideoTexture()
     // Determine which texture to use (normal or dual-texture system for HEVC)
     ID3D11Texture2D* destTexture = m_videoTexture.Get();
 
-    // Map the texture for writing
+    // Map the texture for writing video data
     D3D11_MAPPED_SUBRESOURCE mappedResource = {};
     hr = context->Map(destTexture, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
     if (FAILED(hr) || !mappedResource.pData)
@@ -800,18 +808,19 @@ bool MoviePlayer::UpdateVideoTexture()
         return false;
     }
 
+    // Get pointer to the destination texture data
     BYTE* pDstData = static_cast<BYTE*>(mappedResource.pData);
 
-    // Process based on format
+    // Process video data based on detected format
     if (isHevcFormat)
     {
-        // For HEVC format, we need special handling
-        // Check if we have a valid buffer size
+        // For HEVC format, we need special handling due to codec complexity
+        // Check if we have a valid buffer size for video processing
         bool validBufferSize = (currentLength >= (m_videoWidth * m_videoHeight));
 
         if (!validBufferSize)
         {
-            // Too small for even a grayscale frame - use placeholder
+            // Buffer too small for even a grayscale frame - use placeholder pattern
             debug.logLevelMessage(LogLevel::LOG_WARNING,
                 L"HEVC buffer too small: " + std::to_wstring(currentLength) + L" bytes");
 
@@ -819,76 +828,90 @@ bool MoviePlayer::UpdateVideoTexture()
             static UINT frameCounter = 0;
             frameCounter++;
 
+            // Create a dynamic pattern for each row of pixels
             for (UINT y = 0; y < m_videoHeight; y++)
             {
+                // Calculate pointer to the current row in destination texture
                 BYTE* pDstRow = pDstData + y * mappedResource.RowPitch;
 
+                // Process each pixel in the current row
                 for (UINT x = 0; x < m_videoWidth; x++)
                 {
                     // Create a pattern that changes with time
-                    BYTE shade = ((x / 32 + y / 32 + frameCounter) % 4) * 64;
-                    BYTE r = 64 + ((x * 190) / m_videoWidth);
-                    BYTE g = 64 + ((y * 190) / m_videoHeight);
-                    BYTE b = 64 + shade;
+                    BYTE shade = static_cast<BYTE>(((x / 32 + y / 32 + frameCounter) % 4) * 64);
+                    BYTE r = static_cast<BYTE>(64 + ((x * 190) / m_videoWidth));
+                    BYTE g = static_cast<BYTE>(64 + ((y * 190) / m_videoHeight));
+                    BYTE b = static_cast<BYTE>(64 + shade);
 
-                    // Write to destination in BGRA format
-                    pDstRow[x * 4 + 0] = b;
-                    pDstRow[x * 4 + 1] = g;
-                    pDstRow[x * 4 + 2] = r;
-                    pDstRow[x * 4 + 3] = 255; // Alpha
+                    // Write pixel data to destination in BGRA format
+                    pDstRow[x * 4 + 0] = b;      // Blue component
+                    pDstRow[x * 4 + 1] = g;      // Green component
+                    pDstRow[x * 4 + 2] = r;      // Red component
+                    pDstRow[x * 4 + 3] = 255;    // Alpha component (fully opaque)
                 }
             }
 
-            // Draw an informative message
+            // Draw an informative message box area
             const int textHeight = 40;
-            const int startY = m_videoHeight / 2 - textHeight;
+            const int startY = static_cast<int>(m_videoHeight) / 2 - textHeight;
             const int endY = startY + textHeight * 2;
 
             // Draw a background box for the message
-            for (UINT y = startY; y < endY && y < m_videoHeight; y++)
+            for (UINT y = static_cast<UINT>(std::max(0, startY)); y < static_cast<UINT>(std::min(endY, static_cast<int>(m_videoHeight))); y++)
             {
+                // Calculate pointer to the current row
                 BYTE* pDstRow = pDstData + y * mappedResource.RowPitch;
 
+                // Draw background for message area
                 for (UINT x = m_videoWidth / 4; x < 3 * m_videoWidth / 4; x++)
                 {
-                    // Semi-transparent black box
-                    pDstRow[x * 4 + 0] = 40;
-                    pDstRow[x * 4 + 1] = 40;
-                    pDstRow[x * 4 + 2] = 40;
-                    pDstRow[x * 4 + 3] = 255;
+                    // Semi-transparent black background for text readability
+                    pDstRow[x * 4 + 0] = 40;     // Blue
+                    pDstRow[x * 4 + 1] = 40;     // Green
+                    pDstRow[x * 4 + 2] = 40;     // Red
+                    pDstRow[x * 4 + 3] = 255;    // Alpha
                 }
             }
 
             // Draw simple text pattern (not actual text rendering)
-            for (UINT y = startY + 10; y < startY + 30 && y < m_videoHeight; y++)
+            for (UINT y = static_cast<UINT>(std::max(0, startY + 10)); y < static_cast<UINT>(std::min(startY + 30, static_cast<int>(m_videoHeight))); y++)
             {
+                // Calculate pointer to the current row
                 BYTE* pDstRow = pDstData + y * mappedResource.RowPitch;
 
+                // Draw white dots pattern to simulate text
                 for (UINT x = m_videoWidth / 3; x < 2 * m_videoWidth / 3; x += 8)
                 {
+                    // Draw a small group of white pixels to simulate characters
                     for (int i = 0; i < 6; i++) {
-                        if (x + i < m_videoWidth) {
-                            pDstRow[(x + i) * 4 + 0] = 255;
-                            pDstRow[(x + i) * 4 + 1] = 255;
-                            pDstRow[(x + i) * 4 + 2] = 255;
-                            pDstRow[(x + i) * 4 + 3] = 255;
+                        if (x + static_cast<UINT>(i) < m_videoWidth) {
+                            UINT pixelIndex = x + static_cast<UINT>(i);
+                            pDstRow[pixelIndex * 4 + 0] = 255;   // Blue
+                            pDstRow[pixelIndex * 4 + 1] = 255;   // Green
+                            pDstRow[pixelIndex * 4 + 2] = 255;   // Red
+                            pDstRow[pixelIndex * 4 + 3] = 255;   // Alpha
                         }
                     }
                 }
             }
 
-            for (UINT y = startY + 35; y < startY + 55 && y < m_videoHeight; y++)
+            // Draw second line of simulated text
+            for (UINT y = static_cast<UINT>(std::max(0, startY + 35)); y < static_cast<UINT>(std::min(startY + 55, static_cast<int>(m_videoHeight))); y++)
             {
+                // Calculate pointer to the current row
                 BYTE* pDstRow = pDstData + y * mappedResource.RowPitch;
 
+                // Draw white dots pattern to simulate second line of text
                 for (UINT x = m_videoWidth / 3 + 15; x < 2 * m_videoWidth / 3 - 15; x += 6)
                 {
+                    // Draw a small group of white pixels
                     for (int i = 0; i < 4; i++) {
-                        if (x + i < m_videoWidth) {
-                            pDstRow[(x + i) * 4 + 0] = 255;
-                            pDstRow[(x + i) * 4 + 1] = 255;
-                            pDstRow[(x + i) * 4 + 2] = 255;
-                            pDstRow[(x + i) * 4 + 3] = 255;
+                        if (x + static_cast<UINT>(i) < m_videoWidth) {
+                            UINT pixelIndex = x + static_cast<UINT>(i);
+                            pDstRow[pixelIndex * 4 + 0] = 255;   // Blue
+                            pDstRow[pixelIndex * 4 + 1] = 255;   // Green
+                            pDstRow[pixelIndex * 4 + 2] = 255;   // Red
+                            pDstRow[pixelIndex * 4 + 3] = 255;   // Alpha
                         }
                     }
                 }
@@ -897,8 +920,8 @@ bool MoviePlayer::UpdateVideoTexture()
         else
         {
             // We have enough data to try an NV12 or similar YUV format conversion
-            // Check buffer size to determine likely format
-            float bytesPerPixel = (float)currentLength / (m_videoWidth * m_videoHeight);
+            // Check buffer size to determine likely format based on bytes per pixel
+            float bytesPerPixel = static_cast<float>(currentLength) / static_cast<float>(m_videoWidth * m_videoHeight);
 
             if (bytesPerPixel >= 1.4f && bytesPerPixel <= 1.6f)
             {
@@ -906,50 +929,53 @@ bool MoviePlayer::UpdateVideoTexture()
                 debug.logLevelMessage(LogLevel::LOG_INFO, L"Processing HEVC as NV12 format");
 
                 // NV12 is a planar format with a Y plane followed by interleaved U and V planes
-                int yPitch = m_videoWidth; // Y plane pitch is typically the width
-                int uvPitch = m_videoWidth; // UV plane pitch is also typically the width
-                int ySize = yPitch * m_videoHeight; // Y plane size
+                UINT yPitch = m_videoWidth;                          // Y plane pitch is typically the width
+                UINT uvPitch = m_videoWidth;                         // UV plane pitch is also typically the width
+                UINT ySize = yPitch * m_videoHeight;                 // Y plane size in bytes
 
                 // Y plane followed by interleaved UV plane
                 BYTE* yPlane = pSrcData;
                 BYTE* uvPlane = pSrcData + ySize;
 
-                // Convert NV12 to BGRA
+                // Convert NV12 to BGRA format
                 for (UINT y = 0; y < m_videoHeight; y++)
                 {
+                    // Calculate pointer to the current row in destination texture
                     BYTE* pDstRow = pDstData + y * mappedResource.RowPitch;
 
+                    // Process each pixel in the current row
                     for (UINT x = 0; x < m_videoWidth; x++)
                     {
                         // Get Y value for this pixel
-                        int yIndex = y * yPitch + x;
+                        UINT yIndex = y * yPitch + x;
                         int yValue = yPlane[yIndex];
 
                         // Get U and V values (subsampled by 2 in both dimensions)
-                        int uvIndex = (y / 2) * uvPitch + (x / 2) * 2;
-                        int uValue = 128; // Default if out of bounds
-                        int vValue = 128; // Default if out of bounds
+                        UINT uvIndex = (y / 2) * uvPitch + (x / 2) * 2;
+                        int uValue = 128;                            // Default if out of bounds
+                        int vValue = 128;                            // Default if out of bounds
 
+                        // Check bounds before accessing UV plane data
                         if (uvIndex + 1 < (currentLength - ySize))
                         {
                             uValue = uvPlane[uvIndex];
                             vValue = uvPlane[uvIndex + 1];
                         }
 
-                        // Convert YUV to RGB using standard conversion formulas
+                        // Convert YUV to RGB using fast math precalculation
                         uint8_t r, g, b;
-                        FAST_MATH.FastYuvToRgb(yValue, uValue, vValue, r, g, b);
+                        FAST_MATH.FastYuvToRgb(static_cast<uint8_t>(yValue), static_cast<uint8_t>(uValue), static_cast<uint8_t>(vValue), r, g, b);
 
-                        // Clamp values to 0-255 range
+                        // Clamp values to 0-255 range for safety
                         r = (r < 0) ? 0 : ((r > 255) ? 255 : r);
                         g = (g < 0) ? 0 : ((g > 255) ? 255 : g);
                         b = (b < 0) ? 0 : ((b > 255) ? 255 : b);
 
-                        // Write to destination in BGRA format
-                        pDstRow[x * 4 + 0] = static_cast<BYTE>(b);
-                        pDstRow[x * 4 + 1] = static_cast<BYTE>(g);
-                        pDstRow[x * 4 + 2] = static_cast<BYTE>(r);
-                        pDstRow[x * 4 + 3] = 255; // Alpha
+                        // Write pixel data to destination in BGRA format
+                        pDstRow[x * 4 + 0] = static_cast<BYTE>(b);   // Blue component
+                        pDstRow[x * 4 + 1] = static_cast<BYTE>(g);   // Green component
+                        pDstRow[x * 4 + 2] = static_cast<BYTE>(r);   // Red component
+                        pDstRow[x * 4 + 3] = 255;                    // Alpha component (fully opaque)
                     }
                 }
             }
@@ -958,19 +984,22 @@ bool MoviePlayer::UpdateVideoTexture()
                 // Likely Y only (grayscale) format (1 byte per pixel)
                 debug.logLevelMessage(LogLevel::LOG_INFO, L"Processing HEVC as grayscale format");
 
+                // Convert grayscale Y values to BGRA format
                 for (UINT y = 0; y < m_videoHeight; y++)
                 {
+                    // Calculate pointers to source and destination rows
                     BYTE* pDstRow = pDstData + y * mappedResource.RowPitch;
                     BYTE* pSrcRow = pSrcData + y * m_videoWidth;
 
+                    // Process each pixel in the current row
                     for (UINT x = 0; x < m_videoWidth; x++)
                     {
-                        // Copy Y value to all RGB channels for grayscale
+                        // Copy Y value to all RGB channels for grayscale effect
                         BYTE yValue = pSrcRow[x];
-                        pDstRow[x * 4 + 0] = yValue;
-                        pDstRow[x * 4 + 1] = yValue;
-                        pDstRow[x * 4 + 2] = yValue;
-                        pDstRow[x * 4 + 3] = 255; // Alpha
+                        pDstRow[x * 4 + 0] = yValue;     // Blue component
+                        pDstRow[x * 4 + 1] = yValue;     // Green component
+                        pDstRow[x * 4 + 2] = yValue;     // Red component
+                        pDstRow[x * 4 + 3] = 255;        // Alpha component (fully opaque)
                     }
                 }
             }
@@ -979,14 +1008,17 @@ bool MoviePlayer::UpdateVideoTexture()
                 // Likely YUY2 format (2 bytes per pixel)
                 debug.logLevelMessage(LogLevel::LOG_INFO, L"Processing HEVC as YUY2 format");
 
+                // Process YUY2 format in pairs of pixels (macropixels)
                 for (UINT y = 0; y < m_videoHeight; y++)
                 {
+                    // Calculate pointers to source and destination rows
                     BYTE* pDstRow = pDstData + y * mappedResource.RowPitch;
                     BYTE* pSrcRow = pSrcData + y * m_videoWidth * 2;
 
+                    // Process pixels in pairs for YUY2 format
                     for (UINT x = 0; x < m_videoWidth; x += 2)
                     {
-                        // YUY2 format: Y0, U0, Y1, V0
+                        // YUY2 format: Y0, U0, Y1, V0 for each macropixel
                         BYTE y0 = pSrcRow[x * 2];
                         BYTE u0 = pSrcRow[x * 2 + 1];
                         BYTE y1 = 0;
@@ -1005,37 +1037,40 @@ bool MoviePlayer::UpdateVideoTexture()
                             v0 = 128;
                         }
 
-                        // Convert and write first pixel
-                        int r0 = y0 + 1.402f * (v0 - 128);
-                        int g0 = y0 - 0.344f * (u0 - 128) - 0.714f * (v0 - 128);
-                        int b0 = y0 + 1.772f * (u0 - 128);
+                        // Convert and write first pixel using YUV to RGB conversion
+                        int r0 = static_cast<int>(y0 + 1.402f * (v0 - 128));
+                        int g0 = static_cast<int>(y0 - 0.344f * (u0 - 128) - 0.714f * (v0 - 128));
+                        int b0 = static_cast<int>(y0 + 1.772f * (u0 - 128));
 
-                        // Clamp
+                        // Clamp values to valid 0-255 range
                         r0 = (r0 < 0) ? 0 : ((r0 > 255) ? 255 : r0);
                         g0 = (g0 < 0) ? 0 : ((g0 > 255) ? 255 : g0);
                         b0 = (b0 < 0) ? 0 : ((b0 > 255) ? 255 : b0);
 
-                        pDstRow[x * 4 + 0] = static_cast<BYTE>(b0);
-                        pDstRow[x * 4 + 1] = static_cast<BYTE>(g0);
-                        pDstRow[x * 4 + 2] = static_cast<BYTE>(r0);
-                        pDstRow[x * 4 + 3] = 255;
+                        // Write first pixel to destination texture
+                        pDstRow[x * 4 + 0] = static_cast<BYTE>(b0);  // Blue component
+                        pDstRow[x * 4 + 1] = static_cast<BYTE>(g0);  // Green component
+                        pDstRow[x * 4 + 2] = static_cast<BYTE>(r0);  // Red component
+                        pDstRow[x * 4 + 3] = 255;                    // Alpha component
 
                         // Convert and write second pixel if it exists
                         if (x + 1 < m_videoWidth)
                         {
-                            int r1 = y1 + 1.402f * (v0 - 128);
-                            int g1 = y1 - 0.344f * (u0 - 128) - 0.714f * (v0 - 128);
-                            int b1 = y1 + 1.772f * (u0 - 128);
+                            // Convert second pixel using same U and V values
+                            int r1 = static_cast<int>(y1 + 1.402f * (v0 - 128));
+                            int g1 = static_cast<int>(y1 - 0.344f * (u0 - 128) - 0.714f * (v0 - 128));
+                            int b1 = static_cast<int>(y1 + 1.772f * (u0 - 128));
 
-                            // Clamp
+                            // Clamp values to valid 0-255 range
                             r1 = (r1 < 0) ? 0 : ((r1 > 255) ? 255 : r1);
                             g1 = (g1 < 0) ? 0 : ((g1 > 255) ? 255 : g1);
                             b1 = (b1 < 0) ? 0 : ((b1 > 255) ? 255 : b1);
 
-                            pDstRow[(x + 1) * 4 + 0] = static_cast<BYTE>(b1);
-                            pDstRow[(x + 1) * 4 + 1] = static_cast<BYTE>(g1);
-                            pDstRow[(x + 1) * 4 + 2] = static_cast<BYTE>(r1);
-                            pDstRow[(x + 1) * 4 + 3] = 255;
+                            // Write second pixel to destination texture
+                            pDstRow[(x + 1) * 4 + 0] = static_cast<BYTE>(b1);  // Blue component
+                            pDstRow[(x + 1) * 4 + 1] = static_cast<BYTE>(g1);  // Green component
+                            pDstRow[(x + 1) * 4 + 2] = static_cast<BYTE>(r1);  // Red component
+                            pDstRow[(x + 1) * 4 + 3] = 255;                    // Alpha component
                         }
                     }
                 }
@@ -1045,13 +1080,14 @@ bool MoviePlayer::UpdateVideoTexture()
                 // Likely RGB32 or ARGB32 format (4 bytes per pixel)
                 debug.logLevelMessage(LogLevel::LOG_INFO, L"Processing HEVC as RGB32 format");
 
-                // Simply copy the data with potential stride adjustment
+                // Calculate source stride for RGB32 format
                 UINT srcStride = m_videoWidth * 4;
 
-                // Copy row by row
-                UINT bytesPerRow = std::min(srcStride, mappedResource.RowPitch);
+                // Copy row by row with stride handling
+                UINT bytesPerRow = std::min(srcStride, static_cast<UINT>(mappedResource.RowPitch));
                 bytesPerRow = std::min(bytesPerRow, m_videoWidth * 4);
 
+                // Process each row of the image
                 for (UINT row = 0; row < m_videoHeight; row++)
                 {
                     // Calculate source and destination pointers for this row
@@ -1061,17 +1097,19 @@ bool MoviePlayer::UpdateVideoTexture()
                     // Make sure we don't exceed buffer bounds
                     if ((row * srcStride + bytesPerRow) <= currentLength)
                     {
+                        // Direct memory copy for RGB data
                         memcpy(pDstRow, pSrcRow, bytesPerRow);
                     }
                     else {
                         // If we run out of source data, fill the rest with a pattern
                         for (UINT x = 0; x < m_videoWidth; x++)
                         {
-                            BYTE shade = ((x / 8 + row / 8) % 2) ? 64 : 192;
-                            pDstRow[x * 4 + 0] = 0;
-                            pDstRow[x * 4 + 1] = 0;
-                            pDstRow[x * 4 + 2] = shade;
-                            pDstRow[x * 4 + 3] = 255;
+                            // Create a checkerboard pattern to indicate missing data
+                            BYTE shade = static_cast<BYTE>(((x / 8 + row / 8) % 2) ? 64 : 192);
+                            pDstRow[x * 4 + 0] = 0;      // Blue
+                            pDstRow[x * 4 + 1] = 0;      // Green
+                            pDstRow[x * 4 + 2] = shade;  // Red
+                            pDstRow[x * 4 + 3] = 255;    // Alpha
                         }
                     }
                 }
@@ -1082,24 +1120,26 @@ bool MoviePlayer::UpdateVideoTexture()
                 debug.logLevelMessage(LogLevel::LOG_WARNING,
                     L"Unknown HEVC format: " + std::to_wstring(bytesPerPixel) + L" bytes per pixel");
 
-                // Simple visualization of the raw data
+                // Simple visualization of the raw data for debugging
                 for (UINT y = 0; y < m_videoHeight; y++)
                 {
+                    // Calculate pointer to the current row
                     BYTE* pDstRow = pDstData + y * mappedResource.RowPitch;
 
+                    // Process each pixel in the current row
                     for (UINT x = 0; x < m_videoWidth; x++)
                     {
-                        // Calculate index into source buffer
+                        // Calculate index into source buffer with bounds checking
                         UINT srcIndex = (y * m_videoWidth + x) % currentLength;
 
                         // Create a debug visualization based on raw bytes
                         BYTE value = pSrcData[srcIndex];
 
                         // Visualize the byte values with color gradient
-                        pDstRow[x * 4 + 0] = (value < 85) ? value * 3 : 255;
-                        pDstRow[x * 4 + 1] = (value >= 85 && value < 170) ? (value - 85) * 3 : 0;
-                        pDstRow[x * 4 + 2] = (value >= 170) ? (value - 170) * 3 : 0;
-                        pDstRow[x * 4 + 3] = 255;
+                        pDstRow[x * 4 + 0] = (value < 85) ? static_cast<BYTE>(value * 3) : 255;        // Blue
+                        pDstRow[x * 4 + 1] = (value >= 85 && value < 170) ? static_cast<BYTE>((value - 85) * 3) : 0;  // Green
+                        pDstRow[x * 4 + 2] = (value >= 170) ? static_cast<BYTE>((value - 170) * 3) : 0;               // Red
+                        pDstRow[x * 4 + 3] = 255;                                                                      // Alpha
                     }
                 }
             }
@@ -1109,46 +1149,47 @@ bool MoviePlayer::UpdateVideoTexture()
     {
         // For NV12 format conversion to BGRA
         // NV12 is a planar format with a Y plane followed by interleaved U and V planes
-        int yPitch = m_videoWidth; // Y plane pitch is typically the width
-        int uvPitch = m_videoWidth; // UV plane pitch is also typically the width
-        int ySize = yPitch * m_videoHeight; // Y plane size
+        UINT yPitch = m_videoWidth;                              // Y plane pitch is typically the width
+        UINT uvPitch = m_videoWidth;                             // UV plane pitch is also typically the width
+        UINT ySize = yPitch * m_videoHeight;                     // Y plane size in bytes
 
         // Y plane followed by interleaved UV plane
         BYTE* yPlane = pSrcData;
         BYTE* uvPlane = pSrcData + ySize;
 
-        // Convert NV12 to BGRA
+        // Convert NV12 to BGRA format
         for (UINT y = 0; y < m_videoHeight; y++)
         {
+            // Calculate pointer to the current row in destination texture
             BYTE* pDstRow = pDstData + y * mappedResource.RowPitch;
 
+            // Process each pixel in the current row
             for (UINT x = 0; x < m_videoWidth; x++)
             {
                 // Get Y value for this pixel
-                int yIndex = y * yPitch + x;
+                UINT yIndex = y * yPitch + x;
                 int yValue = yPlane[yIndex];
 
                 // Get U and V values (subsampled by 2 in both dimensions)
-                int uvIndex = (y / 2) * uvPitch + (x / 2) * 2;
+                UINT uvIndex = (y / 2) * uvPitch + (x / 2) * 2;
                 int uValue = uvPlane[uvIndex];
                 int vValue = uvPlane[uvIndex + 1];
 
-                // Convert YUV to RGB
-                // These are common YUV to RGB conversion formulas
-                int r = yValue + 1.402f * (vValue - 128);
-                int g = yValue - 0.344f * (uValue - 128) - 0.714f * (vValue - 128);
-                int b = yValue + 1.772f * (uValue - 128);
+                // Convert YUV to RGB using standard conversion formulas
+                int r = static_cast<int>(yValue + 1.402f * (vValue - 128));
+                int g = static_cast<int>(yValue - 0.344f * (uValue - 128) - 0.714f * (vValue - 128));
+                int b = static_cast<int>(yValue + 1.772f * (uValue - 128));
 
-                // Clamp values to 0-255
+                // Clamp values to 0-255 range
                 r = (r < 0) ? 0 : ((r > 255) ? 255 : r);
                 g = (g < 0) ? 0 : ((g > 255) ? 255 : g);
                 b = (b < 0) ? 0 : ((b > 255) ? 255 : b);
 
-                // Write to destination in BGRA format
-                pDstRow[x * 4] = static_cast<BYTE>(b);
-                pDstRow[x * 4 + 1] = static_cast<BYTE>(g);
-                pDstRow[x * 4 + 2] = static_cast<BYTE>(r);
-                pDstRow[x * 4 + 3] = 255; // Alpha channel (fully opaque)
+                // Write pixel data to destination in BGRA format
+                pDstRow[x * 4] = static_cast<BYTE>(b);       // Blue component
+                pDstRow[x * 4 + 1] = static_cast<BYTE>(g);   // Green component
+                pDstRow[x * 4 + 2] = static_cast<BYTE>(r);   // Red component
+                pDstRow[x * 4 + 3] = 255;                    // Alpha component (fully opaque)
             }
         }
     }
@@ -1160,9 +1201,10 @@ bool MoviePlayer::UpdateVideoTexture()
         // Try to get stride from media type
         if (currentType)
         {
-            INT32 stride = 0;  // Change to signed INT32 instead of UINT32
-            if (SUCCEEDED(currentType->GetUINT32(MF_MT_DEFAULT_STRIDE, (UINT32*)&stride)) && stride != 0)
+            INT32 stride = 0;  // Use signed INT32 instead of UINT32
+            if (SUCCEEDED(currentType->GetUINT32(MF_MT_DEFAULT_STRIDE, reinterpret_cast<UINT32*>(&stride))) && stride != 0)
             {
+                // Convert signed stride to unsigned, handling negative strides
                 srcStride = (stride < 0) ? static_cast<UINT>(-stride) : static_cast<UINT>(stride);
             }
         }
@@ -1172,28 +1214,36 @@ bool MoviePlayer::UpdateVideoTexture()
         {
             if (videoFormat == MFVideoFormat_RGB32 || videoFormat == MFVideoFormat_ARGB32)
             {
+                // RGB32 and ARGB32 formats use 4 bytes per pixel
                 srcStride = m_videoWidth * 4;
             }
             else
             {
                 // Default case - calculate a reasonable stride based on buffer size
-                srcStride = (currentLength / m_videoHeight);
+                if (m_videoHeight > 0)
+                {
+                    srcStride = (currentLength / m_videoHeight);
+                }
+
                 if (srcStride == 0 && currentLength > 0) {
                     // Very small buffer - might be compressed data
                     debug.logLevelMessage(LogLevel::LOG_WARNING, L"Buffer too small for full frame, possibly compressed data");
 
-                    // Fill with a debug pattern
+                    // Fill with a debug pattern to indicate compressed data
                     for (UINT y = 0; y < m_videoHeight; y++)
                     {
+                        // Calculate pointer to the current row
                         BYTE* pDstRow = pDstData + y * mappedResource.RowPitch;
 
+                        // Create a diagnostic pattern for each pixel
                         for (UINT x = 0; x < m_videoWidth; x++)
                         {
-                            BYTE shade = ((x / 16 + y / 16) % 2) ? 128 : 64;
-                            pDstRow[x * 4] = shade;
-                            pDstRow[x * 4 + 1] = shade;
-                            pDstRow[x * 4 + 2] = shade;
-                            pDstRow[x * 4 + 3] = 255;
+                            // Create a checkerboard pattern to indicate missing data
+                            BYTE shade = static_cast<BYTE>(((x / 16 + y / 16) % 2) ? 128 : 64);
+                            pDstRow[x * 4] = shade;      // Blue
+                            pDstRow[x * 4 + 1] = shade;  // Green
+                            pDstRow[x * 4 + 2] = shade;  // Red
+                            pDstRow[x * 4 + 3] = 255;    // Alpha
                         }
                     }
 
@@ -1206,39 +1256,46 @@ bool MoviePlayer::UpdateVideoTexture()
         }
 
         // Special case for very small buffer compared to video dimensions
-        if (currentLength < (m_videoWidth * m_videoHeight) && currentLength > 0)
+        UINT minExpectedSize = m_videoWidth * m_videoHeight;
+        if (currentLength < minExpectedSize && currentLength > 0)
         {
             debug.logLevelMessage(LogLevel::LOG_WARNING,
                 L"Buffer too small for direct copy. Using partial data visualization.");
 
-            // Fill the destination with a neutral color
+            // Fill the destination with a neutral color first
             for (UINT y = 0; y < m_videoHeight; y++)
             {
+                // Calculate pointer to the current row
                 BYTE* pDstRow = pDstData + y * mappedResource.RowPitch;
+                // Set entire row to neutral gray color
                 memset(pDstRow, 128, m_videoWidth * 4);
             }
 
             // Visualize the actual buffer data at the top of the frame
-            UINT dataVisHeight = std::min(m_videoHeight, (UINT)100);
+            UINT dataVisHeight = std::min(m_videoHeight, static_cast<UINT>(100));
             UINT bytesPerPixel = 4;
             UINT pixelsToShow = std::min(m_videoWidth * dataVisHeight, static_cast<UINT>(currentLength / bytesPerPixel));
+            // Display available data as colored pixels
             for (UINT i = 0; i < pixelsToShow; i++)
             {
+                // Calculate pixel coordinates
                 UINT x = i % m_videoWidth;
                 UINT y = i / m_videoWidth;
 
+                // Only process pixels within the visualization area
                 if (y < dataVisHeight)
                 {
+                    // Calculate pointer to the specific pixel
                     BYTE* pDstPixel = pDstData + (y * mappedResource.RowPitch) + (x * 4);
 
                     // Color based on the buffer data
                     UINT srcIndex = i * bytesPerPixel;
                     if (srcIndex + 2 < currentLength)
                     {
-                        pDstPixel[0] = pSrcData[srcIndex];
-                        pDstPixel[1] = pSrcData[srcIndex + 1];
-                        pDstPixel[2] = pSrcData[srcIndex + 2];
-                        pDstPixel[3] = 255;
+                        pDstPixel[0] = pSrcData[srcIndex];       // Blue
+                        pDstPixel[1] = pSrcData[srcIndex + 1];   // Green
+                        pDstPixel[2] = pSrcData[srcIndex + 2];   // Red
+                        pDstPixel[3] = 255;                      // Alpha
                     }
                 }
             }
@@ -1246,10 +1303,11 @@ bool MoviePlayer::UpdateVideoTexture()
         else
         {
             // Normal copy for sufficient buffer size
-            // Copy row by row
-            UINT bytesPerRow = std::min(srcStride, mappedResource.RowPitch);
+            // Copy row by row with proper stride handling
+            UINT bytesPerRow = std::min(srcStride, static_cast<UINT>(mappedResource.RowPitch));
             bytesPerRow = std::min(bytesPerRow, m_videoWidth * 4);
 
+            // Process each row of the video frame
             for (UINT row = 0; row < m_videoHeight; row++)
             {
                 // Calculate source and destination pointers for this row
@@ -1259,17 +1317,19 @@ bool MoviePlayer::UpdateVideoTexture()
                 // Make sure we don't exceed buffer bounds
                 if ((row * srcStride + bytesPerRow) <= currentLength)
                 {
+                    // Direct memory copy for this row
                     memcpy(pDstRow, pSrcRow, bytesPerRow);
                 }
                 else {
                     // If we run out of source data, fill the rest with a distinct pattern
                     for (UINT x = 0; x < m_videoWidth; x++)
                     {
-                        BYTE shade = ((x / 8 + row / 8) % 2) ? 64 : 192;
-                        pDstRow[x * 4] = 0;
-                        pDstRow[x * 4 + 1] = 0;
-                        pDstRow[x * 4 + 2] = shade;
-                        pDstRow[x * 4 + 3] = 255;
+                        // Create a diagnostic pattern indicating data shortage
+                        BYTE shade = static_cast<BYTE>(((x / 8 + row / 8) % 2) ? 64 : 192);
+                        pDstRow[x * 4] = 0;          // Blue
+                        pDstRow[x * 4 + 1] = 0;      // Green
+                        pDstRow[x * 4 + 2] = shade;  // Red
+                        pDstRow[x * 4 + 3] = 255;    // Alpha
                     }
                 }
             }
@@ -1279,14 +1339,14 @@ bool MoviePlayer::UpdateVideoTexture()
     // If we have a dual-texture system for HEVC, copy from staging to render texture
     if (m_videoRenderTexture)
     {
-        // Copy from staging texture to render texture
+        // Copy from staging texture to render texture for final rendering
         context->CopyResource(m_videoRenderTexture.Get(), m_videoTexture.Get());
     }
 
-    // Unmap the texture
+    // Unmap the texture to finalize the data transfer
     context->Unmap(destTexture, 0);
 
-    // Unlock the buffer
+    // Unlock the media buffer to release the lock
     buffer->Unlock();
 
     return true;
@@ -1586,17 +1646,16 @@ Vector2 MoviePlayer::GetVideoDimensions()
 
 // ----------------------------------------------------------------------------------------------
 // Generate a placeholder frame for when actual video frames cannot be decoded
-// ----------------------------------------------------------------------------------------------
-// ----------------------------------------------------------------------------------------------
-// Generate a placeholder frame for when actual video frames cannot be decoded
 // This method uses RAII lock patterns to prevent deadlocks
 // ----------------------------------------------------------------------------------------------
 // Thread-safe implementation of GeneratePlaceholderFrame
 void MoviePlayer::GeneratePlaceholderFrame()
 {
+    // Check if we have valid video textures
     if (!m_videoTexture && !m_videoRenderTexture)
         return;
 
+    // Cast the renderer to DX11Renderer for DirectX 11 specific operations
     auto dx11Renderer = std::dynamic_pointer_cast<DX11Renderer>(m_renderer);
     if (!dx11Renderer)
         return;
@@ -1604,6 +1663,7 @@ void MoviePlayer::GeneratePlaceholderFrame()
     // CRITICAL: We're already holding the renderer mutex from the caller
     // No need to lock it again here to avoid recursive locking issues
 
+    // Get the DirectX 11 device context for texture operations
     ComPtr<ID3D11DeviceContext> context = dx11Renderer->GetImmediateContext();
     if (!context)
         return;
@@ -1611,7 +1671,7 @@ void MoviePlayer::GeneratePlaceholderFrame()
     // Determine which texture to use (main or staging in dual-texture system)
     ID3D11Texture2D* destTexture = m_videoTexture.Get();
 
-    // Map the texture for writing
+    // Map the texture for writing placeholder data
     D3D11_MAPPED_SUBRESOURCE mappedResource = {};
     HRESULT hr = context->Map(destTexture, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
     if (FAILED(hr) || !mappedResource.pData)
@@ -1620,125 +1680,139 @@ void MoviePlayer::GeneratePlaceholderFrame()
         return;
     }
 
+    // Get pointer to the destination texture data
     BYTE* pDstData = static_cast<BYTE*>(mappedResource.pData);
 
     // Generate a placeholder pattern that changes over time
     static UINT frameCounter = 0;
     frameCounter++;
 
-    // Create a gradient background
+    // Create a gradient background that animates
     for (UINT y = 0; y < m_videoHeight; y++)
     {
+        // Calculate pointer to the current row
         BYTE* pDstRow = pDstData + y * mappedResource.RowPitch;
 
+        // Generate gradient colors for each pixel in the row
         for (UINT x = 0; x < m_videoWidth; x++)
         {
-            // Base gradient
+            // Base gradient calculation with proper type casting
             BYTE r = static_cast<BYTE>((x * 200) / m_videoWidth);
             BYTE g = static_cast<BYTE>((y * 200) / m_videoHeight);
-            BYTE b = static_cast<BYTE>(128 + 64 * sin(frameCounter * 0.05f));
+            BYTE b = static_cast<BYTE>(128 + static_cast<int>(64 * sin(frameCounter * 0.05f)));
 
-            // Create a moving pattern
+            // Create a moving pattern for visual interest
             if (((x + frameCounter) / 32 + (y + frameCounter / 2) / 32) % 2) {
-                r = (r * 2) / 3;
-                g = (g * 2) / 3;
-                b = (b * 2) / 3;
+                // Darken alternate squares in the pattern
+                r = static_cast<BYTE>((r * 2) / 3);
+                g = static_cast<BYTE>((g * 2) / 3);
+                b = static_cast<BYTE>((b * 2) / 3);
             }
 
-            // Write to destination in BGRA format
-            pDstRow[x * 4 + 0] = b;
-            pDstRow[x * 4 + 1] = g;
-            pDstRow[x * 4 + 2] = r;
-            pDstRow[x * 4 + 3] = 255; // Alpha
+            // Write pixel data to destination in BGRA format
+            pDstRow[x * 4 + 0] = b;      // Blue component
+            pDstRow[x * 4 + 1] = g;      // Green component
+            pDstRow[x * 4 + 2] = r;      // Red component
+            pDstRow[x * 4 + 3] = 255;    // Alpha component (fully opaque)
         }
     }
 
     // Draw informative text area in the center
     const int textHeight = 100;
-    const int startY = m_videoHeight / 2 - textHeight / 2;
+    const int startY = static_cast<int>(m_videoHeight) / 2 - textHeight / 2;
     const int endY = startY + textHeight;
-    const int textWidth = m_videoWidth / 2;
-    const int startX = m_videoWidth / 2 - textWidth / 2;
+    const int textWidth = static_cast<int>(m_videoWidth) / 2;
+    const int startX = static_cast<int>(m_videoWidth) / 2 - textWidth / 2;
     const int endX = startX + textWidth;
 
     // Draw text box background
-    for (UINT y = startY; y < endY && y < m_videoHeight; y++)
+    for (UINT y = static_cast<UINT>(std::max(0, startY)); y < static_cast<UINT>(std::min(endY, static_cast<int>(m_videoHeight))); y++)
     {
+        // Calculate pointer to the current row
         BYTE* pDstRow = pDstData + y * mappedResource.RowPitch;
 
-        for (UINT x = startX; x < endX && x < m_videoWidth; x++)
+        // Draw background for the text area
+        for (UINT x = static_cast<UINT>(std::max(0, startX)); x < static_cast<UINT>(std::min(endX, static_cast<int>(m_videoWidth))); x++)
         {
-            // Semi-transparent black background
-            pDstRow[x * 4 + 0] = 32;
-            pDstRow[x * 4 + 1] = 32;
-            pDstRow[x * 4 + 2] = 32;
-            pDstRow[x * 4 + 3] = 255;
+            // Semi-transparent black background for text readability
+            pDstRow[x * 4 + 0] = 32;     // Blue
+            pDstRow[x * 4 + 1] = 32;     // Green
+            pDstRow[x * 4 + 2] = 32;     // Red
+            pDstRow[x * 4 + 3] = 255;    // Alpha
         }
     }
 
     // Simple visualized text (not actual text rendering)
-    // Draw "HEVC" in a simplified pattern
+    // Draw "H" pattern for HEVC indicator
 
-    // Draw "H"
+    // Calculate letter dimensions and position
     int letterWidth = textWidth / 6;
     int letterX = startX + letterWidth;
-    for (UINT y = startY + 20; y < endY - 20 && y < m_videoHeight; y++)
+
+    // Draw the "H" character pattern
+    for (UINT y = static_cast<UINT>(std::max(0, startY + 20)); y < static_cast<UINT>(std::min(endY - 20, static_cast<int>(m_videoHeight))); y++)
     {
+        // Calculate pointer to the current row
         BYTE* pDstRow = pDstData + y * mappedResource.RowPitch;
 
-        // Left vertical stroke
-        for (UINT x = letterX; x < letterX + letterWidth / 4; x++)
+        // Left vertical stroke of the "H"
+        for (UINT x = static_cast<UINT>(std::max(0, letterX)); x < static_cast<UINT>(std::min(letterX + letterWidth / 4, static_cast<int>(m_videoWidth))); x++)
         {
-            if (x < m_videoWidth) {
-                pDstRow[x * 4 + 0] = 200;
-                pDstRow[x * 4 + 1] = 200;
-                pDstRow[x * 4 + 2] = 200;
-                pDstRow[x * 4 + 3] = 255;
-            }
+            // Draw white pixels for the left stroke
+            pDstRow[x * 4 + 0] = 200;    // Blue
+            pDstRow[x * 4 + 1] = 200;    // Green
+            pDstRow[x * 4 + 2] = 200;    // Red
+            pDstRow[x * 4 + 3] = 255;    // Alpha
         }
 
-        // Middle horizontal stroke
-        if (y >= startY + 20 + (endY - startY - 40) / 2 - letterWidth / 4 &&
-            y < startY + 20 + (endY - startY - 40) / 2 + letterWidth / 4)
+        // Middle horizontal stroke of the "H"
+        int midLineStart = startY + 20 + (endY - startY - 40) / 2 - letterWidth / 4;
+        int midLineEnd = startY + 20 + (endY - startY - 40) / 2 + letterWidth / 4;
+
+        if (static_cast<int>(y) >= midLineStart && static_cast<int>(y) < midLineEnd)
         {
-            for (UINT x = letterX; x < letterX + letterWidth; x++)
+            // Draw the horizontal stroke across the width of the letter
+            for (UINT x = static_cast<UINT>(std::max(0, letterX)); x < static_cast<UINT>(std::min(letterX + letterWidth, static_cast<int>(m_videoWidth))); x++)
             {
-                if (x < m_videoWidth) {
-                    pDstRow[x * 4 + 0] = 200;
-                    pDstRow[x * 4 + 1] = 200;
-                    pDstRow[x * 4 + 2] = 200;
-                    pDstRow[x * 4 + 3] = 255;
-                }
+                // Draw white pixels for the horizontal stroke
+                pDstRow[x * 4 + 0] = 200;    // Blue
+                pDstRow[x * 4 + 1] = 200;    // Green
+                pDstRow[x * 4 + 2] = 200;    // Red
+                pDstRow[x * 4 + 3] = 255;    // Alpha
             }
         }
 
-        // Right vertical stroke
-        for (UINT x = letterX + letterWidth - letterWidth / 4; x < letterX + letterWidth; x++)
+        // Right vertical stroke of the "H"
+        for (UINT x = static_cast<UINT>(std::max(0, letterX + letterWidth - letterWidth / 4)); x < static_cast<UINT>(std::min(letterX + letterWidth, static_cast<int>(m_videoWidth))); x++)
         {
-            if (x < m_videoWidth) {
-                pDstRow[x * 4 + 0] = 200;
-                pDstRow[x * 4 + 1] = 200;
-                pDstRow[x * 4 + 2] = 200;
-                pDstRow[x * 4 + 3] = 255;
-            }
+            // Draw white pixels for the right stroke
+            pDstRow[x * 4 + 0] = 200;    // Blue
+            pDstRow[x * 4 + 1] = 200;    // Green
+            pDstRow[x * 4 + 2] = 200;    // Red
+            pDstRow[x * 4 + 3] = 255;    // Alpha
         }
     }
 
-    // Draw "Video Processing" text
+    // Draw "Video Processing" text representation
     int line2Y = startY + textHeight - 30;
-    if (line2Y < m_videoHeight)
+    if (line2Y >= 0 && line2Y < static_cast<int>(m_videoHeight))
     {
-        BYTE* pDstRow = pDstData + line2Y * mappedResource.RowPitch;
+        // Calculate pointer to the text line row
+        BYTE* pDstRow = pDstData + static_cast<UINT>(line2Y) * mappedResource.RowPitch;
 
-        for (UINT x = startX + 20; x < endX - 20; x += 8)
+        // Draw a series of dots to represent text
+        for (UINT x = static_cast<UINT>(std::max(0, startX + 20)); x < static_cast<UINT>(std::min(endX - 20, static_cast<int>(m_videoWidth))); x += 8)
         {
+            // Draw a small group of white pixels to simulate characters
             for (int i = 0; i < 6; i++)
             {
-                if (x + i < m_videoWidth) {
-                    pDstRow[(x + i) * 4 + 0] = 180;
-                    pDstRow[(x + i) * 4 + 1] = 180;
-                    pDstRow[(x + i) * 4 + 2] = 180;
-                    pDstRow[(x + i) * 4 + 3] = 255;
+                UINT pixelX = x + static_cast<UINT>(i);
+                if (pixelX < m_videoWidth) {
+                    // Draw white pixels for simulated text
+                    pDstRow[pixelX * 4 + 0] = 180;   // Blue
+                    pDstRow[pixelX * 4 + 1] = 180;   // Green
+                    pDstRow[pixelX * 4 + 2] = 180;   // Red
+                    pDstRow[pixelX * 4 + 3] = 255;   // Alpha
                 }
             }
         }
@@ -1749,32 +1823,43 @@ void MoviePlayer::GeneratePlaceholderFrame()
     int digitX = endX - 50;
     int digitY = endY - 20;
 
-    if (digitY < m_videoHeight && digitX < m_videoWidth)
+    // Draw frame counter digits if within bounds
+    if (digitY >= 0 && digitY < static_cast<int>(m_videoHeight) && digitX >= 0 && digitX < static_cast<int>(m_videoWidth))
     {
+        // Draw each digit in the frame counter
         for (size_t i = 0; i < frameCountText.length(); i++)
         {
-            // Very simplified digit rendering
+            // Very simplified digit rendering based on digit value
             int digit = frameCountText[i] - L'0';
 
+            // Draw a simple pattern for each digit
             for (int dy = 0; dy < 10; dy++)
             {
-                BYTE* pDstRow = pDstData + (digitY + dy) * mappedResource.RowPitch;
-
-                for (int dx = 0; dx < 6; dx++)
+                int pixelY = digitY + dy;
+                if (pixelY >= 0 && pixelY < static_cast<int>(m_videoHeight))
                 {
-                    int pixelX = digitX + dx + i * 8;
+                    // Calculate pointer to the digit row
+                    BYTE* pDstRow = pDstData + static_cast<UINT>(pixelY) * mappedResource.RowPitch;
 
-                    if (pixelX < m_videoWidth)
+                    // Draw pixels for the current digit
+                    for (int dx = 0; dx < 6; dx++)
                     {
-                        // Simple pattern based on digit
-                        if ((digit % 2 == 0 && dx % 2 == 0) ||
-                            (digit % 2 == 1 && dx % 2 == 1) ||
-                            (dy == 0 || dy == 9 || dx == 0 || dx == 5))
+                        int pixelX = digitX + dx + static_cast<int>(i) * 8;
+
+                        if (pixelX >= 0 && pixelX < static_cast<int>(m_videoWidth))
                         {
-                            pDstRow[pixelX * 4 + 0] = 255;
-                            pDstRow[pixelX * 4 + 1] = 255;
-                            pDstRow[pixelX * 4 + 2] = 255;
-                            pDstRow[pixelX * 4 + 3] = 255;
+                            // Simple pattern based on digit value and position
+                            if ((digit % 2 == 0 && dx % 2 == 0) ||
+                                (digit % 2 == 1 && dx % 2 == 1) ||
+                                (dy == 0 || dy == 9 || dx == 0 || dx == 5))
+                            {
+                                // Draw white pixel for the digit pattern
+                                UINT finalPixelX = static_cast<UINT>(pixelX);
+                                pDstRow[finalPixelX * 4 + 0] = 255;  // Blue
+                                pDstRow[finalPixelX * 4 + 1] = 255;  // Green
+                                pDstRow[finalPixelX * 4 + 2] = 255;  // Red
+                                pDstRow[finalPixelX * 4 + 3] = 255;  // Alpha
+                            }
                         }
                     }
                 }
@@ -1785,11 +1870,11 @@ void MoviePlayer::GeneratePlaceholderFrame()
     // If we have a dual-texture system for HEVC, copy from staging to render texture
     if (m_videoRenderTexture)
     {
-        // Copy from staging texture to render texture
+        // Copy from staging texture to render texture for final rendering
         context->CopyResource(m_videoRenderTexture.Get(), m_videoTexture.Get());
     }
 
-    // Unmap the texture
+    // Unmap the texture to finalize the placeholder frame
     context->Unmap(destTexture, 0);
 
 #if defined(_DEBUG_MOVIEPLAYER_)

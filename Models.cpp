@@ -1399,15 +1399,11 @@ void Model::DebugInfoForModel() const
 bool Model::SetupPBRResources() {
     // Get DX11 device
     std::shared_ptr<DX11Renderer> dx11;
-    WithDX11Renderer([&](std::shared_ptr<DX11Renderer> renderer) 
+    if (!dx11)
     {
-        dx11 = renderer;
-        if (!dx11)
-        {
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to get DX11 renderer for PBR setup");
-            return false;
-        }
-    });
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to get DX11 renderer for PBR setup");
+        return false;
+    }
 
     ComPtr<ID3D11Device> device = dx11->m_d3dDevice;
     if (!device) {
@@ -1454,15 +1450,11 @@ bool Model::SetupPBRResources() {
 bool Model::LoadEnvironmentMap(const std::wstring& filePath) {
     // Get DX11 device
     std::shared_ptr<DX11Renderer> dx11;
-    WithDX11Renderer([&](std::shared_ptr<DX11Renderer> renderer)
-        {
-            dx11 = renderer;
-            if (!dx11)
-            {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to get DX11 renderer for environment map loading");
-                return false;
-            }
-        });
+    if (!dx11)
+    {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to get DX11 renderer for environment map loading");
+        return false;
+    }
 
     ComPtr<ID3D11Device> device = dx11->m_d3dDevice;
     if (!device) {
@@ -1550,15 +1542,11 @@ bool Model::LoadAOMap(const std::wstring& filePath) {
 void Model::UpdateEnvironmentBuffer() {
     // Get DX11 device
     std::shared_ptr<DX11Renderer> dx11;
-    WithDX11Renderer([&](std::shared_ptr<DX11Renderer> renderer)
-        {
-            dx11 = renderer;
-            if (!dx11)
-            {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to get DX11 renderer for environment buffer update");
-                return false;
-            }
-        });
+    if (!dx11)
+    {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to get DX11 renderer for environment buffer update");
+        return;
+    }
 
     ComPtr<ID3D11DeviceContext> context = dx11->m_d3dContext;
     if (!context || !m_modelInfo.environmentBuffer) {

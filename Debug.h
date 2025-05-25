@@ -1,5 +1,5 @@
 // ----------------------------------------------------------------------------------------------
-// This is our Debugging Engine and plays a very important role in this engine system.
+// This is our Debugging Engine and plays a very important role in any Engine System.
 // 
 // IF YOU ARE A CONTRIBUTOR TO THIS ENGINE, Then PLEASE DO NOT REMOVE any of the debug references
 // or functions within the existing engine.  
@@ -22,7 +22,8 @@
 //#define _DEBUG_CONFIGURATION_
 //#define _DEBUG_SOUNDMANAGER_
 //#define _DEBUG_SCENEMANAGER_                                            // Define this line, to show all debug output to runtime console for the SceneManager class.
-//#define _DEBUG_GUI_
+//#define _DEBUG_GUI_                                                     // Define this line, to show all debug output to runtime console for the GUIManager class.
+//#define _DEBUG_WINSYSTEM_                                               // Define this line, to show all debug output to runtime console for the SystemUtils class.
 #define _DEBUG_MATHPRECALC_                                             // Define this line, to show all debug output for the MathPrecalculation class
 //#define _DEBUG_MOVIEPLAYER_                                             // Define this line for MoviePlayer class.
 
