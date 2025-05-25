@@ -31,7 +31,7 @@ If you like to know more about me and my history, please click below to read my 
 - We are now using scenes which consist of all models (including textures, bumps etc), Camera and lighting within a 3D Project.  For you to use this successfully, consider using a 3D Modeller package that can export GLTF 2.0 formats (Free to use system).  I, myself, uses Blender v4 and above which is also free to use.  You can find it above under the Important Links section above.
 
 ## Documentation
-- Documents to this project can be found within the Docs folder.
+- Documents and example usages to this project can be found within the Docs folder.
 
 ## Demos
 There are several demos that you can view to see the capabilites of CPGE.  I will be moving all these at a later date once a web site is established.  Stay Tuned!
@@ -39,7 +39,7 @@ There are several demos that you can view to see the capabilites of CPGE.  I wil
 ## Known Issues
 These are the following known issues and will be resolved as humanly possible.
 
-1) Running the RenderFrame() call as a thread is having conflict issues. Locking mechanism needs to be investigated thoroughly.
+1) None Known at the moment.
 
 ## Getting Started
 
