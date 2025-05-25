@@ -426,9 +426,9 @@ bool MoviePlayer::OpenMovie(const std::wstring& filePath)
                         {
                             WCHAR guidString[128];
                             StringFromGUID2(format, guidString, 128);
-#if defined(_DEBUG_MOVIEPLAYER_)
-                            debug.logLevelMessage(LogLevel::LOG_INFO, L"Successfully set output format to: " + std::wstring(guidString));
-#endif
+                            #if defined(_DEBUG_MOVIEPLAYER_)
+                                debug.logLevelMessage(LogLevel::LOG_INFO, L"Successfully set output format to: " + std::wstring(guidString));
+                            #endif
                             formatSet = true;
                             break;
                         }
@@ -468,9 +468,9 @@ bool MoviePlayer::OpenMovie(const std::wstring& filePath)
                                 );
 
                                 if (SUCCEEDED(hr)) {
-#if defined(_DEBUG_MOVIEPLAYER_)
-                                    debug.logLevelMessage(LogLevel::LOG_INFO, L"Set simplified NV12 format for HEVC file");
-#endif
+                                    #if defined(_DEBUG_MOVIEPLAYER_)
+                                        debug.logLevelMessage(LogLevel::LOG_INFO, L"Set simplified NV12 format for HEVC file");
+                                    #endif
                                     formatSet = true;
                                 }
                             }
@@ -484,11 +484,11 @@ bool MoviePlayer::OpenMovie(const std::wstring& filePath)
                         debug.logLevelMessage(LogLevel::LOG_WARNING, L"Could not set any preferred format, using native format.");
 
                         // For HEVC (H.265) files, we'll need special handling in UpdateVideoTexture
-#if defined(_DEBUG_MOVIEPLAYER_)
-                        if (isHevcContent) {
-                            debug.logLevelMessage(LogLevel::LOG_INFO, L"Using native HEVC format with custom processing");
-                        }
-#endif
+                        #if defined(_DEBUG_MOVIEPLAYER_)
+                            if (isHevcContent) {
+                                debug.logLevelMessage(LogLevel::LOG_INFO, L"Using native HEVC format with custom processing");
+                            }
+                        #endif
                     }
                 }
 
@@ -546,10 +546,99 @@ bool MoviePlayer::OpenMovie(const std::wstring& filePath)
     PropVariantClear(&var);
 
     // Log successful file opening
-#if defined(_DEBUG_MOVIEPLAYER_)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"Movie opened: " + filePath + L" Size: " + std::to_wstring(m_videoWidth) + L"x" + std::to_wstring(m_videoHeight));
-#endif
+    #if defined(_DEBUG_MOVIEPLAYER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"Movie opened: " + filePath + L" Size: " + std::to_wstring(m_videoWidth) + L"x" + std::to_wstring(m_videoHeight));
+    #endif
 
+        // Add this at the very end of OpenMovie() method, just before "return (m_hasVideo.load() || m_hasAudio.load());"
+#if defined(_DEBUG_MOVIEPLAYER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"=== MOVIE OPEN SUMMARY ===");
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"File: %s", filePath.c_str());
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"Video Dimensions: %dx%d", m_videoWidth, m_videoHeight);
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"Video Duration RAW: %lld", m_videoDuration);
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"Video Duration SECONDS: %.2f", ConvertMFTimeToSeconds(m_videoDuration));
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"Has Video: %s", m_hasVideo.load() ? L"YES" : L"NO");
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"Has Audio: %s", m_hasAudio.load() ? L"YES" : L"NO");
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"Texture Index: %d", m_videoTextureIndex);
+
+        // Test reading a sample to verify the stream works
+        DWORD streamFlags = 0;
+        LONGLONG timestamp = 0;
+        IMFSample* pTestSample = nullptr;
+
+        HRESULT hrTest = m_pSourceReader->ReadSample(
+            MF_SOURCE_READER_FIRST_VIDEO_STREAM,
+            0,
+            nullptr,
+            &streamFlags,
+            &timestamp,
+            &pTestSample
+        );
+
+        if (SUCCEEDED(hrTest) && pTestSample)
+        {
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"Stream test: SUCCESS - First sample readable");
+
+            // Get sample duration to help diagnose
+            LONGLONG sampleDuration = 0;
+            if (SUCCEEDED(pTestSample->GetSampleDuration(&sampleDuration)))
+            {
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"Sample duration: %lld", sampleDuration);
+            }
+
+            pTestSample->Release();
+        }
+        else
+        {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Stream test: FAILED - Cannot read samples");
+            LogMediaError(hrTest, L"Stream test failed");
+        }
+
+        // Try alternative method to get duration if main method failed
+        if (m_videoDuration == 0)
+        {
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Duration is zero, trying alternative methods...");
+
+            // Try getting duration from media source directly
+            IMFMediaSource* pMediaSource = nullptr;
+            IMFPresentationDescriptor* pPD = nullptr;
+
+            // This is a more complex approach but might work better
+            hr = MFCreateSourceReaderFromURL(filePath.c_str(), nullptr, &m_pSourceReader);
+            if (SUCCEEDED(hr))
+            {
+                PROPVARIANT var;
+                PropVariantInit(&var);
+
+                hr = m_pSourceReader->GetPresentationAttribute(
+                    MF_SOURCE_READER_MEDIASOURCE,
+                    MF_PD_DURATION,
+                    &var
+                );
+
+                if (SUCCEEDED(hr))
+                {
+                    if (var.vt == VT_UI8)
+                    {
+                        debug.logDebugMessage(LogLevel::LOG_INFO, L"Alternative duration method found: %lld", var.uhVal.QuadPart);
+                        m_videoDuration = var.uhVal.QuadPart;
+                    }
+                    else
+                    {
+                        debug.logDebugMessage(LogLevel::LOG_WARNING, L"Duration variant type: %d (expected %d)", var.vt, VT_UI8);
+                    }
+                }
+                else
+                {
+                    LogMediaError(hr, L"Alternative duration method failed");
+                }
+
+                PropVariantClear(&var);
+            }
+        }
+
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"========================");
+#endif
     return (m_hasVideo.load() || m_hasAudio.load());
 }
 
@@ -1476,34 +1565,83 @@ bool MoviePlayer::DetectVideoCodec(const std::wstring& filePath, std::wstring& c
 // Play the movie
 // ----------------------------------------------------------------------------------------------
 // Modified Play method - no longer starts a thread
+// Replace the existing Play() method with this enhanced version:
+// Replace the existing Play() method in MoviePlayer.cpp
 bool MoviePlayer::Play()
 {
+#if defined(_DEBUG_MOVIEPLAYER_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"MoviePlayer::Play() called");
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"Pre-check - Duration: %.2f, Dimensions: %dx%d, HasVideo: %s",
+        ConvertMFTimeToSeconds(m_videoDuration), m_videoWidth, m_videoHeight, m_hasVideo.load() ? L"YES" : L"NO");
+#endif
+
     // Thread-safe checks with atomic variables
     if (!m_pSourceReader)
     {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"MoviePlayer: No movie loaded");
+#if defined(_DEBUG_MOVIEPLAYER_)
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"MoviePlayer: No source reader available");
+#endif
         return false;
+    }
+
+    // Check if we have valid video streams
+    if (!m_hasVideo.load())
+    {
+#if defined(_DEBUG_MOVIEPLAYER_)
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"MoviePlayer: No video stream available");
+#endif
+        return false;
+    }
+
+    // Verify video dimensions
+    if (m_videoWidth == 0 || m_videoHeight == 0)
+    {
+#if defined(_DEBUG_MOVIEPLAYER_)
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"MoviePlayer: Invalid video dimensions: %dx%d", m_videoWidth, m_videoHeight);
+#endif
+        return false;
+    }
+
+    // TEMPORARY: Allow zero duration for testing
+    if (m_videoDuration == 0)
+    {
+#if defined(_DEBUG_MOVIEPLAYER_)
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"MoviePlayer: Video has no duration - proceeding anyway for testing");
+#endif
+        // Don't return false here - continue with playback attempt
     }
 
     // If already playing, do nothing
     if (m_isPlaying.load() && !m_isPaused.load())
+    {
+#if defined(_DEBUG_MOVIEPLAYER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"MoviePlayer: Already playing");
+#endif
         return true;
+    }
 
     // If paused, resume
     if (m_isPaused.load())
     {
         m_isPaused.store(false);
         m_isPlaying.store(true);
+
+#if defined(_DEBUG_MOVIEPLAYER_)
         debug.logLevelMessage(LogLevel::LOG_INFO, L"MoviePlayer: Playback resumed");
+#endif
         return true;
     }
 
     // Start playback
     m_isPlaying.store(true);
     m_isPaused.store(false);
-    m_lastFrameTime = std::chrono::steady_clock::now(); // Reset the frame timer
+    m_lastFrameTime = std::chrono::steady_clock::now();
 
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"MoviePlayer: Playback started");
+#if defined(_DEBUG_MOVIEPLAYER_)
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"MoviePlayer: Playback started - Duration: %.2f seconds, Dimensions: %dx%d, Playing: %s",
+        ConvertMFTimeToSeconds(m_videoDuration), m_videoWidth, m_videoHeight, m_isPlaying.load() ? L"TRUE" : L"FALSE");
+#endif
+
     return true;
 }
 

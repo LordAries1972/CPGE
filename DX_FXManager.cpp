@@ -20,17 +20,23 @@
 extern Debug debug;
 extern ThreadManager threadManager;
 
+// UPDATED: FXManager constructor with bIsRendering initialization
 FXManager::FXManager() : originalBlendState(nullptr), fadeBlendState(nullptr), originalRenderTarget(nullptr),
-fullscreenQuadVertexBuffer(nullptr), inputLayout(nullptr), vertexShader(nullptr), pixelShader(nullptr), bHasCleanedUp(false) {
+fullscreenQuadVertexBuffer(nullptr), inputLayout(nullptr), vertexShader(nullptr), pixelShader(nullptr),
+bHasCleanedUp(false), bIsRendering(false) {                                     // Initialize bIsRendering to false
+    // Constructor body remains the same
 }
-
 FXManager::~FXManager() {
     CleanUp();
 }
 
+// UPDATED: CleanUp function with bIsRendering reset
 void FXManager::CleanUp()
 {
     if (bHasCleanedUp) return;
+
+    // Reset rendering flag to prevent any pending render operations
+    bIsRendering.store(false);                                          // Ensure rendering flag is cleared
 
     if (fadeBlendState) { fadeBlendState->Release(); fadeBlendState = nullptr; }
     if (fullscreenQuadVertexBuffer) { fullscreenQuadVertexBuffer->Release(); fullscreenQuadVertexBuffer = nullptr; }
@@ -60,59 +66,115 @@ bool FXManager::IsFadeActive() const {
 }
 
 void FXManager::Initialize() {
-    if (&renderer == nullptr) return;
+    // Early validation to prevent crashes during initialization
+    if (bHasCleanedUp) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Cannot initialize - already cleaned up");
+        return;
+    }
 
-    WithDX11Renderer([this](std::shared_ptr<DX11Renderer> dx11) {
-        // Setup fullscreen quad rendering resources
-        struct Vertex {
-            XMFLOAT3 position;
-            XMFLOAT2 texcoord;
-        };
+    // Validate renderer pointer before proceeding
+    if (!(&renderer) || !renderer) {
+        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] Cannot initialize - renderer is null");
+        return;
+    }
 
-        Vertex quadVertices[] = {
-            { XMFLOAT3(-1.0f, 1.0f, 0.0f), XMFLOAT2(0.0f, 0.0f) },
-            { XMFLOAT3(1.0f, 1.0f, 0.0f), XMFLOAT2(1.0f, 0.0f) },
-            { XMFLOAT3(-1.0f, -1.0f, 0.0f), XMFLOAT2(0.0f, 1.0f) },
-            { XMFLOAT3(1.0f, -1.0f, 0.0f), XMFLOAT2(1.0f, 1.0f) }
-        };
+    // Additional validation for renderer state
+    if (!renderer->bIsInitialized.load()) {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] Renderer not fully initialized yet - deferring FXManager initialization");
+        return;
+    }
 
-        // Create blend state for fade effects
-        D3D11_BLEND_DESC blendDesc = {};
-        blendDesc.RenderTarget[0].BlendEnable = TRUE;
-        blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
-        blendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
-        blendDesc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
-        blendDesc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
-        blendDesc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
-        blendDesc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
-        blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
-        HRESULT hr = dx11->m_d3dDevice->CreateBlendState(&blendDesc, &fadeBlendState);
-        if (FAILED(hr)) {
-            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"FXManager: Failed to create the Faders Blend State.");
-            return;
-        }
+    try {
+        WithDX11Renderer([this](std::shared_ptr<DX11Renderer> dx11) {
+            // Validate DirectX 11 renderer and its components
+            if (!dx11) {
+                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] DirectX 11 renderer cast failed");
+                return;
+            }
 
-        D3D11_BUFFER_DESC vertexBufferDesc = {};
-        vertexBufferDesc.Usage = D3D11_USAGE_DEFAULT;
-        vertexBufferDesc.ByteWidth = sizeof(quadVertices);
-        vertexBufferDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+            if (!dx11->m_d3dDevice || !dx11->m_d3dContext) {
+                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] DirectX device or context is null");
+                return;
+            }
 
-        D3D11_SUBRESOURCE_DATA vertexData = {};
-        vertexData.pSysMem = quadVertices;
-        dx11->m_d3dDevice->CreateBuffer(&vertexBufferDesc, &vertexData, &fullscreenQuadVertexBuffer);
+            // Setup fullscreen quad rendering resources with error checking
+            struct Vertex {
+                XMFLOAT3 position;                                  // 3D position of vertex
+                XMFLOAT2 texcoord;                                  // Texture coordinates
+            };
 
-        // Load shaders
-        LoadFadeShaders();
+            // Define fullscreen quad vertices (triangle strip)
+            Vertex quadVertices[] = {
+                { XMFLOAT3(-1.0f, 1.0f, 0.0f), XMFLOAT2(0.0f, 0.0f) },   // Top-left vertex
+                { XMFLOAT3(1.0f, 1.0f, 0.0f), XMFLOAT2(1.0f, 0.0f) },    // Top-right vertex
+                { XMFLOAT3(-1.0f, -1.0f, 0.0f), XMFLOAT2(0.0f, 1.0f) },  // Bottom-left vertex
+                { XMFLOAT3(1.0f, -1.0f, 0.0f), XMFLOAT2(1.0f, 1.0f) }    // Bottom-right vertex
+            };
 
-        // Create constant buffer
-        D3D11_BUFFER_DESC cbDesc = {};
-        cbDesc.Usage = D3D11_USAGE_DYNAMIC;
-        cbDesc.ByteWidth = 64;
-//        cbDesc.ByteWidth = sizeof(XMFLOAT4);
-        cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-        cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-        dx11->m_d3dDevice->CreateBuffer(&cbDesc, nullptr, &constantBuffer);
-    });
+            // Create blend state for fade effects with comprehensive error checking
+            D3D11_BLEND_DESC blendDesc = {};
+            blendDesc.RenderTarget[0].BlendEnable = TRUE;                   // Enable blending for fade effects
+            blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;     // Source blend factor
+            blendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA; // Destination blend factor
+            blendDesc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;         // Blend operation
+            blendDesc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;      // Source alpha blend factor
+            blendDesc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;    // Destination alpha blend factor
+            blendDesc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;    // Alpha blend operation
+            blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL; // Enable all color channels
+
+            HRESULT hr = dx11->m_d3dDevice->CreateBlendState(&blendDesc, &fadeBlendState);
+            if (FAILED(hr)) {
+                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] Failed to create fade blend state - HRESULT: 0x" +
+                    std::to_wstring(hr));
+                return;
+            }
+
+            // Create vertex buffer for fullscreen quad with validation
+            D3D11_BUFFER_DESC vertexBufferDesc = {};
+            vertexBufferDesc.Usage = D3D11_USAGE_DEFAULT;                   // Default usage for GPU access
+            vertexBufferDesc.ByteWidth = sizeof(quadVertices);              // Size of vertex data
+            vertexBufferDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;          // Bind as vertex buffer
+
+            D3D11_SUBRESOURCE_DATA vertexData = {};
+            vertexData.pSysMem = quadVertices;                              // Pointer to vertex data
+
+            hr = dx11->m_d3dDevice->CreateBuffer(&vertexBufferDesc, &vertexData, &fullscreenQuadVertexBuffer);
+            if (FAILED(hr)) {
+                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] Failed to create fullscreen quad vertex buffer - HRESULT: 0x" +
+                    std::to_wstring(hr));
+                return;
+            }
+
+            // Load shaders with error checking
+            if (!LoadFadeShaders()) {
+                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] Failed to load fade shaders");
+                return;
+            }
+
+            // Create constant buffer for shader parameters with validation
+            D3D11_BUFFER_DESC cbDesc = {};
+            cbDesc.Usage = D3D11_USAGE_DYNAMIC;                             // Dynamic usage for frequent updates
+            cbDesc.ByteWidth = 64;                                          // Size aligned to 16-byte boundary
+            cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;                  // Bind as constant buffer
+            cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;                 // Allow CPU write access
+
+            hr = dx11->m_d3dDevice->CreateBuffer(&cbDesc, nullptr, &constantBuffer);
+            if (FAILED(hr)) {
+                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] Failed to create constant buffer - HRESULT: 0x" +
+                    std::to_wstring(hr));
+                return;
+            }
+
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Successfully initialized with DirectX 11 renderer");
+            });
+    }
+    catch (const std::exception& e) {
+        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] Exception during initialization: " +
+            std::wstring(e.what(), e.what() + strlen(e.what())));
+    }
+    catch (...) {
+        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] Unknown exception during initialization");
+    }
 }
 
 void FXManager::AddEffect(const FXItem& fxItem) {
@@ -132,37 +194,64 @@ void FXManager::AddEffect(const FXItem& fxItem) {
 void FXManager::StopAllFXForResize()
 {
 #if defined(_DEBUG_FXMANAGER_)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Stopping all FX effects for resize operation");
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] StopAllFXForResize() invoked");
 #endif
 
-    // Clear the saved state structure
-    SecureZeroMemory(&savedFXState, sizeof(ActiveFXState));
+    // FIXED: Use ThreadLockHelper for safe locking with timeout
+    ThreadLockHelper lock(threadManager, "fxmanager_stop_all_resize_lock", 5000);
+    if (!lock.IsLocked()) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Failed to acquire lock for StopAllFXForResize");
+        return;
+    }
 
     try {
-        // Check and stop starfield effect
-        if (starfieldID > 0) {
-            savedFXState.starfieldActive = true;                                // Remember starfield was active
-            savedFXState.starfieldID = starfieldID;                             // Save the starfield ID
-            StopStarfield();                                                    // Stop the starfield effect
-#if defined(_DEBUG_FXMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Starfield effect stopped for resize");
-#endif
-        }
+        // FIXED: Clear and properly initialize the saved state structure
+        savedFXState = ActiveFXState{};                                         // Use aggregate initialization to ensure all members are zeroed
 
-        // Stop all text scroller effects
-        // Note: This assumes we have a way to enumerate active text scrollers
-        // You may need to add this functionality to FXManager if not already present
-        for (int i = 1; i <= 10; ++i) {                                         // Check common text scroller IDs
+        // FIXED: Reserve capacity for vectors to prevent reallocation during push_back operations
+        savedFXState.textScrollerIDs.reserve(20);                               // Reserve space for text scroller IDs
+        savedFXState.activeScrollTextures.reserve(10);                          // Reserve space for scroll texture indices
+
+        // Check and stop starfield effect with proper validation
+        if (starfieldID > 0) {
             try {
-                StopTextScroller(i);                                            // Stop text scroller if active
-                savedFXState.textScrollerIDs.push_back(i);                      // Add to saved list
+                savedFXState.starfieldActive = true;                           // Remember starfield was active
+                savedFXState.starfieldID = starfieldID;                         // Save the starfield ID
+                StopStarfield();                                                // Stop the starfield effect
 #if defined(_DEBUG_FXMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[FXManager] Text scroller ID " + std::to_wstring(i) + L" stopped");
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Starfield effect stopped for resize");
 #endif
             }
-            catch (...) {
-                // Text scroller with this ID wasn't active, continue
-                continue;
+            catch (const std::exception& e) {
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Exception stopping starfield: " +
+                    std::wstring(e.what(), e.what() + strlen(e.what())));
+            }
+        }
+
+        // FIXED: Stop text scroller effects with proper error handling and bounds checking
+        // Instead of assuming IDs 1-10, iterate through actual active effects
+        std::vector<int> activeTextScrollerIDs;                                 // Collect active text scroller IDs first
+        activeTextScrollerIDs.reserve(10);                                      // Reserve space to prevent reallocations
+
+        // Pass 1: Identify active text scrollers without modifying anything
+        for (const auto& fx : effects) {
+            if (fx.type == FXType::TextScroller) {
+                activeTextScrollerIDs.push_back(fx.fxID);                       // Collect active text scroller IDs
+            }
+        }
+
+        // Pass 2: Stop the identified text scrollers
+        for (int textScrollerID : activeTextScrollerIDs) {
+            try {
+                StopTextScroller(textScrollerID);                               // Stop the specific text scroller
+                savedFXState.textScrollerIDs.push_back(textScrollerID);         // SAFE: Vector has reserved capacity
+#if defined(_DEBUG_FXMANAGER_)
+                debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[FXManager] Text scroller ID " + std::to_wstring(textScrollerID) + L" stopped");
+#endif
+            }
+            catch (const std::exception& e) {
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Exception stopping text scroller ID " +
+                    std::to_wstring(textScrollerID) + L": " + std::wstring(e.what(), e.what() + strlen(e.what())));
             }
         }
 
@@ -175,25 +264,48 @@ void FXManager::StopAllFXForResize()
 #endif
         }
 
-        // Stop scroll effects for common textures
-        BlitObj2DIndexType scrollTextures[] = {
+        // FIXED: Stop scroll effects using iterator-safe approach
+        // Define scroll textures to check
+        const std::vector<BlitObj2DIndexType> scrollTexturesToCheck = {
             BlitObj2DIndexType::IMG_SCROLLBG1,
             BlitObj2DIndexType::IMG_SCROLLBG2,
             BlitObj2DIndexType::IMG_SCROLLBG3
         };
 
-        for (auto textureIndex : scrollTextures) {
+        // Collect active scroll effects first, then stop them
+        std::vector<BlitObj2DIndexType> activeScrollTextures;
+        activeScrollTextures.reserve(scrollTexturesToCheck.size());
+
+        // Pass 1: Identify active scroll effects
+        for (BlitObj2DIndexType textureIndex : scrollTexturesToCheck) {
+            // Check if this texture has an active scroll effect
+            bool hasActiveScrollEffect = false;
+            for (const auto& fx : effects) {
+                if (fx.type == FXType::Scroller && fx.textureIndex == textureIndex) {
+                    hasActiveScrollEffect = true;
+                    break;
+                }
+            }
+
+            if (hasActiveScrollEffect) {
+                activeScrollTextures.push_back(textureIndex);                   // Collect active scroll texture
+            }
+        }
+
+        // Pass 2: Stop the identified scroll effects
+        for (BlitObj2DIndexType textureIndex : activeScrollTextures) {
             try {
                 StopScrollEffect(textureIndex);                                 // Stop scroll effect for this texture
-                savedFXState.activeScrollTextures.push_back(textureIndex);      // Save texture index
+                savedFXState.activeScrollTextures.push_back(textureIndex);      // SAFE: Vector has reserved capacity
 #if defined(_DEBUG_FXMANAGER_)
                 debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[FXManager] Scroll effect stopped for texture " +
-                    std::to_wstring(int(textureIndex)));
+                    std::to_wstring(static_cast<int>(textureIndex)));
 #endif
             }
-            catch (...) {
-                // Scroll effect wasn't active for this texture, continue
-                continue;
+            catch (const std::exception& e) {
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Exception stopping scroll effect for texture " +
+                    std::to_wstring(static_cast<int>(textureIndex)) + L": " +
+                    std::wstring(e.what(), e.what() + strlen(e.what())));
             }
         }
 
@@ -206,23 +318,37 @@ void FXManager::StopAllFXForResize()
 #endif
         }
 
-        // Check for active fade effects
-        if (IsFadeActive()) {
+        // Check for active fade effects without modifying the effects vector
+        bool fadeActive = false;
+        for (const auto& fx : effects) {
+            if (fx.type == FXType::ColorFader && fx.progress < 1.0f) {
+                fadeActive = true;
+                break;
+            }
+        }
+
+        if (fadeActive) {
             savedFXState.fadeEffectActive = true;                               // Mark that fade was active
 #if defined(_DEBUG_FXMANAGER_)
             debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Fade effect was active during resize");
 #endif
         }
 
+        // FIXED: Clear all effects using safe approach that doesn't invalidate iterators
+        std::vector<FXItem> tempEffects;                                        // Create temporary vector
+        tempEffects.swap(effects);                                              // Swap contents instead of clearing
+        // tempEffects destructor will clean up the old effects safely
+
 #if defined(_DEBUG_FXMANAGER_)
         debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] All FX effects successfully stopped for resize");
 #endif
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_FXMANAGER_)
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Exception stopping FX effects for resize: " +
             std::wstring(e.what(), e.what() + strlen(e.what())));
-#endif
+    }
+    catch (...) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Unknown exception stopping FX effects for resize");
     }
 }
 
@@ -262,118 +388,261 @@ void FXManager::RestartFXAfterResize()
     }
 }
 
-void FXManager::LoadFadeShaders() 
+bool FXManager::LoadFadeShaders()
 {
-    WithDX11Renderer([this](std::shared_ptr<DX11Renderer> dx11) 
-    {
+    // Early validation checks
+    if (bHasCleanedUp || threadManager.threadVars.bIsShuttingDown.load()) {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] LoadFadeShaders called after cleanup - aborting");
+        return false;
+    }
+
+    bool success = false;                                           // Track overall success status
+
+    try {
+        WithDX11Renderer([this, &success](std::shared_ptr<DX11Renderer> dx11)
+        {
+            // Validate DirectX 11 renderer and device
+            if (!dx11 || !dx11->m_d3dDevice) {
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Invalid DX11 renderer or device in LoadFadeShaders");
+                success = false;
+                return;
+            }
+
+            // Define vertex shader source code for fullscreen quad rendering
             const char* vsSource = R"(
-        struct VS_INPUT {
-            float3 position : POSITION;
-            float2 texcoord : TEXCOORD;
-        };
-        struct VS_OUTPUT {
-            float4 position : SV_POSITION;
-            float2 texcoord : TEXCOORD;
-        };
-        VS_OUTPUT main(VS_INPUT input) {
-            VS_OUTPUT output;
-            output.position = float4(input.position, 1.0f);
-            output.texcoord = input.texcoord;
-            return output;
-        })";
+            struct VS_INPUT {
+                float3 position : POSITION;                     // Input vertex position
+                float2 texcoord : TEXCOORD;                     // Input texture coordinates
+            };
+            struct VS_OUTPUT {
+                float4 position : SV_POSITION;                  // Output clip-space position
+                float2 texcoord : TEXCOORD;                     // Output texture coordinates
+            };
+            VS_OUTPUT main(VS_INPUT input) {
+                VS_OUTPUT output;
+                output.position = float4(input.position, 1.0f); // Transform to clip space
+                output.texcoord = input.texcoord;               // Pass through texture coordinates
+                return output;
+            })";
 
+            // Define pixel shader source code for fade color rendering
             const char* psSource = R"(
-        cbuffer FadeColorBuffer : register(b0) {
-            float4 fadeColor;
-        };
-        float4 main(float4 position : SV_POSITION, float2 texcoord : TEXCOORD) : SV_TARGET {
-            return fadeColor;
-        })";
+            cbuffer FadeColorBuffer : register(b0) {
+                float4 fadeColor;                               // Fade color from constant buffer
+            };
+            float4 main(float4 position : SV_POSITION, float2 texcoord : TEXCOORD) : SV_TARGET {
+                return fadeColor;                               // Output the fade color
+            })";
 
-        HRESULT hr = S_OK;
-        ID3DBlob * vsBlob = nullptr;
-        ID3DBlob * psBlob = nullptr;
-        ID3DBlob * errorBlob = nullptr;
+            HRESULT hr = S_OK;
+            ID3DBlob* vsBlob = nullptr;                             // Vertex shader blob
+            ID3DBlob* psBlob = nullptr;                             // Pixel shader blob
+            ID3DBlob* errorBlob = nullptr;                          // Error message blob
 
-        hr = D3DCompile(vsSource, strlen(vsSource), nullptr, nullptr, nullptr, "main", "vs_5_0", 0, 0, &vsBlob, &errorBlob);
-        if (FAILED(hr)) {
-            if (errorBlob) {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, std::wstring(L"FXManager: Vertex Shader Compilation Failed: ") + std::wstring((wchar_t*)errorBlob->GetBufferPointer()));
-                errorBlob->Release();
+            // Compile vertex shader with error checking
+            hr = D3DCompile(vsSource, strlen(vsSource), nullptr, nullptr, nullptr, "main", "vs_5_0", 0, 0, &vsBlob, &errorBlob);
+            if (FAILED(hr)) {
+                if (errorBlob) {
+                    // Convert error message to wide string for logging
+                    std::string errorStr(static_cast<const char*>(errorBlob->GetBufferPointer()), errorBlob->GetBufferSize());
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Vertex Shader Compilation Failed: " +
+                        std::wstring(errorStr.begin(), errorStr.end()));
+                    errorBlob->Release();
+                }
+                else {
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Vertex Shader Compilation Failed: Unknown error");
+                }
+                success = false;
+                return;
             }
 
-            return;
-        }
+            // Create vertex shader object with validation
+            hr = dx11->m_d3dDevice->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &vertexShader);
+            if (FAILED(hr)) {
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Failed to create vertex shader - HRESULT: 0x" +
+                    std::to_wstring(hr));
+                vsBlob->Release();
+                success = false;
+                return;
+            }
 
-        hr = dx11->m_d3dDevice->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &vertexShader);
-        if (FAILED(hr)) {
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"FXManager: Failed to create vertex shader.");
+            // Define input layout for vertex buffer
+            D3D11_INPUT_ELEMENT_DESC layout[] = {
+                { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,   D3D11_INPUT_PER_VERTEX_DATA, 0 },  // Position element
+                { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,    0, 12,  D3D11_INPUT_PER_VERTEX_DATA, 0 },  // Texture coordinate element
+            };
+
+            // Create input layout with error checking
+            hr = dx11->m_d3dDevice->CreateInputLayout(layout, ARRAYSIZE(layout), vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &inputLayout);
+            if (FAILED(hr)) {
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Failed to create input layout - HRESULT: 0x" +
+                    std::to_wstring(hr));
+                vsBlob->Release();
+                success = false;
+                return;
+            }
+
+            // Release vertex shader blob after input layout creation
             vsBlob->Release();
-            return;
-        }
 
-        D3D11_INPUT_ELEMENT_DESC layout[] = {
-            { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,   D3D11_INPUT_PER_VERTEX_DATA, 0 },
-            { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,    0, 12,  D3D11_INPUT_PER_VERTEX_DATA, 0 },
-        };
-
-        hr = dx11->m_d3dDevice->CreateInputLayout(layout, ARRAYSIZE(layout), vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &inputLayout);
-        vsBlob->Release();
-        if (FAILED(hr)) {
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"FXManager: Failed to create input layout.");
-            return;
-        }
-
-        hr = D3DCompile(psSource, strlen(psSource), nullptr, nullptr, nullptr, "main", "ps_5_0", 0, 0, &psBlob, &errorBlob);
-        if (FAILED(hr)) {
-            if (errorBlob) {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, std::wstring(L"FXManager: Pixel Shader Compilation Failed: ") + std::wstring((wchar_t*)errorBlob->GetBufferPointer()));
-                errorBlob->Release();
+            // Compile pixel shader with error checking
+            hr = D3DCompile(psSource, strlen(psSource), nullptr, nullptr, nullptr, "main", "ps_5_0", 0, 0, &psBlob, &errorBlob);
+            if (FAILED(hr)) {
+                if (errorBlob) {
+                    // Convert error message to wide string for logging
+                    std::string errorStr(static_cast<const char*>(errorBlob->GetBufferPointer()), errorBlob->GetBufferSize());
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Pixel Shader Compilation Failed: " +
+                        std::wstring(errorStr.begin(), errorStr.end()));
+                    errorBlob->Release();
+                }
+                else {
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Pixel Shader Compilation Failed: Unknown error");
+                }
+                success = false;
+                return;
             }
-            return;
-        }
 
-        hr = dx11->m_d3dDevice->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &pixelShader);
-        psBlob->Release();
-        if (FAILED(hr)) {
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"FXManager Failed to create pixel shader.");
-            return;
-        }
+            // Create pixel shader object with validation
+            hr = dx11->m_d3dDevice->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &pixelShader);
+            if (FAILED(hr)) {
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Failed to create pixel shader - HRESULT: 0x" +
+                    std::to_wstring(hr));
+                psBlob->Release();
+                success = false;
+                return;
+            }
+
+            // Release pixel shader blob after shader creation
+            psBlob->Release();
+
+            // Mark successful completion
+            success = true;
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Successfully compiled and loaded fade shaders");
         });
+    }
+    catch (const std::exception& e) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Exception in LoadFadeShaders: " +
+            std::wstring(e.what(), e.what() + strlen(e.what())));
+        success = false;
+    }
+    catch (...) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Unknown exception in LoadFadeShaders");
+        success = false;
+    }
 
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"FXManager: Successfully compiled and loaded fade shaders.");
+    return success;                                                 // Return success status
 }
 
 void FXManager::ApplyColorFader(FXItem& fxItem) {
+    // Early validation checks to prevent crashes
+    if (bHasCleanedUp || threadManager.threadVars.bIsShuttingDown.load()) {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] ApplyColorFader called after cleanup - aborting");
+        return;
+    }
+
+    // Validate the FX item parameters
+    if (fxItem.duration <= 0.0f) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Invalid duration in ApplyColorFader - aborting");
+        fxItem.progress = 1.0f;                                     // Mark as completed to remove it
+        return;
+    }
+
+    // Validate color values to prevent DirectX crashes
+    if (fxItem.targetColor.x < 0.0f || fxItem.targetColor.x > 1.0f ||
+        fxItem.targetColor.y < 0.0f || fxItem.targetColor.y > 1.0f ||
+        fxItem.targetColor.z < 0.0f || fxItem.targetColor.z > 1.0f ||
+        fxItem.targetColor.w < 0.0f || fxItem.targetColor.w > 1.0f) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Invalid color values in ApplyColorFader - clamping");
+        // Clamp invalid color values to valid range
+        fxItem.targetColor.x = std::max(0.0f, std::min(1.0f, fxItem.targetColor.x));
+        fxItem.targetColor.y = std::max(0.0f, std::min(1.0f, fxItem.targetColor.y));
+        fxItem.targetColor.z = std::max(0.0f, std::min(1.0f, fxItem.targetColor.z));
+        fxItem.targetColor.w = std::max(0.0f, std::min(1.0f, fxItem.targetColor.w));
+    }
+
     auto now = std::chrono::steady_clock::now();
 
+    // Initialize lastUpdate if not set to prevent invalid time calculations
     if (fxItem.lastUpdate.time_since_epoch().count() == 0)
         fxItem.lastUpdate = fxItem.startTime;
 
+    // Calculate elapsed time since effect started
+    float totalElapsed = std::chrono::duration<float>(now - fxItem.startTime).count();
     float elapsedSinceLastUpdate = std::chrono::duration<float>(now - fxItem.lastUpdate).count();
-    bool shouldUpdate = (elapsedSinceLastUpdate >= fxItem.delay);
+
+    // Validate time calculations to prevent infinite or negative values
+    if (totalElapsed < 0.0f || elapsedSinceLastUpdate < 0.0f) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Invalid time calculation in ApplyColorFader - resetting");
+        fxItem.startTime = now;                                     // Reset start time
+        fxItem.lastUpdate = now;                                    // Reset last update time
+        fxItem.progress = 0.0f;                                     // Reset progress
+        return;
+    }
+
+    // FIXED: Ensure progress calculation accounts for total elapsed time, not just updates
+    bool shouldUpdate = (elapsedSinceLastUpdate >= fxItem.delay) || (totalElapsed >= fxItem.duration);
 
     if (shouldUpdate) {
         fxItem.lastUpdate = now;
-        fxItem.progress += fxItem.delay / fxItem.duration;
-        if (fxItem.progress >= 1.0f) fxItem.progress = 1.0f;
+
+        // FIXED: Calculate progress based on total time, ensuring it reaches 1.0f
+        if (totalElapsed >= fxItem.duration) {
+            fxItem.progress = 1.0f;                                 // Ensure completion
+        }
+        else {
+            fxItem.progress = totalElapsed / fxItem.duration;       // Calculate based on total elapsed time
+        }
+
+        // Clamp progress to valid range to prevent shader errors
+        fxItem.progress = std::max(0.0f, std::min(1.0f, fxItem.progress));
     }
 
+    // Calculate effective progress based on fade direction
     float effectiveProgress = fxItem.progress;
     if (fxItem.subtype == FXSubType::FadeToBackground) {
         effectiveProgress = 1.0f - fxItem.progress;
     }
 
+    // Create final fade color with validated alpha component
     XMFLOAT4 fadeColor = fxItem.targetColor;
-    fadeColor.w = effectiveProgress;
+    fadeColor.w = std::max(0.0f, std::min(1.0f, effectiveProgress)); // Ensure valid alpha range
 
-    WithDX11Renderer([this](std::shared_ptr<DX11Renderer> dx11)
-    {
-       dx11->m_d3dContext->OMSetBlendState(fadeBlendState, nullptr, 0xffffffff);
-       dx11->m_d3dContext->IASetInputLayout(inputLayout);
-    });
+    // Validate renderer before attempting DirectX operations
+    if (!(&renderer) || !renderer) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Renderer is null in ApplyColorFader - aborting");
+        return;
+    }
 
-    RenderFullScreenQuad(fadeColor);
+    // Safe DirectX operations with error checking
+    try {
+        WithDX11Renderer([this, fadeColor](std::shared_ptr<DX11Renderer> dx11)
+        {
+            // Additional validation for DirectX 11 renderer
+            if (!dx11 || !dx11->m_d3dContext || !fadeBlendState || !inputLayout) {
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Invalid DirectX resources in ApplyColorFader");
+                return;
+            }
+
+            // Set blend state and input layout with error checking
+            dx11->m_d3dContext->OMSetBlendState(fadeBlendState, nullptr, 0xffffffff);
+            dx11->m_d3dContext->IASetInputLayout(inputLayout);
+
+            #if defined(_DEBUG_FXMANAGER_)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[FXManager] Applying fade color: R=%.2f G=%.2f B=%.2f A=%.2f",
+                    fadeColor.x, fadeColor.y, fadeColor.z, fadeColor.w);
+            #endif
+        });
+
+        // Render the fullscreen quad with validated color
+        RenderFullScreenQuad(fadeColor);
+    }
+    catch (const std::exception& e) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Exception in ApplyColorFader: " +
+            std::wstring(e.what(), e.what() + strlen(e.what())));
+
+        // Mark effect as completed to remove it from processing
+        fxItem.progress = 1.0f;
+    }
 }
 
 void FXManager::SaveRenderState() {
@@ -444,9 +713,39 @@ void FXManager::RestoreRenderState() {
     });
 }
 
+// -------------------------------------------------------------------------------------------------------------
+// RemoveCompletedEffects - Safely removes completed FX effects using two-pass approach
+//
+// This function uses a completely safe two-pass method to avoid any iterator invalidation issues
+// Pass 1: Identify completed effects by index
+// Pass 2: Remove effects in reverse order by index
+// Parameters: None
+// Returns: None
+// -------------------------------------------------------------------------------------------------------------
 void FXManager::RemoveCompletedEffects() {
+    // Use ThreadLockHelper for safe locking to prevent crashes during vector operations
+    ThreadLockHelper lock(threadManager, "fxmanager_remove_effects_lock", 1000);
+    if (!lock.IsLocked()) {
+        // If we can't acquire the lock, skip this frame to prevent crashes
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] Failed to acquire lock for RemoveCompletedEffects - skipping frame");
+        return;
+    }
+
+    // Early exit if vector is empty to prevent unnecessary processing
+    if (effects.empty()) {
+        return;
+    }
+
     auto now = std::chrono::steady_clock::now();                   // Get current time
-    effects.erase(std::remove_if(effects.begin(), effects.end(), [now](const FXItem& fx) {
+
+    // FIXED: Use two-pass approach to completely avoid iterator invalidation
+    // Pass 1: Collect indices of effects to remove (scan forward, no modification)
+    std::vector<size_t> indicesToRemove;                          // Store indices of effects to remove
+    indicesToRemove.reserve(effects.size());                       // Reserve space to avoid reallocations
+
+    for (size_t i = 0; i < effects.size(); ++i) {
+        const FXItem& fx = effects[i];                             // Get reference to current effect
+
         // Check for timeout-based completion
         bool timedOut = std::chrono::duration<float>(now - fx.startTime).count() >= fx.timeout;
 
@@ -456,34 +755,156 @@ void FXManager::RemoveCompletedEffects() {
         // Special handling for text scrollers that should loop (consistent type)
         if (fx.type == FXType::TextScroller && fx.subtype == FXSubType::TXT_SCROLL_CONSISTANT) {
             // Only remove if duration is not infinite and timed out
-            return fx.duration != FLT_MAX && timedOut;
+            if (fx.duration != FLT_MAX && timedOut) {
+                indicesToRemove.push_back(i);                      // Add index to removal list
+#if defined(_DEBUG_FXMANAGER_)
+                debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[FXManager] Marked consistent text scroller at index %zu for removal", i);
+#endif
+            }
         }
-
         // For all other effects, remove if timed out or progress completed
-        return timedOut || progressCompleted;
-        }), effects.end());
+        else if (timedOut || progressCompleted) {
+            indicesToRemove.push_back(i);                          // Add index to removal list
+#if defined(_DEBUG_FXMANAGER_)
+            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[FXManager] Marked effect at index %zu for removal - Type: %d, Progress: %.2f",
+                i, static_cast<int>(fx.type), fx.progress);
+#endif
+        }
+    }
+
+    // Pass 2: Remove effects in reverse order to maintain index validity
+    // Process removal list in reverse order so that removing higher indices doesn't affect lower indices
+    for (auto it = indicesToRemove.rbegin(); it != indicesToRemove.rend(); ++it) {
+        size_t indexToRemove = *it;                                // Get index to remove
+
+        // Verify index is still valid (safety check)
+        if (indexToRemove < effects.size()) {
+            effects.erase(effects.begin() + indexToRemove);        // Remove effect at specified index
+#if defined(_DEBUG_FXMANAGER_)
+            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[FXManager] Removed effect at index %zu", indexToRemove);
+#endif
+        }
+    }
+
+    // Log summary if any effects were removed
+    if (!indicesToRemove.empty()) {
+#if defined(_DEBUG_FXMANAGER_)
+        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[FXManager] Successfully removed %zu completed effects", indicesToRemove.size());
+#endif
+    }
 }
 
 void FXManager::RenderFullScreenQuad(const XMFLOAT4& color) {
-    WithDX11Renderer([this, color](std::shared_ptr<DX11Renderer> dx11)
+    // Early validation checks to prevent crashes
+    if (bHasCleanedUp || threadManager.threadVars.bIsShuttingDown.load()) {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] RenderFullScreenQuad called after cleanup - aborting");
+        return;
+    }
+
+    // Validate color parameters to prevent DirectX crashes
+    if (std::isnan(color.x) || std::isnan(color.y) || std::isnan(color.z) || std::isnan(color.w) ||
+        std::isinf(color.x) || std::isinf(color.y) || std::isinf(color.z) || std::isinf(color.w)) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Invalid color values (NaN/Inf) in RenderFullScreenQuad - aborting");
+        return;
+    }
+
+    // Clamp color values to valid DirectX range
+    XMFLOAT4 validatedColor = {
+        std::max(0.0f, std::min(1.0f, color.x)),                   // Red component
+        std::max(0.0f, std::min(1.0f, color.y)),                   // Green component
+        std::max(0.0f, std::min(1.0f, color.z)),                   // Blue component
+        std::max(0.0f, std::min(1.0f, color.w))                    // Alpha component
+    };
+
+    // Validate renderer before attempting DirectX operations
+    if (!(&renderer) || !renderer) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Renderer is null in RenderFullScreenQuad - aborting");
+        return;
+    }
+
+    // Safe DirectX operations with comprehensive error checking
+    try 
     {
-        D3D11_MAPPED_SUBRESOURCE mappedResource;
-        dx11->m_d3dContext->Map(constantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
-        *(XMFLOAT4*)mappedResource.pData = color;
-        dx11->m_d3dContext->Unmap(constantBuffer, 0);
+        WithDX11Renderer([this, validatedColor](std::shared_ptr<DX11Renderer> dx11)
+        {
+            // Validate all required DirectX resources before use
+            if (!dx11 || !dx11->m_d3dContext) {
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Invalid DX11 renderer or context in RenderFullScreenQuad");
+                return;
+            }
 
-        UINT stride = sizeof(XMFLOAT3) + sizeof(XMFLOAT2);
-        UINT offset = 0;
-        dx11->m_d3dContext->IASetInputLayout(inputLayout);
-        dx11->m_d3dContext->PSSetConstantBuffers(0, 1, &constantBuffer);
-        dx11->m_d3dContext->IASetVertexBuffers(0, 1, &fullscreenQuadVertexBuffer, &stride, &offset);
-        dx11->m_d3dContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+            if (!constantBuffer) {
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Constant buffer is null in RenderFullScreenQuad");
+                return;
+            }
 
-        dx11->m_d3dContext->VSSetShader(vertexShader, nullptr, 0);
-        dx11->m_d3dContext->PSSetShader(pixelShader, nullptr, 0);
+            if (!fullscreenQuadVertexBuffer) {
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Vertex buffer is null in RenderFullScreenQuad");
+                return;
+            }
 
-        dx11->m_d3dContext->Draw(4, 0);
-    });
+            if (!inputLayout || !vertexShader || !pixelShader) {
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Required shaders or input layout not initialized in RenderFullScreenQuad");
+                return;
+            }
+
+            // Map constant buffer and update color data with error checking
+            D3D11_MAPPED_SUBRESOURCE mappedResource;
+            HRESULT hr = dx11->m_d3dContext->Map(constantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
+            if (FAILED(hr)) {
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Failed to map constant buffer in RenderFullScreenQuad");
+                return;
+            }
+
+            // Safely copy validated color data to constant buffer
+            if (mappedResource.pData) {
+                memcpy(mappedResource.pData, &validatedColor, sizeof(XMFLOAT4));
+            }
+            else {
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Mapped constant buffer data is null");
+                dx11->m_d3dContext->Unmap(constantBuffer, 0);
+                return;
+            }
+
+            // Unmap the constant buffer
+            dx11->m_d3dContext->Unmap(constantBuffer, 0);
+
+            // Set up rendering pipeline with validated parameters
+            UINT stride = sizeof(XMFLOAT3) + sizeof(XMFLOAT2);      // Vertex stride calculation
+            UINT offset = 0;                                        // Starting offset
+
+            // Set input layout with validation
+            dx11->m_d3dContext->IASetInputLayout(inputLayout);
+
+            // Set constant buffer to pixel shader with validation
+            dx11->m_d3dContext->PSSetConstantBuffers(0, 1, &constantBuffer);
+
+            // Set vertex buffer with validation
+            dx11->m_d3dContext->IASetVertexBuffers(0, 1, &fullscreenQuadVertexBuffer, &stride, &offset);
+
+            // Set primitive topology for triangle strip
+            dx11->m_d3dContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+
+            // Set shaders with validation
+            dx11->m_d3dContext->VSSetShader(vertexShader, nullptr, 0);
+            dx11->m_d3dContext->PSSetShader(pixelShader, nullptr, 0);
+
+            // Draw the fullscreen quad (4 vertices for triangle strip)
+            dx11->m_d3dContext->Draw(4, 0);
+
+            #if defined(_DEBUG_FXMANAGER_)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[FXManager] Successfully rendered fullscreen quad with color: R=%.2f G=%.2f B=%.2f A=%.2f",
+                    validatedColor.x, validatedColor.y, validatedColor.z, validatedColor.w);
+            #endif
+        });
+    }
+    catch (const std::exception& e) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Exception in RenderFullScreenQuad: " +
+            std::wstring(e.what(), e.what() + strlen(e.what())));
+    }
+    catch (...) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Unknown exception in RenderFullScreenQuad");
+    }
 }
 
 void FXManager::FadeToColor(XMFLOAT4 color, float duration, float delay) {
@@ -506,18 +927,106 @@ void FXManager::FadeToWhite(float duration, float delay) {
     FadeToColor(XMFLOAT4(1, 1, 1, 1), duration, delay);
 }
 
+// -------------------------------------------------------------------------------------------------------------
+// FadeOutThenCallback - Creates a fade effect that executes a callback when complete
+// FIXED: Proper callback identification using unique FX ID instead of object reference comparison
+// FIXED: Added thread safety with mutex protection
+// FIXED: Added proper error handling and null callback checking
+// Parameters:
+//   color - Target fade color (RGBA)
+//   duration - Duration of the fade effect in seconds
+//   delay - Delay before starting the fade effect
+//   callback - Function to execute when fade completes
+// -------------------------------------------------------------------------------------------------------------
 void FXManager::FadeOutThenCallback(XMFLOAT4 color, float duration, float delay, std::function<void()> callback) {
-    FXItem fadeEffect;
-    fadeEffect.type = FXType::ColorFader;
-    fadeEffect.subtype = FXSubType::FadeToTargetColor;
-    fadeEffect.duration = duration;
-    fadeEffect.delay = delay;
-    fadeEffect.timeout = duration + 1.0f;
-    fadeEffect.progress = 0.0f;
-    fadeEffect.targetColor = color;
+#if defined(_DEBUG_FXMANAGER_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] FadeOutThenCallback() invoked.");
+#endif
 
-    AddEffect(fadeEffect);
-    pendingCallbacks.push_back({ fadeEffect, callback });
+    // Validate callback parameter to prevent null function crashes
+    if (!callback) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] FadeOutThenCallback: Null callback provided - operation aborted");
+        return;
+    }
+
+    // Validate color parameters to prevent DirectX crashes
+    if (std::isnan(color.x) || std::isnan(color.y) || std::isnan(color.z) || std::isnan(color.w) ||
+        std::isinf(color.x) || std::isinf(color.y) || std::isinf(color.z) || std::isinf(color.w)) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] FadeOutThenCallback: Invalid color values (NaN/Inf) - operation aborted");
+        return;
+    }
+
+    // Validate timing parameters
+    if (duration <= 0.0f || delay < 0.0f) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] FadeOutThenCallback: Invalid timing parameters - operation aborted");
+        return;
+    }
+
+    // Use ThreadLockHelper for safe locking
+    ThreadLockHelper lock(threadManager, "fxmanager_callback_lock", 1000);
+    if (!lock.IsLocked()) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Failed to acquire lock for FadeOutThenCallback");
+        return;
+    }
+
+    try {
+        // Create fade effect with proper initialization and validation
+        FXItem fadeEffect;
+        fadeEffect.type = FXType::ColorFader;                           // Set effect type to ColorFader
+        fadeEffect.subtype = FXSubType::FadeToTargetColor;              // Set subtype to target color fade
+        fadeEffect.fxID = static_cast<int>(effects.size()) + 1000;     // Generate unique FX ID (offset to avoid conflicts)
+        fadeEffect.duration = duration;                                 // Set fade duration
+        fadeEffect.delay = delay;                                       // Set delay before fade starts
+        fadeEffect.timeout = duration + delay + 2.0f;                  // Set timeout longer than total effect time
+        fadeEffect.progress = 0.0f;                                     // Initialize progress to zero
+        fadeEffect.targetColor = color;                                 // Set target fade color
+        fadeEffect.startTime = std::chrono::steady_clock::now();        // Record start time
+        fadeEffect.lastUpdate = fadeEffect.startTime;                   // Initialize last update time
+
+        // Validate that the FX ID is unique
+        bool idExists = false;
+        for (const auto& existingFx : effects) {
+            if (existingFx.fxID == fadeEffect.fxID) {
+                idExists = true;
+                break;
+            }
+        }
+
+        // If ID exists, generate a new one
+        if (idExists) {
+            fadeEffect.fxID = static_cast<int>(effects.size()) + static_cast<int>(pendingCallbacks.size()) + 2000;
+#if defined(_DEBUG_FXMANAGER_)
+            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[FXManager] Generated alternate FX ID: " + std::to_wstring(fadeEffect.fxID));
+#endif
+        }
+
+        // Add effect to effects vector
+        AddEffect(fadeEffect);
+
+        // ENHANCED: Create callback entry using the new constructor for better safety
+        CallbackEntry callbackEntry(fadeEffect.fxID, callback);        // Use explicit constructor
+
+        // Additional validation for the callback entry
+        if (callbackEntry.fxID != fadeEffect.fxID) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Callback entry FX ID mismatch - operation aborted");
+            return;
+        }
+
+        // Add callback to pending callbacks vector
+        pendingCallbacks.push_back(std::move(callbackEntry));          // Use move semantics for efficiency
+
+#if defined(_DEBUG_FXMANAGER_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[FXManager] FadeOutThenCallback created: FXID=%d, Duration=%.2f, Delay=%.2f, CallbackCount=%zu",
+            fadeEffect.fxID, duration, delay, pendingCallbacks.size());
+#endif
+    }
+    catch (const std::exception& e) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Exception in FadeOutThenCallback: " +
+            std::wstring(e.what(), e.what() + strlen(e.what())));
+    }
+    catch (...) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Unknown exception in FadeOutThenCallback");
+    }
 }
 
 void FXManager::FadeOutInSequence(XMFLOAT4 fadeOutColor, XMFLOAT4 fadeInColor, float duration, float delay, std::function<void()> midpointCallback) {
@@ -938,53 +1447,223 @@ void FXManager::RenderParticles(FXItem& fxItem)
 }
 
 // This is the Renderer that is used for the 3D Rendering operations.
+// COMPLETE: Enhanced FXManager::Render() function with comprehensive safety and error handling
+// File: DX_FXManager.cpp
+// Replace the entire Render() function (around lines 1240-1400)
+
 void FXManager::Render() {
-    if ((&renderer == nullptr) || effects.empty() || threadManager.threadVars.bIsShuttingDown) return;
+    // CRITICAL: Early validation checks to prevent crashes during rendering
+    if (bHasCleanedUp || threadManager.threadVars.bIsShuttingDown.load()) {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] Render called after cleanup or during shutdown - aborting");
+        return;
+    }
 
-    bIsRendering = true;
-    SaveRenderState();
+    // Validate renderer before proceeding
+    if (!(&renderer) || !renderer) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Renderer is null in Render() - aborting");
+        return;
+    }
 
-    static auto lastRenderTime = std::chrono::steady_clock::now();
-    auto now = std::chrono::steady_clock::now();
-    float deltaTime = std::chrono::duration<float>(now - lastRenderTime).count();
-    lastRenderTime = now;
+    // Check if effects vector is empty to avoid unnecessary processing
+    if (effects.empty() && pendingCallbacks.empty()) {
+        return;                                                         // Nothing to render, exit early
+    }
 
-    // Update our starfield effect (if any are active)
-    for (auto& fx : effects) {
-        if (fx.type == FXType::Starfield) {
-            UpdateStarfield(deltaTime);
+    // Prevent recursive rendering calls
+    if (bIsRendering.load()) {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] Recursive render call detected - skipping");
+        return;
+    }
+
+    // Set rendering flag to prevent recursive calls
+    bIsRendering.store(true);
+
+    try {
+        // Save render state before making any changes
+        SaveRenderState();
+
+        // Get timing information for delta time calculations
+        static auto lastRenderTime = std::chrono::steady_clock::now();
+        auto now = std::chrono::steady_clock::now();
+        float deltaTime = std::chrono::duration<float>(now - lastRenderTime).count();
+
+        // Clamp delta time to prevent huge jumps if frame rate drops
+        deltaTime = std::min(deltaTime, 0.1f);                         // Maximum 100ms delta time
+        lastRenderTime = now;
+
+        // Update our starfield effect (if any are active)
+        for (auto& fx : effects) {
+            if (fx.type == FXType::Starfield) {
+                UpdateStarfield(deltaTime);
+            }
+        }
+
+        // Process all active effects
+        for (auto& fx : effects) {
+            // Skip processing if effect is invalid or system is shutting down
+            if (threadManager.threadVars.bIsShuttingDown.load()) {
+                break;                                                  // Exit loop if shutting down
+            }
+
+            switch (fx.type) {
+            case FXType::ColorFader:
+                ApplyColorFader(fx);
+                break;
+
+            default:
+                // Log unknown effect types for debugging
+#if defined(_DEBUG_FXMANAGER_)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] Unknown effect type: " + std::to_wstring(static_cast<int>(fx.type)));
+#endif
+                break;
+            }
+        }
+
+        // FIXED: Process pending callbacks with safe iterator handling and thread safety
+        if (!pendingCallbacks.empty()) {
+            // Use ThreadLockHelper for safe callback processing
+            ThreadLockHelper callbackLock(threadManager, "fxmanager_callback_process_lock", 500);
+            if (callbackLock.IsLocked()) {
+                auto currentTime = std::chrono::steady_clock::now();    // Get current time for timeout checking
+
+                // FIXED: Use safe two-pass approach to avoid iterator invalidation
+                // Pass 1: Identify callbacks to execute and mark them
+                std::vector<size_t> callbacksToExecute;                 // Store indices of callbacks to execute
+                std::vector<size_t> callbacksToRemove;                  // Store indices of callbacks to remove
+
+                callbacksToExecute.reserve(pendingCallbacks.size());    // Reserve space to avoid reallocations
+                callbacksToRemove.reserve(pendingCallbacks.size());     // Reserve space to avoid reallocations
+
+                // Scan all callbacks to determine which ones need processing
+                for (size_t i = 0; i < pendingCallbacks.size(); ++i) {
+                    CallbackEntry& entry = pendingCallbacks[i];         // Get reference to callback entry
+
+                    // Check for timeout (callbacks older than 30 seconds are removed to prevent memory leaks)
+                    auto age = std::chrono::duration<float>(currentTime - entry.creationTime).count();
+                    if (age > 30.0f) {
+                        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] Callback timeout - removing stale callback for FXID: " + std::to_wstring(entry.fxID));
+                        callbacksToRemove.push_back(i);                 // Mark for removal
+                        continue;
+                    }
+
+                    // Skip if already executed to prevent double execution
+                    if (entry.isExecuted) {
+                        callbacksToRemove.push_back(i);                 // Mark for removal
+                        continue;
+                    }
+
+                    // Check if the corresponding effect has completed
+                    bool effectCompleted = false;
+                    for (const auto& fx : effects) {
+                        if (fx.fxID == entry.fxID && fx.progress >= 1.0f) {
+                            effectCompleted = true;
+                            break;
+                        }
+                    }
+
+                    // Mark callback for execution if effect is completed
+                    if (effectCompleted) {
+                        callbacksToExecute.push_back(i);                // Mark for execution
+                    }
+                }
+
+                // Pass 2: Execute marked callbacks safely
+                for (size_t index : callbacksToExecute) {
+                    // Validate index is still valid (safety check)
+                    if (index < pendingCallbacks.size()) {
+                        CallbackEntry& entry = pendingCallbacks[index]; // Get reference to callback entry
+
+                        // Double-check the callback hasn't been executed already
+                        if (!entry.isExecuted && entry.callback) {
+                            try {
+                                entry.callback();                       // Execute the callback function
+                                entry.isExecuted = true;                // Mark as executed
+                                callbacksToRemove.push_back(index);     // Mark for removal
+#if defined(_DEBUG_FXMANAGER_)
+                                debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Callback executed successfully for FXID: " + std::to_wstring(entry.fxID));
+#endif
+                            }
+                            catch (const std::exception& e) {
+                                // Handle callback execution errors gracefully
+                                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Callback execution failed for FXID: " + std::to_wstring(entry.fxID) +
+                                    L" - Error: " + std::wstring(e.what(), e.what() + strlen(e.what())));
+                                entry.isExecuted = true;                // Mark as executed to prevent retry
+                                callbacksToRemove.push_back(index);     // Mark for removal
+                            }
+                            catch (...) {
+                                // Handle unknown exceptions
+                                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Unknown exception in callback execution for FXID: " + std::to_wstring(entry.fxID));
+                                entry.isExecuted = true;                // Mark as executed to prevent retry
+                                callbacksToRemove.push_back(index);     // Mark for removal
+                            }
+                        }
+                    }
+                }
+
+                // Pass 3: Remove processed callbacks in reverse order to maintain index validity
+                if (!callbacksToRemove.empty()) {
+                    // Sort indices in descending order to remove from back to front
+                    std::sort(callbacksToRemove.begin(), callbacksToRemove.end(), std::greater<size_t>());
+
+                    // Remove duplicates that might have been added multiple times
+                    callbacksToRemove.erase(std::unique(callbacksToRemove.begin(), callbacksToRemove.end()), callbacksToRemove.end());
+
+                    // Remove callbacks in reverse order to preserve index validity
+                    for (size_t index : callbacksToRemove) {
+                        // Validate index is still valid before removal
+                        if (index < pendingCallbacks.size()) {
+                            pendingCallbacks.erase(pendingCallbacks.begin() + index);   // Remove callback at specified index
+#if defined(_DEBUG_FXMANAGER_)
+                            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[FXManager] Removed callback at index %zu", index);
+#endif
+                        }
+                    }
+
+#if defined(_DEBUG_FXMANAGER_)
+                    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[FXManager] Processed " + std::to_wstring(callbacksToExecute.size()) +
+                        L" callbacks, removed " + std::to_wstring(callbacksToRemove.size()) + L" entries");
+#endif
+                }
+            }
+            else {
+#if defined(_DEBUG_FXMANAGER_)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] Could not acquire callback processing lock - skipping frame");
+#endif
+            }
+        }
+
+        // Remove completed effects to prevent memory leaks
+        RemoveCompletedEffects();
+
+        // Restore render state after processing
+        RestoreRenderState();
+    }
+    catch (const std::exception& e) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Exception in Render(): " +
+            std::wstring(e.what(), e.what() + strlen(e.what())));
+
+        // Attempt to restore render state even after exception
+        try {
+            RestoreRenderState();
+        }
+        catch (...) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Failed to restore render state after exception");
+        }
+    }
+    catch (...) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Unknown exception in Render()");
+
+        // Attempt to restore render state even after exception
+        try {
+            RestoreRenderState();
+        }
+        catch (...) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Failed to restore render state after unknown exception");
         }
     }
 
-    for (auto& fx : effects)
-    {
-        switch (fx.type)
-        {
-        case FXType::ColorFader:
-            ApplyColorFader(fx);
-            break;
-
-        default:
-            break;
-        }
-    }
-
-    for (auto it = pendingCallbacks.begin(); it != pendingCallbacks.end();)
-    {
-        if (it->first.progress >= 1.0f)
-        {
-            it->second();
-            it = pendingCallbacks.erase(it);
-        }
-        else
-        {
-            ++it;
-        }
-    }
-
-    RemoveCompletedEffects();
-    RestoreRenderState();
-    bIsRendering = false;
+    // Clear rendering flag
+    bIsRendering.store(false);
 }
 
 // Use for 2D Rendering Operations.
@@ -2155,3 +2834,4 @@ void FXManager::SplitTextIntoLines(const std::wstring& text, std::vector<std::ws
         lines.push_back(currentLine);
     }
 }
+

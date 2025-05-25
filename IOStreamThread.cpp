@@ -303,5 +303,5 @@ void DX11Renderer::LoaderTaskThread()
 	if (!threadManager.threadVars.bIsShuttingDown.load())
 	   wasResizing.store(false);
 
-	debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene Loading Complete - Exiting Thread");
+	debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene Loading Complete - Pausing Thread");
 }

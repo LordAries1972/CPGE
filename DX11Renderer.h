@@ -185,7 +185,7 @@ public:
     void Blit2DObjectAtOffset(BlitObj2DIndexType iIndex, int iBlitX, int iBlitY, int iXOffset, int iYOffset, int iTileSizeX, int iTileSizeY);
     void Blit2DWrappedObjectAtOffset(BlitObj2DIndexType iIndex, int iBlitX, int iBlitY, int iXOffset, int iYOffset, int iTileSizeX, int iTileSizeY);
     void Clear2DBlitQueue();
-    void ResumeLoader(bool isResizing = false);
+    void ResumeLoader(bool isResizing = false) override;
 
     // Video Frame Rendering.
     void DrawVideoFrame(const Vector2& position, const Vector2& size, const MyColor& tintColor, ComPtr<ID3D11Texture2D> texture);
@@ -240,6 +240,10 @@ private:
     uint32_t prevWindowedHeight = 0;
 
     D3D_FEATURE_LEVEL m_featureLevel;
+
+    // Thread Lock Names
+    std::string renderFrameLockName = "renderer_frame_lock";
+    std::string D2DLockName = "d2d_render_lock";
 
     // Our private function and procedure definitions for this class.
     ComPtr<IDXGIAdapter1> SelectBestAdapter();

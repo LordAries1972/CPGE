@@ -175,7 +175,7 @@ struct ParallaxLayerProfile {
     bool cameraLinked;
 };
 
-// Structure to store active FX state for restoration after resize
+// Enhanced ActiveFXState structure with proper initialization
 struct ActiveFXState {
     bool starfieldActive;                                                       // Whether starfield was active
     int starfieldID;                                                            // Starfield effect ID
@@ -184,6 +184,146 @@ struct ActiveFXState {
     bool fadeEffectActive;                                                      // Whether fade effect was active
     bool scrollEffectsActive;                                                   // Whether scroll effects were active
     std::vector<BlitObj2DIndexType> activeScrollTextures;                       // Textures with active scroll effects
+
+    // FIXED: Add proper constructor to ensure safe initialization
+    ActiveFXState()
+        : starfieldActive(false)                                                // Initialize starfield active flag
+        , starfieldID(0)                                                        // Initialize starfield ID
+        , textScrollerActive(false)                                             // Initialize text scroller flag
+        , fadeEffectActive(false)                                               // Initialize fade effect flag
+        , scrollEffectsActive(false)                                            // Initialize scroll effects flag
+    {
+        // Ensure vectors are properly initialized and ready for use
+        textScrollerIDs.clear();                                                // Clear any potential garbage data
+        activeScrollTextures.clear();                                           // Clear any potential garbage data
+
+        // Reserve capacity to prevent reallocation during resize operations
+        textScrollerIDs.reserve(20);                                            // Reserve space for text scroller IDs
+        activeScrollTextures.reserve(10);                                       // Reserve space for scroll textures
+    }
+
+    // FIXED: Add copy constructor for safe copying
+    ActiveFXState(const ActiveFXState& other)
+        : starfieldActive(other.starfieldActive)
+        , starfieldID(other.starfieldID)
+        , textScrollerActive(other.textScrollerActive)
+        , textScrollerIDs(other.textScrollerIDs)                                // Vector copy constructor handles this safely
+        , fadeEffectActive(other.fadeEffectActive)
+        , scrollEffectsActive(other.scrollEffectsActive)
+        , activeScrollTextures(other.activeScrollTextures)                      // Vector copy constructor handles this safely
+    {
+    }
+
+    // FIXED: Add assignment operator for safe assignment
+    ActiveFXState& operator=(const ActiveFXState& other) {
+        if (this != &other) {                                                   // Prevent self-assignment
+            starfieldActive = other.starfieldActive;
+            starfieldID = other.starfieldID;
+            textScrollerActive = other.textScrollerActive;
+            textScrollerIDs = other.textScrollerIDs;                            // Vector assignment handles this safely
+            fadeEffectActive = other.fadeEffectActive;
+            scrollEffectsActive = other.scrollEffectsActive;
+            activeScrollTextures = other.activeScrollTextures;                  // Vector assignment handles this safely
+        }
+        return *this;
+    }
+
+    // FIXED: Add move constructor for efficiency
+    ActiveFXState(ActiveFXState&& other) noexcept
+        : starfieldActive(other.starfieldActive)
+        , starfieldID(other.starfieldID)
+        , textScrollerActive(other.textScrollerActive)
+        , textScrollerIDs(std::move(other.textScrollerIDs))                     // Move vector contents
+        , fadeEffectActive(other.fadeEffectActive)
+        , scrollEffectsActive(other.scrollEffectsActive)
+        , activeScrollTextures(std::move(other.activeScrollTextures))           // Move vector contents
+    {
+        // Reset moved-from object to safe state
+        other.starfieldActive = false;
+        other.starfieldID = 0;
+        other.textScrollerActive = false;
+        other.fadeEffectActive = false;
+        other.scrollEffectsActive = false;
+    }
+
+    // FIXED: Add move assignment operator for efficiency
+    ActiveFXState& operator=(ActiveFXState&& other) noexcept {
+        if (this != &other) {                                                   // Prevent self-assignment
+            starfieldActive = other.starfieldActive;
+            starfieldID = other.starfieldID;
+            textScrollerActive = other.textScrollerActive;
+            textScrollerIDs = std::move(other.textScrollerIDs);                 // Move vector contents
+            fadeEffectActive = other.fadeEffectActive;
+            scrollEffectsActive = other.scrollEffectsActive;
+            activeScrollTextures = std::move(other.activeScrollTextures);       // Move vector contents
+
+            // Reset moved-from object to safe state
+            other.starfieldActive = false;
+            other.starfieldID = 0;
+            other.textScrollerActive = false;
+            other.fadeEffectActive = false;
+            other.scrollEffectsActive = false;
+        }
+        return *this;
+    }
+};
+
+// Structure for proper callback handling with unique ID identification
+struct CallbackEntry {
+    int fxID;                                                                   // Unique FX ID for identification
+    std::function<void()> callback;                                             // Callback function to execute
+    std::atomic<bool> isExecuted;                                               // Flag to prevent double execution
+    std::chrono::steady_clock::time_point creationTime;                         // Time when callback was created
+
+    // Enhanced constructor with explicit initialization
+    CallbackEntry() : fxID(-1), callback(nullptr), isExecuted(false) {
+        creationTime = std::chrono::steady_clock::now();                        // Initialize creation time
+    }
+
+    // Explicit constructor for direct initialization
+    CallbackEntry(int id, std::function<void()> cb)
+        : fxID(id), callback(std::move(cb)), isExecuted(false) {
+        creationTime = std::chrono::steady_clock::now();                        // Initialize creation time
+    }
+
+    // Copy constructor for safe copying
+    CallbackEntry(const CallbackEntry& other)
+        : fxID(other.fxID), callback(other.callback),
+        isExecuted(other.isExecuted.load()), creationTime(other.creationTime) {
+    }
+
+    // Assignment operator for safe assignment
+    CallbackEntry& operator=(const CallbackEntry& other) {
+        if (this != &other) {
+            fxID = other.fxID;
+            callback = other.callback;
+            isExecuted = other.isExecuted.load();
+            creationTime = other.creationTime;
+        }
+        return *this;
+    }
+
+    // Move constructor for efficiency
+    CallbackEntry(CallbackEntry&& other) noexcept
+        : fxID(other.fxID), callback(std::move(other.callback)),
+        isExecuted(other.isExecuted.load()), creationTime(other.creationTime) {
+        other.fxID = -1;                                            // Reset moved-from object
+        other.isExecuted = true;                                    // Mark as executed to prevent issues
+    }
+
+    // Move assignment operator for efficiency
+    CallbackEntry& operator=(CallbackEntry&& other) noexcept {
+        if (this != &other) {
+            fxID = other.fxID;
+            callback = std::move(other.callback);
+            isExecuted = other.isExecuted.load();
+            creationTime = other.creationTime;
+
+            other.fxID = -1;                                        // Reset moved-from object
+            other.isExecuted = true;                                // Mark as executed to prevent issues
+        }
+        return *this;
+    }
 };
 
 // Our FXManager Class
@@ -193,7 +333,6 @@ public:
     ~FXManager();
 
     bool bHasCleanedUp = false;
-    bool bIsRendering = false;
 
     void Initialize();
     void CleanUp();
@@ -272,7 +411,7 @@ private:
     // Internal Helper functions
     void ApplyColorFader(FXItem& fxItem);
     void ApplyScroller(FXItem& fxItem);
-    void LoadFadeShaders();
+    bool LoadFadeShaders();
     void RemoveCompletedEffects();
     void RenderFullScreenQuad(const XMFLOAT4& color);
 
@@ -288,12 +427,88 @@ private:
     // Store FX state during resize
     ActiveFXState savedFXState;
     
+    // Helper function to safely collect active effect IDs without iterator invalidation
+    std::vector<int> CollectActiveTextScrollerIDs() const {
+        std::vector<int> activeIDs;
+        activeIDs.reserve(effects.size());                                      // Reserve maximum possible size
+
+        for (const auto& fx : effects) {
+            if (fx.type == FXType::TextScroller) {
+                activeIDs.push_back(fx.fxID);                                   // Collect active text scroller IDs
+            }
+        }
+
+        return activeIDs;                                                       // Return by value (move semantics will optimize)
+    }
+
+    // FIXED: Helper function to safely collect active scroll texture indices
+    std::vector<BlitObj2DIndexType> CollectActiveScrollTextures(const std::vector<BlitObj2DIndexType>& texturesToCheck) const {
+        std::vector<BlitObj2DIndexType> activeTextures;
+        activeTextures.reserve(texturesToCheck.size());                         // Reserve space for all possible textures
+
+        for (BlitObj2DIndexType textureIndex : texturesToCheck) {
+            // Check if this texture has an active scroll effect
+            bool hasActiveScrollEffect = false;
+            for (const auto& fx : effects) {
+                if (fx.type == FXType::Scroller && fx.textureIndex == textureIndex) {
+                    hasActiveScrollEffect = true;
+                    break;                                                      // Found active effect, no need to continue
+                }
+            }
+
+            if (hasActiveScrollEffect) {
+                activeTextures.push_back(textureIndex);                         // Add to active textures list
+            }
+        }
+
+        return activeTextures;                                                  // Return by value (move semantics will optimize)
+    }
+
+    // Helper function to safely check if fade effects are active
+    bool HasActiveFadeEffects() const {
+        for (const auto& fx : effects) {
+            if (fx.type == FXType::ColorFader && fx.progress < 1.0f) {
+                return true;                                                    // Found active fade effect
+            }
+        }
+        return false;                                                           // No active fade effects found
+    }
+
+    // Helper function to safely clear all effects without iterator invalidation
+    void SafelyClearAllEffects() {
+        try {
+            // Use swap technique to avoid iterator invalidation
+            std::vector<FXItem> tempEffects;                                    // Create temporary empty vector
+            tempEffects.swap(effects);                                          // Swap contents - effects becomes empty, temp gets old data
+            // tempEffects destructor will safely clean up the old effects
+
+            // Also clear pending callbacks safely
+            std::vector<CallbackEntry> tempCallbacks;                           // Create temporary empty vector  
+            tempCallbacks.swap(pendingCallbacks);                               // Swap contents - pendingCallbacks becomes empty
+            // tempCallbacks destructor will safely clean up the old callbacks
+
+            #if defined(_DEBUG_FXMANAGER_)
+                debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[FXManager] Safely cleared " +
+                    std::to_wstring(tempEffects.size()) + L" effects and " +
+                    std::to_wstring(tempCallbacks.size()) + L" callbacks");
+            #endif
+        }
+        catch (const std::exception& e) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Exception in SafelyClearAllEffects: " +
+                std::wstring(e.what(), e.what() + strlen(e.what())));
+        }
+    }
+
+    // Atomic flag to prevent recursive rendering calls
+    std::atomic<bool> bIsRendering{ false };                                      // Initialize to false - not currently rendering
     // Our Effects Mutex
     std::mutex m_effectsMutex;
     
     // Our Vectors
     std::vector<FXItem> effects;
-    std::vector<std::pair<FXItem, std::function<void()>>> pendingCallbacks;
+    // pendingCallbacks from pair to proper CallbackEntry structure
+    std::vector<CallbackEntry> pendingCallbacks;
+
     std::vector<ScrollTween> activeTweens;
     std::vector<ParallaxLayerProfile> myIntroSceneLayers;
 

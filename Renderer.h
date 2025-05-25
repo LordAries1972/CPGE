@@ -297,6 +297,7 @@ public:
     virtual float CalculateTextHeight(const std::wstring& text, float FontSize, float containerHeight) = 0;
     virtual void RendererName(std::string sThisName) = 0;
     virtual bool StartRendererThreads() = 0;
+    virtual void ResumeLoader(bool isResizing = false) = 0;
 
 // Your private base declarations go here!
 private:

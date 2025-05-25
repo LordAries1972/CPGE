@@ -1,6 +1,7 @@
 #include "DX11Renderer.h"
 #include "DX_FXManager.h"
 #include "RendererMacros.h"
+#include "ThreadManager.h"
 #include "SoundManager.h"
 #include "GUIManager.h"
 #include "WinSystem.h"
@@ -10,6 +11,7 @@ extern Vector2 myMouseCoords;
 extern SoundManager soundManager;
 extern WindowMetrics winMetrics;
 extern FXManager fxManager;
+extern ThreadManager threadManager;
 
 void GUIManager::CreateAlertWindow(const std::wstring& message) {
     const std::string WINDOW_NAME = "AlertWindow";
@@ -73,7 +75,6 @@ void GUIManager::CreateAlertWindow(const std::wstring& message) {
         // Use weak_ptr to avoid circular references and check validity
         if (auto window = weakAlertWindow.lock()) {
             if (!window->bWindowDestroy) {
-                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"CreateAlertWindow - TitleBar mouse move detected");
                 // Handle dragging logic here if needed
             }
         }
@@ -240,7 +241,6 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
         // Use weak_ptr to avoid circular references and check validity
         if (auto window = weakGameMenuWindow.lock()) {
             if (!window->bWindowDestroy) {
-                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"CreateGameMenuWindow - Configuration button mouse over detected");
 
                 // Create outline effect for button hover (commented out FX manager call as per original code)
                 // Vector2 pos = configButton.position;
@@ -291,7 +291,6 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
         // Use weak_ptr to avoid circular references and check validity
         if (auto window = weakGameMenuWindow.lock()) {
             if (!window->bWindowDestroy) {
-                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"CreateGameMenuWindow - Game Play button mouse over detected");
 
                 // Create outline effect for button hover (commented out FX manager call as per original code)
                 // Vector2 pos = gameplayButton.position;
@@ -342,7 +341,6 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
         // Use weak_ptr to avoid circular references and check validity
         if (auto window = weakGameMenuWindow.lock()) {
             if (!window->bWindowDestroy) {
-                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"CreateGameMenuWindow - High Scores button mouse over detected");
 
                 // Create outline effect for button hover (commented out FX manager call as per original code)
                 // Vector2 pos = hiscoresButton.position;
@@ -393,7 +391,6 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
         // Use weak_ptr to avoid circular references and check validity
         if (auto window = weakGameMenuWindow.lock()) {
             if (!window->bWindowDestroy) {
-                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"CreateGameMenuWindow - Credits button mouse over detected");
 
                 // Create outline effect for button hover (commented out FX manager call as per original code)
                 // Vector2 pos = creditsButton.position;
@@ -444,8 +441,6 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
         // Use weak_ptr to avoid circular references and check validity
         if (auto window = weakGameMenuWindow.lock()) {
             if (!window->bWindowDestroy) {
-                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"CreateGameMenuWindow - Quit button mouse over detected");
-
                 // Create outline effect for button hover (commented out FX manager call as per original code)
                 // Vector2 pos = quitButton.position;
                 // Vector2 size = quitButton.size;
@@ -488,6 +483,8 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
 
             // Post quit message to initiate clean application shutdown
             debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Posting quit message for application shutdown");
+            // state we are shutting down as this will stop the renderer.
+            threadManager.threadVars.bIsShuttingDown.store(true);
             PostQuitMessage(0);
 
         }
@@ -497,6 +494,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
 
             // Emergency shutdown if exception occurs
             debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"CreateGameMenuWindow - Emergency shutdown initiated due to exception");
+            threadManager.threadVars.bIsShuttingDown.store(true);
             PostQuitMessage(0); // Exit with error code
         }
     };

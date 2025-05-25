@@ -485,8 +485,17 @@ void DX11Renderer::Cleanup() {
 //	ThreadStatus status = threadManager.GetThreadStatus(THREAD_LOADER);
     threadManager.TerminateThread(THREAD_LOADER);
 #ifdef RENDERER_IS_THREAD
+    // Ensure the renderer finishes first!
+    while (threadManager.threadVars.bIsRendering.load())
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5)); // Small delay to prevent CPU spinning
+    }
+
+    // Now terminate the Renderer Thread.
     threadManager.TerminateThread(THREAD_RENDERER);
 #endif
+
+    // Now clean up the Thread Manager.
     threadManager.Cleanup();
 
 	// Release our 2D textures
@@ -1328,6 +1337,18 @@ void DX11Renderer::Resize(uint32_t width, uint32_t height)
         #endif
     }
 
+    #if defined(RENDERER_IS_THREAD)
+        // Ensure the renderer finishes first!
+        while (threadManager.threadVars.bIsRendering.load())
+        {
+            // Small delay to prevent CPU spinning
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+
+        // Now terminate the Renderer Thread.
+        threadManager.PauseThread(THREAD_RENDERER);
+    #endif
+
     // --- Release all references before ResizeBuffers() ---
     if (m_d2dContext)
     {
@@ -1430,6 +1451,7 @@ void DX11Renderer::Resize(uint32_t width, uint32_t height)
     }
 
     threadManager.threadVars.bIsResizing.store(false);
+
     // Exit THE render mutex scope
     threadManager.RemoveLock(lockName);
 }
@@ -2848,9 +2870,6 @@ ComPtr<IDXGIAdapter1> DX11Renderer::SelectBestAdapter()
 /* -------------------------------------------------------------- */
 void DX11Renderer::RenderFrame()
 {
-    std::string renderFrameLockName = "renderer_frame_lock";
-    std::string D2DLockName = "d2d_render_lock";
-
     // SAFE-GUARDS
     if (bHasCleanedUp || !m_d3dDevice || !m_d3dContext || !m_cameraConstantBuffer) return;
     if (threadManager.threadVars.bIsShuttingDown.load() || bIsMinimized.load() || threadManager.threadVars.bIsResizing.load() || !bIsInitialized.load()) return;
@@ -3205,21 +3224,26 @@ void DX11Renderer::RenderFrame()
                         {
                             case SceneType::SCENE_INTRO:
                             {
-                                myCamera.SetYawPitch(0.285f, -0.22f);
-                                // Draw background image first.
-                                Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
-                                // Draw Logo image.
-                                Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - 47);
-                                // Render our 3D starfield.
-                                fxManager.RenderFX(fxManager.starfieldID, m_d3dContext.Get(), myCamera.GetViewMatrix());
-                                break;
+                                // Ensure all loading is complete before rendering models and lighting.
+                                if (threadManager.threadVars.bLoaderTaskFinished.load())
+                                {
+                                    myCamera.SetYawPitch(0.285f, -0.22f);
+                                    // Draw background image first.
+                                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
+                                    // Draw Logo image.
+                                    Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - 47);
+                                    // Render our 3D starfield.
+                                    fxManager.RenderFX(fxManager.starfieldID, m_d3dContext.Get(), myCamera.GetViewMatrix());
+                                    break;
+                                }
                             }
 
                             case SceneType::SCENE_INTRO_MOVIE:
                             {
-                                if (moviePlayer.IsPlaying())
+                                if (moviePlayer.IsPlaying() && (!threadManager.threadVars.bLoaderTaskFinished.load()))
                                 {
-//                                    moviePlayer.Render(Vector2(0, 0), Vector2(winMetrics.clientWidth, winMetrics.clientHeight));
+                                    // Draw Logo image.
+                                    Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - 47);
                                 }
                                 break;
                             }
@@ -3285,14 +3309,20 @@ void DX11Renderer::RenderFrame()
                         Blit2DObject(BlitObj2DIndexType::BLIT_ALWAYS_CURSOR, cursorPos.x, cursorPos.y);
 
                     // State we are NOW finished With Direct2D Drawing.
-                    HRESULT hr = m_d2dRenderTarget->EndDraw();
-                    if (FAILED(hr))
+                    try
                     {
-                        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Direct2D EndDraw failed.");
-                    }
+                        HRESULT hr = m_d2dRenderTarget->EndDraw();
+                        if (FAILED(hr))
+                        {
+                            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Direct2D EndDraw failed.");
+                        }
 
-                    // Render effects (Fader) (should be after normal rendering but before present)
-                    fxManager.Render();
+                        // Render effects (Fader) (should be after normal rendering but before present)
+                        fxManager.Render();
+                    }
+                    catch (const std::exception& e)
+                    {}
+
                     // Release the D2D render lock
                     threadManager.RemoveLock(D2DLockName);
                 }
@@ -3304,7 +3334,7 @@ void DX11Renderer::RenderFrame()
 
             // Present frame
 //			WaitForGPUToFinish();
-            #ifdef RENDERER_IS_THREAD
+            #if defined(_DEBUG_RENDERER_)
                 debug.logLevelMessage(LogLevel::LOG_INFO, L"Presenting frame...");
             #endif
             if (m_swapChain) { m_swapChain->Present(config.myConfig.enableVSync ? 1 : 0, 0); }

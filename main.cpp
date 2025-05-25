@@ -120,6 +120,7 @@ HWND hwnd;
 HINSTANCE hInst;
 WindowMetrics winMetrics;
 
+bool isStartingMovie = false;
 bool isLeftClicked = false;
 bool isRightClicked = false;
 bool isMiddleClicked = false;
@@ -148,6 +149,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 void SwitchToGamePlay();
 void SwitchToGameIntro();
 void SwitchToMovieIntro();
+void OpenMovieAndPlay();
 
 // Supressed Warnings
 #pragma warning(disable : 28251)
@@ -177,7 +179,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         return EXIT_FAILURE;
     }
     
-    // Create appropriate Render Interface
+    // Create appropriate Renderer Interface
     if (CreateRendererInstance() != EXIT_SUCCESS)
         return EXIT_FAILURE;
 
@@ -273,7 +275,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
 //        guiManager.CreateAlertWindow(alert);
 
-        fxManager.FadeToImage(1.0f, 0.04f);
+        fxManager.FadeToImage(2.0f, 0.06f);
 //        fxManager.StartScrollEffect(BlitObj2DIndexType::IMG_SCROLLBG1, FXSubType::ScrollRight, 2, 800, 600, 0.016f);
 //        fxManager.StartScrollEffect(BlitObj2DIndexType::IMG_SCROLLBG2, FXSubType::ScrollRight, 4, 800, 600, 0.016f);
 //        fxManager.StartScrollEffect(BlitObj2DIndexType::IMG_SCROLLBG3, FXSubType::ScrollRight, 8, 800, 600, 0.016f);
@@ -321,58 +323,180 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                     // Our Starting / CPGE Splash Screen (Need to create a linking library for this section.
                     case SceneType::SCENE_SPLASH:
                     {
-                        scene.sceneFrameCounter++;
-                        if ((scene.sceneFrameCounter >= 300) && (!scene.bSceneSwitching))
-                        {
-                            scene.bSceneSwitching = true;
-                            fxManager.FadeToBlack(1.0f, 0.06f);
+                        try {
+                            // Increment frame counter for splash screen duration timing
+                            scene.sceneFrameCounter++;
 
-                            #if !defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)
-                                WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
-                                {
+                            // Check if splash screen duration has elapsed and we haven't started scene switching yet
+                            if ((scene.sceneFrameCounter >= 3000000) && (!scene.bSceneSwitching))
+                            {
+                                #if defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)
+                                    // Mark that we are beginning the scene transition process
+                                    scene.bSceneSwitching = true;
+
+                                    // Start fade to black effect with 1 second duration and small delay
+                                    fxManager.FadeToBlack(2.0f, 0.06f);
                                     while (fxManager.IsFadeActive())
                                     {
-                                        dx11->RenderFrame();
-                                        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                                        std::this_thread::sleep_for(std::chrono::milliseconds(10)); // Small delay to prevent CPU spinning
                                     }
-                                });
-                            #endif
-                        }
-
-                        if ((fxManager.IsFadeActive()) && (scene.bSceneSwitching))
-                        {
-                            break;
-                        }
-                        else
-                        {
-                            if (scene.bSceneSwitching)
-                            {
-                                SwitchToMovieIntro();
-                                #if !defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)
-                                    WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
-                                    {
-                                        while (fxManager.IsFadeActive())
-                                        {
-                                            dx11->RenderFrame();
-                                            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-                                        }
-                                    });
+                                
+                                    scene.bSceneSwitching = true;
+                                #endif
+                                
+                                #if defined(_DEBUG_SCENE_TRANSITION_)
+                                    debug.logLevelMessage(LogLevel::LOG_INFO, L"[SCENE] Starting fade out from splash screen");
                                 #endif
 
-                                break;
+                                #if !defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)
+                                // If renderer is not threaded, manually render frames during fade
+                                try {
+                                    WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
+                                        {
+                                            if (!dx11) {
+                                                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SCENE] DX11 renderer is null during fade");
+                                                return;
+                                            }
+
+                                            // Continue rendering while fade effect is active
+                                            int frameCount = 0;                                    // Safety counter to prevent infinite loops
+                                            const int maxFrames = 300;                             // Maximum frames to render (5 seconds at 60fps)
+
+                                            while (fxManager.IsFadeActive() && frameCount < maxFrames)
+                                            {
+                                                try {
+                                                    dx11->RenderFrame();                           // Render current frame
+                                                    frameCount++;                                  // Increment safety counter
+                                                    std::this_thread::sleep_for(std::chrono::milliseconds(5)); // Small delay to prevent CPU spinning
+                                                }
+                                                catch (const std::exception& e) {
+                                                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SCENE] Exception during fade rendering: " +
+                                                        std::wstring(e.what(), e.what() + strlen(e.what())));
+                                                    break;                                         // Exit render loop on error
+                                                }
+                                            }
+
+                                            if (frameCount >= maxFrames) {
+                                                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[SCENE] Fade rendering exceeded maximum frames - forcing completion");
+                                            }
+                                        });
+                                }
+                                catch (const std::exception& e) {
+                                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SCENE] Exception in fade rendering: " +
+                                        std::wstring(e.what(), e.what() + strlen(e.what())));
+                                }
+                                #else
+                                #endif
+
+                            }
+
+                            // Check if we are in scene switching mode and fade has completed
+                            if (scene.bSceneSwitching && !fxManager.IsFadeActive())
+                            {
+                                try {
+                                    // Fade has completed, now perform the actual scene switch
+                                    SwitchToMovieIntro();
+
+                                    #if !defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)
+                                        // If renderer is not threaded, render frames during fade in
+                                        try {
+                                            WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
+                                                {
+                                                    if (!dx11) {
+                                                        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SCENE] DX11 renderer is null during fade in");
+                                                        return;
+                                                    }
+
+                                                    // Continue rendering while new scene fade effect is active
+                                                    int frameCount = 0;                               // Safety counter
+                                                    const int maxFrames = 300;                        // Maximum frames to render
+
+                                                    while (fxManager.IsFadeActive() && frameCount < maxFrames)
+                                                    {
+                                                        try {
+                                                            dx11->RenderFrame();                       // Render current frame
+                                                            frameCount++;                              // Increment safety counter
+                                                            std::this_thread::sleep_for(std::chrono::milliseconds(5)); // Small delay
+                                                        }
+                                                        catch (const std::exception& e) {
+                                                            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SCENE] Exception during fade in rendering: " +
+                                                                std::wstring(e.what(), e.what() + strlen(e.what())));
+                                                            break;
+                                                        }
+                                                    }
+                                                });
+                                        }
+                                        catch (const std::exception& e) {
+                                            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SCENE] Exception in fade in rendering: " +
+                                                std::wstring(e.what(), e.what() + strlen(e.what())));
+                                        }
+                                    #endif
+                                }
+                                catch (const std::exception& e) {
+                                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SCENE] Exception during scene switch: " +
+                                        std::wstring(e.what(), e.what() + strlen(e.what())));
+                                    scene.bSceneSwitching = false;                                 // Reset flag to prevent hanging
+                                }
                             }
                         }
+                        catch (const std::exception& e) {
+                            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SCENE] Exception in SCENE_SPLASH: " +
+                                std::wstring(e.what(), e.what() + strlen(e.what())));
 
+                            // Force scene transition to prevent hanging
+                            SwitchToMovieIntro();
+                        }
+
+                        // Continue normal splash screen processing if not switching scenes
                         break;
                     }
 
                     // Our Game Intro Movie Screen
                     case SceneType::SCENE_INTRO_MOVIE:
                     {
-                        if ((!moviePlayer.IsPlaying()) && (!scene.bSceneSwitching))
+                        static bool loggedMovieEntry = false;
+                        static int framesSinceMovieStart = 0;
+                        static bool movieInitialized = false;
+
+                        if (!loggedMovieEntry)
                         {
+                            debug.logLevelMessage(LogLevel::LOG_INFO, L"[SCENE] Entered SCENE_INTRO_MOVIE");
+                            loggedMovieEntry = true;
+                            framesSinceMovieStart = 0;
+                            movieInitialized = false;
+                        }
+
+                        framesSinceMovieStart++;
+
+                        // Check if movie has been initialized (has duration > 0)
+                        if (!movieInitialized && moviePlayer.GetDuration() > 0.0)
+                        {
+                            movieInitialized = true;
+                            debug.logLevelMessage(LogLevel::LOG_INFO, L"[SCENE] Movie initialized successfully");
+                        }
+
+                        // CRITICAL: Only check for movie completion if:
+                        // 1. Movie has been properly initialized (has duration > 0)
+                        // 2. Movie was actually playing at some point
+                        // 3. We've given enough time for the movie to start
+                        static bool movieHasStarted = false;
+
+                        // Check if movie has started playing
+                        if (moviePlayer.IsPlaying() && moviePlayer.GetDuration() > 0.0)
+                        {
+                            movieHasStarted = true;
+                        }
+
+                        // Only check for completion after movie has started and sufficient time has passed
+                        if (movieHasStarted && framesSinceMovieStart > 120 && (!moviePlayer.IsPlaying()) && (!scene.bSceneSwitching))
+                        {
+                            #if defined(_DEBUG_SCENE_TRANSITION_)
+                                debug.logLevelMessage(LogLevel::LOG_INFO, L"[SCENE] Movie finished playing, starting scene transition");
+                            #endif
+
                             scene.bSceneSwitching = true;
                             fxManager.FadeToBlack(1.0f, 0.06f);
+
                             #if !defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)
                                 WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
                                 {
@@ -385,6 +509,18 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                             #endif      
                         }
 
+                        // Handle space bar skip
+                        if (GetAsyncKeyState(VK_SPACE) & 0x8000 && moviePlayer.IsPlaying())
+                        {
+                    #if defined(_DEBUG_SCENE_TRANSITION_)
+                            debug.logLevelMessage(LogLevel::LOG_INFO, L"[SCENE] Space bar pressed - skipping movie");
+                    #endif
+
+                            moviePlayer.Stop();
+                            scene.bSceneSwitching = true;
+                            fxManager.FadeToBlack(1.0f, 0.06f);
+                        }
+
                         if ((fxManager.IsFadeActive()) && (scene.bSceneSwitching))
                         {
                             break;
@@ -393,9 +529,19 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                         {
                             if (scene.bSceneSwitching)
                             {
+                    #if defined(_DEBUG_SCENE_TRANSITION_)
+                                debug.logLevelMessage(LogLevel::LOG_INFO, L"[SCENE] Switching to game intro");
+                    #endif
+
+                                // Reset static variables for next time
+                                framesSinceMovieStart = 0;
+                                movieHasStarted = false;
+                                movieInitialized = false;
+
                                 SwitchToGameIntro();
-                                #if !defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)
-                                    WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
+
+                    #if !defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)
+                                WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
                                     {
                                         while (fxManager.IsFadeActive())
                                         {
@@ -403,7 +549,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                                             std::this_thread::sleep_for(std::chrono::milliseconds(5));
                                         }
                                     });
-                                #endif
+                    #endif
 
                                 break;
                             }
@@ -706,6 +852,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
                                 // Clear resize flag
                                 threadManager.threadVars.bIsResizing.store(false);
+                                #if defined(RENDERER_IS_THREAD)
+                                    // Now Resume the Renderer Thread.
+                                    if (threadManager.threadVars.bLoaderTaskFinished.load())
+                                        threadManager.ResumeThread(THREAD_RENDERER);
+                                #endif
+
                             });
                         #endif
 
@@ -929,32 +1081,34 @@ void SwitchToGamePlay()
     scene.SetGotoScene(SCENE_GAMEPLAY);
     scene.InitiateScene();
     scene.SetGotoScene(SCENE_NONE);
-    #if defined(__USE_DIRECTX_11__)
-        WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
-        {
-            dx11->ResumeLoader();
-        });
-    #endif
+    // Restart the Loader Thread to load in required assets.
+    renderer->ResumeLoader();
 }
 
-void SwitchToMovieIntro()
+void OpenMovieAndPlay()
 {
     auto fileName = baseDir + L"\\Assets\\test1.mp4";
     if (!moviePlayer.OpenMovie(fileName))
     {
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to open Video File for Playback!");
+        SwitchToGameIntro();
+        return;
     }
 
+    // Start the Movie Playback
     moviePlayer.Play();
+}
+
+void SwitchToMovieIntro()
+{
     scene.SetGotoScene(SCENE_INTRO_MOVIE);
     scene.InitiateScene();
-    scene.SetGotoScene(SCENE_GAMEPLAY);
-    #if defined(__USE_DIRECTX_11__)
-        WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
-        {
-            dx11->ResumeLoader();
-        });
-    #endif
+    scene.SetGotoScene(SCENE_NONE);
+    fxManager.FadeToImage(3.0f, 0.06f);
+    OpenMovieAndPlay();
+    // Restart the Loader Thread to load in required assets.
+    renderer->ResumeLoader();
+
 }
 
 void SwitchToGameIntro()
@@ -962,10 +1116,6 @@ void SwitchToGameIntro()
     scene.SetGotoScene(SCENE_INTRO);
     scene.InitiateScene();
     scene.SetGotoScene(SCENE_NONE);
-    #if defined(__USE_DIRECTX_11__)
-        WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
-        {
-            dx11->ResumeLoader();
-        });
-    #endif
+    // Restart the Loader Thread to load in required assets.
+    renderer->ResumeLoader();
 }
