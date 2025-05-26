@@ -193,6 +193,7 @@
     <ClCompile Include="Models.cpp" />
     <ClCompile Include="MoviePlayer.cpp" />
     <ClCompile Include="NetworkManager.cpp" />
+    <ClCompile Include="OpenGLRenderer.cpp" />
     <ClCompile Include="RendererFactory.cpp" />
     <ClCompile Include="RenderScene.cpp" />
     <ClCompile Include="SceneManager.cpp" />
@@ -228,7 +229,7 @@
     <ClInclude Include="SoundManager.h" />
     <ClInclude Include="ThreadLockHelper.h" />
     <ClInclude Include="ThreadManager.h" />
-    <ClInclude Include="Vector2.h" />
+    <ClInclude Include="Vectors.h" />
     <ClInclude Include="VulkanRenderer.h" />
     <ClInclude Include="WinMediaPlayer.h" />
     <ClInclude Include="WinSystem.h" />

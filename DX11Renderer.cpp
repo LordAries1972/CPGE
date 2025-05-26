@@ -153,18 +153,18 @@ void DX11Renderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
 
     sysUtils.DisableMouseCursor();
 	
+    bIsInitialized.store(true);
     if (threadManager.threadVars.bIsResizing.load())
     {
         debug.logLevelMessage(LogLevel::LOG_INFO, L"Rendering Engine Initialised and Activated.");
     }
     else
-	{
+    {
         // We are resizing the window, so restart the loading sequence.
         threadManager.ResumeThread(THREAD_LOADER);
     }
-    
-    bIsInitialized.store(true);
-	threadManager.threadVars.bIsResizing.store(false);
+
+    threadManager.threadVars.bIsResizing.store(false);
 }
 
 bool DX11Renderer::StartRendererThreads()

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Debug.h"  // Ensure Debug.h is included
+#include "Debug.h"                          // Ensure Debug.h is included
 
 #define BUFFER_SIZE (44100 * 2 * 2)
 

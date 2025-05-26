@@ -25,7 +25,7 @@
 #if defined(__USE_DIRECTX_11__)
 
 #include "DXCamera.h"
-#include "Vector2.h"
+#include "Vectors.h"
 #include "Color.h"
 #include "Models.h"
 //#include "SceneManager.h"

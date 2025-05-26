@@ -112,7 +112,7 @@ MediaPlayer player;
 XMMODPlayer xmPlayer;
 #endif
 
-// Our Models Buffer, Resources & Data.
+// Our Base Models Buffer, Resources & Data (Storage Only / Read Only!).
 Model models[MAX_MODELS];
 
 // Requied State Variables - DO NOT REMOVE!
@@ -159,26 +159,30 @@ void OpenMovieAndPlay();
 // *----------------------------------------------------------------------------------------------
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
-    SecureZeroMemory(&errorMsg, sizeof(errorMsg));
-    // Initialize winMetrics struct with zeros
+    // Initialize local Buffers.
     SecureZeroMemory(&winMetrics, sizeof(WindowMetrics));
+    SecureZeroMemory(&errorMsg, sizeof(errorMsg));
 
     baseDir = sysUtils.Get_Current_Directory();
 
-    WindowsVersion winVer = sysUtils.GetWindowsVersion();
-    if (winVer < WindowsVersion::WINVER_WIN10)
-    {
-        MessageBox(nullptr, L"Unsupported Windows Version.\nPlease use Windows 10 SP1 64Bit or later.", L"Error", MB_OK | MB_ICONERROR);
-        return EXIT_FAILURE;
-    }
-    // We need to check for 64 Bit OS?
-    // as we DO NOT support 32 bit no longer (Legacy!)
-    else if (!sysUtils.Is64BitOperatingSystem())
-    {
-        MessageBox(nullptr, L"Unsupported Windows Version.\nPlease use Windows 10 SP1 64Bit or later.", L"Error", MB_OK | MB_ICONERROR);
-        return EXIT_FAILURE;
-    }
-    
+    #if defined(_WIN32) || defined(_WIN64)
+        WindowsVersion winVer = sysUtils.GetWindowsVersion();
+        if (winVer < WindowsVersion::WINVER_WIN10)
+        {
+            MessageBox(nullptr, L"Unsupported Windows Version.\nPlease use Windows 10 SP1 64Bit or later.", L"Error", MB_OK | MB_ICONERROR);
+            return EXIT_FAILURE;
+        }
+
+        // Are we using a 32 bit / 64Bit Operating system?
+        if (sysUtils.Is64BitOperatingSystem())
+        {
+            #if defined(__USE_OPENGL__)
+                MessageBox(nullptr, L"OpenGL must use 32Bit Compiling under the CPGE System.", L"Error", MB_OK | MB_ICONERROR);
+                return EXIT_FAILURE;
+            #endif
+        }
+    #endif
+
     // Create appropriate Renderer Interface
     if (CreateRendererInstance() != EXIT_SUCCESS)
         return EXIT_FAILURE;
@@ -512,9 +516,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                         // Handle space bar skip
                         if (GetAsyncKeyState(VK_SPACE) & 0x8000 && moviePlayer.IsPlaying())
                         {
-                    #if defined(_DEBUG_SCENE_TRANSITION_)
-                            debug.logLevelMessage(LogLevel::LOG_INFO, L"[SCENE] Space bar pressed - skipping movie");
-                    #endif
+                            #if defined(_DEBUG_SCENE_TRANSITION_)
+                                debug.logLevelMessage(LogLevel::LOG_INFO, L"[SCENE] Space bar pressed - skipping movie");
+                            #endif
 
                             moviePlayer.Stop();
                             scene.bSceneSwitching = true;
@@ -529,9 +533,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                         {
                             if (scene.bSceneSwitching)
                             {
-                    #if defined(_DEBUG_SCENE_TRANSITION_)
-                                debug.logLevelMessage(LogLevel::LOG_INFO, L"[SCENE] Switching to game intro");
-                    #endif
+                                #if defined(_DEBUG_SCENE_TRANSITION_)
+                                    debug.logLevelMessage(LogLevel::LOG_INFO, L"[SCENE] Switching to game intro");
+                                #endif
 
                                 // Reset static variables for next time
                                 framesSinceMovieStart = 0;
@@ -540,8 +544,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
                                 SwitchToGameIntro();
 
-                    #if !defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)
-                                WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
+                                #if !defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)
+                                    WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
                                     {
                                         while (fxManager.IsFadeActive())
                                         {
@@ -549,7 +553,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                                             std::this_thread::sleep_for(std::chrono::milliseconds(5));
                                         }
                                     });
-                    #endif
+                                #endif
 
                                 break;
                             }
@@ -595,12 +599,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
 				// --- Direct X 11 Rendering inline safety calls NON Threaded ---
                 #if !defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)
-                    WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
-                    {
-                        if (!threadManager.threadVars.bIsRendering.load())
-						    // Render the frame
-                            dx11->RenderFrame();
-                    });
+					// Render the frame
+                    renderer->RenderFrame();
                 #endif
 
                 // --- Direct X 12 Rendering inline safety calls NON Threaded ---
@@ -678,7 +678,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         case WM_MOUSEMOVE:
             // Check if we are in fullscreen transition or resize - ignore mouse messages
             if (threadManager.threadVars.bSettingFullScreen.load() ||
-                bResizeInProgress.load() ||
+                bResizeInProgress.load() || !isSystemInitialized ||
                 bFullScreenTransition.load()) {
                 return 0;
             }

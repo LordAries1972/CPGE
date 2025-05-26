@@ -379,7 +379,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     creditsButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);                                                   // Same size as other buttons
     creditsButton.bgColor = MyColor(0, 0, 0, 255);                                                             // Black background
     creditsButton.txtColor = MyColor(255, 255, 0, 255);                                                        // Yellow text color
-    creditsButton.useShadowedText = true;                                                                       // Enable text shadowing
+    creditsButton.useShadowedText = true;                                                                      // Enable text shadowing
     creditsButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);                                        // Button up texture
     creditsButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);                                 // Button hover texture
     creditsButton.label = L"    SHOW CREDITS";                                                                 // Button label text
@@ -429,7 +429,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     quitButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);                                                   // Same size as other buttons
     quitButton.bgColor = MyColor(0, 0, 0, 255);                                                             // Black background
     quitButton.txtColor = MyColor(255, 255, 0, 255);                                                        // Yellow text color
-    quitButton.useShadowedText = true;                                                                       // Enable text shadowing
+    quitButton.useShadowedText = true;                                                                      // Enable text shadowing
     quitButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);                                        // Button up texture
     quitButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);                                 // Button hover texture
     quitButton.label = L"    QUIT TO DESKTOP";                                                              // Button label text

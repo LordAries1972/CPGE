@@ -58,12 +58,15 @@
    -------------------------------------------------------------------------------
    ENGINE USE CASE:
 
-       The engine does NOT know what renderer is being used.
+       When first initialising, the engine does NOT know what renderer type is being used.
 
-       It only calls:
+       Base Calls that are used:
            renderer->Initialize(...);
-           renderer->RenderFrame();
+           renderer->RenderFrame();         <= Can run independently or as a thread.
            renderer->Resize(w, h);
+           renderer->Cleanup();
+           renderer->StartRendererThreads();
+           renderer->SetFullExclusive(width, height);
            renderer->Cleanup();
 
        The actual implementation is resolved at runtime via polymorphism.
@@ -79,22 +82,10 @@
 #pragma once
 
 #include "Includes.h"
-#include "Vector2.h"
+#include "Vectors.h"
 #include "Color.h"
 #include "Debug.h"
-
 #include <memory>
-
-// Windows-specific includes & configuration
-#if defined(_WIN32) || defined(_WIN64)
-#define __USING_DX_2D__
-#define __USING_DX_3D__
-#define __USE_DIRECTX_11__
-//#define __USE_DIRECTX_12__
-#endif
-
-//#define __USE_OPENGL__
-//#define __USE_VULKAN__
 
 // Uncomment this line if Renderer is to be a 
 // separate tasking thread
