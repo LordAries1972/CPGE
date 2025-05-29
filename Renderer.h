@@ -6,7 +6,7 @@
        at compile time, but allows engine code to work uniformly via abstraction.
 
    -------------------------------------------------------------------------------
-   COMPILE-TIME DEFINES (from Constants.h):
+   COMPILE-TIME DEFINES (from Includes.h):
 
        #define __USE_DIRECTX_11__
        #define __USE_DIRECTX_12__
@@ -87,6 +87,8 @@
 #include "Debug.h"
 #include <memory>
 
+#include "DXCamera.h"
+
 // Uncomment this line if Renderer is to be a 
 // separate tasking thread
 #define RENDERER_IS_THREAD
@@ -98,35 +100,6 @@ const int MAX_2D_IMG_QUEUE_OBJS = 512;
 const LPCWSTR FontName = L"MayaCulpa";
 
 const int MAX_RENDER_OPERATIONS = 4096;
-
-//------------------------------------------------
-// File Tables for Assets (AssetsDir is prepended)
-//------------------------------------------------
-const std::filesystem::path AssetsDir = L"./Assets/";
-const std::filesystem::path WinAssetsDir = L".\\Assets\\";
-
-// 2D Textures
-inline const std::wstring texFilename[] = {
-    L"cursor1.png", L"bg1.jpg", L"loadingring.png", L"window1.png", L"rectbutton1up.png",
-    L"winclosebut1up.png", L"bevel1.png", L"titlebar1a.png", L"titlebar1.png",
-    L"scrollbg1.png", L"scrollbg2.png", L"scrollbg3.png", L"splash1.png", L"gameintro1.png",
-    L"titlebar2.png", L"winbody2.png", L"button2up.png", L"button2down.png", L"logo.png",
-    L"tab2red.png", L"tab1gmg.png"
-};
-
-// 3D Textures
-inline const std::wstring tex3DFilename[] = {
-    L"bricks1.png", L"water1.jpg"
-};
-
-// 3D Models
-inline const std::wstring modelFilePath[] = {
-    L"", L"cube1.obj", L"floor1.obj"
-};
-
-const int MAX_TEXTURE_BUFFERS = ARRAYSIZE(texFilename);
-const int MAX_TEXTURE_BUFFERS_3D = ARRAYSIZE(tex3DFilename);
-const int MAX_MODEL_FILES = ARRAYSIZE(modelFilePath);
 
 //------------------------------------------
 // VIDEO & Window Specs: Default Settings
@@ -245,20 +218,67 @@ struct structRenderQueue
     bool IsDX3DOperation;                               // If true, this is a 3D Render operation.
 };
 
+struct OSDetails
+{
+    struct OSPlatform
+    {
+		bool isWindows = false;                         // Is this Windows?
+        bool isLinux = false;                           // Is this Linux?
+		bool isMacOS = false;                           // Is this MacOS?
+		bool isAndroid = false;                         // Is this Android phone?
+		bool isIOS = false;                             // Is this iOS phone?
+    };
+
+	OSPlatform Platform;                                // The platform this OS is running on.
+    std::wstring OSName;                                // The name of the Operating System.
+    std::wstring OSVersion;                             // The version of the Operating System.
+    std::wstring OSBuild;                               // The build number of the Operating System.
+    std::wstring OSArchitecture;                        // The architecture of the Operating System (e.g., x64, ARM64).
+    std::wstring OSManufacturer;                        // The manufacturer of the Operating System.
+    std::wstring OSServicePack;                         // The service pack of the Operating System, if any.
+};
+
 class Renderer {
-// Your public base declarations go here!
-// Remember, your function declarations are to be 
-// of virtual as this is the base Renderer
-// abstract class.
+/* /--------------------------------------------------------\
+ Your public base declarations go here!
+ Remember, your function declarations are to be 
+ of virtual as this is the base Renderer
+ abstract class.  Your derived classes ie (DX11Renderer, 
+ DX12Renderer, OpenGLRenderer, VulkanRenderer etc) will
+ override these functions as needed.
+ \--------------------------------------------------------/
+*/
+
 public:
-    // This is for Win64 Operating systems (Well for me (Daniel. H) anyways, 
-    // I encourage all contributors and users to move to 64 bit platforms 
-    // as this is the future!). Daniel H., will NOT support 32bit anymore!
+/* 
+    / -----------------------------------------------------------------------\
+    This is for Win64 Operating systems (Well for me (Daniel. H) anyways, 
+    I encourage all contributors and users to move to 64 bit platforms 
+    as this is the future!). Daniel H., will NOT support 32bit anymore
+    on Windows, Linux, MacOS, iOS & Android OS platforms!
+    
+    If you are wanting to use 32bit, then you will have to
+	do your own fork of the engine and maintain it yourself.
+	\-------------------------------------------------------------------------/
+*/
     std::atomic<bool> bIsInitialized{ false };
     std::atomic<bool> bIsDestroyed{ false };
     std::atomic<bool> bHasCleanedUp{ false };
     std::atomic<bool> IsWindowMode{ true };
     std::atomic<bool> bIsMinimized{ false };
+
+    // Default toggle flag for displaying models in Wireframe mode.
+    // In Runtime, use the F2 key to toggle status.
+    bool bWireframeMode = false;
+    // These are used when we resize our window
+    int iOrigWidth = DEFAULT_WINDOW_WIDTH;
+    int iOrigHeight = DEFAULT_WINDOW_HEIGHT;
+
+	// OS Platform Details
+	OSDetails osDetails;
+
+	// Our Camera object for 3D rendering
+    Camera myCamera;
 
     // Destructor
     virtual ~Renderer() = default;
@@ -267,28 +287,56 @@ public:
     RendererType RenderType = RendererType::RT_NOT_INITIALIZED;
     
     // Initialization and Cleanup
+    virtual void RendererName(std::string sThisName) = 0;
     virtual void Initialize(HWND hwnd, HINSTANCE hInstance) = 0;
+    virtual void Cleanup() = 0;
+
+	// System Testing Functions
+	//virtual bool TestRendererRequirements() = 0;
+
+    // --------------------------
+    // Internal Helper functions.
+    // --------------------------
+    // Device Access Functions - Returns generic pointers castable to ComPtr
+    // These functions return void* pointers that can be cast to the appropriate
+    // ComPtr types in derived renderer implementations
+    virtual void* GetDevice() = 0;                                          // Returns generic device pointer (castable to ComPtr<ID3D11Device>, etc.)
+    virtual void* GetDeviceContext() = 0;                                   // Returns generic device context pointer (castable to ComPtr<ID3D11DeviceContext>, etc.)
+    virtual void* GetSwapChain() = 0;                                       // Returns generic swap chain pointer (castable to ComPtr<IDXGISwapChain>, etc.)
+
     // INTERNAL THREAD: Add the virtual declaration for RenderFrame
     virtual void RenderFrame() = 0;
     // INTERNAL THREAD: Add the virtual declaration for LoaderTaskThread
     virtual void LoaderTaskThread() = 0;
+	// Thread Helper Functions
+    virtual bool StartRendererThreads() = 0;
+    virtual void ResumeLoader(bool isResizing = false) = 0;
 
-    virtual void Cleanup() = 0;
+	// Window / Screen Management
     virtual void Resize(uint32_t width, uint32_t height) = 0;
     virtual bool SetFullScreen(void) = 0;
     virtual bool SetFullExclusive(uint32_t width, uint32_t height) = 0;
     virtual bool SetWindowedScreen(void) = 0;
+
+	// Primitive Drawing Functions
     virtual void DrawRectangle(const Vector2& position, const Vector2& size, const MyColor& color, bool is2D) = 0;
     virtual void DrawMyText(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize) = 0;
     virtual void DrawMyText(const std::wstring& text, const Vector2& position, const Vector2& size, const MyColor& color, const float FontSize) = 0;
     virtual void DrawTexture(int textureId, const Vector2& position, const Vector2& size, const MyColor& tintColor, bool is2D) = 0;
     virtual void DrawMyTextCentered(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize, float controlWidth, float controlHeight) = 0;
+    virtual void DrawMyTextWithFont(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize, const std::wstring& fontName) = 0;
+
     virtual float GetCharacterWidth(wchar_t character, float FontSize) = 0;
+    virtual float GetCharacterWidth(wchar_t character, float FontSize, const std::wstring& fontName) = 0;
     virtual float CalculateTextWidth(const std::wstring& text, float FontSize, float containerWidth) = 0;
     virtual float CalculateTextHeight(const std::wstring& text, float FontSize, float containerHeight) = 0;
-    virtual void RendererName(std::string sThisName) = 0;
-    virtual bool StartRendererThreads() = 0;
-    virtual void ResumeLoader(bool isResizing = false) = 0;
+
+    #if defined(_WIN64) || defined(_WIN32)
+        // Blitting Functions
+        virtual void Blit2DWrappedObjectAtOffset(BlitObj2DIndexType iIndex, int iBlitX, int iBlitY, int iXOffset, int iYOffset, int iTileSizeX, int iTileSizeY) = 0;
+        // Draws a single X x Y sized pixel at the specified position with the given RGBA color.
+        virtual void Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 color) = 0;
+    #endif
 
 // Your private base declarations go here!
 private:

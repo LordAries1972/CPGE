@@ -1,11 +1,11 @@
 /* --------------------------------------------------------------------------------------------------------------------------------- 
-DirectX 11 & 12, OpenGL & Vulkan Game Engine originally started and programmed for Windows 11, Linux, MacOS and Android
-and future operating systems by Daniel J. Hobson of Australia 2023-2025
+DirectX 11 & 12, OpenGL & Vulkan Game Engine originally started and programmed for Windows 10 SP1/ 11, 
+Linux, MacOS and Android and future operating systems by Daniel J. Hobson of Melbourne, Australia 2023-2025
 
-The Licence of use of this software system comes under Docs\LICENSE.md
+The Licence of use of this software system comes under the MIT and can be provided under the Docs\LICENSE.md
 
-The simple idea behind all this, is that the engine is Cross Platform functional, which includes textures,
-lighting, shading, blending, shadowing, specular effects, Input Handling (ie. Keyboard, Joystick),
+The simple idea behind all this, is that the engine is Cross Platform functional, aiming at gaming or hi-rendered
+systems which includes textures, lighting, shading, blending, shadowing, specular effects, Input Handling (ie. Keyboard, Joystick),
 Extensive Debugging Programmatical Options, Sound FX (SoundManager) / and a Multi Music system that plays either 
 .MP3 or .XM (Fast Tracker 2) file formats.
 
@@ -15,7 +15,7 @@ Once a base (Direct X11) is complete, project will be released to open community
 by any given user.
 
 As more is to be implemented, more case tools will be introduced which help game developers
-setup their required gaming environment and to use with the selected Engine.
+setup their required gaming environment and to use with the Selected Rendering Engine.
 ------------------------------------------------------------------------------------------------------------------------------------- 
 ====================
 DEVELOPMENT HISTORY: -
@@ -23,8 +23,7 @@ DEVELOPMENT HISTORY: -
 ------------------------------------------------------------------------------------------------------------------------------------- 
 11/09/2023 - Original Project Started (Many writes, rewrites as building core Interface Modules was the focus here)
 01/01/2025 - Restarted Conceptual idea and restructured code more efficiently as prior project lead to many problems in the end.
-             Engine was fine and working, but very poorly designed as it was a build/test and learnt various things as we went along.
-02/01/2025 - Put Project into GITHUB privately and to learn its' abilities with projects.  So for myself, Daniel, I had to learn GITHUB!!!
+             Engine was fine and working, but very poorly designed as it was a build/test and learnt various things as I went along.
 07/01/2025 - XM Module Player and Class created (Not completed yet nor working!)
 11/03/2025 - A Proper Debug Class for Debug Execution so level information can be displayed
              to the Output window of Microsoft Visual Studio 2019/2022.
@@ -46,7 +45,7 @@ DEVELOPMENT HISTORY: -
 
            - Blitting of 2D Objects with Transparency now operational.
            - Added the SteamWorks Class & SDK include files to work with Steam Gaming Platform (Currently not implemented)
-		   
+
 16/03/2025 - Implemented a full functional MP3 Player (Threaded) using the
              WindowsMedia API.  See (WinMediaPlayer.h) for more details.
 
@@ -171,12 +170,61 @@ DEVELOPMENT HISTORY: -
            - Renderer engine now working correctly as a thread - New Lock Mechanism done earlier in ThreadManager.h/.cpp has corrected
              this issue (Sweet!)
 
-[ FUTURE ]   OK EVERYONE, PEOPLE NEED TO RELISE HERE THAT THIS IS VERY CLOSE TO GAMING PRODUCTION FOR DIRECTX 11 SYSTEMS! (WINDOWS 10 SP1 & above 64BIT)
-             Alot of this work, MY TIME and for free, it's what you get paid for right? Your story, your graphics and your 
-             enginuity based on this platform!  Please DO NOT START A GAME until your comfortable with a release of our marked as [STABLE]
-             release! Which means, there should be no crashes nor any cleanup faults including memory leaks!
+27/05/2025 - [NOT FULLY COMPLETED]: Time now to integrate the other rendering systems before it gets way to complex, so far I have 
+             looked at the OpenGL & DirectX 12 implementations.  With that been said, some major code-reworking has been done also
+             to now properly support a given OS and its given primary renderer as selected within the code.  
+             Vulkan & Android will come next after the (DirectX 12 & OpenGL) rendering engines can be selected and work for usage.  
 
-             Always fully test the GITHUB (Base) code, before starting your project!
+             This engine will include multiple renderer support as well.  Which means that a given OS system may support various 
+             rendering engines, so we need to be make it during runtime we can select between them during configuration options during 
+             or even at compile time as an elective startup renderer.
+
+             This will entail further enhancements to the GUIManager system as well so that we can present Selection Drop boxes, events
+             and the ability to run a callback call to execute the proper functions to clean and switch renderers.
+
+[ FUTURE ]   OK EVERYONE, we are approaching a VERY CLOSE TO GAMING PRODUCTION READINESS FOR DIRECTX 11 SYSTEMS! (WINDOWS 10 SP1 & above 64BIT)
+             and all this work that has been going for the last, next to 2 years of my time, comes for free under the MIT LICENSE.
+
+             This time that has been spent on the development of this project, is to ensure the following things:-
+
+             1) My Support and Contribution to the World of (FOSS - Free Open Source Software).  With many years of hard earned programming
+                skills in my current line of profession, it is my time now to give back to others and share my knowledge to the existing 
+                and new generation of people within the global community.
+
+             2) I have done the best I can to make this as easy as possible for the programmer (you).  I have provided Documents that
+                can be found under the Docs folder with example usage to each class member so you can quickly learn the full functionality 
+                and the available options for each function.
+                
+                But also, not to worry about the given functionality internally and that your focus as a game developer, is your game and that
+                you make the necessary calls to the available functions that are provided to yield your wanted results.  Do not get me wrong here
+                and this is why projects like GAME MAKER 2 and the likes will never super-cede a project like this one.  Because it allows
+                you as a programmer, to give finer tuning programming or wants where needed and I have left that space completely open for you 
+                and your imagination.
+                
+                But I cannot emphasis enough, take the time to read, study and learn this system.  If you are SERIOUS about
+                wanting to make a brillant game, then you will do it for your benefit and I promise you, you wont regret it either!
+                I will be launching a website soon to contain the very essence of things you need to know, demo & videos how to 
+                setup and how to use the system thou, its pretty generally easy in retro-spect as I have removed the majority of 
+                complexity altogether.
+                
+             3) Whats the saying? "This is what you get paid for?"  So focus on your gaming story, your graphics, models & scenes 
+                and with your enginuity based on this platform will give you a production ready game for marketing!
+                
+             4) Just always remember, that the CPGE Engine is still at early days, what I have planned for this project will
+                simply be second to none by the end.  In time with support and development, this will be come the next generation
+                of programmatic gaming engines.
+
+             ===========
+             OTHER NOTES
+             ===========
+             Always fully test the GITHUB (Base) FIRST on the code on a FULL PULL Request, before starting your project!  If there are any 
+             compile errors (Which you should not be getting).  Please raise a ticket with an email to cpgeengine@gmail.com 
+             
+             Your Email Subject should cotain "CPGE Problem - <Your brief problem here>" if such errors are occurring!
+             
+             Please provide the logs to your compile time and or runtime in DEBUG Builds to show your problems as this will help me
+             quickly to identify the issue at hand (if of course, one is actually present).
+             Thank you and for your continous support!!
 
              I will always be updating the CPGE Engine until I die and your code base here is always free under the MIT License!
 
@@ -193,7 +241,7 @@ IMPORTANT NOTES:-
 ============
 NEED TO DO:-
 ============
-15/03/2025 - Create and Implement the OpenGL3 Renderer for Windows / Linux / MacOS & Android
+27/05/2025 - Started Implementing the OpenGL Renderer for Windows / Linux / MacOS & Android
              Create and Implement the Vulkan Renderer for Windows / Linux & Android.
 16/03/2025 - Get the Steam Class working and implement
 27/03/2025 - Our system will need to support GooglePlay interfacing as well especially for the Android Platform.

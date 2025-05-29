@@ -4,7 +4,6 @@
 #include "Renderer.h"
 #include "DX11Renderer.h"
 #include "DX_FXManager.h"
-#include "RendererMacros.h"
 #include "Debug.h"
 #include "Lights.h"
 

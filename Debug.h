@@ -44,7 +44,8 @@
 // ===== to determine problems with the pixel shader.  So I have to use this 
 //       approach instead until I can figure it out!
 // ----------------------------------------------------------------------------------------------
-//#define _DEBUG_RENDERER_
+//#define _DEBUG_RENDERER_                                                    // Define this line, to show all debug output to runtime console for the DX11Renderer class.
+//#define _DEBUG_DX12RENDERER_                                                // Define this line, to show all debug output to runtime console for the DX12Renderer class.
 #define _DEBUG_PIXSHADER_
 
 //#define _DEBUG_CAMERA_

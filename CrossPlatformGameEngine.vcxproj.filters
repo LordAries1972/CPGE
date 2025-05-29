@@ -48,7 +48,7 @@
     <ClCompile Include="Models.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="IOStreamThread.cpp">
+    <ClCompile Include="IOStreamDX11Thread.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="DXCamera.cpp">
@@ -78,13 +78,16 @@
     <ClCompile Include="MoviePlayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="RenderScene.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="MathPrecalculation.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="OpenGLRenderer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="DX12Renderer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="IOStreamDX12Thread.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -131,7 +134,7 @@
     <ClInclude Include="ConstantBuffer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="IOStreamThread.h">
+    <ClInclude Include="IOStreamDX11Thread.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="DXCamera.h">
@@ -170,13 +173,16 @@
     <ClInclude Include="MoviePlayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="RenderScene.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="ThreadLockHelper.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="MathPrecalculation.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="DX12Renderer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="IOStreamDX12Thread.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

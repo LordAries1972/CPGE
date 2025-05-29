@@ -59,12 +59,15 @@
 #include "MoviePlayer.h"
 
 #include "Renderer.h"
-#include "RendererMacros.h"
+#if defined(__USE_DIRECTX_11__)
 #include "DX11Renderer.h"
+#elif define(__USE_DIRECTX_12__)
 #include "DX12Renderer.h"
-#include "OpenGLRenderer.h"
+#elif defined(__USE_VULKAN__)
 #include "VulkanRenderer.h"
-
+#elif defined(__USE_OPENGL__)
+#include "OpenGLRenderer.h"
+#endif
 //------------------------------------------
 // Platform Configuration Macros
 //------------------------------------------
@@ -288,24 +291,19 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         // Initialise our MoviePlayer
         moviePlayer.Initialize(renderer, &threadManager);
 
-        #if defined(__USE_DIRECTX_11__)
-            WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
-            {
-                // Bind our Camera to the Joystick Controller.
-                js.setCamera(&dx11->myCamera);
-                // Configure for 3D usage (Like for FPS, TPS, 3D flight etc)
-                js.ConfigureFor3DMovement();
+        // Bind our Camera to the Joystick Controller.
+        js.setCamera(&renderer->myCamera);
+        // Configure for 3D usage (Like for FPS, TPS, 3D flight etc)
+        js.ConfigureFor3DMovement();
 
-                // Start Required Renderer Threads
-                #if !defined(_DEBUG)
-                    if (!dx11->StartRendererThreads())
-                    {
-                        MessageBox(nullptr, L"Problem Starting Renderer Threads!!!", L"Error", MB_OK | MB_ICONERROR);
-                        PostQuitMessage(0);
-                        return EXIT_FAILURE;
-                    }
-                #endif
-            });
+        // Start Required Renderer Threads
+        #if !defined(_DEBUG)
+            if (renderer->StartRendererThreads())
+            {
+                MessageBox(nullptr, L"Problem Starting Renderer Threads!!!", L"Error", MB_OK | MB_ICONERROR);
+                PostQuitMessage(0);
+                return EXIT_FAILURE;
+            }
         #endif
 
         // --- Main Loop ---
@@ -689,59 +687,56 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             myMouseCoords.y = static_cast<float>(cursorPos.y);
             guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
 
-            WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
+            switch (scene.stSceneType)
             {
-                switch (scene.stSceneType)
+                case SceneType::SCENE_GAMEPLAY:
                 {
-                    case SceneType::SCENE_GAMEPLAY:
+                    // Has the Right Mouse button been clicked?
+                    if (isRightClicked)
                     {
-                        // Has the Right Mouse button been clicked?
-                        if (isRightClicked)
+                        // Ensure we have no negative coordinates.
+                        if (lastMousePos.x == 0 && lastMousePos.y == 0)
                         {
-                            // Ensure we have no negative coordinates.
-                            if (lastMousePos.x == 0 && lastMousePos.y == 0)
-                            {
-                                lastMousePos = cursorPos;
-                                return 0; // prevent junk delta
-                            }
-
-                            // Adjust Camera to new position.
-                            int deltaX = cursorPos.x - lastMousePos.x;
-                            int deltaY = cursorPos.y - lastMousePos.y;
                             lastMousePos = cursorPos;
-
-                            float sensitivity = config.myConfig.moveSensitivity;
-
-                            yaw += deltaX * sensitivity;
-                            pitch += deltaY * sensitivity;
-                            float pitchMax = XMConvertToRadians(static_cast<float>(config.myConfig.maxPitch));
-                            float pitchMin = XMConvertToRadians(static_cast<float>(config.myConfig.minPitch));
-                            pitch = std::clamp(pitch, pitchMin, pitchMax);
-
-                            XMVECTOR forward = XMVectorSet(
-                                FAST_COS(pitch) * FAST_SIN(yaw),
-                                FAST_SIN(pitch),
-                                FAST_COS(pitch) * FAST_COS(yaw),
-                                0.0f
-                            );
-
-                            XMVECTOR right = XMVector3Normalize(XMVector3Cross({ 0, 1, 0 }, forward));
-                            XMVECTOR up = XMVector3Normalize(XMVector3Cross(forward, right));
-
-                            dx11->myCamera.SetYawPitch(yaw, pitch);
+                            return 0; // prevent junk delta
                         }
 
-                        // Only render if not resizing or in fullscreen transition
-                        if (!bResizeInProgress.load() && !bFullScreenTransition.load()) {
-                            dx11->RenderFrame();
-                        }
-                        break;
+                        // Adjust Camera to new position.
+                        int deltaX = cursorPos.x - lastMousePos.x;
+                        int deltaY = cursorPos.y - lastMousePos.y;
+                        lastMousePos = cursorPos;
+
+                        float sensitivity = config.myConfig.moveSensitivity;
+
+                        yaw += deltaX * sensitivity;
+                        pitch += deltaY * sensitivity;
+                        float pitchMax = XMConvertToRadians(static_cast<float>(config.myConfig.maxPitch));
+                        float pitchMin = XMConvertToRadians(static_cast<float>(config.myConfig.minPitch));
+                        pitch = std::clamp(pitch, pitchMin, pitchMax);
+
+                        XMVECTOR forward = XMVectorSet(
+                            FAST_COS(pitch) * FAST_SIN(yaw),
+                            FAST_SIN(pitch),
+                            FAST_COS(pitch) * FAST_COS(yaw),
+                            0.0f
+                        );
+
+                        XMVECTOR right = XMVector3Normalize(XMVector3Cross({ 0, 1, 0 }, forward));
+                        XMVECTOR up = XMVector3Normalize(XMVector3Cross(forward, right));
+
+                        renderer->myCamera.SetYawPitch(yaw, pitch);
                     }
-                }
 
-                guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
-                return 0;
-            });
+                    // Only render if not resizing or in fullscreen transition
+                    if (!bResizeInProgress.load() && !bFullScreenTransition.load()) {
+                        renderer->RenderFrame();
+                    }
+                    break;
+                }
+            }
+
+            guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
+            return 0;
 
             return 0;
 
@@ -795,10 +790,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             // Handle minimization state immediately
             if (wParam == SIZE_MINIMIZED) {
                 #if defined(__USE_DIRECTX_11__)
-                    WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11) 
-                    {
-                        dx11->bIsMinimized.store(true);
-                    });
+                    renderer->bIsMinimized.store(true);
                 #endif
                 return 0;
             }
@@ -835,32 +827,25 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     case SceneType::SCENE_GAMEPLAY:
                     {
                         // Perform the resize operation
-                        #if defined(__USE_DIRECTX_11__)
-                            WithDX11Renderer([width, height, hwnd](std::shared_ptr<DX11Renderer> dx11) 
-                            {
-                                dx11->bIsMinimized.store(false);
-                                threadManager.threadVars.bIsResizing.store(true);
+                        renderer->bIsMinimized.store(false);
+                        threadManager.threadVars.bIsResizing.store(true);
 
-                                // Perform DirectX resize
-                                dx11->Resize(width, height);
+                        // Perform DirectX resize
+                        renderer->Resize(width, height);
 
-                                // Update window metrics
-                                sysUtils.GetWindowMetrics(hwnd, winMetrics);
+                        // Update window metrics
+                        sysUtils.GetWindowMetrics(hwnd, winMetrics);
 
-                                // Resume loader with resize flag
-                                dx11->ResumeLoader(true);
+                        // Resume loader with resize flag
+                        renderer->ResumeLoader(true);
 
-                                // Clear resize flag
-                                threadManager.threadVars.bIsResizing.store(false);
-                                #if defined(RENDERER_IS_THREAD)
-                                    // Now Resume the Renderer Thread.
-                                    if (threadManager.threadVars.bLoaderTaskFinished.load())
-                                        threadManager.ResumeThread(THREAD_RENDERER);
-                                #endif
-
-                            });
+                        // Clear resize flag
+                        threadManager.threadVars.bIsResizing.store(false);
+                        #if defined(RENDERER_IS_THREAD)
+                            // Now Resume the Renderer Thread.
+                            if (threadManager.threadVars.bLoaderTaskFinished.load())
+                                threadManager.ResumeThread(THREAD_RENDERER);
                         #endif
-
                         break;
                     }
 
@@ -896,23 +881,19 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 // Zoom sensitivity scaling factor
                 const float zoomStep = 1.0f;
 
-                auto dx11 = std::dynamic_pointer_cast<DX11Renderer>(renderer);
-                if (dx11)
+                if (delta > 0)
                 {
-                    if (delta > 0)
-                    {
-                        dx11->myCamera.MoveIn(zoomStep);
-                        #if defined(_DEBUG_CAMERA_)
-                        debug.logDebugMessage(LogLevel::LOG_INFO, L"Camera Zoom In: delta = %d", delta);
-                        #endif
-                    }
-                    else if (delta < 0)
-                    {
-                        dx11->myCamera.MoveOut(zoomStep);
-                        #if defined(_DEBUG_CAMERA_)
-                        debug.logDebugMessage(LogLevel::LOG_INFO, L"Camera Zoom Out: delta = %d", delta);
-                        #endif
-                    }
+                    renderer->myCamera.MoveIn(zoomStep);
+                    #if defined(_DEBUG_CAMERA_)
+                    debug.logDebugMessage(LogLevel::LOG_INFO, L"Camera Zoom In: delta = %d", delta);
+                    #endif
+                }
+                else if (delta < 0)
+                {
+                    renderer->myCamera.MoveOut(zoomStep);
+                    #if defined(_DEBUG_CAMERA_)
+                    debug.logDebugMessage(LogLevel::LOG_INFO, L"Camera Zoom Out: delta = %d", delta);
+                    #endif
                 }
                 return 0;
             }
@@ -963,9 +944,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             {
                 if (wParam == VK_F2 && !threadManager.threadVars.bIsShuttingDown.load())
                 {
-                    WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11) {
-                        dx11->bWireframeMode = !dx11->bWireframeMode;
-                        });
+                    renderer->bWireframeMode = renderer->bWireframeMode;
                     return 0;
                 }
             }
@@ -975,13 +954,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             if (wParam == VK_ESCAPE && !threadManager.threadVars.bIsShuttingDown.load()) {
                 fxManager.FadeToBlack(1.0f, 0.03f);
                 soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
-                #if defined(__USE_DIRECTX_11__)
-                WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11) {
+                #if !defined(RENDERER_IS_THREAD)
                     while (fxManager.IsFadeActive()) {
-                        dx11->RenderFrame();
+                        renderer->RenderFrame();
                         std::this_thread::sleep_for(std::chrono::milliseconds(5));
                     }
-                    });
                 #endif
                 threadManager.threadVars.bIsShuttingDown.store(true);
                 PostQuitMessage(0);
@@ -994,12 +971,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 fxManager.FadeToBlack(1.0f, 0.03f);
                 soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
                 #if defined(__USE_DIRECTX_11__)
-                WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11) {
                     while (fxManager.IsFadeActive()) {
-                        dx11->RenderFrame();
+                        renderer->RenderFrame();
                         std::this_thread::sleep_for(std::chrono::milliseconds(5));
                     }
-                    });
                 #endif
                 threadManager.threadVars.bIsShuttingDown.store(true);
                 PostQuitMessage(0);
@@ -1025,45 +1000,37 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             {
             case VK_UP:
                 #if defined(__USE_DIRECTX_11__)
-                WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11) {
-                    dx11->myCamera.MoveUp(moveStep);
+                    renderer->myCamera.MoveUp(moveStep);
                     if (!bResizeInProgress.load()) {
-                        dx11->RenderFrame();
+                        renderer->RenderFrame();
                     }
-                    });
                 #endif
                 break;
 
             case VK_DOWN:
                 #if defined(__USE_DIRECTX_11__)
-                WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11) {
-                    dx11->myCamera.MoveDown(moveStep);
+                    renderer->myCamera.MoveDown(moveStep);
                     if (!bResizeInProgress.load()) {
-                        dx11->RenderFrame();
+                        renderer->RenderFrame();
                     }
-                    });
                 #endif
                 break;
 
             case VK_LEFT:
                 #if defined(__USE_DIRECTX_11__)
-                WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11) {
-                    dx11->myCamera.MoveLeft(moveStep);
+                    renderer->myCamera.MoveLeft(moveStep);
                     if (!bResizeInProgress.load()) {
-                        dx11->RenderFrame();
+                        renderer->RenderFrame();
                     }
-                    });
                 #endif
                 break;
 
             case VK_RIGHT:
                 #if defined(__USE_DIRECTX_11__)
-                WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11) {
-                    dx11->myCamera.MoveRight(moveStep);
+                    renderer->myCamera.MoveRight(moveStep);
                     if (!bResizeInProgress.load()) {
-                        dx11->RenderFrame();
+                        renderer->RenderFrame();
                     }
-                    });
                 #endif
                 break;
             }

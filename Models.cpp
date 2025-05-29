@@ -8,7 +8,6 @@
 #include "Debug.h"
 #include "WinSystem.h"
 #include "ThreadManager.h"
-#include "RendererMacros.h"
 
 #ifdef __USE_DIRECTX_11__
 #include <d3d11.h>
@@ -179,11 +178,6 @@ bool Texture::CreateSolidColorTexture(uint32_t width, uint32_t height, const XMF
         textureData[i * 4 + 3] = a; // Alpha
     }
 
-    std::shared_ptr<DX11Renderer> dx11;
-    WithDX11Renderer([&](std::shared_ptr<DX11Renderer> renderer) {
-        dx11 = renderer;
-        });
-
     // Describe texture
     D3D11_TEXTURE2D_DESC texDesc = {};
     texDesc.Width = width;
@@ -200,8 +194,13 @@ bool Texture::CreateSolidColorTexture(uint32_t width, uint32_t height, const XMF
     initData.SysMemPitch = width * 4;
 
     Microsoft::WRL::ComPtr<ID3D11Texture2D> texture2D;
+    // Retrieve our Device and Context from Renderer
+    ComPtr<ID3D11Device> device;
+    ComPtr<ID3D11DeviceContext> context;
+    device = static_cast<ID3D11Device*>(renderer->GetDevice());
+    context = static_cast<ID3D11DeviceContext*>(renderer->GetDeviceContext());
 
-    HRESULT hr = dx11->m_d3dDevice->CreateTexture2D(&texDesc, &initData, &texture2D);
+    HRESULT hr = device->CreateTexture2D(&texDesc, &initData, &texture2D);
     if (FAILED(hr))
     {
         debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] Failed to create solid color texture. HRESULT: 0x%08X", hr);
@@ -213,7 +212,7 @@ bool Texture::CreateSolidColorTexture(uint32_t width, uint32_t height, const XMF
     srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
     srvDesc.Texture2D.MipLevels = 1;
 
-    hr = dx11->m_d3dDevice->CreateShaderResourceView(texture2D.Get(), &srvDesc, &textureSRV);
+    hr = device->CreateShaderResourceView(texture2D.Get(), &srvDesc, &textureSRV);
     if (FAILED(hr))
     {
         debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] Failed to create SRV for solid color texture. HRESULT: 0x%08X", hr);
@@ -1027,122 +1026,125 @@ bool Model::SetupModelForRendering()
 {
 #ifdef __USE_DIRECTX_11__
     std::shared_ptr<DX11Renderer> dx11;
-    WithDX11Renderer([&](std::shared_ptr<DX11Renderer> renderer) {
-        dx11 = renderer;
 
-        if (!dx11 || !dx11->m_d3dDevice || !dx11->m_d3dContext) {
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID: %d Status: %d Failed to Setup (Device or Context could be NULL)", m_modelInfo.ID, m_isLoaded);
-            return false;
-        }
+    if (!renderer) {
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID: %d Status: Invalid Renderer has been provided.)", m_modelInfo.ID, m_isLoaded);
+        return false;
+    }
 
-        ID3D11Device* device = dx11->m_d3dDevice.Get();
-        ID3D11DeviceContext* context = dx11->m_d3dContext.Get();
+    // Retrieve our Device and Context from Renderer
+    ComPtr<ID3D11Device> device;
+    ComPtr<ID3D11DeviceContext> context;
+    device = static_cast<ID3D11Device*>(renderer->GetDevice());
+    context = static_cast<ID3D11DeviceContext*>(renderer->GetDeviceContext());
+    if (!device || !context)
+    {
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID: %d Status: %d Failed to Setup (Device or Context could be NULL)", m_modelInfo.ID, m_isLoaded);
+        return false;
+    }
+    
+    // If no SRVs were loaded, force a fallback so GPU doesn't crash
+    if (m_modelInfo.textureSRVs.empty()) {
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID %d has no textures. Applying fallback texture.", m_modelInfo.ID);
+        LoadFallbackTexture(); // creates and assigns fallback to m_modelInfo.textureSRVs
+    }
 
-        // If no SRVs were loaded, force a fallback so GPU doesn't crash
-        if (m_modelInfo.textureSRVs.empty()) {
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID %d has no textures. Applying fallback texture.", m_modelInfo.ID);
-            LoadFallbackTexture(); // creates and assigns fallback to m_modelInfo.textureSRVs
-        }
+    // Ensure at least one normal map SRV exists to prevent GPU crash
+    if (m_modelInfo.normalMapSRVs.empty()) {
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID %d has no normal maps. Applying flat normal fallback.", m_modelInfo.ID);
+        LoadFallbackNormalMap();
+    }
 
-        // Ensure at least one normal map SRV exists to prevent GPU crash
-        if (m_modelInfo.normalMapSRVs.empty()) {
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID %d has no normal maps. Applying flat normal fallback.", m_modelInfo.ID);
-            LoadFallbackNormalMap();
-        }
+    //=== SHADER SETUP ===//
+    ComPtr<ID3DBlob> vsBlob;
+    ComPtr<ID3DBlob> psBlob;
 
-        //=== SHADER SETUP ===//
-        ComPtr<ID3DBlob> vsBlob;
-        ComPtr<ID3DBlob> psBlob;
+    std::filesystem::path vsPath = "ModelVShader.hlsl";
+    std::filesystem::path psPath = "ModelPShader.hlsl";
 
-        std::filesystem::path vsPath = "ModelVShader.hlsl";
-        std::filesystem::path psPath = "ModelPShader.hlsl";
+    if (FAILED(CompileShaderFromFile(vsPath.c_str(), "main", "vs_5_0", &vsBlob))) return false;
+    if (FAILED(CompileShaderFromFile(psPath.c_str(), "main", "ps_5_0", &psBlob))) return false;
 
-        if (FAILED(CompileShaderFromFile(vsPath.c_str(), "main", "vs_5_0", &vsBlob))) return false;
-        if (FAILED(CompileShaderFromFile(psPath.c_str(), "main", "ps_5_0", &psBlob))) return false;
+    if (FAILED(device->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &m_modelInfo.vertexShader))) return false;
+    if (FAILED(device->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &m_modelInfo.pixelShader))) return false;
 
-        if (FAILED(device->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &m_modelInfo.vertexShader))) return false;
-        if (FAILED(device->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &m_modelInfo.pixelShader))) return false;
+    D3D11_INPUT_ELEMENT_DESC layout[] =
+    {
+        { "POSITION",  0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(Vertex, position), D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "NORMAL",    0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(Vertex, normal),   D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "TEXCOORD",  0, DXGI_FORMAT_R32G32_FLOAT,    0, offsetof(Vertex, texCoord), D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "TANGENT",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(Vertex, tangent),  D3D11_INPUT_PER_VERTEX_DATA, 0 },
+    };
 
-        D3D11_INPUT_ELEMENT_DESC layout[] =
-        {
-            { "POSITION",  0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(Vertex, position), D3D11_INPUT_PER_VERTEX_DATA, 0 },
-            { "NORMAL",    0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(Vertex, normal),   D3D11_INPUT_PER_VERTEX_DATA, 0 },
-            { "TEXCOORD",  0, DXGI_FORMAT_R32G32_FLOAT,    0, offsetof(Vertex, texCoord), D3D11_INPUT_PER_VERTEX_DATA, 0 },
-            { "TANGENT",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(Vertex, tangent),  D3D11_INPUT_PER_VERTEX_DATA, 0 },
-        };
+    HRESULT hr = device->CreateInputLayout(layout, ARRAYSIZE(layout), vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &m_modelInfo.inputLayout);
+    if (FAILED(hr)) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateInputLayout failed. HRESULT = 0x%08X", hr);
+        return false;
+    }
 
-        HRESULT hr = device->CreateInputLayout(layout, ARRAYSIZE(layout), vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &m_modelInfo.inputLayout);
-        if (FAILED(hr)) {
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateInputLayout failed. HRESULT = 0x%08X", hr);
-            return false;
-        }
+    //=== BUFFER SETUP ===//
+    D3D11_BUFFER_DESC vbDesc = {};
+    vbDesc.ByteWidth = static_cast<UINT>(m_modelInfo.vertices.size() * sizeof(Vertex));
+    vbDesc.Usage = D3D11_USAGE_IMMUTABLE;
+    vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
 
-        //=== BUFFER SETUP ===//
-        D3D11_BUFFER_DESC vbDesc = {};
-        vbDesc.ByteWidth = static_cast<UINT>(m_modelInfo.vertices.size() * sizeof(Vertex));
-        vbDesc.Usage = D3D11_USAGE_IMMUTABLE;
-        vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+    D3D11_SUBRESOURCE_DATA vbData = { m_modelInfo.vertices.data() };
+    #if defined(_DEBUG_MODEL_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"Vertex count: %d", (int)m_modelInfo.vertices.size());
+    #endif
+    if (FAILED(device->CreateBuffer(&vbDesc, &vbData, &m_modelInfo.vertexBuffer))) return false;
 
-        D3D11_SUBRESOURCE_DATA vbData = { m_modelInfo.vertices.data() };
-        #if defined(_DEBUG_MODEL_)
-            debug.logDebugMessage(LogLevel::LOG_INFO, L"Vertex count: %d", (int)m_modelInfo.vertices.size());
-        #endif
-        if (FAILED(device->CreateBuffer(&vbDesc, &vbData, &m_modelInfo.vertexBuffer))) return false;
+    D3D11_BUFFER_DESC ibDesc = {};
+    ibDesc.ByteWidth = static_cast<UINT>(m_modelInfo.indices.size() * sizeof(uint32_t));
+    ibDesc.Usage = D3D11_USAGE_IMMUTABLE;
+    ibDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
 
-        D3D11_BUFFER_DESC ibDesc = {};
-        ibDesc.ByteWidth = static_cast<UINT>(m_modelInfo.indices.size() * sizeof(uint32_t));
-        ibDesc.Usage = D3D11_USAGE_IMMUTABLE;
-        ibDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+    D3D11_SUBRESOURCE_DATA ibData = { m_modelInfo.indices.data() };
+    #if defined(_DEBUG_MODEL_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"Index count: %d", (int)m_modelInfo.indices.size());
+    #endif
+    if (FAILED(device->CreateBuffer(&ibDesc, &ibData, &m_modelInfo.indexBuffer))) return false;
 
-        D3D11_SUBRESOURCE_DATA ibData = { m_modelInfo.indices.data() };
-        #if defined(_DEBUG_MODEL_)
-            debug.logDebugMessage(LogLevel::LOG_INFO, L"Index count: %d", (int)m_modelInfo.indices.size());
-        #endif
-        if (FAILED(device->CreateBuffer(&ibDesc, &ibData, &m_modelInfo.indexBuffer))) return false;
+    //=== CONSTANT BUFFERS ===//
+    D3D11_BUFFER_DESC cbDesc = {};
+    cbDesc.ByteWidth = sizeof(ConstantBuffer);
+    cbDesc.Usage = D3D11_USAGE_DYNAMIC;
+    cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    if (FAILED(device->CreateBuffer(&cbDesc, nullptr, &m_modelInfo.constantBuffer))) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create Constant Buffer.");
+        return false;
+    }
 
-        //=== CONSTANT BUFFERS ===//
-        D3D11_BUFFER_DESC cbDesc = {};
-        cbDesc.ByteWidth = sizeof(ConstantBuffer);
-        cbDesc.Usage = D3D11_USAGE_DYNAMIC;
-        cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-        cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-        if (FAILED(device->CreateBuffer(&cbDesc, nullptr, &m_modelInfo.constantBuffer))) {
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create Constant Buffer.");
-            return false;
-        }
+    D3D11_BUFFER_DESC lightDesc = {};
+    lightDesc.ByteWidth = sizeof(LightBuffer);
+    lightDesc.Usage = D3D11_USAGE_DYNAMIC;
+    lightDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    lightDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    if (FAILED(device->CreateBuffer(&lightDesc, nullptr, &m_modelInfo.lightConstantBuffer))) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create Light Buffer.");
+        return false;
+    }
 
-        D3D11_BUFFER_DESC lightDesc = {};
-        lightDesc.ByteWidth = sizeof(LightBuffer);
-        lightDesc.Usage = D3D11_USAGE_DYNAMIC;
-        lightDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-        lightDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-        if (FAILED(device->CreateBuffer(&lightDesc, nullptr, &m_modelInfo.lightConstantBuffer))) {
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create Light Buffer.");
-            return false;
-        }
+    D3D11_BUFFER_DESC matDesc = {};
+    matDesc.ByteWidth = sizeof(MaterialGPU);
+    matDesc.Usage = D3D11_USAGE_DYNAMIC;
+    matDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    matDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    if (FAILED(device->CreateBuffer(&matDesc, nullptr, m_modelInfo.materialBuffer.GetAddressOf()))) return false;
 
-        D3D11_BUFFER_DESC matDesc = {};
-        matDesc.ByteWidth = sizeof(MaterialGPU);
-        matDesc.Usage = D3D11_USAGE_DYNAMIC;
-        matDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-        matDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-        if (FAILED(device->CreateBuffer(&matDesc, nullptr, m_modelInfo.materialBuffer.GetAddressOf()))) return false;
-
-        //=== SAMPLER ===//
-        D3D11_SAMPLER_DESC sampDesc = {};
-        sampDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-        sampDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
-        sampDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
-        sampDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
-        sampDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
-        sampDesc.MinLOD = 0;
-        sampDesc.MaxLOD = D3D11_FLOAT32_MAX;
-        if (FAILED(device->CreateSamplerState(&sampDesc, &m_modelInfo.samplerState))) return false;
+    //=== SAMPLER ===//
+    D3D11_SAMPLER_DESC sampDesc = {};
+    sampDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+    sampDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
+    sampDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
+    sampDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+    sampDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+    sampDesc.MinLOD = 0;
+    sampDesc.MaxLOD = D3D11_FLOAT32_MAX;
+    if (FAILED(device->CreateSamplerState(&sampDesc, &m_modelInfo.samplerState))) return false;
         
-        SetupPBRResources();
-
-        return true;
-        });
+    SetupPBRResources();
 
     return true;
 #else
@@ -1155,44 +1157,44 @@ bool Model::SetupModelForRendering()
 // ============================================================================
 void Model::UpdateModelLighting()
 {
-    WithDX11Renderer([&](std::shared_ptr<DX11Renderer> dx11)
+    if (!m_modelInfo.lightConstantBuffer)
+        return;
+
+    LightBuffer buffer = {};
+    int maxLights = std::min(static_cast<int>(m_modelInfo.localLights.size()), MAX_MODEL_LIGHTS);
+    buffer.numLights = maxLights;
+
+    for (int i = 0; i < maxLights; ++i)
+    {
+        buffer.lights[i] = m_modelInfo.localLights[i];
+    }
+
+    // Retrieve our Device and Context from Renderer
+    ComPtr<ID3D11DeviceContext> context;
+    context = static_cast<ID3D11DeviceContext*>(renderer->GetDeviceContext());
+
+    if (m_modelInfo.lightConstantBuffer)
+    {
+        D3D11_MAPPED_SUBRESOURCE mappedLight = {};
+        HRESULT hr = context->Map(m_modelInfo.lightConstantBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedLight);
+        if (SUCCEEDED(hr))
         {
-            if (!m_modelInfo.lightConstantBuffer)
-                return;
-
-            LightBuffer buffer = {};
-            int maxLights = std::min(static_cast<int>(m_modelInfo.localLights.size()), MAX_MODEL_LIGHTS);
-            buffer.numLights = maxLights;
-
-            for (int i = 0; i < maxLights; ++i)
-            {
-                buffer.lights[i] = m_modelInfo.localLights[i];
-            }
-
-            if (m_modelInfo.lightConstantBuffer)
-            {
-                D3D11_MAPPED_SUBRESOURCE mappedLight = {};
-                HRESULT hr = dx11->m_d3dContext->Map(m_modelInfo.lightConstantBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedLight);
-                if (SUCCEEDED(hr))
-                {
-                    memcpy(mappedLight.pData, &buffer, sizeof(LightBuffer));
-                    dx11->m_d3dContext->Unmap(m_modelInfo.lightConstantBuffer.Get(), 0);
-                    dx11->m_d3dContext->PSSetConstantBuffers(SLOT_LIGHT_BUFFER, 1, m_modelInfo.lightConstantBuffer.GetAddressOf());
+            memcpy(mappedLight.pData, &buffer, sizeof(LightBuffer));
+            context->Unmap(m_modelInfo.lightConstantBuffer.Get(), 0);
+            context->PSSetConstantBuffers(SLOT_LIGHT_BUFFER, 1, m_modelInfo.lightConstantBuffer.GetAddressOf());
 
 
+            #if defined(_DEBUG_MODEL_)
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"[Model] Lighting updated (%d lights)", buffer.numLights);
+            #endif
+        }
+    }
+    else
+    {
 #if defined(_DEBUG_MODEL_)
-                    debug.logDebugMessage(LogLevel::LOG_INFO, L"[Model] Lighting updated (%d lights)", buffer.numLights);
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[Model] Failed to map light buffer for writing.");
 #endif
-                }
-            }
-            else
-            {
-#if defined(_DEBUG_MODEL_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[Model] Failed to map light buffer for writing.");
-#endif
-            }
-
-        });
+    }
 }
 
 //=============================================================================
@@ -1201,12 +1203,6 @@ void Model::UpdateModelLighting()
 void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
 {
 #if defined(__USE_DIRECTX_11__)
-
-    std::shared_ptr<DX11Renderer> dx11;
-    WithDX11Renderer([&](std::shared_ptr<DX11Renderer> renderer) {
-        dx11 = renderer;
-        });
-
     if (!deviceContext || !threadManager.threadVars.bLoaderTaskFinished.load())
     {
 #if defined(_DEBUG_MODEL_) && defined(_DEBUG)

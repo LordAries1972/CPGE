@@ -1,6 +1,7 @@
-#include "DX11Renderer.h"
+
+#include "Includes.h"
+
 #include "DX_FXManager.h"
-#include "RendererMacros.h"
 #include "ThreadManager.h"
 #include "SoundManager.h"
 #include "GUIManager.h"
@@ -172,28 +173,25 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     // Use debug output to log function entry
     debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Creating game menu window with message: %s", message.c_str());
 
-    // Get renderer dimensions safely using WithDX11Renderer pattern from existing code
-    WithDX11Renderer([this, WINDOW_NAME](std::shared_ptr<DX11Renderer> dx11) {
-        // Validate DX11 renderer before proceeding
-        if (!dx11) {
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateGameMenuWindow - DX11 renderer is null, cannot create window");
-            return;
-        }
+    // Validate DX11 renderer before proceeding
+    if (!renderer) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateGameMenuWindow - DX11 renderer is null, cannot create window");
+        return;
+    }
 
-        // Create the Game Menu Window with proper error checking
-        CreateMyWindow(
-            WINDOW_NAME,                                                    // Window name
-            GUIWindowType::Dialog,                                          // Window type (Dialog)
-            Vector2(dx11->iOrigWidth - 305, 0),                             // Position (x, y) - right side of screen
-            Vector2(300, dx11->iOrigHeight),                                // Size (width, height) - full height
-            MyColor(0, 0, 0, 0),                                            // Background color (transparent black)
-            int(BlitObj2DIndexType::NONE)                                   // No background texture ID
-        );
+    // Create the Game Menu Window with proper error checking
+    CreateMyWindow(
+        WINDOW_NAME,                                                    // Window name
+        GUIWindowType::Dialog,                                          // Window type (Dialog)
+        Vector2(renderer->iOrigWidth - 305, 0),                             // Position (x, y) - right side of screen
+        Vector2(300, renderer->iOrigHeight),                                // Size (width, height) - full height
+        MyColor(0, 0, 0, 0),                                            // Background color (transparent black)
+        int(BlitObj2DIndexType::NONE)                                   // No background texture ID
+    );
 
-        // Log successful window creation with dimensions
-        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"CreateGameMenuWindow - Window created at position (%d, %d) with size (%d, %d)",
-            dx11->iOrigWidth - 305, 0, 300, dx11->iOrigHeight);
-        });
+    // Log successful window creation with dimensions
+    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"CreateGameMenuWindow - Window created at position (%d, %d) with size (%d, %d)",
+        renderer->iOrigWidth - 305, 0, 300, renderer->iOrigHeight);
 
     // Get the created window with proper error checking
     std::shared_ptr<GUIWindow> gameMenuWindow = GetWindow(WINDOW_NAME);

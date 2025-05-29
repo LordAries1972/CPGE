@@ -12,7 +12,6 @@
 #include "MathPrecalculation.h"
 #include "MoviePlayer.h"
 #include "DX11Renderer.h"
-#include "RendererMacros.h"
 #include <mfapi.h>
 #include <mfidl.h>
 #include <mfreadwrite.h>

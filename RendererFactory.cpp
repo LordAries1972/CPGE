@@ -1,15 +1,23 @@
+#include "Includes.h"
 #include "Renderer.h"
-#include "DX11Renderer.h"
-#include "DX12Renderer.h"
-#include "OpenGLRenderer.h"
-#include "VulkanRenderer.h"
+
 #include "Debug.h"
+
+#if defined(__USE_DIRECTX_11__)
+    #include "DX11Renderer.h"
+#elif defined(__USE_DIRECTX_12__)
+    #include "DX12Renderer.h"
+#elif defined(__USE_OPENGL__)
+    #include "OpenGLRenderer.h"
+#elif defined(__USE_VULKAN__)
+    #include "VulkanRenderer.h"
+#endif
 
 std::shared_ptr<Renderer> renderer;
 
 int CreateRendererInstance()
 {
-#if defined(__USING_DX_3D__) && defined(__USE_DIRECTX_11__)
+#if defined(__USE_DIRECTX_11__)
     renderer = std::make_shared<DX11Renderer>();
 #elif defined(__USE_DIRECTX_12__)
     renderer = std::make_shared<DX12Renderer>();

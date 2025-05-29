@@ -88,6 +88,7 @@ DX11Renderer::~DX11Renderer()
 void DX11Renderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
 	// Set the Renderer Name
     RendererName(RENDERER_NAME);
+    
     iOrigWidth = winMetrics.clientWidth;
     iOrigHeight = winMetrics.clientHeight;
 
@@ -2852,6 +2853,26 @@ ComPtr<IDXGIAdapter1> DX11Renderer::SelectBestAdapter()
     return bestAdapter;
 }
 
+void* DX11Renderer::GetDevice()
+{
+    // Return the raw pointer from ComPtr - can be cast back to ComPtr<ID3D11Device>
+    // in calling code using: ComPtr<ID3D11Device> device; device.Attach(static_cast<ID3D11Device*>(renderer->GetDevice()));
+    return m_d3dDevice.Get();
+}
+
+void* DX11Renderer::GetDeviceContext()
+{
+    // Return the raw pointer from ComPtr - can be cast back to ComPtr<ID3D11DeviceContext>
+    // in calling code using: ComPtr<ID3D11DeviceContext> context; context.Attach(static_cast<ID3D11DeviceContext*>(renderer->GetDeviceContext()));
+    return m_d3dContext.Get();
+}
+
+void* DX11Renderer::GetSwapChain()
+{
+    // Return the raw pointer from ComPtr - can be cast back to ComPtr<IDXGISwapChain>
+    // in calling code using: ComPtr<IDXGISwapChain> swapChain; swapChain.Attach(static_cast<IDXGISwapChain*>(renderer->GetSwapChain()));
+    return m_swapChain.Get();
+}
 /* -------------------------------------------------------------- */
 // Main Tasking Thread for our renderer
 //
@@ -2872,7 +2893,8 @@ void DX11Renderer::RenderFrame()
 {
     // SAFE-GUARDS
     if (bHasCleanedUp || !m_d3dDevice || !m_d3dContext || !m_cameraConstantBuffer) return;
-    if (threadManager.threadVars.bIsShuttingDown.load() || bIsMinimized.load() || threadManager.threadVars.bIsResizing.load() || !bIsInitialized.load()) return;
+    if (threadManager.threadVars.bIsShuttingDown.load() || bIsMinimized.load() || threadManager.threadVars.bIsResizing.load() || 
+        threadManager.threadVars.bIsRendering.load() || !bIsInitialized.load()) return;
 
     try
 	{
@@ -2976,7 +2998,10 @@ void DX11Renderer::RenderFrame()
                 }
             }
 
-			// Clear the render target and depth stencil view before we start rendering
+			// State that we are now rendering
+            threadManager.threadVars.bIsRendering.store(true);
+            
+            // Clear the render target and depth stencil view before we start rendering
 			if (m_d3dContext)
 			{
                 m_d3dContext->ClearRenderTargetView(m_renderTargetView.Get(), clearColor);
@@ -2985,14 +3010,6 @@ void DX11Renderer::RenderFrame()
 
             // Update the cameras viewmatrix
 			myCamera.UpdateViewMatrix();
-
-            // Clear the Render Target for this draw operation.
-//			if (m_d2dRenderTarget)
-//			{
-//				m_d2dRenderTarget->BeginDraw();
-//				m_d2dRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::Black));
-//                m_d2dRenderTarget->EndDraw();
-//          }
 
             // Update effects
             static auto myLastTime = std::chrono::high_resolution_clock::now();
@@ -3008,7 +3025,6 @@ void DX11Renderer::RenderFrame()
             // Update the timer for the next frame
             lastFrameTime = now;
 
-            threadManager.threadVars.bIsRendering.store(true);                                     // State that we are now rendering 
             GetCursorPos(&cursorPos);
             ScreenToClient(hWnd, &cursorPos);
             myMouseCoords.x = cursorPos.x;

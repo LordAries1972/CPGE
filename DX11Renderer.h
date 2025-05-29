@@ -9,6 +9,7 @@
 // in a separate thread to avoid blocking the main thread. The class provides methods for rendering 2D and 3D
 // objects, as well as text rendering and texture loading.
 // 
+// ============
 // PLEASE NOTE:
 // ============
 // This implementation is to maintain support for the older video cards and OS systems.  For newer systems,
@@ -16,14 +17,13 @@
 // -------------------------------------------------------------------------------------------------------------
 #pragma once
 
-//-------------------------------------------------------------------------------------------------
+//-----------------------------------------------
 // DX11Renderer.h - DirectX 11 Renderer Interface
-//-------------------------------------------------------------------------------------------------
+//-----------------------------------------------
 #include "Includes.h"
-#include "Renderer.h"                               // We must include the abstract base class here!!!!
+#include "Renderer.h"                                                           // We must include the abstract base class here!!!!
 
 #if defined(__USE_DIRECTX_11__)
-
 #include "DXCamera.h"
 #include "Vectors.h"
 #include "Color.h"
@@ -31,6 +31,8 @@
 //#include "SceneManager.h"
 #include "ThreadManager.h"
 #include "ConstantBuffer.h"
+
+#include <dxgi1_2.h>
 
 const std::string RENDERER_NAME = "DX11Renderer";
 
@@ -109,34 +111,26 @@ struct AvailModes {										                        // Details of Available Scr
 
 struct AvailScreenModes {
     int iAdapter = 0;
-    std::vector<AvailModes> modes;  // Dynamic storage
+    std::vector<AvailModes> modes;                                              // Dynamic storage
 }; 
 
-// -------------------------------------------------------------------------------------------------------------
+// -----------------------------------
 // Our Main DirectX 11 Renderer Class
-// -------------------------------------------------------------------------------------------------------------
+// -----------------------------------
 class DX11Renderer : public Renderer {
 public:
     DX11Renderer();
     ~DX11Renderer();
 
-    // These are used when we resize our window
-    int iOrigWidth = DEFAULT_WINDOW_WIDTH;
-    int iOrigHeight = DEFAULT_WINDOW_HEIGHT;
-    
-    // Default toggle flag for displaying models in Wireframe mode.
-    // In Runtime, use the F2 key to toggle status.
-    bool bWireframeMode = false;
-
     // Instantiate our required classes & structures.
-    Camera myCamera;
     GFXObjQueue My2DBlitQueue[MAX_2D_IMG_QUEUE_OBJS];                           // Our 2D Blit Queue
     AvailScreenModes screenModes[MAX_SCREEN_MONITORS];
 
     // Smart Pointers - ComPtrs
     ComPtr<ID3D11Device> m_d3dDevice{ nullptr };
-    ComPtr<IDXGIAdapter1> adapter{ nullptr };
     ComPtr<ID3D11DeviceContext> m_d3dContext{ nullptr };
+
+    ComPtr<IDXGIAdapter1> adapter{ nullptr };
     ComPtr<ID3D11RenderTargetView> m_renderTargetView{ nullptr };
     ComPtr<IDXGISwapChain1> m_swapChain{ nullptr };                             // Corrected declaration
     ComPtr<ID2D1Bitmap> m_d2dTextures[MAX_TEXTURE_BUFFERS] = {};
@@ -169,6 +163,11 @@ public:
     void RenderFrame() override;
     void LoaderTaskThread() override;
     void Cleanup() override;
+
+    // Internal Help functions
+    void* GetDevice() override;                                                 // Returns m_device.Get() as void* pointer
+    void* GetDeviceContext() override;                                          // Returns m_deviceContext.Get() as void* pointer  
+    void* GetSwapChain() override;                                              // Returns m_swapChain.Get() as void* pointer
 
     // Our function and procedure definitions for this class.
     bool LoadTexture(int textureId, const std::wstring& filename, bool is2D);
@@ -203,13 +202,13 @@ public:
     void DrawMyText(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize) override;
     void DrawMyText(const std::wstring& text, const Vector2& position, const Vector2& size, const MyColor& color, const float FontSize) override;
     void DrawMyTextWithFont(const std::wstring& text, const Vector2& position, const MyColor& color,
-        const float FontSize, const std::wstring& fontName);
+        const float FontSize, const std::wstring& fontName) override;
 
     void DrawTexture(int textureId, const Vector2& position, const Vector2& size, const MyColor& tintColor, bool is2D) override;
     void RendererName(std::string sThisName) override;
 
     float GetCharacterWidth(wchar_t character, float FontSize) override;
-    float GetCharacterWidth(wchar_t character, float FontSize, const std::wstring& fontName);
+    float GetCharacterWidth(wchar_t character, float FontSize, const std::wstring& fontName) override;
     float CalculateTextWidth(const std::wstring& text, float FontSize, float containerWidth) override;
     float CalculateTextHeight(const std::wstring& text, float FontSize, float containerHeight) override;
 

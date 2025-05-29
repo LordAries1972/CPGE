@@ -2,20 +2,23 @@
 //#include "Constants.h"
 #include "Includes.h"
 #include "DX_FXManager.h"
+
+#if defined(_WIN32) || defined(_WIN64)
+#if defined(__USE_DIRECTX_11__)
+#include "DX11Renderer.h"
+#elif defined(__USE_DIRECTX_12__)
+#include "DX12Renderer.h"
+#elif defined(__USE_VULKAN__)
+#include "VulkanRenderer.h"
+#elif defined(__USE_OPENGL__)
+#include "OpenGLRenderer.h"
+#endif
+#endif  // End of #if defined(_WIN32) || defined(_WIN64)
+
 #include "Debug.h"
 #include "MathPrecalculation.h"
 #include "ThreadManager.h"
 #include "ThreadLockHelper.h"
-
-#if defined(__USE_DIRECTX_11__)
-#include "DX11Renderer.h"
-#include "RendererMacros.h"
-#include <d3d11.h>
-#include <d3dcompiler.h>
-
-#pragma comment(lib, "d3d11.lib")
-#pragma comment(lib, "d3dcompiler.lib")
-#endif
 
 extern Debug debug;
 extern ThreadManager threadManager;
@@ -23,9 +26,10 @@ extern ThreadManager threadManager;
 // UPDATED: FXManager constructor with bIsRendering initialization
 FXManager::FXManager() : originalBlendState(nullptr), fadeBlendState(nullptr), originalRenderTarget(nullptr),
 fullscreenQuadVertexBuffer(nullptr), inputLayout(nullptr), vertexShader(nullptr), pixelShader(nullptr),
-bHasCleanedUp(false), bIsRendering(false) {                                     // Initialize bIsRendering to false
+bHasCleanedUp(false), bIsRendering(false) {
     // Constructor body remains the same
 }
+
 FXManager::~FXManager() {
     CleanUp();
 }
@@ -85,88 +89,92 @@ void FXManager::Initialize() {
     }
 
     try {
-        WithDX11Renderer([this](std::shared_ptr<DX11Renderer> dx11) {
-            // Validate DirectX 11 renderer and its components
-            if (!dx11) {
-                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] DirectX 11 renderer cast failed");
-                return;
-            }
+        // Validate DirectX 11 renderer and its components
+        if (!renderer) {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] DirectX 11 renderer cast failed");
+            return;
+        }
 
-            if (!dx11->m_d3dDevice || !dx11->m_d3dContext) {
-                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] DirectX device or context is null");
-                return;
-            }
+        // Retrieve our Device and Context from Renderer
+        ComPtr<ID3D11Device> device;
+        ComPtr<ID3D11DeviceContext> context;
+        device = static_cast<ID3D11Device*>(renderer->GetDevice());
+        context = static_cast<ID3D11DeviceContext*>(renderer->GetDeviceContext());
+        // Ensure these are valid        
+        if (!device || !context) {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] DirectX device or context is null");
+            return;
+        }
 
-            // Setup fullscreen quad rendering resources with error checking
-            struct Vertex {
-                XMFLOAT3 position;                                  // 3D position of vertex
-                XMFLOAT2 texcoord;                                  // Texture coordinates
-            };
+        // Setup fullscreen quad rendering resources with error checking
+        struct Vertex {
+            XMFLOAT3 position;                                  // 3D position of vertex
+            XMFLOAT2 texcoord;                                  // Texture coordinates
+        };
 
-            // Define fullscreen quad vertices (triangle strip)
-            Vertex quadVertices[] = {
-                { XMFLOAT3(-1.0f, 1.0f, 0.0f), XMFLOAT2(0.0f, 0.0f) },   // Top-left vertex
-                { XMFLOAT3(1.0f, 1.0f, 0.0f), XMFLOAT2(1.0f, 0.0f) },    // Top-right vertex
-                { XMFLOAT3(-1.0f, -1.0f, 0.0f), XMFLOAT2(0.0f, 1.0f) },  // Bottom-left vertex
-                { XMFLOAT3(1.0f, -1.0f, 0.0f), XMFLOAT2(1.0f, 1.0f) }    // Bottom-right vertex
-            };
+        // Define fullscreen quad vertices (triangle strip)
+        Vertex quadVertices[] = {
+            { XMFLOAT3(-1.0f, 1.0f, 0.0f), XMFLOAT2(0.0f, 0.0f) },   // Top-left vertex
+            { XMFLOAT3(1.0f, 1.0f, 0.0f), XMFLOAT2(1.0f, 0.0f) },    // Top-right vertex
+            { XMFLOAT3(-1.0f, -1.0f, 0.0f), XMFLOAT2(0.0f, 1.0f) },  // Bottom-left vertex
+            { XMFLOAT3(1.0f, -1.0f, 0.0f), XMFLOAT2(1.0f, 1.0f) }    // Bottom-right vertex
+        };
 
-            // Create blend state for fade effects with comprehensive error checking
-            D3D11_BLEND_DESC blendDesc = {};
-            blendDesc.RenderTarget[0].BlendEnable = TRUE;                   // Enable blending for fade effects
-            blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;     // Source blend factor
-            blendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA; // Destination blend factor
-            blendDesc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;         // Blend operation
-            blendDesc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;      // Source alpha blend factor
-            blendDesc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;    // Destination alpha blend factor
-            blendDesc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;    // Alpha blend operation
-            blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL; // Enable all color channels
+        // Create blend state for fade effects with comprehensive error checking
+        D3D11_BLEND_DESC blendDesc = {};
+        blendDesc.RenderTarget[0].BlendEnable = TRUE;                   // Enable blending for fade effects
+        blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;     // Source blend factor
+        blendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA; // Destination blend factor
+        blendDesc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;         // Blend operation
+        blendDesc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;      // Source alpha blend factor
+        blendDesc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;    // Destination alpha blend factor
+        blendDesc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;    // Alpha blend operation
+        blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL; // Enable all color channels
 
-            HRESULT hr = dx11->m_d3dDevice->CreateBlendState(&blendDesc, &fadeBlendState);
-            if (FAILED(hr)) {
-                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] Failed to create fade blend state - HRESULT: 0x" +
-                    std::to_wstring(hr));
-                return;
-            }
+        HRESULT hr = device->CreateBlendState(&blendDesc, &fadeBlendState);
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] Failed to create fade blend state - HRESULT: 0x" +
+                std::to_wstring(hr));
+            return;
+        }
 
-            // Create vertex buffer for fullscreen quad with validation
-            D3D11_BUFFER_DESC vertexBufferDesc = {};
-            vertexBufferDesc.Usage = D3D11_USAGE_DEFAULT;                   // Default usage for GPU access
-            vertexBufferDesc.ByteWidth = sizeof(quadVertices);              // Size of vertex data
-            vertexBufferDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;          // Bind as vertex buffer
+        // Create vertex buffer for fullscreen quad with validation
+        D3D11_BUFFER_DESC vertexBufferDesc = {};
+        vertexBufferDesc.Usage = D3D11_USAGE_DEFAULT;                   // Default usage for GPU access
+        vertexBufferDesc.ByteWidth = sizeof(quadVertices);              // Size of vertex data
+        vertexBufferDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;          // Bind as vertex buffer
 
-            D3D11_SUBRESOURCE_DATA vertexData = {};
-            vertexData.pSysMem = quadVertices;                              // Pointer to vertex data
+        D3D11_SUBRESOURCE_DATA vertexData = {};
+        vertexData.pSysMem = quadVertices;                              // Pointer to vertex data
 
-            hr = dx11->m_d3dDevice->CreateBuffer(&vertexBufferDesc, &vertexData, &fullscreenQuadVertexBuffer);
-            if (FAILED(hr)) {
-                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] Failed to create fullscreen quad vertex buffer - HRESULT: 0x" +
-                    std::to_wstring(hr));
-                return;
-            }
+        hr = device->CreateBuffer(&vertexBufferDesc, &vertexData, &fullscreenQuadVertexBuffer);
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] Failed to create fullscreen quad vertex buffer - HRESULT: 0x" +
+                std::to_wstring(hr));
+            return;
+        }
 
-            // Load shaders with error checking
-            if (!LoadFadeShaders()) {
-                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] Failed to load fade shaders");
-                return;
-            }
+        // Load shaders with error checking
+        if (!LoadFadeShaders()) {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] Failed to load fade shaders");
+            return;
+        }
 
-            // Create constant buffer for shader parameters with validation
-            D3D11_BUFFER_DESC cbDesc = {};
-            cbDesc.Usage = D3D11_USAGE_DYNAMIC;                             // Dynamic usage for frequent updates
-            cbDesc.ByteWidth = 64;                                          // Size aligned to 16-byte boundary
-            cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;                  // Bind as constant buffer
-            cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;                 // Allow CPU write access
+        // Create constant buffer for shader parameters with validation
+        D3D11_BUFFER_DESC cbDesc = {};
+        cbDesc.Usage = D3D11_USAGE_DYNAMIC;                             // Dynamic usage for frequent updates
+        cbDesc.ByteWidth = 64;                                          // Size aligned to 16-byte boundary
+        cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;                  // Bind as constant buffer
+        cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;                 // Allow CPU write access
 
-            hr = dx11->m_d3dDevice->CreateBuffer(&cbDesc, nullptr, &constantBuffer);
-            if (FAILED(hr)) {
-                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] Failed to create constant buffer - HRESULT: 0x" +
-                    std::to_wstring(hr));
-                return;
-            }
+        hr = device->CreateBuffer(&cbDesc, nullptr, &constantBuffer);
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] Failed to create constant buffer - HRESULT: 0x" +
+                std::to_wstring(hr));
+            return;
+        }
 
-            debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Successfully initialized with DirectX 11 renderer");
-            });
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Successfully initialized with DirectX 11 renderer");
     }
     catch (const std::exception& e) {
         debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] Exception during initialization: " +
@@ -399,126 +407,134 @@ bool FXManager::LoadFadeShaders()
     bool success = false;                                           // Track overall success status
 
     try {
-        WithDX11Renderer([this, &success](std::shared_ptr<DX11Renderer> dx11)
-        {
-            // Validate DirectX 11 renderer and device
-            if (!dx11 || !dx11->m_d3dDevice) {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Invalid DX11 renderer or device in LoadFadeShaders");
-                success = false;
-                return;
+        // Validate DirectX 11 renderer and device
+        if (!renderer) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Invalid Renderer in LoadFadeShaders");
+            success = false;
+            return success;
+        }
+
+        // Retrieve our Device and Context from Renderer
+        ComPtr<ID3D11Device> device;
+        ComPtr<ID3D11DeviceContext> context;
+        device = static_cast<ID3D11Device*>(renderer->GetDevice());
+        context = static_cast<ID3D11DeviceContext*>(renderer->GetDeviceContext());
+        if (!device || !context) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Invalid Device or Context in LoadFadeShaders");
+            success = false;
+            return success;
+        }
+
+        // Define vertex shader source code for fullscreen quad rendering
+        const char* vsSource = R"(
+        struct VS_INPUT {
+            float3 position : POSITION;                     // Input vertex position
+            float2 texcoord : TEXCOORD;                     // Input texture coordinates
+        };
+        struct VS_OUTPUT {
+            float4 position : SV_POSITION;                  // Output clip-space position
+            float2 texcoord : TEXCOORD;                     // Output texture coordinates
+        };
+        VS_OUTPUT main(VS_INPUT input) {
+            VS_OUTPUT output;
+            output.position = float4(input.position, 1.0f); // Transform to clip space
+            output.texcoord = input.texcoord;               // Pass through texture coordinates
+            return output;
+        })";
+
+        // Define pixel shader source code for fade color rendering
+        const char* psSource = R"(
+        cbuffer FadeColorBuffer : register(b0) {
+            float4 fadeColor;                               // Fade color from constant buffer
+        };
+        float4 main(float4 position : SV_POSITION, float2 texcoord : TEXCOORD) : SV_TARGET {
+            return fadeColor;                               // Output the fade color
+        })";
+
+        HRESULT hr = S_OK;
+        ID3DBlob* vsBlob = nullptr;                             // Vertex shader blob
+        ID3DBlob* psBlob = nullptr;                             // Pixel shader blob
+        ID3DBlob* errorBlob = nullptr;                          // Error message blob
+
+        // Compile vertex shader with error checking
+        hr = D3DCompile(vsSource, strlen(vsSource), nullptr, nullptr, nullptr, "main", "vs_5_0", 0, 0, &vsBlob, &errorBlob);
+        if (FAILED(hr)) {
+            if (errorBlob) {
+                // Convert error message to wide string for logging
+                std::string errorStr(static_cast<const char*>(errorBlob->GetBufferPointer()), errorBlob->GetBufferSize());
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Vertex Shader Compilation Failed: " +
+                    std::wstring(errorStr.begin(), errorStr.end()));
+                errorBlob->Release();
             }
-
-            // Define vertex shader source code for fullscreen quad rendering
-            const char* vsSource = R"(
-            struct VS_INPUT {
-                float3 position : POSITION;                     // Input vertex position
-                float2 texcoord : TEXCOORD;                     // Input texture coordinates
-            };
-            struct VS_OUTPUT {
-                float4 position : SV_POSITION;                  // Output clip-space position
-                float2 texcoord : TEXCOORD;                     // Output texture coordinates
-            };
-            VS_OUTPUT main(VS_INPUT input) {
-                VS_OUTPUT output;
-                output.position = float4(input.position, 1.0f); // Transform to clip space
-                output.texcoord = input.texcoord;               // Pass through texture coordinates
-                return output;
-            })";
-
-            // Define pixel shader source code for fade color rendering
-            const char* psSource = R"(
-            cbuffer FadeColorBuffer : register(b0) {
-                float4 fadeColor;                               // Fade color from constant buffer
-            };
-            float4 main(float4 position : SV_POSITION, float2 texcoord : TEXCOORD) : SV_TARGET {
-                return fadeColor;                               // Output the fade color
-            })";
-
-            HRESULT hr = S_OK;
-            ID3DBlob* vsBlob = nullptr;                             // Vertex shader blob
-            ID3DBlob* psBlob = nullptr;                             // Pixel shader blob
-            ID3DBlob* errorBlob = nullptr;                          // Error message blob
-
-            // Compile vertex shader with error checking
-            hr = D3DCompile(vsSource, strlen(vsSource), nullptr, nullptr, nullptr, "main", "vs_5_0", 0, 0, &vsBlob, &errorBlob);
-            if (FAILED(hr)) {
-                if (errorBlob) {
-                    // Convert error message to wide string for logging
-                    std::string errorStr(static_cast<const char*>(errorBlob->GetBufferPointer()), errorBlob->GetBufferSize());
-                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Vertex Shader Compilation Failed: " +
-                        std::wstring(errorStr.begin(), errorStr.end()));
-                    errorBlob->Release();
-                }
-                else {
-                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Vertex Shader Compilation Failed: Unknown error");
-                }
-                success = false;
-                return;
+            else {
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Vertex Shader Compilation Failed: Unknown error");
             }
+            success = false;
+            return success;
+        }
 
-            // Create vertex shader object with validation
-            hr = dx11->m_d3dDevice->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &vertexShader);
-            if (FAILED(hr)) {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Failed to create vertex shader - HRESULT: 0x" +
-                    std::to_wstring(hr));
-                vsBlob->Release();
-                success = false;
-                return;
-            }
-
-            // Define input layout for vertex buffer
-            D3D11_INPUT_ELEMENT_DESC layout[] = {
-                { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,   D3D11_INPUT_PER_VERTEX_DATA, 0 },  // Position element
-                { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,    0, 12,  D3D11_INPUT_PER_VERTEX_DATA, 0 },  // Texture coordinate element
-            };
-
-            // Create input layout with error checking
-            hr = dx11->m_d3dDevice->CreateInputLayout(layout, ARRAYSIZE(layout), vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &inputLayout);
-            if (FAILED(hr)) {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Failed to create input layout - HRESULT: 0x" +
-                    std::to_wstring(hr));
-                vsBlob->Release();
-                success = false;
-                return;
-            }
-
-            // Release vertex shader blob after input layout creation
+        // Create vertex shader object with validation
+        hr = device->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &vertexShader);
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Failed to create vertex shader - HRESULT: 0x" +
+                std::to_wstring(hr));
             vsBlob->Release();
+            success = false;
+            return success;
+        }
 
-            // Compile pixel shader with error checking
-            hr = D3DCompile(psSource, strlen(psSource), nullptr, nullptr, nullptr, "main", "ps_5_0", 0, 0, &psBlob, &errorBlob);
-            if (FAILED(hr)) {
-                if (errorBlob) {
-                    // Convert error message to wide string for logging
-                    std::string errorStr(static_cast<const char*>(errorBlob->GetBufferPointer()), errorBlob->GetBufferSize());
-                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Pixel Shader Compilation Failed: " +
-                        std::wstring(errorStr.begin(), errorStr.end()));
-                    errorBlob->Release();
-                }
-                else {
-                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Pixel Shader Compilation Failed: Unknown error");
-                }
-                success = false;
-                return;
+        // Define input layout for vertex buffer
+        D3D11_INPUT_ELEMENT_DESC layout[] = {
+            { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,   D3D11_INPUT_PER_VERTEX_DATA, 0 },  // Position element
+            { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,    0, 12,  D3D11_INPUT_PER_VERTEX_DATA, 0 },  // Texture coordinate element
+        };
+
+        // Create input layout with error checking
+        hr = device->CreateInputLayout(layout, ARRAYSIZE(layout), vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &inputLayout);
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Failed to create input layout - HRESULT: 0x" +
+                std::to_wstring(hr));
+            vsBlob->Release();
+            success = false;
+            return success;
+        }
+
+        // Release vertex shader blob after input layout creation
+        vsBlob->Release();
+
+        // Compile pixel shader with error checking
+        hr = D3DCompile(psSource, strlen(psSource), nullptr, nullptr, nullptr, "main", "ps_5_0", 0, 0, &psBlob, &errorBlob);
+        if (FAILED(hr)) {
+            if (errorBlob) {
+                // Convert error message to wide string for logging
+                std::string errorStr(static_cast<const char*>(errorBlob->GetBufferPointer()), errorBlob->GetBufferSize());
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Pixel Shader Compilation Failed: " +
+                    std::wstring(errorStr.begin(), errorStr.end()));
+                errorBlob->Release();
             }
-
-            // Create pixel shader object with validation
-            hr = dx11->m_d3dDevice->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &pixelShader);
-            if (FAILED(hr)) {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Failed to create pixel shader - HRESULT: 0x" +
-                    std::to_wstring(hr));
-                psBlob->Release();
-                success = false;
-                return;
+            else {
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Pixel Shader Compilation Failed: Unknown error");
             }
+            success = false;
+            return success;
+        }
 
-            // Release pixel shader blob after shader creation
+        // Create pixel shader object with validation
+        hr = device->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &pixelShader);
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Failed to create pixel shader - HRESULT: 0x" +
+                std::to_wstring(hr));
             psBlob->Release();
+            success = false;
+            return success;
+        }
 
-            // Mark successful completion
-            success = true;
-            debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Successfully compiled and loaded fade shaders");
-        });
+        // Release pixel shader blob after shader creation
+        psBlob->Release();
+
+        // Mark successful completion
+        success = true;
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Successfully compiled and loaded fade shaders");
     }
     catch (const std::exception& e) {
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Exception in LoadFadeShaders: " +
@@ -615,23 +631,25 @@ void FXManager::ApplyColorFader(FXItem& fxItem) {
 
     // Safe DirectX operations with error checking
     try {
-        WithDX11Renderer([this, fadeColor](std::shared_ptr<DX11Renderer> dx11)
-        {
-            // Additional validation for DirectX 11 renderer
-            if (!dx11 || !dx11->m_d3dContext || !fadeBlendState || !inputLayout) {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Invalid DirectX resources in ApplyColorFader");
-                return;
-            }
+        // Retrieve our Device and Context from Renderer
+        ComPtr<ID3D11Device> device;
+        ComPtr<ID3D11DeviceContext> context;
+        device = static_cast<ID3D11Device*>(renderer->GetDevice());
+        context = static_cast<ID3D11DeviceContext*>(renderer->GetDeviceContext());
+        // Additional validation for DirectX 11 renderer
+        if (!renderer || !context || !fadeBlendState || !inputLayout) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Invalid DirectX resources in ApplyColorFader");
+            return;
+        }
 
-            // Set blend state and input layout with error checking
-            dx11->m_d3dContext->OMSetBlendState(fadeBlendState, nullptr, 0xffffffff);
-            dx11->m_d3dContext->IASetInputLayout(inputLayout);
+        // Set blend state and input layout with error checking
+        context->OMSetBlendState(fadeBlendState, nullptr, 0xffffffff);
+        context->IASetInputLayout(inputLayout);
 
-            #if defined(_DEBUG_FXMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[FXManager] Applying fade color: R=%.2f G=%.2f B=%.2f A=%.2f",
-                    fadeColor.x, fadeColor.y, fadeColor.z, fadeColor.w);
-            #endif
-        });
+        #if defined(_DEBUG_FXMANAGER_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[FXManager] Applying fade color: R=%.2f G=%.2f B=%.2f A=%.2f",
+                fadeColor.x, fadeColor.y, fadeColor.z, fadeColor.w);
+        #endif
 
         // Render the fullscreen quad with validated color
         RenderFullScreenQuad(fadeColor);
@@ -646,71 +664,75 @@ void FXManager::ApplyColorFader(FXItem& fxItem) {
 }
 
 void FXManager::SaveRenderState() {
-    WithDX11Renderer([this](std::shared_ptr<DX11Renderer> dx11)
-    {
-        // Save blend state
-        dx11->m_d3dContext->OMGetBlendState(&originalBlendState, nullptr, nullptr);
+    // Retrieve our Device and Context from Renderer
+    ComPtr<ID3D11Device> device;
+    ComPtr<ID3D11DeviceContext> context;
+    device = static_cast<ID3D11Device*>(renderer->GetDevice());
+    context = static_cast<ID3D11DeviceContext*>(renderer->GetDeviceContext());
+    // Save blend state
+    context->OMGetBlendState(&originalBlendState, nullptr, nullptr);
 
-        // Save render target + depth-stencil view
-        dx11->m_d3dContext->OMGetRenderTargets(1, &originalRenderTarget, &originalDepthStencilView);
+    // Save render target + depth-stencil view
+    context->OMGetRenderTargets(1, &originalRenderTarget, &originalDepthStencilView);
 
-        // Save viewport
-        numViewports = 1;
-        dx11->m_d3dContext->RSGetViewports(&numViewports, &originalViewport);
+    // Save viewport
+    numViewports = 1;
+    context->RSGetViewports(&numViewports, &originalViewport);
 
-        // Save rasterizer state
-        dx11->m_d3dContext->RSGetState(&originalRasterState);
+    // Save rasterizer state
+    context->RSGetState(&originalRasterState);
 
-        // Save depth-stencil state and ref
-        dx11->m_d3dContext->OMGetDepthStencilState(&originalDepthStencilState, &originalStencilRef);
-    });
+    // Save depth-stencil state and ref
+    context->OMGetDepthStencilState(&originalDepthStencilState, &originalStencilRef);
 }
 
 void FXManager::RestoreRenderState() {
-    WithDX11Renderer([this](std::shared_ptr<DX11Renderer> dx11)
-    {
-        // Restore blend state
-        if (originalBlendState) {
-            dx11->m_d3dContext->OMSetBlendState(originalBlendState, nullptr, 0xffffffff);
-            originalBlendState->Release();
-            originalBlendState = nullptr;
+    // Retrieve our Device and Context from Renderer
+    ComPtr<ID3D11Device> device;
+    ComPtr<ID3D11DeviceContext> context;
+    device = static_cast<ID3D11Device*>(renderer->GetDevice());
+    context = static_cast<ID3D11DeviceContext*>(renderer->GetDeviceContext());
+    // Restore blend state
+    if (originalBlendState) {
+        context->OMSetBlendState(originalBlendState, nullptr, 0xffffffff);
+        originalBlendState->Release();
+        originalBlendState = nullptr;
+    }
+
+    // Restore render targets
+    if (originalRenderTarget || originalDepthStencilView) {
+        context->OMSetRenderTargets(1, &originalRenderTarget, originalDepthStencilView);
+
+        if (originalRenderTarget) {
+            originalRenderTarget->Release();
+            originalRenderTarget = nullptr;
         }
 
-        // Restore render targets
-        if (originalRenderTarget || originalDepthStencilView) {
-            dx11->m_d3dContext->OMSetRenderTargets(1, &originalRenderTarget, originalDepthStencilView);
-
-            if (originalRenderTarget) {
-                originalRenderTarget->Release();
-                originalRenderTarget = nullptr;
-            }
-
-            if (originalDepthStencilView) {
-                originalDepthStencilView->Release();
-                originalDepthStencilView = nullptr;
-            }
+        if (originalDepthStencilView) {
+            originalDepthStencilView->Release();
+            originalDepthStencilView = nullptr;
         }
+    }
 
-        // Restore viewport
-        if (numViewports > 0) {
-            dx11->m_d3dContext->RSSetViewports(numViewports, &originalViewport);
-            numViewports = 0;
-        }
+    // Restore viewport
+    if (numViewports > 0) {
+        context->RSSetViewports(numViewports, &originalViewport);
+        numViewports = 0;
+    }
 
-        // Restore rasterizer state
-        if (originalRasterState) {
-            dx11->m_d3dContext->RSSetState(originalRasterState);
-            originalRasterState->Release();
-            originalRasterState = nullptr;
-        }
+    // Restore rasterizer state
+    if (originalRasterState) {
+        context->RSSetState(originalRasterState);
+        originalRasterState->Release();
+        originalRasterState = nullptr;
+    }
 
-        // Restore depth-stencil state
-        if (originalDepthStencilState) {
-            dx11->m_d3dContext->OMSetDepthStencilState(originalDepthStencilState, originalStencilRef);
-            originalDepthStencilState->Release();
-            originalDepthStencilState = nullptr;
-        }
-    });
+    // Restore depth-stencil state
+    if (originalDepthStencilState) {
+        context->OMSetDepthStencilState(originalDepthStencilState, originalStencilRef);
+        originalDepthStencilState->Release();
+        originalDepthStencilState = nullptr;
+    }
 }
 
 // -------------------------------------------------------------------------------------------------------------
@@ -825,78 +847,80 @@ void FXManager::RenderFullScreenQuad(const XMFLOAT4& color) {
     // Safe DirectX operations with comprehensive error checking
     try 
     {
-        WithDX11Renderer([this, validatedColor](std::shared_ptr<DX11Renderer> dx11)
-        {
-            // Validate all required DirectX resources before use
-            if (!dx11 || !dx11->m_d3dContext) {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Invalid DX11 renderer or context in RenderFullScreenQuad");
-                return;
-            }
+        // Retrieve our Device and Context from Renderer
+        ComPtr<ID3D11Device> device;
+        ComPtr<ID3D11DeviceContext> context;
+        device = static_cast<ID3D11Device*>(renderer->GetDevice());
+        context = static_cast<ID3D11DeviceContext*>(renderer->GetDeviceContext());
+        // Validate all required DirectX resources before use
+        if (!renderer || !context) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Invalid DX11 renderer or context in RenderFullScreenQuad");
+            return;
+        }
 
-            if (!constantBuffer) {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Constant buffer is null in RenderFullScreenQuad");
-                return;
-            }
+        if (!constantBuffer) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Constant buffer is null in RenderFullScreenQuad");
+            return;
+        }
 
-            if (!fullscreenQuadVertexBuffer) {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Vertex buffer is null in RenderFullScreenQuad");
-                return;
-            }
+        if (!fullscreenQuadVertexBuffer) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Vertex buffer is null in RenderFullScreenQuad");
+            return;
+        }
 
-            if (!inputLayout || !vertexShader || !pixelShader) {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Required shaders or input layout not initialized in RenderFullScreenQuad");
-                return;
-            }
+        if (!inputLayout || !vertexShader || !pixelShader) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Required shaders or input layout not initialized in RenderFullScreenQuad");
+            return;
+        }
 
-            // Map constant buffer and update color data with error checking
-            D3D11_MAPPED_SUBRESOURCE mappedResource;
-            HRESULT hr = dx11->m_d3dContext->Map(constantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
-            if (FAILED(hr)) {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Failed to map constant buffer in RenderFullScreenQuad");
-                return;
-            }
+        // Map constant buffer and update color data with error checking
+        D3D11_MAPPED_SUBRESOURCE mappedResource;
+        HRESULT hr = context->Map(constantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Failed to map constant buffer in RenderFullScreenQuad");
+            return;
+        }
 
-            // Safely copy validated color data to constant buffer
-            if (mappedResource.pData) {
-                memcpy(mappedResource.pData, &validatedColor, sizeof(XMFLOAT4));
-            }
-            else {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Mapped constant buffer data is null");
-                dx11->m_d3dContext->Unmap(constantBuffer, 0);
-                return;
-            }
+        // Safely copy validated color data to constant buffer
+        if (mappedResource.pData) {
+            memcpy(mappedResource.pData, &validatedColor, sizeof(XMFLOAT4));
+        }
+        else {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Mapped constant buffer data is null");
+            context->Unmap(constantBuffer, 0);
+            return;
+        }
 
-            // Unmap the constant buffer
-            dx11->m_d3dContext->Unmap(constantBuffer, 0);
+        // Unmap the constant buffer
+        context->Unmap(constantBuffer, 0);
 
-            // Set up rendering pipeline with validated parameters
-            UINT stride = sizeof(XMFLOAT3) + sizeof(XMFLOAT2);      // Vertex stride calculation
-            UINT offset = 0;                                        // Starting offset
+        // Set up rendering pipeline with validated parameters
+        UINT stride = sizeof(XMFLOAT3) + sizeof(XMFLOAT2);      // Vertex stride calculation
+        UINT offset = 0;                                        // Starting offset
 
-            // Set input layout with validation
-            dx11->m_d3dContext->IASetInputLayout(inputLayout);
+        // Set input layout with validation
+        context->IASetInputLayout(inputLayout);
 
-            // Set constant buffer to pixel shader with validation
-            dx11->m_d3dContext->PSSetConstantBuffers(0, 1, &constantBuffer);
+        // Set constant buffer to pixel shader with validation
+        context->PSSetConstantBuffers(0, 1, &constantBuffer);
 
-            // Set vertex buffer with validation
-            dx11->m_d3dContext->IASetVertexBuffers(0, 1, &fullscreenQuadVertexBuffer, &stride, &offset);
+        // Set vertex buffer with validation
+        context->IASetVertexBuffers(0, 1, &fullscreenQuadVertexBuffer, &stride, &offset);
 
-            // Set primitive topology for triangle strip
-            dx11->m_d3dContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+        // Set primitive topology for triangle strip
+        context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 
-            // Set shaders with validation
-            dx11->m_d3dContext->VSSetShader(vertexShader, nullptr, 0);
-            dx11->m_d3dContext->PSSetShader(pixelShader, nullptr, 0);
+        // Set shaders with validation
+        context->VSSetShader(vertexShader, nullptr, 0);
+        context->PSSetShader(pixelShader, nullptr, 0);
 
-            // Draw the fullscreen quad (4 vertices for triangle strip)
-            dx11->m_d3dContext->Draw(4, 0);
+        // Draw the fullscreen quad (4 vertices for triangle strip)
+        context->Draw(4, 0);
 
-            #if defined(_DEBUG_FXMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[FXManager] Successfully rendered fullscreen quad with color: R=%.2f G=%.2f B=%.2f A=%.2f",
-                    validatedColor.x, validatedColor.y, validatedColor.z, validatedColor.w);
-            #endif
-        });
+        #if defined(_DEBUG_FXMANAGER_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[FXManager] Successfully rendered fullscreen quad with color: R=%.2f G=%.2f B=%.2f A=%.2f",
+                validatedColor.x, validatedColor.y, validatedColor.z, validatedColor.w);
+        #endif
     }
     catch (const std::exception& e) {
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Exception in RenderFullScreenQuad: " +
@@ -1148,24 +1172,10 @@ void FXManager::ApplyScroller(FXItem& fxItem) {
     auto now = std::chrono::steady_clock::now();
     float elapsed = std::chrono::duration<float>(now - fxItem.lastUpdate).count();
 
-    WithDX11Renderer([this, fxItem, now, elapsed](std::shared_ptr<DX11Renderer> dx11)
+    if (fxItem.isPaused) 
     {
-        if (fxItem.isPaused) 
-        {
-            // Still render to keep visual intact
-            dx11->Blit2DWrappedObjectAtOffset(
-                fxItem.textureIndex,
-                0, 0,
-                fxItem.currentXOffset,
-                fxItem.currentYOffset,
-                fxItem.tileWidth,
-                fxItem.tileHeight
-            );
-            return;
-        }
-
-        // Always render every frame
-        dx11->Blit2DWrappedObjectAtOffset(
+        // Still render to keep visual intact
+        renderer->Blit2DWrappedObjectAtOffset(
             fxItem.textureIndex,
             0, 0,
             fxItem.currentXOffset,
@@ -1173,7 +1183,18 @@ void FXManager::ApplyScroller(FXItem& fxItem) {
             fxItem.tileWidth,
             fxItem.tileHeight
         );
-    });
+        return;
+    }
+
+    // Always render every frame
+    renderer->Blit2DWrappedObjectAtOffset(
+        fxItem.textureIndex,
+        0, 0,
+        fxItem.currentXOffset,
+        fxItem.currentYOffset,
+        fxItem.tileWidth,
+        fxItem.tileHeight
+    );
 
     // Only update the offset if the delay has passed
     if (elapsed >= fxItem.delay) {
@@ -1424,9 +1445,7 @@ void FXManager::RenderParticles(FXItem& fxItem)
         XMFLOAT4 finalColor(p.r, p.g, p.b, alpha);
 
         // Render the pixel
-        WithDX11Renderer([&](std::shared_ptr<DX11Renderer> dx11) {
-            dx11->Blit2DColoredPixel(static_cast<int>(p.x), static_cast<int>(p.y), 2.0f, finalColor);
-            });
+        renderer->Blit2DColoredPixel(static_cast<int>(p.x), static_cast<int>(p.y), 2.0f, finalColor);
 
 #if defined(_DEBUG_PARTICLEFX_) && defined(_DEBUG)
         debug.logDebugMessage(LogLevel::LOG_DEBUG,
@@ -1918,47 +1937,45 @@ void FXManager::RenderStarfield(FXItem& fxItem, ID3D11DeviceContext* context, co
         return;
 
     // Get camera transform matrices from the context
-    WithDX11Renderer([&](std::shared_ptr<DX11Renderer> dx11) {
-        // Calculate view projection matrix
-        XMMATRIX viewProj = dx11->myCamera.GetViewMatrix() * dx11->myCamera.GetProjectionMatrix();
+    // Calculate view projection matrix
+    XMMATRIX viewProj = renderer->myCamera.GetViewMatrix() * renderer->myCamera.GetProjectionMatrix();
 
-        // For each star in the starfield
-        for (auto& p : fxItem.particles)
+    // For each star in the starfield
+    for (auto& p : fxItem.particles)
+    {
+        if (p.completed)
+            continue;
+
+        // Create the 3D world position
+        XMVECTOR worldPos = XMVectorSet(p.x, p.y, p.angle, 1.0f);
+
+        // Transform to projection space
+        XMVECTOR projPos = XMVector3TransformCoord(worldPos, viewProj);
+
+        // If in front of camera and within normalized device coordinates
+        if (XMVectorGetZ(projPos) <= 1.0f &&
+            XMVectorGetX(projPos) >= -1.0f && XMVectorGetX(projPos) <= 1.0f &&
+            XMVectorGetY(projPos) >= -1.0f && XMVectorGetY(projPos) <= 1.0f)
         {
-            if (p.completed)
-                continue;
+            // Convert to screen coordinates
+            float screenX = (XMVectorGetX(projPos) + 1.0f) * 0.5f * renderer->iOrigWidth;
+            float screenY = (1.0f - XMVectorGetY(projPos)) * 0.5f * renderer->iOrigHeight;
 
-            // Create the 3D world position
-            XMVECTOR worldPos = XMVectorSet(p.x, p.y, p.angle, 1.0f);
+            // Calculate size based on z-position
+            // Stars get larger as they get closer
+            float sizeScale = 1.0f + (fxItem.depthMultiplier - p.angle) / fxItem.depthMultiplier * 3.0f;
+            float displaySize = p.radius * sizeScale;
 
-            // Transform to projection space
-            XMVECTOR projPos = XMVector3TransformCoord(worldPos, viewProj);
-
-            // If in front of camera and within normalized device coordinates
-            if (XMVectorGetZ(projPos) <= 1.0f &&
-                XMVectorGetX(projPos) >= -1.0f && XMVectorGetX(projPos) <= 1.0f &&
-                XMVectorGetY(projPos) >= -1.0f && XMVectorGetY(projPos) <= 1.0f)
-            {
-                // Convert to screen coordinates
-                float screenX = (XMVectorGetX(projPos) + 1.0f) * 0.5f * dx11->iOrigWidth;
-                float screenY = (1.0f - XMVectorGetY(projPos)) * 0.5f * dx11->iOrigHeight;
-
-                // Calculate size based on z-position
-                // Stars get larger as they get closer
-                float sizeScale = 1.0f + (fxItem.depthMultiplier - p.angle) / fxItem.depthMultiplier * 3.0f;
-                float displaySize = p.radius * sizeScale;
-
-                // Draw the star
-                XMFLOAT4 starColor(p.r, p.g, p.b, p.a);
-                dx11->Blit2DColoredPixel(
-                    static_cast<int>(screenX),
-                    static_cast<int>(screenY),
-                    displaySize,
-                    starColor
-                );
-            }
+            // Draw the star
+            XMFLOAT4 starColor(p.r, p.g, p.b, p.a);
+            renderer->Blit2DColoredPixel(
+                static_cast<int>(screenX),
+                static_cast<int>(screenY),
+                displaySize,
+                starColor
+            );
         }
-    });
+    }
 }
 
 // -------------------------------------------------------------------------------------------------------------
@@ -2339,10 +2356,8 @@ void FXManager::UpdateTextScroller(FXItem& fxItem, float deltaTime)
         float textWidth = 0.0f;                                 // Calculate text width using renderer
 
         // Get text width from renderer for proper centering
-        WithDX11Renderer([&fxItem, &textWidth](std::shared_ptr<DX11Renderer> dx11) {
-            textWidth = dx11->CalculateTextWidth(fxItem.textScrollData.text,
-                fxItem.textScrollData.fontSize, fxItem.textScrollData.regionWidth);
-            });
+        textWidth = renderer->CalculateTextWidth(fxItem.textScrollData.text,
+            fxItem.textScrollData.fontSize, fxItem.textScrollData.regionWidth);
 
         float textCenterX = centerX - (textWidth / 2.0f);      // Calculate center position for text
 
@@ -2392,10 +2407,8 @@ void FXManager::UpdateTextScroller(FXItem& fxItem, float deltaTime)
         float textWidth = 0.0f;                                 // Calculate text width using renderer
 
         // Get text width from renderer for proper centering
-        WithDX11Renderer([&fxItem, &textWidth](std::shared_ptr<DX11Renderer> dx11) {
-            textWidth = dx11->CalculateTextWidth(fxItem.textScrollData.text,
-                fxItem.textScrollData.fontSize, fxItem.textScrollData.regionWidth);
-            });
+        textWidth = renderer->CalculateTextWidth(fxItem.textScrollData.text,
+            fxItem.textScrollData.fontSize, fxItem.textScrollData.regionWidth);
 
         float textCenterX = centerX - (textWidth / 2.0f);      // Calculate center position for text
 
@@ -2445,10 +2458,8 @@ void FXManager::UpdateTextScroller(FXItem& fxItem, float deltaTime)
 
         // Calculate total text width to determine wrapping point
         float totalTextWidth = 0.0f;
-        WithDX11Renderer([&fxItem, &totalTextWidth](std::shared_ptr<DX11Renderer> dx11) {
-            totalTextWidth = dx11->CalculateTextWidth(fxItem.textScrollData.text,
-                fxItem.textScrollData.fontSize, 9999.0f);       // Use large container to get actual text width
-            });
+        totalTextWidth = renderer->CalculateTextWidth(fxItem.textScrollData.text,
+            fxItem.textScrollData.fontSize, 9999.0f);       // Use large container to get actual text width
 
         // FIXED: If text has completely scrolled off the left side, wrap to right side
         if (fxItem.textScrollData.currentXPosition + totalTextWidth < fxItem.textScrollData.regionX) {
@@ -2532,86 +2543,82 @@ void FXManager::RenderTextScroller(FXItem& fxItem)
         MyColor color(colorR, colorG, colorB, colorA);
 
         // Render the text using the DX11 renderer
-        WithDX11Renderer([&fxItem, color](std::shared_ptr<DX11Renderer> dx11) {
-            Vector2 position(fxItem.textScrollData.currentXPosition, fxItem.textScrollData.currentYPosition);
-            dx11->DrawMyText(fxItem.textScrollData.text, position, color, fxItem.textScrollData.fontSize);
-            });
+        Vector2 position(fxItem.textScrollData.currentXPosition, fxItem.textScrollData.currentYPosition);
+        renderer->DrawMyText(fxItem.textScrollData.text, position, color, fxItem.textScrollData.fontSize);
         break;
     }
 
     case FXSubType::TXT_SCROLL_CONSISTANT:
     {
         // CORRECTED: Render consistent scroller with proper character-by-character transparency and spacing
-        WithDX11Renderer([this, &fxItem](std::shared_ptr<DX11Renderer> dx11) {
-            float currentCharX = fxItem.textScrollData.currentXPosition;        // Start position for rendering
-            const float fadeDistance = 100.0f;                                 // Distance for fade in/out effects
+        float currentCharX = fxItem.textScrollData.currentXPosition;        // Start position for rendering
+        const float fadeDistance = 100.0f;                                 // Distance for fade in/out effects
 
-            // Pre-calculate total text width for proper wrapping including spacing
-            float totalTextWidth = CalculateTextWidthWithSpacing(fxItem.textScrollData.text,
-                fxItem.textScrollData.fontName, fxItem.textScrollData.fontSize,
-                fxItem.textScrollData.characterSpacing, fxItem.textScrollData.wordSpacing);
+        // Pre-calculate total text width for proper wrapping including spacing
+        float totalTextWidth = CalculateTextWidthWithSpacing(fxItem.textScrollData.text,
+            fxItem.textScrollData.fontName, fxItem.textScrollData.fontSize,
+            fxItem.textScrollData.characterSpacing, fxItem.textScrollData.wordSpacing);
 
-            // CORRECTED: Render each character individually with proper transparency calculation and spacing
-            for (size_t i = 0; i < fxItem.textScrollData.text.length(); ++i) {
-                wchar_t character = fxItem.textScrollData.text[i];
+        // CORRECTED: Render each character individually with proper transparency calculation and spacing
+        for (size_t i = 0; i < fxItem.textScrollData.text.length(); ++i) {
+            wchar_t character = fxItem.textScrollData.text[i];
 
-                // Calculate character width for proper positioning using specified font
-                float charWidth = dx11->GetCharacterWidth(character, fxItem.textScrollData.fontSize, fxItem.textScrollData.fontName);
+            // Calculate character width for proper positioning using specified font
+            float charWidth = renderer->GetCharacterWidth(character, fxItem.textScrollData.fontSize, fxItem.textScrollData.fontName);
 
-                // Apply character spacing
-                charWidth += fxItem.textScrollData.characterSpacing;
+            // Apply character spacing
+            charWidth += fxItem.textScrollData.characterSpacing;
 
-                // Apply additional word spacing for space characters
-                if (character == L' ') {
-                    charWidth += fxItem.textScrollData.wordSpacing;             // Add extra spacing for word separation
-                }
+            // Apply additional word spacing for space characters
+            if (character == L' ') {
+                charWidth += fxItem.textScrollData.wordSpacing;             // Add extra spacing for word separation
+            }
 
-                // FIXED: Calculate transparency based on character center position
-                float charCenterX = currentCharX + (charWidth / 2.0f);         // Use character center for transparency calc
+            // FIXED: Calculate transparency based on character center position
+            float charCenterX = currentCharX + (charWidth / 2.0f);         // Use character center for transparency calc
 
-                // Calculate transparency using the corrected function
-                float transparency = CalculateCharacterTransparency(charCenterX,
-                    fxItem.textScrollData.regionX,                             // Left boundary of visible region
-                    fxItem.textScrollData.regionX + fxItem.textScrollData.regionWidth, // Right boundary of visible region
-                    fadeDistance);                                             // Fade distance for smooth transitions
+            // Calculate transparency using the corrected function
+            float transparency = CalculateCharacterTransparency(charCenterX,
+                fxItem.textScrollData.regionX,                             // Left boundary of visible region
+                fxItem.textScrollData.regionX + fxItem.textScrollData.regionWidth, // Right boundary of visible region
+                fadeDistance);                                             // Fade distance for smooth transitions
 
-                // Only render if character has some visibility and is within reasonable bounds
-                if (transparency > 0.01f &&                                   // Minimum visibility threshold
-                    currentCharX > fxItem.textScrollData.regionX - fadeDistance - 50.0f &&  // Extended left boundary
-                    currentCharX < fxItem.textScrollData.regionX + fxItem.textScrollData.regionWidth + fadeDistance + 50.0f) { // Extended right boundary
+            // Only render if character has some visibility and is within reasonable bounds
+            if (transparency > 0.01f &&                                   // Minimum visibility threshold
+                currentCharX > fxItem.textScrollData.regionX - fadeDistance - 50.0f &&  // Extended left boundary
+                currentCharX < fxItem.textScrollData.regionX + fxItem.textScrollData.regionWidth + fadeDistance + 50.0f) { // Extended right boundary
 
-                    // CORRECTED: Convert float RGBA to uint8_t for MyColor constructor
-                    XMFLOAT4 renderColor = fxItem.textScrollData.textColor;
-                    renderColor.w *= transparency;                             // Multiply alpha by calculated transparency
+                // CORRECTED: Convert float RGBA to uint8_t for MyColor constructor
+                XMFLOAT4 renderColor = fxItem.textScrollData.textColor;
+                renderColor.w *= transparency;                             // Multiply alpha by calculated transparency
 
-                    // Convert float (0.0-1.0) to uint8_t (0-255) for MyColor
-                    uint8_t colorR = static_cast<uint8_t>(renderColor.x * 255.0f);
-                    uint8_t colorG = static_cast<uint8_t>(renderColor.y * 255.0f);
-                    uint8_t colorB = static_cast<uint8_t>(renderColor.z * 255.0f);
-                    uint8_t colorA = static_cast<uint8_t>(renderColor.w * 255.0f);
+                // Convert float (0.0-1.0) to uint8_t (0-255) for MyColor
+                uint8_t colorR = static_cast<uint8_t>(renderColor.x * 255.0f);
+                uint8_t colorG = static_cast<uint8_t>(renderColor.y * 255.0f);
+                uint8_t colorB = static_cast<uint8_t>(renderColor.z * 255.0f);
+                uint8_t colorA = static_cast<uint8_t>(renderColor.w * 255.0f);
 
-                    // Create render position and color objects with correct values
-                    Vector2 position(currentCharX, fxItem.textScrollData.currentYPosition);
-                    MyColor color(colorR, colorG, colorB, colorA);              // Use uint8_t values
+                // Create render position and color objects with correct values
+                Vector2 position(currentCharX, fxItem.textScrollData.currentYPosition);
+                MyColor color(colorR, colorG, colorB, colorA);              // Use uint8_t values
 
-                    // ENHANCED: Render character with specified font instead of default
-                    dx11->DrawMyTextWithFont(std::wstring(1, character), position, color,
-                        fxItem.textScrollData.fontSize, fxItem.textScrollData.fontName);
+                // ENHANCED: Render character with specified font instead of default
+                renderer->DrawMyTextWithFont(std::wstring(1, character), position, color,
+                    fxItem.textScrollData.fontSize, fxItem.textScrollData.fontName);
 
 #if defined(_DEBUG_FXMANAGER_) && defined(_DEBUG)
-                    // Debug output for character transparency (only for first few characters to avoid spam)
-                    if (i < 5) {
-                        debug.logDebugMessage(LogLevel::LOG_DEBUG,
-                            L"[FXID=%d] Char='%c' Pos=%.1f CenterX=%.1f Trans=%.3f Width=%.1f",
-                            fxItem.fxID, character, currentCharX, charCenterX, transparency, charWidth);
-                    }
-#endif
+                // Debug output for character transparency (only for first few characters to avoid spam)
+                if (i < 5) {
+                    debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                        L"[FXID=%d] Char='%c' Pos=%.1f CenterX=%.1f Trans=%.3f Width=%.1f",
+                        fxItem.fxID, character, currentCharX, charCenterX, transparency, charWidth);
                 }
-
-                // FIXED: Advance to next character position with proper spacing
-                currentCharX += charWidth;
+#endif
             }
-            });
+
+            // FIXED: Advance to next character position with proper spacing
+            currentCharX += charWidth;
+        }
         break;
     }
 
@@ -2620,39 +2627,37 @@ void FXManager::RenderTextScroller(FXItem& fxItem)
         // Render movie credits style scroller line by line (keep existing implementation)
         float lineY = fxItem.textScrollData.currentYPosition;
 
-        WithDX11Renderer([this, &fxItem, lineY](std::shared_ptr<DX11Renderer> dx11) {
-            for (size_t i = 0; i < fxItem.textScrollData.textLines.size(); ++i) {
-                float currentLineY = lineY + (i * fxItem.textScrollData.lineSpacing);
+        for (size_t i = 0; i < fxItem.textScrollData.textLines.size(); ++i) {
+            float currentLineY = lineY + (i * fxItem.textScrollData.lineSpacing);
 
-                // Calculate transparency based on line position
-                float transparency = CalculateTextTransparency(currentLineY,
-                    fxItem.textScrollData.regionY,
-                    fxItem.textScrollData.regionY + fxItem.textScrollData.regionHeight,
-                    50.0f);                                     // Fade distance of 50 pixels
+            // Calculate transparency based on line position
+            float transparency = CalculateTextTransparency(currentLineY,
+                fxItem.textScrollData.regionY,
+                fxItem.textScrollData.regionY + fxItem.textScrollData.regionHeight,
+                50.0f);                                     // Fade distance of 50 pixels
 
-                // Only render if line is visible (transparency > 0)
-                if (transparency > 0.0f) {
-                    XMFLOAT4 renderColor = fxItem.textScrollData.textColor;
-                    renderColor.w *= transparency;              // Apply transparency
+            // Only render if line is visible (transparency > 0)
+            if (transparency > 0.0f) {
+                XMFLOAT4 renderColor = fxItem.textScrollData.textColor;
+                renderColor.w *= transparency;              // Apply transparency
 
-                    // Convert float (0.0-1.0) to uint8_t (0-255) for MyColor
-                    uint8_t colorR = static_cast<uint8_t>(renderColor.x * 255.0f);
-                    uint8_t colorG = static_cast<uint8_t>(renderColor.y * 255.0f);
-                    uint8_t colorB = static_cast<uint8_t>(renderColor.z * 255.0f);
-                    uint8_t colorA = static_cast<uint8_t>(renderColor.w * 255.0f);
-                    MyColor color(colorR, colorG, colorB, colorA);
+                // Convert float (0.0-1.0) to uint8_t (0-255) for MyColor
+                uint8_t colorR = static_cast<uint8_t>(renderColor.x * 255.0f);
+                uint8_t colorG = static_cast<uint8_t>(renderColor.y * 255.0f);
+                uint8_t colorB = static_cast<uint8_t>(renderColor.z * 255.0f);
+                uint8_t colorA = static_cast<uint8_t>(renderColor.w * 255.0f);
+                MyColor color(colorR, colorG, colorB, colorA);
 
-                    // Center the text horizontally
-                    float textWidth = dx11->CalculateTextWidth(fxItem.textScrollData.textLines[i],
-                        fxItem.textScrollData.fontSize, fxItem.textScrollData.regionWidth);
-                    float centeredX = fxItem.textScrollData.regionX +
-                        (fxItem.textScrollData.regionWidth - textWidth) / 2.0f;
+                // Center the text horizontally
+                float textWidth = renderer->CalculateTextWidth(fxItem.textScrollData.textLines[i],
+                    fxItem.textScrollData.fontSize, fxItem.textScrollData.regionWidth);
+                float centeredX = fxItem.textScrollData.regionX +
+                    (fxItem.textScrollData.regionWidth - textWidth) / 2.0f;
 
-                    Vector2 position(centeredX, currentLineY);
-                    dx11->DrawMyText(fxItem.textScrollData.textLines[i], position, color, fxItem.textScrollData.fontSize);
-                }
+                Vector2 position(centeredX, currentLineY);
+                renderer->DrawMyText(fxItem.textScrollData.textLines[i], position, color, fxItem.textScrollData.fontSize);
             }
-            });
+        }
         break;
     }
 
@@ -2715,36 +2720,36 @@ float FXManager::CalculateCharacterTransparency(float charPosition, float region
 
     // CORRECTED: Fade in from right side (character entering the region from right)
     if (charPosition > regionEnd) {
-        float distanceFromEnd = charPosition - regionEnd;           // Distance beyond right edge
-        float transparency = 1.0f - (distanceFromEnd / fadeDistance); // Fade in as distance decreases
-        return std::max(0.0f, std::min(1.0f, transparency));        // Clamp to valid range
+        float distanceFromEnd = charPosition - regionEnd;                   // Distance beyond right edge
+        float transparency = 1.0f - (distanceFromEnd / fadeDistance);       // Fade in as distance decreases
+        return std::max(0.0f, std::min(1.0f, transparency));                // Clamp to valid range
     }
 
     // CORRECTED: Fade out at left side (character leaving the region to left)
     if (charPosition < regionStart) {
-        float distanceFromStart = regionStart - charPosition;       // Distance beyond left edge
-        float transparency = 1.0f - (distanceFromStart / fadeDistance); // Fade out as distance increases
-        return std::max(0.0f, std::min(1.0f, transparency));        // Clamp to valid range
+        float distanceFromStart = regionStart - charPosition;               // Distance beyond left edge
+        float transparency = 1.0f - (distanceFromStart / fadeDistance);     // Fade out as distance increases
+        return std::max(0.0f, std::min(1.0f, transparency));                // Clamp to valid range
     }
 
     // Character is within the main visible region
-    float regionWidth = regionEnd - regionStart;                    // Calculate total region width
-    float positionInRegion = (charPosition - regionStart) / regionWidth; // Normalize position (0.0 to 1.0)
+    float regionWidth = regionEnd - regionStart;                            // Calculate total region width
+    float positionInRegion = (charPosition - regionStart) / regionWidth;    // Normalize position (0.0 to 1.0)
 
     // IMPROVED: Apply smooth edge fading for better visual effect
-    const float edgeFadePercent = 0.15f;                            // 15% fade zone on each edge
+    const float edgeFadePercent = 0.25f;                                    // 25% fade zone on each edge
 
     if (positionInRegion < edgeFadePercent) {
         // Fade in from left edge of visible region
-        float edgeTransparency = positionInRegion / edgeFadePercent; // 0.0 at edge, 1.0 at fade boundary
-        return std::max(0.0f, std::min(1.0f, edgeTransparency));    // Clamp to valid range
+        float edgeTransparency = positionInRegion / edgeFadePercent;        // 0.0 at edge, 1.0 at fade boundary
+        return std::max(0.0f, std::min(1.0f, edgeTransparency));            // Clamp to valid range
     }
 
     if (positionInRegion > (1.0f - edgeFadePercent)) {
         // Fade out at right edge of visible region
-        float distanceFromRightEdge = 1.0f - positionInRegion;      // Distance from right edge
-        float edgeTransparency = distanceFromRightEdge / edgeFadePercent; // 1.0 at fade boundary, 0.0 at edge
-        return std::max(0.0f, std::min(1.0f, edgeTransparency));    // Clamp to valid range
+        float distanceFromRightEdge = 1.0f - positionInRegion;              // Distance from right edge
+        float edgeTransparency = distanceFromRightEdge / edgeFadePercent;   // 1.0 at fade boundary, 0.0 at edge
+        return std::max(0.0f, std::min(1.0f, edgeTransparency));            // Clamp to valid range
     }
 
     // Center region - fully opaque
@@ -2766,28 +2771,26 @@ float FXManager::CalculateCharacterTransparency(float charPosition, float region
 float FXManager::CalculateTextWidthWithSpacing(const std::wstring& text, const std::wstring& fontName,
     float fontSize, float characterSpacing, float wordSpacing)
 {
-    float totalWidth = 0.0f;                                                    // Initialize total width accumulator
+    float totalWidth = 0.0f;                                                // Initialize total width accumulator
 
     // Calculate width character by character including spacing
-    WithDX11Renderer([&](std::shared_ptr<DX11Renderer> dx11) {
-        for (size_t i = 0; i < text.length(); ++i) {
-            wchar_t character = text[i];                                        // Get current character
+    for (size_t i = 0; i < text.length(); ++i) {
+        wchar_t character = text[i];                                        // Get current character
 
-            // Get base character width using specified font
-            float charWidth = dx11->GetCharacterWidth(character, fontSize, fontName);
+        // Get base character width using specified font
+        float charWidth = renderer->GetCharacterWidth(character, fontSize, fontName);
 
-            // Add character spacing
-            charWidth += characterSpacing;
+        // Add character spacing
+        charWidth += characterSpacing;
 
-            // Add additional word spacing for space characters
-            if (character == L' ') {
-                charWidth += wordSpacing;                                       // Add extra spacing for word separation
-            }
-
-            // Accumulate total width
-            totalWidth += charWidth;
+        // Add additional word spacing for space characters
+        if (character == L' ') {
+            charWidth += wordSpacing;                                       // Add extra spacing for word separation
         }
-        });
+
+        // Accumulate total width
+        totalWidth += charWidth;
+    }
 
     // Return the total calculated width
     return totalWidth;
@@ -2803,26 +2806,24 @@ float FXManager::CalculateTextWidthWithSpacing(const std::wstring& text, const s
 // -------------------------------------------------------------------------------------------------------------
 void FXManager::SplitTextIntoLines(const std::wstring& text, std::vector<std::wstring>& lines, float maxWidth, float fontSize)
 {
-    lines.clear();                                                  // Clear existing lines
+    lines.clear();                                                          // Clear existing lines
 
-    std::wstringstream ss(text);                                    // Create string stream for processing
+    std::wstringstream ss(text);                                            // Create string stream for processing
     std::wstring word;
     std::wstring currentLine;
 
     // Process text word by word
-    while (std::getline(ss, word, L' ')) {                         // Split by spaces
+    while (std::getline(ss, word, L' ')) {                                  // Split by spaces
         std::wstring testLine = currentLine.empty() ? word : currentLine + L" " + word;
 
         // Check if adding this word exceeds the maximum width
         float lineWidth = 0.0f;
-        WithDX11Renderer([&testLine, fontSize, &lineWidth](std::shared_ptr<DX11Renderer> dx11) {
-            lineWidth = dx11->CalculateTextWidth(testLine, fontSize, 1000.0f);
-            });
+        lineWidth = renderer->CalculateTextWidth(testLine, fontSize, 1000.0f);
 
         if (lineWidth > maxWidth && !currentLine.empty()) {
             // Adding this word would exceed max width, so finalize current line
             lines.push_back(currentLine);
-            currentLine = word;                                     // Start new line with current word
+            currentLine = word;                                             // Start new line with current word
         }
         else {
             currentLine = testLine;                                 // Add word to current line

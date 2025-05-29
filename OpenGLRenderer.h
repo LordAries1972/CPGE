@@ -1,5 +1,5 @@
 // -------------------------------------------------------------------------------------------------------------
-// Notes Last Modified: 07-03-2025
+// Notes Last Modified: 27-05-2025
 //
 // This is the implementation of the OpenGLRenderer class, which is a concrete implementation of the Renderer.
 // It uses OpenGL for rendering 3D graphics and platform-specific APIs for 2D graphics and text rendering.
@@ -27,8 +27,8 @@
 // Platform-specific includes for OpenGL context creation and management
 #if defined(_WIN32) || defined(_WIN64)
 #include <windows.h>
-#include <gl/GL.h>
-#include <gl/GLU.h>
+#include <GL/GL.h>
+#include <GL/GLU.h>
 // Include modern OpenGL extensions for Windows
 #ifndef GLEW_STATIC
 #define GLEW_STATIC

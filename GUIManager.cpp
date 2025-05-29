@@ -1,11 +1,32 @@
+/* ---------------------------------------------------------------------------------------------------------
+Description: GUIManager.cpp
+
+This file contains the implementation of the GUIManager class, which manages GUI windows, events and controls.
+
+It includes methods for creating, removing, and rendering GUI windows, as well as handling input events.
+
+Dependencies: Includes.h, Renderer.h, DX11Renderer.h, DX12Renderer.h, VulkanRenderer.h, OpenGLRenderer.h,
+              GUIManager.h, SoundManager.h, Debug.h
+*/
 #pragma once
 
 #define NOMINMAN
 
 #include "Includes.h"
-#include "RendererMacros.h"
 #include "Renderer.h"
-#include "DX11Renderer.h"
+
+#if defined(_WIN32) || defined(_WIN64)
+    #if defined(__USE_DIRECTX_11__)
+    #include "DX11Renderer.h"
+    #elif defined(__USE_DIRECTX_12__)
+    #include "DX12Renderer.h"
+    #elif defined(__USE_VULKAN__)
+    #include "VulkanRenderer.h"
+    #elif defined(__USE_OPENGL__)
+    #include "OpenGLRenderer.h"
+    #endif
+#endif  // End of #if defined(_WIN32) || defined(_WIN64)
+
 #include "GUIManager.h"
 #include "SoundManager.h"
 #include "Debug.h"
@@ -347,69 +368,65 @@ void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick
 
 void GUIWindow::MoveWindow(const Vector2& newPosition, const std::unordered_map<std::string, std::shared_ptr<GUIWindow>>& allWindows) 
 {
-    WithDX11Renderer([this, newPosition, allWindows](std::shared_ptr<DX11Renderer> dx11Renderer) {
-        const float screenWidth = dx11Renderer->iOrigWidth;
-        const float screenHeight = dx11Renderer->iOrigHeight;
+    const float screenWidth = renderer->iOrigWidth;
+    const float screenHeight = renderer->iOrigHeight;
 
-        Vector2 constrainedPosition = newPosition;
+    Vector2 constrainedPosition = newPosition;
 
-        // --- Snap to screen edges ---
-        if (abs(constrainedPosition.x) <= SNAP_THRESHOLD) {
-            constrainedPosition.x = 0.0f;
+    // --- Snap to screen edges ---
+    if (abs(constrainedPosition.x) <= SNAP_THRESHOLD) {
+        constrainedPosition.x = 0.0f;
+    }
+    else if (abs(screenWidth - (constrainedPosition.x + size.x)) <= SNAP_THRESHOLD) {
+        constrainedPosition.x = screenWidth - size.x;
+    }
+
+    if (abs(constrainedPosition.y) <= SNAP_THRESHOLD) {
+        constrainedPosition.y = 0.0f;
+    }
+    else if (abs(screenHeight - (constrainedPosition.y + size.y)) <= SNAP_THRESHOLD) {
+        constrainedPosition.y = screenHeight - size.y;
+    }
+
+    // --- Snap to peer windows ---
+    for (const auto& [name, peer] : allWindows) {
+        if (!peer || peer.get() == this || peer->bWindowDestroy || !peer->isVisible)
+            continue;
+
+        Vector2 peerPos = peer->position;
+        Vector2 peerSize = peer->size;
+
+        // Snap left edge to peer's right
+        if (abs((constrainedPosition.x) - (peerPos.x + peerSize.x)) <= SNAP_THRESHOLD) {
+            constrainedPosition.x = peerPos.x + peerSize.x;
         }
-        else if (abs(screenWidth - (constrainedPosition.x + size.x)) <= SNAP_THRESHOLD) {
-            constrainedPosition.x = screenWidth - size.x;
-        }
-
-        if (abs(constrainedPosition.y) <= SNAP_THRESHOLD) {
-            constrainedPosition.y = 0.0f;
-        }
-        else if (abs(screenHeight - (constrainedPosition.y + size.y)) <= SNAP_THRESHOLD) {
-            constrainedPosition.y = screenHeight - size.y;
-        }
-
-        // --- Snap to peer windows ---
-        for (const auto& [name, peer] : allWindows) {
-            if (!peer || peer.get() == this || peer->bWindowDestroy || !peer->isVisible)
-                continue;
-
-            Vector2 peerPos = peer->position;
-            Vector2 peerSize = peer->size;
-
-            // Snap left edge to peer's right
-            if (abs((constrainedPosition.x) - (peerPos.x + peerSize.x)) <= SNAP_THRESHOLD) {
-                constrainedPosition.x = peerPos.x + peerSize.x;
-            }
-            // Snap right edge to peer's left
-            else if (abs((constrainedPosition.x + size.x) - peerPos.x) <= SNAP_THRESHOLD) {
-                constrainedPosition.x = peerPos.x - size.x;
-            }
-
-            // Snap top edge to peer's bottom
-            if (abs((constrainedPosition.y) - (peerPos.y + peerSize.y)) <= SNAP_THRESHOLD) {
-                constrainedPosition.y = peerPos.y + peerSize.y;
-            }
-            // Snap bottom edge to peer's top
-            else if (abs((constrainedPosition.y + size.y) - peerPos.y) <= SNAP_THRESHOLD) {
-                constrainedPosition.y = peerPos.y - size.y;
-            }
+        // Snap right edge to peer's left
+        else if (abs((constrainedPosition.x + size.x) - peerPos.x) <= SNAP_THRESHOLD) {
+            constrainedPosition.x = peerPos.x - size.x;
         }
 
-        // Clamp as fallback
-        constrainedPosition.x = std::max(0.0f, std::min(constrainedPosition.x, screenWidth - size.x));
-        constrainedPosition.y = std::max(0.0f, std::min(constrainedPosition.y, screenHeight - size.y));
-
-        Vector2 delta = constrainedPosition - position;
-
-        if (delta.x != 0 || delta.y != 0) {
-            position = constrainedPosition;
-            for (auto& control : controls) {
-                control.position += delta;
-            }
+        // Snap top edge to peer's bottom
+        if (abs((constrainedPosition.y) - (peerPos.y + peerSize.y)) <= SNAP_THRESHOLD) {
+            constrainedPosition.y = peerPos.y + peerSize.y;
         }
-        });
+        // Snap bottom edge to peer's top
+        else if (abs((constrainedPosition.y + size.y) - peerPos.y) <= SNAP_THRESHOLD) {
+            constrainedPosition.y = peerPos.y - size.y;
+        }
+    }
 
+    // Clamp as fallback
+    constrainedPosition.x = std::max(0.0f, std::min(constrainedPosition.x, screenWidth - size.x));
+    constrainedPosition.y = std::max(0.0f, std::min(constrainedPosition.y, screenHeight - size.y));
 
+    Vector2 delta = constrainedPosition - position;
+
+    if (delta.x != 0 || delta.y != 0) {
+        position = constrainedPosition;
+        for (auto& control : controls) {
+            control.position += delta;
+        }
+    }
 }
 
 void GUIWindow::UpdateScrollbar(int newPosition) {
