@@ -2,12 +2,15 @@
 // NetworkManager.cpp - Implementation of network communication system
 // Provides comprehensive TCP/UDP networking with authentication and command processing
 // -------------------------------------------------------------------------------------------------------------
+
+// CRITICAL: Define this before any Windows includes to prevent macro conflicts
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+
 #include "Includes.h"
 #include "NetworkManager.h"
 #include "ThreadLockHelper.h"
-
-// Global instance
-NetworkManager networkManager;
 
 // Constructor - Initialize all member variables to safe defaults
 NetworkManager::NetworkManager() :
@@ -1102,7 +1105,7 @@ void NetworkManager::HandleLoginResponse(const NetworkPacket& packet) {
 
     switch (resultCode) {
         case 0: // Success
-            m_lastAuthResult = AuthResult::SUCCESS;
+            m_lastAuthResult = AuthResult::AUTH_SUCCESS;
             UpdateConnectionState(ConnectionState::AUTHENTICATED);
 
             // Extract user ID if present

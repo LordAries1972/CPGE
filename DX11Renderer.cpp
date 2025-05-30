@@ -2526,12 +2526,16 @@ bool DX11Renderer::SetWindowedScreen(void)
         std::lock_guard<std::mutex> lock(s_renderMutex);                        // Ensure thread safety during windowed transition
 
         // Set to windowed mode first
-        HRESULT hr = m_swapChain->SetFullscreenState(FALSE, nullptr);
-        if (FAILED(hr)) {
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to set windowed state");
-            bFullScreenTransition.store(false);
-            threadManager.threadVars.bSettingFullScreen.store(false);
-            return false;
+        HRESULT hr;
+        if (m_swapChain)
+        {
+            hr = m_swapChain->SetFullscreenState(FALSE, nullptr);
+            if (FAILED(hr)) {
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to set windowed state");
+                bFullScreenTransition.store(false);
+                threadManager.threadVars.bSettingFullScreen.store(false);
+                return false;
+            }
         }
 
         // If we are shutting down, we do not need to worry about resizing buffers
@@ -2545,10 +2549,10 @@ bool DX11Renderer::SetWindowedScreen(void)
         UINT windowedWidth = prevWindowedWidth > 0 ? prevWindowedWidth : DEFAULT_WINDOW_WIDTH;
         UINT windowedHeight = prevWindowedHeight > 0 ? prevWindowedHeight : DEFAULT_WINDOW_HEIGHT;
 
-#if defined(_DEBUG_RENDERER_)
-        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERER] Target windowed resolution: " +
-            std::to_wstring(windowedWidth) + L"x" + std::to_wstring(windowedHeight));
-#endif
+        #if defined(_DEBUG_RENDERER_)
+            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERER] Target windowed resolution: " +
+                std::to_wstring(windowedWidth) + L"x" + std::to_wstring(windowedHeight));
+        #endif
 
         // Set resizing flag to prevent other operations during buffer resize
         threadManager.threadVars.bIsResizing.store(true);

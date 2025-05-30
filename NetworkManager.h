@@ -10,8 +10,27 @@
 #include "Debug.h"
 #include "Vectors.h"
 
-// Link with Winsock library
-#pragma comment(lib, "ws2_32.lib")
+// CRITICAL: Windows networking headers must be included in correct order
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN                                             // Exclude rarely-used Windows APIs
+#endif
+
+#include <windows.h>                                                    // Must be included before winsock2.h
+#include <winsock2.h>                                                   // Main Winsock API
+#include <ws2tcpip.h>                                                   // Additional TCP/IP functions
+#include <iphlpapi.h>                                                   // IP Helper API
+#include <vector>                                                       // STL vector container
+#include <queue>                                                        // STL queue container
+#include <unordered_map>                                                // STL hash map container
+#include <chrono>                                                       // Time utilities
+#include <atomic>                                                       // Atomic operations
+#include <mutex>                                                        // Mutex synchronization
+#include <thread>                                                       // Thread support
+#include <functional>                                                   // Function objects
+
+// Link with required Windows libraries
+#pragma comment(lib, "ws2_32.lib")                                      // Winsock 2 library
+#pragma comment(lib, "iphlpapi.lib")                                    // IP Helper API library
 
 // Forward declarations
 extern Debug debug;
@@ -27,7 +46,7 @@ enum class NetworkProtocol {
 enum class ConnectionState {
     DISCONNECTED,                                                       // No active connection
     CONNECTING,                                                         // Attempting to establish connection
-    CONNECTED,                                                          // Successfully connected and authenticated
+    CONNECTED,                                                          // Successfully connected but not authenticated
     AUTHENTICATING,                                                     // In process of user authentication
     AUTHENTICATED,                                                      // User successfully authenticated
     ERROR_STATE,                                                        // Connection error occurred
@@ -59,7 +78,7 @@ enum class NetworkCommand : uint32_t {
 
 // Authentication result codes
 enum class AuthResult {
-    SUCCESS,                                                            // Authentication successful
+    AUTH_SUCCESS,                                                       // Authentication successful
     INVALID_CREDENTIALS,                                                // Username/password incorrect
     USER_ALREADY_LOGGED_IN,                                             // User already has active session
     SERVER_ERROR,                                                       // Server-side authentication error
@@ -68,7 +87,7 @@ enum class AuthResult {
 };
 
 // Network packet header structure - all packets must begin with this header
-#pragma pack(push, 1)                                                   // Ensure exact byte alignment for network transmission
+#pragma pack(push, 1)                                                  // Ensure exact byte alignment for network transmission
 struct NetworkPacketHeader {
     uint32_t packetID;                                                  // Unique packet identifier for validation
     uint32_t packetSize;                                                // Total size of packet including header
@@ -83,9 +102,9 @@ struct NetworkPacketHeader {
 struct UserCredentials {
     std::string username;                                               // User account name
     std::string password;                                               // User account password (should be hashed)
-    std::string sessionToken;                                           // Session authentication token
+    std::string sessionToken;                                          // Session authentication token
     uint32_t userID;                                                    // Unique user identifier from server
-    std::chrono::steady_clock::time_point lastActivity;                 // Last activity timestamp for timeout detection
+    std::chrono::steady_clock::time_point lastActivity;                // Last activity timestamp for timeout detection
 
     // Constructor with default initialization
     UserCredentials() : userID(0), lastActivity(std::chrono::steady_clock::now()) {}
@@ -159,7 +178,7 @@ public:
     bool LogoutUser();                                                  // Logout current authenticated user
     bool IsUserAuthenticated() const;                                   // Check if user is currently authenticated
     AuthResult GetLastAuthResult() const;                               // Get result of last authentication attempt
-    const UserCredentials& GetCurrentUser() const;                      // Get current user information
+    const UserCredentials& GetCurrentUser() const;                     // Get current user information
 
     // Packet transmission functions
     bool SendPacket(NetworkCommand command, const std::vector<uint8_t>& data = {});
@@ -187,7 +206,7 @@ public:
     void NetworkThreadFunction();                                       // Main network thread processing loop
 
     // Statistics and monitoring
-    const NetworkStatistics& GetNetworkStatistics() const;              // Get current network statistics
+    const NetworkStatistics& GetNetworkStatistics() const;             // Get current network statistics
     void ResetStatistics();                                             // Reset all network statistics counters
     float GetAverageLatency() const;                                    // Get current average network latency
 
@@ -217,11 +236,11 @@ private:
 
     // Threading and synchronization
     std::atomic<bool> m_networkThreadRunning;                           // Network thread execution flag
-    
-    // Add our Lock name here.
-    std::string LOCK_PACKET_QUEUE = "network_packet_queue";
-    std::string wi = "network_connection_state";
-    
+
+    // Thread lock names for ThreadManager integration
+    const std::string LOCK_PACKET_QUEUE = "network_packet_queue";       // Lock name for packet queue operations
+    const std::string LOCK_CONNECTION_STATE = "network_connection_state"; // Lock name for connection state operations
+
     // Network statistics and monitoring
     NetworkStatistics m_statistics;                                     // Current session statistics
     std::string m_lastErrorMessage;                                     // Last error message for debugging

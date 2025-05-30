@@ -165,7 +165,10 @@ void SwitchToMovieIntro();
 void OpenMovieAndPlay();
 
 // Supressed Warnings
-#pragma warning(disable : 28251)
+#pragma warning(disable: 28251)
+#pragma warning(disable: 4996)  // Suppress deprecated function warnings
+#pragma warning(disable: 4267)  // Suppress size_t conversion warnings
+#pragma warning(disable: 4101)  // Suppress warning C4101: 'e': unreferenced local variable
 
 // *----------------------------------------------------------------------------------------------
 // Program Start!
