@@ -2967,9 +2967,12 @@ void DX11Renderer::RenderFrame()
 			status = threadManager.GetThreadStatus(THREAD_RENDERER);
 			if (status == ThreadStatus::Paused)
 			{
-				Sleep(1);
+                threadManager.threadVars.bIsRendering.store(false);
+                Sleep(1);
 				continue;
 			}
+
+            threadManager.threadVars.bIsRendering.store(true);
 #endif
 
             if (m_d3dDevice)
@@ -3004,10 +3007,12 @@ void DX11Renderer::RenderFrame()
             // Clear the render target and depth stencil view before we start rendering
             try
             {
-                if (m_d3dContext)
+                if (m_d3dContext && threadManager.TryLock(D2DLockName, 100))
                 {
+                    
                     m_d3dContext->ClearRenderTargetView(m_renderTargetView.Get(), clearColor);
                     m_d3dContext->ClearDepthStencilView(m_depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+                    threadManager.RemoveLock(D2DLockName);
                 }
             }
             catch (const std::exception& e)

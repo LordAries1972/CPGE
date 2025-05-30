@@ -330,8 +330,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         // Add TTS announcement for movie intro
         if (ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR) {
             ttsManager.SetSpeakerChannel(TTSSpeakerChannel::CHANNEL_BOTH);
-            ttsManager.SetVoiceVolume(0.6f);
-            ttsManager.PlayAsync(L"This Game Production uses the C P G E  Gaming Engine by Daniel J. Hobson of Australia 2025.");
+            ttsManager.SetVoiceVolume(0.8f);
+            ttsManager.PlayAsync(L"This Game Production uses the Cross Platform Gaming Engine by Daniel J. Hobson of Australia 2025.");
         }
 
         // --- Main Loop ---
@@ -358,7 +358,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                             scene.sceneFrameCounter++;
 
                             // Check if splash screen duration has elapsed and we haven't started scene switching yet
-                            if ((scene.sceneFrameCounter >= 3250000) && (!scene.bSceneSwitching))
+                            if ((scene.sceneFrameCounter >= 4500000) && (!scene.bSceneSwitching))
                             {
                                 #if defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)
                                     // Mark that we are beginning the scene transition process
@@ -1105,7 +1105,7 @@ void SwitchToMovieIntro()
     // Add TTS announcement for movie intro
     if (ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR) {
         ttsManager.SetSpeakerChannel(TTSSpeakerChannel::CHANNEL_BOTH);
-        ttsManager.SetVoiceVolume(0.6f);
+        ttsManager.SetVoiceVolume(0.8f);
         ttsManager.PlayAsync(L"Attempting to Play Game Introduction Movie");
     }
 
