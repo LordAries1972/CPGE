@@ -7,6 +7,9 @@ extern Debug debug;
 
 const std::string lpCONFIG_FILENAME = "GameConfig.cfg";
 
+#pragma warning(push)
+#pragma warning(disable: 4101)
+
 Joystick::Joystick() {
     detectJoysticks();
 //    loadMapping(lpCONFIG_FILENAME);                           // Not Required for the moment, so we will NOT use, please leave this line here.
@@ -365,3 +368,5 @@ void Joystick::SwitchModes(Camera& camera, bool& isNewMode)
         debug.logLevelMessage(LogLevel::LOG_INFO, L"Switched to " + std::wstring(is3DMode ? L"3D" : L"2D") + L" mode");
     #endif
 }
+
+#pragma warning(pop)

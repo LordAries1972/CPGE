@@ -32,6 +32,9 @@
 #pragma comment(lib, "d3dcompiler.lib")
 #pragma comment(lib, "dxgi.lib")
 
+#pragma warning(push)
+#pragma warning(disable: 4101)
+
 // Static member initialization
 std::mutex DX11Renderer::s_renderMutex;
 
@@ -3394,5 +3397,7 @@ void DX11Renderer::RenderFrame()
         debug.logLevelMessage(LogLevel::LOG_WARNING, L"Render Thread Exiting.");
     #endif
 }
+
+#pragma warning(pop)
 
 #endif

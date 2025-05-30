@@ -12,6 +12,9 @@
 extern Debug debug;
 extern ThreadManager threadManager;
 
+#pragma warning(push)
+#pragma warning(disable: 4101)
+
 // Constructor - Initialize member variables to safe defaults
 TTSManager::TTSManager() :
     m_bIsInitialized(false),                                 // TTS not initialized yet
@@ -1370,8 +1373,10 @@ void TTSManager::UpdatePlaybackState() {
         }
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"TTSManager::UpdatePlaybackState() - Exception: %S", e.what());
-#endif
+        #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"TTSManager::UpdatePlaybackState() - Exception: %S", e.what());
+        #endif
     }
 }
+
+#pragma warning(pop)

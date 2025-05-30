@@ -23,6 +23,9 @@
 extern Debug debug;
 extern ThreadManager threadManager;
 
+#pragma warning(push)
+#pragma warning(disable: 4101)
+
 // UPDATED: FXManager constructor with bIsRendering initialization
 FXManager::FXManager() : originalBlendState(nullptr), fadeBlendState(nullptr), originalRenderTarget(nullptr),
 fullscreenQuadVertexBuffer(nullptr), inputLayout(nullptr), vertexShader(nullptr), pixelShader(nullptr),
@@ -2836,3 +2839,4 @@ void FXManager::SplitTextIntoLines(const std::wstring& text, std::vector<std::ws
     }
 }
 
+#pragma warning(pop)
