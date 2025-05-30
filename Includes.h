@@ -99,8 +99,9 @@ This is to eliminate the need for multiple includes in your project files.
 #endif
 
 #if defined(__USE_OPENGL__)
+    #include "opengl32.h"
     #include "GL\glew32.h"
-    
+
     #pragma comment(lib, "glfw3.lib")
     #pragma comment(lib, "glew32.lib")
     #pragma comment(lib, "opengl32.lib")

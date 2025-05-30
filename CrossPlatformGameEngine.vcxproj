@@ -208,6 +208,7 @@
     <ClCompile Include="SceneManager.cpp" />
     <ClCompile Include="SoundManager.cpp" />
     <ClCompile Include="ThreadManager.cpp" />
+    <ClCompile Include="TTSManager.cpp" />
     <ClCompile Include="WinMediaPlayer.cpp" />
     <ClCompile Include="WinSystem.cpp" />
     <ClCompile Include="XMMODPlayer.cpp" />
@@ -238,6 +239,7 @@
     <ClInclude Include="SoundManager.h" />
     <ClInclude Include="ThreadLockHelper.h" />
     <ClInclude Include="ThreadManager.h" />
+    <ClInclude Include="TTSManager.h" />
     <ClInclude Include="Vectors.h" />
     <ClInclude Include="VulkanRenderer.h" />
     <ClInclude Include="WinMediaPlayer.h" />

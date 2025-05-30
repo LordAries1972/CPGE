@@ -23,6 +23,7 @@
 //#define _DEBUG_SOUNDMANAGER_
 //#define _DEBUG_SCENEMANAGER_                                            // Define this line, to show all debug output to runtime console for the SceneManager class.
 #define _DEBUG_SCENE_TRANSITION_                                        // Debug Info for Scene Transistions.
+#define _DEBUG_TTSMANAGER_                                              // Define this line, to show all debug output for the TTSManager class.
 //#define _DEBUG_GUI_                                                     // Define this line, to show all debug output to runtime console for the GUIManager class.
 //#define _DEBUG_WINSYSTEM_                                               // Define this line, to show all debug output to runtime console for the SystemUtils class.
 #define _DEBUG_MATHPRECALC_                                             // Define this line, to show all debug output for the MathPrecalculation class

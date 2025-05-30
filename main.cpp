@@ -58,6 +58,10 @@
 #include "WinSystem.h"
 #include "MoviePlayer.h"
 
+#if defined(_WIN64) || defined(_WIN32)
+    #include "TTSManager.h"
+#endif
+
 #include "Renderer.h"
 #if defined(__USE_DIRECTX_11__)
 #include "DX11Renderer.h"
@@ -108,6 +112,10 @@ SceneManager scene;
 ThreadManager threadManager;
 SystemUtils sysUtils;
 MoviePlayer moviePlayer;
+
+#if defined(_WIN64) || defined(_WIN32)
+    TTSManager ttsManager;
+#endif
 
 #if defined(__USE_MP3PLAYER__)
 MediaPlayer player;
@@ -276,6 +284,19 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 		// Initialise our FX Manager
         fxManager.Initialize();
         
+        // If we are using windows, Initialize TTSManager (Text To Speech)
+        #if defined(_WIN64) || defined(_WIN32)
+            // Initialise our TTS Manager
+            if (!ttsManager.Initialize()) {
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"TTS system initialization failed - continuing without TTS");
+            }
+            else {
+                #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
+                    debug.logLevelMessage(LogLevel::LOG_INFO, L"TTS system initialized successfully");
+                #endif
+            }
+        #endif
+
         std::wstring alert = L"This is an alert status message.\n\n"
         L"Congratulations if you're seeing this window!\n"
         L"It means the system initialized correctly.\n";
@@ -306,6 +327,13 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             }
         #endif
 
+        // Add TTS announcement for movie intro
+        if (ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR) {
+            ttsManager.SetSpeakerChannel(TTSSpeakerChannel::CHANNEL_BOTH);
+            ttsManager.SetVoiceVolume(0.6f);
+            ttsManager.PlayAsync(L"This Game Production uses the C P G E  Gaming Engine by Daniel J. Hobson of Australia 2025.");
+        }
+
         // --- Main Loop ---
         MSG msg = {};
         while (msg.message != WM_QUIT)
@@ -330,7 +358,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                             scene.sceneFrameCounter++;
 
                             // Check if splash screen duration has elapsed and we haven't started scene switching yet
-                            if ((scene.sceneFrameCounter >= 3000000) && (!scene.bSceneSwitching))
+                            if ((scene.sceneFrameCounter >= 3250000) && (!scene.bSceneSwitching))
                             {
                                 #if defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)
                                     // Mark that we are beginning the scene transition process
@@ -644,6 +672,12 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     fxManager.CleanUp();
     // We are Now finished with Scene Management
     scene.CleanUp();
+
+    // TTS Stop
+    #if defined(_WIN64) || defined(_WIN32)
+        ttsManager.Stop();                          // Stop immediately
+        ttsManager.CleanUp();
+    #endif
 
     // Release the Renderer System.
     renderer->Cleanup();
@@ -1068,6 +1102,13 @@ void OpenMovieAndPlay()
 
 void SwitchToMovieIntro()
 {
+    // Add TTS announcement for movie intro
+    if (ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR) {
+        ttsManager.SetSpeakerChannel(TTSSpeakerChannel::CHANNEL_BOTH);
+        ttsManager.SetVoiceVolume(0.6f);
+        ttsManager.PlayAsync(L"Attempting to Play Game Introduction Movie");
+    }
+
     scene.SetGotoScene(SCENE_INTRO_MOVIE);
     scene.InitiateScene();
     scene.SetGotoScene(SCENE_NONE);
@@ -1080,6 +1121,13 @@ void SwitchToMovieIntro()
 
 void SwitchToGameIntro()
 {
+    // Add TTS announcement for movie intro
+    if (ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR) {
+        ttsManager.SetSpeakerChannel(TTSSpeakerChannel::CHANNEL_BOTH);
+        ttsManager.SetVoiceVolume(1.0f);
+        ttsManager.PlayAsync(L"Welcome to the CPGE Gaming Engine Game Intro Screen");
+    }
+
     scene.SetGotoScene(SCENE_INTRO);
     scene.InitiateScene();
     scene.SetGotoScene(SCENE_NONE);
