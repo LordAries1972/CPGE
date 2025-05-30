@@ -3002,10 +3002,21 @@ void DX11Renderer::RenderFrame()
             threadManager.threadVars.bIsRendering.store(true);
             
             // Clear the render target and depth stencil view before we start rendering
-			if (m_d3dContext)
-			{
-                m_d3dContext->ClearRenderTargetView(m_renderTargetView.Get(), clearColor);
-                m_d3dContext->ClearDepthStencilView(m_depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+            try
+            {
+                if (m_d3dContext)
+                {
+                    m_d3dContext->ClearRenderTargetView(m_renderTargetView.Get(), clearColor);
+                    m_d3dContext->ClearDepthStencilView(m_depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+                }
+            }
+            catch (const std::exception& e)
+            {
+                #ifdef RENDERER_IS_THREAD
+                    continue;
+                #else
+                    return;
+                #endif
             }
 
             // Update the cameras viewmatrix
