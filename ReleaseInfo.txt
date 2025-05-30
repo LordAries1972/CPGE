@@ -182,6 +182,14 @@ DEVELOPMENT HISTORY: -
              This will entail further enhancements to the GUIManager system as well so that we can present Selection Drop boxes, events
              and the ability to run a callback call to execute the proper functions to clean and switch renderers.
 
+30/05/2025 - Verfied DirectX11 Renderer with new changes is compiling correctly.
+           - Implemented the TTSManager (Text To Speech) with configuration and playback options.  See TTSManager.h/.cpp for more info.
+
+31/05/2025 - Threaded TCP/UDP Network Manager has now been implemented for the Windows Platform.  See NetworkManager.h/.cpp for more info.
+             This has not been fully tested as of yet, as there is more work to be done such as a server app, which I will build later
+             and when more requirement of this class will be needed.  In the meantime, please see Docs/NetworkManager-Example-Usage.txt
+             for full usage.
+
 [ FUTURE ]   OK EVERYONE, we are approaching a VERY CLOSE TO GAMING PRODUCTION READINESS FOR DIRECTX 11 SYSTEMS! (WINDOWS 10 SP1 & above 64BIT)
              and all this work that has been going for the last, next to 2 years of my time, comes for free under the MIT LICENSE.
 

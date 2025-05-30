@@ -57,6 +57,7 @@
 #include "ThreadManager.h"
 #include "WinSystem.h"
 #include "MoviePlayer.h"
+#include "NetworkManager.h"
 
 #if defined(_WIN64) || defined(_WIN32)
     #include "TTSManager.h"
@@ -78,9 +79,9 @@
 //#define __USING_JOYSTICKS__
 
 #if defined(__USE_MP3PLAYER__)
-#include "WinMediaPlayer.h"
+    #include "WinMediaPlayer.h"
 #elif defined(__USE_XMPLAYER__)
-#include "XMMODPlayer.h"
+    #include "XMMODPlayer.h"
 #endif
 
 //------------------------------------------
@@ -112,6 +113,7 @@ SceneManager scene;
 ThreadManager threadManager;
 SystemUtils sysUtils;
 MoviePlayer moviePlayer;
+NetworkManager networkManager;
 
 #if defined(_WIN64) || defined(_WIN32)
     TTSManager ttsManager;
@@ -297,6 +299,12 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             }
         #endif
 
+        // Initialize Network Manager
+        if (!networkManager.Initialize()) {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Network system initialization failed.");
+            return EXIT_FAILURE;
+        }
+            
         std::wstring alert = L"This is an alert status message.\n\n"
         L"Congratulations if you're seeing this window!\n"
         L"It means the system initialized correctly.\n";
@@ -648,8 +656,6 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     if (moviePlayer.IsPlaying())
        moviePlayer.Stop();
     
-    renderer->SetWindowedScreen();
-
 //    fxManager.StopScrollEffect(BlitObj2DIndexType::IMG_SCROLLBG1);
 
     switch (scene.stSceneType)
@@ -682,6 +688,12 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     // Release the Renderer System.
     renderer->Cleanup();
 
+    renderer->SetWindowedScreen();
+
+    // Clean up Network Manager
+    networkManager.Cleanup();
+
+    // Cleanup Cached Base Models
     for (int i = 0; i < MAX_MODELS; i++)
         models[i].DestroyModel();
 
@@ -908,29 +920,29 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
             switch (scene.stSceneType)
             {
-            case SceneType::SCENE_GAMEPLAY:
-            {
-                short delta = GET_WHEEL_DELTA_WPARAM(wParam);
-
-                // Zoom sensitivity scaling factor
-                const float zoomStep = 1.0f;
-
-                if (delta > 0)
+                case SceneType::SCENE_GAMEPLAY:
                 {
-                    renderer->myCamera.MoveIn(zoomStep);
-                    #if defined(_DEBUG_CAMERA_)
-                    debug.logDebugMessage(LogLevel::LOG_INFO, L"Camera Zoom In: delta = %d", delta);
-                    #endif
+                    short delta = GET_WHEEL_DELTA_WPARAM(wParam);
+
+                    // Zoom sensitivity scaling factor
+                    const float zoomStep = 1.0f;
+
+                    if (delta > 0)
+                    {
+                        renderer->myCamera.MoveIn(zoomStep);
+                        #if defined(_DEBUG_CAMERA_)
+                        debug.logDebugMessage(LogLevel::LOG_INFO, L"Camera Zoom In: delta = %d", delta);
+                        #endif
+                    }
+                    else if (delta < 0)
+                    {
+                        renderer->myCamera.MoveOut(zoomStep);
+                        #if defined(_DEBUG_CAMERA_)
+                        debug.logDebugMessage(LogLevel::LOG_INFO, L"Camera Zoom Out: delta = %d", delta);
+                        #endif
+                    }
+                    return 0;
                 }
-                else if (delta < 0)
-                {
-                    renderer->myCamera.MoveOut(zoomStep);
-                    #if defined(_DEBUG_CAMERA_)
-                    debug.logDebugMessage(LogLevel::LOG_INFO, L"Camera Zoom Out: delta = %d", delta);
-                    #endif
-                }
-                return 0;
-            }
             }
             return 0;
         }
@@ -942,9 +954,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     return 0;
                 }
                 #if defined(__USE_MP3PLAYER__)
-                player.pause();
+                    player.pause();
                 #elif defined(__USE_XMPLAYER__)
-                // Uncomment if needed: if (!xmPlayer.IsPaused()) xmPlayer.Pause();
+                    // Uncomment if needed: 
+                    // if (!xmPlayer.IsPaused()) xmPlayer.Pause();
                 #endif
             }
 
@@ -954,9 +967,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             }
             else if (wParam == WA_ACTIVE && !bResizeInProgress.load()) {
                 #if defined(__USE_MP3PLAYER__)
-                player.resume();
+                    player.resume();
                 #elif defined(__USE_XMPLAYER__)
-                // Uncomment if needed: xmPlayer.HardResume();
+                    // Uncomment if needed: 
+                    // xmPlayer.HardResume();
                 #endif
             }
 
@@ -974,14 +988,14 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
             switch (scene.stSceneType)
             {
-            case SceneType::SCENE_GAMEPLAY:
-            {
-                if (wParam == VK_F2 && !threadManager.threadVars.bIsShuttingDown.load())
+                case SceneType::SCENE_GAMEPLAY:
                 {
-                    renderer->bWireframeMode = renderer->bWireframeMode;
-                    return 0;
+                    if (wParam == VK_F2 && !threadManager.threadVars.bIsShuttingDown.load())
+                    {
+                        renderer->bWireframeMode = renderer->bWireframeMode;
+                        return 0;
+                    }
                 }
-            }
             }
 
             // Handle ESC key for shutdown

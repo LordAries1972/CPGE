@@ -25,6 +25,8 @@ This is to eliminate the need for multiple includes in your project files.
     #include <mfplay.h>
     #include <wrl/client.h>
     #include <comdef.h>                                                                 // For _com_error
+    #include <winsock2.h>
+    #include <ws2tcpip.h>
 
     using Microsoft::WRL::ComPtr;
 
@@ -147,6 +149,7 @@ This is to eliminate the need for multiple includes in your project files.
 #include <mutex>                                        // For std::mutex
 #include <atomic>                                       // For std::atomic
 #include <chrono>                                       // For std::chrono
+#include <queue>
 #include <functional>
 #include <condition_variable>
 #include <filesystem>
