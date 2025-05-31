@@ -58,6 +58,7 @@
 #include "WinSystem.h"
 #include "MoviePlayer.h"
 #include "NetworkManager.h"
+#include "PUNPack.h"
 
 #if defined(_WIN64) || defined(_WIN32)
     #include "TTSManager.h"
@@ -114,6 +115,7 @@ ThreadManager threadManager;
 SystemUtils sysUtils;
 MoviePlayer moviePlayer;
 NetworkManager networkManager;
+PUNPack punPack;
 
 #if defined(_WIN64) || defined(_WIN32)
     TTSManager ttsManager;
@@ -256,7 +258,15 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         if (!FAST_MATH.Initialize())
         {
             #if defined(_DEBUG_MATHPRECALC_)
-                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Example] Failed to initialize MathPrecalculation!");
+                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize MATHPrecalc!");
+            #endif
+            return EXIT_FAILURE;
+        }
+
+        if (!punPack.Initialize())
+        {
+            #if defined(_DEBUG_PUNPACK_)
+                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize PUNPack!");
             #endif
             return EXIT_FAILURE;
         }
@@ -704,6 +714,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     soundManager.StopPlaybackThread();
     soundManager.CleanUp();
 
+    // Destory our PUNPack Class.
+    punPack.Cleanup();
+
     // Destory our Created system window.
     sysUtils.DestroySystemWindow(hInstance, hwnd, lpDEFAULT_NAME);
 
@@ -785,8 +798,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             }
 
             guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
-            return 0;
-
             return 0;
 
         case WM_LBUTTONDOWN:

@@ -10,6 +10,8 @@
 // As a Contributor, please always be considerate towards other developers and always explain what 
 // you are doing throughout your code by utilising this debugging engine, especially when
 // error handling needs to be done!  Thank you!
+// 
+// On Production ready systems, all the below _DEBUG_<Name>_ #defines will be commented out / undefined
 // ----------------------------------------------------------------------------------------------
 #pragma once
 
@@ -21,9 +23,10 @@
 //#define _DEBUG_XMPlayer_                                                // Define this line, to show all debug output to runtime console for the XMMODPlayer class.
 //#define _DEBUG_CONFIGURATION_
 //#define _DEBUG_SOUNDMANAGER_
-//#define _DEBUG_SCENEMANAGER_                                            // Define this line, to show all debug output to runtime console for the SceneManager class.
+#define _DEBUG_PUNPACK_                                                 // Define this line, to show all debug output to runtime console for the PUNPack class. 
 #define _DEBUG_NETWORKMANAGER_                                          // Define this line, to show all debug output to runtime console for the NetworkManager class.
-#define _DEBUG_SCENE_TRANSITION_                                        // Debug Info for Scene Transistions.
+//#define _DEBUG_SCENEMANAGER_                                            // Define this line, to show all debug output to runtime console for the SceneManager class.
+//#define _DEBUG_SCENE_TRANSITION_                                        // Debug Info for Scene Transistions.
 //#define _DEBUG_TTSMANAGER_                                              // Define this line, to show all debug output for the TTSManager class.
 //#define _DEBUG_GUI_                                                     // Define this line, to show all debug output to runtime console for the GUIManager class.
 //#define _DEBUG_WINSYSTEM_                                               // Define this line, to show all debug output to runtime console for the SystemUtils class.
@@ -44,10 +47,11 @@
 // =====
 // NOTE: Currently atm I cannot for some reason work out why I cannot use RenderDOC
 // ===== to determine problems with the pixel shader.  So I have to use this 
-//       approach instead until I can figure it out!
+//       approach instead until I can figure it out!  I think it may have something
+//       to do with DirectX 11, but not sure, more investigating is needed.
 // ----------------------------------------------------------------------------------------------
-//#define _DEBUG_RENDERER_                                                    // Define this line, to show all debug output to runtime console for the DX11Renderer class.
-//#define _DEBUG_DX12RENDERER_                                                // Define this line, to show all debug output to runtime console for the DX12Renderer class.
+//#define _DEBUG_RENDERER_                                                // Define this line, to show all debug output to runtime console for the DX11Renderer class.
+//#define _DEBUG_DX12RENDERER_                                              // Define this line, to show all debug output to runtime console for the DX12Renderer class.
 #define _DEBUG_PIXSHADER_
 
 //#define _DEBUG_CAMERA_
@@ -60,7 +64,7 @@
 // ----------------------------------------------------------------------------------------------
 // OPENGL Debug flags.
 // ----------------------------------------------------------------------------------------------
-#define _DEBUG_OPENGLRENDERER_                                          // Define this line, to show all debug output for the OpenGLRenderer class.
+#define _DEBUG_OPENGLRENDERER_                                            // Define this line, to show all debug output for the OpenGLRenderer class.
  
 // ----------------------------------------------------------------------------------------------
 // Define MACROS for error handling and reporting

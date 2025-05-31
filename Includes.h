@@ -145,14 +145,15 @@ This is to eliminate the need for multiple includes in your project files.
 #include <cstdint>
 #include <thread>
 #include <memory>
-#include <array>
 #include <algorithm>                                    // Required for std::clamp
 #include <mmreg.h>
 #include <mmsystem.h>
 #include <mutex>                                        // For std::mutex
+#include <queue>                                        // For std::priority_queue
+#include <functional>                                   // For std::function and lambda support
+#include <array>                                        // For std::array<uint32_t, 256>
 #include <atomic>                                       // For std::atomic
 #include <chrono>                                       // For std::chrono
-#include <functional>
 #include <condition_variable>
 #include <filesystem>
 #include <objbase.h>                                    // COM infrastructure (CoCreateInstance)

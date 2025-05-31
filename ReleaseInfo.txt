@@ -147,7 +147,7 @@ DEVELOPMENT HISTORY: -
 12/05/2025 - Game Pad/Joystick Implementation has now been fully integrated and working 100% and supports both 2D and 3D scenarios
              (Camera movement).  More work will be done with the Camera at a later date such as Animate Movement to (x, y, z) etc.
 
-16/05/2025 - STABLE: Thread Safe Video Rendering which supports .AVI/.MP4 or .MKV files.  This interface allows you to use video 
+16/05/2025 - STABLE: Thread Safe Video Rendering which supports .AVI/.MP4 files.  This interface allows you to use video 
              streaming without sound.  The idea behind this is that most game developers will create a video and overlap that video 
              playback with a music/audio sound track to support their own video. For games, video is usually rendered via a 3rd 
              party rendering system that is external to this gaming engine platform.  See MoviePlayer.h/.cpp for more info.
@@ -189,6 +189,10 @@ DEVELOPMENT HISTORY: -
              This has not been fully tested as of yet, as there is more work to be done such as a server app, which I will build later
              and when more requirement of this class will be needed.  In the meantime, please see Docs/NetworkManager-Example-Usage.txt
              for full usage.
+
+01/06/2025 - Implemented the PUNPack Class which is responsible for Compressing and Decompressing strings, structures and memory buffers.
+             Also supports a stand-alone and packing internal of a checksum calculator as well.  See PUNPack.h/.cpp and the
+             Docs/PUNPack-Example-Usage.txt file for more info.
 
 [ FUTURE ]   OK EVERYONE, we are approaching a VERY CLOSE TO GAMING PRODUCTION READINESS FOR DIRECTX 11 SYSTEMS! (WINDOWS 10 SP1 & above 64BIT)
              and all this work that has been going for the last, next to 2 years of my time, comes for free under the MIT LICENSE.

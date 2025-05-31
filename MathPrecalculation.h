@@ -248,6 +248,31 @@ public:
     // Dump table statistics to debug output
     void DumpTableStatistics() const;
 
+    //==========================================================================
+    // Compression and Checksum Optimization Methods
+    //==========================================================================
+    // Bit manipulation methods for compression optimization
+    uint8_t FastCountLeadingZeros(uint32_t value) const;
+    uint8_t FastCountTrailingZeros(uint32_t value) const;
+    bool FastIsPowerOfTwo(uint32_t value) const;
+    uint32_t FastNextPowerOfTwo(uint32_t value) const;
+
+    // Fast bit manipulation operations for compression algorithms
+    uint32_t FastRotateLeft(uint32_t value, int positions) const;
+    uint32_t FastRotateRight(uint32_t value, int positions) const;
+
+    // Optimized hash calculations for compression
+    uint32_t FastFNV1aHash(const void* data, size_t size) const;
+    uint64_t FastFNV1aHash64(const void* data, size_t size) const;
+
+    // Fast modular arithmetic for encryption
+    uint32_t FastModPow(uint32_t base, uint32_t exponent, uint32_t modulus) const;
+
+    // Optimized byte operations for compression
+    void FastByteSwap(uint8_t* data, size_t size) const;
+    uint32_t FastCountSetBits(uint32_t value) const;
+    uint32_t FastReverseBits(uint32_t value) const;
+
 private:
     // Private constructor for singleton pattern
     MathPrecalculation();

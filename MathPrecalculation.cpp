@@ -1799,3 +1799,287 @@ T MathPrecalculation::ClampValue(T value, T minVal, T maxVal) const
     // Template function for clamping values to valid range
     return std::clamp(value, minVal, maxVal);
 }
+
+//==============================================================================
+// Compression and Checksum Optimization Methods Implementation
+//==============================================================================
+uint32_t MathPrecalculation::FastRotateLeft(uint32_t value, int positions) const
+{
+    // Ensure the system is initialized before attempting operation
+    if (!m_bIsInitialized.load())
+    {
+        // Fallback to standard bit rotation
+        positions = positions % 32; // Normalize positions to valid range
+        return (value << positions) | (value >> (32 - positions));
+    }
+
+    // Increment lookup counter for statistics
+    m_lookupCount.fetch_add(1);
+
+    // Fast bit rotation using optimized approach
+    positions = positions % 32; // Normalize positions to valid range [0, 31]
+    return (value << positions) | (value >> (32 - positions));
+}
+
+uint32_t MathPrecalculation::FastRotateRight(uint32_t value, int positions) const
+{
+    // Ensure the system is initialized before attempting operation
+    if (!m_bIsInitialized.load())
+    {
+        // Fallback to standard bit rotation
+        positions = positions % 32; // Normalize positions to valid range
+        return (value >> positions) | (value << (32 - positions));
+    }
+
+    // Increment lookup counter for statistics
+    m_lookupCount.fetch_add(1);
+
+    // Fast bit rotation using optimized approach
+    positions = positions % 32; // Normalize positions to valid range [0, 31]
+    return (value >> positions) | (value << (32 - positions));
+}
+
+uint32_t MathPrecalculation::FastFNV1aHash(const void* data, size_t size) const
+{
+    // FNV-1a hash constants for 32-bit
+    const uint32_t FNV_OFFSET_BASIS = 0x811C9DC5;
+    const uint32_t FNV_PRIME = 0x01000193;
+
+    // Initialize hash with offset basis
+    uint32_t hash = FNV_OFFSET_BASIS;
+    const uint8_t* bytes = static_cast<const uint8_t*>(data);
+
+    // Process each byte of data
+    for (size_t i = 0; i < size; ++i)
+    {
+        hash ^= bytes[i];           // XOR with byte
+        hash *= FNV_PRIME;          // Multiply by FNV prime
+    }
+
+    // Increment lookup counter for statistics
+    if (m_bIsInitialized.load())
+    {
+        m_lookupCount.fetch_add(1);
+    }
+
+    return hash;
+}
+
+uint64_t MathPrecalculation::FastFNV1aHash64(const void* data, size_t size) const
+{
+    // FNV-1a hash constants for 64-bit
+    const uint64_t FNV_OFFSET_BASIS = 0xCBF29CE484222325ULL;
+    const uint64_t FNV_PRIME = 0x100000001B3ULL;
+
+    // Initialize hash with offset basis
+    uint64_t hash = FNV_OFFSET_BASIS;
+    const uint8_t* bytes = static_cast<const uint8_t*>(data);
+
+    // Process each byte of data
+    for (size_t i = 0; i < size; ++i)
+    {
+        hash ^= bytes[i];           // XOR with byte
+        hash *= FNV_PRIME;          // Multiply by FNV prime
+    }
+
+    // Increment lookup counter for statistics
+    if (m_bIsInitialized.load())
+    {
+        m_lookupCount.fetch_add(1);
+    }
+
+    return hash;
+}
+
+uint32_t MathPrecalculation::FastModPow(uint32_t base, uint32_t exponent, uint32_t modulus) const
+{
+    // Handle edge cases
+    if (modulus == 1) return 0;
+    if (exponent == 0) return 1;
+
+    uint32_t result = 1;
+    base = base % modulus;
+
+    // Fast modular exponentiation using binary exponentiation
+    while (exponent > 0)
+    {
+        // If exponent is odd, multiply base with result
+        if (exponent & 1)
+        {
+            result = (static_cast<uint64_t>(result) * base) % modulus;
+        }
+
+        // Square the base and halve the exponent
+        exponent >>= 1;
+        base = (static_cast<uint64_t>(base) * base) % modulus;
+    }
+
+    // Increment lookup counter for statistics
+    if (m_bIsInitialized.load())
+    {
+        m_lookupCount.fetch_add(1);
+    }
+
+    return result;
+}
+
+void MathPrecalculation::FastByteSwap(uint8_t* data, size_t size) const
+{
+    // Validate input parameters
+    if (data == nullptr || size == 0)
+    {
+        return;
+    }
+
+    // Swap bytes from both ends moving towards center
+    uint8_t* left = data;
+    uint8_t* right = data + size - 1;
+
+    while (left < right)
+    {
+        // Swap bytes using XOR to avoid temporary variable
+        *left ^= *right;
+        *right ^= *left;
+        *left ^= *right;
+
+        left++;
+        right--;
+    }
+
+    // Increment lookup counter for statistics
+    if (m_bIsInitialized.load())
+    {
+        m_lookupCount.fetch_add(1);
+    }
+}
+
+uint32_t MathPrecalculation::FastCountSetBits(uint32_t value) const
+{
+    // Brian Kernighan's algorithm for counting set bits
+    uint32_t count = 0;
+
+    while (value)
+    {
+        value &= (value - 1); // Clear the lowest set bit
+        count++;
+    }
+
+    // Increment lookup counter for statistics
+    if (m_bIsInitialized.load())
+    {
+        m_lookupCount.fetch_add(1);
+    }
+
+    return count;
+}
+
+uint32_t MathPrecalculation::FastReverseBits(uint32_t value) const
+{
+    uint32_t result = 0;
+
+    // Reverse bits using divide and conquer approach
+    result = ((value & 0xAAAAAAAA) >> 1) | ((value & 0x55555555) << 1);
+    result = ((result & 0xCCCCCCCC) >> 2) | ((result & 0x33333333) << 2);
+    result = ((result & 0xF0F0F0F0) >> 4) | ((result & 0x0F0F0F0F) << 4);
+    result = ((result & 0xFF00FF00) >> 8) | ((result & 0x00FF00FF) << 8);
+    result = (result >> 16) | (result << 16);
+
+    // Increment lookup counter for statistics
+    if (m_bIsInitialized.load())
+    {
+        m_lookupCount.fetch_add(1);
+    }
+
+    return result;
+}
+
+//==============================================================================
+// Additional Bit Manipulation Methods for Huffman Compression
+//==============================================================================
+uint8_t MathPrecalculation::FastCountLeadingZeros(uint32_t value) const
+{
+    // Count leading zeros using binary search approach
+    if (value == 0) return 32;
+
+    uint8_t count = 0;
+
+    // Use binary search to find first set bit
+    if (value <= 0x0000FFFF) { count += 16; value <<= 16; }
+    if (value <= 0x00FFFFFF) { count += 8;  value <<= 8; }
+    if (value <= 0x0FFFFFFF) { count += 4;  value <<= 4; }
+    if (value <= 0x3FFFFFFF) { count += 2;  value <<= 2; }
+    if (value <= 0x7FFFFFFF) { count += 1; }
+
+    // Increment lookup counter for statistics
+    if (m_bIsInitialized.load())
+    {
+        m_lookupCount.fetch_add(1);
+    }
+
+    return count;
+}
+
+uint8_t MathPrecalculation::FastCountTrailingZeros(uint32_t value) const
+{
+    // Count trailing zeros using bit manipulation
+    if (value == 0) return 32;
+
+    uint8_t count = 0;
+
+    // Use De Bruijn sequence for fast trailing zero count
+    static const uint8_t deBruijnTable[32] = {
+        0, 1, 28, 2, 29, 14, 24, 3, 30, 22, 20, 15, 25, 17, 4, 8,
+        31, 27, 13, 23, 21, 19, 16, 7, 26, 12, 18, 6, 11, 5, 10, 9
+    };
+
+    // Isolate the rightmost set bit and map it using De Bruijn sequence
+    uint32_t isolated = value & (~value + 1);
+    uint32_t index = (isolated * 0x077CB531U) >> 27;
+    count = deBruijnTable[index];
+
+    // Increment lookup counter for statistics
+    if (m_bIsInitialized.load())
+    {
+        m_lookupCount.fetch_add(1);
+    }
+
+    return count;
+}
+
+bool MathPrecalculation::FastIsPowerOfTwo(uint32_t value) const
+{
+    // A number is power of two if it has exactly one bit set
+    bool result = (value != 0) && ((value & (value - 1)) == 0);
+
+    // Increment lookup counter for statistics
+    if (m_bIsInitialized.load())
+    {
+        m_lookupCount.fetch_add(1);
+    }
+
+    return result;
+}
+
+uint32_t MathPrecalculation::FastNextPowerOfTwo(uint32_t value) const
+{
+    // Handle edge cases
+    if (value == 0) return 1;
+    if (FastIsPowerOfTwo(value)) return value;
+
+    // Set all bits after the highest set bit
+    value--;
+    value |= value >> 1;
+    value |= value >> 2;
+    value |= value >> 4;
+    value |= value >> 8;
+    value |= value >> 16;
+    value++;
+
+    // Increment lookup counter for statistics
+    if (m_bIsInitialized.load())
+    {
+        m_lookupCount.fetch_add(1);
+    }
+
+    return value;
+}

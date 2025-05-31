@@ -1,0 +1,945 @@
+//-------------------------------------------------------------------------------------------------
+// PUNPackExample.cpp - Comprehensive Usage Example for PUNPack Compression Class
+//
+// This example demonstrates all features of the PUNPack class including:
+// - String and Wide String compression/decompression
+// - Structure and Class serialization
+// - Memory buffer compression
+// - Checksum calculation and verification
+// - Performance statistics and optimization
+// - Error handling and validation
+//-------------------------------------------------------------------------------------------------
+
+#include "Includes.h"
+#include "PUNPack.h"
+#include "Debug.h"
+#include <iostream>
+#include <chrono>
+
+#include <random>       // For std::mt19937 and distributions
+#include <cstring>      // For strcmp, strcpy_s
+#include <cmath>        // For abs() function
+
+// External references
+extern Debug debug;
+
+//==============================================================================
+// Example Structure for Testing Structure Packing
+//==============================================================================
+struct GamePlayerData {
+    char playerName[32];                                                // Player name string
+    uint32_t playerId;                                                  // Unique player identifier
+    float positionX, positionY, positionZ;                              // 3D position coordinates
+    uint16_t health;                                                    // Current health points
+    uint16_t maxHealth;                                                 // Maximum health points
+    uint8_t level;                                                      // Player level
+    uint8_t experience;                                                 // Experience points
+    bool isAlive;                                                       // Alive status flag
+    bool hasWeapon;                                                     // Weapon equipped flag
+    uint64_t sessionTime;                                               // Session time in milliseconds
+    
+    // Constructor for easy initialization
+    GamePlayerData() : playerId(0), positionX(0.0f), positionY(0.0f), positionZ(0.0f),
+                      health(100), maxHealth(100), level(1), experience(0),
+                      isAlive(true), hasWeapon(false), sessionTime(0) {
+        memset(playerName, 0, sizeof(playerName));
+        strcpy_s(playerName, sizeof(playerName), "DefaultPlayer");
+    }
+    
+    // Constructor with parameters
+    GamePlayerData(const char* name, uint32_t id, float x, float y, float z) :
+        playerId(id), positionX(x), positionY(y), positionZ(z),
+        health(100), maxHealth(100), level(1), experience(0),
+        isAlive(true), hasWeapon(false), sessionTime(0) {
+        memset(playerName, 0, sizeof(playerName));
+        strcpy_s(playerName, sizeof(playerName), name);
+    }
+};
+
+//==============================================================================
+// Comprehensive PUNPack Usage Example Class
+//==============================================================================
+class PUNPackExampleUsage {
+private:
+    PUNPack m_compressor;                                               // PUNPack instance for compression operations
+    bool m_isInitialized;                                               // Initialization status flag
+
+public:
+    // Constructor
+    PUNPackExampleUsage() : m_isInitialized(false) {
+        #if defined(_DEBUG_PUNPACK_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Constructor called");
+        #endif
+    }
+
+    // Destructor
+    ~PUNPackExampleUsage() {
+        if (m_isInitialized) {
+            Cleanup();
+        }
+        #if defined(_DEBUG_PUNPACK_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Destructor called");
+        #endif
+    }
+
+    // Initialize the example system
+    bool Initialize() {
+        #if defined(_DEBUG_PUNPACK_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Initializing PUNPack example system");
+        #endif
+
+        // Initialize the PUNPack compression system
+        if (!m_compressor.Initialize()) {
+            #if defined(_DEBUG_PUNPACK_)
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPackExample] Failed to initialize PUNPack compressor");
+            #endif
+            return false;
+        }
+
+        m_isInitialized = true;
+
+        #if defined(_DEBUG_PUNPACK_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Initialization completed successfully");
+        #endif
+
+        return true;
+    }
+
+    // Cleanup the example system
+    void Cleanup() {
+        if (m_isInitialized) {
+            #if defined(_DEBUG_PUNPACK_)
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Cleaning up PUNPack example system");
+            #endif
+
+            m_compressor.Cleanup();
+            m_isInitialized = false;
+        }
+    }
+
+    //==========================================================================
+    // Example 1: String Compression and Decompression
+    //==========================================================================
+    void ExampleStringCompression() {
+        #if defined(_DEBUG_PUNPACK_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] === STRING COMPRESSION EXAMPLE ===");
+        #endif
+
+        // Test data: various types of strings for compression testing
+        std::vector<std::string> testStrings = {
+            "Hello, World! This is a test string for compression.",
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", // Repetitive data (good for RLE)
+            "The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs.", // Mixed text
+            "12345678901234567890123456789012345678901234567890", // Numeric pattern
+            "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
+        };
+
+        // Test different compression algorithms
+        std::vector<CompressionType> compressionTypes = {
+            CompressionType::RLE,
+            CompressionType::LZ77,
+            CompressionType::HUFFMAN,
+            CompressionType::HYBRID
+        };
+
+        for (size_t i = 0; i < testStrings.size(); ++i) {
+            const std::string& testString = testStrings[i];
+
+            #if defined(_DEBUG_PUNPACK_)
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Testing string %zu: length=%zu", 
+                    i + 1, testString.length());
+            #endif
+
+            for (CompressionType compType : compressionTypes) {
+                // Measure compression performance
+                auto startTime = std::chrono::high_resolution_clock::now();
+
+                // Compress the string with encryption enabled
+                PackResult packResult = m_compressor.PackString(testString, compType, true);
+
+                auto endTime = std::chrono::high_resolution_clock::now();
+                float compressionTime = std::chrono::duration<float, std::milli>(endTime - startTime).count();
+
+                if (packResult.IsValid()) {
+                    #if defined(_DEBUG_PUNPACK_)
+                        debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Compression successful - Type: %d, Ratio: %.2f, Time: %.2fms", 
+                            static_cast<int>(compType), packResult.compressionRatio, compressionTime);
+                    #endif
+
+                    // Verify checksum before decompression
+                    uint32_t verifyChecksum = m_compressor.CalculateChecksum(testString);
+                    if (verifyChecksum == packResult.checksum) {
+                        #if defined(_DEBUG_PUNPACK_)
+                            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[PUNPackExample] Checksum verification passed");
+                        #endif
+
+                        // Decompress the string
+                        startTime = std::chrono::high_resolution_clock::now();
+                        UnpackResult unpackResult = m_compressor.UnpackString(packResult);
+                        endTime = std::chrono::high_resolution_clock::now();
+                        float decompressionTime = std::chrono::duration<float, std::milli>(endTime - startTime).count();
+
+                        if (unpackResult.success) {
+                            // Convert decompressed data back to string
+                            std::string decompressedString(unpackResult.data.begin(), unpackResult.data.end());
+
+                            // Verify the decompressed data matches original
+                            if (decompressedString == testString) {
+                                #if defined(_DEBUG_PUNPACK_)
+                                    debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Decompression successful - Time: %.2fms, Data integrity verified", 
+                                        decompressionTime);
+                                #endif
+                            } else {
+                                #if defined(_DEBUG_PUNPACK_)
+                                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPackExample] Data integrity check FAILED - decompressed data differs from original");
+                                #endif
+                            }
+                        } else {
+                            #if defined(_DEBUG_PUNPACK_)
+                                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPackExample] Decompression failed: " + 
+                                    std::wstring(unpackResult.errorMessage.begin(), unpackResult.errorMessage.end()));
+                            #endif
+                        }
+                    } else {
+                        #if defined(_DEBUG_PUNPACK_)
+                            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[PUNPackExample] Checksum verification FAILED - Expected: 0x%08X, Got: 0x%08X", 
+                                packResult.checksum, verifyChecksum);
+                        #endif
+                    }
+                } else {
+                    #if defined(_DEBUG_PUNPACK_)
+                        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPackExample] String compression failed");
+                    #endif
+                }
+            }
+        }
+    }
+
+    //==========================================================================
+    // Example 2: Wide String Compression and Decompression
+    //==========================================================================
+    void ExampleWideStringCompression() {
+        #if defined(_DEBUG_PUNPACK_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] === WIDE STRING COMPRESSION EXAMPLE ===");
+        #endif
+
+        // Test wide strings with Unicode characters
+        std::vector<std::wstring> testWideStrings = {
+            L"Hello, 世界! This is a Unicode test string with émojis 🚀🎮.",
+            L"Ññññññññññññññññññññññññññññññññññññññññññññññññññ", // Repetitive Unicode
+            L"Русский текст для тестирования сжатия данных with mixed languages.",
+            L"数字测试：１２３４５６７８９０１２３４５６７８９０",
+            L"Mixed: English 中文 Русский العربية 日本語 한국어"
+        };
+
+        for (size_t i = 0; i < testWideStrings.size(); ++i) {
+            const std::wstring& testWString = testWideStrings[i];
+
+            #if defined(_DEBUG_PUNPACK_)
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Testing wide string %zu: length=%zu", 
+                    i + 1, testWString.length());
+            #endif
+
+            // Compress with hybrid algorithm and encryption
+            auto startTime = std::chrono::high_resolution_clock::now();
+            PackResult packResult = m_compressor.PackString(testWString, CompressionType::HYBRID, true);
+            auto endTime = std::chrono::high_resolution_clock::now();
+            float compressionTime = std::chrono::duration<float, std::milli>(endTime - startTime).count();
+
+            if (packResult.IsValid()) {
+                #if defined(_DEBUG_PUNPACK_)
+                    debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Wide string compression successful - Ratio: %.2f, Time: %.2fms", 
+                        packResult.compressionRatio, compressionTime);
+                #endif
+
+                // Decompress the wide string
+                startTime = std::chrono::high_resolution_clock::now();
+                UnpackResult unpackResult = m_compressor.UnpackWString(packResult);
+                endTime = std::chrono::high_resolution_clock::now();
+                float decompressionTime = std::chrono::duration<float, std::milli>(endTime - startTime).count();
+
+                if (unpackResult.success) {
+                    // Convert decompressed data back to wide string
+                    const wchar_t* wideChars = reinterpret_cast<const wchar_t*>(unpackResult.data.data());
+                    size_t wideLength = unpackResult.data.size() / sizeof(wchar_t);
+                    std::wstring decompressedWString(wideChars, wideLength);
+
+                    // Verify data integrity
+                    if (decompressedWString == testWString) {
+                        #if defined(_DEBUG_PUNPACK_)
+                            debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Wide string decompression successful - Time: %.2fms", 
+                                decompressionTime);
+                        #endif
+                    } else {
+                        #if defined(_DEBUG_PUNPACK_)
+                            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPackExample] Wide string integrity check FAILED");
+                        #endif
+                    }
+                } else {
+                    #if defined(_DEBUG_PUNPACK_)
+                        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPackExample] Wide string decompression failed");
+                    #endif
+                }
+            } else {
+                #if defined(_DEBUG_PUNPACK_)
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPackExample] Wide string compression failed");
+                #endif
+            }
+        }
+    }
+
+    //==========================================================================
+    // Example 3: Structure Packing and Unpacking
+    //==========================================================================
+    void ExampleStructurePacking() {
+        #if defined(_DEBUG_PUNPACK_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] === STRUCTURE PACKING EXAMPLE ===");
+        #endif
+
+        // Create test player data structures
+        std::vector<GamePlayerData> testPlayers = {
+            GamePlayerData("Alice", 1001, 100.5f, 200.3f, 50.0f),
+            GamePlayerData("Bob", 1002, -50.2f, 150.7f, 25.8f),
+            GamePlayerData("Charlie", 1003, 0.0f, 0.0f, 100.0f),
+            GamePlayerData("Diana", 1004, 500.1f, -200.9f, 75.5f),
+            GamePlayerData("Eve", 1005, 250.0f, 300.0f, 0.0f)
+        };
+
+        // Modify some player data for variety
+        testPlayers[1].health = 75;
+        testPlayers[1].level = 5;
+        testPlayers[1].hasWeapon = true;
+        testPlayers[2].isAlive = false;
+        testPlayers[2].health = 0;
+        testPlayers[3].level = 10;
+        testPlayers[3].experience = 85;
+
+        for (size_t i = 0; i < testPlayers.size(); ++i) {
+            const GamePlayerData& player = testPlayers[i];
+
+            #if defined(_DEBUG_PUNPACK_)
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Packing player %zu: %s (ID: %u)", 
+                    i + 1, std::wstring(player.playerName, player.playerName + strlen(player.playerName)).c_str(), player.playerId);
+            #endif
+
+            // Pack the structure with LZ77 compression and encryption
+            auto startTime = std::chrono::high_resolution_clock::now();
+            PackResult packResult = m_compressor.PackStruct(player, CompressionType::LZ77, true);
+            auto endTime = std::chrono::high_resolution_clock::now();
+            float compressionTime = std::chrono::duration<float, std::milli>(endTime - startTime).count();
+
+            if (packResult.IsValid()) {
+                #if defined(_DEBUG_PUNPACK_)
+                    debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Structure packing successful - Size: %zu->%zu, Ratio: %.2f, Time: %.2fms", 
+                        packResult.originalSize, packResult.compressedSize, packResult.compressionRatio, compressionTime);
+                #endif
+
+                // Unpack the structure
+                GamePlayerData unpackedPlayer;
+                startTime = std::chrono::high_resolution_clock::now();
+                UnpackResult unpackResult = m_compressor.UnpackStruct(packResult, unpackedPlayer);
+                endTime = std::chrono::high_resolution_clock::now();
+                float decompressionTime = std::chrono::duration<float, std::milli>(endTime - startTime).count();
+
+                if (unpackResult.success) {
+                    // Verify data integrity by comparing key fields
+                    bool dataIntact = (strcmp(player.playerName, unpackedPlayer.playerName) == 0) &&
+                                     (player.playerId == unpackedPlayer.playerId) &&
+                                     (abs(player.positionX - unpackedPlayer.positionX) < 0.001f) &&
+                                     (abs(player.positionY - unpackedPlayer.positionY) < 0.001f) &&
+                                     (abs(player.positionZ - unpackedPlayer.positionZ) < 0.001f) &&
+                                     (player.health == unpackedPlayer.health) &&
+                                     (player.level == unpackedPlayer.level) &&
+                                     (player.isAlive == unpackedPlayer.isAlive);
+
+                    if (dataIntact) {
+                        #if defined(_DEBUG_PUNPACK_)
+                            debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Structure unpacking successful - Time: %.2fms, Data integrity verified", 
+                                decompressionTime);
+                        #endif
+                    } else {
+                        #if defined(_DEBUG_PUNPACK_)
+                            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPackExample] Structure data integrity check FAILED");
+                        #endif
+                    }
+                } else {
+                    #if defined(_DEBUG_PUNPACK_)
+                        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPackExample] Structure unpacking failed");
+                    #endif
+                }
+            } else {
+                #if defined(_DEBUG_PUNPACK_)
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPackExample] Structure packing failed");
+                #endif
+            }
+        }
+    }
+
+    //==========================================================================
+    // Example 4: Memory Buffer Compression
+    //==========================================================================
+    void ExampleBufferCompression() {
+        #if defined(_DEBUG_PUNPACK_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] === BUFFER COMPRESSION EXAMPLE ===");
+        #endif
+
+        // Create various test buffers with different characteristics
+        std::vector<std::vector<uint8_t>> testBuffers;
+
+        // Buffer 1: Random data (poor compression)
+        std::vector<uint8_t> randomBuffer(1024);
+        std::mt19937 rng(12345); // Fixed seed for reproducible results
+        std::uniform_int_distribution<int> dist(0, 255);
+        for (size_t i = 0; i < randomBuffer.size(); ++i) {
+            randomBuffer[i] = static_cast<uint8_t>(dist(rng));
+        }
+        testBuffers.push_back(randomBuffer);
+
+        // Buffer 2: Repetitive pattern (excellent for RLE)
+        std::vector<uint8_t> repetitiveBuffer(1024);
+        for (size_t i = 0; i < repetitiveBuffer.size(); ++i) {
+            repetitiveBuffer[i] = static_cast<uint8_t>(i % 8); // Repeating pattern 0-7
+        }
+        testBuffers.push_back(repetitiveBuffer);
+
+        // Buffer 3: Text-like data (good for Huffman)
+        std::string textData = "This is a sample text buffer that contains various characters and should compress well with Huffman encoding. ";
+        std::vector<uint8_t> textBuffer;
+        for (int i = 0; i < 10; ++i) { // Repeat to make it larger
+            textBuffer.insert(textBuffer.end(), textData.begin(), textData.end());
+        }
+        testBuffers.push_back(textBuffer);
+
+        // Buffer 4: Binary data with patterns (good for LZ77)
+        std::vector<uint8_t> binaryBuffer;
+        for (int i = 0; i < 256; ++i) {
+            for (int j = 0; j < 4; ++j) {
+                binaryBuffer.push_back(static_cast<uint8_t>(i));
+            }
+        }
+        testBuffers.push_back(binaryBuffer);
+
+        const std::vector<std::string> bufferNames = {
+            "Random Data", "Repetitive Pattern", "Text-like Data", "Binary Pattern"
+        };
+
+        for (size_t i = 0; i < testBuffers.size(); ++i) {
+            const std::vector<uint8_t>& buffer = testBuffers[i];
+
+            #if defined(_DEBUG_PUNPACK_)
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Testing %s buffer: size=%zu", 
+                    std::wstring(bufferNames[i].begin(), bufferNames[i].end()).c_str(), buffer.size());
+            #endif
+
+            // Test with optimal compression type detection
+            CompressionType optimalType = m_compressor.GetOptimalCompressionType(buffer.data(), buffer.size());
+
+            #if defined(_DEBUG_PUNPACK_)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[PUNPackExample] Optimal compression type detected: %d", 
+                    static_cast<int>(optimalType));
+            #endif
+
+            // Compress the buffer
+            auto startTime = std::chrono::high_resolution_clock::now();
+            PackResult packResult = m_compressor.PackBuffer(buffer, optimalType, true);
+            auto endTime = std::chrono::high_resolution_clock::now();
+            float compressionTime = std::chrono::duration<float, std::milli>(endTime - startTime).count();
+
+            if (packResult.IsValid()) {
+                #if defined(_DEBUG_PUNPACK_)
+                    debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Buffer compression successful - Size: %zu->%zu, Ratio: %.2f, Time: %.2fms", 
+                        packResult.originalSize, packResult.compressedSize, packResult.compressionRatio, compressionTime);
+                #endif
+
+                // Decompress the buffer
+                startTime = std::chrono::high_resolution_clock::now();
+                UnpackResult unpackResult = m_compressor.UnpackBuffer(packResult);
+                endTime = std::chrono::high_resolution_clock::now();
+                float decompressionTime = std::chrono::duration<float, std::milli>(endTime - startTime).count();
+
+                if (unpackResult.success) {
+                    // Verify data integrity
+                    bool dataIntact = (unpackResult.data.size() == buffer.size()) &&
+                                     (memcmp(unpackResult.data.data(), buffer.data(), buffer.size()) == 0);
+
+                    if (dataIntact) {
+                        #if defined(_DEBUG_PUNPACK_)
+                            debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Buffer decompression successful - Time: %.2fms, Data integrity verified", 
+                                decompressionTime);
+                        #endif
+                    } else {
+                        #if defined(_DEBUG_PUNPACK_)
+                            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPackExample] Buffer data integrity check FAILED");
+                        #endif
+                    }
+                } else {
+                    #if defined(_DEBUG_PUNPACK_)
+                        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPackExample] Buffer decompression failed");
+                    #endif
+                }
+            } else {
+                #if defined(_DEBUG_PUNPACK_)
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPackExample] Buffer compression failed");
+                #endif
+            }
+        }
+    }
+
+    //==========================================================================
+    // Example 5: Standalone Checksum Calculation
+    //==========================================================================
+    void ExampleChecksumCalculation() {
+        #if defined(_DEBUG_PUNPACK_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] === CHECKSUM CALCULATION EXAMPLE ===");
+        #endif
+
+        // Test various data types for checksum calculation
+        std::string testString = "Test data for checksum calculation.";
+        std::wstring testWString = L"Wide string test data for checksum 测试数据.";
+        GamePlayerData testPlayer("ChecksumTest", 9999, 1.0f, 2.0f, 3.0f);
+        std::vector<uint8_t> testBuffer = {0x01, 0x02, 0x03, 0x04, 0x05, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
+
+        // Calculate checksums for different data types
+        uint32_t stringChecksum = m_compressor.CalculateChecksum(testString);
+        uint32_t wstringChecksum = m_compressor.CalculateChecksum(testWString);
+        uint32_t structChecksum = m_compressor.CalculateChecksum(&testPlayer, sizeof(testPlayer));
+        uint32_t bufferChecksum = m_compressor.CalculateChecksum(testBuffer);
+
+        #if defined(_DEBUG_PUNPACK_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] String checksum: 0x%08X", stringChecksum);
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Wide string checksum: 0x%08X", wstringChecksum);
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Structure checksum: 0x%08X", structChecksum);
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Buffer checksum: 0x%08X", bufferChecksum);
+        #endif
+
+        // Verify checksum consistency
+        uint32_t verifyStringChecksum = m_compressor.CalculateChecksum(testString);
+        if (stringChecksum == verifyStringChecksum) {
+            #if defined(_DEBUG_PUNPACK_)
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Checksum consistency verified");
+            #endif
+        } else {
+            #if defined(_DEBUG_PUNPACK_)
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPackExample] Checksum consistency check FAILED");
+            #endif
+        }
+
+        // Test checksum verification
+        bool isValid = m_compressor.VerifyChecksum(testString.c_str(), testString.length(), stringChecksum);
+        #if defined(_DEBUG_PUNPACK_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Checksum verification result: %s", 
+                isValid ? L"PASSED" : L"FAILED");
+        #endif
+
+        // Test with modified data (should fail verification)
+        std::string modifiedString = testString + "X"; // Add one character
+        bool shouldFail = m_compressor.VerifyChecksum(modifiedString.c_str(), modifiedString.length(), stringChecksum);
+        #if defined(_DEBUG_PUNPACK_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Modified data verification (should fail): %s", 
+                shouldFail ? L"UNEXPECTED PASS" : L"CORRECTLY FAILED");
+        #endif
+    }
+
+    //==========================================================================
+    // Example 6: Performance Statistics and Analysis
+    //==========================================================================
+    void ExamplePerformanceAnalysis() {
+        #if defined(_DEBUG_PUNPACK_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] === PERFORMANCE ANALYSIS EXAMPLE ===");
+        #endif
+
+        // Reset statistics for clean measurement
+        m_compressor.ResetStatistics();
+
+        // Perform a series of operations for statistical analysis
+        std::string testData = "Performance test data that will be compressed multiple times to gather statistics. ";
+        
+        // Repeat the test data to make it larger
+        for (int i = 0; i < 10; ++i) {
+            testData += testData;
+        }
+
+        #if defined(_DEBUG_PUNPACK_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Performance test data size: %zu bytes", testData.length());
+        #endif
+
+        // Test all compression types multiple times
+        const int testIterations = 5;
+        std::vector<CompressionType> testTypes = {
+            CompressionType::RLE, CompressionType::LZ77, 
+            CompressionType::HUFFMAN, CompressionType::HYBRID
+        };
+
+        for (CompressionType compType : testTypes) {
+            #if defined(_DEBUG_PUNPACK_)
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Testing compression type %d with %d iterations", 
+                    static_cast<int>(compType), testIterations);
+            #endif
+
+            for (int i = 0; i < testIterations; ++i) {
+                // Compress
+                PackResult packResult = m_compressor.PackString(testData, compType, true);
+                
+                if (packResult.IsValid()) {
+                    // Decompress
+                    UnpackResult unpackResult = m_compressor.UnpackString(packResult);
+                    
+                    if (!unpackResult.success) {
+                        #if defined(_DEBUG_PUNPACK_)
+                            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[PUNPackExample] Decompression failed in performance test");
+                        #endif
+                    }
+                } else {
+                    #if defined(_DEBUG_PUNPACK_)
+                        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[PUNPackExample] Compression failed in performance test");
+                    #endif
+                }
+            }
+        }
+
+        // Get and display performance statistics
+        PUNPack::CompressionStats stats = m_compressor.GetStatistics();
+
+        #if defined(_DEBUG_PUNPACK_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] === PERFORMANCE STATISTICS ===");
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Total operations: %zu", stats.totalOperations);
+debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Total bytes processed: %zu", stats.totalBytesProcessed);
+           debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Total bytes compressed: %zu", stats.totalBytesCompressed);
+           debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Average compression ratio: %.2f", stats.averageCompressionRatio);
+           debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Average compression time: %.2f ms", stats.averageCompressionTime);
+           debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Average decompression time: %.2f ms", stats.averageDecompressionTime);
+       #endif
+
+       // Calculate additional performance metrics
+       if (stats.totalOperations > 0) {
+           float totalProcessingTime = stats.averageCompressionTime + stats.averageDecompressionTime;
+           float throughputMBps = (static_cast<float>(stats.totalBytesProcessed) / (1024.0f * 1024.0f)) / (totalProcessingTime / 1000.0f);
+
+           #if defined(_DEBUG_PUNPACK_)
+               debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Estimated throughput: %.2f MB/s", throughputMBps);
+               debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Space savings: %.1f%%", 
+                   (1.0f - (static_cast<float>(stats.totalBytesCompressed) / static_cast<float>(stats.totalBytesProcessed))) * 100.0f);
+           #endif
+       }
+   }
+
+   //==========================================================================
+   // Example 7: Error Handling and Edge Cases
+   //==========================================================================
+   void ExampleErrorHandling() {
+       #if defined(_DEBUG_PUNPACK_)
+           debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] === ERROR HANDLING EXAMPLE ===");
+       #endif
+
+       // Test 1: Empty data handling
+       #if defined(_DEBUG_PUNPACK_)
+           debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Testing empty data handling...");
+       #endif
+
+       std::string emptyString = "";
+       PackResult emptyPackResult = m_compressor.PackString(emptyString, CompressionType::HYBRID, false);
+       if (!emptyPackResult.IsValid()) {
+           #if defined(_DEBUG_PUNPACK_)
+               debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Empty string correctly rejected");
+           #endif
+       }
+
+       // Test 2: Invalid PackResult handling
+       #if defined(_DEBUG_PUNPACK_)
+           debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Testing invalid PackResult handling...");
+       #endif
+
+       PackResult invalidPackResult; // Default constructed (invalid)
+       UnpackResult invalidUnpackResult = m_compressor.UnpackString(invalidPackResult);
+       if (!invalidUnpackResult.success) {
+           #if defined(_DEBUG_PUNPACK_)
+               debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Invalid PackResult correctly rejected");
+           #endif
+       }
+
+       // Test 3: Corrupted data handling
+       #if defined(_DEBUG_PUNPACK_)
+           debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Testing corrupted data handling...");
+       #endif
+
+       std::string testString = "Test data for corruption simulation.";
+       PackResult validPackResult = m_compressor.PackString(testString, CompressionType::LZ77, true);
+       
+       if (validPackResult.IsValid()) {
+           // Corrupt the compressed data
+           PackResult corruptedPackResult = validPackResult;
+           if (!corruptedPackResult.compressedData.empty()) {
+               corruptedPackResult.compressedData[corruptedPackResult.compressedData.size() / 2] ^= 0xFF; // Flip bits in middle
+               
+               UnpackResult corruptedUnpackResult = m_compressor.UnpackString(corruptedPackResult);
+               if (!corruptedUnpackResult.success) {
+                   #if defined(_DEBUG_PUNPACK_)
+                       debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Corrupted data correctly detected and rejected");
+                   #endif
+               }
+           }
+       }
+
+       // Test 4: Large data handling
+       #if defined(_DEBUG_PUNPACK_)
+           debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Testing large data handling...");
+       #endif
+
+       std::vector<uint8_t> largeBuffer(1024 * 1024); // 1MB buffer
+       std::fill(largeBuffer.begin(), largeBuffer.end(), 0xAA); // Fill with pattern
+
+       auto startTime = std::chrono::high_resolution_clock::now();
+       PackResult largePackResult = m_compressor.PackBuffer(largeBuffer, CompressionType::RLE, false);
+       auto endTime = std::chrono::high_resolution_clock::now();
+       float largeCompressionTime = std::chrono::duration<float, std::milli>(endTime - startTime).count();
+
+       if (largePackResult.IsValid()) {
+           #if defined(_DEBUG_PUNPACK_)
+               debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Large buffer compression successful - Time: %.2fms, Ratio: %.2f", 
+                   largeCompressionTime, largePackResult.compressionRatio);
+           #endif
+
+           startTime = std::chrono::high_resolution_clock::now();
+           UnpackResult largeUnpackResult = m_compressor.UnpackBuffer(largePackResult);
+           endTime = std::chrono::high_resolution_clock::now();
+           float largeDecompressionTime = std::chrono::duration<float, std::milli>(endTime - startTime).count();
+
+           if (largeUnpackResult.success) {
+               #if defined(_DEBUG_PUNPACK_)
+                   debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Large buffer decompression successful - Time: %.2fms", 
+                       largeDecompressionTime);
+               #endif
+           }
+       }
+
+       // Test 5: Null pointer handling
+       #if defined(_DEBUG_PUNPACK_)
+           debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Testing null pointer handling...");
+       #endif
+
+       uint32_t nullChecksum = m_compressor.CalculateChecksum(nullptr, 100);
+       if (nullChecksum == 0) {
+           #if defined(_DEBUG_PUNPACK_)
+               debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Null pointer correctly handled");
+           #endif
+       }
+   }
+
+   //==========================================================================
+   // Run All Examples
+   //==========================================================================
+   void RunAllExamples() {
+       if (!m_isInitialized) {
+           #if defined(_DEBUG_PUNPACK_)
+               debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPackExample] Cannot run examples - system not initialized");
+           #endif
+           return;
+       }
+
+       #if defined(_DEBUG_PUNPACK_)
+           debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] ===============================================");
+           debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] STARTING COMPREHENSIVE PUNPACK EXAMPLES");
+           debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] ===============================================");
+       #endif
+
+       auto totalStartTime = std::chrono::high_resolution_clock::now();
+
+       try {
+           // Run all example functions in sequence
+           ExampleStringCompression();
+           ExampleWideStringCompression();
+           ExampleStructurePacking();
+           ExampleBufferCompression();
+           ExampleChecksumCalculation();
+           ExamplePerformanceAnalysis();
+           ExampleErrorHandling();
+
+       } catch (const std::exception& e) {
+           #if defined(_DEBUG_PUNPACK_)
+               std::string errorMsg = e.what();
+               std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+               debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPackExample] Exception during examples: " + wErrorMsg);
+           #endif
+       }
+
+       auto totalEndTime = std::chrono::high_resolution_clock::now();
+       float totalTime = std::chrono::duration<float, std::milli>(totalEndTime - totalStartTime).count();
+
+       #if defined(_DEBUG_PUNPACK_)
+           debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] ===============================================");
+           debug.logDebugMessage(LogLevel::LOG_INFO, L"[PUNPackExample] ALL EXAMPLES COMPLETED - Total time: %.2f ms", totalTime);
+           debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] ===============================================");
+       #endif
+   }
+};
+
+//==============================================================================
+// Main Example Function for Integration into Your Application
+//==============================================================================
+void RunPUNPackExamples() {
+   #if defined(_DEBUG_PUNPACK_)
+       debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] Starting PUNPack comprehensive examples");
+   #endif
+
+   // Create and initialize the example system
+   PUNPackExampleUsage exampleSystem;
+   
+   if (exampleSystem.Initialize()) {
+       // Run all examples
+       exampleSystem.RunAllExamples();
+       
+       // Cleanup will be handled automatically by destructor
+       #if defined(_DEBUG_PUNPACK_)
+           debug.logLevelMessage(LogLevel::LOG_INFO, L"[PUNPackExample] PUNPack examples completed successfully");
+       #endif
+   } else {
+       #if defined(_DEBUG_PUNPACK_)
+           debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPackExample] Failed to initialize example system");
+       #endif
+   }
+}
+
+//==============================================================================
+// Integration Example: Using PUNPack in Your Game/Application
+//==============================================================================
+class GameDataManager {
+private:
+   PUNPack m_compressor;                                               // PUNPack instance for game data compression
+   std::vector<PackResult> m_playerDataCache;                         // Cached compressed player data
+   
+public:
+   bool Initialize() {
+       return m_compressor.Initialize();
+   }
+   
+   void Cleanup() {
+       m_compressor.Cleanup();
+   }
+   
+   // Save player data to compressed format
+   bool SavePlayerData(const GamePlayerData& playerData, const std::string& filename) {
+       #if defined(_DEBUG_PUNPACK_)
+           debug.logDebugMessage(LogLevel::LOG_INFO, L"[GameDataManager] Saving player data: %s", 
+               std::wstring(playerData.playerName, playerData.playerName + strlen(playerData.playerName)).c_str());
+       #endif
+       
+       // Compress player data with optimal settings for game data
+       PackResult packResult = m_compressor.PackStruct(playerData, CompressionType::LZ77, true);
+       
+       if (packResult.IsValid()) {
+           // In a real implementation, you would save packResult to file
+           // For this example, we'll cache it in memory
+           m_playerDataCache.push_back(packResult);
+           
+           #if defined(_DEBUG_PUNPACK_)
+               debug.logDebugMessage(LogLevel::LOG_INFO, L"[GameDataManager] Player data compressed - Ratio: %.2f", 
+                   packResult.compressionRatio);
+           #endif
+           return true;
+       }
+       
+       return false;
+   }
+   
+   // Load player data from compressed format
+   bool LoadPlayerData(GamePlayerData& playerData, size_t cacheIndex) {
+       if (cacheIndex >= m_playerDataCache.size()) {
+           return false;
+       }
+       
+       const PackResult& packResult = m_playerDataCache[cacheIndex];
+       UnpackResult unpackResult = m_compressor.UnpackStruct(packResult, playerData);
+       
+       if (unpackResult.success) {
+           #if defined(_DEBUG_PUNPACK_)
+               debug.logDebugMessage(LogLevel::LOG_INFO, L"[GameDataManager] Player data loaded: %s", 
+                   std::wstring(playerData.playerName, playerData.playerName + strlen(playerData.playerName)).c_str());
+           #endif
+           return true;
+       }
+       
+       return false;
+   }
+   
+   // Verify integrity of cached data
+   bool VerifyDataIntegrity() {
+       for (size_t i = 0; i < m_playerDataCache.size(); ++i) {
+           const PackResult& packResult = m_playerDataCache[i];
+           
+           // Verify compressed data checksum
+           uint32_t verifyChecksum = m_compressor.CalculateChecksum(packResult.compressedData);
+           if (verifyChecksum != packResult.compressedChecksum) {
+               #if defined(_DEBUG_PUNPACK_)
+                   debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GameDataManager] Data integrity check failed for entry %zu", i);
+               #endif
+               return false;
+           }
+       }
+       
+       #if defined(_DEBUG_PUNPACK_)
+           debug.logDebugMessage(LogLevel::LOG_INFO, L"[GameDataManager] Data integrity verified for %zu entries", 
+               m_playerDataCache.size());
+       #endif
+       return true;
+   }
+};
+
+//==============================================================================
+// Example Usage in Your Main Application
+//==============================================================================
+void IntegrateWithYourApplication() {
+   #if defined(_DEBUG_PUNPACK_)
+       debug.logLevelMessage(LogLevel::LOG_INFO, L"[Integration] Demonstrating PUNPack integration with game application");
+   #endif
+   
+   // Initialize game data manager
+   GameDataManager gameDataMgr;
+   if (!gameDataMgr.Initialize()) {
+       #if defined(_DEBUG_PUNPACK_)
+           debug.logLevelMessage(LogLevel::LOG_ERROR, L"[Integration] Failed to initialize game data manager");
+       #endif
+       return;
+   }
+   
+   // Create some sample player data
+   std::vector<GamePlayerData> players = {
+       GamePlayerData("Hero1", 1001, 100.0f, 200.0f, 50.0f),
+       GamePlayerData("Hero2", 1002, -50.0f, 150.0f, 75.0f),
+       GamePlayerData("Hero3", 1003, 0.0f, 0.0f, 100.0f)
+   };
+   
+   // Save all player data
+   for (const auto& player : players) {
+       if (!gameDataMgr.SavePlayerData(player, "player_data.dat")) {
+           #if defined(_DEBUG_PUNPACK_)
+               debug.logLevelMessage(LogLevel::LOG_ERROR, L"[Integration] Failed to save player data");
+           #endif
+       }
+   }
+   
+   // Verify data integrity
+   if (gameDataMgr.VerifyDataIntegrity()) {
+       #if defined(_DEBUG_PUNPACK_)
+           debug.logLevelMessage(LogLevel::LOG_INFO, L"[Integration] All player data integrity verified");
+       #endif
+   }
+   
+   // Load and verify player data
+   for (size_t i = 0; i < players.size(); ++i) {
+       GamePlayerData loadedPlayer;
+       if (gameDataMgr.LoadPlayerData(loadedPlayer, i)) {
+           #if defined(_DEBUG_PUNPACK_)
+               debug.logDebugMessage(LogLevel::LOG_INFO, L"[Integration] Successfully loaded player: %s (ID: %u)", 
+                   std::wstring(loadedPlayer.playerName, loadedPlayer.playerName + strlen(loadedPlayer.playerName)).c_str(),
+                   loadedPlayer.playerId);
+           #endif
+       }
+   }
+   
+   // Cleanup
+   gameDataMgr.Cleanup();
+   
+   #if defined(_DEBUG_PUNPACK_)
+       debug.logLevelMessage(LogLevel::LOG_INFO, L"[Integration] PUNPack integration example completed");
+   #endif
+}

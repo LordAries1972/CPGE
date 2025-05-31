@@ -204,6 +204,7 @@
     <ClCompile Include="MoviePlayer.cpp" />
     <ClCompile Include="NetworkManager.cpp" />
     <ClCompile Include="OpenGLRenderer.cpp" />
+    <ClCompile Include="PUNPack.cpp" />
     <ClCompile Include="RendererFactory.cpp" />
     <ClCompile Include="SceneManager.cpp" />
     <ClCompile Include="SoundManager.cpp" />
@@ -233,6 +234,7 @@
     <ClInclude Include="MoviePlayer.h" />
     <ClInclude Include="NetworkManager.h" />
     <ClInclude Include="OpenGLRenderer.h" />
+    <ClInclude Include="PUNPack.h" />
     <ClInclude Include="Renderer.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="SceneManager.h" />

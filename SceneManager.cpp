@@ -91,6 +91,7 @@ bool SceneManager::Initialize(std::shared_ptr<Renderer> renderer)
         debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Initialize() called.");
     #endif
     
+    sceneFrameCounter = 0;
     return true;
 }
 
