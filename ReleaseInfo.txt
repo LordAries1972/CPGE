@@ -18,7 +18,7 @@ As more is to be implemented, more case tools will be introduced which help game
 setup their required gaming environment and to use with the Selected Rendering Engine.
 ------------------------------------------------------------------------------------------------------------------------------------- 
 ====================
-DEVELOPMENT HISTORY: -
+DEVELOPMENT HISTORY:
 ====================
 ------------------------------------------------------------------------------------------------------------------------------------- 
 11/09/2023 - Original Project Started (Many writes, rewrites as building core Interface Modules was the focus here)
@@ -183,7 +183,8 @@ DEVELOPMENT HISTORY: -
              and the ability to run a callback call to execute the proper functions to clean and switch renderers.
 
 30/05/2025 - Verfied DirectX11 Renderer with new changes is compiling correctly.
-           - Implemented the TTSManager (Text To Speech) with configuration and playback options.  See TTSManager.h/.cpp for more info.
+           - Implemented the TTSManager (Text To Speech) with configuration and playback options.  See TTSManager.h/.cpp and the
+             Docs/TTSManager-Example-Usage.txt for more info.
 
 31/05/2025 - Threaded TCP/UDP Network Manager has now been implemented for the Windows Platform.  See NetworkManager.h/.cpp for more info.
              This has not been fully tested as of yet, as there is more work to be done such as a server app, which I will build later
@@ -194,6 +195,10 @@ DEVELOPMENT HISTORY: -
              Also supports a stand-alone and packing internal of a checksum calculator as well.  See PUNPack.h/.cpp and the
              Docs/PUNPack-Example-Usage.txt file for more info.
 
+           - Implemented the GamePlayer, GameAccount & GameStatus Class which is responsible for all Game Player/Account and Status details.
+             See GamePlayer.h/.cpp and Docs/GamePlayer-Example-Usage.txt for more details.
+
+------------------------------------------------------------------------------------------------------------------------------------- 
 [ FUTURE ]   OK EVERYONE, we are approaching a VERY CLOSE TO GAMING PRODUCTION READINESS FOR DIRECTX 11 SYSTEMS! (WINDOWS 10 SP1 & above 64BIT)
              and all this work that has been going for the last, next to 2 years of my time, comes for free under the MIT LICENSE.
 
@@ -229,8 +234,9 @@ DEVELOPMENT HISTORY: -
              ===========
              OTHER NOTES
              ===========
-             Always fully test the GITHUB (Base) FIRST on the code on a FULL PULL Request, before starting your project!  If there are any 
-             compile errors (Which you should not be getting).  Please raise a ticket with an email to cpgeengine@gmail.com 
+             Always fully test the GITHUB (Base) FIRST on the code on a FULL Clone or PULL Request, before starting your project!  
+             If there are any compile errors (Which you should not be getting).  Please raise a ticket with an email to 
+             cpgeengine@gmail.com 
              
              Your Email Subject should cotain "CPGE Problem - <Your brief problem here>" if such errors are occurring!
              
@@ -255,7 +261,7 @@ NEED TO DO:-
 ============
 27/05/2025 - Started Implementing the OpenGL Renderer for Windows / Linux / MacOS & Android
              Create and Implement the Vulkan Renderer for Windows / Linux & Android.
-16/03/2025 - Get the Steam Class working and implement
+16/03/2025 - Get the Steam Class working and implement.
 27/03/2025 - Our system will need to support GooglePlay interfacing as well especially for the Android Platform.
            - Our system will need to support AppStore interfacing as well especially for the iOS Platform.
 

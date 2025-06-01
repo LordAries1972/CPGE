@@ -59,6 +59,7 @@
 #include "MoviePlayer.h"
 #include "NetworkManager.h"
 #include "PUNPack.h"
+#include "GamePlayer.h"
 
 #if defined(_WIN64) || defined(_WIN32)
     #include "TTSManager.h"
@@ -116,6 +117,7 @@ SystemUtils sysUtils;
 MoviePlayer moviePlayer;
 NetworkManager networkManager;
 PUNPack punPack;
+GamePlayer gamePlayer;
 
 #if defined(_WIN64) || defined(_WIN32)
     TTSManager ttsManager;
@@ -340,7 +342,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
         // Start Required Renderer Threads
         #if !defined(_DEBUG)
-            if (renderer->StartRendererThreads())
+            if (!renderer->StartRendererThreads())
             {
                 MessageBox(nullptr, L"Problem Starting Renderer Threads!!!", L"Error", MB_OK | MB_ICONERROR);
                 PostQuitMessage(0);
@@ -702,6 +704,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     renderer->Cleanup();
 
     renderer->SetWindowedScreen();
+
+    // Clean up the GamePlayer Manager
+    gamePlayer.Cleanup();
 
     // Clean up Network Manager
     networkManager.Cleanup();

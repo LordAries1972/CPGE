@@ -96,6 +96,9 @@
     <ClCompile Include="PUNPack.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="GamePlayer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Color.h">
@@ -192,6 +195,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="PUNPack.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="GamePlayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -165,6 +165,7 @@ public:
 
     // Core networking functions
     bool Initialize();                                                  // Initialize Winsock and network subsystem
+    bool IsInitialized() { return m_isInitialized; }
     void Cleanup();                                                     // Clean up all network resources and connections
 
     // Connection management
@@ -221,8 +222,8 @@ public:
 
 private:
     // Private member variables
-    bool m_isInitialized;                                               // Network subsystem initialization state
     bool m_isCleanedUp;                                                 // Cleanup completion flag
+    bool m_isInitialized;                                               // Network subsystem initialization state
 
     // Network connection data
     NetworkConnection m_connection;                                     // Primary server connection
