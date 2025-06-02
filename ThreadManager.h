@@ -22,8 +22,8 @@ enum ThreadNameID
 {
     THREAD_LOADER,
     THREAD_RENDERER,
-    THREAD_MOVIE_UPDATE,
     THREAD_NETWORK,
+    THREAD_AI_PROCESSING,
 };
 
 // --------------------------------------------

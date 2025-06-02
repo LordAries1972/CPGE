@@ -46,6 +46,8 @@ struct MyConfig {
     long double minPitch = -89.0f;                                              // Degrees
 
     // Add more configuration parameters as needed
+    bool UseTTS = true;
+    double TTSVolume = 1.0f;
 };
 
 class Configuration {

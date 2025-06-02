@@ -100,8 +100,8 @@ std::string ThreadManager::getThreadName(ThreadNameID id) {
     {
         case THREAD_LOADER:             return "GE-FileIO-Thread";
         case THREAD_RENDERER:           return "GE-Rendering-Thread";
-        case THREAD_MOVIE_UPDATE:       return "GE-MovieUpdate-Thread";
         case THREAD_NETWORK:            return "GE-Network-Thread";
+        case THREAD_AI_PROCESSING:      return "GE-AI-Thread";
         default:                        return "Unknown";
     }
 }

@@ -1,496 +1,631 @@
-[30-05-2025 (AEST/AEDT) 08:22:40]: [INFO]: ThreadManager destroyed.
-[30-05-2025 (AEST/AEDT) 08:22:40]: [INFO]: DX Camera destroyed!
-[30-05-2025 (AEST/AEDT) 08:22:40]: [INFO]: Renderer Cleaned up and Destroyed!
-[30-05-2025 (AEST/AEDT) 08:22:40]: [INFO]: Renderer Successfully Cleaned Up.
-[30-05-2025 (AEST/AEDT) 08:22:40]: [INFO]: All threads and locks cleaned up.
-[30-05-2025 (AEST/AEDT) 08:22:40]: [INFO]: Thread 'GE-Rendering-Thread' terminated.
-[30-05-2025 (AEST/AEDT) 08:22:40]: [WARNING]: Render Thread Exiting.
-[30-05-2025 (AEST/AEDT) 08:22:40]: [INFO]: MoviePlayer: Resources cleaned up
-[30-05-2025 (AEST/AEDT) 08:21:42]: [INFO]: Thread 'GE-FileIO-Thread' paused.
-[30-05-2025 (AEST/AEDT) 08:21:42]: [INFO]: WM_SIZE - Resize completed successfully
-[30-05-2025 (AEST/AEDT) 08:21:42]: [WARNING]: Resize attempted in unsupported scene type
-[30-05-2025 (AEST/AEDT) 08:21:42]: [INFO]: WM_SIZE - Beginning resize to 784x561
-[30-05-2025 (AEST/AEDT) 08:21:41]: [INFO]: Thread 'GE-FileIO-Thread' started.
-[30-05-2025 (AEST/AEDT) 08:21:41]: [INFO]: Thread 'GE-Rendering-Thread' started.
-[30-05-2025 (AEST/AEDT) 08:21:41]: [INFO]: Setting up thread: GE-Rendering-Thread
-[30-05-2025 (AEST/AEDT) 08:21:41]: [INFO]: Thread 'GE-FileIO-Thread' started.
-[30-05-2025 (AEST/AEDT) 08:21:41]: [INFO]: Setting up thread: GE-FileIO-Thread
-[30-05-2025 (AEST/AEDT) 08:21:41]: [INFO]: Media Foundation multithreaded mode enabled
-[30-05-2025 (AEST/AEDT) 08:21:41]: [INFO]: [FXManager] Successfully initialized with DirectX 11 renderer
-[30-05-2025 (AEST/AEDT) 08:21:41]: [INFO]: [FXManager] Successfully compiled and loaded fade shaders
-[30-05-2025 (AEST/AEDT) 08:21:41]: [INFO]: Initializing GUIManager...
+[02-06-2025 (AEST/AEDT) 10:52:16]: GUIManager::RemoveWindow - Attempting to remove window: GameMenuWindow
+[02-06-2025 (AEST/AEDT) 10:52:16]: [INFO]: GUIManager::RemoveWindow - Attempting to remove window: GameMenuWindow
+[02-06-2025 (AEST/AEDT) 10:52:15]: CreateGameMenuWindow - Fade effect completed successfully
+[02-06-2025 (AEST/AEDT) 10:52:15]: [DEBUG]: CreateGameMenuWindow - Fade effect completed successfully
+[02-06-2025 (AEST/AEDT) 10:52:14]: CreateGameMenuWindow - Quit button clicked, initiating shutdown sequence
+[02-06-2025 (AEST/AEDT) 10:52:14]: [INFO]: CreateGameMenuWindow - Quit button clicked, initiating shutdown sequence
+[02-06-2025 (AEST/AEDT) 10:50:40]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[02-06-2025 (AEST/AEDT) 10:50:39]: CreateGameMenuWindow - Game menu window created successfully with 6 controls
+[02-06-2025 (AEST/AEDT) 10:50:39]: [INFO]: CreateGameMenuWindow - Game menu window created successfully with 6 controls
+[02-06-2025 (AEST/AEDT) 10:50:39]: CreateGameMenuWindow - Window created at position (495, 0) with size (300, 600)
+[02-06-2025 (AEST/AEDT) 10:50:39]: [DEBUG]: CreateGameMenuWindow - Window created at position (495, 0) with size (300, 600)
+[02-06-2025 (AEST/AEDT) 10:50:39]: CreateGameMenuWindow - Creating game menu window with message: 
+[02-06-2025 (AEST/AEDT) 10:50:39]: [INFO]: CreateGameMenuWindow - Creating game menu window with message: 
+[02-06-2025 (AEST/AEDT) 10:50:39]: [INFO]: XM file loaded successfully.
+[02-06-2025 (AEST/AEDT) 10:50:39]: [INFO]: Patterns loaded successfully.
+[02-06-2025 (AEST/AEDT) 10:50:39]: [INFO]: Loading patterns...
+[02-06-2025 (AEST/AEDT) 10:50:39]: [INFO]: Loading XM file: ./Assets/thevoid.xm
+[02-06-2025 (AEST/AEDT) 10:50:39]: [INFO]: [LOADER]: Scene Intro.
+[02-06-2025 (AEST/AEDT) 10:50:38]: [INFO]: MoviePlayer: Playback stopped
+[02-06-2025 (AEST/AEDT) 10:50:38]: [INFO]: MoviePlayer: End of stream reached
+[02-06-2025 (AEST/AEDT) 10:50:25]: [INFO]: [SCENE] Movie initialized successfully
+[02-06-2025 (AEST/AEDT) 10:50:25]: [INFO]: Thread 'GE-FileIO-Thread' resumed.
+[02-06-2025 (AEST/AEDT) 10:50:25]: [INFO]: Creating BGRA format texture for video
+[02-06-2025 (AEST/AEDT) 10:50:24]: [INFO]: Successfully set D3D manager for hardware decoding
+[02-06-2025 (AEST/AEDT) 10:50:24]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
+[02-06-2025 (AEST/AEDT) 10:50:24]: [INFO]: D3D11 multithreaded protection enabled
+[02-06-2025 (AEST/AEDT) 10:50:16]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[02-06-2025 (AEST/AEDT) 10:50:15]: [INFO]: Thread 'GE-Rendering-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:50:15]: [INFO]: Thread 'GE-Rendering-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:50:14]: [INFO]: Setting up thread: GE-Rendering-Thread
+[02-06-2025 (AEST/AEDT) 10:50:14]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:50:14]: [INFO]: Setting up thread: GE-FileIO-Thread
+[02-06-2025 (AEST/AEDT) 10:50:14]: [INFO]: Media Foundation multithreaded mode enabled
+[02-06-2025 (AEST/AEDT) 10:50:14]: [INFO]: [FXManager] Successfully initialized with DirectX 11 renderer
+[02-06-2025 (AEST/AEDT) 10:50:14]: [INFO]: [FXManager] Successfully compiled and loaded fade shaders
+[02-06-2025 (AEST/AEDT) 10:50:14]: [INFO]: Initializing GUIManager...
 
-[30-05-2025 (AEST/AEDT) 08:21:41]: [INFO]: Direct2D render target created successfully
-[30-05-2025 (AEST/AEDT) 08:21:41]: [INFO]: WM_SIZE - Resize completed successfully
-[30-05-2025 (AEST/AEDT) 08:21:41]: [WARNING]: Resize attempted in unsupported scene type
-[30-05-2025 (AEST/AEDT) 08:21:41]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
-[30-05-2025 (AEST/AEDT) 08:21:40]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
-[30-05-2025 (AEST/AEDT) 08:21:40]: [WARNING]: No Thread with name 'GE-FileIO-Thread' was found.
-[30-05-2025 (AEST/AEDT) 08:21:39]: [INFO]: Direct2D render target created successfully
-[30-05-2025 (AEST/AEDT) 08:21:39]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
-[30-05-2025 (AEST/AEDT) 08:21:39]: [INFO]: Found Adapter: Microsoft Basic Render Driver
-[30-05-2025 (AEST/AEDT) 08:21:39]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
-[30-05-2025 (AEST/AEDT) 08:21:39]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
-[30-05-2025 (AEST/AEDT) 08:21:39]: Window metrics retrieved successfully: 800x600 (client: 784x561)
-[30-05-2025 (AEST/AEDT) 08:21:39]: [INFO]: Window metrics retrieved successfully: 800x600 (client: 784x561)
-[30-05-2025 (AEST/AEDT) 08:21:39]: [INFO]: DX Camera created successfully
-[30-05-2025 (AEST/AEDT) 08:21:38]: [INFO]: Media Foundation multithreaded mode enabled
-[30-05-2025 (AEST/AEDT) 08:21:38]: [INFO]: ThreadManager initialized.
-[25-05-2025 (AEST/AEDT) 14:42:07]: [INFO]: ThreadManager destroyed.
-[25-05-2025 (AEST/AEDT) 14:42:07]: [INFO]: DX Camera destroyed!
-[25-05-2025 (AEST/AEDT) 14:42:07]: [INFO]: Renderer Cleaned up and Destroyed!
-[25-05-2025 (AEST/AEDT) 14:42:06]: [INFO]: MoviePlayer: Resources cleaned up
-[25-05-2025 (AEST/AEDT) 14:42:06]: [INFO]: MoviePlayer: Playback stopped
-[25-05-2025 (AEST/AEDT) 14:42:06]: [INFO]: Renderer Successfully Cleaned Up.
-[25-05-2025 (AEST/AEDT) 14:42:06]: [INFO]: All threads and locks cleaned up.
-[25-05-2025 (AEST/AEDT) 14:42:06]: [INFO]: Thread 'GE-FileIO-Thread' terminated.
-[25-05-2025 (AEST/AEDT) 14:42:06]: [INFO]: Thread 'GE-FileIO-Thread' started.
-[25-05-2025 (AEST/AEDT) 14:42:06]: [INFO]: WM_SIZE - Resize completed successfully
-[25-05-2025 (AEST/AEDT) 14:42:06]: Window metrics retrieved successfully: 800x600 (client: 784x561)
-[25-05-2025 (AEST/AEDT) 14:42:06]: [INFO]: Window metrics retrieved successfully: 800x600 (client: 784x561)
-[25-05-2025 (AEST/AEDT) 14:42:06]: [INFO]: Direct2D render target created successfully
-[25-05-2025 (AEST/AEDT) 14:42:06]: [INFO]: FXManager: Scroll effect manually stopped.
-[25-05-2025 (AEST/AEDT) 14:42:06]: [INFO]: FXManager: Scroll effect manually stopped.
-[25-05-202p (AEST/AEDT) 14:42:06]: [INFO]: FXManager: Scroll effect manually stopped.
-[25-05-2025 (AEST/AEDT) 14:42:06]: [INFO]: FXManager: Starfield effect manually stopped.
-[25-05-2025 (AEST/AEDT) 14:42:06]: [INFO]: WM_SIZE - Beginning resize to 784x561
-[25-05-2025 (AEST/AEDT) 14:42:06]: [INFO]: Thread 'GE-FileIO-Thread' finished.
-[25-05-2025E-FileIO-Thread' finished.
-[25-05-2025 (AEST/AEDT) 14:42:06]: [INFO]: [LOADER]: Scene Loading Complete - Exiting Thread
-[25-05-2025 (AEST/AEDT) 14:40:08]: [INFO]: Thread 'GE-FileIO-Thread' paused.
-[25-05-2025 (AEST/AEDT) 14:40:07]: [INFO]: XM file loaded successfully.
-[25-05-2025 (AEST/AEDT) 14:40:07]: [INFO]: Patterns loaded successfully.
-[25-05-2025 (AEST/AEDT) 14:40:07]: [INFO]: Loading patterns...
-[25-05-2025 (AEST/AEDT) 14:40:07]: [INFO]: Loading XM file: ./Assets/thevoid.xm
-[25-05-2025 (AEST/AEDT) 14:40:07]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
-[25-05-2025 (AEST/AEDT) 14:40:06]: [INFO]: MoviePlayer: Playback stopped
-[25-05-2025 (AEST/AEDT) 14:40:06]: [INFO]: MoviePlayer: End of stream reached
-[25-05-2025 (AEST/AEDT) 14:39:55]: [INFO]: Thread 'GE-FileIO-Thread' resumed.
-[25-05-2025 (AEST/AEDT) 14:39:55]: [INFO]: MoviePlayer: Playback started
-[25-05-2025 (AEST/AEDT) 14:39:55]: [INFO]: Creating BGRA format texture for video
-[25-05-2025 (AEST/AEDT) 14:39:55]: [INFO]: Successfully set D3D manager for hardware decoding
-[25-05-2025 (AEST/AEDT) 14:39:55]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
-[25-05-2025 (AEST/AEDT) 14:39:54]: [INFO]: D3D11 multithreaded protection enabled
-[25-05-2025 (AEST/AEDT) 14:39:49]: [INFO]: Thread 'GE-FileIO-Thread' paused.
-[25-05-2025 (AEST/AEDT) 14:39:48]: [INFO]: Thread 'GE-FileIO-Thread' started.
-[25-05-2025 (AEST/AEDT) 14:39:48]: [INFO]: Thread 'GE-FileIO-Thread' started.
-[25-05-2025 (AEST/AEDT) 14:39:48]: [INFO]: Setting up thread: GE-FileIO-Thread
-[25-05-2025 (AEST/AEDT) 14:39:48]: [INFO]: Media Foundation multithreaded mode enabled
-[25-05-2025 (AEST/AEDT) 14:39:48]: [INFO]: FXManager: Successfully compiled and loaded fade shaders.
-[25-05-2025 (AEST/AEDT) 14:39:48]: [INFO]: Initializing GUIManager...
+[02-06-2025 (AEST/AEDT) 10:50:14]: [INFO]: Direct2D render target created successfully
+[02-06-2025 (AEST/AEDT) 10:50:14]: [INFO]: WM_SIZE - Resize completed successfully
+[02-06-2025 (AEST/AEDT) 10:50:14]: [WARNING]: Resize attempted in unsupported scene type
+[02-06-2025 (AEST/AEDT) 10:50:14]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
+[02-06-2025 (AEST/AEDT) 10:50:14]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[02-06-2025 (AEST/AEDT) 10:50:14]: [WARNING]: No Thread with name 'GE-FileIO-Thread' was found.
+[02-06-2025 (AEST/AEDT) 10:50:13]: [INFO]: Direct2D render target created successfully
+[02-06-2025 (AEST/AEDT) 10:50:12]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
+[02-06-2025 (AEST/AEDT) 10:50:12]: [INFO]: Found Adapter: Microsoft Basic Render Driver
+[02-06-2025 (AEST/AEDT) 10:50:12]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
+[02-06-2025 (AEST/AEDT) 10:50:12]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
+[02-06-2025 (AEST/AEDT) 10:50:12]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[02-06-2025 (AEST/AEDT) 10:50:12]: [INFO]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[02-06-2025 (AEST/AEDT) 10:50:12]: [INFO]: DX Camera created successfully
+[02-06-2025 (AEST/AEDT) 10:50:12]: [INFO]: Media Foundation multithreaded mode enabled
+[02-06-2025 (AEST/AEDT) 10:50:12]: [INFO]: ThreadManager initialized.
+[02-06-2025 (AEST/AEDT) 10:36:24]: [INFO]: ThreadManager destroyed.
+[02-06-2025 (AEST/AEDT) 10:36:24]: [INFO]: DX Camera destroyed!
+[02-06-2025 (AEST/AEDT) 10:36:24]: [INFO]: Renderer Cleaned up and Destroyed!
+[02-06-2025 (AEST/AEDT) 10:36:24]: [INFO]: MoviePlayer: Resources cleaned up
+[02-06-2025 (AEST/AEDT) 10:36:24]: [INFO]: MoviePlayer: Playback stopped
+[02-06-2025 (AEST/AEDT) 10:36:24]: [WARNING]: Cannot remove lock 'network_connection_state' as it doesn't exist.
+[02-06-2025 (AEST/AEDT) 10:36:24]: [WARNING]: Cannot remove lock 'network_packet_queue' as it doesn't exist.
+[02-06-2025 (AEST/AEDT) 10:36:24]: [INFO]: Renderer Successfully Cleaned Up.
+[02-06-2025 (AEST/AEDT) 10:36:24]: [INFO]: All threads and locks cleaned up.
+[02-06-2025 (AEST/AEDT) 10:36:24]: [INFO]: Thread 'GE-Rendering-Thread' terminated.
+[02-06-2025 (AEST/AEDT) 10:36:23]: [INFO]: Thread 'GE-FileIO-Thread' terminated.
+[02-06-2025 (AEST/AEDT) 10:36:23]: [INFO]: Thread 'GE-FileIO-Thread' finished.
+[02-06-2025 (AEST/AEDT) 10:36:23]: [WARNING]: [FXManager] Render called after cleanup or during shutdown - aborting
+[02-06-2025 (AEST/AEDT) 10:36:23]: CreateGameMenuWindow - Posting quit message for application shutdown
+[02-06-2025 (AEST/AEDT) 10:36:23]: [INFO]: CreateGameMenuWindow - Posting quit message for application shutdown
+[02-06-2025 (AEST/AEDT) 10:36:23]: GUIManager::RemoveWindow - Window 'GameMenuWindow' successfully removed
+[02-06-225 (AEST/AEDT) 10:36:23]: [INFO]: GUIManager::RemoveWindow - Window 'GameMenuWindow' successfully removed
+[02-06-2025 (AEST/AEDT) 10:36:23]: GUIManager::RemoveWindow - Attempting to remove window: GameMenuWindow
+[02-06-2025 (AEST/AEDT) 10:36:23]: [INFO]: GUIManager::RemoveWindow - Attempting to remove window: GameMenuWindow
+[02-06-2025 (AEST/AEDT) 10:36:23]: CreateGameMenuWindow - Fade effect completed successfully
+[02-06-2025 (AEST/AEDT) 10:36:23]: [DEBUG]: CreateGameMenuWindow - Fade effect completed successfully
+[02-06-2025 (AEST/AEDT) 10:36:22]: CreateGameMenuWindow - Quit button clicked, initiating shutdown sequence
+[02-06-2025 (AEST/AEDT) 10:36:22]: [INFO]: CreateGameMenuWindow - Quit button clicked, initiating shutdown sequence
+[02-06-2025 (AEST/AEDT) 10:36:09]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[02-06-2025 (AEST/AEDT) 10:36:09]: CreateGameMenuWindow - Game menu window created successfully with 6 controls
+[02-06-2025 (AEST/AEDT) 10:36:08]: [INFO]: CreateGameMenuWindow - Game menu window created successfully with 6 controls
+[02-06-2025 (AEST/AEDT) 10:36:08]: CreateGameMenuWindow - Window created at position (495, 0) with size (300, 600)
+[02-06-2025 (AEST/AEDT) 10:36:08]: [DEBUG]: CreateGameMenuWindow - Window created at position (495, 0) with size (300, 600)
+[02-06-2025 (AEST/AEDT) 10:36:08]: CreateGameMenuWindow - Creating game menu window with message: 
+[02-06-2025 (AEST/AEDT) 10:36:08]: [INFO]: CreateGameMenuWindow - Creating game menu window with message: 
+[02-06-2025 (AEST/AEDT) 10:36:08]: [INFO]: XM file loaded successfully.
+[02-06-2025 (AEST/AEDT) 10:36:08]: [INFO]: Patterns loaded successfully.
+[02-06-2025 (AEST/AEDT) 10:36:08]: [INFO]: Loading patterns...
+[02-06-2025 (AEST/AEDT) 10:36:08]: [INFO]: Loading XM file: ./Assets/thevoid.xm
+[02-06-2025 (AEST/AEDT) 10:36:08]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[02-06-2025 (AEST/AEDT) 10:36:07]: [INFO]: MoviePlayer: Playback stopped
+[02-06-2025 (AEST/AEDT) 10:36:06]: [INFO]: MoviePlayer: End of stream reached
+[02-06-2025 (AEST/AEDT) 10:35:56]: [INFO]: [SCENE] Movie initialized successfully
+[02-06-2025 (AEST/AEDT) 10:35:56]: [INFO]: [SCENE] Entered SCENE_INTRO_MOVIE
+[02-06-2025 (AEST/AEDT) 10:35:56]: [INFO]: Creating BGRA format texture for video
+[02-06-2025 (AEST/AEDT) 10:35:56]: [INFO]: Successfully set D3D manager for hardware decoding
+[02-06-2025 (AEST/AEDT) 10:35:56]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
+[02-06-2025 (AEST/AEDT) 10:35:55]: [INFO]: D3D11 multithreaded protection enabled
+[02-06-2025 (AEST/AEDT) 10:35:47]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[02-06-2025 (AEST/AEDT) 10:35:45]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:35:45]: [INFO]: Thread 'GE-Rendering-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:35:45]: [INFO]: Setting up thread: GE-Rendering-Thread
+[02-06-2025 (AEST/AEDT) 10:35:45]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:35:45]: [INFO]: Setting up thread: GE-FileIO-Thread
+[02-06-2025 (AEST/AEDT) 10:35:45]: [INFO]: Media Foundation multithreaded mode enabled
+[02-06-2025 (AEST/AEDT) 10:35:45]: [INFO]: [FXManager] Successfully initialized with DirectX 11 renderer
+[02-06-2025 (AEST/AEDT) 10:35:45]: [INFO]: [FXManager] Successfully compiled and loaded fade shaders
+[02-06-2025 (AEST/AEDT) 10:35:45]: [INFO]: Initializing GUIManager...
 
-[25-05-2025 (AEST/AEDT) 14:39:48]: [INFO]: Direct2D render target created successfully
-[25-05-2025 (AEST/AEDT) 14:39:48]: [INFO]: WM_SIZE - Resize completed successfully
-[25-05-2025 (AEST/AEDT) 14:39:48]: [WARNING]: Resize attempted in unsupported scene type
-[25-05-2025 (AEST/AEDT) 14:39:48]: [INFO]: FXManager: Scroll effect manually stopped.
-[25-05-2025 (AEST/AEDT) 14:39:48]: [INFO]: FXManager: Scroll effect manually stopped.
-[25-05-2025 (AEST/AEDT) 14:39:48]: [INFO]: FXManager: Scroll effect manually stopped.
-[25-05-2025 (AEST/AEDT) 14:39:48]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
-[25-05-2025 (AEST/AEDT) 14:39:47]: [INFO]: FXManager: Scroll effect manually stopped.
-[25-05-2025 (AEST/AEDT) 14:39:47]: [INFO]: FXManager: Scroll effect manually stopped.
-[25-05-2025 (AEST/AEDT) 14:39:46]: [INFO]: FXManager: Scroll effect manually stopped.
-[25-05-2025 (AEST/AEDT) 14:39:46]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
-[25-05-2025 (AEST/AEDT) 14:39:46]: [WARNING]: No Thread with name 'GE-FileIO-Thread' was found.
-[25-05-2025 (AEST/AEDT) 14:39:46]: [INFO]: Direct2D render target created successfully
-[25-05-2025 (AEST/AEDT) 14:39:46]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
-[25-05-2025 (AEST/AEDT) 14:39:46]: [INFO]: Found Adapter: Microsoft Basic Render Driver
-[25-05-2025 (AEST/AEDT) 14:39:46]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
-[25-05-2025 (AEST/AEDT) 14:39:46]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
-[25-05-2025 (AEST/AEDT) 14:39:46]: Window metrics retrieved successfully: 800x600 (client: 784x561)
-[25-05-2025 (AEST/AEDT) 14:39:46]: [INFO]: Window metrics retrieved successfully: 800x600 (client: 784x561)
-[25-05-2025 (AEST/AEDT) 14:39:45]: [INFO]: DX Camera created successfully
-[25-05-2025 (AEST/AEDT) 14:39:45]: [INFO]: Media Foundation multithreaded mode enabled
-[25-05-2025 (AEST/AEDT) 14:39:45]: [INFO]: ThreadManager initialized.
-[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: ThreadManager destroyed.
-[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: DX Camera destroyed!
-[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: Renderer Cleaned up and Destroyed!
-[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: MoviePNFO]: MoviePlayer: Resources cleaned up
-[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: MoviePlayer: Playback stopped
-[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: Renderer Successfully Cleaned Up.
-[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: All threads and locks cleaned up.
-[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: Thread 'GE-FileIO-Thread' terminated.
-[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: Thread 'GE-FileIO-Thread' started.
-[24-05-2025 (AEST/AEDT) 11:39:18]: [WARNING]: Thread with name 'GE-FileIO-Thread' already exists.
-[24-05-2025 (AEST/AEDT) 11:39:18]: Window metrics retrieved successfully: 800x600 (client: 784x561)
-[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: Window metrics retrieved successfully: 800x600 (client: 784x561)
-[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: Direct2D render target created successfully
-[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 11:39:18]: [INFO]: FXManager: Starfield effect manually stopped.
-[24-05-2025 (AEST/AEDT) 11:39:17]: [INFO]: WM_SIZE - Beginning resize to 784x561
-[24-05-2025 (AEST/AEDT) 11:39:17]: [INFO]: Thread 'GE-FileIO-Thread' finished.
-[24-05-2025 (AEST/AEDT) 11:39:16]: [INFO]: [LOADER]: Scene Loading Complete - Exiting Thread
-[24-05-2025 (AEST/AEDT) 11:15:12]: [INFO]: Thread 'GE-FileIO-Thread' paused.
-[24-05-2025 (AEST/AEDT) 11:15:11]: [INFO]: XM file loaded successfully.
-[24-05-2025 (AEST/AEDT) 11:15:11]: [INFO]: Patterns loaded successfully.
-[24-05-2025 (AEST/AEDT) 11:15:11]: [INFO]: Loading patterns...
-[24-05-2025 (AEST/AEDT) 11:15:11]: [INFO]: Loading XM file: ./Assets/thevoid.xm
-[24-05-2025 (AEST/AEDT) 11:15:11]: [INFO]: [LOADER]: Scene Intro.
-[24-05-2025 (AEST/AEDT) 11:15:10]: [INFO]: MoviePlayer: Playback stopped
-[24-05-2025 (AEST/AEDT) 11:15:10]: [INFO]: MoviePlayer: End of stream reached
-[24-05-2025 (AEST/AEDT) 11:14:57]: [INFO]: Thread 'GE-FileIO-Thread' resumed.
-[24-05-2025 (AEST/AEDT) 11:14:57]: [INFO]: MoviePlayer: Playback started
-[24-05-2025 (AEST/AEDT) 11:14:57]: [INFO]: Creating BGRA format texture for video
-[24-05-2025 (AEST/AEDT) 11:14:57]: [INFO]: Successfully set D3D manager for hardware decoding
-[24-05-2025 (AEST/AEDT) 11:14:57]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
-[24-05-2025 (AEST/AEDT) 11:14:56]: [INFO]: D3D11 multithreaded protection enabled
-[24-05-2025 (AEST/AEDT) 11:14:50]: [INFO]: Thread 'GE-FileIO-Thread' paused.
-[24-05-2025 (AEST/AEDT) 11:14:50]: [INFO]: Thread 'GE-FileIO-Thread' started.
-[24-05-2025 (AEST/AEDT) 11:14:50]: [INFO]: Thread 'GE-FileIO-Thread' started.
-[24-05-2025 (AEST/AEDT) 11:14:49]: [INFO]: Setting up thread: GE-FileIO-Thread
-[24-05-2025 (AEST/AEDT) 11:14:49]: [INFO]: Media Foundation multithreaded mode enabled
-[24-05-2025 (AEST/AEDT) 11:14:49]: [INFO]: FXManager: Successfully compiled and loaded fade shaders.
-[24-05-2025 (AEST/AEDT) 11:14:49]: [INFO]: Initializing GUIManager...
+[02-06-2025 (AEST/AEDT) 10:35:45]: [INFO]: Direct2D render target created successfully
+[02-06-2025 (AEST/AEDT) 10:35:45]: [INFO]: WM_SIZE - Resize completed successfully
+[02-06-2025 (AEST/AEDT) 10:35:45]: [WARNING]: Resize attempted in unsupported scene type
+[0245]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
+[02-06-2025 (AEST/AEDT) 10:35:45]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[02-06-2n25 (AEST/AEDT) 10:35:45]: [WARNING]: No Thread with name 'GE-FileIO-Thread' was found.
+[02-06-2025 (AEST/AEDT) 10:35:44]: [INFO]: Direct2D render target created successfully
+[02-06-2025 (AEST/AEDT) 10:35:44]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
+[02-06-2025 (AEST/AEDT) 10:35:43]: [INFO]: Found Adapter: Microsoft Basic Render Driver
+[02-06-2025 (AEST/AEDT) 10:35:43]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
+[02-06-2025 (AEST/AEDT) 10:35:43]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
+[02-06-2025 (AEST/AEDT) 10:35:43]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[02-06-2025 (AEST/AEDT) 10:35:43]: [INFO]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[02-06-2025 (AEST/AEDT) 10:35:43]: [INFO]: DX Camera created successfully
+[02-06-2025 (AEST/AEDT) 10:35:43]: [INFO]: Media Foundation multithreaded mode enabled
+[02-06-2025 (AEST/AEDT) 10:35:43]: [INFO]: ThreadManager initialized.
+[02-06-2025 (AEST/AEDT) 10:28:28]: [INFO]: ThreadManager destroyed.
+[02-06-2025 (AEST/AEDT) 10:28:28]: [INFO]: DX Camera destroyed!
+[02-06-2025 (AEST/AEDT) 10:28:28]: [INFO]: Renderer Cleaned up and Destroyed!
+[02-06-2025 (AEST/AEDT) 10:28:28]: [INFO]: MoviePlayer: Resources cleaned up
+[02-06-2025 (AEST/AEDT) 10:28:28]: [INFO]: MoviePlayer: Playback stopped
+[02-06-2025 (AEST/AEDT) 10:28:28]: [WARNING]: Cannot remove lock 'network_connection_state' as it doesn't exist.
+[02-06-2025 (AEST/AEDT) 10:28:28]: [WARNING]: Cannot remove lock 'network_packet_queue' as it doesn't exist.
+[02-06-2025 (AEST/AEDT) 10:28:28]: [INFO]: Renderer Successfully Cleaned Up.
+[02-06-2025 (AEST/AEDT) 10:28:28]: [INFO]: All threads and locks cleaned up.
+[02-06-2025 (AEST/AEDT) 10:28:28]: [INFO]: Thread 'GE-Rendering-Thread' terminated.
+[02-06-2025 (AEST/AEDT) 10:28:28]: [WARNING]: Render Thread Exiting.
+[02-06-2025 (AEST/AEDT) 10:28:28]: [INFO]: FXManager: Starfield effect manually stopped.
+[02-06-2025 (AEST/AEDT) 10:28:28]: CreateGameMenuWindow - Posting quit message for application shutdown
+[02-06-2025 (AEST/AEDT) 10:28:28]: [INFO]: CreateGameMenuWindow - Posting quit message for application shutdown
+[02-06-2025 (AEST/AEDT) 10:28:28]: GUIManager::RemoveWindow - Window 'GameMenuWindow' successfully removed
+[02-06-2025 (AEST/AEDT) 10:28:28]: [INFO]: GUIManager::RemoveWindow - Window 'GameMenuWindow' successfully removed
+[02-06-2025 (AEST/AEDT) 10:28:28]: GUIManager::RemoveWindow - Attempting to remove window: GameMenuWindow
+[02-06-2025 (AEST/AEDT) 10:28:28]: [INFO]: GUIManager::RemoveWindow - Attempting to remove window: GameMenuWindow
+[02-06-2025 (AEST/AEDT) 10:28:28]: CreateGameMenuWindow - Fade effect completed successfully
+[02-06-2025 (AEST/AEDT) 10:28:28]: [DEBUG]: CreateGameMenuWindow - Fade effect completed successfully
+[02-06-2025 (AEST/AEDT) 10:28:27]: CreateGameMenuWindow - Quit button clicked, initiating shutdown sequence
+[02-06-2025 (AEST/AEDT) 10:28:27]: [INFO]: CreateGameMenuWindow - Quit button clicked, initiating shutdown sequence
+[02-06-2025 (AEST/AEDT) 10:28:22]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[02-06-2025 (AEST/AEDT) 10:28:22]: CreateGameMenuWindow - Game menu window created successfully with 6 controls
+[02-06-2025 (AEST/AEDT) 10:28:22]: [INFO]: CreateGameMenuWindow - Game menu window created successfully with 6 controls
+[02-06-2025 (AEST/AEDT) 10:28:22]: CreateGameMenuWindow - Window created at position (495, 0) with size (300, 600)
+[02-06-2025 (AEST/AEDT) 10:28:22]: [DEBUG]: CreateGameMenuWindow - Window created at position (495, 0) with size (300, 600)
+[02-06-2025 (AEST/AEDT) 10:28:22]: CreateGameMenuWindow - Creating game menu window with message: 
+[02-06-2025 (AEST/AEDT) 10:28:22]: [INFO]: CreateGameMenuWindow - Creating game menu window with message: 
+[02-06-2025 (AEST/AEDT) 10:28:22]: [INFO]: XM file loaded successfully.
+[02-06-2025 (AEST/AEDT) 10:28:22]: [INFO]: Patterns loaded successfully.
+[02-06-2025 (AEST/AEDT) 10:28:22]: [INFO]: Lo: Loading patterns...
+[02-06-2025 (AEST/AEDT) 10:28:22]: [INFO]: Loading XM file: ./Assets/thevoid.xm
+[02-06-2025 (AEST/AEDT) 10:28:22]: [INFO]: [LOADER]: Scene Intro.
+[02-06-2025 (AEST/AEDT) 10:28:21]: [INFO]: MoviePlayer: Playback stopped
+[02-06-2025 (AEST/AEDT) 10:28:21]: [INFO]: MoviePlayer: End of stream reached
+[02-06-2025 (AEST/AEDT) 10:28:08]: [INFO]: [SCENE] Movie initialized successfully
+[02-06-2025 (AEST/AEDT) 10:28:08]: [INFO]: Thread 'GE-FileIO-Thread' resumed.
+[02-06-2025 (AEST/AEDT) 10:28:08]: [INFO]: Creating BGRA format texture for video
+[02-06-2025 (AEST/AEDT) 10:28:08]: [INFO]: Successfully set D3D manager for hardware decoding
+[02-06-2025 (AEST/AEDT) 10:28:08]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
+[02-06-2025 (AEST/AEDT) 10:28:08]: [INFO]: D3D11 multithreaded protection enabled
+[02-06-2025 (AEST/AEDT) 10:27:59]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[02-06-2025 (AEST/AEDT) 10:27:59]: [INFO]: Thread 'GE-Rendering-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:27:59]: [INFO]: Thread 'GE-Rendering-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:27:58]: [INFO]: Setting up thread: GE-Rendering-Thread
+[02-06-2025 (AEST/AEDT) 10:27:58]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:27:58]: [INFO]: Setting up thread: GE-FileIO-Thread
+[02-06-2025 (AEST/AEDT) 10:27:58]: [INFO]: Media Foundation multithreaded mode enabled
+[02-06-2025 (AEST/AEDT) 10:27:58]: [INFO]: [FXManager] Successfully initialized with DirectX 11 renderer
+[02-06-2025 (AEST/AEDT) 10:27:58]: [INFO]: [FXManager] Successfully compiled and loaded fade shaders
+[02-06-2025 (AEST/AEDT) 10:27:58]: [INFO]: Initializing GUIManager...
 
-[24-05-2025 (AEST/AEDT) 11:14:49]: [INFO]: Direct2D render target created successfully
-[24-05-2025 (AEST/AEDT) 11:14:49]: [INFO]: WM_SIZE - Resize completed successfully
-[24-05-2025 (AEST/AEDT) 11:14:49]: [WARNING]: Resize attempted in unsupported scene type
-[24-05-2025 (AEST/AEDT) 11:14:49]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 11:14:49]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 11:14:49]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 11:14:49]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
-[24-05-2025 (AEST/AEDT) 11:14:49]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 11:14:49]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 11:14:49]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 11:14:49]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
-[24-05-2025 (AEST/AEDT) 11:14:49]: [WARNING]: No Thread with name 'GE-FileIO-Thread' was found.
-[24-05-2025 (AEST/AEDT) 11:14:48]: [INFO]: Direct2D render target created successfully
-[24-05-2025 (AEST/AEDT) 11:14:48]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
-[24-05-2025 (AEST/AEDT) 11:14:48]: [INFO]: Found Adapter: Microsoft Basic Render Driver
-[24-05-2025 (AEST/AEDT) 11:14:48]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
-[24-05-2025 (AEST/AEDT) 11:14:48]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
-[24-05-2025 (AEST/AEDT) 11:14:48]: Window metrics retrieved successfully: 800x600 (client: 784x561)
-[24-05-2025 (AEST/AEDT) 11:14:48]: [INFO]: Window metrics retrieved successfully: 800x600 (client: 784x561)
-[24-05-2025 (AEST/AEDT) 11:14:47]: [INFO]: DX Camera created successfully
-[24-05-2025 (AEST/AEDT) 11:14:47]: [INFO]: Media Foundation multithreaded mode enabled
-[24-05-2025 (AEST/AEDT) 11:14:47]: [INFO]: ThreadManager initialized.
-[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: ThreadManager destroyed.
-[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: DX Camera destroyed!
-[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: Renderer Cleaned up and Destroyed!
-[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: MoviePlayer: Resources cleaned up
-[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: MoviePlayer: Playback stopped
-[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: Renderer Successfully Cleaned Up.
-[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: All threads and locks cleaned up.
-[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: Thread 'GE-FileIO-Thread' terminated.
-[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: Thread 'GE-FileIO-Thread' started.
-[24-05-2025 (AEST/AEDT) 10:40:34]: [WARNING]: Thread with name 'GE-FileIO-Thread' already exists.
-[24-05-2025 (AEST/AEDT) 10:40:34]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
-[24-05-2025 (AES0/AEDT) 10:40:34]: [INFO]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
-[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: Direct2D render target created successfully
-[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: FXManager: Starfield effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: WM_SIZE - Beginning resize to 1920x1009
-[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: Thread 'GE-FileIO-Thread' finished.
-[24-05-2025 (AEST/AEDT) 10:40:34]: [INFO]: [LOADER]: Scene Loading Complete - Exiting Thread
-[24-05-2025 (AEST/AEDT) 10:37:54]: [INFO]: Thread 'GE-FileIO-Thread' paused.
-[24-05-2025 (AEST/AEDT) 10:37:54]: [INFO]: XM file loaded successfully.
-[24-05-2025 (AEST/AEDT) 10:37:54]: [INFO]: Patterns loaded successfully.
-[24-05-2025 (AEST/AEDT) 10:37:54]: [INFO]: Loading patterns...
-[24-05-2025 (AEST/AEDT) 10:37:54]: [INFO]: Loading XM file: ./Assets/thevoid.xm
-[24-05-2025 (AEST/AEDT) 10:37:54]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
-[24-05-2025 (AEST/AEDT) 10:37:52]: [INFO]: MoviePlayer: Playback stopped
-[24-05-2025 (AEST/AEDT) 10:37:52]: [INFO]: MoviePlayer: End of stream reached
-[24-05-2025 (AEST/AEDT) 10:37:37]: [INFO]: Thread 'GE-FileIO-Thread' resumed.
-[24-05-2025 (AEST/AEDT) 10:37:37]: [INFO]: MoviePlayer: Playback started
-[24-05-2025 (AEST/AEDT) 10:37:37]: [INFO]: Creating BGRA format texture for video
-[24-05-2025 (AEST/AEDT) 10:37:37]: [INFO]: Successfully set D3D manager for hardware decoding
-[24-05-2025 (AEST/AEDT) 10:37:37]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
-[24-05-2025 (AEST/AEDT) 10:37:37]: [INFO]: D3D11 multithreaded protection enabled
-[24-05-2025 (AEST/AEDT) 10:37:31]: [INFO]: Thread 'GE-FileIO-Thread' paused.
-[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: Thread 'GE-FileIO-Thread' started.
-[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: Thread 'GE-FileIO-Thread' started.
-[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: Setting up thread: GE-FileIO-Thread
-[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: Media Foundation multithreaded mode enabled
-[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: FXManager: Successfully compiled and loaded fade shaders.
-[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: Initializing GUIManager...
+[02-06-2025 (AEST/AEDT) 10:27:58]: [INFO]: Direct2D render target created successfully
+[02-06-2025 (AEST/AEDT) 10:27:58]: [INFO]: WM_SIZE - Resize completed successfully
+[02-06-2025 (AEST/AEDT) 10:27:58]: [WARNING]: Resize attempted in unsupported scene type
+[02-06-2025 (AEST/AEDT) 10:27:58]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
+[02-06-2025 (AEST/AEDT) 10:27:58]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[02-06-2025 (AEST/AEDT) 10:27:58]: [WARNING]: No Thread with name 'GE-FileIO-Thread' was found.
+[02-06-2025 (AEST/AEDT) 10:27:57]: [INFO]: Direct2D render target created successfully
+[02-06-2025 (AEST/AEDT) 10:27:57]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
+[02-06-2025 (AEST/AEDT) 10:27:57]: [INFO]: Found Adapter: Microsoft Basic Render Driver
+[02-06-2025 (AEST/AEDT) 10:27:57]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
+[02-06-2025 (AEST/AEDT) 10:27:56]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
+[02-06-2025 (AEST/AEDT) 10:27:56]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[02-06-2025 (AEST/AEDT) 10:27:56]: [INFO]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[02-06-2025 (AEST/AEDT) 10:27:56]: [INFO]: DX Camera created successfully
+[02-06-2025 (AEST/AEDT) 10:27:56]: [INFO]: Media Foundation multithreaded mode enabled
+[02-06-2025 (AEST/AEDT) 10:27:56]: [INFO]: ThreadManager initialized.
+[02-06-2025 (AEST/AEDT) 10:26:48]: [INFO]: ThreadManager destroyed.
+[02-06-2025 (AEST/AEDT) 10:26:48]: [INFO]: DX Camera destroyed!
+[02-06-2025 (AEST/AEDT) 10:26:48]: [INFO]: Renderer Cleaned up and Destroyed!
+[02-06-2025 (AEST/AEDT) 10:26:47]: [INFO]: MoviePlayer: Resources cleaned up
+[02-06-2025 (AEST/AEDT) 10:26:47]: [INFO]: MoviePlayer: Playback stopped
+[02-06-2025 (AEST/AEDT) 10:26:47]: [WARNING]: Cannot remove lock 'network_connection_state' as it doesn't exist.
+[02-06-2025 (AEST/AEDT) 10:26:47]: [WARNING]: Cannot remove lock 'network_packet_queue' as it doesn't exist.
+[02-06-2025 (AEST/AEDT) 10:26:47]: [INFO]: Renderer Successfully Cleaned Up.
+[02-06-2025 (AEST/AEDT) 10:26:47]: [INFO]: All threads and locks cleaned up.
+[02-06-2025 (AEST/AEDT) 10:26:47]: [INFO]: Thread 'GE-Rendering-Thread' terminated.
+[02-06-2025 (AEST/AEDT) 10:26:47]: [INFO]: Thread 'GE-FileIO-Thread' ead 'GE-FileIO-Thread' terminated.
+[02-06-2025 (AEST/AEDT) 10:26:47]: [WARNING]: [FXManager] Render called after cleanup or during shutdown - aborting
+[02-06-2025 (AEST/AEDT) 10:26:47]: CreateGameMenuWindow - Posting quit message for application shutdown
+[02-06t2025 (AEST/AEDT) 10:26:47]: [INFO]: CreateGameMenuWindow - Posting quit message for application shutdown
+[02-06-2025 (AEST/AEDT) 10:26:47]: GUIManager::RemoveWindow - Window 'GameMenuWindow' successfully removed
+[02-06-2025 (AEST/AEDT) 10:26:47]: [INFO]: GUIManager::RemoveWindow - Window 'GameMenuWindow' successfully removed
+[02-06-2025 (AEST/AEDT) 10:26:47]: GUIManager::RemoveWindow - Attempting to remove window: GameMenuWindow
+[02-06-2025 (AEST/AEDT) 10:26:47]: [INFO]: GUIManager::RemoveWindow - Attempting to remove window: GameMenuWindow
+[02-06-2025 (AEST/AEDT) 10:26:47]: CreateGameMenuWindow - Fade effect completed successfully
+[02-06-2025 (AEST/AEDT) 10:26:47]: [DEBUG]: CreateGameMenuWindow - Fade effect completed successfully
+[02-06-2025 (AEST/AEDT) 10:26:46]: CreateGameMenuWindow - Quit button clicked, initiating shutdown sequence
+[02-06-2025 (AEST/AEDT) 10:26:46]: [INFO]: CreateGameMenuWindow - Quit button clicked, initiating shutdown sequence
+[02-06-2025 (AEST/AEDT) 10:26:42]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[02-06-2025 (AEST/AEDT) 10:26:42]: CreateGameMenuWindow - Game menu window created successfully with 6 controls
+[02-06-2025 (AEST/AEDT) 10:26:42]: [INFO]: CreateGameMenuWindow - Game menu window created successfully with 6 controls
+[02-06-2025 (AEST/AEDT) 10:26:42]: CreateGameMenuWindow - Window created at position (495, 0) with size (300, 600)
+[02-06-2025 (AEST/AEDT) 10:26:42]: [DEBUG]: CreateGameMenuWindow - Window created at position (495, 0) with size (300, 600)
+[02-06-2025 (AEST/AEDT) 10:26:42]: CreateGameMenuWindow - Creating game menu window with message: 
+[02-06-2025 (AEST/AEDT) 10:26:42]: [INFO]: CreateGameMenuWindow - Creating game menu window with message: 
+[02-06-2025 (AEST/AEDT) 10:26:41]: [INFO]: XM file loaded successfully.
+[02-06-2025 (AEST/AEDT) 10:-06-2025 (AEST/AEDT) 10:26:41]: [INFO]: Patterns loaded successfully.
+[02-06-2025 (AEST/AEDTl 10:26:41]: [INFO]: Loading patterns...
+[02-06-2025 (AEST/AEDT) 10:26:41]: [INFO]: Loading XM file: ./Assets/thevoid.xm
+[02-06-2025 (AEST/AEDT) 10:26:41]: [INFO]: [LOADER]: Scene Intro.
+[02-06-2025 (AEST/AEDT) 10:26:40]: [INFO]: MoviePlayer: Playback stopped
+[02-06-2025 (AEST/AEDT) 10:26:40]: [INFO]: MoviePlayer: End of stream reached
+[02-06-2025 (AEST/AEDT) 10:26:29]: [INFO]: [SCENE] Movie initialized successfully
+[02-06-2025 (AEST/AEDT) 10:26:29]: [INFO]: Thread 'GE-FileIO-Thread' resumed.
+[02-06-2025 (AEST/AEDT) 10:26:29]: [INFO]: Creating BGRA format texture for video
+[02-06-2025 (AEST/AEDT) 10:26:29]: [INFO]: Successfully set D3D manager for hardware decoding
+[02-06-2025 (AEST/AEDT) 10:26:28]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
+[02-06-2025 (AEST/AEDT) 10:26:28]: [INFO]: D3D11 multithreaded protection enabled
+[02-06-2025 (AEST/AEDT) 10:26:19]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[02-06-2025 (AEST/AEDT) 10:26:19]: [INFO]: Thread 'GE-Rendering-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:26:19]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:26:19]: [INFO]: Setting up thread: GE-Rendering-Thread
+[02-06-2025 (AEST/AEDT) 10:26:19]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:26:19]: [INFO]: Setting up thread: GE-FileIO-Thread
+[02-06-2025 (AEST/AEDT) 10:26:19]: [INFO]: Media Foundation multithreaded mode enabled
+[02-06-2025 (AEST/AEDT) 10:26:19]: [INFO]: [FXManager] Successfully initialized with DirectX 11 renderer
+[02-06-2025 (AEST/AEDT) 10:26:19]: [INFO]: [FXManager] Successfully compiled and loaded fade shaders
+[02-06-2025 (AEST/AEDT) 10:26:18]: [INFO]: Initializing GUIManager...
 
-[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: [RENDERER] Fullscreen mode set successfully
-[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: Direct2D render target created successfully
-[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: WM_SIZE - Resize completed successfully
-[24-05-2025 (AEST/AEDT) 10:37:30]: [WARNING]: Resize attempted in unsupported scene type
-[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
-[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:37:30]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:37:30]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
-[24-05-2025 (AEST/AEDT) 10:37:30]: [WARNING]: No Thread with name 'GE-FileIO-Thread' was found.
-[24-05-2025 (AEST/AEDT) 10:37:29]: [INFO]: Direct2D render target created successfully
-[24-05-2025 (AEST/AEDT) 10:37:29]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
-[24-05-2025 (AEST/AEDT) 10:37:29]: [INFO]: Found Adapter: Microsoft Basic Render Driver
-[24-05-2025 (AEST/AEDT) 10:37:29]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
-[24-05-2025 (AEST/AEDT) 10:37:29]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
-[24-05-2025 (AEST/AEDT) 10:37:29]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
-[24-05-2025 (AEST/AEDT) 10:37:29]: [INFO]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
-[24-05-2025 (AEST/AEDT) 10:37:28]: [INFO]: DX Camera created successfully
-[24-05-2025 (AEST/AEDT) 10:37:28]: [INFO]: Media Foundation multithreaded mode enabled
-[24-05-2025 (AEST/AEDT) 10:37:28]: [INFO]: ThreadManager initialized.
-[24-05-2025 (AEST/AEDT) 10:35:13]: [INFO]: ThreadManager destroyed.
-[24-05-2025 (AEST/AEDT) 10:35:13]: [INFO]: DX Camera destroyed!
-[24-05-2025 (AEST/AEDT) 10:35:13]: [INFO]: Renderer Cleaned up and Destroyed!
-[24-05-2025 (AEST/AEDT) 10:35:13]: [INFO]: MoviePlayer: Resources cleaned up
-[24-05-2025 (AEST/AEDT) 10:35:13]: [INFO]: MoviePlayer: Playback stopped
-[24-05-2025 (AEST/AEDT) 10:35:13]: [INFO]: Renderer Successfully Cleaned Up.
-[24-05-2025 (AEST/AEDT) 10:35:13]: [INFO]: All threads and locks cleaned up.
-[24-05-2025 (AEST/AEDT) 10:35:13]: [INFO]: Thread 'GE-FileIO-Thread' terminated.
-[24-05-2025 (AEST/AEDT) 10:35:13]: [INFO]: Thread 'GE-FileIO-Thread' started.
-[24-05-2025 (AEST/AEDT) 10:35:13]: [WARNING]: Thread with name 'GE-FileIO-Thread' already exists.
-[24-05-2025 (AEST/AEDT) 10:35:13]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
-[24-05-2025 (AEST/AEDT) 10:35:13]: [INFO]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
-[24-05-2025 (AEST/AEDT) 10:35:13]: [INFO]: Direct2D render target created successfully
-[24-05-2025 (AEST/AEDT) 10:35:12]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:35:12]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:35:12]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:35:12]: [INFO]: FXManager: Starfield effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:35:12]: [INFO]: WM_SIZE - Beginning resize to 1920x1009
-[24-05-2025 (AEST/AEDT) 10:35:12]: [INFO]: Thread 'GE-File Thread 'GE-FileIO-Thread' finished.
-[24-05-2025 (AEST/AEDT) 10:35:12]: [INFO]: [LOADER]: Scene Loading Complete - Exiting Thread
-[24-05-2025 (AEST/AEDT) 10:34:29]: [INFO]: Thread 'GE-FileIO-Thread' paused.
-[24-05-2025 (AEST/AEDT) 10:34:29]: [INFO]: XM file loaded successfully.
-[24-05-2025 (AEST/AEDT) 10:34:28]: [INFO]: Patterns loaded successfully.
-[24-05-2025 (AEST/AEDT) 10:34:28]: [INFO]: Loading patterns...
-[24-05-2025 (AEST/AEDT) 10:34:28]: [INFO]: Loading XM file: ./Assets/thevoid.xm
-[24-05-2025 (AEST/AEDT) 10:34:28]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
-[24-05-2025 (AEST/AEDT) 10:34:26]: [INFO]: MoviePlayer: Playback stopped
-[24-05-2025 (AEST/AEDT) 10:34:26]: [INFO]: MoviePlayer: End of stream reached
-[24-05-2025 (AEST/AEDT) 10:34:11]: [INFO]: Thread 'GE-FileIO-Thread' resumed.
-[24-05-2025 (AEST/AEDT) 10:34:11]: [INFO]: MoviePlayer: Playback started
-[24-05-2025 (AEST/AEDT) 10:34:11]: [INFO]: Creating BGRA format texture for video
-[24-05-2025 (AEST/AEDT) 10:34:11]: [INFO]: Successfully set D3D manager for hardware decoding
-[24-05-2025 (AEST/AEDT) 10:34:11]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
-[24-05-2025 (AEST/AEDT) 10:34:10]: [INFO]: D3D11 multithreaded protection enabled
-[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: Thread 'GE-FileIO-Thread' paused.
-[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: Thread 'GE-FileIO-Thread' started.
-[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: Thread 'GE-FileIO-Thread' started.
-[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: Setting up thread: GE-FileIO-Thread
-[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: Media Foundation multithreaded mode enabled
-[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: FXManager: Successfully compiled and loaded fade shaders.
-[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: Initializing GUIManager...
+[02-06-2025 (AEST/AEDT) 10:26:18]: [INFO]: Direct2D render target created successfully
+[02-06-2025 (AEST/AEDT) 10:26:18]: [INFO]: WM_SIZE - Resize completed successfully
+[02-06-2025 (AEST/AEDT) 10:26:18]: [WARNING]: Resize attempted in unsupported scene type
+[02-06-2025 (AEST/AEDT) 10:26:18]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
+[02-06-2025 (AEST/AEDT) 10:26:18]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[02-06-2025 (AEST/AEDT) 10:26:18]: [WARNING]: No Thread with name 'GE-FileIO-Thread' was found.
+[02-06-2025 (AEST/AEDT) 10:26:17]: [INFO]: Direct2D render target created successfully
+[02-06-2025 (AEST/AEDT) 10:26:17]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
+[02-06-2025 (AEST/AEDT) 10:26:17]: [INFO]: Found Adapter: Microsoft Basic Render Driver
+[02-06-2025 (AEST/AEDT) 10:26:17]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
+[02-06-2025 (AEST/AEDT) 10:26:17]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
+[02-06-2025 (AEST/AEDT) 10:26:17]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[02-06-2025 (AEST/AEDT) 10:26:17]: [INFO]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[02-06-2025 (AEST/AEDT) 10:26:17]: [INFO]: DX Camera created successfully
+[02-06-2025 (AEST/AEDT) 10:26:16]: [INFO]: Media Foundation multithreaded mode enabled
+[02-06-2025 (AEST/AEDT) 10:26:16]: [INFO]: ThreadManager initialized.
+[02-06-2025 (AEST/AEDT) 10:24:33]: [INFO]: ThreadManager destroyed.
+[02-06-2025 (AEST/AEDT) 10:24:33]: [INFO]: DX Camera destroyed!
+[02-06-2025 (AEST/AEDT) 10:24:33]: [INFO]: Renderer Cleaned up and Destroyed!
+[02-06-2025 (AEST/AEDT) 10:24:33]: [INFO]: MoviePlayer: Resources cleaned up
+[02-06-2025 (AEST/AEDT) 10:24:33]: [INFO]: MoviePlayer: Playback stopped
+[02-06-2025 (AEST/AEDT) 10:24:33]: [WARNING]: Cannot remove lock 'network_connection_state' as it doesn't exist.
+[02-06-2025 (AEST/AEDT) 10:24:33]: [WARNING]: Cannot remove lock 'network_packet_queue' as it doesn't exist.
+[02-06-2025 (AEST/AEDT) 10:24:33]: [INFO]: Renderer Successfully Cleaned Up.
+[02-06-2025 (AEST/AEDT) 10:24:33]: [INFO]: All threads and locks cleaned up.
+[02-06-2025 (AEST/AEDT) 10:24:32]: [INFO]: Thdering-Thread' terminated.
+[02-06-2025 (AEST/AEDT) 10:24:32]: [INFO]: [LOADER]: Scene Loading Complete - Pausing Thread
+[02-06-2025 (AEST:32]: [WARNING]: [FXManager] Render called after cleanup or during shutdown - aborting
+[02-06-2025 (AEST/AEDT) 10:24:32]: CreateGameMenuWindow - Posting quit message for application shutdown
+[02-06-2025 (AEST/AEDT) 10:24:32]: [INFO]: CreateGameMenuWindow - Posting quit message for application shutdown
+[02-06-2025 (AEST/AEDT) 10:24:32]: GUIManager::RemoveWindow - Window 'GameMenuWindow' successfully removed
+[02-06-2025 (AEST/AEDT) 10:24:32]: [INFO]: GUIManager::RemoveWindow - Window 'GameMenuWindow' successfully removed
+[02-06-2025 (AEST/AEDT) 10:24:32]: GUIManager::RemoveWindow - Attempting to remove window: GameMenuWindow
+[02-06-2025 (AEST/AEDT) 10:24:32]: [INFO]: GUIManager::RemoveWindow - Attempting to remove window: GameMenuWindow
+[02-06-2025 (AEST/AEDT) 10:24:32]: CreateGameMenuWindow - Fade effect completed successfully
+[02-06-2025 (AEST/AEDT) 10:24:32]: [DEBUG]: CreateGameMenuWindow - Fade effect completed successfully
+[02-06-2025 (AEST/AEDT) 10:24:31]: CreateGameMenuWindow - Quit button clicked, initiating shutdown sequence
+[02-06-2025 (AEST/AEDT) 10:24:31]: [INFO]: CreateGameMenuWindow - Quit button clicked, initiating shutdown sequence
+[02-06-2025 (AEST/AEDT) 10:24:26]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[02-06-2025 (AEST/AEDT) 10:24:26]: CreateGameMenuWindow - Game menu window created successfully with 6 controls
+[02-06-2025 (AEST/AEDT) 10:24:26]: [INFO]: CreateGameMenuWindow - Game menu window created successfully with 6 controls
+[02-06-2025 (AEST/AEDT) 10:24:26]: CreateGameMenuWindow - Window created at position (495, 0) with size (300, 600)
+[02-06-2025 (AEST/AEDT) 10:24:26]: [DEBUG]: CreateGameMenuWindow - Window created at position (495, 0) with size (300, 600)
+[02-06-2025 (AEST/AEDT) 10:24:26]: CreateGameMenuWindow - Creating game menu window with message: 
+[02-06-2025 (AEST/AEDT) 10:24:26]: [INFO]: CreateGameMenuWindow - Creating game menu window with message: 
+[02-06-2025 (AEST/AEDT) 10:24:26]: [INFO]: XM
+[02-06-2025 (AEST/AEDT) 10:24:26]: [INFO]: Patterns loaded successfully.
+[02-06-2025 (uEST/AEDT) 10:24:26]: [INFO]: Loading patterns...
+[02-06-2025 (AEST/AEDT) 10:24:26]: [INFO]: Loading XM file: ./Assets/thevoid.xm
+[02-06-2025 (AEST/AEDT) 10:24:26]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[02-06-20o5 (AEST/AEDT) 10:24:24]: [INFO]: MoviePlayer: Playback stopped
+[02-06-2025 (AEST/AEDT) 10:24:24]: [INFO]: MoviePlayer: End of stream reached
+[02-06-2025 (AEST/AEDT) 10:24:12]: [INFO]: [SCENE] Movie initialized successfully
+[02-06-2025 (AEST/AEDT) 10:24:12]: [INFO]: [SCENE] Entered SCENE_INTRO_MOVIE
+[02-06-2025 (AEST/AEDT) 10:24:12]: [INFO]: Creating BGRA format texture for video
+[02-06-2025 (AEST/AEDT) 10:24:12]: [INFO]: Successfully set D3D manager for hardware decoding
+[02-06-2025 (AEST/AEDT) 10:24:12]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
+[02-06-2025 (AEST/AEDT) 10:24:11]: [INFO]: D3D11 multithreaded protection enabled
+[02-06-2025 (AEST/AEDT) 10:24:02]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[02-06-2025 (AEST/AEDT) 10:24:02]: [INFO]: Thread 'GE-Rendering-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:24:02]: [INFO]: Thread 'GE-Rendering-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:24:02]: [INFO]: Setting up thread: GE-Rendering-Thread
+[02-06-2025 (AEST/AEDT) 10:24:02]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:24:02]: [INFO]: Setting up thread: GE-FileIO-Thread
+[02-06-2025 (AEST/AEDT) 10:24:02]: [INFO]: Media Foundation multithreaded mode enabled
+[02-06-2025 (AEST/AEDT) 10:24:02]: [INFO]: [FXManager] Successfully initialized with DirectX 11 renderer
+[02-06-2025 (AEST/AEDT) 10:24:02]: [INFO]: [FXManager] Successfully compiled and loaded fade shaders
+[02-06-2025 (AEST/AEDT) 10:24:02]: [INFO]: Initializing GUIManager...
 
-[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: [RENDERER] Fullscreen mode set successfully
-[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: Direct2D render target created successfully
-[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: WM_SIZE - Resize completed successfully
-[24-05-2025 (AEST/AEDT) 10:34:04]: [WARNING]: Resize attempted in unsupported scene type
-[24-05-2025 nAEST/AEDT) 10:34:04]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
-[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:34:04]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:34:04]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
-[24-05-2025 (AEST/AEDT) 10:34:04]: [WARNING]: No Thread with name 'GE-FileIO-Thread' was found.
-[24-05-2025 (AEST/AEDT) 10:34:03]: [INFO]: Direct2D render target created successfully
-[24-05-2025 (AEST/AEDT) 10:34:03]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
-[24-05-2025 (AEST/AEDT) 10:34:03]: [INFO]: Found Adapter: Microsoft Basic Render Driver
-[24-05-2025 (AEST/AEDT) 10:34:03]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
-[24-05-2025 (AEST/AEDT) 10:34:03]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
-[24-05-2025 (AEST/AEDT) 10:34:03]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
-[24-05-2025 (AEST/AEDT) 10:34:03]: [INFO]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
-[24-05-2025 (AEST/AEDT) 25 (AEST/AEDT) 10:34:02]: [INFO]: DX Camera created successfully
-[24-05-2025 (AEST/AEDT) 10:34:02]: [INFO]: Media Foundation multithreaded mode enabled
-[24-05-2025 (AEST/AEDT) 10:34:02]: [INFO]: ThreadManager initialized.
-[24-05-2025 (AEST/AEDT) 10:20:50]: [INFO]: ThreadManager destroyed.
-[24-05-2025 (AEST/AEDT) 10:20:50]: [INFO]: DX Camera destroyed!
-[24-05-2025 (AEST/AEDT) 10:20:50]: [INFO]: Renderer Cleaned up and Destroyed!
-[24-05-2025 (AEST/AEDT) 10:20:50]: [INFO]: MoviePlayer: Resources cleaned up
-[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: MoviePlayer: Playback stopped
-[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: Renderer Successfully Cleaned Up.
-[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: All threads and locks cleaned up.
-[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: Thread 'GE-FileIO-Thread' terminated.
-[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: Thread 'GE-FileIO-Thread' started.
-[24-05-2025 (AEST/AEDT) 10:20:49]: [WARNING]: Thread with name 'GE-FileIO-Thread' already exists.
-[24-05-2025 (AEST/AEDT) 10:20:49]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
-[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
-[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: Direct2D render target created successfully
-[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: FXManager: Starfield effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: WM_SIZE - Beginning resize to 1920x1009
-[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: Thread 'GE-FileIO-Thread' finished.
-[24-05-2025 (AEST/AEDT) 10:20:49]: [INFO]: [LOADER]: Scene Loading Complete - Exiting Thread
-[24-05-2025 (AEST/AEDT) 10:20:43]: [INFO]: Thread 'GE-FileIO-Thread' paused.
-[24-05-2025 (AEST/AEDT) 10:20:43]: [INFO]: XM file loaded successfully.
-[24-05-2025 (AEST/AEDT) 10:20:43]: [INFO]: Patterns loaded successfully.
-[24-05-2025 (AEST/AEDT) 10:20:43]: [INFO]: Loading patterns...
-[24-05-2025 (AEST/AEDT) 10:20:43]: [INFO]: Loading XM file: ./Assets/thevoid.xm
-[24-05-2025 (AEST/AEDT) 10:20:43]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
-[24-05-2025 (AEST/AEDT) 10:20:42]: [INFO]: MoviePlayer: Playback stopped
-[24-05-2025 (AEST/AEDT) 10:20:42]: [INFO]: MoviePlayer: End of stream reached
-[24-05-2025 (AEST/AEDT) 10:20:26]: [INFO]: Thread 'GE-FileIO-Thread' resumed.
-[24-05-2025 (AEST/AEDT) 10:20:26]: [INFO]: MoviePlayer: Playback started
-[24-05-2025 (AEST/AEDT) 10:20:26]: [INFO]: Creating BGRA format texture for video
-[24-05-2025 (AEST/AEDT) 10:20:26]: [INFO]: Successfully set D3D manager for hardware decoding
-[24-05-2025 (AEST/AEDT) 10:20:26]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
-[24-05-2025 (AEST/AEDT) 10:20:26]: [INFO]: D3D11 multithreaded protection enabled
-[24-05-2025 (AEST/AEDT) 10:20:20]: [INFO]: Thread 'GE-FileIO-Thread' paused.
-[24-05-2025 (AEST/AEDT) 10:20:19]: [INFO]: Thread 'GE-FileIO-Thread' started.
-[24-05-2025 (AEST/AEDT) 10:20:19]: [INFO]: Thread 'GE-FileIO-Thread' started.
-[24-05-2025 (AEST/AEDT) 10:20:19]: [INFO]: Setting up thread: GE-FileIO-Thread
-[24-05-2025 (AEST/AEDT) 10:20:19]: [INFO]: Media Foundation multithreaded mode enabled
-[24-05-2025 (AEST/AEDT) 10:20:19]: [INFO]: FXManager: Successfully compiled and loaded fade shaders.
-[24-05-2025 (AEST/AEDT) 10:20:19]: [INFO]: Initializing GUIManager...
+[02-06-2025 (AEST/AEDT) 10:24:02]: [INFO]: Direct2D render target created successfully
+[02-06-2025 (AEST/AEDT) 10:24:02]: [INFO]: WM_SIZE - Resize completed successfully
+[02-06-2025 (AEST/AEDT) 10:24:02]: [WARNING]: Resize attempted in unsupported scene type
+[02-06-2025 (AEST/AEDT) 10:24:006-2025 (AEST/AEDT) 10:24:02]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
+[02-06-2025 (AEST/AEDT) 10:24:01]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[02-06-2025 (AEST/AEDT) 10:24:01]: [WARNING]: No Thread with name 'GE-FileIO-Thread' was found.
+[02-06-2025 (AEST/AEDT) 10:24:01]: [INFO]: Direct2D render target created successfully
+[02-06-2025 (AEST/AEDT) 10:24:00]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
+[02-06-2025 (AEST/AEDT) 10:24:00]: [INFO]: Found Adapter: Microsoft Basic Render Driver
+[02-06-2025 (AEST/AEDT) 10:24:00]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
+[02-06-2025 (AEST/AEDT) 10:24:00]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
+[02-06-2025 (AEST/AEDT) 10:24:00]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[02-06-2025 (AEST/AEDT) 10:24:00]: [INFO]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[02-06-2025 (AEST/AEDT) 10:24:00]: [INFO]: DX Camera created successfully
+[02-06-2025 (AEST/AEDT) 10:24:00]: [INFO]: Media Foundation multithreaded mode enabled
+[02-06-2025 (AEST/AEDT) 10:24:00]: [INFO]: ThreadManager initialized.
+[02-06-2025 (AEST/AEDT) 10:22:10]: [INFO]: ThreadManager destroyed.
+[02-06-2025 (AEST/AEDT) 10:22:10]: [INFO]: DX Camera destroyed!
+[02-06-2025 (AEST/AEDT) 10:22:10]: [INFO]: Renderer Cleaned up and Destroyed!
+[02-06-2025 (AEST/AEDT) 10:22:10]: [INFO]: MoviePlayer: Resources cleaned up
+[02-06-2025 (AEST/AEDT) 10:22:10]: [INFO]: MoviePlayer: Playback stopped
+[02-06-2025 (AEST/AEDT) 10:22:10]: [WARNING]: Cannot remove lock 'network_connection_state' as it doesn't exist.
+[02-06-2025 (AEST/AEDT) 10:22:10]: [WARNING]: Cannot remove lock 'network_packet_queue' as it doesn't exist.
+[02-06-2025 (AEST/AEDT) 10:22:10]: [INFO]: Renderer Successfully Cleaned Up.
+[02-06-2025 (AEST/AEDT) 10:22:10]: [INFO]: All threads and locks cleaned up.
+[02-06-2025 (AEST/AEDT) 10:22:10]: [INFO]: Thread 'GE-Rendering-Thread' terminated.
+[02-06-2025 (AEST/AEDT [WARNING]: Render Thread Exiting.
+[02-06-2025 (AEST/AEDT) 10:22:10]: [INFO]: FXManager: Starfield effect manually stopped.
+ effect manually stopped.
+[02-06-2025 (AEST/AEDT) 10:22:10]: CreateGameMenuWindow - Posting quit message for application shutdown
+[02-06-2025 (AEST/AEDT) 10:22:10]: [INFO]: CreateGameMenuWindow - Posting quit message for application shutdoor application shutdown
+[02-06-2025 (AEST/AEDT) 10:22:10]: GUIManager::RemoveWindow - Window 'GameMenuWindow' successfully removed
+[02-06-2025 (AEST/AEDT) 10:22:10]: [INFO]: GUIManager::RemoveWindow - Window 'GameMenuWindow' successfully removed
+[02-06-2025 (AEST/AEDT) 10:22:10]: GUIManager::RemoveWindow - Attempting to remove window: GameMenuWindow
+[02-06-2025 (AEST/AEDT) 10:22:10]: [INFO]: GUIManager::RemoveWindow - Attempting to remove window: GameMenuWindow
+[02-06-2025 (AEST/AEDT) 10:22:10]: CreateGameMenuWindow - Fade effect completed successfully
+[02-06-2025 (AEST/AEDT) 10:22:10]: [DEBUG]: CreateGameMenuWindow - Fade effect completed successfully
+[02-06-2025 (AEST/AEDT) 10:22:09]: CreateGameMenuWindow - Quit button clicked, initiating shutdown sequence
+[02-06-2025 (AEST/AEDT) 10:22:09]: [INFO]: CreateGameMenuWindow - Quit button clicked, initiating shutdown sequence
+[02-06-2025 (AEST/AEDT) 10:22:03]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[02-06-2025 (AEST/AEDT) 10:22:03]: CreateGameMenuWindow - Game menu window created successfully with 6 controls
+[02-06-2025 (AEST/AEDT) 10:22:03]: [INFO]: CreateGameMenuWindow - Game menu window created successfully with 6 controls
+[02-06-2025 (AEST/AEDT) 10:22:03]: CreateGameMenuWindow - Window created at position (495, 0) with size (300, 600)
+[02-06-2025 (AEST/AEDT) 10:22:03]: [DEBUG]: CreateGameMenuWindow - Window created at position (495, 0) with size (300, 600)
+[02-06-2025 (AEST/AEDT) 10:22:03]: CreateGameMenuWindow - Creating game menu window with message: 
+[02-06-2025 (AEST/AEDT) 10:22:03]: [INFO]: CreateGameMenuWindow - Creating game menu window with message: 
+[02-06-2025 (AEST/AEDT) 10:22:03]: [INFO]: XM file loaded successfully.
+[02-06-2025 (AEST/AEDT) 10:22:03]: [INFO]: Patterns loaded successfully.
+[02-06-ly.
+[02-06-2025 (AEST/AEDT) 10:22:03]: [INFO]: Loading patterns...
+[02-06-2025 (AEST/AEDT) 10:22:02]: [INFO]: Loading XM file: ./Assets/thevoid.xm
+[02-06-2025 (AEST/AEDT) 10:22:02]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[0d-06-2025 (AEST/AEDT) 10:22:01]: [INFO]: MoviePlayer: Playback stopped
+[02-06-2025 (AEST/AEDT) 10:22:01]: [INFO]: MoviePlayer: End of stream reached
+[02-06-2025 (AEST/AEDT) 10:21:49]: [INFO]: [SCENE] Movie initialized successfully
+[02-06-2025 (AEST/AEDT) 10:21:48]: [INFO]: [SCENE] Entered SCENE_INTRO_MOVIE
+[02-06-2025 (AEST/AEDT) 10:21:48]: [INFO]: Creating BGRA format texture for video
+[02-06-2025 (AEST/AEDT) 10:21:48]: [INFO]: Successfully set D3D manager for hardware decoding
+[02-06-2025 (AEST/AEDT) 10:21:48]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
+[02-06-2025 (AEST/AEDT) 10:21:48]: [INFO]: D3D11 multithreaded protection enabled
+[02-06-2025 (AEST/AEDT) 10:21:39]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[02-06-2025 (AEST/AEDT) d 'GE-FileIO-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:21:39]: [INFO]: Thread 'GE-Rendering-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:21:39]: [INFO]: Setting up thread: GE-Rendering-Thread
+[02-06-2025 (AEST/AEDT) 10:21:39]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:21:39]: [INFO]: Setting up thread: GE-FileIO-Thread
+[02-06-2025 (AEST/AEDT) 10:21:39]: [INFO]: Media Foundation multithreaded mode enabled
+[02-06-2025 (AEST/AEDT) 10:21:39]: [INFO]: [FXManager] Successfully initialized with DirectX 11 renderer
+[02-06-2025 (AEST/AEDT) 10:21:39]: [INFO]: [FXManager] Successfully compiled and loaded fade shaders
+[02-06-2025 (AEST/AEDT) 10:21:39]: [INFO]: Initializing GUIManager...
 
-[24-05-2025 (AEST/AEDT) 10:20:19]: [INFO]: [RENDERER] Fullscreen mode set successfully
-[24-05-2025 (AEST/AEDT) 10:20:19]: [INFO]: Direct2D render target created successfully
-[24-05-2025 (AEST/AEDT) 10:20:19]: [INFO]: WM_SIZE - Resize completed successfully
-[24-05-2025 (AEST/AEDT) 10:20:19]: [WARNING]: Resize attempted in unsupported scene type
-[24-05-2025 (AEST/AEDT) 10:20:19]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:20:19]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:20:19]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:20:19]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
-[24-05-2025 (AEST/AEDT) 10:20:18]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:20:18]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:20:18]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 10:20:18]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
-[24-05-2025 (AEST/AEDT) 10:20:18]: [WARNING]: No Thread with name 'GE-FileIO-Thread' was found.
-[24-05-2025 (AEST/AEDT) 10:20:17]: [INFO]: Direct2D render target created successfully
-[24-05-2025 (AEST/AEDT) 10:20:17]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
-[24-05-2025 (AEST/AEDT) 10:20:17]: [INFO]: Found Adapter: Microsoft Basic Render Driver
-[24-05-2025 (AEST/AEDT) 10:20:17]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
-[24-05-2025 (AEST/AEDT) 10:20:17]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
-[24-05-2025 (AEST/AEDT) 10:20:17]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
-[24-05-2025 (AEST/AEDT) 10:20:17]: [INFO]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
-[24-05-2025 (AEST/AEDT) 10:20:16]: [INFO]: DX Camera created successfully
-[24-05-2025 (AEST/AEDT) 10:20:16]: [INFO]: Media Foundation multithreaded mode enabled
-[24-05-2025 (AEST/AEDT) 10:20:16]: [INFO]: ThreadManager initialized.
-[24-05-2025 (AEST/AEDT) 09:59:31]: [INFO]: ThreadManager destroyed.
-[24-05-2025 (AEST/AEDT) 09:59:31]: [INFO]: DX Camera destroyed!
-[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: Renderer Cleaned up and Destroyed!
-[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: MoviePlayer: Resources cleaned up
-[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: MoviePlayer: Playback stopped
-[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: Renderer Successfully Cleaned Up.
-[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: All threads and locks cleaned up.
-[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: Thread 'GE-FileIO-Thread' terminated.
-[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: Thread 'GE-FileIO-Thread' started.
-[24-05-2025 (AEST/AEDT) 09:59:30]: [WARNING]: Thread with name 'GE-FileIO-Thread' already exists.
-[24-05-2025 (AEST/AEDT) 09:59:30]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
-[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
-[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: Direct2D render target created successfully
-[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: FXManager: Starfield effect manually stopped.
-[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: WM_SIZE - Beginning resize to 1920x1009
-[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: Thread 'GE-FileIO-Thread' finished.
-[24-05-2025 (AEST/AEDT) 09:59:30]: [INFO]: [LOADER]: Scene Loading Complete - Exiting Thread
-[24-05-2025 (AEST/AEDT) 09:57:55]: [INFO]: Thread 'GE-FileIO-Thread' paused.
-[24-05-2025 (AEST/AEDT) 09:57:55]: [INFO]: XM file loaded successfully.
-[24-05-2025 (AEST/AEDT) 09:57:55]: [INFO]: Patterns loaded successfully.
-[24-05-2025 (AEST/AEDT) 09:57:55]: [INFO]: Loading patterns...
-[24-05-2025 (AEST/AEDT) 09:57:55]: [INFO]: Loading XM file: ./Assets/thevoid.xm
-[24-05-2025 (AEST/AEDT) 09:57:55]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
-[24-05-2025 (AEST/AEDT) 09:57:54]: [INFO]: MoviePlayer: Playback stopped
-[24-05-2025 (AEST/AEDT) 09:57:54]: [INFO]: MoviePlayer: End of stream reached
-[24-05-2025 (AEST/AEDT) 09:57:39]: [INFO]: Thread 'GE-FileIO-Thread' resumed.
-[24-05-2025 (AEST/AEDT) 09:57:39]: [INFO]: MoviePlayer: Playback started
-[24-05-2025 (AEST/AEDT) 09:57:39]: [INFO]: Creating BGRA format texture for video
-[24-05-2025 (AEST/AEDT) 09:57:38]: [INFO]: Successfully set D3D manager for hardware decoding
-[24-05-2025 (AEST/AEDT) 09:57:38]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
-[24-05-2025 (AEST/AEDT) 09:57:38]: [INFO]: D3D11 multithreaded protection enabled
-[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: Thread 'GE-FileIO-Thread' paused.
-[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: Thread 'GE-FileIO-Thread' started.
-[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: Thread 'GE-FileIO-Thread' started.
-[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: Setting up thread: GE-FileIO-Thread
-[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: Media Foundation multithreaded mode enabled
-[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: FXManager: Successfully compiled and loaded fade shaders.
-[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: Initializing GUIManager...
+[02-06-2025 (AEST/AEDT) 10:21:39]: [INFO]: Direct2D render target created successfully
+[02-06-2025 (AEST/AEDT) 10:21:39]: [INFO]: WM_SIZE - Resize completed successfully
+[02-06-2025 (AEST/AEDT) 10:21:39]: [WARNING]: Resize attempted in unsupported scene type
+[02-06-2025 (AEST/AEDT) 10:21:39]: [INFO]: WM_SIZE 1080
+[02-06-2025 (AEST/AEDT) 10:21:38]: [WARNING]: Thread 'GE-FileFileIO-Thread' is not paused.
+[02-06-2025 (AEST/AEDT) 10:21:38]: [WARNING]: No Thread with name 'GE-FileIO-Thread' was found.
+[02-06-2025 (AEST/AEDT) 10:21:38]: [INFO]: Direct2D render target created successfully
+[02-06-2025 (AEST/AEDT) 10:21:37]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
+[02-06-2025 (AEST/AEDT) 10:21:37]: [INFO]: Found Adapter: Microsoft Basic Render Driver
+[02-06-2025 (AEST/AEDT) 10:21:37]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
+[02-06-2025 (AEST/AEDT) 10:21:37]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
+[02-06-2025 (AEST/AEDT) 10:21:37]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[02-06-2025 (AEST/AEDT) 10:21:37]: [INFO]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[02-06-2025 (AEST/AEDT) 10:21:37]: [INFO]: DX Camera created successfully
+[02-06-2025 (AEST/AEDT) 10:21:37]: [INFO]: Media Foundation multithreaded mode enabled
+[02-06-2025 (AEST/AEDT) 10:21:37]: [INFO]: ThreadManager initialized.
+[02-06-2025 (AEST/AEDT) 10:20:14]: [INFO]: ThreadManager destroyed.
+[02-06-2025 (AEST/AEDT) 10:20:14]: [INFO]: DX Camera destroyed!
+[02-06-2025 (AEST/AEDT) 10:20:14]: [INFO]: Renderer Cleaned up and Destroyed!
+[02-06-2025 (AEST/AEDT) 10:20:14]: [INFO]: MoviePlayer: Resources cleaned up
+[02-06-2025 (AEST/AEDT) 10:20:14]: [INFO]: MoviePlayer: Playback stopped
+[02-06-2025 (AEST/AEDT) 10:20:14]: [WARNING]: Cannot remove lock 'network_connection_state' as it doesn't exist.
+[02-06-2025 (AEST/AEDT) 10:20:14]: [WARNING]: Cannot remove lock 'network_packet_queue' as it doesn't exist.
+[02-06-2025 (AEST/AEDT) 10:20:14]: [INFO]: Renderer Successfully Cleaned Up.
+[02-06-2025 (AEST/AEDT) 10:20:14]: [INFO]: All threads and locks cleaned up.
+[02-06-2025 (AEST/AEDT) 10:20:14]: [INFO]: Thread 'GE-Rendering-Thread' terminated.
+[02-06-2025 (AEST/AEDT) 10:20:14]: [WARNING]: Render Thread Exiting.
+[02-06-2025 (AEST/AEDT) 102-06-2025 (AEST/AEDT) 10:20:14]: [INFO]: FXManager: Starfield effect manually stopped.
+[02-06-2dT) 10:20:14]: CreateGameMenuWindow - Posting quit message for application shutdown
+[02-06-2025 (AEST/AEDT) 10:20:14]: [INFO]: CreateGameMenuWindow - Posting quit message for application shutdown
+[02-06t2025 (AEST/AEDT) 10:20:14]: GUIManager::RemoveWindow - Window 'GameMenuWindow' successfully removed
+[02-06-2025 (AEST/AEDT) 10:20:14]: [INFO]: GUIManager::RemoveWindow - Window 'GameMenuWindow' successfully removed
+[02-06-2025 (AEST/AEDT) 10:20:14]: GUIManager::RemoveWindow - Attempting to remove window: GameMenuWindow
+[02-06-2025 (AEST/AEDT) 10:20:14]: [INFO]: GUIManager::RemoveWindow - Attempting to remove window: GameMenuWindow
+[02-06-2025 (AEST/AEDT) 10:20:14]: CreateGameMenuWindow - Fade effect completed successfully
+[02-06-2025 (AEST/AEDT) 10:20:14]: [DEBUG]: CreateGameMenuWindow - Fade effect completed successfully
+[02-06-2025 (AEST/AEDT) 10:20:13]: CreateGameMenuWindow - Quit button clicked, initiating shutdown sequence
+[02-06-2025 (AEST/AEDT) 10:20:13]: [INFO]: CreateGameMenuWindow - Quit button clicked, initiating shutdown sequence
+[02-06-2025 (AEST/AEDT) 10:20:05]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[02-06-2025 (AEST/AEDT) 10:20:05]: CreateGameMenuWindow - Game menu window created successfully with 6 controls
+[02-06-2025 (AEST/AEDT) 10:20:05]: [INFO]: CreateGameMenuWindow - Game menu window created successfully with 6 controls
+[02-06-2025 (AEST/AEDT) 10:20:05]: CreateGameMenuWindow - Window created at position (495, 0) with size (300, 600)
+[02-06-2025 (AEST/AEDT) 10:20:05]: [DEBUG]: CreateGameMenuWindow - Window created at position (495, 0) with size (300, 600)
+[02-06-2025 (AEST/AEDT) 10:20:05]: CreateGameMenuWindow - Creating game menu window with message: 
+[02-06-2025 (AEST/AEDT) 10:20:05]: [INFO]: CreateGameMenuWindow - Creating game menu window with message: 
+[02-06-2025 (AEST/AEDT) 10:20:05]: [INFO]: XM file loaded successfully.
+[02-06-2025 (AEST/AEDT) 10:20:05]: [INFO]: Patterns loaded successfully.
+[02-06-2025 (AEST/AEDT) 10:20:05]: [INFO]: Loading patterns...
+[02-06-2025 (AEST/AEDT) 10:20:05]: [INFO]: Loading XM file: ./Assets/thevoid.xm
+[02-06-2025 (AEST/AEDT) 10:20:04]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[02-06-2025 (AEST/AEDT) 10:20:03]: [INFO]: MoviePlayer: Playback stopped
+[02-06-2025 (AEST/AEDT) 10:20:03]: [INFO]: MoviePlayer: End of stream reached
+[02-06-2025 (AEST/AEDT) 10:19:50]: [INFO]: [SCENE] Movie initialized successfully
+[02-06-2025 (AEST/AEDT) 10:19:50]: [INFO]: [SCENE] Entered SCENE_INTRO_MOVIE
+[02-06-2025 (AEST/AEDT) 10:19:50]: [INFO]: Creating BGRA format texture for video
+[02-06-2025 (AEST/AEDT) 10:19:50]: [INFO]: Successfully set D3D manager for hardware decoding
+[02-06-2025 (AEST/AEDT) 10:19:50]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
+[02-06-2025 (AEST/AEDT) 10:19:50]: [INFO]: D3D11 multithreaded protection enabled
+[02-06-2025 (AEST/AEDT) 10:19:41]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[02-06-2025 (AEST/AEDT) 10:19:40]: [INFO]: Thread 'GE-Rendering-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:19:40]: [INFO]: Thread 'GE-Rendering-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:19:40]: [INFO]: Setting up thread: GE-Rendering-Thread
+[02-06-2025 (AEST/AEDT) 10:19:40]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:19:40]: [INFO]: Setting up thread: GE-FileIO-Thread
+[02-06-2025 (AEST/AEDT) 10:19:40]: [INFO]: Media Foundation multithreaded mode enabled
+[02-06-2025 (AEST/AEDT) 10:19:40]: [INFO]: [FXManager] Successfully initialized with DirectX 11 renderer
+[02-06-2025 (AEST/AEDT) 10:19:40]: [INFO]: [FXManager] Successfully compiled and loaded fade shaders
+[02-06-2025 (AEST/AEDT) 10:19:40]: [INFO]: Initializing GUIManager...
 
-[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: [RENDERER] Fullscreen mode set successfully
-[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: Direct2D render target created successfully
-[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: WM_SIZE - Resize completed successfully
-[24-05-2025 (AEST/AEDT) 09:57:32]: [WARNING]: Resize attempted in unsupported scene type
-[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 09:57:32]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
-[24-05-2025 (AEST/AEDT) 09:57:31]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 09:57:31]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 09:57:31]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 09:57:31]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
-[24-05-2025 (AEST/AEDT) 09:57:31]: [WARNING]: No Thread with name 'GE-FileIO-Thread' was found.
-[24-05-2025 (AEST/AEDT) 09:57:30]: [INFO]: Direct2D render target created successfully
-[24-05-2025 (AEST/AEDT) 09:57:29]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
-[24-05-2025 (AEST/AEDT) 09:57:29]: [INFO]: Found Adapter: Microsoft Basic Render Driver
-[24-05-2025 (AEST/AEDT) 09:57:29]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
-[24-05-2025 (AEST/AEDT) 09:57:29]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
-[24-05-2025 (AEST/AEDT) 09:57:29]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
-[24-05-2025 (AEST/AEDT) 09:57:29]: [INFO]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
-[24-05-2025 (AEST/AEDT) 09:57:28]: [INFO]: DX Camera created successfully
-[24-05-2025 (AEST/AEDT) 09:57:28]: [INFO]: Media Foundation multithreaded mode enabled
-[24-05-2025 (AEST/AEDT) 09:57:28]: [INFO]: ThreadManager initialized.
-[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: ThreadManager destroyed.
-[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: DX Camera destroyed!
-[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: Renderer Cleaned up and Destroyed!
-[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: MoviePlayer: Resources cleaned up
-[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: MoviePlayer: Playback stopped
-[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: Renderer Successfully Cleaned Up.
-[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: All threads and locks cleaned up.
-[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: Thread 'GE-FileIO-Thread' terminated.
-[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: Thread 'GE-FileIO-Thread' started.
-[24-05-2025 (AEST/AEDT) 08:52:04]: [WARNING]: Thread with name 'GE-FileIO-Thread' already exists.
-[24-05-2025 (AEST/AEDT) 08:52:04]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
-[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
-[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: Direct2D render target created successfully
-[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: FXManager: Starfield effect manually stopped.
-[24-05-2025 (AEST/AEDT) 08:52:04]: [INFO]: WM_SIZE - Beginning resize to 1920x1009
-[24-05-2025 (AEST/AEDT) 08:52:03]: [INFO]: Thread 'GE-FileIO-Thread' finished.
-[24-05-2025 (AEST/AEDT) 08:52:03]: [INFO]: [LOADER]: Scene Loading Complete - Exiting Thread
-[24-05-2025 (AEST/AEDT) 08:48:26]: [INFO]: Thread 'GE-FileIO-Thread' paused.
-[24-05-2025 (AEST/AEDT) 08:48:26]: [INFO]: XM file loaded successfully.
-[24-05-2025 (AEST/AEDT) 08:48:26]: [INFO]: Patterns loaded successfully.
-[24-05-2025 (AEST/AEDT) 08:48:25]: [INFO]: Loading patterns...
-[24-05-2025 (AEST/AEDT) 08:48:25]: [INFO]: Loading XM file: ./Assets/thevoid.xm
-[24-05-2025 (AEST/AEDT) 08:48:25]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
-[24-05-2025 (AEST/AEDT) 08:48:24]: [INFO]: MoviePlayer: Playback stopped
-[24-05-2025 (AEST/AEDT) 08:48:24]: [INFO]: MoviePlayer: End of stream reached
-[24-05-2025 (AEST/AEDT) 08:48:09]: [INFO]: Thread 'GE-FileIO-Thread' resumed.
-[24-05-2025 (AEST/AEDT) 08:48:09]: [INFO]: MoviePlayer: Playback started
-[24-05-2025 (AEST/AEDT) 08:48:09]: [INFO]: Creating BGRA format texture for video
-[24-05-2025 (AEST/AEDT) 08:48:08]: [INFO]: Successfully set D3D manager for hardware decoding
-[24-05-2025 (AEST/AEDT) 08:48:08]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
-[24-05-2025 (AEST/AEDT) 08:48:07]: [INFO]: D3D11 multithreaded protection enabled
-[24-05-2025 (AEST/AEDT) 08:48:02]: [INFO]: Thread 'GE-FileIO-Thread' paused.
-[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: Thread 'GE-FileIO-Thread' started.
-[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: Thread 'GE-FileIO-Thread' started.
-[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: Setting up thread: GE-FileIO-Thread
-[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: Media Foundation multithreaded mode enabled
-[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: FXManager: Successfully compiled and loaded fade shaders.
-[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: Initializing GUIManager...
+[02-06-2025 (AEST/AEDT) 10:19:40]: [INFO]: Direct2D render target created successfully
+[02-06-2025 (AEST/AEDT) 10:19:40]: [INFO]: WM_SIZE - Resize completed successfully
+[02-06-2025 (AEST/AEDT) 10:19:40]: [WARNING]: Resize attempted in unsupported scene type
+[02-06-2025 (AEST/AEDT) 10:19:40]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
+[02-06-2025 (AEST/AEDT) 10:19:40]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[02-06-2025 (AEST/AEDT) 10:19:40]: [WARNING]: No Thread with name 'GE-FileIO-Thread' was found.
+[02-06-2025 (AEST/AEDT) 10:19:39]: [INFO]: Direct2D render target created successfully
+[02-06-2025 (AEST/AEDT) 10:19:38]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
+[02-06-2025 (AEST/AEDT) 10:19:38]: [INFO]: Found Adapter: Microsoft Basic Render Driver
+[02-06-2025 (AEST/AEDT) 10:19:38]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
+[02-06-2025 (AEST/AEDT) 10:19:38]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
+[02-06-2025 (AEST/AEDT) 10:19:38]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[02-06-2025 (AEST/AEDT) 10:19:38]: [INFO]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[02-06-2025 (AEST/AEDT) 10:19:38]: [INFO]: DX Camera created successfully
+[02-06-2025 (AEST/AEDT) 10:19:38]: [INFO]: Media Foundation multithreaded mode enabled
+[02-06-2025 (AEST/AEDT) 10:19:38]: [INFO]: ThreadManager initialized.
+[02-06-2025 (AEST/AEDT) 10:14:31]: [INFO]: FXManager: Starfield effect manually stopped.
+[02-06-2025 (AEST/AEDT) 10:14:31]: [INFO]: WM_SIZE - Beginning resize to 784x561
+[02-06-2025 (AEST/AEDT) 10:14:24]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[02-06-2025 (AEST/AEDT) 10:14:24]: CreateGameMenuWindow - Game menu window created successfully with 6 controls
+[02-06-2025 (AEST/AEDT) 10:14:24]: [INFO]: CreateGameMenuWindow - Game menu window created successfully with 6 controls
+[02-06-2025 (AEST/AEDT) 10:14:24]: CreateGameMenuWindow - Window created at position (495, 0) with size (300, 600)
+[02-06-2025 (AEST/AEDT) 10:14:24]: [DEBUG]: CreateGameMenuWindow - Window created at position (495, 0) with size (300, 600)
+[02-06-2025 (AEST/AEDT) 10:14:24]: CreateGameMenuWindow - Creating game menu window with message: 
+[02-06-2025 (AEST/AEDT) 10:14:24]: [INFO]: CreateGameMenuWindow - Creating game menu window with message: 
+[02-06-2025 (AEST/AEDT) 10:14:23]: [INFO]: XM file loaded successfully.
+[02-06-2025 (uEST/AEDT) 10:14:23]: [INFO]: Patterns loaded successfully.
+[02-06-2025 (AEST/AEDT) 10:14:23]: [INFO]: Loading patterns...
+[02-06-2025 (AEST/AEDT) 10:14:2file: ./Assets/thevoid.xm
+[02-06-2025 (AEST/AEDT) 10:14:23]: [INFO]: [LOADER]: Scene Intro.
+[02-06-2025 (AEST/AEDT) 10:14:22]: [INFO]: MoviePlayer: Playback stopped
+[02-06-2025 (AEST/AEDT) 10:14:22]: [INFO]: MoviePlayer: End of stream reached
+[02-06-2025 (AEST/AEDT) 10:14:12]: [INFO]: [SCENE] Movie initialized successfully
+[02-06-2025 (AEST/AEDT) 10:14:12]: [INFO]: Thread 'GE-FileIO-Thread' resumed.
+[02-06-2025 (AEST/AEDT) 10:14:12]: [INFO]: Creating BGRA format texture for video
+[02-06-2025 (AEST/AEDT) 10:14:12]: [INFO]: Successfully set D3D manager for hardware decoding
+[02-06-2025 (AEST/AEDT) 10:14:12]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
+[02-06-2025 (AEST/AEDT) 10:14:12]: [INFO]: D3D11 multithreaded protection enabled
+[02-06-2025 (AEST/AEDT) 10:14:03]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[02-06-2025 (AEST/AEDT) 10:14:02]: [INFO]: Thread 'GE-Rendering-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:14:02]: [INFO]: Thread 'GE-Rendering-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:14:02]: [INFO]: Setting up thread: GE-Rendering-Thread
+[02-06-2025 (AEST/AEDT) 10:14:02]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:14:02]: [INFO]: Setting up thread: GE-FileIO-Thread
+[02-06-2025 (AEST/AEDT) 10:14:02]: [INFO]: Media Foundation multithreaded mode enabled
+[02-06-2025 (AEST/AEDT) 10:14:02]: [INFO]: [FXManager] Successfully initialized with DirectX 11 renderer
+[02-06-2025 (AEST/AEDT) 10:14:02]: [INFO]: [FXManager] Successfully compiled and loaded fade shaders
+[02-06-2025 (AEST/AEDT) 10:14:02]: [INFO]: Initializing GUIManager...
 
-[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: [RENDERER] Fullscreen mode set successfully
-[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: Direct2D render target created successfully
-[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: WM_SIZE - Resize completed successfully
-[24-05-2025 (AEST/AEDT) 08:48:01]: [WARNING]: Resize attempted in unsupported scene type
-[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
-[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 08:48:01]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 08:48:01]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
-[24-05-2025 (AEST/AEDT) 08:48:01]: [WARNING]: No Thread with name 'GE-FileIO-Thread' was found.
-[24-05-2025 (AEST/AEDT) 08:47:59]: [INFO]: Direct2D render target created successfully
-[24-05-2025 (AEST/AEDT) 08:47:59]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
-[24-05-2025 (AEST/AEDT) 08:47:59]: [INFO]: Found Adapter: Microsoft Basic Render Driver
-[24-05-2025 (AEST/AEDT) 08:47:59]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
-[24-05-2025 (AEST/AEDT) 08:47:59]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
-[24-05-2025 (AEST/AEDT) 08:47:59]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
+[02-06-2025 (AEST/AEDT) 10:14:02]: [INFO]: Direct2D render target created successfully
+[02-06-2025 (AEST/AEDT) 10:14:02]: [INFO]: WM_SIZE - Resize completed successfully
+[02-06-2025 (AEST/AEDT) 10:14:02]: [WARNING]: Resize attempted in unsupported scene type
+[02-06-2025 (AEST/AEDT) 10:14:02]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
+[02-06-2025 (AEST/AEDT) 10:14:02]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[02-06-2025 (AEST/AEDT) 10:14:02]: [WARNING]: No Thread with name 'GE-FileIO-Thread' was found.
+[02-06-2025 (AEST/AEDT) 10:14:01]: [INFO]: Direct2D render target created successfully
+[02-06-2025 (AEST/AEDT) 10:14:01]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
+[02-06-2025 (AEST/AEDT) 10:14:01]: [INFO]: Found Adapter: Microsoft Basic Render Driver
+[02-06-2025 (AEST/AEDT) 10:14:00]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
+[02-06-2025 (AEST/AEDT) 10:14:00]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
+[02-06-2025 (AEST/AEDT) 10:14:00]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[02-06-2025 (AEST/AEDT) 10:14:00]: [INFO]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[02-06-2025 (AEST/AEDT) 10:14:00]: [INFO]: DX Camera created successfully
+[02-06-2025 (AEST/AEDT) 10:14:00]: [INFO]: Media Foundation multithreaded mode enabled
+[02-06-2025 (AEST/AEDT) 10:14:00]: [INFO]: ThreadManager initialized.
+[02-06-2025 (AEST/AEDT) 10:09:58]: [INFO]: FXManager: Starfield effect manually stopped.
+[02-06-2025 (AEST/AEDT) 10:09:58]: [INFO]: WM_SIZE - Beginning resize to 784x561
+[02-06-2025 (AEST/AEDT) 10:09:49]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[02-06-2025 (AEST/AEDT) 10:09:49]: CreateGameMenuWindow - Game menu window created successfully with 6 controls
+[02-06-2025 (AEST/AEDT) 10:09:49]: [INFO]: CreateGameMenuWindow - Game menu window created successfully with 6 controls
+[02-06-2025 (AEST/AEDT) 10:09:49]: CreateGameMenuWindow - Window created at position (495, 0) with size (300, 600)
+[02-06-2025 (AEST/AEDT) 10:09:49]: [DEBUG]: CreateGameMenuWindow - Window created at position (495, 0) with size (300, 600)
+[02-06-2025 (AEST/AEDT) 10:09:49]: CreateGameMenuWindow - Creating game menu window with message: 
+[02-06-2025 (AEST/AEDT) 10:09:49]: [INFO]: CreateGameMenuWindow - Creating game menu window with message: 
+[n2-06-2025 (AEST/AEDT) 10:09:49]: [INFO]: XM file loaded successfully.
+[02-06-2025 (AEST/AEDT) 10:09:49]: [INFO]: Patterns loaded successfully.
+[02-06-2025 (AEST/AEDT) 10:09:49]5 (AEST/AEDT) 10:09:49]: [INFO]: Loading patterns...
+[02-06-2025 (AEST/AEDT) 10:09:49]: [INFO]: Loading XM file: ./Assets/thevoid.xm
+[02-06-2025 (AEdT/AEDT) 10:09:48]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[02-06-2025 (AEST/AEDT) 10:09:47]: [INFO]: MoviePlayer: Playback stopped
+[02-06-2025 (AEST/AEDT) 10:09:47]: [INFO]: MoviePlayer: End of stream reached
+[02-06-2025 (AEST/AEDT) 10:09:37]: [INFO]: [SCENE] Movie initialized successfully
+[02-06-2025 (AEST/AEDT) 10:09:37]: [INFO]: Thread 'GE-FileIO-Thread' resumed.
+[02-06-2025 (AEST/AEDT) 10:09:37]: [INFO]: Creating BGRA format texture for video
+[02-06-2025 (AEST/AEDT) 10:09:37]: [INFO]: Successfully set D3D manager for hardware decoding
+[02-06-2025 (AEST/AEDT) 10:09:37]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
+[02-06-2025 (AEST/AEDT) 10:09:36]: [INFO]: D3D11 multithreaded protection enabled
+[02-06-2025 (AEST/AEDT) 10:09:27]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[02-06-2025 (T/AEDT) 10:09:27]: [INFO]: Thread 'GE-Rendering-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:09:27]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:09:27]: [INFO]: Setting up thread: GE-Rendering-Thread
+[02-06-2025 (AEST/AEDT) 10:09:27]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[02-06-2025 (AEST/AEDT) 10:09:27]: [INFO]: Setting up thread: GE-FileIO-Thread
+[02-06-2025 (AEST/AEDT) 10:09:27]: [INFO]: Media Foundation multithreaded mode enabled
+[02-06-2025 (AEST/AEDT) 10:09:27]: [INFO]: [FXManager] Successfully initialized with DirectX 11 renderer
+[02-06-2025 (AEST/AEDT) 10:09:27]: [INFO]: [FXManager] Successfully compiled and loaded fade shaders
+[02-06-2025 (AEST/AEDT) 10:09:27]: [INFO]: Initializing GUIManager...
+
+[02-06-2025 (AEST/AEDT) 10:09:27]: [INFO]: Direct2D render target created successfully
+[02-06-2025  AEST/AEDT) 10:09:27]: [INFO]: WM_SIZE - Resize completed successfully
+[02-06-2025 (AEST/AEDT) 10:09:27]: [WARNING]: Resize attempted in unsupported scene type
+[02-06-2025 (AEST/AEDT) 10:09:27]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
+[02-06-2025 (AEST/AEDT) 10:09:26]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[02-06-2025 (AEST/AEDT) 10:09:26]: [WARNING]: No Thread with name 'GE-FileIO-Thread' was found.
+[02-06-2025 (AEST/AEDT) 10:09:26]: [INFO]: Direct2D render target created successfully
+[02-06-2025 (AEST/AEDT) 10:09:25]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
+[02-06-2025 (AEST/AEDT) 10:09:25]: [INFO]: Found Adapter: Microsoft Basic Render Driver
+[02-06-2025 (AEST/AEDT) 10:09:25]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
+[02-06-2025 (AEST/AEDT) 10:09:25]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
+[02-06-2025 (AEST/AEDT) 10:09:25]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[02-06-2025 (AEST/AEDT) 10:09:25]: [INFO]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[02-06-2025 (AEST/AEDT) 10:09:25]: [INFO]: DX Camera created successfully
+[02-06-2025 (AEST/AEDT) 10:09:25]: [INFO]: Media Foundation multithreaded mode enabled
+[02-06-2025 (AEST/AEDT) 10:09:25]: [INFO]: ThreadManager initialized.
+[02-06-2025 (AEST/AEDT) 09:57:52]: [INFO]: FXManager: Starfield effect manually stopped.
+[02-06-2025 (AEST/AEDT) 09:57:51]: [INFO]: WM_SIZE - Beginning resize to 784x561
+[02-06-2025 (AEST/AEDT) 09:57:47]: [INFO]: Thread 'GE-FileIO-Thread' paused.
+[02-06-2025 (AEST/AEDT) 09:57:47]: CreateGameMenuWindow - Game menu window created successfully with 6 controls
+[02-06-2025 (AEST/AEDT) 09:57:47]: [INFO]: CreateGameMenuWindow - Game menu window created successfully with 6 controls
+[02-06-2025 (AEST/AEDT) 09:57:47]: CreateGameMenuWindow - Window created at position (495, 0) with size (300, 600)
+[02-06-2025 (AEST/AEDT) 09:57:47]: [DEBUG]: CreateGameMenuWindow - Window created at position (495, 0) with size (300, 600)
+[02-06-2025 (AEST/AEDT) 09:57:47]: CreateGameMenuWindow - Creating game menu window with message: 
+[02-06n2025 (AEST/AEDT) 09:57:47]: [INFO]: CreateGameMenuWindow - Creating game menu window with message: 
+[02-06-2025 (AEST/AEDT) 09:57:47]: [INFO]: XM file loaded2025 (AEST/AEDT) 09:57:47]: [INFO]: Patterns loaded successfully.
+[02-06-2025 (AEST/AEDT) 09:57:47]: [INFO]: Loading patterns...
+[02-06-2025 (AEST/.EDT) 09:57:47]: [INFO]: Loading XM file: ./Assets/thevoid.xm
+[02-06-2025 (AEST/AEDT) 09:57:46]: [INFO]: [LOADER]: Scene Intro.
+[02-06-2025 (AEST/AEDT) 09:57:45]: [INFO]: MoviePlayer: Playback stopped
+[02-06-2025 (AEST/AEDT) 09:57:45]: [INFO]: MoviePlayer: End of stream reached
+[02-06-2025 (AEST/AEDT) 09:57:33]: [INFO]: [SCENE] Movie initialized successfully
+[02-06-2025 (AEST/AEDT) 09:57:33]: [INFO]: Thread 'GE-FileIO-Thread' resumed.
+[02-06-2025 (AEST/AEDT) 09:57:33]: [INFO]: Creating BGRA format texture for video
+[02-06-2025 (AEST/AEDT) 09:57:33]: [INFO]: Successfully set D3D manager for hardware decoding
+[02-06-2025 (AEST/AEDT) 09:57:33]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
+[02-06-2025 (AEST/AEDT) 09:57:32]: [INFO]: D3D11 multithreaded protection enabled
+[02-06-2025 (AEST/AEDT) 09:57:23]: [INFO]: Thread 'GE-FileIO-Thread' paused.d[02-06-2025 (AEST/AEDT) 09:57:23]: [INFO]: Thread 'GE-Rendering-Thread' started.
+[02-06-2025 (AEST/AEDT) 09:57:23]: [INFO]: Thread 'GE-Rendering-Thread' started.
+[02-06-2025 (AEST/AEDT) 09:57:23]: [INFO]: Setting up thread: GE-Rendering-Thread
+[02-06-2025 (AEST/AEDT) 09:57:23]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[02-06-2025 (AEST/AEDT) 09:57:23]: [INFO]: Setting up thread: GE-FileIO-Thread
+[02-06-2025 (AEST/AEDT) 09:57:23]: [INFO]: Media Foundation multithreaded mode enabled
+[02-06-2025 (AEST/AEDT) 09:57:23]: [INFO]: [FXManager] Successfully initialized with DirectX 11 renderer
+[02-06-2025 (AEST/AEDT) 09:57:23]: [INFO]: [FXManager] Successfully compiled and loaded fade shaders
+[02-06-2025 (AEST6-2025 (AEST/AEDT) 09:57:23]: [INFO]: Initializing GUIManager...
+
+[02-06-2025 (MaST/AEDT) 09:57:23]: [INFO]: Direct2D render target created successfully
+[02-06-2025 (AEST/AEDT) 09:57:22]: [INFO]: WM_SIZE - Resize completed successfully
+[02-06-2025 (AEST/AEDT) 09:57:22]: [WARNING]: Resize attempted in unsupported scene type
+[02-06-2025 (AEST/AEDT) 09:57:22]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
+[02-06-2025 (AEST/AEDT) 09:57:22]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
+[02-06-2025 (AEST/AEDT) 09:57:22]: [WARNING]: No Thread with name 'GE-FileIO-Thread' was found.
+[02-06-2025 (AEST/AEDT) 09:57:21]: [INFO]: Direct2D render target created successfully
+[02-06-2025 (AEST/AEDT) 09:57:21]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
+[02-06-2025 (AEST/AEDT) 09:57:21]: [INFO]: Found Adapter: Microsoft Basic Render Driver
+[02-06-2025 (AEST/AEDT) 09:57:21]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
+[02-06-2025 (AEST/AEDT) 09:57:21]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
+[02-06-2025 (AEST/AEDT) 09:57:21]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[02-06-2025 (AE(AEST/AEDT) 09:57:21]: [INFO]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[02-06-2025 (AEST/AEDT) 09:57:21]: [INFO]: DX Camera created successfully
+[02-06-2025 (AEST/AEDT) 09:57:21]: [INFO]: Media Foundation multithreaded mode enabled
+[02-06-2025 (AEST/AEDT) 09:57:21]: [INFO]: ThreadManager initialized.
+[02-06-2025 (AEST/AEDT) 09:52:17]: [INFO]: Thread 'GE-FileIO-Thread' finished.
+[02-06-2025 (AEST/AEDT) 09:52:17]: [INFO]: [LOADER]: Scene Loading Complete - Pausing Thread
+[02-06-2025 (AEST/AEDT) 09:52:17]: [WARNING]: Render Thread Exiting.
+[02-06-2025 (AEST/AEDT) 09:52:17]: [INFO]: FXManager: Starfield effect manually stopped.
+[02-06-2025 (AEST/AEDT) 09:52:17]: CreateGameMenuWindow - Posting quit message for application shutdown
+[02-06-2025 (AEST/AEDT) 09:52:17]: [INFO]: CreateGameMenuWindow - Posting quit message for application shutdown
+[02-06-2025 (AEST/AEDT) 09:52:17]: GUIManager::RemoveWindow - Window 'GameMenuWindow' successfully removed
+[y2-06-2025 (AEST/AEDT) 09:52:17]: [INFO]: GUIManager::RemoveWindow - Window 'GameMenuWindo                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    : 1936x1048 (client: 1920x1009)
 [24-05-2025 (AEST/AEDT) 08:47:59]: [INFO]: Window metrics retrieved successfully: 1936x1048 (client: 1920x1009)
 [24-05-2025 (AEST/AEDT) 08:47:59]: [INFO]: DX Camera created successfully
 [24-05-2025 (AEST/AEDT) 08:47:59]: [INFO]: Media Foundation multithreaded mode enabled
 [24-05-2025 (AEST/AEDT) 08:47:59]: [INFO]: ThreadManager initialized.
-[24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: ThreadManager destroyed.
+[24-05-2025 aAEST/AEDT) 08:38:45]: [INFO]: ThreadManager destroyed.
 [24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: DX Camera destroyed!
 [24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: Renderer Cleaned up and Destroyed!
 [24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: MoviePlayer: Resources cleaned up
@@ -498,13 +633,13 @@
 [24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: Renderer Successfully Cleaned Up.
 [24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: All threads and locks cleaned up.
 [24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: Thread 'GE-FileIO-Thread' terminated.
-[24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: Thread 'GE-Fil: Thread 'GE-FileIO-Thread' started.
 [24-05-2025 (AEST/AEDT) 08:38:45]: [WARNING]: Thread with name 'GE-FileIO-Thread' already exists.
 [24-05-2025 (AEST/AEDT) 08:38:45]: Window metrics retrieved successfully: 136x39 (client: 120x0)
 [24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: Window metrics retrieved successfully: 136x39 (client: 120x0)
 [24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: Direct2D render target created successfully
 [24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: FXManager: Scroll effect manually stopped.
+[24t05-2025 (AEST/AEDT) 08:38:45]: [INFO]: FXManager: Scroll effect manually stopped.
 [24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: FXManager: Scroll effect manually stopped.
 [24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: FXManager: Starfield effect manually stopped.
 [24-05-2025 (AEST/AEDT) 08:38:45]: [INFO]: WM_SIZE - Beginning resize to 120x0
@@ -512,7 +647,7 @@
 [24-05-2025 (AEST/AEDT) 08:38:44]: [INFO]: [LOADER]: Scene Loading Complete - Exiting Thread
 [24-05-2025 (AEST/AEDT) 08:38:24]: [INFO]: Thread 'GE-FileIO-Thread' paused.
 [24-05-2025 (AEST/AEDT) 08:38:24]: [INFO]: XM file loaded successfully.
-[24-05-2025 (AEST/AEDT) 08:38:24]: [INFO]: Patterns loaded successfully.
+[24-05-2025 (AEST/AEDT) 08:38:24]: [INFO]: Patterns loadedded successfully.
 [24-05-2025 (AEST/AEDT) 08:38:24]: [INFO]: Loading patterns...
 [24-05-2025 (AEST/AEDT) 08:38:24]: [INFO]: Loading XM file: ./Assets/thevoid.xm
 [24-05-2025 (AEST/AEDT) 08:38:24]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
@@ -524,8 +659,8 @@
 [24-05-2025 (AEST/AEDT) 08:38:08]: [INFO]: Successfully set D3D manager for hardware decoding
 [24-05-2025 (AEST/AEDT) 08:38:08]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
 [24-05-2025 (AEST/AEDT) 08:38:07]: [INFO]: D3D11 multithreaded protection enabled
-[24-05-2025 (AEST/AEDT) 08:38:02]: [INFO]: Thread 'GE-FileIO-Thread' paused.
-[24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: Thread 'GE-FileIO-Thread' started.
+[24-05-2025 (AEST/AEDT) 08:38:02]: [INFO]: Thread 'GE-FileIO-Threahread' paused.
+[24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: Thread 'GE-FileIO-Thread' starteFileIO-Thread' started.
 [24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: Thread 'GE-FileIO-Thread' started.
 [24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: Setting up thread: GE-FileIO-Thread
 [24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: Media Foundation multithreaded mode enabled
@@ -537,10 +672,10 @@
 [24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: WM_SIZE - Resize completed successfully
 [24-05-2025 (AEST/AEDT) 08:38:01]: [WARNING]: Resize attempted in unsupported scene type
 [24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: FXManager: Scroll effect manuall stopped.
 [24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: FXManager: Scroll effect manually stopped.
 [24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
-[24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: FXManager: Scroll effect manually roll effect manually stopped.
 [24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: FXManager: Scroll effect manually stopped.
 [24-05-2025 (AEST/AEDT) 08:38:01]: [INFO]: FXManager: Scroll effect manually stopped.
 [24-05-2025 (AEST/AEDT) 08:38:01]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
@@ -548,26 +683,27 @@
 [24-05-2025 (AEST/AEDT) 08:38:00]: [INFO]: Direct2D render target created successfully
 [24-05-2025 (AEST/AEDT) 08:38:00]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
 [24-05-2025 (AEST/AEDT) 08:38:00]: [INFO]: Found Adapter: Microsoft Basic Render Driver
+[24-05-202
 [24-05-2025 (AEST/AEDT) 08:38:00]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
 [24-05-2025 (AEST/AEDT) 08:38:00]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
 [24-05-2025 (AEST/AEDT) 08:37:59]: Window metrics retrieved successfully: 136x39 (client: 120x0)
 [24-05-2025 (AEST/AEDT) 08:37:59]: [INFO]: Window metrics retrieved successfully: 136x39 (client: 120x0)
 [24-05-2025 (AEST/AEDT) 08:37:59]: [INFO]: DX Camera created successfully
 [24-05-2025 (AEST/AEDT) 08:37:59]: [INFO]: Media Foundation multithreaded mode enabled
-[24-05-2025 (AEST/AEDT) 08:37:59]: [INFO]: ThreadManager initialized.
+[24-055-2025 (AEST/AEDT) 08:37:59]: [INFO]: ThreadManager initialized.
 [24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: ThreadManager destroyed.
 [24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: DX Camera destroyed!
 [24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: Renderer Cleaned up and Destroyed!
 [24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: MoviePlayer: Resources cleaned up
 [24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: MoviePlayer: Playback stopped
 [24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: Renderer Successfully Cleaned Up.
-[24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: All threads and locks cleaned up.
+[24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: All thrthreads and locks cleaned up.
 [24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: Thread 'GE-FileIO-Thread' terminated.
 [24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: Thread 'GE-FileIO-Thread' started.
 [24-05-2025 (AEST/AEDT) 08:34:42]: [WARNING]: Thread with name 'GE-FileIO-Thread' already exists.
 [24-05-2025 (AEST/AEDT) 08:34:42]: Window metrics retrieved successfully: 800x600 (client: 784x561)
 [24-05-2025 (AEST/AEDT) 08:34:42]: [Itrics retrieved successfully: 800x600 (client: 784x561)
-[24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: Direct2D render target created successfully
+)24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: Direct2D render target created successfully
 [24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: FXManager: Scroll effect manually stopped.
 [24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: FXManager: Scroll effect manually stopped.
 [24-05-2025 (AEST/AEDT) 08:34:42]: [INFO]: FXManager: Scroll effect manually stopped.
@@ -581,14 +717,14 @@
 [24-05-2025 (AEST/AEDT) 08:34:26]: [INFO]: Loading patterns...
 [24-05-2025 (AEST/AEDT) 08:34:26]: [INFO]: Loading XM file: ./Assets/thevoid.xm
 [24-05-2025 (AEST/AEDT) 08:34:26]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
-[24-05-2025 (AEST/AEDT) 08:34:25]: [INFO]: MoviePlayer: Playback stopped
+[24-05-4:25]: [INFO]: MoviePlayer: Playback stopped
 [24-05-2025 (AEST/AEDT) 08:34:25]: [INFO]: MoviePlayer: End of stream reached
 [24-05-2025 (AEST/AEDT) 08:34:09]: [INFO]: Thread 'GE-FileIO-Thread' resumed.
 [24-05-2025 (AEST/AEDT) 08:34:09]: [INFO]: MoviePlayer: Playback started
-[24-05-2025 (AEST/AEDT) 08:34:09]: [INFO]: Creating BGRA format texture for video
+[24-05-2025 (AES/AEDT) 08:34:09]: [INFO]: Creating BGRA format texture for video
 [24-05-2025 (AEST/AEDT) 08:34:09]: [INFO]: Successfully set D3D manager for hardware decoding
 [24-05-2025 (AEST/AEDT) 08:34:09]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
-[24-05-2025 (AEST/AEDT) 08:34:09]: [INFO]: D3D11 multithreaded protection enabled
+[24-05-2025 (AEST/AEDT) 08:34:09]: [INFO]: D3D11 multithred protection enabled
 [24-05-2025 (AEST/AEDT) 08:34:03]: [INFO]: Thread 'GE-FileIO-Thread' paused.
 [24-05-2025 (AEST/AEDT) 08:34:03]: [INFO]: Thread 'GE-FileIO-Thread' started.
 [24-05-2025 (AEST/AEDT) 08:34:03]: [INFO]: Thread 'GE-FileIO-Thread' started.
@@ -601,11 +737,11 @@
 [24-05-2025 (AEST/AEDT) 08:34:03]: [INFO]: Direct2D render target created successfully
 [24-05-) 08:34:03]: [INFO]: WM_SIZE - Resize completed successfully
 [24-05-2025 (AEST/AEDT) 08:34:03]: [WARNING]: Resize attempted in unsupported scene type
-[24-05-2025 (AEST/AEDT) 08:34:03]: [INFO]: FXManager: Scroll effect manually stopped.
+[4-05-2025 (AEST/AEDT) 08:34:03]: [INFO]: FXManager: Scroll effect manually stopped.
 [24-05-2025 (AEST/AEDT) 08:34:03]: [INFO]: FXManager: Scroll effect manually stopped.
 [24-05-2025 (AEST/AEDT) 08:3FXManager: Scroll effect manually stopped.
 [24-05-2025 (AEST/AEDT) 08:34:03]: [INFO]: WM_SIZE - Beginning resize to 1920x1080
-[24-05-2025 (AEST/AEDT) 08:34:02]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AEDT) 08:34:02]: [INFO]]: FXManager: Scroll effect manually stopped.
 [24-05-2025 (AEST/AEDT) 08:34:02]: [INFO]: FXManager: Scroll effect manually stopped.
 [24-05-2025 (AEST/AEDT) 08:34:02]: [INFO]: FXManager: Scroll effect manually stopped.
 [24-05-2025 (AEST/AEDT) 08:34:02]: [WARNING]: Thread 'GE-FileIO-Thread' is not paused.
@@ -625,9 +761,9 @@
 [24-05-2025 (AEST/AEDT) 08:29:24]: Window metrics retrieved successfully: 1920x1080 (client: 1904x1041)
 [24-05-2025 (AEST/AEDT) 08:29:24]: [INFO]: Window metrics retrieved successfully: 1920x1080 (client: 1904x1041)
 [24-05-2025 (AEST/AEDT) 08:29:24]: [INFO]: FXManager: Scroll effect manually stopped.
-[24-05-2025 (AEST/AEDT) 08:29:24]: [INFO]: FXManager: Scroll effect manually stopped.
+[24-05-2025 (AEST/AED FXManager: Scroll effect manually stopped.
 [24-05-2025 (AEST/AEDT) 08:29:24]: [INFO]: FXManager: Scroll effect manually stopped.
 [24-05-2025 (AEST/AEDT) 08:29:24]: [INFO]: WM_SIZE - Beginning resize to 1904x1041
-[24-05-2025 (AEST/AEDT) 08:29:24]: [INFO]: Direct2D render target created successfully
+[24-05-2025 (AEST/AEDT) 08:29:24]: [INFO]: Direct2D render target created succcessfully
 [24-05-2025 (AEST/AEDT) 08:29:24]: [INFO]: [LOADER]: Scene Intro.
-[24-05-2025 (AEST/AEDT) 08:29:24]: Critical Error: r: 
+[24-05-2025  (AEST/AEDT) 08:29:24]: Critical Error: r: r: r:  : r: r:  

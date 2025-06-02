@@ -60,6 +60,7 @@
 #include "NetworkManager.h"
 #include "PUNPack.h"
 #include "GamePlayer.h"
+#include "GamingAI.h"
 
 #if defined(_WIN64) || defined(_WIN32)
     #include "TTSManager.h"
@@ -118,6 +119,7 @@ MoviePlayer moviePlayer;
 NetworkManager networkManager;
 PUNPack punPack;
 GamePlayer gamePlayer;
+GamingAI gamingAI;
 
 #if defined(_WIN64) || defined(_WIN32)
     TTSManager ttsManager;
@@ -251,6 +253,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
         // Load in our Configuration file.
         config.loadConfig();
+
         // Initialise our Sound Manager
         if (!soundManager.Initialize(hwnd)) {
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Sound system initialization or loading failed.");
@@ -265,7 +268,17 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             return EXIT_FAILURE;
         }
 
+        // Initialize our Packer / UNPacker class
         if (!punPack.Initialize())
+        {
+            #if defined(_DEBUG_PUNPACK_)
+                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize PUNPack!");
+            #endif
+            return EXIT_FAILURE;
+        }
+
+        // Initialize our GamingAI System.
+        if (!gamingAI.Initialize())
         {
             #if defined(_DEBUG_PUNPACK_)
                 debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize PUNPack!");
@@ -285,6 +298,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         scene.SetGotoScene(SceneType::SCENE_INTRO);
         #if defined(_DEBUG)
             winMetrics.isFullScreen = false;
+            sysUtils.DisableMouseCursor();
             if (!renderer->StartRendererThreads())
             {
                 MessageBox(nullptr, L"Problem Starting Renderer Threads!!!", L"Error", MB_OK | MB_ICONERROR);
@@ -350,11 +364,14 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             }
         #endif
 
-        // Add TTS announcement for movie intro
-        if (ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR) {
-            ttsManager.SetSpeakerChannel(TTSSpeakerChannel::CHANNEL_BOTH);
-            ttsManager.SetVoiceVolume(0.8f);
-            ttsManager.PlayAsync(L"This Game Production uses the Cross Platform Gaming Engine by Daniel J. Hobson of Australia 2025.");
+        // Add TTS announcement for Startup Splash Screen
+        if (config.myConfig.UseTTS)
+        {
+            if (ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR) {
+                ttsManager.SetSpeakerChannel(TTSSpeakerChannel::CHANNEL_BOTH);
+                ttsManager.SetVoiceVolume(config.myConfig.TTSVolume);
+                ttsManager.PlayAsync(L"This Game Production uses the Cross Platform Gaming Engine by Daniel J. Hobson of Australia 2025.");
+            }
         }
 
         // --- Main Loop ---
@@ -593,15 +610,12 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
                                 SwitchToGameIntro();
 
-                                #if !defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)
-                                    WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
+                                #if !defined(RENDERER_IS_THREAD)
+                                    while (fxManager.IsFadeActive())
                                     {
-                                        while (fxManager.IsFadeActive())
-                                        {
-                                            dx11->RenderFrame();
-                                            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-                                        }
-                                    });
+                                        renderer->RenderFrame();
+                                        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                                    }
                                 #endif
 
                                 break;
@@ -614,6 +628,17 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                     // Our Main Game
                     case SceneType::SCENE_GAMEPLAY:
                     {
+                        // Collect AI data if monitoring is active
+                        if (gamingAI.IsMonitoring()) {
+                            // Collect player position data for AI analysis
+                            for (int playerID : gamePlayer.GetActivePlayerIDs()) {
+                                const PlayerInfo* playerInfo = gamePlayer.GetPlayerInfo(playerID);
+                                if (playerInfo != nullptr) {
+                                    gamingAI.CollectPlayerPositionData(static_cast<uint32_t>(playerID), playerInfo->position2D);
+                                }
+                            }
+                        }
+
                         // Handle events for all our Windows. 
                         guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
                         // Process joystick input for buttons
@@ -696,14 +721,21 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
     // TTS Stop
     #if defined(_WIN64) || defined(_WIN32)
-        ttsManager.Stop();                          // Stop immediately
-        ttsManager.CleanUp();
+        if (config.myConfig.UseTTS)
+        {
+            ttsManager.Stop();                          // Stop immediately
+            ttsManager.CleanUp();
+        }
     #endif
 
     // Release the Renderer System.
     renderer->Cleanup();
 
     renderer->SetWindowedScreen();
+
+    // Force Stop AI monitoring and Clean-Up
+    gamingAI.EndMonitoring();
+    gamingAI.Cleanup();
 
     // Clean up the GamePlayer Manager
     gamePlayer.Cleanup();
@@ -732,6 +764,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         xmPlayer.Shutdown();
     #endif
 
+    // IMPORTANT: DO THIS LAST!!! 
+    // Now clean up the Thread Manager.
+    threadManager.Cleanup();
+
     CoUninitialize();
     return EXIT_SUCCESS;
 }
@@ -752,6 +788,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             ScreenToClient(hwnd, &cursorPos);
             myMouseCoords.x = static_cast<float>(cursorPos.x);
             myMouseCoords.y = static_cast<float>(cursorPos.y);
+            if (cursorPos.x >= winMetrics.width) { myMouseCoords.x = winMetrics.width; SetCursorPos(cursorPos.x, cursorPos.y); }
+            if (cursorPos.y >= winMetrics.height) { myMouseCoords.y = winMetrics.height; SetCursorPos(cursorPos.x, cursorPos.y); }
             guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
 
             switch (scene.stSceneType)
@@ -795,9 +833,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     }
 
                     // Only render if not resizing or in fullscreen transition
-                    if (!bResizeInProgress.load() && !bFullScreenTransition.load()) {
-                        renderer->RenderFrame();
-                    }
+                    #if !defined(RENDERER_IS_THREAD)
+                        if (!bResizeInProgress.load() && !bFullScreenTransition.load()) {
+                            renderer->RenderFrame();
+                        }
+                    #endif
                     break;
                 }
             }
@@ -860,8 +900,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 return 0;
             }
 
-            // Only process resize if renderer is initialized and not minimized
-            if (wParam != SIZE_MINIMIZED && renderer && renderer->bIsInitialized.load()) {
+            // Only process resize if renderer is initialized, not minimised and not terminating
+            if (wParam != SIZE_MINIMIZED && renderer && renderer->bIsInitialized.load() && !threadManager.threadVars.bIsShuttingDown.load()) {
 
                 // Implement debouncing to prevent rapid resize messages
                 auto currentTime = std::chrono::steady_clock::now();
@@ -950,14 +990,14 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     {
                         renderer->myCamera.MoveIn(zoomStep);
                         #if defined(_DEBUG_CAMERA_)
-                        debug.logDebugMessage(LogLevel::LOG_INFO, L"Camera Zoom In: delta = %d", delta);
+                            debug.logDebugMessage(LogLevel::LOG_INFO, L"Camera Zoom In: delta = %d", delta);
                         #endif
                     }
                     else if (delta < 0)
                     {
                         renderer->myCamera.MoveOut(zoomStep);
                         #if defined(_DEBUG_CAMERA_)
-                        debug.logDebugMessage(LogLevel::LOG_INFO, L"Camera Zoom Out: delta = %d", delta);
+                            debug.logDebugMessage(LogLevel::LOG_INFO, L"Camera Zoom Out: delta = %d", delta);
                         #endif
                     }
                     return 0;
@@ -1021,12 +1061,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             if (wParam == VK_ESCAPE && !threadManager.threadVars.bIsShuttingDown.load()) {
                 fxManager.FadeToBlack(1.0f, 0.03f);
                 soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
-                #if !defined(RENDERER_IS_THREAD)
-                    while (fxManager.IsFadeActive()) {
+                while (fxManager.IsFadeActive()) 
+                {
+                    #if !defined(RENDERER_IS_THREAD)
                         renderer->RenderFrame();
-                        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-                    }
-                #endif
+                    #endif
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                }
                 threadManager.threadVars.bIsShuttingDown.store(true);
                 PostQuitMessage(0);
             }
@@ -1037,12 +1078,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             if (!threadManager.threadVars.bIsShuttingDown.load()) {
                 fxManager.FadeToBlack(1.0f, 0.03f);
                 soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
-                #if defined(__USE_DIRECTX_11__)
-                    while (fxManager.IsFadeActive()) {
+                while (fxManager.IsFadeActive()) 
+                {
+                    #if !defined(RENDERER_IS_THREAD)
                         renderer->RenderFrame();
-                        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-                    }
-                #endif
+                    #endif
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                }
                 threadManager.threadVars.bIsShuttingDown.store(true);
                 PostQuitMessage(0);
             }
@@ -1066,39 +1108,31 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             switch (wParam)
             {
             case VK_UP:
-                #if defined(__USE_DIRECTX_11__)
-                    renderer->myCamera.MoveUp(moveStep);
-                    if (!bResizeInProgress.load()) {
-                        renderer->RenderFrame();
-                    }
-                #endif
+                renderer->myCamera.MoveUp(moveStep);
+                if (!bResizeInProgress.load()) {
+                    renderer->RenderFrame();
+                }
                 break;
 
             case VK_DOWN:
-                #if defined(__USE_DIRECTX_11__)
-                    renderer->myCamera.MoveDown(moveStep);
-                    if (!bResizeInProgress.load()) {
-                        renderer->RenderFrame();
-                    }
-                #endif
+                renderer->myCamera.MoveDown(moveStep);
+                if (!bResizeInProgress.load()) {
+                    renderer->RenderFrame();
+                }
                 break;
 
             case VK_LEFT:
-                #if defined(__USE_DIRECTX_11__)
-                    renderer->myCamera.MoveLeft(moveStep);
-                    if (!bResizeInProgress.load()) {
-                        renderer->RenderFrame();
-                    }
-                #endif
+                renderer->myCamera.MoveLeft(moveStep);
+                if (!bResizeInProgress.load()) {
+                    renderer->RenderFrame();
+                }
                 break;
 
             case VK_RIGHT:
-                #if defined(__USE_DIRECTX_11__)
-                    renderer->myCamera.MoveRight(moveStep);
-                    if (!bResizeInProgress.load()) {
-                        renderer->RenderFrame();
-                    }
-                #endif
+                renderer->myCamera.MoveRight(moveStep);
+                if (!bResizeInProgress.load()) {
+                    renderer->RenderFrame();
+                }
                 break;
             }
 
@@ -1136,10 +1170,13 @@ void OpenMovieAndPlay()
 void SwitchToMovieIntro()
 {
     // Add TTS announcement for movie intro
-    if (ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR) {
-        ttsManager.SetSpeakerChannel(TTSSpeakerChannel::CHANNEL_BOTH);
-        ttsManager.SetVoiceVolume(0.8f);
-        ttsManager.PlayAsync(L"Attempting to Play Game Introduction Movie");
+    if (config.myConfig.UseTTS)
+    {
+        if (ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR) {
+            ttsManager.SetSpeakerChannel(TTSSpeakerChannel::CHANNEL_BOTH);
+            ttsManager.SetVoiceVolume(config.myConfig.TTSVolume);
+            ttsManager.PlayAsync(L"Attempting to Play Game Introduction Movie");
+        }
     }
 
     scene.SetGotoScene(SCENE_INTRO_MOVIE);
@@ -1155,10 +1192,13 @@ void SwitchToMovieIntro()
 void SwitchToGameIntro()
 {
     // Add TTS announcement for movie intro
-    if (ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR) {
-        ttsManager.SetSpeakerChannel(TTSSpeakerChannel::CHANNEL_BOTH);
-        ttsManager.SetVoiceVolume(1.0f);
-        ttsManager.PlayAsync(L"Welcome to the CPGE Gaming Engine Game Intro Screen");
+    if (config.myConfig.UseTTS)
+    {
+        if (ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR) {
+            ttsManager.SetSpeakerChannel(TTSSpeakerChannel::CHANNEL_BOTH);
+            ttsManager.SetVoiceVolume(config.myConfig.TTSVolume);
+            ttsManager.PlayAsync(L"Welcome to the CPGE Gaming Engine Game Intro Screen");
+        }
     }
 
     scene.SetGotoScene(SCENE_INTRO);

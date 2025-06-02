@@ -61,6 +61,8 @@ bool Configuration::loadConfig() {
         myConfig.aspectRatio = j.value("aspectRatio", 16.0 / 9.0);
         myConfig.zoomSensitivity = j["zoomSensitivity"];
         myConfig.moveSensitivity = j["moveSensitivity"];
+        myConfig.TTSVolume = j["TTSVolume"];
+        myConfig.UseTTS = j["UseTTS"];
         myConfig.chksum = j["chksum"];
     }
     catch (const std::exception& e) {
@@ -83,15 +85,15 @@ bool Configuration::loadConfig() {
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Failed to save default configuration after checksum failure!");
         }
         else {
-#if defined(_DEBUG_CONFIGURATION_)
-            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Default configuration saved successfully.");
-#endif
+            #if defined(_DEBUG_CONFIGURATION_)
+                debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Default configuration saved successfully.");
+            #endif
         }
     }
 
-#if defined(_DEBUG)
-    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Configuration file loaded successfully.");
-#endif
+    #if defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Configuration file loaded successfully.");
+    #endif
     return true;
 }
 
@@ -130,6 +132,8 @@ bool Configuration::saveConfig() {
         j["nearPlane"] = myConfig.nearPlane;
 		j["farPlane"] = myConfig.farPlane;
         j["aspectRatio"] = myConfig.aspectRatio;
+        j["UseTTS"] = myConfig.UseTTS;
+        j["TTSVolume"] = myConfig.TTSVolume;
         j["chksum"] = calculateChecksum(myConfig);
 
         configStream << j.dump(4);  // Pretty print the JSON with 4 spaces
@@ -160,6 +164,7 @@ long double Configuration::calculateChecksum(const MyConfig& cfg) const
         << static_cast<int>(cfg.antiAliasingEnabled)
         << static_cast<int>(cfg.MipMapping)
         << static_cast<int>(cfg.BackCulling)
+        << static_cast<int>(cfg.UseTTS)
         << cfg.musicVolume
         << cfg.masterVolume
         << cfg.ambientVolume
@@ -176,6 +181,7 @@ long double Configuration::calculateChecksum(const MyConfig& cfg) const
 		<< cfg.farPlane
         << cfg.aspectRatio
         << cfg.level
+        << cfg.TTSVolume
         << std::fixed << std::setprecision(4) << cfg.current_money;
 
     std::string combined = ss.str();

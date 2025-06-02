@@ -488,34 +488,15 @@ void DX11Renderer::Cleanup() {
     // Synchronise Thread Closures
 //	ThreadStatus status = threadManager.GetThreadStatus(THREAD_LOADER);
     threadManager.TerminateThread(THREAD_LOADER);
-#ifdef RENDERER_IS_THREAD
-    // Ensure the renderer finishes first!
-    while (threadManager.threadVars.bIsRendering.load())
-    {
-        std::this_thread::sleep_for(std::chrono::milliseconds(5)); // Small delay to prevent CPU spinning
-    }
-
-    // Now terminate the Renderer Thread.
-    threadManager.TerminateThread(THREAD_RENDERER);
-#endif
-
-    // Now clean up the Thread Manager.
-    threadManager.Cleanup();
+    #if defined(RENDERER_IS_THREAD)
+        threadManager.TerminateThread(THREAD_RENDERER);
+    #endif
 
 	// Release our 2D textures
     for (int i = 0; i < MAX_TEXTURE_BUFFERS; i++) { m_d2dTextures[i].Reset(); m_d2dTextures[i] = nullptr; }
 
 	// Release our 3D textures
     for (int i = 0; i < MAX_TEXTURE_BUFFERS_3D; i++) { m_d3dTextures[i].Reset(); m_d3dTextures[i] = nullptr; }
-
-    // Destory Base Models
-    for (int i = 0; i < MAX_MODELS; ++i)
-    {
-        models[i].DestroyModel();  // <-- Force destroy global base models BEFORE anything reloads
-    }
-
-	// Destory our Scene Models
-    scene.CleanUp();
 
     // Release Direct2D & 3D resources
 	m_d2dDevice.Reset();
@@ -533,14 +514,14 @@ void DX11Renderer::Cleanup() {
     m_globalLightBuffer.Reset();
 	m_cameraConstantBuffer.Reset();
 
-// Only ever included during development debugging
-#if defined(_DEBUG_RENDERER_) && defined(_DEBUG) && defined(_DEBUG_RENDER_WIREFRAME_)
-    m_wireframeState.Reset();
-#endif
+    // Only ever included during development debugging
+    #if defined(_DEBUG_RENDERER_) && defined(_DEBUG) && defined(_DEBUG_RENDER_WIREFRAME_)
+        m_wireframeState.Reset();
+    #endif
 
-#if defined(_DEBUG_RENDERER_) && defined(_DEBUG) && defined(_DEBUG_PIXSHADER_)
-	m_debugBuffer.Reset();
-#endif
+    #if defined(_DEBUG_RENDERER_) && defined(_DEBUG) && defined(_DEBUG_PIXSHADER_)
+	    m_debugBuffer.Reset();
+    #endif
     
     sysUtils.EnableMouseCursor();
 
@@ -3048,14 +3029,14 @@ void DX11Renderer::RenderFrame()
             // Update the timer for the next frame
             lastFrameTime = now;
 
-            GetCursorPos(&cursorPos);
-            ScreenToClient(hWnd, &cursorPos);
-            myMouseCoords.x = cursorPos.x;
-            myMouseCoords.y = cursorPos.y;
+//            GetCursorPos(&cursorPos);
+//            ScreenToClient(hWnd, &cursorPos);
+//            myMouseCoords.x = cursorPos.x;
+//            myMouseCoords.y = cursorPos.y;
             // Scale the mouse coordinates
-            auto [scaledX, scaledY] = sysUtils.ScaleMouseCoordinates(cursorPos.x, cursorPos.x, iOrigWidth, iOrigHeight, width, height);
-            float x = float(scaledX);
-			float y = float(scaledY);
+//            auto [scaledX, scaledY] = sysUtils.ScaleMouseCoordinates(cursorPos.x, cursorPos.x, iOrigWidth, iOrigHeight, width, height);
+//            float x = float(scaledX);
+//			float y = float(scaledY);
 
             // We now need to determine which Scene we are to render for?
             m_d3dContext->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
@@ -3273,8 +3254,8 @@ void DX11Renderer::RenderFrame()
                                     Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - 47);
                                     // Render our 3D starfield.
                                     fxManager.RenderFX(fxManager.starfieldID, m_d3dContext.Get(), myCamera.GetViewMatrix());
-                                    break;
                                 }
+                                break;
                             }
 
                             case SceneType::SCENE_INTRO_MOVIE:
@@ -3313,7 +3294,7 @@ void DX11Renderer::RenderFrame()
 
                         XMFLOAT3 Coords;
                         Coords = myCamera.GetPosition();
-                        std::wstring fpsText = L"FPS: " + std::to_wstring(fps) + L"\nMOUSE: x" + std::to_wstring(cursorPos.x) + L", y" + std::to_wstring(cursorPos.y);
+                        std::wstring fpsText = L"FPS: " + std::to_wstring(fps) + L"\nMOUSE: x" + std::to_wstring(myMouseCoords.x) + L", y" + std::to_wstring(myMouseCoords.y);
                         fpsText = fpsText + L"\nCamera X: " + std::to_wstring(Coords.x) + L", Y: " + std::to_wstring(Coords.y) + L", Z: " + std::to_wstring(Coords.z) +
                             L", Yaw: " + std::to_wstring(myCamera.m_yaw) + L", Pitch: " + std::to_wstring(myCamera.m_pitch) + L"\n";
 						fpsText = fpsText + L"Global Light Count: " + std::to_wstring(lightsManager.GetLightCount()) + L"\n";
@@ -3343,9 +3324,11 @@ void DX11Renderer::RenderFrame()
                     // Now render any windows that are to be displayed.
                     guiManager.Render();
 
-                    // Now Render the Mouse Cursor
+                    // Check X & Y Mouse Cursor Boundaries
+//                    if (myMouseCoords.x >= iOrigWidth) { myMouseCoords.x = iOrigWidth - 3; }
+//                    if (cursorPos.y >= iOrigHeight) { cursorPos.y = iOrigHeight - 3; }
                     if ((m_d2dTextures[int(BlitObj2DIndexType::BLIT_ALWAYS_CURSOR)]))
-                        Blit2DObject(BlitObj2DIndexType::BLIT_ALWAYS_CURSOR, cursorPos.x, cursorPos.y);
+                        Blit2DObject(BlitObj2DIndexType::BLIT_ALWAYS_CURSOR, myMouseCoords.x, myMouseCoords.y);
 
                     // State we are NOW finished With Direct2D Drawing.
                     try

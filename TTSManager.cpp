@@ -19,7 +19,7 @@ extern ThreadManager threadManager;
 TTSManager::TTSManager() :
     m_bIsInitialized(false),                                 // TTS not initialized yet
     m_bHasCleanedUp(false),                                  // Cleanup not performed yet
-    m_currentState(TTSPlaybackState::STATE_STOPPED),        // Start in stopped state
+    m_currentState(TTSPlaybackState::STATE_STOPPED),         // Start in stopped state
     m_pVoice(nullptr),                                       // No voice interface yet
     m_pVoiceToken(nullptr),                                  // No voice token yet
     m_pEnumTokens(nullptr),                                  // No voice enumerator yet

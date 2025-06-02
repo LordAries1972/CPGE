@@ -198,6 +198,9 @@ DEVELOPMENT HISTORY:
            - Implemented the GamePlayer, GameAccount & GameStatus Class which is responsible for all Game Player/Account and Status details.
              See GamePlayer.h/.cpp and Docs/GamePlayer-Example-Usage.txt for more details.
 
+02/06/2025 - Implemented the GamingAI Class which is responsible for learning & adapting to player strategies which include their
+             movements, actions and responses.  See GamingAI.h/.cpp and Docs/GamingAI-Example-Usage.txt for more details.
+
 ------------------------------------------------------------------------------------------------------------------------------------- 
 [ FUTURE ]   OK EVERYONE, we are approaching a VERY CLOSE TO GAMING PRODUCTION READINESS FOR DIRECTX 11 SYSTEMS! (WINDOWS 10 SP1 & above 64BIT)
              and all this work that has been going for the last, next to 2 years of my time, comes for free under the MIT LICENSE.
