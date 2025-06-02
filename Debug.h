@@ -98,7 +98,12 @@ enum class LogLevel : int {
 class Debug {
 public:
     // Default Logging Level.
-    static inline LogLevel currentLogLevel = LogLevel::LOG_INFO;
+    #if defined(_DEBUG)
+        static inline LogLevel currentLogLevel = LogLevel::LOG_WARNING;
+    #else
+        // Only LOG Errors and Critical Errors only on Production Releases.
+        static inline LogLevel currentLogLevel = LogLevel::LOG_ERROR;
+    #endif
 
     // Logs a message to the output console
     static void Log(const std::string& message);
