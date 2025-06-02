@@ -6,9 +6,11 @@
 // -----------------------------------------
 void Debug::DebugLog(const std::string& message)
 {
-    std::ostringstream oss;
-    oss << "[INFO]: " << message << "\n";
-    OutputDebugStringA(oss.str().c_str());
+    #if defined(_DEBUG)
+        std::ostringstream oss;
+        oss << "[INFO]: " << message << "\n";
+        OutputDebugStringA(oss.str().c_str());
+    #endif
 }
 
 void Debug::Insert_Into_Log_File(const std::wstring& filename, const std::wstring& lineMsg)
@@ -46,22 +48,22 @@ void Debug::Insert_Into_Log_File(const std::wstring& filename, const std::wstrin
 
 void Debug::logDebugMessage(LogLevel level, const wchar_t* format, ...)
 {
-    if (int(level) >= int(currentLogLevel))
-    {
-        wchar_t buffer[2048];
+    #if !defined(NO_DEBUGFILE_OUTPUT) && !defined(_DEBUG)
+        if (int(level) >= int(currentLogLevel))
+        {
+            wchar_t buffer[2048];
 
-        va_list args;
-        va_start(args, format);
-        vswprintf_s(buffer, format, args);
-        va_end(args);
+            va_list args;
+            va_start(args, format);
+            vswprintf_s(buffer, format, args);
+            va_end(args);
 
-        std::wstring message(buffer);
-        logLevelMessage(level, message);
+            std::wstring message(buffer);
+            logLevelMessage(level, message);
 
-#if (!defined(NO_DEBUGFILE_OUTPUT))
-        Insert_Into_Log_File(LOG_FILE_NAME, message);
-#endif
-    }
+            Insert_Into_Log_File(LOG_FILE_NAME, message);
+        }
+    #endif
 }
 
 void Debug::logLevelMessage(LogLevel level, const std::wstring& message)
@@ -95,23 +97,24 @@ void Debug::logLevelMessage(LogLevel level, const std::wstring& message)
 
         // Always add newline for console output
         woss << taggedMessage << L"\n";
-        OutputDebugStringW(woss.str().c_str());
+        
+        #if defined(_DEBUG)
+            OutputDebugStringW(woss.str().c_str());
+        #endif  
 
         // Write unmodified (but tagged) message to the log file
-#if (!defined(NO_DEBUGFILE_OUTPUT))
-        Insert_Into_Log_File(LOG_FILE_NAME, taggedMessage);
-#endif
+        #if !defined(NO_DEBUGFILE_OUTPUT) && !defined(_DEBUG)
+            Insert_Into_Log_File(LOG_FILE_NAME, taggedMessage);
+        #endif
 
         if (level == LogLevel::LOG_CRITICAL)
         {
-#if !defined(_DEBUG) && !defined(DEBUG)
-            throw std::runtime_error("Fatal Critical Error Has Occurred!");
-#endif
-#if defined(_DEBUG)
-            // Terminate the application.
-            PostQuitMessage(0);
-//            DebugBreak();
-#endif
+            #if !defined(_DEBUG) && !defined(DEBUG)
+                throw std::runtime_error("Fatal Critical Error Has Occurred!");
+                // Terminate the application.
+                PostQuitMessage(0);
+    //            DebugBreak();
+            #endif
         }
     }
 }
@@ -136,40 +139,42 @@ bool Debug::LOG_IF_FAILED(HRESULT hr, const LPCWSTR msg)
 void Debug::Log(const std::string& message)
 {
     // Log message to the standard output
-#ifdef _DEBUG
-    OutputDebugStringA(("[INFO]: " + message).c_str()); // Also output to the debug console
-#endif
+    #ifdef _DEBUG
+        OutputDebugStringA(("[INFO]: " + message).c_str()); // Also output to the debug console
+    #endif
 }
 
 void Debug::LogWarning(const std::string& message)
 {
     // Log warning to the standard output
-#ifdef _DEBUG
-    OutputDebugStringA(("[WARNING]: " + message + "\n").c_str()); // Also output to the debug console
-#endif
+    #ifdef _DEBUG
+        OutputDebugStringA(("[WARNING]: " + message + "\n").c_str()); // Also output to the debug console
+    #endif
 }
 
 void Debug::LogError(const std::string& message) {
 
     // Log error to the standard output
-#ifdef _DEBUG
-    OutputDebugStringA(("[ERROR]: " + message + "\n").c_str()); // Also output to the debug console
-#endif
+    #ifdef _DEBUG
+        OutputDebugStringA(("[ERROR]: " + message + "\n").c_str()); // Also output to the debug console
+    #endif
 }
 
 void Debug::LogFunction(const std::string& functionName, const std::string& message) {
-    // Log function-specific messages
-    std::string fullMessage = "[Function: " + functionName + "] " + message;
-#ifdef _DEBUG
-    OutputDebugStringA(fullMessage.c_str()); // Also output to the debug console
-#endif
+    #ifdef _DEBUG
+        // Log function-specific messages
+        std::string fullMessage = "[Function: " + functionName + "] " + message;
+        #ifdef _DEBUG
+            OutputDebugStringA(fullMessage.c_str()); // Also output to the debug console
+        #endif
+    #endif
 }
 
 void Debug::DebugBreak() {
     // Causes the debugger to break into the code at this point
-#ifdef _DEBUG
-    __debugbreak(); // Will break if debugging is enabled
-#endif
+    #ifdef _DEBUG
+        __debugbreak(); // Will break if debugging is enabled
+    #endif
 }
 
 void Debug::SetLogLevel(LogLevel level) {
