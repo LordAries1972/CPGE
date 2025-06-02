@@ -60,7 +60,7 @@ GUIManager::~GUIManager()
 {
     if (bHasCleanedUp) { return; }
     windows.clear();
-    debug.Log("GUIManager cleaned up.\n");
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"GUIManager cleaned up.\n");
     bHasCleanedUp = true;
 }
 
@@ -80,7 +80,6 @@ void GUIManager::CreateMyWindow(const std::string& name, GUIWindowType type, con
     std::shared_ptr<GUIWindow> window = std::make_shared<GUIWindow>(name, type, position, size, backgroundColor, backgroundTextureId, this->myRenderer);
     windows[name] = window;
     window->myRenderer = this->myRenderer;
-    debug.Log("Window '" + name + "' created.\n");
 }
 
 void GUIManager::RemoveWindow(const std::string& name) {

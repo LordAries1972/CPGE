@@ -181,12 +181,12 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
 
     // Create the Game Menu Window with proper error checking
     CreateMyWindow(
-        WINDOW_NAME,                                                    // Window name
-        GUIWindowType::Dialog,                                          // Window type (Dialog)
+        WINDOW_NAME,                                                        // Window name
+        GUIWindowType::Dialog,                                              // Window type (Dialog)
         Vector2(renderer->iOrigWidth - 305, 0),                             // Position (x, y) - right side of screen
         Vector2(300, renderer->iOrigHeight),                                // Size (width, height) - full height
-        MyColor(0, 0, 0, 0),                                            // Background color (transparent black)
-        int(BlitObj2DIndexType::NONE)                                   // No background texture ID
+        MyColor(0, 0, 0, 0),                                                // Background color (transparent black)
+        int(BlitObj2DIndexType::NONE)                                       // No background texture ID
     );
 
     // Log successful window creation with dimensions
@@ -206,15 +206,15 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     // Add Title Bar control with corrected implementation
     GUIControl titleBar; // Use stack-allocated control to avoid circular references
     titleBar.type = GUIControlType::TitleBar;
-    titleBar.position = Vector2(gameMenuWindow->position.x, gameMenuWindow->position.y);    // Position at top of window
-    titleBar.size = Vector2(gameMenuWindow->size.x, 40);                                    // Height of 40 pixels
-    titleBar.bgColor = MyColor(0, 0, 0, 255);                                               // Black background
-    titleBar.txtColor = MyColor(255, 255, 0, 255);                                          // Yellow text
-    titleBar.bgTextureId = int(BlitObj2DIndexType::IMG_TITLEBAR2);                          // Background texture
-    titleBar.bgTextureHoverId = int(BlitObj2DIndexType::IMG_TITLEBAR2);                     // Hover texture (same as background)
-    titleBar.label = L"";                                                                   // Empty title text
-    titleBar.lblFontSize = 18.0f;                                                           // Font size for title
-    titleBar.isVisible = true;                                                              // Make control visible
+    titleBar.position = Vector2(gameMenuWindow->position.x, gameMenuWindow->position.y);                    // Position at top of window
+    titleBar.size = Vector2(gameMenuWindow->size.x, 40);                                                    // Height of 40 pixels
+    titleBar.bgColor = MyColor(0, 0, 0, 255);                                                               // Black background
+    titleBar.txtColor = MyColor(255, 255, 0, 255);                                                          // Yellow text
+    titleBar.bgTextureId = int(BlitObj2DIndexType::IMG_TITLEBAR2);                                          // Background texture
+    titleBar.bgTextureHoverId = int(BlitObj2DIndexType::IMG_TITLEBAR2);                                     // Hover texture (same as background)
+    titleBar.label = L"";                                                                                   // Empty title text
+    titleBar.lblFontSize = 18.0f;                                                                           // Font size for title
+    titleBar.isVisible = true;                                                                              // Make control visible
 
     // Note: Title bar for dialog windows typically doesn't need drag functionality
     // Add the title bar control to the window
@@ -223,16 +223,16 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     // Add Configuration Button control with fixed lambda handlers
     GUIControl configButton;
     configButton.type = GUIControlType::Button;
-    configButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 55);        // Position inside the window
-    configButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);                                                   // Size of the button
-    configButton.bgColor = MyColor(0, 0, 0, 255);                                                             // Black background
-    configButton.txtColor = MyColor(255, 255, 0, 255);                                                        // Yellow text color
-    configButton.useShadowedText = true;                                                                       // Enable text shadowing
-    configButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);                                        // Button up texture
-    configButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);                                 // Button hover texture
-    configButton.label = L"      CONFIGURATION";                                                              // Button label text
-    configButton.lblFontSize = 16.0f;                                                                         // Font size for button text
-    configButton.isVisible = true;                                                                            // Make button visible
+    configButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 55);       // Position inside the window
+    configButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);                                                  // Size of the button
+    configButton.bgColor = MyColor(0, 0, 0, 255);                                                            // Black background
+    configButton.txtColor = MyColor(255, 255, 0, 255);                                                       // Yellow text color
+    configButton.useShadowedText = true;                                                                     // Enable text shadowing
+    configButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);                                       // Button up texture
+    configButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);                                // Button hover texture
+    configButton.label = L"      CONFIGURATION";                                                             // Button label text
+    configButton.lblFontSize = 16.0f;                                                                        // Font size for button text
+    configButton.isVisible = true;                                                                           // Make button visible
 
     // Fixed onMouseOver handler using weak reference
     configButton.onMouseOver = [weakGameMenuWindow]() {
@@ -277,7 +277,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     gameplayButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);                                                   // Same size as other buttons
     gameplayButton.bgColor = MyColor(0, 0, 0, 255);                                                             // Black background
     gameplayButton.txtColor = MyColor(255, 255, 0, 255);                                                        // Yellow text color
-    gameplayButton.useShadowedText = true;                                                                       // Enable text shadowing
+    gameplayButton.useShadowedText = true;                                                                      // Enable text shadowing
     gameplayButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);                                        // Button up texture
     gameplayButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);                                 // Button hover texture
     gameplayButton.label = L"        GAME PLAY";                                                                // Button label text
@@ -327,7 +327,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     hiscoresButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);                                                   // Same size as other buttons
     hiscoresButton.bgColor = MyColor(0, 0, 0, 255);                                                             // Black background
     hiscoresButton.txtColor = MyColor(255, 255, 0, 255);                                                        // Yellow text color
-    hiscoresButton.useShadowedText = true;                                                                       // Enable text shadowing
+    hiscoresButton.useShadowedText = true;                                                                      // Enable text shadowing
     hiscoresButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);                                        // Button up texture
     hiscoresButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);                                 // Button hover texture
     hiscoresButton.label = L"       HIGH SCORES";                                                               // Button label text
