@@ -112,15 +112,15 @@ const int PLAYER_2 = 1;
 //--------------------------------------------------------
 Configuration config;
 FileIO fileIO;
+Debug debug;
+SystemUtils sysUtils;
 Joystick js;
 SoundManager soundManager;
 GUIManager guiManager;
-Debug debug;
 FXManager fxManager;
 LightsManager lightsManager;
 SceneManager scene;
 ThreadManager threadManager;
-SystemUtils sysUtils;
 MoviePlayer moviePlayer;
 NetworkManager networkManager;
 PUNPack punPack;

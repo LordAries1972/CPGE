@@ -129,7 +129,7 @@ This is to eliminate the need for multiple includes in your project files.
     // FUTURE: Whatever other OS you may need to build a Renderer for.
 #endif
 
-// Your General C++ Includes
+// Your General C/C++ Includes
 #include <string>
 #include <random>                                       // for std::mt19937, std::random_device, std::uniform_real_distribution
 #include <stdexcept>
