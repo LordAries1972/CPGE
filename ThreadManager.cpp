@@ -98,10 +98,11 @@ ThreadManager::~ThreadManager() {
 std::string ThreadManager::getThreadName(ThreadNameID id) {
     switch (id) 
     {
-        case THREAD_LOADER:             return "GE-FileIO-Thread";
+        case THREAD_LOADER:             return "GE-Loader-Thread";
         case THREAD_RENDERER:           return "GE-Rendering-Thread";
         case THREAD_NETWORK:            return "GE-Network-Thread";
         case THREAD_AI_PROCESSING:      return "GE-AI-Thread";
+        case THREAD_FILEIO:             return "GE-FileIO-Processing-Thread";
         default:                        return "Unknown";
     }
 }

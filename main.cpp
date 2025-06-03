@@ -45,18 +45,14 @@
 #include "Includes.h"
 // Engine Subsystems
 #include "MathPrecalculation.h"
-#include "DX_FXManager.h"
+#include "FileIO.h"
 #include "Debug.h"
 #include "GUIManager.h"
 #include "SoundManager.h"
-#include "Models.h"
-#include "Lights.h"
 #include "Joystick.h"
-#include "SceneManager.h"
 #include "Configuration.h"
 #include "ThreadManager.h"
 #include "WinSystem.h"
-#include "MoviePlayer.h"
 #include "NetworkManager.h"
 #include "PUNPack.h"
 #include "GamePlayer.h"
@@ -76,6 +72,14 @@
 #elif defined(__USE_OPENGL__)
 #include "OpenGLRenderer.h"
 #endif
+
+// Include these after the Renderer's includes
+#include "DX_FXManager.h"
+#include "SceneManager.h"
+#include "Models.h"
+#include "Lights.h"
+#include "MoviePlayer.h"
+
 //------------------------------------------
 // Platform Configuration Macros
 //------------------------------------------
@@ -106,6 +110,7 @@ const int PLAYER_2 = 1;
 // declare them here to avoid circular dependencies.
 //--------------------------------------------------------
 Configuration config;
+FileIO fileIO;
 Joystick js;
 SoundManager soundManager;
 GUIManager guiManager;
@@ -344,6 +349,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 //        fxManager.StartScrollEffect(BlitObj2DIndexType::IMG_SCROLLBG1, FXSubType::ScrollRight, 2, 800, 600, 0.016f);
 //        fxManager.StartScrollEffect(BlitObj2DIndexType::IMG_SCROLLBG2, FXSubType::ScrollRight, 4, 800, 600, 0.016f);
 //        fxManager.StartScrollEffect(BlitObj2DIndexType::IMG_SCROLLBG3, FXSubType::ScrollRight, 8, 800, 600, 0.016f);
+        
+        // Start Sound Manager Thread.
         soundManager.StartPlaybackThread();
         
         // Initialise our MoviePlayer
@@ -763,6 +770,51 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     #elif defined(__USE_XMPLAYER__)
         xmPlayer.Shutdown();
     #endif
+
+    // -------------------------------
+    // Stop the FileIO tasking thread.
+    // -------------------------------
+    // Check initial state of FileIO queue for any write operations.
+    // We need to do this check to ensure we DO NOT corrupt files.
+    bool initialHasPendingWrites = fileIO.HasPendingWriteTasks();
+    size_t writeCount = fileIO.GetPendingWriteTaskCount();
+
+    // Monitor write task completion over time
+    int monitorAttempts = 0;
+    const int maxMonitorAttempts = 150;                                  // Monitor for up to 15 seconds
+
+    while (monitorAttempts < maxMonitorAttempts) {
+        bool currentHasPendingWrites = fileIO.HasPendingWriteTasks();
+        size_t currentWriteCount = fileIO.GetPendingWriteTaskCount();
+
+        if (currentWriteCount != writeCount) {
+            // Write task count changed - log the update
+            #if defined(_DEBUG_FILEIO_DEMO_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_WARNING, L"[FileIO] Write task progress - Previous count: %zu, Current count: %zu",
+                    writeCount, currentWriteCount);
+            #endif
+            writeCount = currentWriteCount;
+        }
+
+        // Break if all write tasks completed
+        if (!currentHasPendingWrites) {
+            #if defined(_DEBUG_FILEIO_DEMO_) && defined(_DEBUG)
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"[FileIO] All write tasks have now completed successfully");
+            #endif
+            break;
+        }
+
+        // Sleep briefly before next check
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        monitorAttempts++;
+    }
+
+    // Final status check
+    bool finalHasPendingWrites = fileIO.HasPendingWriteTasks();
+    size_t finalWriteCount = fileIO.GetPendingWriteTaskCount();
+
+    // Now we can STOP the fileIO system.
+    fileIO.Cleanup();
 
     // IMPORTANT: DO THIS LAST!!! 
     // Now clean up the Thread Manager.

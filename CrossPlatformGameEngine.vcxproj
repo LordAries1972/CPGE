@@ -193,6 +193,7 @@
     <ClCompile Include="DX12Renderer.cpp" />
     <ClCompile Include="DXCamera.cpp" />
     <ClCompile Include="DX_FXManager.cpp" />
+    <ClCompile Include="FileIO.cpp" />
     <ClCompile Include="GamePlayer.cpp" />
     <ClCompile Include="GamingAI.cpp" />
     <ClCompile Include="GUIManager.cpp" />
@@ -226,6 +227,7 @@
     <ClInclude Include="DX12Renderer.h" />
     <ClInclude Include="DXCamera.h" />
     <ClInclude Include="DX_FXManager.h" />
+    <ClInclude Include="FileIO.h" />
     <ClInclude Include="GamePlayer.h" />
     <ClInclude Include="GamingAI.h" />
     <ClInclude Include="GUIManager.h" />

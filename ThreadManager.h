@@ -24,6 +24,7 @@ enum ThreadNameID
     THREAD_RENDERER,
     THREAD_NETWORK,
     THREAD_AI_PROCESSING,
+    THREAD_FILEIO,
 };
 
 // --------------------------------------------

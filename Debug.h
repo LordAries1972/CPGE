@@ -27,6 +27,7 @@
 #define _DEBUG_NETWORKMANAGER_                                          // Define this line, to show all debug output to runtime console for the NetworkManager class.
 #define _DEBUG_GAMEPLAYER_                                              // Define this line, to show all debug output to runtime console for the GamePlayer class
 #define _DEBUG_GAMINGAI_                                                // Define this line, to show all debug output to runtime console for the GamingAI class.
+#define _DEBUG_FILEIO_                                                  // Define this line, to show all debug output to runtime console for the FileIO class.
 //#define _DEBUG_SCENEMANAGER_                                            // Define this line, to show all debug output to runtime console for the SceneManager class.
 //#define _DEBUG_SCENE_TRANSITION_                                        // Debug Info for Scene Transistions.
 //#define _DEBUG_TTSMANAGER_                                              // Define this line, to show all debug output for the TTSManager class.
@@ -99,10 +100,10 @@ class Debug {
 public:
     // Default Logging Level.
     #if defined(_DEBUG)
-        static inline LogLevel currentLogLevel = LogLevel::LOG_WARNING;
+        static inline LogLevel currentLogLevel = LogLevel::LOG_INFO;
     #else
         // Only LOG Errors and Critical Errors only on Production Releases.
-        static inline LogLevel currentLogLevel = LogLevel::LOG_ERROR;
+        static inline LogLevel currentLogLevel = LogLevel::LOG_WARNING;
     #endif
 
     // Logs a message to the output console
