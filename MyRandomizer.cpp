@@ -9,6 +9,9 @@
 // External reference declarations
 extern Debug debug;
 
+#pragma warning(push)
+#pragma warning(disable: 4101)  // Suppress warning C4101: 'e': unreferenced local variable
+
 //==============================================================================
 // Constructor and Destructor Implementation
 //==============================================================================
@@ -2474,3 +2477,5 @@ int MyRandomizer::GetRandAIBehavior(const std::vector<float>& behaviorWeights) {
 
     return selectedBehavior;
 }
+
+#pragma warning(pop)
