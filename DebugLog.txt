@@ -766,4 +766,370 @@
 [24-05-2025 (AEST/AEDT) 08:29:24]: [INFO]: WM_SIZE - Beginning resize to 1904x1041
 [24-05-2025 (AEST/AEDT) 08:29:24]: [INFO]: Direct2D render target created succcessfully
 [24-05-2025 (AEST/AEDT) 08:29:24]: [INFO]: [LOADER]: Scene Intro.
-[24-05-2025  (AEST/AEDT) 08:29:24]: Critical Error: r: r: r:  : r: r:  
+[24-05-2025  (AEST/AEDT) 08:29:24]: Critical Error: r: r: r:  : r: r:  [03-06-2025 (AEST/AEDT) 19:24:37]: [WARNING]: No Thread with name 'GE-Loader-Thread' was found.
+[03-06-2025 (AEST/AEDT) 19:24:37]: [WARNING]: Thread 'GE-Loader-Thread' is not paused.
+[03-06-2025 (AEST/AEDT) 19:24:38]: [WARNING]: Resize attempted in unsupported scene type
+[03-06-2025 (AEST/AEDT) 19:33:07]: [WARNING]: No Thread with name 'GE-Loader-Thread' was found.
+[03-06-2025 (AEST/AEDT) 19:33:07]: [WARNING]: Thread 'GE-Loader-Thread' is not paused.
+[03-06-2025 (AEST/AEDT) 19:33:07]: [WARNING]: Resize attempted in unsupported scene type
+[03-06-2025 (AEST/AEDT) 20:14:34]: [INFO]: Setting up thread: GE-FileIO-Processing-Thread
+[03-06-2025 (AEST/AEDT) 20:14:34]: [INFO]: Thread 'GE-FileIO-Processing-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:14:34]: [INFO]: Thread 'GE-FileIO-Processing-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:14:44]: [INFO]: [MathPrecalculation] Starting initialization of lookup tables
+[03-06-2025 (AEST/AEDT) 20:14:44]: [INFO]: [MathPrecalculation] Initializing trigonometric lookup tables
+[03-06-2025 (AEST/AEDT) 20:14:44]: [INFO]: [MathPrecalculation] Trigonometric tables initialized - Sin/Cos entries: 65536, Sqrt entries: 32768
+[03-06-2025 (AEST/AEDT) 20:14:44]: [INFO]: [MathPrecalculation] Initializing inverse trigonometric lookup tables
+[03-06-2025 (AEST/AEDT) 20:14:44]: [INFO]: [MathPrecalculation] Inverse trigonometric tables initialized - Entries: 32768
+[03-06-2025 (AEST/AEDT) 20:14:44]: [INFO]: [MathPrecalculation] Initializing color conversion lookup tables
+[03-06-2025 (AEST/AEDT) 20:14:44]: [INFO]: [MathPrecalculation] YUV lookup table allocated - Size: 786432 entries (786432 bytes)
+[03-06-2025 (AEST/AEDT) 20:14:44]: [INFO]: [MathPrecalculation] Color conversion tables initialized - YUV table: 786432 entries, Conversion data: 256 entries, Clamp table: 512 entries
+[03-06-2025 (AEST/AEDT) 20:14:44]: [INFO]: [MathPrecalculation] Initializing interpolation coefficient tables
+[03-06-2025 (AEST/AEDT) 20:14:44]: [INFO]: [MathPrecalculation] Interpolation tables initialized - Entries: 1024
+[03-06-2025 (AEST/AEDT) 20:14:44]: [INFO]: [MathPrecalculation] Initializing particle system precalculations
+[03-06-2025 (AEST/AEDT) 20:14:44]: [INFO]: [MathPrecalculation] Particle data initialized - Directions: 360, Patterns: 8
+[03-06-2025 (AEST/AEDT) 20:14:44]: [INFO]: [MathPrecalculation] Initializing matrix transformation caches
+[03-06-2025 (AEST/AEDT) 20:14:44]: [INFO]: [MathPrecalculation] Matrix caches initialized - Scale matrices: 10, Rotation matrices: 72
+[03-06-2025 (AEST/AEDT) 20:14:44]: [INFO]: [MathPrecalculation] Initializing text rendering optimizations
+[03-06-2025 (AEST/AEDT) 20:14:44]: [INFO]: [MathPrecalculation] Text optimizations initialized - Character widths: 92, Transparency entries: 1024
+[03-06-2025 (AEST/AEDT) 20:14:44]: [INFO]: [MathPrecalculation] Initialization completed successfully - Memory usage: 2612432 bytes
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: Setting up thread: GE-FileIO-Processing-Thread
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: Thread 'GE-FileIO-Processing-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: Thread 'GE-FileIO-Processing-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: [MathPrecalculation] Starting initialization of lookup tables
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: [MathPrecalculation] Initializing trigonometric lookup tables
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: [MathPrecalculation] Trigonometric tables initialized - Sin/Cos entries: 65536, Sqrt entries: 32768
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: [MathPrecalculation] Initializing inverse trigonometric lookup tables
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: [MathPrecalculation] Inverse trigonometric tables initialized - Entries: 32768
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: [MathPrecalculation] Initializing color conversion lookup tables
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: [MathPrecalculation] YUV lookup table allocated - Size: 786432 entries (786432 bytes)
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: [MathPrecalculation] Color conversion tables initialized - YUV table: 786432 entries, Conversion data: 256 entries, Clamp table: 512 entries
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: [MathPrecalculation] Initializing interpolation coefficient tables
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: [MathPrecalculation] Interpolation tables initialized - Entries: 1024
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: [MathPrecalculation] Initializing particle system precalculations
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: [MathPrecalculation] Particle data initialized - Directions: 360, Patterns: 8
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: [MathPrecalculation] Initializing matrix transformation caches
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: [MathPrecalculation] Matrix caches initialized - Scale matrices: 10, Rotation matrices: 72
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: [MathPrecalculation] Initializing text rendering optimizations
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: [MathPrecalculation] Text optimizations initialized - Character widths: 92, Transparency entries: 1024
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: [MathPrecalculation] Initialization completed successfully - Memory usage: 2612432 bytes
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: [MathPrecalculation] === Lookup Table Statistics ===
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: Trigonometric table entries: 65536
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: Inverse trigonometric table entries: 32768
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: Square root table entries: 32768
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: Color conversion entries: 256
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: Interpolation table entries: 1024
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: Particle directions: 360
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: Explosion patterns: 8
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: Scale matrix cache: 10
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: Rotation matrix cache: 72
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: Character width cache: 92
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: Transparency lookup entries: 1024
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: Total memory usage: 2612432 bytes
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: Total lookups performed: 0
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: [MathPrecalculation] === End Statistics ===
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: [PUNPack] Starting initialization of compression engine
+[03-06-2025 (AEST/AEDT) 20:20:33]: [DEBUG]: [PUNPack] Initializing CRC32 lookup table
+[03-06-2025 (AEST/AEDT) 20:20:33]: [DEBUG]: [PUNPack] CRC32 lookup table initialized successfully
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: [PUNPack] Initialization completed successfully
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: GamingAI::Initialize() called - starting AI system initialization
+[03-06-2025 (AEST/AEDT) 20:20:33]: [DEBUG]: Default model filename: GamingAI_Model.dat
+[03-06-2025 (AEST/AEDT) 20:20:33]: [DEBUG]: Model file existence check - File: GamingAI_Model.dat, Exists: No
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: No existing AI model found - creating new model
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: GamingAI::ResetAIModel() called - resetting AI model to defaults
+[03-06-2025 (AEST/AEDT) 20:20:33]: [DEBUG]: Player analysis data cleared
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: AI model reset completed successfully - all data cleared
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: Setting up thread: GE-AI-Thread
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: GamingAI initialization completed successfully - Model size: 536870912 bytes, Analysis interval: 30 seconds
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: Thread 'GE-AI-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: Found Adapter: Microsoft Basic Render Driver
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
+[03-06-2025 (AEST/AEDT) 20:20:33]: [INFO]: Direct2D render target created successfully
+[03-06-2025 (AEST/AEDT) 20:20:34]: [WARNING]: No Thread with name 'GE-Loader-Thread' was found.
+[03-06-2025 (AEST/AEDT) 20:20:34]: [WARNING]: Thread 'GE-Loader-Thread' is not paused.
+[03-06-2025 (AEST/AEDT) 20:20:34]: [INFO]: Setting up thread: GE-Loader-Thread
+[03-06-2025 (AEST/AEDT) 20:20:34]: [INFO]: Thread 'GE-Loader-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:20:34]: [INFO]: Setting up thread: GE-Rendering-Thread
+[03-06-2025 (AEST/AEDT) 20:20:34]: [INFO]: Thread 'GE-Rendering-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:20:34]: [INFO]: Initializing GUIManager...
+
+[03-06-2025 (AEST/AEDT) 20:20:34]: [INFO]: Thread 'GE-Loader-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:20:34]: [INFO]: Thread 'GE-Rendering-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:20:34]: [INFO]: [FXManager] Successfully compiled and loaded fade shaders
+[03-06-2025 (AEST/AEDT) 20:20:34]: [INFO]: [FXManager] Successfully initialized with DirectX 11 renderer
+[03-06-2025 (AEST/AEDT) 20:20:34]: [INFO]: NetworkManager::Initialize() called
+[03-06-2025 (AEST/AEDT) 20:20:34]: [INFO]: Initializing Winsock
+[03-06-2025 (AEST/AEDT) 20:20:34]: [INFO]: Winsock initialized successfully
+[03-06-2025 (AEST/AEDT) 20:20:34]: [INFO]: Resetting network statistics
+[03-06-2025 (AEST/AEDT) 20:20:34]: [INFO]: NetworkManager successfully initialized
+[03-06-2025 (AEST/AEDT) 20:20:34]: [INFO]: Media Foundation multithreaded mode enabled
+[03-06-2025 (AEST/AEDT) 20:20:35]: [INFO]: Thread 'GE-Loader-Thread' paused.
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: Setting up thread: GE-FileIO-Processing-Thread
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: Thread 'GE-FileIO-Processing-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: Thread 'GE-FileIO-Processing-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: [MathPrecalculation] Starting initialization of lookup tables
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: [MathPrecalculation] Initializing trigonometric lookup tables
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: [MathPrecalculation] Trigonometric tables initialized - Sin/Cos entries: 65536, Sqrt entries: 32768
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: [MathPrecalculation] Initializing inverse trigonometric lookup tables
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: [MathPrecalculation] Inverse trigonometric tables initialized - Entries: 32768
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: [MathPrecalculation] Initializing color conversion lookup tables
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: [MathPrecalculation] YUV lookup table allocated - Size: 786432 entries (786432 bytes)
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: [MathPrecalculation] Color conversion tables initialized - YUV table: 786432 entries, Conversion data: 256 entries, Clamp table: 512 entries
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: [MathPrecalculation] Initializing interpolation coefficient tables
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: [MathPrecalculation] Interpolation tables initialized - Entries: 1024
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: [MathPrecalculation] Initializing particle system precalculations
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: [MathPrecalculation] Particle data initialized - Directions: 360, Patterns: 8
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: [MathPrecalculation] Initializing matrix transformation caches
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: [MathPrecalculation] Matrix caches initialized - Scale matrices: 10, Rotation matrices: 72
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: [MathPrecalculation] Initializing text rendering optimizations
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: [MathPrecalculation] Text optimizations initialized - Character widths: 92, Transparency entries: 1024
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: [MathPrecalculation] Initialization completed successfully - Memory usage: 2612432 bytes
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: [MathPrecalculation] === Lookup Table Statistics ===
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: Trigonometric table entries: 65536
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: Inverse trigonometric table entries: 32768
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: Square root table entries: 32768
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: Color conversion entries: 256
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: Interpolation table entries: 1024
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: Particle directions: 360
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: Explosion patterns: 8
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: Scale matrix cache: 10
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: Rotation matrix cache: 72
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: Character width cache: 92
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: Transparency lookup entries: 1024
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: Total memory usage: 2612432 bytes
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: Total lookups performed: 0
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: [MathPrecalculation] === End Statistics ===
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: [PUNPack] Starting initialization of compression engine
+[03-06-2025 (AEST/AEDT) 20:21:42]: [DEBUG]: [PUNPack] Initializing CRC32 lookup table
+[03-06-2025 (AEST/AEDT) 20:21:42]: [DEBUG]: [PUNPack] CRC32 lookup table initialized successfully
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: [PUNPack] Initialization completed successfully
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: GamingAI::Initialize() called - starting AI system initialization
+[03-06-2025 (AEST/AEDT) 20:21:42]: [DEBUG]: Default model filename: GamingAI_Model.dat
+[03-06-2025 (AEST/AEDT) 20:21:42]: [DEBUG]: Model file existence check - File: GamingAI_Model.dat, Exists: No
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: No existing AI model found - creating new model
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: GamingAI::ResetAIModel() called - resetting AI model to defaults
+[03-06-2025 (AEST/AEDT) 20:21:42]: [DEBUG]: Player analysis data cleared
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: AI model reset completed successfully - all data cleared
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: Setting up thread: GE-AI-Thread
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: GamingAI initialization completed successfully - Model size: 536870912 bytes, Analysis interval: 30 seconds
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: Thread 'GE-AI-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: AI thread started - beginning AI processing loop
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: AI thread initialization completed - entering main processing loop
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: Found Adapter: Microsoft Basic Render Driver
+[03-06-2025 (AEST/AEDT) 20:21:42]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
+[03-06-2025 (AEST/AEDT) 20:21:43]: [INFO]: Direct2D render target created successfully
+[03-06-2025 (AEST/AEDT) 20:21:43]: [WARNING]: No Thread with name 'GE-Loader-Thread' was found.
+[03-06-2025 (AEST/AEDT) 20:21:43]: [WARNING]: Thread 'GE-Loader-Thread' is not paused.
+[03-06-2025 (AEST/AEDT) 20:21:43]: [INFO]: Setting up thread: GE-Loader-Thread
+[03-06-2025 (AEST/AEDT) 20:21:43]: [INFO]: Thread 'GE-Loader-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:21:43]: [INFO]: Setting up thread: GE-Rendering-Thread
+[03-06-2025 (AEST/AEDT) 20:21:43]: [INFO]: Thread 'GE-Rendering-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:21:43]: [INFO]: Initializing GUIManager...
+
+[03-06-2025 (AEST/AEDT) 20:21:43]: [INFO]: Thread 'GE-Loader-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:21:43]: [INFO]: Thread 'GE-Rendering-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:21:43]: [INFO]: [FXManager] Successfully compiled and loaded fade shaders
+[03-06-2025 (AEST/AEDT) 20:21:43]: [INFO]: [FXManager] Successfully initialized with DirectX 11 renderer
+[03-06-2025 (AEST/AEDT) 20:21:43]: [INFO]: NetworkManager::Initialize() called
+[03-06-2025 (AEST/AEDT) 20:21:43]: [INFO]: Initializing Winsock
+[03-06-2025 (AEST/AEDT) 20:21:43]: [INFO]: Winsock initialized successfully
+[03-06-2025 (AEST/AEDT) 20:21:43]: [INFO]: Resetting network statistics
+[03-06-2025 (AEST/AEDT) 20:21:43]: [INFO]: NetworkManager successfully initialized
+[03-06-2025 (AEST/AEDT) 20:21:43]: [INFO]: Media Foundation multithreaded mode enabled
+[03-06-2025 (AEST/AEDT) 20:21:44]: [INFO]: Thread 'GE-Loader-Thread' paused.
+[03-06-2025 (AEST/AEDT) 20:21:52]: [INFO]: D3D11 multithreaded protection enabled
+[03-06-2025 (AEST/AEDT) 20:21:52]: [DEBUG]: Processed URL: file:///F:/Projects/C++/CPGE/Assets/test1.mp4
+[03-06-2025 (AEST/AEDT) 20:21:52]: [INFO]: Successfully set D3D manager for hardware decoding
+[03-06-2025 (AEST/AEDT) 20:21:52]: [INFO]: Creating BGRA format texture for video
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: Setting up thread: GE-FileIO-Processing-Thread
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: Thread 'GE-FileIO-Processing-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: Thread 'GE-FileIO-Processing-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: [MathPrecalculation] Starting initialization of lookup tables
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: [MathPrecalculation] Initializing trigonometric lookup tables
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: [MathPrecalculation] Trigonometric tables initialized - Sin/Cos entries: 65536, Sqrt entries: 32768
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: [MathPrecalculation] Initializing inverse trigonometric lookup tables
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: [MathPrecalculation] Inverse trigonometric tables initialized - Entries: 32768
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: [MathPrecalculation] Initializing color conversion lookup tables
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: [MathPrecalculation] YUV lookup table allocated - Size: 786432 entries (786432 bytes)
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: [MathPrecalculation] Color conversion tables initialized - YUV table: 786432 entries, Conversion data: 256 entries, Clamp table: 512 entries
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: [MathPrecalculation] Initializing interpolation coefficient tables
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: [MathPrecalculation] Interpolation tables initialized - Entries: 1024
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: [MathPrecalculation] Initializing particle system precalculations
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: [MathPrecalculation] Particle data initialized - Directions: 360, Patterns: 8
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: [MathPrecalculation] Initializing matrix transformation caches
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: [MathPrecalculation] Matrix caches initialized - Scale matrices: 10, Rotation matrices: 72
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: [MathPrecalculation] Initializing text rendering optimizations
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: [MathPrecalculation] Text optimizations initialized - Character widths: 92, Transparency entries: 1024
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: [MathPrecalculation] Initialization completed successfully - Memory usage: 2612432 bytes
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: [MathPrecalculation] === Lookup Table Statistics ===
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: Trigonometric table entries: 65536
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: Inverse trigonometric table entries: 32768
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: Square root table entries: 32768
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: Color conversion entries: 256
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: Interpolation table entries: 1024
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: Particle directions: 360
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: Explosion patterns: 8
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: Scale matrix cache: 10
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: Rotation matrix cache: 72
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: Character width cache: 92
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: Transparency lookup entries: 1024
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: Total memory usage: 2612432 bytes
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: Total lookups performed: 0
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: [MathPrecalculation] === End Statistics ===
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: [PUNPack] Starting initialization of compression engine
+[03-06-2025 (AEST/AEDT) 20:22:38]: [DEBUG]: [PUNPack] Initializing CRC32 lookup table
+[03-06-2025 (AEST/AEDT) 20:22:38]: [DEBUG]: [PUNPack] CRC32 lookup table initialized successfully
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: [PUNPack] Initialization completed successfully
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: GamingAI::Initialize() called - starting AI system initialization
+[03-06-2025 (AEST/AEDT) 20:22:38]: [DEBUG]: Default model filename: GamingAI_Model.dat
+[03-06-2025 (AEST/AEDT) 20:22:38]: [DEBUG]: Model file existence check - File: GamingAI_Model.dat, Exists: No
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: No existing AI model found - creating new model
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: GamingAI::ResetAIModel() called - resetting AI model to defaults
+[03-06-2025 (AEST/AEDT) 20:22:38]: [DEBUG]: Player analysis data cleared
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: AI model reset completed successfully - all data cleared
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: Setting up thread: GE-AI-Thread
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: GamingAI initialization completed successfully - Model size: 536870912 bytes, Analysis interval: 30 seconds
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: Thread 'GE-AI-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: AI thread started - beginning AI processing loop
+[03-06-2025 (AEST/AEDT) 20:22:38]: [INFO]: AI thread initialization completed - entering main processing loop
+[03-06-2025 (AEST/AEDT) 20:23:08]: [DEBUG]: Analysis interval elapsed (30 seconds) - performing periodic analysis
+[03-06-2025 (AEST/AEDT) 20:23:08]: [DEBUG]: Performing periodic AI analysis
+[03-06-2025 (AEST/AEDT) 20:23:08]: [DEBUG]: Not monitoring - skipping periodic analysis
+[03-06-2025 (AEST/AEDT) 20:23:08]: [DEBUG]: Periodic analysis timing: 0 ms
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: Setting up thread: GE-FileIO-Processing-Thread
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: Thread 'GE-FileIO-Processing-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: Thread 'GE-FileIO-Processing-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: [MathPrecalculation] Starting initialization of lookup tables
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: [MathPrecalculation] Initializing trigonometric lookup tables
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: [MathPrecalculation] Trigonometric tables initialized - Sin/Cos entries: 65536, Sqrt entries: 32768
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: [MathPrecalculation] Initializing inverse trigonometric lookup tables
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: [MathPrecalculation] Inverse trigonometric tables initialized - Entries: 32768
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: [MathPrecalculation] Initializing color conversion lookup tables
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: [MathPrecalculation] YUV lookup table allocated - Size: 786432 entries (786432 bytes)
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: [MathPrecalculation] Color conversion tables initialized - YUV table: 786432 entries, Conversion data: 256 entries, Clamp table: 512 entries
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: [MathPrecalculation] Initializing interpolation coefficient tables
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: [MathPrecalculation] Interpolation tables initialized - Entries: 1024
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: [MathPrecalculation] Initializing particle system precalculations
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: [MathPrecalculation] Particle data initialized - Directions: 360, Patterns: 8
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: [MathPrecalculation] Initializing matrix transformation caches
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: [MathPrecalculation] Matrix caches initialized - Scale matrices: 10, Rotation matrices: 72
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: [MathPrecalculation] Initializing text rendering optimizations
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: [MathPrecalculation] Text optimizations initialized - Character widths: 92, Transparency entries: 1024
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: [MathPrecalculation] Initialization completed successfully - Memory usage: 2612432 bytes
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: [MathPrecalculation] === Lookup Table Statistics ===
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: Trigonometric table entries: 65536
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: Inverse trigonometric table entries: 32768
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: Square root table entries: 32768
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: Color conversion entries: 256
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: Interpolation table entries: 1024
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: Particle directions: 360
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: Explosion patterns: 8
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: Scale matrix cache: 10
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: Rotation matrix cache: 72
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: Character width cache: 92
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: Transparency lookup entries: 1024
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: Total memory usage: 2612432 bytes
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: Total lookups performed: 0
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: [MathPrecalculation] === End Statistics ===
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: [PUNPack] Starting initialization of compression engine
+[03-06-2025 (AEST/AEDT) 20:24:27]: [DEBUG]: [PUNPack] Initializing CRC32 lookup table
+[03-06-2025 (AEST/AEDT) 20:24:27]: [DEBUG]: [PUNPack] CRC32 lookup table initialized successfully
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: [PUNPack] Initialization completed successfully
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: GamingAI::Initialize() called - starting AI system initialization
+[03-06-2025 (AEST/AEDT) 20:24:27]: [DEBUG]: Default model filename: GamingAI_Model.dat
+[03-06-2025 (AEST/AEDT) 20:24:27]: [DEBUG]: Model file existence check - File: GamingAI_Model.dat, Exists: No
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: No existing AI model found - creating new model
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: GamingAI::ResetAIModel() called - resetting AI model to defaults
+[03-06-2025 (AEST/AEDT) 20:24:27]: [DEBUG]: Player analysis data cleared
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: AI model reset completed successfully - all data cleared
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: Setting up thread: GE-AI-Thread
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: GamingAI initialization completed successfully - Model size: 536870912 bytes, Analysis interval: 30 seconds
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: Thread 'GE-AI-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: AI thread started - beginning AI processing loop
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: AI thread initialization completed - entering main processing loop
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: Found Adapter: Microsoft Basic Render Driver
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
+[03-06-2025 (AEST/AEDT) 20:24:27]: [INFO]: Direct2D render target created successfully
+[03-06-2025 (AEST/AEDT) 20:24:28]: [WARNING]: No Thread with name 'GE-Loader-Thread' was found.
+[03-06-2025 (AEST/AEDT) 20:24:28]: [WARNING]: Thread 'GE-Loader-Thread' is not paused.
+[03-06-2025 (AEST/AEDT) 20:24:28]: [INFO]: Setting up thread: GE-Loader-Thread
+[03-06-2025 (AEST/AEDT) 20:24:28]: [INFO]: Thread 'GE-Loader-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:24:28]: [INFO]: Setting up thread: GE-Rendering-Thread
+[03-06-2025 (AEST/AEDT) 20:24:28]: [INFO]: Thread 'GE-Rendering-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:24:28]: [INFO]: Initializing GUIManager...
+
+[03-06-2025 (AEST/AEDT) 20:24:28]: [INFO]: Thread 'GE-Loader-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:24:28]: [INFO]: [FXManager] Successfully compiled and loaded fade shaders
+[03-06-2025 (AEST/AEDT) 20:24:28]: [INFO]: [FXManager] Successfully initialized with DirectX 11 renderer
+[03-06-2025 (AEST/AEDT) 20:24:28]: [INFO]: NetworkManager::Initialize() called
+[03-06-2025 (AEST/AEDT) 20:24:28]: [INFO]: Initializing Winsock
+[03-06-2025 (AEST/AEDT) 20:24:28]: [INFO]: Winsock initialized successfully
+[03-06-2025 (AEST/AEDT) 20:24:28]: [INFO]: Resetting network statistics
+[03-06-2025 (AEST/AEDT) 20:24:28]: [INFO]: NetworkManager successfully initialized
+[03-06-2025 (AEST/AEDT) 20:24:28]: [INFO]: Media Foundation multithreaded mode enabled
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: Setting up thread: GE-FileIO-Processing-Thread
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: Thread 'GE-FileIO-Processing-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: Thread 'GE-FileIO-Processing-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: [MathPrecalculation] Starting initialization of lookup tables
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: [MathPrecalculation] Initializing trigonometric lookup tables
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: [MathPrecalculation] Trigonometric tables initialized - Sin/Cos entries: 65536, Sqrt entries: 32768
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: [MathPrecalculation] Initializing inverse trigonometric lookup tables
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: [MathPrecalculation] Inverse trigonometric tables initialized - Entries: 32768
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: [MathPrecalculation] Initializing color conversion lookup tables
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: [MathPrecalculation] YUV lookup table allocated - Size: 786432 entries (786432 bytes)
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: [MathPrecalculation] Color conversion tables initialized - YUV table: 786432 entries, Conversion data: 256 entries, Clamp table: 512 entries
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: [MathPrecalculation] Initializing interpolation coefficient tables
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: [MathPrecalculation] Interpolation tables initialized - Entries: 1024
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: [MathPrecalculation] Initializing particle system precalculations
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: [MathPrecalculation] Particle data initialized - Directions: 360, Patterns: 8
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: [MathPrecalculation] Initializing matrix transformation caches
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: [MathPrecalculation] Matrix caches initialized - Scale matrices: 10, Rotation matrices: 72
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: [MathPrecalculation] Initializing text rendering optimizations
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: [MathPrecalculation] Text optimizations initialized - Character widths: 92, Transparency entries: 1024
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: [MathPrecalculation] Initialization completed successfully - Memory usage: 2612432 bytes
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: [MathPrecalculation] === Lookup Table Statistics ===
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: Trigonometric table entries: 65536
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: Inverse trigonometric table entries: 32768
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: Square root table entries: 32768
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: Color conversion entries: 256
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: Interpolation table entries: 1024
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: Particle directions: 360
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: Explosion patterns: 8
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: Scale matrix cache: 10
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: Rotation matrix cache: 72
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: Character width cache: 92
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: Transparency lookup entries: 1024
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: Total memory usage: 2612432 bytes
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: Total lookups performed: 0
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: [MathPrecalculation] === End Statistics ===
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: [PUNPack] Starting initialization of compression engine
+[03-06-2025 (AEST/AEDT) 20:30:41]: [DEBUG]: [PUNPack] Initializing CRC32 lookup table
+[03-06-2025 (AEST/AEDT) 20:30:41]: [DEBUG]: [PUNPack] CRC32 lookup table initialized successfully
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: [PUNPack] Initialization completed successfully
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: GamingAI::Initialize() called - starting AI system initialization
+[03-06-2025 (AEST/AEDT) 20:30:41]: [DEBUG]: Default model filename: GamingAI_Model.dat
+[03-06-2025 (AEST/AEDT) 20:30:41]: [DEBUG]: Model file existence check - File: GamingAI_Model.dat, Exists: No
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: No existing AI model found - creating new model
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: GamingAI::ResetAIModel() called - resetting AI model to defaults
+[03-06-2025 (AEST/AEDT) 20:30:41]: [DEBUG]: Player analysis data cleared
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: AI model reset completed successfully - all data cleared
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: Setting up thread: GE-AI-Thread
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: GamingAI initialization completed successfully - Model size: 536870912 bytes, Analysis interval: 30 seconds
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: Thread 'GE-AI-Thread' started.
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: Window metrics retrieved successfully: 800x600 (client: 784x561)
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: AI thread started - beginning AI processing loop
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: AI thread initialization completed - entering main processing loop
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: Found Adapter: NVIDIA GeForce GTX 960M
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: Found Adapter: Intel(R) HD Graphics 530
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: Found Adapter: Microsoft Basic Render Driver
+[03-06-2025 (AEST/AEDT) 20:30:41]: [INFO]: Using Adapter: NVIDIA GeForce GTX 960M
+[03-06-2025 (AEST/AEDT) 20:30:42]: [INFO]: Direct2D render target created successfully
+[03-06-2025 (AEST/AEDT) 20:30:42]: [WARNING]: No Thread with name 'GE-Loader-Thread' was found.

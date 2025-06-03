@@ -67,7 +67,7 @@ extern ThreadManager threadManager;
 //==============================================================================
 const int FILEIO_MAX_QUEUE_SIZE = 1024;                                // Maximum number of queued file operations
 const int FILEIO_THREAD_SLEEP_MS = 10;                                 // Thread sleep duration when no tasks are available
-const int FILEIO_LOCK_TIMEOUT_MS = 5000;                               // Default lock timeout in milliseconds
+const int FILEIO_LOCK_TIMEOUT_MS = 100;                                // Default lock timeout in milliseconds
 const size_t FILEIO_MAX_BUFFER_SIZE = 0x7FFFFFFF;                      // Maximum file buffer size (2GB)
 const std::string FILEIO_QUEUE_LOCK = "fileio_queue_lock";             // Lock name for queue operations
 const std::string FILEIO_ERROR_LOCK = "fileio_error_lock";             // Lock name for error operations

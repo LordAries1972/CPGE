@@ -258,10 +258,24 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             return EXIT_FAILURE;
         }
 
+        // Initialise our Randomizer system.
+        if (!fileIO.Initialize()) {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"FileIO initialization has failed - Aborting!");
+            return EXIT_FAILURE;
+        }
+
+        if (!fileIO.StartFileIOThread()) {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[DEMO] Failed to start FileIO thread");
+            myRandomizer.Cleanup();
+            fileIO.Cleanup();
+            return false;
+        }
 
         // Initialise our Sound Manager
         if (!soundManager.Initialize(hwnd)) {
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Sound system initialization or loading failed.");
+            myRandomizer.Cleanup();
+            fileIO.Cleanup();
             return EXIT_FAILURE;
         }
 
@@ -270,6 +284,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             #if defined(_DEBUG_MATHPRECALC_)
                 debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize MATHPrecalc!");
             #endif
+            soundManager.CleanUp();
+            myRandomizer.Cleanup();
+            fileIO.Cleanup();
             return EXIT_FAILURE;
         }
 
@@ -279,6 +296,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             #if defined(_DEBUG_PUNPACK_)
                 debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize PUNPack!");
             #endif
+            soundManager.CleanUp();
+            myRandomizer.Cleanup();
+            fileIO.Cleanup();
             return EXIT_FAILURE;
         }
 
@@ -288,6 +308,11 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             #if defined(_DEBUG_PUNPACK_)
                 debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize PUNPack!");
             #endif
+
+            punPack.Cleanup();
+            soundManager.CleanUp();
+            myRandomizer.Cleanup();
+            fileIO.Cleanup();
             return EXIT_FAILURE;
         }
 
@@ -781,7 +806,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
     // Monitor write task completion over time
     int monitorAttempts = 0;
-    const int maxMonitorAttempts = 150;                                  // Monitor for up to 15 seconds
+    const int maxMonitorAttempts = 30;                                  // Monitor for up to 3 seconds
 
     while (monitorAttempts < maxMonitorAttempts) {
         bool currentHasPendingWrites = fileIO.HasPendingWriteTasks();
