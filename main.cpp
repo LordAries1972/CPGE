@@ -201,15 +201,6 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             MessageBox(nullptr, L"Unsupported Windows Version.\nPlease use Windows 10 SP1 64Bit or later.", L"Error", MB_OK | MB_ICONERROR);
             return EXIT_FAILURE;
         }
-
-        // Are we using a 32 bit / 64Bit Operating system?
-        if (sysUtils.Is64BitOperatingSystem())
-        {
-            #if defined(__USE_OPENGL__)
-                MessageBox(nullptr, L"OpenGL must use 32Bit Compiling under the CPGE System.", L"Error", MB_OK | MB_ICONERROR);
-                return EXIT_FAILURE;
-            #endif
-        }
     #endif
 
     // Create appropriate Renderer Interface

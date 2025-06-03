@@ -13,6 +13,8 @@
 
 #pragma warning(push)
 #pragma warning(disable: 4996)  // Suppress deprecated codecvt warnings
+#pragma warning(disable: 4101)  // Suppress warning C4101: 'e': unreferenced local variable
+
 #define _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING
 
 // External reference for global debug instance

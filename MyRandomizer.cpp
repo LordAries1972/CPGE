@@ -2185,23 +2185,23 @@ int MyRandomizer::SelectWeightedIndex(const std::vector<float>& weights) {
 
 // Calculate spawn delay with urgency factor - MISSING IMPLEMENTATION
 float MyRandomizer::CalculateSpawnUrgency(float baseDelay, float urgencyFactor) const {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"CalculateSpawnUrgency called - Base: %.3f, Urgency: %.3f",
-        baseDelay, urgencyFactor);
-#endif
+    #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"CalculateSpawnUrgency called - Base: %.3f, Urgency: %.3f",
+            baseDelay, urgencyFactor);
+    #endif
 
     // Validate parameters
     if (baseDelay <= 0.0f) {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid base delay: %.3f (must be > 0)", baseDelay);
-#endif
+        #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid base delay: %.3f (must be > 0)", baseDelay);
+        #endif
         return 1.0f;  // Return minimum delay as fallback
     }
 
     if (urgencyFactor <= 0.0f) {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid urgency factor: %.3f (must be > 0)", urgencyFactor);
-#endif
+        #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid urgency factor: %.3f (must be > 0)", urgencyFactor);
+        #endif
         return baseDelay;  // Return base delay as fallback
     }
 
@@ -2213,9 +2213,9 @@ float MyRandomizer::CalculateSpawnUrgency(float baseDelay, float urgencyFactor) 
         // Ensure minimum delay of 0.1 seconds
         float finalDelay = std::max(adjustedDelay, 0.1f);
 
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"CalculateSpawnUrgency result: %.3f", finalDelay);
-#endif
+        #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"CalculateSpawnUrgency result: %.3f", finalDelay);
+        #endif
 
         return finalDelay;
     }
@@ -2231,10 +2231,10 @@ float MyRandomizer::CalculateSpawnUrgency(float baseDelay, float urgencyFactor) 
 
 // Generate random stat roll for RPG character creation - MISSING IMPLEMENTATION
 int MyRandomizer::GetRandStatRoll(int numberOfDice, int sidesPerDie, bool dropLowest) {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"GetRandStatRoll called - Dice: %d, Sides: %d, Drop Lowest: %s",
-        numberOfDice, sidesPerDie, dropLowest ? L"true" : L"false");
-#endif
+    #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"GetRandStatRoll called - Dice: %d, Sides: %d, Drop Lowest: %s",
+            numberOfDice, sidesPerDie, dropLowest ? L"true" : L"false");
+    #endif
 
     // Validate parameters
     if (numberOfDice <= 0 || numberOfDice > MYRANDOMIZER_MAX_DICE_COUNT) {
@@ -2262,9 +2262,9 @@ int MyRandomizer::GetRandStatRoll(int numberOfDice, int sidesPerDie, bool dropLo
             int roll = GetRandNum(1, sidesPerDie);
             rolls.push_back(roll);
 
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"Die #%d rolled: %d", i + 1, roll);
-#endif
+            #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"Die #%d rolled: %d", i + 1, roll);
+            #endif
         }
 
         // Sort rolls if we need to drop the lowest
@@ -2279,9 +2279,9 @@ int MyRandomizer::GetRandStatRoll(int numberOfDice, int sidesPerDie, bool dropLo
             totalRoll += roll;
         }
 
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"GetRandStatRoll total result: %d", totalRoll);
-#endif
+        #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"GetRandStatRoll total result: %d", totalRoll);
+        #endif
 
         return totalRoll;
     }
@@ -2293,9 +2293,9 @@ int MyRandomizer::GetRandStatRoll(int numberOfDice, int sidesPerDie, bool dropLo
 
 // Generate random encounter chance - MISSING IMPLEMENTATION
 bool MyRandomizer::CheckRandomEncounter(float encounterRate) {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"CheckRandomEncounter called with rate: %.3f", encounterRate);
-#endif
+    #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"CheckRandomEncounter called with rate: %.3f", encounterRate);
+    #endif
 
     // Validate encounter rate (should be between 0.0 and 1.0)
     if (encounterRate < 0.0f || encounterRate > 1.0f) {
@@ -2306,20 +2306,20 @@ bool MyRandomizer::CheckRandomEncounter(float encounterRate) {
     // Use existing GetRandBool method for encounter check
     bool encounterOccurs = GetRandBool(encounterRate);
 
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"CheckRandomEncounter result: %s",
-        encounterOccurs ? L"Encounter!" : L"No encounter");
-#endif
+    #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"CheckRandomEncounter result: %s",
+            encounterOccurs ? L"Encounter!" : L"No encounter");
+    #endif
 
     return encounterOccurs;
 }
 
 // Generate random loot drop based on rarity tables - MISSING IMPLEMENTATION
 int MyRandomizer::GetRandLootDrop(const std::vector<float>& rarityThresholds) {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"GetRandLootDrop called with %zu rarity thresholds",
-        rarityThresholds.size());
-#endif
+    #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"GetRandLootDrop called with %zu rarity thresholds",
+            rarityThresholds.size());
+    #endif
 
     // Validate rarity thresholds
     if (rarityThresholds.empty()) {
@@ -2340,18 +2340,18 @@ int MyRandomizer::GetRandLootDrop(const std::vector<float>& rarityThresholds) {
         // Check each rarity threshold (assuming sorted from common to rare)
         for (size_t i = 0; i < rarityThresholds.size(); ++i) {
             if (dropChance <= rarityThresholds[i]) {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"GetRandLootDrop selected rarity tier %zu with chance %.3f",
-                    i, dropChance);
-#endif
+                #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
+                    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"GetRandLootDrop selected rarity tier %zu with chance %.3f",
+                        i, dropChance);
+                #endif
                 return static_cast<int>(i);
             }
         }
 
         // No loot drop occurred
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"GetRandLootDrop - No loot drop (chance: %.3f)", dropChance);
-#endif
+        #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"GetRandLootDrop - No loot drop (chance: %.3f)", dropChance);
+        #endif
         return -1;
     }
     catch (const std::exception& e) {
@@ -2362,10 +2362,10 @@ int MyRandomizer::GetRandLootDrop(const std::vector<float>& rarityThresholds) {
 
 // Generate random spawn timing - MISSING IMPLEMENTATION
 float MyRandomizer::GetRandSpawnDelay(float minDelay, float maxDelay, float urgencyFactor) {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"GetRandSpawnDelay called - Min: %.3f, Max: %.3f, Urgency: %.3f",
-        minDelay, maxDelay, urgencyFactor);
-#endif
+    #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"GetRandSpawnDelay called - Min: %.3f, Max: %.3f, Urgency: %.3f",
+            minDelay, maxDelay, urgencyFactor);
+    #endif
 
     // Validate delay range
     if (!ValidateFloatRange(minDelay, maxDelay)) {
@@ -2386,9 +2386,9 @@ float MyRandomizer::GetRandSpawnDelay(float minDelay, float maxDelay, float urge
         // Apply urgency factor to adjust delay
         float finalDelay = CalculateSpawnUrgency(baseDelay, urgencyFactor);
 
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"GetRandSpawnDelay result: %.3f", finalDelay);
-#endif
+        #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"GetRandSpawnDelay result: %.3f", finalDelay);
+        #endif
 
         return finalDelay;
     }
@@ -2400,9 +2400,9 @@ float MyRandomizer::GetRandSpawnDelay(float minDelay, float maxDelay, float urge
 
 // Generate random movement direction (8-directional) - MISSING IMPLEMENTATION
 int MyRandomizer::GetRandDirection8() {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"GetRandDirection8 called");
-#endif
+    #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"GetRandDirection8 called");
+    #endif
 
     // Ensure randomizer is initialized
     if (!m_isInitialized) {
@@ -2415,9 +2415,9 @@ int MyRandomizer::GetRandDirection8() {
         // 0=North, 1=Northeast, 2=East, 3=Southeast, 4=South, 5=Southwest, 6=West, 7=Northwest
         int direction = GetRandNum(0, 7);
 
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"GetRandDirection8 selected: %d", direction);
-#endif
+        #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"GetRandDirection8 selected: %d", direction);
+        #endif
 
         return direction;
     }
@@ -2429,9 +2429,9 @@ int MyRandomizer::GetRandDirection8() {
 
 // Generate random movement direction (4-directional) - MISSING IMPLEMENTATION
 int MyRandomizer::GetRandDirection4() {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"GetRandDirection4 called");
-#endif
+    #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"GetRandDirection4 called");
+    #endif
 
     // Ensure randomizer is initialized
     if (!m_isInitialized) {
@@ -2444,9 +2444,9 @@ int MyRandomizer::GetRandDirection4() {
         // 0=North, 1=East, 2=South, 3=West
         int direction = GetRandNum(0, 3);
 
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
+    #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
         debug.logDebugMessage(LogLevel::LOG_DEBUG, L"GetRandDirection4 selected: %d", direction);
-#endif
+    #endif
 
         return direction;
     }
@@ -2458,22 +2458,22 @@ int MyRandomizer::GetRandDirection4() {
 
 // Generate random AI behavior selection - MISSING IMPLEMENTATION
 int MyRandomizer::GetRandAIBehavior(const std::vector<float>& behaviorWeights) {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"GetRandAIBehavior called with %zu behavior weights",
-        behaviorWeights.size());
-#endif
+    #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"GetRandAIBehavior called with %zu behavior weights",
+            behaviorWeights.size());
+    #endif
 
     // Use existing weighted selection method
     int selectedBehavior = SelectWeightedIndex(behaviorWeights);
 
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-    if (selectedBehavior >= 0) {
-        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"GetRandAIBehavior selected behavior: %d", selectedBehavior);
-    }
-    else {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"GetRandAIBehavior failed to select behavior");
-    }
-#endif
+    #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
+        if (selectedBehavior >= 0) {
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"GetRandAIBehavior selected behavior: %d", selectedBehavior);
+        }
+        else {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"GetRandAIBehavior failed to select behavior");
+        }
+    #endif
 
     return selectedBehavior;
 }

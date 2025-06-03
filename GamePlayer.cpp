@@ -19,6 +19,9 @@ extern Debug debug;
     extern PUNPack punPack;
 #endif
 
+#pragma warning(push)
+#pragma warning(disable: 4101)  // Suppress warning C4101: 'e': unreferenced local variable
+
 //==============================================================================
 // GameStatus Class Implementation
 //==============================================================================
@@ -2250,3 +2253,4 @@ void GamePlayer::LogNetworkOperation(const std::string& operation, int playerID)
 }
 #endif
 
+#pragma warning(pop)

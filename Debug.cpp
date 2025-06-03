@@ -107,14 +107,14 @@ void Debug::DeleteLogFileOnStartup()
 
     // Only delete log file if FileIO output is enabled and not in debug mode
     #if !defined(NO_DEBUGFILE_OUTPUT) && !defined(_DEBUG)
-        if (fileIO && fileIO->IsInitialized()) {
+        if (fileIO.IsInitialized()) {
             // Convert wide string log filename to standard string for FileIO operations using cross-platform method
             std::string logFileName = WideStringToString(LOG_FILE_NAME);
 
             // Check if log file exists before attempting deletion
             bool fileExists = false;
             int taskID = 0;
-            if (fileIO->FileExists(logFileName, fileExists, FileIOPriority::PRIORITY_HIGH, taskID)) {
+            if (fileIO.FileExists(logFileName, fileExists, FileIOPriority::PRIORITY_HIGH, taskID)) {
                 // Wait for file existence check to complete
                 bool taskSuccess = false;
                 bool isReady = false;
@@ -123,7 +123,7 @@ void Debug::DeleteLogFileOnStartup()
 
                 // Poll for task completion with timeout protection
                 while (attempts < maxAttempts && !isReady) {
-                    if (fileIO->IsFileIOTaskCompleted(taskID, taskSuccess, isReady)) {
+                    if (fileIO.IsFileIOTaskCompleted(taskID, taskSuccess, isReady)) {
                         if (isReady && taskSuccess) {
                             // File existence check completed successfully
                             break;
@@ -136,7 +136,7 @@ void Debug::DeleteLogFileOnStartup()
                 // If file exists, delete it for session-based logging
                 if (isReady && taskSuccess && fileExists) {
                     int deleteTaskID = 0;
-                    fileIO->DeleteFile(logFileName, FileIOPriority::PRIORITY_HIGH, deleteTaskID);
+                    fileIO.DeleteFile(logFileName, FileIOPriority::PRIORITY_HIGH, deleteTaskID);
 
                     #if defined(_DEBUG_DEBUG_) && defined(_DEBUG)
                         // Cross-platform info message for log file deletion
@@ -172,7 +172,7 @@ void Debug::WriteToLogFile(const std::wstring& message)
 
             // Append message to log file using FileIO with high priority
             int taskID = 0;
-            fileIO->AppendToFile(logFileName, writeBuffer, FileIOType::TYPE_ASCII,
+            fileIO.AppendToFile(logFileName, writeBuffer, FileIOType::TYPE_ASCII,
                 FileIOPosition::POSITION_END, FileIOPriority::PRIORITY_HIGH, taskID);
 
             #if defined(_DEBUG_DEBUG_) && defined(_DEBUG)
