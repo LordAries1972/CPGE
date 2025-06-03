@@ -1106,6 +1106,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                         renderer->bWireframeMode = renderer->bWireframeMode;
                         return 0;
                     }
+
+                    // ADJUST Later: Have the AI Monitor Keyboard interaction.
+                    if (gamingAI.IsMonitoring()) {
+                        gamingAI.CollectInputEventData(INPUT_TYPE_KEYBOARD, static_cast<uint32_t>(wParam)); // For keyboard
+                    }
                 }
             }
 
@@ -1123,6 +1128,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 threadManager.threadVars.bIsShuttingDown.store(true);
                 PostQuitMessage(0);
             }
+
             return 0;
 
         case WM_CLOSE:
@@ -1159,33 +1165,75 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
             switch (wParam)
             {
-            case VK_UP:
-                renderer->myCamera.MoveUp(moveStep);
-                if (!bResizeInProgress.load()) {
-                    renderer->RenderFrame();
-                }
-                break;
+                switch (scene.stSceneType)
+                {
+                    case SceneType::SCENE_GAMEPLAY:
+                    {
+                        case VK_UP:
+                            renderer->myCamera.MoveUp(moveStep);
+                            #if !defined(RENDERER_IS_THREAD)
+                                if (!bResizeInProgress.load()) {
+                                    renderer->RenderFrame();
+                                }
+                            #endif
 
-            case VK_DOWN:
-                renderer->myCamera.MoveDown(moveStep);
-                if (!bResizeInProgress.load()) {
-                    renderer->RenderFrame();
-                }
-                break;
+                            // ADJUST Later: Have the AI Monitor Keyboard interaction.
+                            if (gamingAI.IsMonitoring()) {
+                                gamingAI.CollectInputEventData(INPUT_TYPE_KEYBOARD, static_cast<uint32_t>(wParam)); // For keyboard
+                            }
 
-            case VK_LEFT:
-                renderer->myCamera.MoveLeft(moveStep);
-                if (!bResizeInProgress.load()) {
-                    renderer->RenderFrame();
-                }
-                break;
+                            break;
 
-            case VK_RIGHT:
-                renderer->myCamera.MoveRight(moveStep);
-                if (!bResizeInProgress.load()) {
-                    renderer->RenderFrame();
+                        case VK_DOWN:
+                            renderer->myCamera.MoveDown(moveStep);
+                            #if !defined(RENDERER_IS_THREAD)
+                                if (!bResizeInProgress.load()) {
+                                    renderer->RenderFrame();
+                                }
+                            #endif
+                            
+                            if (!bResizeInProgress.load()) {
+                                renderer->RenderFrame();
+                            }
+
+                            // ADJUST Later: Have the AI Monitor Keyboard interaction.
+                            if (gamingAI.IsMonitoring()) {
+                                gamingAI.CollectInputEventData(INPUT_TYPE_KEYBOARD, static_cast<uint32_t>(wParam)); // For keyboard
+                            }
+
+                            break;
+
+                        case VK_LEFT:
+                            renderer->myCamera.MoveLeft(moveStep);
+                            #if !defined(RENDERER_IS_THREAD)
+                                if (!bResizeInProgress.load()) {
+                                    renderer->RenderFrame();
+                                }
+                            #endif
+
+                            // ADJUST Later: Have the AI Monitor Keyboard interaction.
+                            if (gamingAI.IsMonitoring()) {
+                                gamingAI.CollectInputEventData(INPUT_TYPE_KEYBOARD, static_cast<uint32_t>(wParam)); // For keyboard
+                            }
+
+                            break;
+
+                        case VK_RIGHT:
+                            renderer->myCamera.MoveRight(moveStep);
+                            #if !defined(RENDERER_IS_THREAD)
+                                if (!bResizeInProgress.load()) {
+                                    renderer->RenderFrame();
+                                }
+                            #endif
+
+                            // ADJUST Later: Have the AI Monitor Keyboard interaction.
+                            if (gamingAI.IsMonitoring()) {
+                                gamingAI.CollectInputEventData(INPUT_TYPE_KEYBOARD, static_cast<uint32_t>(wParam)); // For keyboard
+                            }
+
+                            break;
+                    }
                 }
-                break;
             }
 
             return 0;
