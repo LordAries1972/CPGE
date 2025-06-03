@@ -206,6 +206,7 @@
     <ClCompile Include="MathPrecalculation.cpp" />
     <ClCompile Include="Models.cpp" />
     <ClCompile Include="MoviePlayer.cpp" />
+    <ClCompile Include="MyRandomizer.cpp" />
     <ClCompile Include="NetworkManager.cpp" />
     <ClCompile Include="OpenGLRenderer.cpp" />
     <ClCompile Include="PUNPack.cpp" />
@@ -239,6 +240,7 @@
     <ClInclude Include="MathPrecalculation.h" />
     <ClInclude Include="Models.h" />
     <ClInclude Include="MoviePlayer.h" />
+    <ClInclude Include="MyRandomizer.h" />
     <ClInclude Include="NetworkManager.h" />
     <ClInclude Include="OpenGLRenderer.h" />
     <ClInclude Include="PUNPack.h" />

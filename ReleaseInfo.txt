@@ -204,6 +204,10 @@ DEVELOPMENT HISTORY:
 03/06/2025 - Implemented a Thread Safe FileIO Class which is responsible for all FileIO operations on various platforms.  Please
              see the FileIO.h/.cpp and FileIO-Example-Usage.txt file for more information.
 
+           - Implemented Random Number Generation system class called MyRandomizer.  This class is responsible for various
+             random number generation functions that would prove useful in just about any gaming scenario.  Please see the
+             MyRandomizer.h/.cpp and MyRandomizer-Example-Usage.txt file for more information.
+
 ------------------------------------------------------------------------------------------------------------------------------------- 
 [ FUTURE ]   OK EVERYONE, we are approaching a VERY CLOSE TO GAMING PRODUCTION READINESS FOR DIRECTX 11 SYSTEMS! (WINDOWS 10 SP1 & above 64BIT)
              and all this work that has been going for the last, next to 2 years of my time, comes for free under the MIT LICENSE.
@@ -240,7 +244,7 @@ DEVELOPMENT HISTORY:
              ===========
              OTHER NOTES
              ===========
-             Always fully test the GITHUB (Base) FIRST on the code on a FULL Clone or PULL Request, before starting your project!  
+             Always fully test the GITHUB (Base) FIRST on the code with a FULL Clone or PULL Request, before starting your project!  
              If there are any compile errors (Which you should not be getting).  Please raise a ticket with an email to 
              cpgeengine@gmail.com 
              

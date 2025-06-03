@@ -57,6 +57,7 @@
 #include "PUNPack.h"
 #include "GamePlayer.h"
 #include "GamingAI.h"
+#include "MyRandomizer.h"
 
 #if defined(_WIN64) || defined(_WIN32)
     #include "TTSManager.h"
@@ -125,6 +126,7 @@ NetworkManager networkManager;
 PUNPack punPack;
 GamePlayer gamePlayer;
 GamingAI gamingAI;
+MyRandomizer myRandomizer;
 
 #if defined(_WIN64) || defined(_WIN32)
     TTSManager ttsManager;
@@ -258,6 +260,13 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
         // Load in our Configuration file.
         config.loadConfig();
+
+        // Initialise our Randomizer system.
+        if (!myRandomizer.Initialize()) {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Randomizer initialization has failed - Aborting!");
+            return EXIT_FAILURE;
+        }
+
 
         // Initialise our Sound Manager
         if (!soundManager.Initialize(hwnd)) {
@@ -816,6 +825,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     // Now we can STOP the fileIO system.
     fileIO.Cleanup();
 
+    // Cleanup our MyRandomizer class instance.
+    myRandomizer.Cleanup();
+
     // IMPORTANT: DO THIS LAST!!! 
     // Now clean up the Thread Manager.
     threadManager.Cleanup();
@@ -1165,11 +1177,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
             switch (wParam)
             {
-                switch (scene.stSceneType)
-                {
-                    case SceneType::SCENE_GAMEPLAY:
+                case VK_UP:
+                    switch (scene.stSceneType)
                     {
-                        case VK_UP:
+                        case SceneType::SCENE_GAMEPLAY:
                             renderer->myCamera.MoveUp(moveStep);
                             #if !defined(RENDERER_IS_THREAD)
                                 if (!bResizeInProgress.load()) {
@@ -1183,15 +1194,19 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                             }
 
                             break;
+                    }
 
-                        case VK_DOWN:
+                case VK_DOWN:
+                    switch (scene.stSceneType)
+                    {
+                        case SceneType::SCENE_GAMEPLAY:
                             renderer->myCamera.MoveDown(moveStep);
                             #if !defined(RENDERER_IS_THREAD)
                                 if (!bResizeInProgress.load()) {
                                     renderer->RenderFrame();
                                 }
                             #endif
-                            
+
                             if (!bResizeInProgress.load()) {
                                 renderer->RenderFrame();
                             }
@@ -1202,8 +1217,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                             }
 
                             break;
+                    }
 
-                        case VK_LEFT:
+                case VK_LEFT:
+                    switch (scene.stSceneType)
+                    {
+                        case SceneType::SCENE_GAMEPLAY:
                             renderer->myCamera.MoveLeft(moveStep);
                             #if !defined(RENDERER_IS_THREAD)
                                 if (!bResizeInProgress.load()) {
@@ -1217,8 +1236,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                             }
 
                             break;
+                    }
 
-                        case VK_RIGHT:
+                case VK_RIGHT:
+                    switch (scene.stSceneType)
+                    {
+                        case SceneType::SCENE_GAMEPLAY:
                             renderer->myCamera.MoveRight(moveStep);
                             #if !defined(RENDERER_IS_THREAD)
                                 if (!bResizeInProgress.load()) {
@@ -1233,15 +1256,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
                             break;
                     }
-                }
-            }
+            } // End of switch (wParam)
 
             return 0;
-        }
+        } // End of case WM_KEYDOWN:
 
         default:
             return DefWindowProc(hwnd, uMsg, wParam, lParam);
-    }
+
+    } // End of switch (uMsg)
 }
 
 void SwitchToGamePlay()
