@@ -44,6 +44,7 @@
 /* ------------------------------------------------------------------------------ */
 #include "Includes.h"
 // Engine Subsystems
+#include "ExceptionHandler.h"
 #include "MathPrecalculation.h"
 #include "FileIO.h"
 #include "Debug.h"
@@ -110,6 +111,7 @@ const int PLAYER_2 = 1;
 // Some classes will reference each other, so we need to
 // declare them here to avoid circular dependencies.
 //--------------------------------------------------------
+ExceptionHandler exceptionHandler;
 Configuration config;
 FileIO fileIO;
 Debug debug;
@@ -235,6 +237,12 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     if (!hwnd) {
         // Yes! Report to User and Exit!
         debug.LogError("[SYSTEM]: Failed to create window.\n");
+        return EXIT_FAILURE;
+    }
+
+    // Initialize the exception handler for comprehensive error tracking
+    if (!exceptionHandler.Initialize()) {
+        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Failed to initialize exception handler - continuing without it");
         UnregisterClass(lpDEFAULT_NAME, hInstance);
         return EXIT_FAILURE;
     }
@@ -246,6 +254,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     {
         if (FAILED(CoInitializeEx(nullptr, COINIT_MULTITHREADED))) {
             debug.LogError("[SYSTEM]: Failed to initialize COM.");
+            UnregisterClass(lpDEFAULT_NAME, hInstance);
             return EXIT_FAILURE;
         }
 
@@ -255,27 +264,29 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         // Initialise our Randomizer system.
         if (!myRandomizer.Initialize()) {
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Randomizer initialization has failed - Aborting!");
+            UnregisterClass(lpDEFAULT_NAME, hInstance);
             return EXIT_FAILURE;
         }
 
         // Initialise our Randomizer system.
         if (!fileIO.Initialize()) {
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"FileIO initialization has failed - Aborting!");
+            UnregisterClass(lpDEFAULT_NAME, hInstance);
             return EXIT_FAILURE;
         }
 
         if (!fileIO.StartFileIOThread()) {
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[DEMO] Failed to start FileIO thread");
-            myRandomizer.Cleanup();
-            fileIO.Cleanup();
+
+            UnregisterClass(lpDEFAULT_NAME, hInstance);
             return false;
         }
 
         // Initialise our Sound Manager
         if (!soundManager.Initialize(hwnd)) {
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Sound system initialization or loading failed.");
-            myRandomizer.Cleanup();
-            fileIO.Cleanup();
+
+            UnregisterClass(lpDEFAULT_NAME, hInstance);
             return EXIT_FAILURE;
         }
 
@@ -284,9 +295,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             #if defined(_DEBUG_MATHPRECALC_)
                 debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize MATHPrecalc!");
             #endif
-            soundManager.CleanUp();
-            myRandomizer.Cleanup();
-            fileIO.Cleanup();
+
+            UnregisterClass(lpDEFAULT_NAME, hInstance);
             return EXIT_FAILURE;
         }
 
@@ -296,9 +306,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             #if defined(_DEBUG_PUNPACK_)
                 debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize PUNPack!");
             #endif
-            soundManager.CleanUp();
-            myRandomizer.Cleanup();
-            fileIO.Cleanup();
+
+            UnregisterClass(lpDEFAULT_NAME, hInstance);
             return EXIT_FAILURE;
         }
 
@@ -309,10 +318,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                 debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize PUNPack!");
             #endif
 
-            punPack.Cleanup();
-            soundManager.CleanUp();
-            myRandomizer.Cleanup();
-            fileIO.Cleanup();
+            UnregisterClass(lpDEFAULT_NAME, hInstance);
             return EXIT_FAILURE;
         }
 
@@ -332,6 +338,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             if (!renderer->StartRendererThreads())
             {
                 MessageBox(nullptr, L"Problem Starting Renderer Threads!!!", L"Error", MB_OK | MB_ICONERROR);
+                UnregisterClass(lpDEFAULT_NAME, hInstance);
                 return EXIT_FAILURE;
             }
         #else
@@ -359,11 +366,13 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         #endif
 
         // Initialize Network Manager
-        if (!networkManager.Initialize()) {
-            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Network system initialization failed.");
-            return EXIT_FAILURE;
-        }
-            
+        #if defined(__USE_NETWORKING__)
+            if (!networkManager.Initialize()) {
+                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Network system initialization failed.");
+                return EXIT_FAILURE;
+            }
+        #endif            
+
         std::wstring alert = L"This is an alert status message.\n\n"
         L"Congratulations if you're seeing this window!\n"
         L"It means the system initialized correctly.\n";
@@ -408,6 +417,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
         // --- Main Loop ---
         MSG msg = {};
+		sysUtils.StartTimer();                                  // Start the system timer
         while (msg.message != WM_QUIT)
         {
             if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) 
@@ -426,11 +436,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                     case SceneType::SCENE_SPLASH:
                     {
                         try {
-                            // Increment frame counter for splash screen duration timing
-                            scene.sceneFrameCounter++;
-
                             // Check if splash screen duration has elapsed and we haven't started scene switching yet
-                            if ((scene.sceneFrameCounter >= 4500000) && (!scene.bSceneSwitching))
+                            if ((sysUtils.CheckElapsedTime(6)) && (!scene.bSceneSwitching))
                             {
                                 #if defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)
                                     // Mark that we are beginning the scene transition process
@@ -773,7 +780,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     gamePlayer.Cleanup();
 
     // Clean up Network Manager
-    networkManager.Cleanup();
+    #if defined(__USE_NETWORKING__)
+        networkManager.Cleanup();
+    #endif
 
     // Cleanup Cached Base Models
     for (int i = 0; i < MAX_MODELS; i++)
@@ -806,7 +815,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
     // Monitor write task completion over time
     int monitorAttempts = 0;
-    const int maxMonitorAttempts = 30;                                  // Monitor for up to 3 seconds
+    const int maxMonitorAttempts = 50;                                  // Monitor for up to 5 seconds
 
     while (monitorAttempts < maxMonitorAttempts) {
         bool currentHasPendingWrites = fileIO.HasPendingWriteTasks();
@@ -847,6 +856,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     // IMPORTANT: DO THIS LAST!!! 
     // Now clean up the Thread Manager.
     threadManager.Cleanup();
+
+	// Finally now remove the Exception Handler.
+	exceptionHandler.Cleanup();
 
     CoUninitialize();
     return EXIT_SUCCESS;
@@ -1285,11 +1297,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 void SwitchToGamePlay()
 {
+	threadManager.PauseThread(THREAD_RENDERER); // Pause the Renderer Thread
     scene.SetGotoScene(SCENE_GAMEPLAY);
     scene.InitiateScene();
     scene.SetGotoScene(SCENE_NONE);
     // Restart the Loader Thread to load in required assets.
     renderer->ResumeLoader();
+    threadManager.ResumeThread(THREAD_RENDERER); // Pause the Renderer Thread
 }
 
 void OpenMovieAndPlay()
@@ -1308,6 +1322,7 @@ void OpenMovieAndPlay()
 
 void SwitchToMovieIntro()
 {
+    threadManager.PauseThread(THREAD_RENDERER); // Pause the Renderer Thread
     // Add TTS announcement for movie intro
     if (config.myConfig.UseTTS)
     {
@@ -1325,11 +1340,12 @@ void SwitchToMovieIntro()
     OpenMovieAndPlay();
     // Restart the Loader Thread to load in required assets.
     renderer->ResumeLoader();
-
+    threadManager.ResumeThread(THREAD_RENDERER); // Pause the Renderer Thread
 }
 
 void SwitchToGameIntro()
 {
+    threadManager.PauseThread(THREAD_RENDERER); // Pause the Renderer Thread
     // Add TTS announcement for movie intro
     if (config.myConfig.UseTTS)
     {
@@ -1345,4 +1361,5 @@ void SwitchToGameIntro()
     scene.SetGotoScene(SCENE_NONE);
     // Restart the Loader Thread to load in required assets.
     renderer->ResumeLoader();
+    threadManager.ResumeThread(THREAD_RENDERER); // Pause the Renderer Thread
 }

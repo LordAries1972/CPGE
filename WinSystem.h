@@ -87,6 +87,8 @@ public:
     bool GetWindowMetrics(HWND hWnd, WindowMetrics& outMetrics);
     bool Is64BitOperatingSystem();
     std::wstring GetProcessorArchitecture();
+    void StartTimer();                                                   // Resets timer to current time
+    bool CheckElapsedTime(int NumOfSeconds);                             // Checks if specified seconds have elapsed since StartTimer()
 
     std::tuple<int, int> GetPrimaryMonitorFullScreenSize();
 
@@ -98,5 +100,8 @@ public:
 	std::tuple<int, int> ScaleMouseCoordinates(int originalX, int originalY, int originalWidth, int originalHeight, int newWidth, int newHeight);
 
 private:
+    // Timer functionality for elapsed time checking
+    std::chrono::high_resolution_clock::time_point m_timerStartTime;     // Stores the start time for timer operations
+    bool m_timerInitialized;                                             // Flag to track if timer has been started
 
 };

@@ -210,6 +210,10 @@ DEVELOPMENT HISTORY:
 
            - Debug Class now uses the FileIO Class for its file operations.
 
+05/06/2025 - Implemented a ExceptionHandler Class which is for capturing, dumping and logging when exceptions occur.
+             This will be both handy for Development debugging and Production Release Information when reported.
+			 See ExceptionHandler.h/.cpp for more information.
+			 
 ------------------------------------------------------------------------------------------------------------------------------------- 
 [ FUTURE ]   OK EVERYONE, we are approaching a VERY CLOSE TO GAMING PRODUCTION READINESS FOR DIRECTX 11 SYSTEMS! (WINDOWS 10 SP1 & above 64BIT)
              and all this work that has been going for the last, next to 2 years of my time, comes for free under the MIT LICENSE.

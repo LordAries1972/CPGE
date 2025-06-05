@@ -11,6 +11,8 @@
 #include "Vectors.h"
 
 // CRITICAL: Windows networking headers must be included in correct order
+#ifdef __USE_NETWORKING__
+
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN                                             // Exclude rarely-used Windows APIs
 #endif
@@ -282,3 +284,5 @@ private:
 
 // Global NetworkManager instance declaration
 extern NetworkManager networkManager;
+
+#endif // __USE_NETWORKING__

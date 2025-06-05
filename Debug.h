@@ -18,6 +18,7 @@
 
 #if defined(_DEBUG)
 #define NO_DEBUGFILE_OUTPUT
+#define _DEBUG_EXCEPTIONHANDLER_                                        // Define this line, to show all debug output for the ExceptionHandler class.
 //#define _DEBUG_XMPlayer_                                                // Define this line, to show all debug output to runtime console for the XMMODPlayer class.
 //#define _DEBUG_CONFIGURATION_
 //#define _DEBUG_SOUNDMANAGER_

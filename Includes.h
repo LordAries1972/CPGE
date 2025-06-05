@@ -13,6 +13,7 @@ This is to eliminate the need for multiple includes in your project files.
 #define __USE_XMPLAYER__
 //#define __USE_MP3PLAYER__
 #define __USING_JOYSTICKS__                                                             // Uncomment this line if you want to use Joysticks with this engine.
+#define __USE_NETWORKING__                                                              // Uncomment this line if you want to use Networking TCP/UDP Protocols with this engine.
 
 // Windows Specific Includes
 #if defined(_WIN64) || defined(_WIN32)

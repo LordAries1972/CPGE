@@ -2816,7 +2816,7 @@ ComPtr<IDXGIAdapter1> DX11Renderer::SelectBestAdapter()
 
         // Score calculation
         UINT score = 0;
-        if (controlsWindow) score += 10000;  // Huge priority for adapters controlling the window
+//        if (controlsWindow) score += 10000;  // Huge priority for adapters controlling the window
         if (desc.VendorId == 0x10DE) score += 1000; // NVIDIA
         if (desc.VendorId == 0x1002) score += 900;  // AMD
         if (desc.VendorId == 0x8086) score += 100;  // Intel
@@ -2899,17 +2899,31 @@ void DX11Renderer::RenderFrame()
         // Save the current Direct3D state
 		ComPtr<ID3D11RenderTargetView> previousRenderTargetView;
 		ComPtr<ID3D11DepthStencilView> previousDepthStencilView;
-		m_d3dContext->OMGetRenderTargets(1, previousRenderTargetView.GetAddressOf(), previousDepthStencilView.GetAddressOf());
+        FLOAT clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+        D3D11_VIEWPORT previousViewport;
+        UINT numViewports = 1;
+        D3D11_VIEWPORT viewport = {};
+        RECT rc;
+        POINT cursorPos;
 
-		D3D11_VIEWPORT previousViewport;
-		UINT numViewports = 1;
+        #ifdef RENDERER_IS_THREAD
+            ThreadStatus status = threadManager.GetThreadStatus(THREAD_RENDERER);
+            while (((status == ThreadStatus::Running) || (status == ThreadStatus::Paused)) && (!threadManager.threadVars.bIsShuttingDown.load()))
+            {
+                status = threadManager.GetThreadStatus(THREAD_RENDERER);
+                if (status == ThreadStatus::Paused)
+                {
+                    threadManager.threadVars.bIsRendering.store(false);
+                    Sleep(1);
+                    continue;
+                }
+
+                threadManager.threadVars.bIsRendering.store(true);
+        #endif
+
+        m_d3dContext->OMGetRenderTargets(1, previousRenderTargetView.GetAddressOf(), previousDepthStencilView.GetAddressOf());
 		m_d3dContext->RSGetViewports(&numViewports, &previousViewport);
 
-		FLOAT clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-
-        D3D11_VIEWPORT viewport = {};
-		RECT rc;
-		POINT cursorPos;
         if (!winMetrics.isFullScreen)
         {
             GetClientRect(hWnd, &rc);
@@ -2948,21 +2962,6 @@ void DX11Renderer::RenderFrame()
         #endif
 
         // Check the status of the rendering thread
-#ifdef RENDERER_IS_THREAD
-        ThreadStatus status = threadManager.GetThreadStatus(THREAD_RENDERER);
-		while (((status == ThreadStatus::Running) || (status == ThreadStatus::Paused)) && (!threadManager.threadVars.bIsShuttingDown.load()))
-		{
-			status = threadManager.GetThreadStatus(THREAD_RENDERER);
-			if (status == ThreadStatus::Paused)
-			{
-                threadManager.threadVars.bIsRendering.store(false);
-                Sleep(1);
-				continue;
-			}
-
-            threadManager.threadVars.bIsRendering.store(true);
-#endif
-
             if (m_d3dDevice)
             {
                 HRESULT hr = m_d3dDevice->GetDeviceRemovedReason();
@@ -2997,7 +2996,6 @@ void DX11Renderer::RenderFrame()
             {
                 if (m_d3dContext && threadManager.TryLock(D2DLockName, 100))
                 {
-                    
                     m_d3dContext->ClearRenderTargetView(m_renderTargetView.Get(), clearColor);
                     m_d3dContext->ClearDepthStencilView(m_depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
                     threadManager.RemoveLock(D2DLockName);
@@ -3005,6 +3003,7 @@ void DX11Renderer::RenderFrame()
             }
             catch (const std::exception& e)
             {
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDER] - RenderFrame Clear Failed: " + std::wstring(e.what(), e.what() + strlen(e.what())));
                 #ifdef RENDERER_IS_THREAD
                     continue;
                 #else
@@ -3364,9 +3363,10 @@ void DX11Renderer::RenderFrame()
             // State that we are no longer rendering    
             threadManager.threadVars.bIsRendering.store(false);
 #ifdef RENDERER_IS_THREAD
-        }
+            }
 #endif
-        // Make sure to remove the lock even if an exception occurs
+
+            // Make sure to remove the lock even if an exception occurs
         threadManager.RemoveLock(renderFrameLockName);
     }
     catch (const std::exception& e)

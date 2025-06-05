@@ -24,9 +24,9 @@ NetworkManager::NetworkManager() :
     m_nextSequenceNumber(1),                                            // Start sequence numbers at 1
     m_expectedPacketID(1)                                               // Expect first packet ID to be 1
 {
-#if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"NetworkManager constructor called");
-#endif
+    #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"NetworkManager constructor called");
+    #endif
 
     // Initialize connection structure to safe defaults
     m_connection.socket = INVALID_SOCKET;                               // No valid socket initially

@@ -7,8 +7,10 @@ extern Debug debug;
 
 #pragma comment(lib, "Version.lib")
 
-//SystemUtils::SystemUtils() : playing(false), paused(false) {}
-SystemUtils::SystemUtils() {}
+SystemUtils::SystemUtils() : m_timerInitialized(false) {
+    // Initialize timer state to false indicating timer has not been started
+    m_timerStartTime = std::chrono::high_resolution_clock::time_point{};
+}
 
 SystemUtils::~SystemUtils() {}
 
@@ -585,4 +587,77 @@ bool SystemUtils::GetWindowMetrics(HWND hWnd, WindowMetrics& outMetrics)
         outMetrics.width, outMetrics.height, outMetrics.clientWidth, outMetrics.clientHeight);
 
     return true;
+}
+
+// ===== --------------------------------------------------------------------------------- =====
+// Name: SystemUtils::StartTimer()
+// 
+// This function resets the internal timer to the current high-resolution time
+// Used to start timing operations for elapsed time checking in gaming applications
+// Critical for frame timing, animation timing, and other time-sensitive operations
+// ===== --------------------------------------------------------------------------------- =====
+void SystemUtils::StartTimer()
+{
+#if defined(_DEBUG_WINSYSTEM_TIMER_)
+    // Log function entry for debugging timer operations
+    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"StartTimer() - Resetting timer to current time");
+#endif
+
+    // Capture the current high-resolution time point
+    // Using high_resolution_clock for maximum precision in gaming applications
+    m_timerStartTime = std::chrono::high_resolution_clock::now();
+
+    // Mark timer as initialized and ready for elapsed time checking
+    m_timerInitialized = true;
+
+#if defined(_DEBUG_WINSYSTEM_TIMER_)
+    // Log successful timer initialization
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"Timer successfully started and initialized");
+#endif
+}
+
+// ===== --------------------------------------------------------------------------------- =====
+// Name: SystemUtils::CheckElapsedTime(int NumOfSeconds)
+// 
+// This function checks if the specified number of seconds has elapsed since StartTimer() was called
+// Returns true if the elapsed time meets or exceeds NumOfSeconds, false otherwise
+// Essential for timing operations in gaming applications where precise timing is critical
+// 
+// Parameters:
+//   NumOfSeconds - The number of seconds to check against elapsed time
+// 
+// Returns:
+//   bool - true if elapsed time >= NumOfSeconds, false otherwise
+// ===== --------------------------------------------------------------------------------- =====
+bool SystemUtils::CheckElapsedTime(int NumOfSeconds)
+{
+    // Validate that the timer has been initialized with StartTimer()
+    if (!m_timerInitialized) {
+        // Log error for uninitialized timer - this is a critical programming error
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"CheckElapsedTime() called before StartTimer() - timer not initialized");
+        return false;
+    }
+
+    // Validate input parameter - negative seconds don't make sense
+    if (NumOfSeconds < 0) {
+        // Log warning for invalid parameter
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"CheckElapsedTime() called with negative seconds (%d) - returning false", NumOfSeconds);
+        return false;
+    }
+
+    // Capture current time for elapsed time calculation
+    auto currentTime = std::chrono::high_resolution_clock::now();
+
+    // Calculate the elapsed time duration since StartTimer() was called
+    auto elapsedDuration = currentTime - m_timerStartTime;
+
+    // Convert elapsed duration to seconds for comparison
+    auto elapsedSeconds = std::chrono::duration_cast<std::chrono::seconds>(elapsedDuration).count();
+
+    // Check if elapsed time meets or exceeds the required duration
+    bool hasElapsed = (elapsedSeconds >= NumOfSeconds);
+
+    // Return true if elapsed time meets or exceeds required duration, false otherwise
+	if (hasElapsed) m_timerInitialized; // Reset timer if elapsed time condition is met
+    return hasElapsed;
 }
