@@ -70,9 +70,11 @@ To get started with CPGE, follow these steps:
    ```
 2. **Contribution to repository:**
    ```sh
-   Only work on files that relate to the CPGE project itself, do NOT start your own game or system within the base CPGE folder.
-   If you want to start a project of your own, please copy the CPGE folder to a new location and use that instead with your
-   chosen IDE / Compiling system.  If you are NOT using Visual Studio 2019/2022 then you may need to setup the project in
-   your chosen IDE.
+   Only work on files that relate to the CPGE project itself, do NOT start your own game or system
+   within the base CPGE folder.
+
+   If you are want to just start a project of your own, please copy the CPGE folder to a new location
+   and use that instead with your chosen IDE / Compiling system.  If you are NOT using Visual Studio
+   2019/2022 then you may need to setup the project in your chosen IDE.
    ```
 ---
