@@ -78,6 +78,7 @@
 // Include these after the Renderer's includes
 #include "DX_FXManager.h"
 #include "SceneManager.h"
+#include "ShaderManager.h"
 #include "Models.h"
 #include "Lights.h"
 #include "MoviePlayer.h"
@@ -122,6 +123,7 @@ GUIManager guiManager;
 FXManager fxManager;
 LightsManager lightsManager;
 SceneManager scene;
+ShaderManager shaderManager;
 ThreadManager threadManager;
 MoviePlayer moviePlayer;
 NetworkManager networkManager;
@@ -163,6 +165,7 @@ std::atomic<bool> bFullScreenTransition{ false };                       // Preve
 static std::chrono::steady_clock::time_point lastResizeTime;            // Debounce resize messages
 static const int RESIZE_DEBOUNCE_MS = 100;                              // Minimum time between resize operations
 
+int textScrollerEffectID = 0;
 char errorMsg[512];
 POINT lastMousePos = {};
 float yaw = 0.0f;
@@ -178,6 +181,7 @@ void SwitchToGamePlay();
 void SwitchToGameIntro();
 void SwitchToMovieIntro();
 void OpenMovieAndPlay();
+bool LoadAllShaders();
 
 // Supressed Warnings
 #pragma warning(disable: 28251)
@@ -275,6 +279,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             return EXIT_FAILURE;
         }
 
+        // Start the FileIO Thread Handler.
         if (!fileIO.StartFileIOThread()) {
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[DEMO] Failed to start FileIO thread");
 
@@ -315,7 +320,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         if (!gamingAI.Initialize())
         {
             #if defined(_DEBUG_PUNPACK_)
-                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize PUNPack!");
+                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize PUNPack Management System!");
             #endif
 
             UnregisterClass(lpDEFAULT_NAME, hInstance);
@@ -328,30 +333,37 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         // Now Initialise our Renderer
         renderer->Initialize(hwnd, hInstance);
 
-        // Initialise our SceneManager
-        scene.Initialize(renderer);
-        scene.stSceneType = SceneType::SCENE_SPLASH;
-        scene.SetGotoScene(SceneType::SCENE_INTRO);
+        // Now Initialise our Shader Manager
+        if (!shaderManager.Initialize(renderer))
+        {
+            #if defined(_DEBUG_SHADERMANAGER_)
+                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize Shader Management System!");
+            #endif
+
+            UnregisterClass(lpDEFAULT_NAME, hInstance);
+            return EXIT_FAILURE;
+        }
+
         #if defined(_DEBUG)
-            winMetrics.isFullScreen = false;
-            sysUtils.DisableMouseCursor();
-            if (!renderer->StartRendererThreads())
-            {
-                MessageBox(nullptr, L"Problem Starting Renderer Threads!!!", L"Error", MB_OK | MB_ICONERROR);
-                UnregisterClass(lpDEFAULT_NAME, hInstance);
-                return EXIT_FAILURE;
-            }
+            // Enable hot-reloading in debug builds
+            shaderManager.EnableHotReloading(true);
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"ShaderManager initialized with hot-reloading enabled.");
         #else
-            sysUtils.DisableMouseCursor();
-            renderer->SetFullExclusive(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT);
-            winMetrics.isFullScreen = true;
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"ShaderManager initialized successfully.");
         #endif
+
+        // Load all required shaders using the ShaderManager system
+        if (!LoadAllShaders()) {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to load required shaders!");
+            UnregisterClass(lpDEFAULT_NAME, hInstance);
+            return EXIT_FAILURE;
+        }
 
         // Initialise our GUI Manager
         guiManager.Initialize(renderer.get());
-		// Initialise our FX Manager
+        // Initialise our FX Manager
         fxManager.Initialize();
-        
+
         // If we are using windows, Initialize TTSManager (Text To Speech)
         #if defined(_WIN64) || defined(_WIN32)
             // Initialise our TTS Manager
@@ -372,6 +384,25 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                 return EXIT_FAILURE;
             }
         #endif            
+
+        // Initialise our SceneManager
+        scene.Initialize(renderer);
+        scene.stSceneType = SceneType::SCENE_SPLASH;
+        scene.SetGotoScene(SceneType::SCENE_INTRO);
+        #if defined(_DEBUG)
+            winMetrics.isFullScreen = false;
+            sysUtils.DisableMouseCursor();
+            if (!renderer->StartRendererThreads())
+            {
+                MessageBox(nullptr, L"Problem Starting Renderer Threads!!!", L"Error", MB_OK | MB_ICONERROR);
+                UnregisterClass(lpDEFAULT_NAME, hInstance);
+                return EXIT_FAILURE;
+            }
+        #else
+            sysUtils.DisableMouseCursor();
+            renderer->SetFullExclusive(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT);
+            winMetrics.isFullScreen = true;
+        #endif
 
         std::wstring alert = L"This is an alert status message.\n\n"
         L"Congratulations if you're seeing this window!\n"
@@ -766,6 +797,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             ttsManager.CleanUp();
         }
     #endif
+
+    // Release our Shader Management System.
+    shaderManager.CleanUp();
 
     // Release the Renderer System.
     renderer->Cleanup();
@@ -1298,12 +1332,27 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 void SwitchToGamePlay()
 {
 	threadManager.PauseThread(THREAD_RENDERER); // Pause the Renderer Thread
+    fxManager.StopStarfield();
+    fxManager.StopTextScroller(textScrollerEffectID);
+    if (config.myConfig.UseTTS)
+    {
+        if (ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR) {
+            ttsManager.SetSpeakerChannel(TTSSpeakerChannel::CHANNEL_BOTH);
+            ttsManager.SetVoiceVolume(config.myConfig.TTSVolume);
+            ttsManager.PlayAsync(L"Now loading the Scene into Memory,   Please Stand by!");
+        }
+    }
+
     scene.SetGotoScene(SCENE_GAMEPLAY);
     scene.InitiateScene();
     scene.SetGotoScene(SCENE_NONE);
+    // Reset Camera to default position.
+    renderer->myCamera.SetYawPitch(0.0f, 0.0f);
+
     // Restart the Loader Thread to load in required assets.
     renderer->ResumeLoader();
-    threadManager.ResumeThread(THREAD_RENDERER); // Pause the Renderer Thread
+    // Resume the Renderer Thread
+    threadManager.ResumeThread(THREAD_RENDERER); 
 }
 
 void OpenMovieAndPlay()
@@ -1340,7 +1389,8 @@ void SwitchToMovieIntro()
     OpenMovieAndPlay();
     // Restart the Loader Thread to load in required assets.
     renderer->ResumeLoader();
-    threadManager.ResumeThread(THREAD_RENDERER); // Pause the Renderer Thread
+    // Resume the Renderer Thread
+    threadManager.ResumeThread(THREAD_RENDERER);
 }
 
 void SwitchToGameIntro()
@@ -1361,5 +1411,6 @@ void SwitchToGameIntro()
     scene.SetGotoScene(SCENE_NONE);
     // Restart the Loader Thread to load in required assets.
     renderer->ResumeLoader();
-    threadManager.ResumeThread(THREAD_RENDERER); // Pause the Renderer Thread
+    // Resume the Renderer Thread
+    threadManager.ResumeThread(THREAD_RENDERER);
 }

@@ -134,6 +134,7 @@
     <ClCompile Include="DX11Renderer.cpp" />
     <ClCompile Include="DX12Renderer.cpp" />
     <ClCompile Include="DXCamera.cpp" />
+    <ClCompile Include="DXRenderFrame.cpp" />
     <ClCompile Include="DX_FXManager.cpp" />
     <ClCompile Include="ExceptionHandler.cpp" />
     <ClCompile Include="FileIO.cpp" />
@@ -155,6 +156,8 @@
     <ClCompile Include="PUNPack.cpp" />
     <ClCompile Include="RendererFactory.cpp" />
     <ClCompile Include="SceneManager.cpp" />
+    <ClCompile Include="ShaderLoaders.cpp" />
+    <ClCompile Include="ShaderManager.cpp" />
     <ClCompile Include="SoundManager.cpp" />
     <ClCompile Include="ThreadManager.cpp" />
     <ClCompile Include="TTSManager.cpp" />
@@ -191,6 +194,7 @@
     <ClInclude Include="Renderer.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="SceneManager.h" />
+    <ClInclude Include="ShaderManager.h" />
     <ClInclude Include="SoundManager.h" />
     <ClInclude Include="ThreadLockHelper.h" />
     <ClInclude Include="ThreadManager.h" />
@@ -206,16 +210,6 @@
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="CrossPlatformGameEngine.rc" />
-  </ItemGroup>
-  <ItemGroup>
-    <FxCompile Include="ModelPShader.hlsl">
-      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Pixel</ShaderType>
-      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Pixel</ShaderType>
-    </FxCompile>
-    <FxCompile Include="ModelVShader.hlsl">
-      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Vertex</ShaderType>
-      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Vertex</ShaderType>
-    </FxCompile>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <Target Name="ComputeLinkImportLibraryOutputsForClean" Condition=" '$(TargetFramework)' != '' ">

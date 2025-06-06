@@ -334,6 +334,9 @@ public:
 
     bool bHasCleanedUp = false;
 
+    // Our Vectors
+    std::vector<FXItem> effects;
+
     void Initialize();
     void CleanUp();
     void AddEffect(const FXItem& fxItem);
@@ -504,8 +507,6 @@ private:
     // Our Effects Mutex
     std::mutex m_effectsMutex;
     
-    // Our Vectors
-    std::vector<FXItem> effects;
     // pendingCallbacks from pair to proper CallbackEntry structure
     std::vector<CallbackEntry> pendingCallbacks;
 

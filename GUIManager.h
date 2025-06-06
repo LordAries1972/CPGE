@@ -14,6 +14,9 @@
 class DX11Renderer;
 class Debug;
 
+// Forward declaration for scene switching function from main.cpp
+extern void SwitchToGamePlay();
+
 using namespace SoundSystem;
 
 const float SNAP_THRESHOLD = 10.0f;                     // Distance to screen edge to trigger snapping

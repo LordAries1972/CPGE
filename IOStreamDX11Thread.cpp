@@ -6,16 +6,14 @@ This is the placement code for DX11Renderer Loader Thread.
 This where you are to load & initialise all necessary resources 
 for the given scene.
 ----------------------------------------------------------------- */
-
-
 #include "Includes.h"
 
 #if defined(__USE_DIRECTX_11__)
 
 #include "MathPrecalculation.h"
-#include "IOStreamDX11Thread.h"
 #include "ThreadManager.h"
 #include "WinSystem.h"
+#include "ShaderManager.h"
 #include "Models.h"
 #include "Lights.h"
 #include "SoundManager.h"
@@ -39,6 +37,7 @@ extern XMMODPlayer xmPlayer;
 extern ThreadManager threadManager;
 extern SystemUtils sysUtils;
 extern SceneManager scene;
+extern ShaderManager shaderManager;
 extern SoundManager soundManager;
 extern GUIManager guiManager;
 extern FXManager fxManager;
@@ -46,6 +45,7 @@ extern Model models[MAX_MODELS];
 extern LightsManager lightsManager;
 extern WindowMetrics winMetrics;
 extern bool bResizing;
+extern int textScrollerEffectID;
 
 std::mutex DX11Renderer::s_loaderMutex;
 
@@ -153,6 +153,8 @@ void DX11Renderer::LoaderTaskThread()
 					float scrollSpeed = 70.0f;                                      // Pixels per second scroll speed
 					float duration = FLT_MAX;                                       // Infinite duration (continuous)
 
+					// Before calling CreateTextScrollerLTOR, get the next ID that will be assigned
+					textScrollerEffectID = static_cast<int>(fxManager.effects.size()) + 1;
 					fxManager.CreateTextScrollerConsistent(newsText, L"MayaCulpa", fontSize, textColor,
 						regionX, regionY, regionWidth, regionHeight,
 						scrollSpeed, duration);

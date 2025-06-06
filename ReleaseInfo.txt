@@ -213,6 +213,15 @@ DEVELOPMENT HISTORY:
 05/06/2025 - Implemented a ExceptionHandler Class which is for capturing, dumping and logging when exceptions occur.
              This will be both handy for Development debugging and Production Release Information when reported.
 			 See ExceptionHandler.h/.cpp for more information.
+
+06/06/2025 - ShaderManager has now been Implemented (Working, but more needs to be added. Stable for now!).  This class handles the 
+             appropriate shaders for the given Renderer platform HLSL, GLSL & VSpir shaders.  Please see ShaderManager.h/.cpp 
+			 and Docs/ShaderManager-Example-Usage.txt for more information.  Models.cpp now makes use of this along with 
+			 main.cpp for the initial setup, defaults and Shader Program Creation.
+
+           - RenderFrame() has now moved to DXRenderFrame.cpp for simplicity as this can get big, so everything relating to the master
+		     Renderer-RenderFrame() is handled there.
+			 
 			 
 ------------------------------------------------------------------------------------------------------------------------------------- 
 [ FUTURE ]   OK EVERYONE, we are approaching a VERY CLOSE TO GAMING PRODUCTION READINESS FOR DIRECTX 11 SYSTEMS! (WINDOWS 10 SP1 & above 64BIT)
@@ -231,8 +240,8 @@ DEVELOPMENT HISTORY:
                 But also, not to worry about the given functionality internally and that your focus as a game developer, is your game and that
                 you make the necessary calls to the available functions that are provided to yield your wanted results.  Do not get me wrong here
                 and this is why projects like GAME MAKER 2 and the likes will never super-cede a project like this one.  Because it allows
-                you as a programmer, to give finer tuning programming or wants where needed and I have left that space completely open for you 
-                and your imagination.
+                you as a programmer, to give finer tuning & extra programming or wants where needed and I have left that space 
+				completely open for you and your imagination.
                 
                 But I cannot emphasis enough, take the time to read, study and learn this system.  If you are SERIOUS about
                 wanting to make a brillant game, then you will do it for your benefit and I promise you, you wont regret it either!

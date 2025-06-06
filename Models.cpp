@@ -8,6 +8,8 @@
 #include "Debug.h"
 #include "WinSystem.h"
 #include "ThreadManager.h"
+#include "ShaderManager.h"
+#include "ExceptionHandler.h"
 
 #ifdef __USE_DIRECTX_11__
 #include <d3d11.h>
@@ -26,10 +28,12 @@ using namespace DirectX;
 extern std::shared_ptr<Renderer> renderer;
 extern Model models[MAX_MODELS];                                         // Our Models Data, defined in main.cpp
 extern Debug debug;
+extern ExceptionHandler exceptionHandler;
 extern FXManager fxManager;
 extern SystemUtils sysUtils;
 extern ThreadManager threadManager;
 extern Configuration config;
+extern ShaderManager shaderManager;
 
 //==============================================================================
 // Texture Implementation
@@ -1022,6 +1026,9 @@ bool Model::SetupModelForRendering(int ID)
     return result;
 }
 
+//==============================================================================
+// Restored SetupModelForRendering with shader setup and DX11 macro protection
+//==============================================================================
 bool Model::SetupModelForRendering()
 {
 #ifdef __USE_DIRECTX_11__
@@ -1042,7 +1049,7 @@ bool Model::SetupModelForRendering()
         debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID: %d Status: %d Failed to Setup (Device or Context could be NULL)", m_modelInfo.ID, m_isLoaded);
         return false;
     }
-    
+
     // If no SRVs were loaded, force a fallback so GPU doesn't crash
     if (m_modelInfo.textureSRVs.empty()) {
         debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID %d has no textures. Applying fallback texture.", m_modelInfo.ID);
@@ -1055,32 +1062,13 @@ bool Model::SetupModelForRendering()
         LoadFallbackNormalMap();
     }
 
-    //=== SHADER SETUP ===//
-    ComPtr<ID3DBlob> vsBlob;
-    ComPtr<ID3DBlob> psBlob;
+    //=== USE SHADER MANAGER INSTEAD OF DIRECT SHADER COMPILATION ===//
+    // The ShaderManager will handle all shader compilation and input layout creation
+    // This removes the need for manual shader compilation in the Model class
 
-    std::filesystem::path vsPath = "ModelVShader.hlsl";
-    std::filesystem::path psPath = "ModelPShader.hlsl";
-
-    if (FAILED(CompileShaderFromFile(vsPath.c_str(), "main", "vs_5_0", &vsBlob))) return false;
-    if (FAILED(CompileShaderFromFile(psPath.c_str(), "main", "ps_5_0", &psBlob))) return false;
-
-    if (FAILED(device->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &m_modelInfo.vertexShader))) return false;
-    if (FAILED(device->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &m_modelInfo.pixelShader))) return false;
-
-    D3D11_INPUT_ELEMENT_DESC layout[] =
-    {
-        { "POSITION",  0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(Vertex, position), D3D11_INPUT_PER_VERTEX_DATA, 0 },
-        { "NORMAL",    0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(Vertex, normal),   D3D11_INPUT_PER_VERTEX_DATA, 0 },
-        { "TEXCOORD",  0, DXGI_FORMAT_R32G32_FLOAT,    0, offsetof(Vertex, texCoord), D3D11_INPUT_PER_VERTEX_DATA, 0 },
-        { "TANGENT",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(Vertex, tangent),  D3D11_INPUT_PER_VERTEX_DATA, 0 },
-    };
-
-    HRESULT hr = device->CreateInputLayout(layout, ARRAYSIZE(layout), vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &m_modelInfo.inputLayout);
-    if (FAILED(hr)) {
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateInputLayout failed. HRESULT = 0x%08X", hr);
-        return false;
-    }
+#if defined(_DEBUG_MODEL_)
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"[Model] Using ShaderManager for shader setup - no manual compilation needed.");
+#endif
 
     //=== BUFFER SETUP ===//
     D3D11_BUFFER_DESC vbDesc = {};
@@ -1089,10 +1077,13 @@ bool Model::SetupModelForRendering()
     vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
 
     D3D11_SUBRESOURCE_DATA vbData = { m_modelInfo.vertices.data() };
-    #if defined(_DEBUG_MODEL_)
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"Vertex count: %d", (int)m_modelInfo.vertices.size());
-    #endif
-    if (FAILED(device->CreateBuffer(&vbDesc, &vbData, &m_modelInfo.vertexBuffer))) return false;
+#if defined(_DEBUG_MODEL_)
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"Vertex count: %d", (int)m_modelInfo.vertices.size());
+#endif
+    if (FAILED(device->CreateBuffer(&vbDesc, &vbData, &m_modelInfo.vertexBuffer))) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create vertex buffer for model ID: %d", m_modelInfo.ID);
+        return false;
+    }
 
     D3D11_BUFFER_DESC ibDesc = {};
     ibDesc.ByteWidth = static_cast<UINT>(m_modelInfo.indices.size() * sizeof(uint32_t));
@@ -1100,10 +1091,13 @@ bool Model::SetupModelForRendering()
     ibDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
 
     D3D11_SUBRESOURCE_DATA ibData = { m_modelInfo.indices.data() };
-    #if defined(_DEBUG_MODEL_)
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"Index count: %d", (int)m_modelInfo.indices.size());
-    #endif
-    if (FAILED(device->CreateBuffer(&ibDesc, &ibData, &m_modelInfo.indexBuffer))) return false;
+#if defined(_DEBUG_MODEL_)
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"Index count: %d", (int)m_modelInfo.indices.size());
+#endif
+    if (FAILED(device->CreateBuffer(&ibDesc, &ibData, &m_modelInfo.indexBuffer))) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create index buffer for model ID: %d", m_modelInfo.ID);
+        return false;
+    }
 
     //=== CONSTANT BUFFERS ===//
     D3D11_BUFFER_DESC cbDesc = {};
@@ -1112,7 +1106,7 @@ bool Model::SetupModelForRendering()
     cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
     if (FAILED(device->CreateBuffer(&cbDesc, nullptr, &m_modelInfo.constantBuffer))) {
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create Constant Buffer.");
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create Constant Buffer for model ID: %d", m_modelInfo.ID);
         return false;
     }
 
@@ -1122,7 +1116,7 @@ bool Model::SetupModelForRendering()
     lightDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     lightDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
     if (FAILED(device->CreateBuffer(&lightDesc, nullptr, &m_modelInfo.lightConstantBuffer))) {
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create Light Buffer.");
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create Light Buffer for model ID: %d", m_modelInfo.ID);
         return false;
     }
 
@@ -1131,7 +1125,10 @@ bool Model::SetupModelForRendering()
     matDesc.Usage = D3D11_USAGE_DYNAMIC;
     matDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     matDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-    if (FAILED(device->CreateBuffer(&matDesc, nullptr, m_modelInfo.materialBuffer.GetAddressOf()))) return false;
+    if (FAILED(device->CreateBuffer(&matDesc, nullptr, m_modelInfo.materialBuffer.GetAddressOf()))) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create Material Buffer for model ID: %d", m_modelInfo.ID);
+        return false;
+    }
 
     //=== SAMPLER ===//
     D3D11_SAMPLER_DESC sampDesc = {};
@@ -1142,9 +1139,20 @@ bool Model::SetupModelForRendering()
     sampDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
     sampDesc.MinLOD = 0;
     sampDesc.MaxLOD = D3D11_FLOAT32_MAX;
-    if (FAILED(device->CreateSamplerState(&sampDesc, &m_modelInfo.samplerState))) return false;
-        
-    SetupPBRResources();
+    if (FAILED(device->CreateSamplerState(&sampDesc, &m_modelInfo.samplerState))) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create Sampler State for model ID: %d", m_modelInfo.ID);
+        return false;
+    }
+
+    // Setup PBR resources
+    if (!SetupPBRResources()) {
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"Failed to setup PBR resources for model ID: %d", m_modelInfo.ID);
+        // Don't fail completely, PBR is optional
+    }
+
+#if defined(_DEBUG_MODEL_)
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"[Model] SetupModelForRendering() completed successfully for model ID: %d", m_modelInfo.ID);
+#endif
 
     return true;
 #else
@@ -1230,20 +1238,24 @@ void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
     UpdateConstantBuffer();
 
     // Set the input layout and shaders
-    deviceContext->IASetInputLayout(m_modelInfo.inputLayout.Get());
-    deviceContext->VSSetShader(m_modelInfo.vertexShader.Get(), nullptr, 0);
-    deviceContext->PSSetShader(m_modelInfo.pixelShader.Get(), nullptr, 0);
+    // Use ShaderManager instead of direct shader binding
+    if (shaderManager.UseShaderProgram("ModelProgram")) 
+    {
+        //    deviceContext->IASetInputLayout(m_modelInfo.inputLayout.Get());
+        //    deviceContext->VSSetShader(m_modelInfo.vertexShader.Get(), nullptr, 0);
+        //    deviceContext->PSSetShader(m_modelInfo.pixelShader.Get(), nullptr, 0);
 
-    // Set the vertex and index buffers
-    UINT stride = sizeof(Vertex);
-    UINT offset = 0;
-    deviceContext->IASetVertexBuffers(0, 1, m_modelInfo.vertexBuffer.GetAddressOf(), &stride, &offset);
-    deviceContext->IASetIndexBuffer(m_modelInfo.indexBuffer.Get(), DXGI_FORMAT_R32_UINT, 0);
-    deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        // Set the vertex and index buffers
+        UINT stride = sizeof(Vertex);
+        UINT offset = 0;
+        deviceContext->IASetVertexBuffers(0, 1, m_modelInfo.vertexBuffer.GetAddressOf(), &stride, &offset);
+        deviceContext->IASetIndexBuffer(m_modelInfo.indexBuffer.Get(), DXGI_FORMAT_R32_UINT, 0);
+        deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-    // Bind constant buffers
-    deviceContext->VSSetConstantBuffers(SLOT_CONST_BUFFER, 1, m_modelInfo.constantBuffer.GetAddressOf());
-    deviceContext->PSSetConstantBuffers(SLOT_CONST_BUFFER, 1, m_modelInfo.constantBuffer.GetAddressOf());
+        // Bind constant buffers
+        deviceContext->VSSetConstantBuffers(SLOT_CONST_BUFFER, 1, m_modelInfo.constantBuffer.GetAddressOf());
+        deviceContext->PSSetConstantBuffers(SLOT_CONST_BUFFER, 1, m_modelInfo.constantBuffer.GetAddressOf());
+    }
 
     // === Update Material Buffer (b4) ===
     if (m_modelInfo.materialBuffer)

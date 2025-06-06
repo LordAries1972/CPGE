@@ -14,6 +14,8 @@ extern WindowMetrics winMetrics;
 extern FXManager fxManager;
 extern ThreadManager threadManager;
 
+extern void SwitchToGameIntro();
+
 void GUIManager::CreateAlertWindow(const std::wstring& message) {
     const std::string WINDOW_NAME = "AlertWindow";
 
@@ -300,16 +302,29 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
         };
 
     // Fixed onMouseBtnDown handler using proper error handling
-    gameplayButton.onMouseBtnDown = [this]() {
+    gameplayButton.onMouseBtnDown = [this, windowName = std::string(WINDOW_NAME)]() {
         try {
             debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Game Play button clicked");
 
             // Play sound effect safely
             soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
 
-            // TODO: Add gameplay scene transition logic here
-            // Note: Original code was commented out, keeping window open as intended
+            // Initiate fade to black effect with proper timing
+            fxManager.FadeToBlack(1.0f, 0.06f);
 
+            // Wait for fade effect to complete with proper timeout to prevent infinite loop
+            int fadeTimeout = 0;
+            const int MAX_FADE_TIMEOUT = 300; // 3 seconds maximum wait time (300 * 10ms)
+            while (fxManager.IsFadeActive() && fadeTimeout < MAX_FADE_TIMEOUT) {
+                Sleep(10); // Sleep for 10 milliseconds
+                fadeTimeout++;
+            }
+
+            // Remove the game menu window safely before application shutdown
+            RemoveWindow(windowName);
+
+            // Switch to GamePlay Scene.
+            SwitchToGamePlay();
         }
         catch (const std::exception& e) {
             debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateGameMenuWindow - Exception in gameplay button handler: %s",

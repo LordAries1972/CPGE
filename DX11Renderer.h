@@ -36,26 +36,6 @@
 
 const std::string RENDERER_NAME = "DX11Renderer";
 
-// Reserved Shader Slots for Render Pipeline ( b? slot )
-const int SLOT_CONST_BUFFER = 0;                                                // Constant Buffer Slot   
-const int SLOT_LIGHT_BUFFER = 1;                                                // Model Light Buffer Slot
-const int SLOT_DEBUG_BUFFER = 2;                                                // Debug Buffer Slot
-const int SLOT_GLOBAL_LIGHT_BUFFER = 3;                                         // Global Light Buffer Slot
-const int SLOT_MATERIAL_BUFFER = 4;                                             // Material Buffer Slot
-const int SLOT_ENVIRONMENT_BUFFER = 5;                                          // Environment Settings Buffer Slot
-
-// Reserved Texture Slots for Pixel Shader ( t? slot ).
-const int SLOT_diffuseTexture = 0;                                              // Diffuse Textures.
-const int SLOT_normalMap = 1;                                                   // Normal Texture Mappings.
-const int SLOT_metallicMap = 2;                                                 // Metallic Mappings.
-const int SLOT_roughnessMap = 3;                                                // Roughness Mappings.
-const int SLOT_aoMap = 4;                                                       // Ambient Occulusion Mapping.
-const int SLOT_environmentMap = 5;                                              // Environment Mappings for Reflections.
-
-// Reserved Sampler Slots for Pixel Shader ( s? slot )
-const int SLOT_SAMPLER_STATE = 0;
-const int SLOT_ENVIRO_SAMPLER_STATE = 1;
-
 // Forward declarations
 class Debug;
 class SystemUtils;
@@ -261,7 +241,6 @@ private:
     // Our private ComPtr definitions
     std::atomic<bool> playing{ false };
 
-    ComPtr<ID3DBlob> CompileShader(const std::wstring& filename, const std::string& entryPoint, const std::string& target);
     ComPtr<ID3D11DepthStencilView> m_depthStencilView;
     ComPtr<ID3D11Texture2D> m_depthStencilBuffer;
 
@@ -270,10 +249,6 @@ private:
     ComPtr<ID3D11RasterizerState> m_rasterizerState;
     ComPtr<ID3D11SamplerState> m_samplerState;
     ComPtr<ID3D11BlendState> blendState;
-
-    ComPtr<ID3D11VertexShader> m_vertexShader;
-    ComPtr<ID3D11PixelShader> m_pixelShader;
-
     ComPtr<ID3D11RasterizerState> m_wireframeState;
 
     // Mutexes for thread safety

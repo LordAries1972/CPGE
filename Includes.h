@@ -18,6 +18,7 @@ This is to eliminate the need for multiple includes in your project files.
 // Windows Specific Includes
 #if defined(_WIN64) || defined(_WIN32)
     // CRITICAL: Define this before any Windows includes to prevent macro conflicts
+    #define PLATFORM_WINDOWS
     #ifndef WIN32_LEAN_AND_MEAN
         #define WIN32_LEAN_AND_MEAN
     #endif
@@ -118,16 +119,21 @@ This is to eliminate the need for multiple includes in your project files.
 #endif
 
 #elif defined(__linux__)
+#define PLATFORM_LINUX
 //#define __USE_OPENGL__
 //#define __USE_VULKAN__
 #elif defined(__ANDROID__)
+#define PLATFORM_ANDROID
 //#define __USE_OPENGL__
 //#define __USE_VULKAN__
 #elif defined(__APPLE__)
+#define PLATFORM_APPLE
 //#define __USE_OPENGL__
 #elif defined(TARGET_OS_IPHONE) || (TARGET_IPHONE_SIMULATOR)
+#define PLATFORM_IOS
 #else
     // FUTURE: Whatever other OS you may need to build a Renderer for.
+//#define PLATFORM_WHATEVER_NAME_HERE
 #endif
 
 // Your General C/C++ Includes
@@ -185,6 +191,31 @@ This is to eliminate the need for multiple includes in your project files.
 //------------------------------------------------
 const std::filesystem::path AssetsDir = L"./Assets/";
 const std::filesystem::path WinAssetsDir = L".\\Assets\\";
+const std::filesystem::path ShadersDir = L"./Assets/Shaders/";
+
+// Shaders (Just the name, without the extension ie. .hlsl or .glsl
+const std::vector<std::string> MyShaders = { "ModelVertex", "ModelPixel" };
+
+// Reserved Shader Slots for Render Pipeline ( b? slot )
+const int SLOT_CONST_BUFFER = 0;                                                // Constant Buffer Slot   
+const int SLOT_LIGHT_BUFFER = 1;                                                // Model Light Buffer Slot
+const int SLOT_DEBUG_BUFFER = 2;                                                // Debug Buffer Slot
+const int SLOT_GLOBAL_LIGHT_BUFFER = 3;                                         // Global Light Buffer Slot
+const int SLOT_MATERIAL_BUFFER = 4;                                             // Material Buffer Slot
+const int SLOT_ENVIRONMENT_BUFFER = 5;                                          // Environment Settings Buffer Slot
+
+// Reserved Texture Slots for Pixel Shader ( t? slot ).
+const int SLOT_diffuseTexture = 0;                                              // Diffuse Textures.
+const int SLOT_normalMap = 1;                                                   // Normal Texture Mappings.
+const int SLOT_metallicMap = 2;                                                 // Metallic Mappings.
+const int SLOT_roughnessMap = 3;                                                // Roughness Mappings.
+const int SLOT_aoMap = 4;                                                       // Ambient Occulusion Mapping.
+const int SLOT_environmentMap = 5;                                              // Environment Mappings for Reflections.
+
+// Reserved Sampler Slots for Pixel Shader ( s? slot )
+const int SLOT_SAMPLER_STATE = 0;
+const int SLOT_ENVIRO_SAMPLER_STATE = 1;
+
 
 // 2D Textures
 inline const std::wstring texFilename[] = {
