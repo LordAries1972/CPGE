@@ -269,7 +269,6 @@ private:
 
     // DirectX-specific input layout creation methods
     bool CreateInputLayoutForShader(ShaderResource& shader, const std::vector<D3D11_INPUT_ELEMENT_DESC>& layout);    // Create vertex input layout
-    bool CreateD3D11InputLayout(ShaderResource& shader, const std::vector<D3D11_INPUT_ELEMENT_DESC>& layout); 
 
 #endif
 
@@ -320,15 +319,6 @@ private:
     // Prevent copying and assignment
     ShaderManager(const ShaderManager&) = delete;                       // Delete copy constructor
     ShaderManager& operator=(const ShaderManager&) = delete;            // Delete assignment operator
-
-    // Default resource creation methods
-    bool CreateDefaultSamplers();
-
-    // Default sampler states
-    #if defined(PLATFORM_WINDOWS)
-        Microsoft::WRL::ComPtr<ID3D11SamplerState> m_defaultSampler;               // Default sampler for slot 0
-        Microsoft::WRL::ComPtr<ID3D11SamplerState> m_environmentSampler;           // Environment sampler for slot 1};
-    #endif
 };
 
 // Global shader manager instance declaration

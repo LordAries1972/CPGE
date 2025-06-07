@@ -197,10 +197,6 @@ void ShaderManager::CleanUp() {
     m_renderer = nullptr;                                                       // Clear renderer reference
     m_currentPlatform = ShaderPlatform::PLATFORM_AUTO_DETECT;                   // Reset platform detection
 
-    // Clean up default samplers
-    m_defaultSampler.Reset();                                                   // Release default sampler
-    m_environmentSampler.Reset();                                               // Release environment sampler
-
     // Reset statistics
     m_stats = ShaderManagerStats();                                             // Reset all statistics to default values
 
@@ -929,10 +925,6 @@ void ShaderManager::DiagnoseShaderLinkageErrors(const std::string& programName) 
 // UseShaderProgram - Bind shader program to rendering pipeline
 //==============================================================================
 bool ShaderManager::UseShaderProgram(const std::string& programName) {
-    #if defined(_DEBUG_SHADERMANAGER_)
-        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[ShaderManager] UseShaderProgram() called - Program: %hs", programName.c_str());
-    #endif
-
     // Validate input parameters
     if (programName.empty()) {
         #if defined(_DEBUG_SHADERMANAGER_)
@@ -977,118 +969,95 @@ bool ShaderManager::UseShaderProgram(const std::string& programName) {
     // Bind shader program based on current platform
     bool bindingSuccess = false;
     switch (m_currentPlatform) {
-    case ShaderPlatform::PLATFORM_DIRECTX11:
-    case ShaderPlatform::PLATFORM_DIRECTX12: 
-    {
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-        // Get device context from renderer
-        void* deviceContext = m_renderer->GetDeviceContext();
-        if (!deviceContext) {
-#if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UseShaderProgram() failed - no DirectX device context available.");
-#endif
-            return false;
-        }
+        case ShaderPlatform::PLATFORM_DIRECTX11:
+        case ShaderPlatform::PLATFORM_DIRECTX12: 
+        {
+            #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+            // Get device context from renderer
+            void* deviceContext = m_renderer->GetDeviceContext();
+            if (!deviceContext) {
+                #if defined(_DEBUG_SHADERMANAGER_)
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UseShaderProgram() failed - no DirectX device context available.");
+                #endif
+                return false;
+            }
 
-        ID3D11DeviceContext* d3dContext = static_cast<ID3D11DeviceContext*>(deviceContext);
+            ID3D11DeviceContext* d3dContext = static_cast<ID3D11DeviceContext*>(deviceContext);
 
-        // Bind vertex shader
-        ShaderResource* vertexShader = m_shaders[program->vertexShaderName].get();
-        if (vertexShader && vertexShader->d3d11VertexShader) {
-            d3dContext->VSSetShader(vertexShader->d3d11VertexShader.Get(), nullptr, 0); // Bind vertex shader to pipeline
-            if (vertexShader->inputLayout) {
-                d3dContext->IASetInputLayout(vertexShader->inputLayout.Get()); // Set input layout for vertex shader
-#if defined(_DEBUG_SHADERMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[ShaderManager] Input layout bound for vertex shader '%hs'.", program->vertexShaderName.c_str());
-#endif
+            // Bind vertex shader
+            ShaderResource* vertexShader = m_shaders[program->vertexShaderName].get();
+            if (vertexShader && vertexShader->d3d11VertexShader) {
+                d3dContext->VSSetShader(vertexShader->d3d11VertexShader.Get(), nullptr, 0); // Bind vertex shader to pipeline
+                if (vertexShader->inputLayout) {
+                    d3dContext->IASetInputLayout(vertexShader->inputLayout.Get()); // Set input layout for vertex shader
+                }
+                else {
+                    #if defined(_DEBUG_SHADERMANAGER_)
+                        debug.logDebugMessage(LogLevel::LOG_WARNING, L"[ShaderManager] No input layout available for vertex shader '%hs' - this may cause linkage errors.", program->vertexShaderName.c_str());
+                    #endif
+                    // Diagnose the shader linkage issue
+                    DiagnoseShaderLinkageErrors(programName);
+                }
             }
             else {
-#if defined(_DEBUG_SHADERMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_WARNING, L"[ShaderManager] No input layout available for vertex shader '%hs' - this may cause linkage errors.", program->vertexShaderName.c_str());
-#endif
-                // Diagnose the shader linkage issue
-                DiagnoseShaderLinkageErrors(programName);
+                #if defined(_DEBUG_SHADERMANAGER_)
+                    debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Vertex shader '%hs' not available for binding.", program->vertexShaderName.c_str());
+                #endif
+                return false;
             }
-        }
-        else {
+
+            // Bind pixel shader
+            ShaderResource* pixelShader = m_shaders[program->pixelShaderName].get();
+            if (pixelShader && pixelShader->d3d11PixelShader) {
+                d3dContext->PSSetShader(pixelShader->d3d11PixelShader.Get(), nullptr, 0); // Bind pixel shader to pipeline
+            }
+            else {
+                #if defined(_DEBUG_SHADERMANAGER_)
+                    debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Pixel shader '%hs' not available for binding.", program->pixelShaderName.c_str());
+                #endif
+                return false;
+            }
+
+            // Bind optional geometry shader
+            if (!program->geometryShaderName.empty()) {
+                ShaderResource* geometryShader = m_shaders[program->geometryShaderName].get();
+                if (geometryShader && geometryShader->d3d11GeometryShader) {
+                    d3dContext->GSSetShader(geometryShader->d3d11GeometryShader.Get(), nullptr, 0); // Bind geometry shader to pipeline
+                }
+            }
+            else {
+                d3dContext->GSSetShader(nullptr, nullptr, 0);               // Unbind geometry shader if not used
+            }
+
+            // Bind optional hull shader
+            if (!program->hullShaderName.empty()) {
+                ShaderResource* hullShader = m_shaders[program->hullShaderName].get();
+                if (hullShader && hullShader->d3d11HullShader) {
+                    d3dContext->HSSetShader(hullShader->d3d11HullShader.Get(), nullptr, 0); // Bind hull shader to pipeline
+                }
+            }
+            else {
+                d3dContext->HSSetShader(nullptr, nullptr, 0);               // Unbind hull shader if not used
+            }
+
+            // Bind optional domain shader
+            if (!program->domainShaderName.empty()) {
+                ShaderResource* domainShader = m_shaders[program->domainShaderName].get();
+                if (domainShader && domainShader->d3d11DomainShader) {
+                    d3dContext->DSSetShader(domainShader->d3d11DomainShader.Get(), nullptr, 0); // Bind domain shader to pipeline
+                }
+            }
+            else {
+                d3dContext->DSSetShader(nullptr, nullptr, 0);               // Unbind domain shader if not used
+            }
+
+            bindingSuccess = true;
+        #else
             #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Vertex shader '%hs' not available for binding.", program->vertexShaderName.c_str());
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] DirectX not available for shader binding.");
             #endif
-            return false;
-        }
-
-        // Bind pixel shader
-        ShaderResource* pixelShader = m_shaders[program->pixelShaderName].get();
-        if (pixelShader && pixelShader->d3d11PixelShader) {
-            d3dContext->PSSetShader(pixelShader->d3d11PixelShader.Get(), nullptr, 0); // Bind pixel shader to pipeline
-        }
-        else {
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Pixel shader '%hs' not available for binding.", program->pixelShaderName.c_str());
-            #endif
-            return false;
-        }
-
-        // Bind default samplers to prevent warnings - CRITICAL FIX
-        if (m_defaultSampler && m_environmentSampler) {
-            // Bind default sampler to slot 0 (matches samplerState : register(s0))
-            d3dContext->PSSetSamplers(SLOT_SAMPLER_STATE, 1, m_defaultSampler.GetAddressOf());
-            // Bind environment sampler to slot 1 (matches envSamplerState : register(s1))
-            d3dContext->PSSetSamplers(SLOT_ENVIRO_SAMPLER_STATE, 1, m_environmentSampler.GetAddressOf());
-
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[ShaderManager] Default samplers bound to slots 0 and 1.");
-            #endif
-        }
-        else {
-#if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Default samplers not available - pixel shader may show sampler warnings.");
-#endif
-        }
-
-        // Bind optional geometry shader
-        if (!program->geometryShaderName.empty()) {
-            ShaderResource* geometryShader = m_shaders[program->geometryShaderName].get();
-            if (geometryShader && geometryShader->d3d11GeometryShader) {
-                d3dContext->GSSetShader(geometryShader->d3d11GeometryShader.Get(), nullptr, 0); // Bind geometry shader to pipeline
-            }
-        }
-        else {
-            d3dContext->GSSetShader(nullptr, nullptr, 0);               // Unbind geometry shader if not used
-        }
-
-        // Bind optional hull shader
-        if (!program->hullShaderName.empty()) {
-            ShaderResource* hullShader = m_shaders[program->hullShaderName].get();
-            if (hullShader && hullShader->d3d11HullShader) {
-                d3dContext->HSSetShader(hullShader->d3d11HullShader.Get(), nullptr, 0); // Bind hull shader to pipeline
-            }
-        }
-        else {
-            d3dContext->HSSetShader(nullptr, nullptr, 0);               // Unbind hull shader if not used
-        }
-
-        // Bind optional domain shader
-        if (!program->domainShaderName.empty()) {
-            ShaderResource* domainShader = m_shaders[program->domainShaderName].get();
-            if (domainShader && domainShader->d3d11DomainShader) {
-                d3dContext->DSSetShader(domainShader->d3d11DomainShader.Get(), nullptr, 0); // Bind domain shader to pipeline
-            }
-        }
-        else {
-            d3dContext->DSSetShader(nullptr, nullptr, 0);               // Unbind domain shader if not used
-        }
-
-        bindingSuccess = true;
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[ShaderManager] DirectX program '%hs' bound to pipeline with samplers.", programName.c_str());
+            bindingSuccess = false;
         #endif
-#else
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] DirectX not available for shader binding.");
-        #endif
-        bindingSuccess = false;
-#endif
         break;
     }
 
@@ -3880,109 +3849,19 @@ void ShaderManager::IncrementLinkingFailure() {
 }
 
 //==============================================================================
-// Integration helpers for existing engine systems
-//==============================================================================
-
-//==============================================================================
-// CreateDefaultSamplers - Create default sampler states for missing resources
-//==============================================================================
-bool ShaderManager::CreateDefaultSamplers() {
-    #if defined(_DEBUG_SHADERMANAGER_)
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"[ShaderManager] CreateDefaultSamplers() called - creating default sampler states.");
-    #endif
-
-    // Check if renderer is available
-    if (!m_renderer) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CreateDefaultSamplers() failed - no renderer available.");
-        #endif
-        return false;
-    }
-
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-    // Get DirectX device
-    void* device = m_renderer->GetDevice();
-    void* deviceContext = m_renderer->GetDeviceContext();
-    if (!device || !deviceContext) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CreateDefaultSamplers() failed - no DirectX device or context available.");
-        #endif
-        return false;
-    }
-
-    ID3D11Device* d3dDevice = static_cast<ID3D11Device*>(device);
-    ID3D11DeviceContext* d3dContext = static_cast<ID3D11DeviceContext*>(deviceContext);
-
-    // Create default diffuse sampler (slot 0) - matches samplerState : register(s0)
-    ComPtr<ID3D11SamplerState> defaultSampler;
-    D3D11_SAMPLER_DESC sampDesc = {};
-    sampDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;                      // Linear filtering for diffuse textures
-    sampDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;                         // Wrap U coordinate
-    sampDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;                         // Wrap V coordinate
-    sampDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;                         // Wrap W coordinate
-    sampDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;                       // No comparison
-    sampDesc.MinLOD = 0;                                                    // Minimum LOD
-    sampDesc.MaxLOD = D3D11_FLOAT32_MAX;                                    // Maximum LOD
-
-    HRESULT hr = d3dDevice->CreateSamplerState(&sampDesc, &defaultSampler);
-    if (FAILED(hr)) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Failed to create default sampler (HRESULT: 0x%08X)", hr);
-        #endif
-        return false;
-    }
-
-    // Create environment sampler (slot 1) - matches envSamplerState : register(s1)
-    ComPtr<ID3D11SamplerState> envSampler;
-    D3D11_SAMPLER_DESC envSampDesc = {};
-    envSampDesc.Filter = D3D11_FILTER_ANISOTROPIC;                          // Anisotropic filtering for environment maps
-    envSampDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;                     // Clamp U coordinate for cube maps
-    envSampDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;                     // Clamp V coordinate for cube maps
-    envSampDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;                     // Clamp W coordinate for cube maps
-    envSampDesc.MaxAnisotropy = 16;                                         // Maximum anisotropy level
-    envSampDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;                    // No comparison
-    envSampDesc.MinLOD = 0;                                                 // Minimum LOD
-    envSampDesc.MaxLOD = D3D11_FLOAT32_MAX;                                 // Maximum LOD
-
-    hr = d3dDevice->CreateSamplerState(&envSampDesc, &envSampler);
-    if (FAILED(hr)) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Failed to create environment sampler (HRESULT: 0x%08X)", hr);
-        #endif
-        return false;
-    }
-
-    // Store samplers as member variables for persistent access
-    m_defaultSampler = defaultSampler;
-    m_environmentSampler = envSampler;
-
-    #if defined(_DEBUG_SHADERMANAGER_)
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"[ShaderManager] CreateDefaultSamplers() completed successfully - samplers created and stored.");
-    #endif
-
-    return true;
-#else
-    #if defined(_DEBUG_SHADERMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CreateDefaultSamplers() - DirectX not available.");
-#endif
-    return false;
-#endif
-}
-
-//==============================================================================
 // SetupModelShaderBindings - Configure model-shader bindings
 //==============================================================================
 bool ShaderManager::SetupModelShaderBindings(Model* model, ShaderProgram* program) {
-#if defined(_DEBUG_SHADERMANAGER_)
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[ShaderManager] SetupModelShaderBindings() called for model %p and program '%hs'.",
-        model, program->programName.c_str());
-#endif
+    #if defined(_DEBUG_SHADERMANAGER_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[ShaderManager] SetupModelShaderBindings() called for model %p and program '%hs'.",
+            model, program->programName.c_str());
+    #endif
 
     // Validate input parameters
     if (!model || !program) {
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] SetupModelShaderBindings() failed - null model or program pointer.");
-#endif
+        #if defined(_DEBUG_SHADERMANAGER_)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] SetupModelShaderBindings() failed - null model or program pointer.");
+        #endif
         return false;
     }
 
@@ -3990,9 +3869,9 @@ bool ShaderManager::SetupModelShaderBindings(Model* model, ShaderProgram* progra
     // This integration assumes the Model class has methods to store shader references
     // The exact implementation depends on how the Model class is structured
 
-#if defined(_DEBUG_SHADERMANAGER_)
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[ShaderManager] SetupModelShaderBindings() completed successfully.");
-#endif
+    #if defined(_DEBUG_SHADERMANAGER_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[ShaderManager] SetupModelShaderBindings() completed successfully.");
+    #endif
 
     return true;
 }
@@ -4146,16 +4025,6 @@ bool ShaderManager::LoadDefaultShaders() {
                 debug.logLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to create model shader program.");
             #endif
             allShadersLoaded = false;
-        }
-    }
-
-    // Create default samplers to prevent missing sampler warnings
-    if (allShadersLoaded) {
-        if (!CreateDefaultSamplers()) {
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to create default samplers.");
-            #endif
-            // Don't fail completely for missing samplers, just log warning
         }
     }
 

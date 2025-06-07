@@ -100,12 +100,6 @@
 const LPCWSTR MY_WINDOW_TITLE = L"DirectX 11 Renderer by Daniel J. Hobson of Australia 2024-2025";
 const LPCWSTR lpDEFAULT_NAME = L"CPGE_";
 
-// Player Joystick Controls
-const int PLAYER_1 = 0;
-const int PLAYER_2 = 1;
-//const int PLAYER_3 = 2;
-//const int PLAYER_4 = 3;
-
 //--------------------------------------------------------
 // Required Class Instantiations / Declarations
 //
@@ -129,6 +123,7 @@ MoviePlayer moviePlayer;
 NetworkManager networkManager;
 PUNPack punPack;
 GamePlayer gamePlayer;
+PlayerInfo playerInfo[MAX_PLAYERS]; // Player Info Array
 GamingAI gamingAI;
 MyRandomizer myRandomizer;
 
@@ -317,15 +312,17 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         }
 
         // Initialize our GamingAI System.
-        if (!gamingAI.Initialize())
-        {
-            #if defined(_DEBUG_PUNPACK_)
-                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize PUNPack Management System!");
-            #endif
+        #if defined(__USE_GAMINGAI__)
+            if (!gamingAI.Initialize())
+            {
+                #if defined(_DEBUG_GAMINGAI_)
+                    debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize GamingAI Management System!");
+                #endif
 
-            UnregisterClass(lpDEFAULT_NAME, hInstance);
-            return EXIT_FAILURE;
-        }
+                UnregisterClass(lpDEFAULT_NAME, hInstance);
+                return EXIT_FAILURE;
+            }
+        #endif
 
         // Obtain Window Metrics
         sysUtils.GetWindowMetrics(hwnd, winMetrics);
@@ -426,6 +423,11 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         // Configure for 3D usage (Like for FPS, TPS, 3D flight etc)
         js.ConfigureFor3DMovement();
 
+        // Initialize the GamePlayer system
+        gamePlayer.Initialize(); 
+        gamePlayer.SetPlayerState(PLAYER_1, PlayerState::INACTIVE);
+        gamePlayer.GetPlayerInfo(PLAYER_1)->position2D = { 0.0f, 0.0f };
+
         // Start Required Renderer Threads
         #if !defined(_DEBUG)
             if (!renderer->StartRendererThreads())
@@ -446,7 +448,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             }
         }
 
+        //  --------------------------------------------------------------------------
         // --- Main Loop ---
+        //  --------------------------------------------------------------------------
         MSG msg = {};
 		sysUtils.StartTimer();                                  // Start the system timer
         while (msg.message != WM_QUIT)
@@ -628,7 +632,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                         }
 
                         // Only check for completion after movie has started and sufficient time has passed
-                        if (movieHasStarted && framesSinceMovieStart > 120 && (!moviePlayer.IsPlaying()) && (!scene.bSceneSwitching))
+                        if (movieHasStarted && framesSinceMovieStart > 10 && (!moviePlayer.IsPlaying()) && (!scene.bSceneSwitching))
                         {
                             #if defined(_DEBUG_SCENE_TRANSITION_)
                                 debug.logLevelMessage(LogLevel::LOG_INFO, L"[SCENE] Movie finished playing, starting scene transition");
@@ -647,18 +651,6 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                                     }
                                 });
                             #endif      
-                        }
-
-                        // Handle space bar skip
-                        if (GetAsyncKeyState(VK_SPACE) & 0x8000 && moviePlayer.IsPlaying())
-                        {
-                            #if defined(_DEBUG_SCENE_TRANSITION_)
-                                debug.logLevelMessage(LogLevel::LOG_INFO, L"[SCENE] Space bar pressed - skipping movie");
-                            #endif
-
-                            moviePlayer.Stop();
-                            scene.bSceneSwitching = true;
-                            fxManager.FadeToBlack(1.0f, 0.06f);
                         }
 
                         if ((fxManager.IsFadeActive()) && (scene.bSceneSwitching))
@@ -807,8 +799,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     renderer->SetWindowedScreen();
 
     // Force Stop AI monitoring and Clean-Up
-    gamingAI.EndMonitoring();
-    gamingAI.Cleanup();
+    #if defined(__USE_GAMINGAI__)
+        gamingAI.EndMonitoring();
+        gamingAI.Cleanup();
+    #endif
 
     // Clean up the GamePlayer Manager
     gamePlayer.Cleanup();

@@ -254,11 +254,16 @@ void DX11Renderer::RenderFrame()
                         // Render the movie to fill the screen
                         moviePlayer.Render(Vector2(0, 0), Vector2(iOrigWidth, iOrigHeight));
 
+                        // Draw Logo image.
+                        Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - 47);
+
                         // Check to see if the user has pressed the space bar
                         if (GetAsyncKeyState(' ') & 0x8000)
                         {
                             // Stop Playback as this will switch the scene!
                             moviePlayer.Stop();
+                            scene.bSceneSwitching = true;
+                            fxManager.FadeToBlack(1.0f, 0.06f);
                         }
                     }
 
@@ -302,30 +307,30 @@ void DX11Renderer::RenderFrame()
                     m_d3dContext->VSSetConstantBuffers(SLOT_CONST_BUFFER, 1, m_cameraConstantBuffer.GetAddressOf());
 
                     // Debug constant buffer for debugging pixel shader.
-#if defined(_DEBUG_RENDERER_) && defined(_DEBUG) && defined(_DEBUG_PIXSHADER_)
-                    if (GetAsyncKeyState('1') & 0x8000) SetDebugMode(0); // Run as Normally would! Production view!
-                    if (GetAsyncKeyState('2') & 0x8000) SetDebugMode(1); // Normals Only
-                    if (GetAsyncKeyState('3') & 0x8000) SetDebugMode(2); // Texture Only
-                    if (GetAsyncKeyState('4') & 0x8000) SetDebugMode(3); // Lighting Only
-                    if (GetAsyncKeyState('5') & 0x8000) SetDebugMode(4); // Specular Only
-                    if (GetAsyncKeyState('6') & 0x8000) SetDebugMode(5); // Attenuation/Normals
-                    if (GetAsyncKeyState('7') & 0x8000) SetDebugMode(6); // Shadows Only
-                    if (GetAsyncKeyState('8') & 0x8000) SetDebugMode(7); // Reflection Only
-                    if (GetAsyncKeyState('9') & 0x8000) SetDebugMode(8); // Metallic Only
-#endif
+                    #if defined(_DEBUG_RENDERER_) && defined(_DEBUG) && defined(_DEBUG_PIXSHADER_)
+                        if (GetAsyncKeyState('1') & 0x8000) SetDebugMode(0); // Run as Normally would! Production view!
+                        if (GetAsyncKeyState('2') & 0x8000) SetDebugMode(1); // Normals Only
+                        if (GetAsyncKeyState('3') & 0x8000) SetDebugMode(2); // Texture Only
+                        if (GetAsyncKeyState('4') & 0x8000) SetDebugMode(3); // Lighting Only
+                        if (GetAsyncKeyState('5') & 0x8000) SetDebugMode(4); // Specular Only
+                        if (GetAsyncKeyState('6') & 0x8000) SetDebugMode(5); // Attenuation/Normals
+                        if (GetAsyncKeyState('7') & 0x8000) SetDebugMode(6); // Shadows Only
+                        if (GetAsyncKeyState('8') & 0x8000) SetDebugMode(7); // Reflection Only
+                        if (GetAsyncKeyState('9') & 0x8000) SetDebugMode(8); // Metallic Only
+                    #endif
 
                     // Ensure all loading is complete before rendering models and lighting.
                     if (threadManager.threadVars.bLoaderTaskFinished.load())
                     {
                         // (Add 3D object rendering here)
-#if defined(_RENDERER_WIREFRAME_)
-                        m_d3dContext->RSSetState(wireframeRS.Get());
-#endif
+                        #if defined(_RENDERER_WIREFRAME_)
+                            m_d3dContext->RSSetState(wireframeRS.Get());
+                        #endif
 
                         // This block is used if you need to test your Pipeline.
-#if defined(_DEBUG_RENDERER_) && defined(_SIMPLE_TRIANGLE_) && defined(_DEBUG)
-                        TestDrawTriangle();                                                                                     // Test triangle for rendering (debug purposes)
-#endif
+                        #if defined(_DEBUG_RENDERER_) && defined(_SIMPLE_TRIANGLE_) && defined(_DEBUG)
+                            TestDrawTriangle();                                                                                     // Test triangle for rendering (debug purposes)
+                        #endif
 
                         for (int i = 0; i < MAX_MODELS; ++i)
                         {
@@ -415,31 +420,21 @@ void DX11Renderer::RenderFrame()
                     {
                         switch (scene.stSceneType)
                         {
-                        case SceneType::SCENE_INTRO:
-                        {
-                            // Ensure all loading is complete before rendering models and lighting.
-                            if (threadManager.threadVars.bLoaderTaskFinished.load())
+                            case SceneType::SCENE_INTRO:
                             {
-                                myCamera.SetYawPitch(0.285f, -0.22f);
-                                // Draw background image first.
-                                Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
-                                // Draw Logo image.
-                                Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - 47);
-                                // Render our 3D starfield.
-                                fxManager.RenderFX(fxManager.starfieldID, m_d3dContext.Get(), myCamera.GetViewMatrix());
+                                // Ensure all loading is complete before rendering models and lighting.
+                                if (threadManager.threadVars.bLoaderTaskFinished.load())
+                                {
+                                    myCamera.SetYawPitch(0.285f, -0.22f);
+                                    // Draw background image first.
+                                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
+                                    // Draw Logo image.
+                                    Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - 47);
+                                    // Render our 3D starfield.
+                                    fxManager.RenderFX(fxManager.starfieldID, m_d3dContext.Get(), myCamera.GetViewMatrix());
+                                }
+                                break;
                             }
-                            break;
-                        }
-
-                        case SceneType::SCENE_INTRO_MOVIE:
-                        {
-                            if (moviePlayer.IsPlaying() && (!threadManager.threadVars.bLoaderTaskFinished.load()))
-                            {
-                                // Draw Logo image.
-                                Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - 47);
-                            }
-                            break;
-                        }
                         }
                     }
 

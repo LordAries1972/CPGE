@@ -1405,100 +1405,89 @@ void Model::DebugInfoForModel() const
 
 // Implementation for Model class PBR extension methods
 bool Model::SetupPBRResources() {
-    // Get DX11 device
-    std::shared_ptr<DX11Renderer> dx11;
-    if (!dx11)
-    {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to get DX11 renderer for PBR setup");
-        return false;
-    }
+    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+        ComPtr<ID3D11Device> device;
+        device.Attach(static_cast<ID3D11Device*>(renderer->GetDevice()));
+        if (!device) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Invalid D3D11 device in SetupPBRResources");
+            return false;
+        }
 
-    ComPtr<ID3D11Device> device = dx11->m_d3dDevice;
-    if (!device) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Invalid D3D11 device in SetupPBRResources");
-        return false;
-    }
+        // Create environment buffer
+        D3D11_BUFFER_DESC envBufferDesc = {};
+        envBufferDesc.ByteWidth = sizeof(EnvBufferGPU);
+        envBufferDesc.Usage = D3D11_USAGE_DYNAMIC;
+        envBufferDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        envBufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
 
-    // Create environment buffer
-    D3D11_BUFFER_DESC envBufferDesc = {};
-    envBufferDesc.ByteWidth = sizeof(EnvBufferGPU);
-    envBufferDesc.Usage = D3D11_USAGE_DYNAMIC;
-    envBufferDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    envBufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        HRESULT hr = device->CreateBuffer(&envBufferDesc, nullptr, &m_modelInfo.environmentBuffer);
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to create environment buffer");
+            return false;
+        }
 
-    HRESULT hr = device->CreateBuffer(&envBufferDesc, nullptr, &m_modelInfo.environmentBuffer);
-    if (FAILED(hr)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to create environment buffer");
-        return false;
-    }
+        // Create environment sampler state
+        D3D11_SAMPLER_DESC envSamplerDesc = {};
+        envSamplerDesc.Filter = D3D11_FILTER_ANISOTROPIC;
+        envSamplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
+        envSamplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
+        envSamplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+        envSamplerDesc.MaxAnisotropy = 16;
+        envSamplerDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+        envSamplerDesc.MinLOD = 0;
+        envSamplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
 
-    // Create environment sampler state
-    D3D11_SAMPLER_DESC envSamplerDesc = {};
-    envSamplerDesc.Filter = D3D11_FILTER_ANISOTROPIC;
-    envSamplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
-    envSamplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
-    envSamplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
-    envSamplerDesc.MaxAnisotropy = 16;
-    envSamplerDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
-    envSamplerDesc.MinLOD = 0;
-    envSamplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
+        hr = device->CreateSamplerState(&envSamplerDesc, &m_modelInfo.environmentSamplerState);
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to create environment sampler state");
+            return false;
+        }
 
-    hr = device->CreateSamplerState(&envSamplerDesc, &m_modelInfo.environmentSamplerState);
-    if (FAILED(hr)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to create environment sampler state");
-        return false;
-    }
-
-    // Set up default environment settings
-    SetEnvironmentProperties(1.0f, XMFLOAT3(1.0f, 1.0f, 1.0f), 0.0f, 0.04f);
-
+        // Set up default environment settings
+        SetEnvironmentProperties(1.0f, XMFLOAT3(1.0f, 1.0f, 1.0f), 0.0f, 0.04f);
+    #endif // __USE_DIRECTX_11__ || __USE_DIRECTX_12__
     return true;
 }
 
 bool Model::LoadEnvironmentMap(const std::wstring& filePath) {
-    // Get DX11 device
-    std::shared_ptr<DX11Renderer> dx11;
-    if (!dx11)
-    {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to get DX11 renderer for environment map loading");
-        return false;
-    }
-
-    ComPtr<ID3D11Device> device = dx11->m_d3dDevice;
+    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+    ComPtr<ID3D11Device> device;
+    device.Attach(static_cast<ID3D11Device*>(renderer->GetDevice()));
     if (!device) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Invalid D3D11 device in LoadEnvironmentMap");
-        return false;
-    }
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Invalid D3D11 device in LoadEnvironmentMap");
+            return false;
+        }
 
-    // Ensure file exists
-    if (!std::filesystem::exists(filePath)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Environment map file not found: " + filePath);
-        return false;
-    }
+        // Ensure file exists
+        if (!std::filesystem::exists(filePath)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Environment map file not found: " + filePath);
+            return false;
+        }
 
-    // Create DirectX Texture from DDS file (cube map)
-    ComPtr<ID3D11Resource> texResource;
-/* 
-    HRESULT hr = DirectX::CreateDDSTextureFromFileEx(
-        device.Get(),
-        filePath.c_str(),
-        0,  // maxSize
-        D3D11_USAGE_DEFAULT,
-        D3D11_BIND_SHADER_RESOURCE,
-        0,  // cpuFlags
-        D3D11_RESOURCE_MISC_TEXTURECUBE,  // miscFlags - specify this is a cube map
-        false,  // forceSRGB
-        &texResource,
-        &m_modelInfo.environmentMapSRV
-    );
+        // Create DirectX Texture from DDS file (cube map)
+        ComPtr<ID3D11Resource> texResource;
+    /* 
+        HRESULT hr = DirectX::CreateDDSTextureFromFileEx(
+            device.Get(),
+            filePath.c_str(),
+            0,  // maxSize
+            D3D11_USAGE_DEFAULT,
+            D3D11_BIND_SHADER_RESOURCE,
+            0,  // cpuFlags
+            D3D11_RESOURCE_MISC_TEXTURECUBE,  // miscFlags - specify this is a cube map
+            false,  // forceSRGB
+            &texResource,
+            &m_modelInfo.environmentMapSRV
+        );
 
-    if (FAILED(hr)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to load environment cube map: " + filePath);
-        return false;
-    }
-*/
-    m_modelInfo.useEnvironmentMap = true;
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"Successfully loaded environment cube map: " + filePath);
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to load environment cube map: " + filePath);
+            return false;
+        }
+    */
+        m_modelInfo.useEnvironmentMap = true;
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"Successfully loaded environment cube map: " + filePath);
+    #endif // __USE_DIRECTX_11__ || __USE_DIRECTX_12__
     return true;
 }
 
@@ -1548,35 +1537,30 @@ bool Model::LoadAOMap(const std::wstring& filePath) {
 }
 
 void Model::UpdateEnvironmentBuffer() {
-    // Get DX11 device
-    std::shared_ptr<DX11Renderer> dx11;
-    if (!dx11)
-    {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to get DX11 renderer for environment buffer update");
-        return;
-    }
+    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+        ComPtr<ID3D11DeviceContext> context;
+        context.Attach(static_cast<ID3D11DeviceContext*>(renderer->GetDeviceContext()));
+        if (!context || !m_modelInfo.environmentBuffer) {
+            return;
+        }
 
-    ComPtr<ID3D11DeviceContext> context = dx11->m_d3dContext;
-    if (!context || !m_modelInfo.environmentBuffer) {
-        return;
-    }
+        // Update environment buffer
+        EnvBufferGPU envData = {};
+        envData.envIntensity = m_modelInfo.envIntensity;
+        envData.envTint = m_modelInfo.envTint;
+        envData.mipLODBias = m_modelInfo.mipLODBias;
+        envData.fresnel0 = m_modelInfo.fresnel0;
 
-    // Update environment buffer
-    EnvBufferGPU envData = {};
-    envData.envIntensity = m_modelInfo.envIntensity;
-    envData.envTint = m_modelInfo.envTint;
-    envData.mipLODBias = m_modelInfo.mipLODBias;
-    envData.fresnel0 = m_modelInfo.fresnel0;
+        D3D11_MAPPED_SUBRESOURCE mappedResource;
+        HRESULT hr = context->Map(m_modelInfo.environmentBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
+        if (SUCCEEDED(hr)) {
+            memcpy(mappedResource.pData, &envData, sizeof(EnvBufferGPU));
+            context->Unmap(m_modelInfo.environmentBuffer.Get(), 0);
 
-    D3D11_MAPPED_SUBRESOURCE mappedResource;
-    HRESULT hr = context->Map(m_modelInfo.environmentBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
-    if (SUCCEEDED(hr)) {
-        memcpy(mappedResource.pData, &envData, sizeof(EnvBufferGPU));
-        context->Unmap(m_modelInfo.environmentBuffer.Get(), 0);
-
-        // Bind to Pixel Shader slot b5
-        context->PSSetConstantBuffers(SLOT_ENVIRONMENT_BUFFER, 1, m_modelInfo.environmentBuffer.GetAddressOf());
-    }
+            // Bind to Pixel Shader slot b5
+            context->PSSetConstantBuffers(SLOT_ENVIRONMENT_BUFFER, 1, m_modelInfo.environmentBuffer.GetAddressOf());
+        }
+    #endif // __USE_DIRECTX_11__ || __USE_DIRECTX_12__
 }
 
 void Model::SetPBRProperties(float metallic, float roughness, float reflectionStrength) {

@@ -26,6 +26,9 @@
 #define _DEBUG_SHADERMANAGER_                                           // Define this line, to show all debug output for the ShaderManager class.
 #define _DEBUG_NETWORKMANAGER_                                          // Define this line, to show all debug output to runtime console for the NetworkManager class.
 #define _DEBUG_SCENE_TRANSITION_                                        // Debug Info for Scene Transistions.
+#define _DEBUG_GAMINGAI_                                                // Define this line, to show all debug output for the GamingAI class.
+#define _DEBUG_PUNPACK_                                                  // Define this line, to show all debug output for the PUNPuck class.
+#define _DEBUG_GAMEPLAYER_                                               // Define this line, to show all debug output for the GamePlayer class.
 //#define _DEBUG_TTSMANAGER_                                              // Define this line, to show all debug output for the TTSManager class.
 //#define _DEBUG_GUI_                                                     // Define this line, to show all debug output to runtime console for the GUIManager class.
 //#define _DEBUG_WINSYSTEM_                                               // Define this line, to show all debug output to runtime console for the SystemUtils class.

@@ -14,8 +14,11 @@ This is to eliminate the need for multiple includes in your project files.
 //#define __USE_MP3PLAYER__
 #define __USING_JOYSTICKS__                                                             // Uncomment this line if you want to use Joysticks with this engine.
 #define __USE_NETWORKING__                                                              // Uncomment this line if you want to use Networking TCP/UDP Protocols with this engine.
+#define __USE_GAMINGAI__                                                                // Uncomment this line if you want to use Gaming AI with this engine.
 
+// -----------------------------------
 // Windows Specific Includes
+// -----------------------------------
 #if defined(_WIN64) || defined(_WIN32)
     // CRITICAL: Define this before any Windows includes to prevent macro conflicts
     #define PLATFORM_WINDOWS
@@ -216,6 +219,17 @@ const int SLOT_environmentMap = 5;                                              
 const int SLOT_SAMPLER_STATE = 0;
 const int SLOT_ENVIRO_SAMPLER_STATE = 1;
 
+// -----------------------------------
+// Game Player Relative information
+// -----------------------------------
+// Player Joystick Controls
+const int PLAYER_1 = 0;
+//const int PLAYER_2 = 1;
+//const int PLAYER_3 = 2;
+//const int PLAYER_4 = 3;
+
+// Maximum number of Players supported (1-8)
+const int MAX_PLAYERS = 1;
 
 // 2D Textures
 inline const std::wstring texFilename[] = {
