@@ -423,9 +423,11 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         // Configure for 3D usage (Like for FPS, TPS, 3D flight etc)
         js.ConfigureFor3DMovement();
 
-        // Initialize the GamePlayer system
+        // Initialize the GamePlayer system with basic initialization
         gamePlayer.Initialize(); 
         gamePlayer.SetPlayerState(PLAYER_1, PlayerState::INACTIVE);
+        PlayerInfo* player = gamePlayer.GetPlayerInfo(PLAYER_1);            // Get player information
+        player->score = 0;                                                  // Initialize player score to 0
 
         // Start Required Renderer Threads
         #if !defined(_DEBUG)

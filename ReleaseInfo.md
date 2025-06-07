@@ -228,7 +228,7 @@ Once the base DirectX 11 implementation is complete, the project will be release
 
 **May 31, 2025** - Network infrastructure:
 - Threaded TCP/UDP Network Manager for Windows  
-*See: `NetworkManager.h/.cpp`, `Docs/NetworkManager-Example-Usage.txt`*
+*See: `NetworkManager.h/.cpp`, `Docs/NetworkManager-Example-Usage.md`*
 
 #### June 2025
 **June 1, 2025** - Data management and player systems:
