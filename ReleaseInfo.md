@@ -142,7 +142,7 @@ Once the base DirectX 11 implementation is complete, the project will be release
 
 **April 3, 2025** - Rendering system simplification:
 - Enhanced renderer abstraction  
-  *See: [`main.cpp`](main.cpp), [`Render.h`](Render.h), [`RendererMacros.h`](RendererMacros.h), [`RendererFactory.cpp`](RendererFactory.cpp)*
+  *See: [`main.cpp`](main.cpp), [`Renderer.h`](Renderer.h), [`RendererMacros.h`](RendererMacros.h), [`RendererFactory.cpp`](RendererFactory.cpp)*
 - SoundManager rework: XAudio2 → DirectSound transition
 
 **April 4, 2025** - Core functionality improvements:
@@ -153,9 +153,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
 
 **April 9, 2025** - 3D rendering breakthrough:
 - 3D OBJ model rendering with textures, normal maps, lighting, and shading
-- Manual model loading for educational purposes
+- Manual model loading for educational purposes.
 - Pixel shader debugging capabilities  
-  *See: [`ModelPShader.hlsl`](ModelPShader.hlsl) and `RenderFrame()`*
+  *See: [`ModelPixel.hlsl`](Assets/Shaders/ModelPixel.hlsl) and [`RenderFrame()'] in (DXRenderFrame.cpp)*
 - Multi-GPU support with NVIDIA/AMD priority
 - Complete camera system with mouse and wheel controls
 - Basic model animation implementation
