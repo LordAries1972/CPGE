@@ -5,10 +5,33 @@
 
 ---
 
+## Table of Contents
+
+### [License Information](#license-information)
+### [Project Overview](#project-overview)
+### [Release Status](#release-status)
+
+### Development History by Month and Year
+
+#### 2023
+- [September 2023](#september-2023---project-foundation)
+
+#### 2025
+- [January 2025](#january-2025---major-restructuring-start)
+- [March 2025](#march-2025---core-development)
+- [April 2025](#april-2025---3d-rendering-breakthrough)
+- [May 2025](#may-2025---advanced-features)
+- [June 2025](#june-2025---ai-and-data-systems)
+
+### [Future Development](#future-development)
+### [Technical Requirements](#technical-requirements)
+
+---
+
 ## License Information
 
 This software system is licensed under the MIT License.  
-Full license details available in: `Docs\LICENSE.md`
+Full license details available in: [`Docs\LICENSE.md`](Docs/LICENSE.md)
 
 ## Project Overview
 
@@ -42,23 +65,23 @@ Once the base DirectX 11 implementation is complete, the project will be release
 
 ## Development History
 
-### 2023 - Project Foundation
+### September 2023 - Project Foundation
 **September 11, 2023** - Original project started with focus on building core interface modules
 
-### 2025 - Major Restructuring
+### January 2025 - Major Restructuring Start
 
-#### January 2025
 **January 1, 2025** - Complete project restart with improved architecture and efficiency  
 **January 7, 2025** - XM Module Player and Class implementation began  
 
-#### March 2025
+### March 2025 - Core Development
+
 **March 11, 2025** - Debug Class implementation for Visual Studio 2019/2022 output window integration
 
 **March 12, 2025** - ThreadManager Class creation for safe thread management  
-*See: `ThreadManager.h/.cpp`*
+*See: [`ThreadManager.h/.cpp`](ThreadManager.h)*
 
 **March 14, 2025** - DirectX Camera class object implementation  
-*See: `DXCamera.h/.cpp`*
+*See: [`DXCamera.h/.cpp`](DXCamera.h)*
 
 **March 15, 2025** - Core rendering functionality achieved:
 - FPS display and mouse cursor rendering
@@ -73,11 +96,11 @@ Once the base DirectX 11 implementation is complete, the project will be release
 
 **March 16, 2025** - Audio and input systems:
 - Full functional MP3 Player (threaded) using WindowsMedia API  
-  *See: `WinMediaPlayer.h`*
+  *See: [`WinMediaPlayer.h`](WinMediaPlayer.h)*
 - Complete joystick/gamepad handler with mapping save/load functionality
 - Optional RenderFrame() threading or main loop execution
 - SysUtils class for Windows-specific operations  
-  *See: `WinSystem.h`*
+  *See: [`WinSystem.h`](WinSystem.h)*
 - Windows 10+ system requirements enforcement
 
 **March 17, 2025** - GPU detection implementation
@@ -87,7 +110,7 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - Auto-restart for single song playback
 
 **March 21, 2025** - ThreadManager Class improvements  
-*See: `ThreadManager.h`*
+*See: [`ThreadManager.h`](ThreadManager.h)*
 
 **March 25, 2025** - GUIManager system implementation:
 - Custom window creation with control support
@@ -95,40 +118,41 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - 2D draw/image support
 
 **March 26, 2025** - GUIManager enhancements  
-*See: `GUIManager.h/.cpp`*
+*See: [`GUIManager.h/.cpp`](GUIManager.h)*
 
 **March 27, 2025** - Documentation improvements with usage examples in individual .cpp files
 
 **March 28, 2025** - SoundManager system implementation  
-*See: `SoundManager.h/.cpp`*
+*See: [`SoundManager.h/.cpp`](SoundManager.h)*
 
 **March 29, 2025** - FX Manager implementation with screen fading routines  
-*See: `FXManager.h/.cpp`*
+*See: [`FXManager.h/.cpp`](FXManager.h)*
 
 **March 30, 2025** - FX Manager scrolling effects for tiled images
 
-#### April 2025
+### April 2025 - 3D Rendering Breakthrough
+
 **April 1, 2025** - Major restructuring milestone:
 1. **XMMODPlayer Class** - Fully functional DirectX Sound playback  
-   *See: `Constants.h`, `IOThreadStream.cpp`, `XMMODPlayer.h/.cpp`*
+   *See: [`Constants.h`](Constants.h), [`IOThreadStream.cpp`](IOThreadStream.cpp), [`XMMODPlayer.h/.cpp`](XMMODPlayer.h)*
 2. **Cross-platform preparation** - Major restructuring for multi-platform support
 
 **April 3, 2025** - Rendering system simplification:
 - Enhanced renderer abstraction  
-  *See: `main.cpp`, `Render.h`, `RendererMacros.h`, `RendererFactory.cpp`*
+  *See: [`main.cpp`](main.cpp), [`Render.h`](Render.h), [`RendererMacros.h`](RendererMacros.h), [`RendererFactory.cpp`](RendererFactory.cpp)*
 - SoundManager rework: XAudio2 → DirectSound transition
 
 **April 4, 2025** - Core functionality improvements:
 - Full window resizing implementation
 - XMMODPlayer Class enhancements
 
-**April 5, 2025** - Documentation expansion in `/Docs` folder
+**April 5, 2025** - Documentation expansion in [`/Docs`](Docs/) folder
 
 **April 9, 2025** - 3D rendering breakthrough:
 - 3D OBJ model rendering with textures, normal maps, lighting, and shading
 - Manual model loading for educational purposes
 - Pixel shader debugging capabilities  
-  *See: `ModelPShader.hlsl` and `RenderFrame()`*
+  *See: [`ModelPShader.hlsl`](ModelPShader.hlsl) and `RenderFrame()`*
 - Multi-GPU support with NVIDIA/AMD priority
 - Complete camera system with mouse and wheel controls
 - Basic model animation implementation
@@ -142,19 +166,14 @@ Once the base DirectX 11 implementation is complete, the project will be release
 **April 17, 2025** - Debug system enhancements:
 - `logLevelMessage()` and `logDebugMessage()` file output
 - Date/time stamping implementation  
-*See: `Debug.h/.cpp`*
+*See: [`Debug.h/.cpp`](Debug.h)*
 
 **April 18, 2025** - Camera system overhaul:
 - Complete DXCamera rework  
-*See: `DXCamera.h/.cpp`*
+*See: [`DXCamera.h/.cpp`](DXCamera.h)*
 - Cursor key navigation implementation
 - Mouse right-button yaw/pitch control
 - Mouse wheel zoom functionality
-
-**April 19, 2025** - Development process documentation:
-- AI Policy/Rules enforcement documentation  
-*See: `Docs/POLICIES.txt`*
-- AI programming guidance for developers
 
 **April 24, 2025** - **STABLE RELEASE**: Basic GLTF 2.0 scene model parsing and rendering
 - Functional wireframe mode
@@ -163,7 +182,7 @@ Once the base DirectX 11 implementation is complete, the project will be release
 **April 26, 2025** - **STABLE RELEASE**: GLTF 2.0 Parser optimization:
 - Full functionality achievement
 - Basic lighting support  
-*See: `SceneManager.h/.cpp`, `Models.h/.cpp`*
+*See: [`SceneManager.h/.cpp`](SceneManager.h), [`Models.h/.cpp`](Models.h)*
 
 **April 29, 2025** - Window management improvements:
 - Resize functionality
@@ -174,11 +193,12 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - Camera position preservation during resize
 - Loader-ring animation bug fixes
 
-#### May 2025
+### May 2025 - Advanced Features
+
 **May 5, 2025** - Sketchfab integration and effects:
 - Sketchfab GLTF parsing support
 - 2D Particle explosion (fireworks) effects in FXManager  
-*See: `DX_FXManager.h/.cpp`*
+*See: [`DX_FXManager.h/.cpp`](DX_FXManager.h)*
 
 **May 12, 2025** - **100% FUNCTIONAL**: Gamepad/Joystick integration:
 - Complete 2D and 3D scenario support
@@ -188,7 +208,7 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - .AVI/.MP4 file support
 - Video streaming without sound (by design)
 - External audio track overlay capability  
-*See: `MoviePlayer.h/.cpp`*
+*See: [`MoviePlayer.h/.cpp`](MoviePlayer.h)*
 
 **May 17, 2025** - Scene sequencing implementation:
 - Splash screen → Intro movie → Game intro flow
@@ -201,13 +221,13 @@ Once the base DirectX 11 implementation is complete, the project will be release
 **May 21, 2025** - ThreadManager locking enhancements:
 - Lock/Unlock functionality
 - CheckLock/TryLock functions  
-*See: `ThreadManager.h/.cpp`*
+*See: [`ThreadManager.h/.cpp`](ThreadManager.h)*
 
 **May 23, 2025** - Text effects and mathematics:
 - FXManager text scroller routines (LTOR, RTOL, Consistent, Movie)  
-*See: `DX_FXManager.h/.cpp`, `Docs/FXManager-TextScrollers-Example-Usage.md`*
+*See: [`DX_FXManager.h/.cpp`](DX_FXManager.h), [`Docs/FXManager-TextScrollers-Example-Usage.md`](Docs/FXManager-TextScrollers-Example-Usage.md)*
 - MathPrecalculation Class introduction  
-*See: `MathPrecalculation.h/.cpp`, `Docs/MathPrecalculation-Example-Usage.md`*
+*See: [`MathPrecalculation.h/.cpp`](MathPrecalculation.h), [`Docs/MathPrecalculation-Example-Usage.md`](Docs/MathPrecalculation-Example-Usage.md)*
 
 **May 25, 2025** - Fullscreen mode completion:
 - Screen mode selection (width, height)
@@ -224,38 +244,39 @@ Once the base DirectX 11 implementation is complete, the project will be release
 **May 30, 2025** - Platform verification and TTS implementation:
 - DirectX11 renderer compilation verification
 - TTSManager (Text To Speech) implementation  
-*See: `TTSManager.h/.cpp`, `Docs/TTSManager-Example-Usage.md`*
+*See: [`TTSManager.h/.cpp`](TTSManager.h), [`Docs/TTSManager-Example-Usage.md`](Docs/TTSManager-Example-Usage.md)*
 
 **May 31, 2025** - Network infrastructure:
 - Threaded TCP/UDP Network Manager for Windows  
-*See: `NetworkManager.h/.cpp`, `Docs/NetworkManager-Example-Usage.md`*
+*See: [`NetworkManager.h/.cpp`](NetworkManager.h), [`Docs/NetworkManager-Example-Usage.md`](Docs/NetworkManager-Example-Usage.md)*
 
-#### June 2025
+### June 2025 - AI and Data Systems
+
 **June 1, 2025** - Data management and player systems:
 - **PUNPack Class**: Compression/decompression with checksum support  
-*See: `PUNPack.h/.cpp`, `Docs/PUNPack-Example-Usage.md`*
+*See: [`PUNPack.h/.cpp`](PUNPack.h), [`Docs/PUNPack-Example-Usage.md`](Docs/PUNPack-Example-Usage.md)*
 - **GamePlayer, GameAccount & GameStatus Classes**: Complete player management  
-*See: `GamePlayer.h/.cpp`, `Docs/GamePlayer-Example-Usage.md`*
+*See: [`GamePlayer.h/.cpp`](GamePlayer.h), [`Docs/GamePlayer-Example-Usage.md`](Docs/GamePlayer-Example-Usage.md)*
 
 **June 2, 2025** - AI system implementation:
 - **GamingAI Class**: Player strategy learning and adaptation  
-*See: `GamingAI.h/.cpp`, `Docs/GamingAI-Example-Usage.md`(Docs/GamingAI-Example-Usage.md)*
+*See: [`GamingAI.h/.cpp`](GamingAI.h), [`Docs/GamingAI-Example-Usage.md`](Docs/GamingAI-Example-Usage.md)*
 
 **June 3, 2025** - File operations and random generation:
 - **Thread-Safe FileIO Class**: Cross-platform file operations  
-*See: `FileIO.h/.cpp`, `FileIO-Example-Usage.md`*
+*See: [`FileIO.h/.cpp`](FileIO.h), [`Docs/FileIO-Example-Usage.md`](Docs/FileIO-Example-Usage.md)*
 - **MyRandomizer Class**: Gaming-focused random number generation  
-*See: `MyRandomizer.h/.cpp`, `MyRandomizer-Example-Usage.md`*
+*See: [`MyRandomizer.h/.cpp`](MyRandomizer.h), [`Docs/MyRandomizer-Example-Usage.md`](Docs/MyRandomizer-Example-Usage.md)*
 
 **June 5, 2025** - Exception handling:
 - **ExceptionHandler Class**: Comprehensive exception capture and logging  
-*See: `ExceptionHandler.h/.cpp`*
+*See: [`ExceptionHandler.h/.cpp`](ExceptionHandler.h)*
 
 **June 6, 2025** - **STABLE**: Shader management system:
 - **ShaderManager Class**: Multi-platform shader support (HLSL, GLSL, SPIR-V)  
-*See: `ShaderManager.h/.cpp`, `Docs/ShaderManager-Example-Usage.md`*
+*See: [`ShaderManager.h/.cpp`](ShaderManager.h), [`Docs/ShaderManager-Example-Usage.md`](Docs/ShaderManager-Example-Usage.md)*
 - Models.cpp and main.cpp integration
-- RenderFrame() relocation to `DXRenderFrame.cpp`
+- RenderFrame() relocation to [`DXRenderFrame.cpp`](DXRenderFrame.cpp)
 
 ---
 
