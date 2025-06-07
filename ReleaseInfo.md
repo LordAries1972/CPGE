@@ -284,7 +284,7 @@ Once the base DirectX 11 implementation is complete, the project will be release
 **June 7, 2025** - **STABLE**: Cleaning up and Documentation Conversion to Mark Down
 - **ShaderManager Class**: Some basic rework and removed non-needed functionality for Windows Platform.  
 - Fixed a couple of bugs/reworked a couple of things in main.cpp file.
-- Existing Documents in [`Docs/`](/Docs) have been converted to Mark Down format for easier reading and referencing.
+- Existing Documents in [`Docs/`](/Docs) have been converted to Mark Down format for easier reading and referencing via GitHUB.
 - Created Example usage file for [`ThreadManager`](Docs/ThreadManager-Example-Usage.md)
 - Created Example usage file for [`SoundManager`](Docs/SoundManager-Example-Usage.md)
 - Created Example usage file for [`XMMODPlayer`](Docs/XMMODPlayer-Example-Usage.md)
