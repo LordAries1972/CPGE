@@ -62,6 +62,121 @@ ttsManager.SetSpeakerChannel(TTSSpeakerChannel::CHANNEL_LEFT);  // Left speaker 
 ttsManager.PlayAsync(L"Loading game assets, please wait...");
 ```
 
+## Advanced Configuration
+
+### Voice Settings Combinations
+
+```cpp
+// Gaming announcer voice setup
+ttsManager.SetVoiceVolume(0.9f);           // High volume for important announcements
+ttsManager.SetVoicePitch(0.5f);            // Lower pitch for authority
+ttsManager.SetVoiceRate(1.0f);             // Normal speech rate
+
+// Notification voice setup
+ttsManager.SetVoiceVolume(0.6f);           // Medium volume for background info
+ttsManager.SetVoicePitch(1.5f);            // Higher pitch for alerts
+ttsManager.SetVoiceRate(2.0f);             // Faster speech for quick notifications
+
+// Emergency alert voice setup
+ttsManager.SetVoiceVolume(1.0f);           // Maximum volume
+ttsManager.SetVoicePitch(-1.0f);           // Lower pitch for urgency
+ttsManager.SetVoiceRate(-1.0f);            // Slower for clarity
+```
+
+### Voice Profile Management
+
+```cpp
+// Create different voice profiles for different game contexts
+void SetupVoiceProfiles()
+{
+    // Combat voice profile
+    if (gameState == COMBAT) {
+        ttsManager.SetVoiceVolume(0.8f);
+        ttsManager.SetVoicePitch(0.0f);
+        ttsManager.SetVoiceRate(1.5f);
+        ttsManager.SetSpeakerChannel(TTSSpeakerChannel::CHANNEL_BOTH);
+    }
+    
+    // Menu voice profile
+    else if (gameState == MENU) {
+        ttsManager.SetVoiceVolume(0.7f);
+        ttsManager.SetVoicePitch(1.0f);
+        ttsManager.SetVoiceRate(0.5f);
+        ttsManager.SetSpeakerChannel(TTSSpeakerChannel::CHANNEL_BOTH);
+    }
+    
+    // Stealth voice profile
+    else if (gameState == STEALTH) {
+        ttsManager.SetVoiceVolume(0.4f);
+        ttsManager.SetVoicePitch(-0.5f);
+        ttsManager.SetVoiceRate(-0.5f);
+        ttsManager.SetSpeakerChannel(TTSSpeakerChannel::CHANNEL_BOTH);
+    }
+}
+```
+
+### Advanced Channel Configuration
+
+```cpp
+// Spatial audio configuration for 3D positioning
+void ConfigureSpatialTTS(float playerX, float soundSourceX)
+{
+    if (soundSourceX > playerX + 5.0f) {
+        // Sound is to the right
+        ttsManager.SetSpeakerChannel(TTSSpeakerChannel::CHANNEL_RIGHT);
+        ttsManager.SetVoiceVolume(0.8f);
+    }
+    else if (soundSourceX < playerX - 5.0f) {
+        // Sound is to the left
+        ttsManager.SetSpeakerChannel(TTSSpeakerChannel::CHANNEL_LEFT);
+        ttsManager.SetVoiceVolume(0.8f);
+    }
+    else {
+        // Sound is centered
+        ttsManager.SetSpeakerChannel(TTSSpeakerChannel::CHANNEL_BOTH);
+        ttsManager.SetVoiceVolume(0.9f);
+    }
+}
+```
+
+### Voice Queue Management
+
+```cpp
+// Advanced queuing system for multiple announcements
+class TTSQueue
+{
+private:
+    std::queue<std::wstring> messageQueue;
+    bool isProcessing = false;
+    
+public:
+    void QueueMessage(const std::wstring& message)
+    {
+        messageQueue.push(message);
+        ProcessNext();
+    }
+    
+    void ProcessNext()
+    {
+        if (!isProcessing && !messageQueue.empty() && !ttsManager.IsPlaying())
+        {
+            isProcessing = true;
+            std::wstring nextMessage = messageQueue.front();
+            messageQueue.pop();
+            
+            ttsManager.PlayAsync(nextMessage);
+            isProcessing = false;
+        }
+    }
+};
+
+// Usage example
+TTSQueue ttsQueue;
+ttsQueue.QueueMessage(L"Enemy spotted!");
+ttsQueue.QueueMessage(L"Health low!");
+ttsQueue.QueueMessage(L"Ammunition depleted!");
+```
+
 ## Voice Control
 
 ### Example 3: Voice Control During Gameplay
