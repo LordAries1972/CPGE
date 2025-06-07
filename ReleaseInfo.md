@@ -239,14 +239,13 @@ Once the base DirectX 11 implementation is complete, the project will be release
 
 **June 2, 2025** - AI system implementation:
 - **GamingAI Class**: Player strategy learning and adaptation  
-*See: `GamingAI.h/.cpp`, `Docs/GamingAI-Example-Usage.md`*
+*See: `GamingAI.h/.cpp`, `Docs/GamingAI-Example-Usage.md`(Docs/GamingAI-Example-Usage.md)*
 
 **June 3, 2025** - File operations and random generation:
 - **Thread-Safe FileIO Class**: Cross-platform file operations  
 *See: `FileIO.h/.cpp`, `FileIO-Example-Usage.md`*
 - **MyRandomizer Class**: Gaming-focused random number generation  
 *See: `MyRandomizer.h/.cpp`, `MyRandomizer-Example-Usage.md`*
-- Debug Class integration with FileIO
 
 **June 5, 2025** - Exception handling:
 - **ExceptionHandler Class**: Comprehensive exception capture and logging  
