@@ -13,3 +13,4 @@
 *.pdb
 *.map
 /x64/Debug
+/Docs/Doc-Helper.txt
