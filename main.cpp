@@ -396,8 +396,13 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                 return EXIT_FAILURE;
             }
         #else
+            // Enable/disable crash dump generation
+            exceptionHandler.SetCrashDumpEnabled(true);
+            // Disable mouse cursor for cleaner full screen experience
             sysUtils.DisableMouseCursor();
+            // Set Full Screen Exclusive Mode
             renderer->SetFullExclusive(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT);
+            // State we are in Full Screen Mode
             winMetrics.isFullScreen = true;
         #endif
 
@@ -425,9 +430,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
         // Initialize the GamePlayer system with basic initialization
         gamePlayer.Initialize(); 
-        gamePlayer.SetPlayerState(PLAYER_1, PlayerState::INACTIVE);
+        gamePlayer.SetPlayerState(PLAYER_1, PlayerState::ACTIVE);
         PlayerInfo* player = gamePlayer.GetPlayerInfo(PLAYER_1);            // Get player information
-        player->score = 0;                                                  // Initialize player score to 0
+//        player->score = 0;                                                     // Initialize player score to 0
 
         // Start Required Renderer Threads
         #if !defined(_DEBUG)

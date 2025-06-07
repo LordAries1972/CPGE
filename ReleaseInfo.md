@@ -289,6 +289,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - Created Example usage file for [`SoundManager`](Docs/SoundManager-Example-Usage.md)
 - Created Example usage file for [`XMMODPlayer`](Docs/XMMODPlayer-Example-Usage.md)
 - Created Example usage file for [`ExceptionHandler`](Docs/ExceptionHandler-Example-Usage.md)
+- Created Example usage file for [`Joystick`](Docs/Joystick-Example-Usage.md)
+- Created Example usage file for [`Lighting`](Docs/Light-Example-Usage.md)
+- Created Example usage file for [`Models`](Docs/Model-Example-Usage.md)
 
 ---
 

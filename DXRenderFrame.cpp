@@ -61,6 +61,7 @@ void DX11Renderer::RenderFrame()
 
     try
     {
+        exceptionHandler.RecordFunctionCall("RenderFrame");
         // Try to acquire the render frame lock with a 10ms timeout
         if (!threadManager.TryLock(renderFrameLockName, 10)) {
             debug.logLevelMessage(LogLevel::LOG_WARNING, L"Could not acquire render frame lock - timeout reached");
@@ -536,7 +537,7 @@ void DX11Renderer::RenderFrame()
         }
 #endif
 
-        // Make sure to remove the lock even if an exception occurs
+        // Make sure to remove the lock
         threadManager.RemoveLock(renderFrameLockName);
     }
     catch (const std::exception& e)
