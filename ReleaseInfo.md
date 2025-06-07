@@ -235,7 +235,7 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - **PUNPack Class**: Compression/decompression with checksum support  
 *See: `PUNPack.h/.cpp`, `Docs/PUNPack-Example-Usage.txt`*
 - **GamePlayer, GameAccount & GameStatus Classes**: Complete player management  
-*See: `GamePlayer.h/.cpp`, `Docs/GamePlayer-Example-Usage.txt`*
+*See: `GamePlayer.h/.cpp`, `Docs/GamePlayer-Example-Usage.md`*
 
 **June 2, 2025** - AI system implementation:
 - **GamingAI Class**: Player strategy learning and adaptation  

@@ -1,3 +1,25 @@
+# GamePlayer Example Usage Guide
+
+## Overview
+
+This comprehensive example demonstrates how to properly initialize, configure, and use the GamePlayer system including network integration, collision detection, map loading, and player management. The examples show best practices for game development using the GamePlayer framework.
+
+## Table of Contents
+
+1. [Basic Setup](#basic-setup)
+2. [Player Creation Examples](#player-creation-examples)
+3. [Timer System Usage](#timer-system-usage)
+4. [Collision Detection](#collision-detection)
+5. [Network Synchronization](#network-synchronization)
+6. [Complete Usage Demonstration](#complete-usage-demonstration)
+7. [Game Application Integration](#game-application-integration)
+8. [Integration with main.cpp](#integration-with-maincpp)
+
+## Basic Setup
+
+### Required Headers and Debugging
+
+```cpp
 // -------------------------------------------------------------------------------------------------------------
 // GamePlayerExample.cpp - Comprehensive example demonstrating GamePlayer class usage
 // 
@@ -23,7 +45,21 @@ extern GamePlayer gamePlayer;
 extern NetworkManager networkManager;
 extern PUNPack punpack;
 extern std::shared_ptr<Renderer> renderer;
+```
 
+### Debug Flag Setup
+
+Add this to your `Debug.h` file if it doesn't exist:
+
+```cpp
+#define _DEBUG_GAMEPLAYER_    // Define this line to show all debug output for GamePlayer examples
+```
+
+## Player Creation Examples
+
+### Creating a Shoot-Em-Up Player
+
+```cpp
 //==============================================================================
 // Example Helper Functions
 //==============================================================================
@@ -108,7 +144,11 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
     
     return player;                                                      // Return configured player
 }
+```
 
+### Creating an RPG Character
+
+```cpp
 // Example function to create an RPG character configuration
 PlayerInfo CreateRPGCharacter(int playerID, const std::string& characterName, const Vector2& startPosition) {
     #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
@@ -205,7 +245,13 @@ PlayerInfo CreateRPGCharacter(int playerID, const std::string& characterName, co
     
     return character;                                                   // Return configured character
 }
+```
 
+## Timer System Usage
+
+### Demonstrating Player Timer Functionality
+
+```cpp
 // Example function to demonstrate player timer usage
 void DemonstratePlayerTimer(int playerID, const std::string& timerPurpose) {
     #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
@@ -251,7 +297,13 @@ void DemonstratePlayerTimer(int playerID, const std::string& timerPurpose) {
         debug.logDebugMessage(LogLevel::LOG_INFO, L"Timer demonstration completed for player %d", playerID);
     #endif
 }
+```
 
+## Collision Detection
+
+### Setting Up and Testing Collision Detection
+
+```cpp
 // Example function to demonstrate collision detection system
 void DemonstrateCollisionDetection(int playerID) {
     #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
@@ -321,7 +373,13 @@ void DemonstrateCollisionDetection(int playerID) {
         debug.logLevelMessage(LogLevel::LOG_INFO, L"Collision detection demonstration completed for player %d", playerID);
     #endif
 }
+```
 
+## Network Synchronization
+
+### Demonstrating Network Player Synchronization
+
+```cpp
 #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
 // Example function to demonstrate network player synchronization
 void DemonstrateNetworkSync(int localPlayerID, int remotePlayerID) {
@@ -388,7 +446,13 @@ void DemonstrateNetworkSync(int localPlayerID, int remotePlayerID) {
     debug.logLevelMessage(LogLevel::LOG_INFO, L"Network synchronization demonstration completed");
 }
 #endif
+```
 
+## Complete Usage Demonstration
+
+### Comprehensive GamePlayer Usage Example
+
+```cpp
 //==============================================================================
 // Main Example Function - Demonstrates Complete GamePlayer Usage
 //==============================================================================
@@ -545,152 +609,158 @@ bool DemonstrateGamePlayerUsage() {
             bool player2Status = gamePlayer.CheckPlayerStatus(1);  // Check player 2 status
             
             #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-debug.logDebugMessage(LogLevel::LOG_DEBUG, L"Frame %d - Player 1 status: %s, Player 2 status: %s", 
-                   frame, player1Status ? L"OK" : L"Not OK", player2Status ? L"OK" : L"Not OK");
-           #endif
-           
-           // Simulate some game events
-           PlayerInfo* p1 = gamePlayer.GetPlayerInfo(0);           // Get player 1 data
-           PlayerInfo* p2 = gamePlayer.GetPlayerInfo(1);           // Get player 2 data
-           
-           if (p1) {
-               p1->velocity2D.x = 50.0f;                           // Move player 1 right
-               p1->score += 10 * (frame + 1);                     // Increase score
-           }
-           
-           if (p2) {
-               p2->velocity2D.y = -30.0f;                          // Move player 2 up
-               p2->experience += 25 * (frame + 1);                // Gain experience
-           }
-           
-           // Small delay to simulate frame timing
-           std::this_thread::sleep_for(std::chrono::milliseconds(16)); // 60 FPS timing
-       }
-       
-       #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-           debug.logLevelMessage(LogLevel::LOG_INFO, L"Game loop simulation completed");
-       #endif
-       
-       // Step 9: Demonstrate network functionality (if available)
-       #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-           debug.logLevelMessage(LogLevel::LOG_INFO, L"Step 9: Demonstrating network functionality");
-           
-           // Check if network manager is available and initialized
-           if (networkManager.IsInitialized()) {
-               DemonstrateNetworkSync(0, 1);                      // Demo network sync between players
-           } else {
-               debug.logLevelMessage(LogLevel::LOG_INFO, L"Network manager not available - skipping network demonstration");
-           }
-       #endif
-       
-       // Step 10: Demonstrate game state management
-       #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-           debug.logLevelMessage(LogLevel::LOG_INFO, L"Step 10: Demonstrating game state management");
-       #endif
-       
-       // Pause the game
-       gameStatus.PauseGame();                                     // Pause active gameplay
-       
-       #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-           debug.logDebugMessage(LogLevel::LOG_INFO, L"Game paused - Active: %s, Paused: %s", 
-               gameStatus.IsGameActive() ? L"Yes" : L"No", gameStatus.IsGamePaused() ? L"Yes" : L"No");
-       #endif
-       
-       // Simulate pause duration
-       std::this_thread::sleep_for(std::chrono::milliseconds(1000)); // Pause for 1 second
-       
-       // Resume the game
-       gameStatus.ResumeGame();                                    // Resume gameplay
-       
-       #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-           debug.logDebugMessage(LogLevel::LOG_INFO, L"Game resumed - Session time: %lld ms, Play time: %lld ms", 
-               gameStatus.GetGameSessionTime().count(), gameStatus.GetGamePlayTime().count());
-       #endif
-       
-       // Step 11: Display final statistics
-       #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-           debug.logLevelMessage(LogLevel::LOG_INFO, L"Step 11: Displaying final statistics");
-       #endif
-       
-       // Get combined score
-       uint64_t totalScore = gamePlayer.GetCombinedScore();        // Get total score of all players
-       
-       // Get highest scoring player
-       PlayerInfo* topPlayer = gamePlayer.GetHighestScoringPlayer(); // Get player with highest score
-       
-       // Display player statistics
-       const PlayerInfo* finalP1 = gamePlayer.GetPlayerInfo(0);   // Get final player 1 data
-       const PlayerInfo* finalP2 = gamePlayer.GetPlayerInfo(1);   // Get final player 2 data
-       
-       if (finalP1) {
-           #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-               debug.logDebugMessage(LogLevel::LOG_INFO, L"Player 1 (%S) final stats:", 
-                   std::wstring(finalP1->playerName.begin(), finalP1->playerName.end()).c_str());
-               debug.logDebugMessage(LogLevel::LOG_INFO, L"  Position: (%.2f, %.2f)", 
-                   finalP1->position2D.x, finalP1->position2D.y);
-               debug.logDebugMessage(LogLevel::LOG_INFO, L"  Score: %llu, Health: %d, Lives: %d", 
-                   finalP1->score, finalP1->health, finalP1->lives);
-           #endif
-       }
-       
-       if (finalP2) {
-           #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-               debug.logDebugMessage(LogLevel::LOG_INFO, L"Player 2 (%S) final stats:", 
-                   std::wstring(finalP2->playerName.begin(), finalP2->playerName.end()).c_str());
-               debug.logDebugMessage(LogLevel::LOG_INFO, L"  Position: (%.2f, %.2f)", 
-                   finalP2->position2D.x, finalP2->position2D.y);
-               debug.logDebugMessage(LogLevel::LOG_INFO, L"  Score: %llu, Health: %d, Experience: %llu", 
-                   finalP2->score, finalP2->health, finalP2->experience);
-           #endif
-       }
-       
-       #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-           debug.logDebugMessage(LogLevel::LOG_INFO, L"Combined score: %llu", totalScore);
-           if (topPlayer) {
-               debug.logDebugMessage(LogLevel::LOG_INFO, L"Highest scoring player: %d (%S) with %llu points", 
-                   topPlayer->playerID, 
-                   std::wstring(topPlayer->playerName.begin(), topPlayer->playerName.end()).c_str(), 
-                   topPlayer->score);
-           }
-       #endif
-       
-       // Step 12: Cleanup and shutdown
-       #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-           debug.logLevelMessage(LogLevel::LOG_INFO, L"Step 12: Cleanup and shutdown");
-       #endif
-       
-       // End the game session
-       gameStatus.TerminateGame();                                 // Terminate game by user request
-       
-       // Remove players
-       gamePlayer.RemovePlayer(0);                                 // Remove player 1
-       gamePlayer.RemovePlayer(1);                                 // Remove player 2
-       
-       // Unload map data
-       gamePlayer.UnloadTiledMap();                                // Unload tiled map
-       gamePlayer.UnloadTiledMapOverlay();                         // Unload tiled map overlay
-       
-       // Cleanup the GamePlayer system
-       gamePlayer.Cleanup();                                       // Clean up all resources
-       
-       #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-           debug.logLevelMessage(LogLevel::LOG_INFO, L"GamePlayer usage demonstration completed successfully");
-       #endif
-       
-       return true;                                                // Demonstration completed successfully
-       
-   }
-   catch (const std::exception& e) {
-       #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-           debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception during GamePlayer demonstration: %S", e.what());
-       #endif
-       
-       // Ensure cleanup even if exception occurred
-       gamePlayer.Cleanup();                                       // Force cleanup on exception
-       return false;                                               // Demonstration failed
-   }
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"Frame %d - Player 1 status: %s, Player 2 status: %s", 
+                    frame, player1Status ? L"OK" : L"Not OK", player2Status ? L"OK" : L"Not OK");
+            #endif
+            
+            // Simulate some game events
+            PlayerInfo* p1 = gamePlayer.GetPlayerInfo(0);           // Get player 1 data
+            PlayerInfo* p2 = gamePlayer.GetPlayerInfo(1);           // Get player 2 data
+            
+            if (p1) {
+                p1->velocity2D.x = 50.0f;                           // Move player 1 right
+                p1->score += 10 * (frame + 1);                     // Increase score
+            }
+            
+            if (p2) {
+                p2->velocity2D.y = -30.0f;                          // Move player 2 up
+                p2->experience += 25 * (frame + 1);                // Gain experience
+            }
+            
+            // Small delay to simulate frame timing
+            std::this_thread::sleep_for(std::chrono::milliseconds(16)); // 60 FPS timing
+        }
+        
+        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"Game loop simulation completed");
+        #endif
+        
+        // Step 9: Demonstrate network functionality (if available)
+        #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"Step 9: Demonstrating network functionality");
+            
+            // Check if network manager is available and initialized
+            if (networkManager.IsInitialized()) {
+                DemonstrateNetworkSync(0, 1);                      // Demo network sync between players
+            } else {
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"Network manager not available - skipping network demonstration");
+            }
+        #endif
+        
+        // Step 10: Demonstrate game state management
+        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"Step 10: Demonstrating game state management");
+        #endif
+        
+        // Pause the game
+        gameStatus.PauseGame();                                     // Pause active gameplay
+        
+        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"Game paused - Active: %s, Paused: %s", 
+                gameStatus.IsGameActive() ? L"Yes" : L"No", gameStatus.IsGamePaused() ? L"Yes" : L"No");
+        #endif
+        
+        // Simulate pause duration
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000)); // Pause for 1 second
+        
+        // Resume the game
+        gameStatus.ResumeGame();                                    // Resume gameplay
+        
+        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"Game resumed - Session time: %lld ms, Play time: %lld ms", 
+                gameStatus.GetGameSessionTime().count(), gameStatus.GetGamePlayTime().count());
+        #endif
+        
+        // Step 11: Display final statistics
+        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"Step 11: Displaying final statistics");
+        #endif
+        
+        // Get combined score
+        uint64_t totalScore = gamePlayer.GetCombinedScore();        // Get total score of all players
+        
+        // Get highest scoring player
+        PlayerInfo* topPlayer = gamePlayer.GetHighestScoringPlayer(); // Get player with highest score
+        
+        // Display player statistics
+        const PlayerInfo* finalP1 = gamePlayer.GetPlayerInfo(0);   // Get final player 1 data
+        const PlayerInfo* finalP2 = gamePlayer.GetPlayerInfo(1);   // Get final player 2 data
+        
+        if (finalP1) {
+            #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"Player 1 (%S) final stats:", 
+                    std::wstring(finalP1->playerName.begin(), finalP1->playerName.end()).c_str());
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"  Position: (%.2f, %.2f)", 
+                    finalP1->position2D.x, finalP1->position2D.y);
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"  Score: %llu, Health: %d, Lives: %d", 
+                    finalP1->score, finalP1->health, finalP1->lives);
+            #endif
+        }
+        
+        if (finalP2) {
+            #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"Player 2 (%S) final stats:", 
+                    std::wstring(finalP2->playerName.begin(), finalP2->playerName.end()).c_str());
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"  Position: (%.2f, %.2f)", 
+                    finalP2->position2D.x, finalP2->position2D.y);
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"  Score: %llu, Health: %d, Experience: %llu", 
+                    finalP2->score, finalP2->health, finalP2->experience);
+            #endif
+        }
+        
+        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"Combined score: %llu", totalScore);
+            if (topPlayer) {
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"Highest scoring player: %d (%S) with %llu points", 
+                    topPlayer->playerID, 
+                    std::wstring(topPlayer->playerName.begin(), topPlayer->playerName.end()).c_str(), 
+                    topPlayer->score);
+            }
+        #endif
+        
+        // Step 12: Cleanup and shutdown
+        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"Step 12: Cleanup and shutdown");
+        #endif
+        
+        // End the game session
+        gameStatus.TerminateGame();                                 // Terminate game by user request
+        
+        // Remove players
+        gamePlayer.RemovePlayer(0);                                 // Remove player 1
+        gamePlayer.RemovePlayer(1);                                 // Remove player 2
+        
+        // Unload map data
+        gamePlayer.UnloadTiledMap();                                // Unload tiled map
+        gamePlayer.UnloadTiledMapOverlay();                         // Unload tiled map overlay
+        
+        // Cleanup the GamePlayer system
+        gamePlayer.Cleanup();                                       // Clean up all resources
+        
+        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"GamePlayer usage demonstration completed successfully");
+        #endif
+        
+        return true;                                                // Demonstration completed successfully
+        
+    }
+    catch (const std::exception& e) {
+        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception during GamePlayer demonstration: %S", e.what());
+        #endif
+        
+        // Ensure cleanup even if exception occurred
+        gamePlayer.Cleanup();                                       // Force cleanup on exception
+        return false;                                               // Demonstration failed
+    }
 }
+```
 
+## Game Application Integration
+
+### Complete Game Application Class Example
+
+```cpp
 //==============================================================================
 // Integration Example - How to Use GamePlayer in Your Main Game Loop
 //==============================================================================
@@ -698,269 +768,269 @@ debug.logDebugMessage(LogLevel::LOG_DEBUG, L"Frame %d - Player 1 status: %s, Pla
 // Example of how to integrate GamePlayer into your main game application
 class GameApplication {
 private:
-   bool m_isRunning;                                               // Application running flag
-   std::chrono::steady_clock::time_point m_lastFrameTime;         // Last frame timestamp
-   
+    bool m_isRunning;                                               // Application running flag
+    std::chrono::steady_clock::time_point m_lastFrameTime;         // Last frame timestamp
+    
 public:
-   // Constructor
-   GameApplication() : m_isRunning(false), m_lastFrameTime(std::chrono::steady_clock::now()) {
-       #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-           debug.logLevelMessage(LogLevel::LOG_INFO, L"GameApplication constructor called");
-       #endif
-   }
-   
-   // Destructor
-   ~GameApplication() {
-       #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-           debug.logLevelMessage(LogLevel::LOG_INFO, L"GameApplication destructor called");
-       #endif
-       
-       // Ensure cleanup
-       Shutdown();                                                 // Clean shutdown
-   }
-   
-   // Initialize the game application
-   bool Initialize() {
-       #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-           debug.logLevelMessage(LogLevel::LOG_INFO, L"Initializing GameApplication");
-       #endif
-       
-       try {
-           // Initialize GamePlayer system
-           if (!gamePlayer.Initialize()) {
-               #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-                   debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Failed to initialize GamePlayer system");
-               #endif
-               return false;                                       // Exit if GamePlayer init failed
-           }
-           
-           // Set up game configuration
-           GameStatus& gameStatus = gamePlayer.GetGameStatus();   // Get game status manager
-           gameStatus.SetCurrentGameType(GameType::GT_SHOOTEMUP | GameType::GT_ARCADE); // Set game type
-           gameStatus.SetDifficultyLevel(2);                      // Normal difficulty
-           gameStatus.InitializeGame();                           // Initialize game systems
-           
-           // Initialize network if available
-           #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-               if (networkManager.IsInitialized()) {
-                   gameStatus.SetNetworkGame(true);               // Enable network features
-                   debug.logLevelMessage(LogLevel::LOG_INFO, L"Network game features enabled");
-               }
-           #endif
-           
-           m_isRunning = true;                                     // Set running flag
-           m_lastFrameTime = std::chrono::steady_clock::now();     // Initialize frame timing
-           
-           #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-               debug.logLevelMessage(LogLevel::LOG_INFO, L"GameApplication initialized successfully");
-           #endif
-           
-           return true;                                            // Initialization successful
-       }
-       catch (const std::exception& e) {
-           #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-               debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception during GameApplication initialization: %S", e.what());
-           #endif
-           return false;                                           // Initialization failed
-       }
-   }
-   
-   // Main game loop
-   void Run() {
-       #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-           debug.logLevelMessage(LogLevel::LOG_INFO, L"Starting GameApplication main loop");
-       #endif
-       
-       // Main application loop
-       while (m_isRunning) {
-           try {
-               // Calculate delta time
-               auto currentTime = std::chrono::steady_clock::now(); // Get current timestamp
-               float deltaTime = std::chrono::duration<float>(currentTime - m_lastFrameTime).count(); // Calculate delta
-               m_lastFrameTime = currentTime;                      // Update last frame time
-               
-               // Clamp delta time to prevent large jumps
-               deltaTime = std::min(deltaTime, 0.033f);            // Maximum 33ms (30 FPS minimum)
-               
-               // Update game logic
-               Update(deltaTime);                                  // Update game state
-               
-               // Render frame
-               Render();                                           // Render current frame
-               
-               // Check for exit conditions
-               GameStatus& gameStatus = gamePlayer.GetGameStatus(); // Get game status
-               if (gameStatus.IsGameTerminated()) {
-                   m_isRunning = false;                            // Exit if game terminated
-               }
-               
-               // Small delay to prevent excessive CPU usage
-               std::this_thread::sleep_for(std::chrono::milliseconds(1)); // 1ms delay
-           }
-           catch (const std::exception& e) {
-               #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-                   debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception in main game loop: %S", e.what());
-               #endif
-               m_isRunning = false;                                // Exit on exception
-           }
-       }
-       
-       #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-           debug.logLevelMessage(LogLevel::LOG_INFO, L"GameApplication main loop ended");
-       #endif
-   }
-   
-   // Update game logic
-   void Update(float deltaTime) {
-       // Update all active players
-       gamePlayer.UpdateAllPlayers(deltaTime);                    // Update player positions and states
-       
-       // Check player status
-       std::vector<int> activePlayerIDs = gamePlayer.GetActivePlayerIDs(); // Get list of active players
-       for (int playerID : activePlayerIDs) {
-           if (!gamePlayer.CheckPlayerStatus(playerID)) {
-               #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-                   debug.logDebugMessage(LogLevel::LOG_WARNING, L"Player %d status check failed", playerID);
-               #endif
-           }
-       }
-       
-       // Handle network updates if enabled
-       #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-           GameStatus& gameStatus = gamePlayer.GetGameStatus();   // Get game status
-           if (gameStatus.IsNetworkGame() && networkManager.IsConnected()) {
-               // Process network packets
-               networkManager.ReceivePackets();                   // Receive incoming packets
-               
-               // Broadcast player updates
-               for (int playerID : activePlayerIDs) {
-                   if (gamePlayer.IsPlayerValid(playerID)) {
-                       gamePlayer.BroadcastPlayerUpdate(playerID); // Broadcast player state
-                   }
-               }
-           }
-       #endif
-       
-       // Additional game logic would go here (AI, physics, collision detection, etc.)
-   }
-   
-   // Render current frame
-   void Render() {
-       // This would integrate with your renderer to draw players, UI, etc.
-       if (renderer) {
-           // Example: Render player positions, health bars, scores, etc.
-           std::vector<int> activePlayerIDs = gamePlayer.GetActivePlayerIDs(); // Get active players
-           
-           for (int playerID : activePlayerIDs) {
-               const PlayerInfo* player = gamePlayer.GetPlayerInfo(playerID); // Get player data
-               if (player) {
-                   // Example rendering calls (pseudo-code)
-                   // renderer->DrawSprite(player->portraitImageIndex, player->position2D);
-                   // renderer->DrawHealthBar(player->position2D + Vector2(0, -20), player->health, player->maxHealth);
-                   // renderer->DrawScore(Vector2(10 + playerID * 200, 10), player->score);
-               }
-           }
-       }
-   }
-   
-   // Shutdown the application
-   void Shutdown() {
-       #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-           debug.logLevelMessage(LogLevel::LOG_INFO, L"Shutting down GameApplication");
-       #endif
-       
-       try {
-           m_isRunning = false;                                    // Stop main loop
-           
-           // Shutdown GamePlayer system
-           gamePlayer.Cleanup();                                   // Clean up GamePlayer resources
-           
-           #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-               debug.logLevelMessage(LogLevel::LOG_INFO, L"GameApplication shutdown completed");
-           #endif
-       }
-       catch (const std::exception& e) {
-           #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-               debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception during GameApplication shutdown: %S", e.what());
-           #endif
-       }
-   }
-   
-   // Add a player to the game
-   bool AddPlayer(const std::string& playerName, const Vector2& startPosition, GameType playerGameType) {
-       #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-           debug.logDebugMessage(LogLevel::LOG_INFO, L"Adding player: %S at position (%.2f, %.2f)", 
-               std::wstring(playerName.begin(), playerName.end()).c_str(), startPosition.x, startPosition.y);
-       #endif
-       
-       // Find available player slot
-       int availableSlot = -1;                                     // Initialize slot as unavailable
-       for (int i = 0; i < 8; ++i) {                               // Check all 8 possible slots
-           if (!gamePlayer.IsPlayerValid(i)) {
-               availableSlot = i;                                  // Found available slot
-               break;                                              // Exit search loop
-           }
-       }
-       
-       if (availableSlot == -1) {
-           #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-               debug.logLevelMessage(LogLevel::LOG_ERROR, L"No available player slots");
-           #endif
-           return false;                                           // No slots available
-       }
-       
-       // Create player based on game type
-       PlayerInfo newPlayer;                                       // Create new player structure
-       if ((playerGameType & GameType::GT_RPG) != GameType::GT_NONE) {
-           newPlayer = CreateRPGCharacter(availableSlot, playerName, startPosition); // Create RPG character
-       } else {
-           newPlayer = CreateShootEmUpPlayer(availableSlot, playerName, startPosition); // Create shoot-em-up player
-       }
-       
-       // Initialize player in GamePlayer system
-       if (!gamePlayer.InitPlayer(availableSlot, newPlayer)) {
-           #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-               debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to initialize player in slot %d", availableSlot);
-           #endif
-           return false;                                           // Failed to initialize player
-       }
-       
-       // Update active player count
-       GameStatus& gameStatus = gamePlayer.GetGameStatus();       // Get game status
-       gameStatus.SetActivePlayerCount(gamePlayer.GetActivePlayerCount()); // Update player count
-       
-       #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-           debug.logDebugMessage(LogLevel::LOG_INFO, L"Player %S successfully added to slot %d", 
-               std::wstring(playerName.begin(), playerName.end()).c_str(), availableSlot);
-       #endif
-       
-       return true;                                                // Player added successfully
-   }
-   
-   // Remove a player from the game
-   bool RemovePlayer(int playerID) {
-       #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-           debug.logDebugMessage(LogLevel::LOG_INFO, L"Removing player %d", playerID);
-       #endif
-       
-       // Remove player from GamePlayer system
-       if (!gamePlayer.RemovePlayer(playerID)) {
-           #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-               debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to remove player %d", playerID);
-           #endif
-           return false;                                           // Failed to remove player
-       }
-       
-       // Update active player count
-       GameStatus& gameStatus = gamePlayer.GetGameStatus();       // Get game status
-       gameStatus.SetActivePlayerCount(gamePlayer.GetActivePlayerCount()); // Update player count
-       
-       #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-           debug.logDebugMessage(LogLevel::LOG_INFO, L"Player %d successfully removed", playerID);
-       #endif
-       
-       return true;                                                // Player removed successfully
-   }
+    // Constructor
+    GameApplication() : m_isRunning(false), m_lastFrameTime(std::chrono::steady_clock::now()) {
+        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"GameApplication constructor called");
+        #endif
+    }
+    
+    // Destructor
+    ~GameApplication() {
+        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"GameApplication destructor called");
+        #endif
+        
+        // Ensure cleanup
+        Shutdown();                                                 // Clean shutdown
+    }
+    
+    // Initialize the game application
+    bool Initialize() {
+        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"Initializing GameApplication");
+        #endif
+        
+        try {
+            // Initialize GamePlayer system
+            if (!gamePlayer.Initialize()) {
+                #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+                    debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Failed to initialize GamePlayer system");
+                #endif
+                return false;                                       // Exit if GamePlayer init failed
+            }
+            
+            // Set up game configuration
+            GameStatus& gameStatus = gamePlayer.GetGameStatus();   // Get game status manager
+            gameStatus.SetCurrentGameType(GameType::GT_SHOOTEMUP | GameType::GT_ARCADE); // Set game type
+            gameStatus.SetDifficultyLevel(2);                      // Normal difficulty
+            gameStatus.InitializeGame();                           // Initialize game systems
+            
+            // Initialize network if available
+            #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
+                if (networkManager.IsInitialized()) {
+                    gameStatus.SetNetworkGame(true);               // Enable network features
+                    debug.logLevelMessage(LogLevel::LOG_INFO, L"Network game features enabled");
+                }
+            #endif
+            
+            m_isRunning = true;                                     // Set running flag
+            m_lastFrameTime = std::chrono::steady_clock::now();     // Initialize frame timing
+            
+            #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"GameApplication initialized successfully");
+            #endif
+            
+            return true;                                            // Initialization successful
+        }
+        catch (const std::exception& e) {
+            #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception during GameApplication initialization: %S", e.what());
+            #endif
+            return false;                                           // Initialization failed
+        }
+    }
+    
+    // Main game loop
+    void Run() {
+        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"Starting GameApplication main loop");
+        #endif
+        
+        // Main application loop
+        while (m_isRunning) {
+            try {
+                // Calculate delta time
+                auto currentTime = std::chrono::steady_clock::now(); // Get current timestamp
+                float deltaTime = std::chrono::duration<float>(currentTime - m_lastFrameTime).count(); // Calculate delta
+                m_lastFrameTime = currentTime;                      // Update last frame time
+                
+                // Clamp delta time to prevent large jumps
+                deltaTime = std::min(deltaTime, 0.033f);            // Maximum 33ms (30 FPS minimum)
+                
+                // Update game logic
+                Update(deltaTime);                                  // Update game state
+                
+                // Render frame
+                Render();                                           // Render current frame
+                
+                // Check for exit conditions
+                GameStatus& gameStatus = gamePlayer.GetGameStatus(); // Get game status
+                if (gameStatus.IsGameTerminated()) {
+                    m_isRunning = false;                            // Exit if game terminated
+                }
+                
+                // Small delay to prevent excessive CPU usage
+                std::this_thread::sleep_for(std::chrono::milliseconds(1)); // 1ms delay
+            }
+            catch (const std::exception& e) {
+                #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+                    debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception in main game loop: %S", e.what());
+                #endif
+                m_isRunning = false;                                // Exit on exception
+            }
+        }
+        
+        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"GameApplication main loop ended");
+        #endif
+    }
+    
+    // Update game logic
+    void Update(float deltaTime) {
+        // Update all active players
+        gamePlayer.UpdateAllPlayers(deltaTime);                    // Update player positions and states
+        
+        // Check player status
+        std::vector<int> activePlayerIDs = gamePlayer.GetActivePlayerIDs(); // Get list of active players
+        for (int playerID : activePlayerIDs) {
+            if (!gamePlayer.CheckPlayerStatus(playerID)) {
+                #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+                    debug.logDebugMessage(LogLevel::LOG_WARNING, L"Player %d status check failed", playerID);
+                #endif
+            }
+        }
+        
+        // Handle network updates if enabled
+        #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
+            GameStatus& gameStatus = gamePlayer.GetGameStatus();   // Get game status
+            if (gameStatus.IsNetworkGame() && networkManager.IsConnected()) {
+                // Process network packets
+                networkManager.ReceivePackets();                   // Receive incoming packets
+                
+                // Broadcast player updates
+                for (int playerID : activePlayerIDs) {
+                    if (gamePlayer.IsPlayerValid(playerID)) {
+                        gamePlayer.BroadcastPlayerUpdate(playerID); // Broadcast player state
+                    }
+                }
+            }
+        #endif
+        
+        // Additional game logic would go here (AI, physics, collision detection, etc.)
+    }
+    
+    // Render current frame
+    void Render() {
+        // This would integrate with your renderer to draw players, UI, etc.
+        if (renderer) {
+            // Example: Render player positions, health bars, scores, etc.
+            std::vector<int> activePlayerIDs = gamePlayer.GetActivePlayerIDs(); // Get active players
+            
+            for (int playerID : activePlayerIDs) {
+                const PlayerInfo* player = gamePlayer.GetPlayerInfo(playerID); // Get player data
+                if (player) {
+                    // Example rendering calls (pseudo-code)
+                    // renderer->DrawSprite(player->portraitImageIndex, player->position2D);
+                    // renderer->DrawHealthBar(player->position2D + Vector2(0, -20), player->health, player->maxHealth);
+                    // renderer->DrawScore(Vector2(10 + playerID * 200, 10), player->score);
+                }
+            }
+        }
+    }
+    
+    // Shutdown the application
+    void Shutdown() {
+        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"Shutting down GameApplication");
+        #endif
+        
+        try {
+            m_isRunning = false;                                    // Stop main loop
+            
+            // Shutdown GamePlayer system
+            gamePlayer.Cleanup();                                   // Clean up GamePlayer resources
+            
+            #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"GameApplication shutdown completed");
+            #endif
+        }
+        catch (const std::exception& e) {
+            #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception during GameApplication shutdown: %S", e.what());
+            #endif
+        }
+    }
+    
+    // Add a player to the game
+    bool AddPlayer(const std::string& playerName, const Vector2& startPosition, GameType playerGameType) {
+        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"Adding player: %S at position (%.2f, %.2f)", 
+                std::wstring(playerName.begin(), playerName.end()).c_str(), startPosition.x, startPosition.y);
+        #endif
+        
+        // Find available player slot
+        int availableSlot = -1;                                     // Initialize slot as unavailable
+        for (int i = 0; i < 8; ++i) {                               // Check all 8 possible slots
+            if (!gamePlayer.IsPlayerValid(i)) {
+                availableSlot = i;                                  // Found available slot
+                break;                                              // Exit search loop
+            }
+        }
+        
+        if (availableSlot == -1) {
+            #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"No available player slots");
+            #endif
+            return false;                                           // No slots available
+        }
+        
+        // Create player based on game type
+        PlayerInfo newPlayer;                                       // Create new player structure
+        if ((playerGameType & GameType::GT_RPG) != GameType::GT_NONE) {
+            newPlayer = CreateRPGCharacter(availableSlot, playerName, startPosition); // Create RPG character
+        } else {
+            newPlayer = CreateShootEmUpPlayer(availableSlot, playerName, startPosition); // Create shoot-em-up player
+        }
+        
+        // Initialize player in GamePlayer system
+        if (!gamePlayer.InitPlayer(availableSlot, newPlayer)) {
+            #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to initialize player in slot %d", availableSlot);
+            #endif
+            return false;                                           // Failed to initialize player
+        }
+        
+        // Update active player count
+        GameStatus& gameStatus = gamePlayer.GetGameStatus();       // Get game status
+        gameStatus.SetActivePlayerCount(gamePlayer.GetActivePlayerCount()); // Update player count
+        
+        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"Player %S successfully added to slot %d", 
+                std::wstring(playerName.begin(), playerName.end()).c_str(), availableSlot);
+        #endif
+        
+        return true;                                                // Player added successfully
+    }
+    
+    // Remove a player from the game
+    bool RemovePlayer(int playerID) {
+        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"Removing player %d", playerID);
+        #endif
+        
+        // Remove player from GamePlayer system
+        if (!gamePlayer.RemovePlayer(playerID)) {
+            #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to remove player %d", playerID);
+            #endif
+            return false;                                           // Failed to remove player
+        }
+        
+        // Update active player count
+        GameStatus& gameStatus = gamePlayer.GetGameStatus();       // Get game status
+        gameStatus.SetActivePlayerCount(gamePlayer.GetActivePlayerCount()); // Update player count
+        
+        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"Player %d successfully removed", playerID);
+        #endif
+        
+        return true;                                                // Player removed successfully
+    }
 };
 
 //==============================================================================
@@ -969,62 +1039,67 @@ public:
 
 // Function to be called from main.cpp to demonstrate GamePlayer usage
 int ExampleGamePlayerMain() {
-   #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-       debug.logLevelMessage(LogLevel::LOG_INFO, L"Starting GamePlayer example application");
-   #endif
-   
-   try {
-       // Run the comprehensive demonstration
-       if (!DemonstrateGamePlayerUsage()) {
-           #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-               debug.logLevelMessage(LogLevel::LOG_ERROR, L"GamePlayer demonstration failed");
-           #endif
-           return -1;                                              // Return error code
-       }
-       
-       // Example of integrated game application
-       GameApplication gameApp;                                    // Create game application
-       
-       if (!gameApp.Initialize()) {
-           #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-               debug.logLevelMessage(LogLevel::LOG_ERROR, L"GameApplication initialization failed");
-           #endif
-           return -2;                                              // Return error code
-       }
-       
-       // Add some players to the game
-       gameApp.AddPlayer("Player1", Vector2(100.0f, 200.0f), GameType::GT_SHOOTEMUP); // Add shoot-em-up player
-       gameApp.AddPlayer("Player2", Vector2(300.0f, 200.0f), GameType::GT_RPG);       // Add RPG player
-       
-       // Run the game for a short demonstration (in real game, this would run until user quits)
-       auto startTime = std::chrono::steady_clock::now();          // Record start time
-       while (std::chrono::steady_clock::now() - startTime < std::chrono::seconds(3)) { // Run for 3 seconds
-           gameApp.Update(0.016f);                                 // Update at 60 FPS
-           gameApp.Render();                                       // Render frame
-           std::this_thread::sleep_for(std::chrono::milliseconds(16)); // 60 FPS timing
-       }
-       
-       // Shutdown the application
-       gameApp.Shutdown();                                         // Clean shutdown
-       
-       #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-           debug.logLevelMessage(LogLevel::LOG_INFO, L"GamePlayer example application completed successfully");
-       #endif
-       
-       return 0;                                                   // Success
-   }
-   catch (const std::exception& e) {
-       #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-           debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception in GamePlayer example: %S", e.what());
-       #endif
-       return -3;                                                  // Return error code
-   }
+    #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"Starting GamePlayer example application");
+    #endif
+    
+    try {
+        // Run the comprehensive demonstration
+        if (!DemonstrateGamePlayerUsage()) {
+            #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"GamePlayer demonstration failed");
+            #endif
+            return -1;                                              // Return error code
+        }
+        
+        // Example of integrated game application
+        GameApplication gameApp;                                    // Create game application
+        
+        if (!gameApp.Initialize()) {
+            #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"GameApplication initialization failed");
+            #endif
+            return -2;                                              // Return error code
+        }
+        
+        // Add some players to the game
+        gameApp.AddPlayer("Player1", Vector2(100.0f, 200.0f), GameType::GT_SHOOTEMUP); // Add shoot-em-up player
+        gameApp.AddPlayer("Player2", Vector2(300.0f, 200.0f), GameType::GT_RPG);       // Add RPG player
+        
+        // Run the game for a short demonstration (in real game, this would run until user quits)
+        auto startTime = std::chrono::steady_clock::now();          // Record start time
+        while (std::chrono::steady_clock::now() - startTime < std::chrono::seconds(3)) { // Run for 3 seconds
+            gameApp.Update(0.016f);                                 // Update at 60 FPS
+            gameApp.Render();                                       // Render frame
+            std::this_thread::sleep_for(std::chrono::milliseconds(16)); // 60 FPS timing
+        }
+        
+        // Shutdown the application
+        gameApp.Shutdown();                                         // Clean shutdown
+        
+        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"GamePlayer example application completed successfully");
+        #endif
+        
+        return 0;                                                   // Success
+    }
+    catch (const std::exception& e) {
+        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception in GamePlayer example: %S", e.what());
+        #endif
+        return -3;                                                  // Return error code
+    }
 }
+```
 
-Usage Instructions for main.cpp
-File: main.cpp
-Add this function call after initializing your renderer and other systems 
+## Integration with main.cpp
 
+### Adding GamePlayer Testing to Your Main Application
+
+**File: main.cpp**  
+**Line: After initializing your renderer and other systems**
+
+```cpp
 // Example usage of GamePlayer system - add this to your main.cpp
 void TestGamePlayerSystem() {
     // Initialize debug output for this test
@@ -1045,4 +1120,41 @@ void TestGamePlayerSystem() {
         #endif
     }
 }
+```
 
+## Important Notes
+
+### Debug Setup Requirements
+
+1. **Add to Debug.h** (if not already present):
+   ```cpp
+   #define _DEBUG_GAMEPLAYER_          // Define this line to show debug output for GamePlayer examples
+   ```
+
+2. **Network Manager Debug** (if using network features):
+   ```cpp
+   #define _DEBUG_NETWORKMANAGER_      // Define this line for network debugging
+   ```
+
+### Key Features Demonstrated
+
+- **Player Creation**: Both shoot-em-up and RPG character types
+- **Timer System**: Power-up durations, cooldowns, elapsed time tracking
+- **Collision Detection**: Bitmap-based collision with pixel-level accuracy
+- **Network Synchronization**: Multi-player data exchange and broadcasting
+- **Game State Management**: Pause/resume, game sessions, player statistics
+- **Map Loading**: Tiled map support with overlay functionality
+- **Resource Management**: Proper initialization and cleanup procedures
+
+### Error Handling
+
+All examples include comprehensive error handling and debug output to help with integration and troubleshooting. Each major operation is validated before proceeding to ensure system stability.
+
+### Performance Considerations
+
+- Timer updates are performed efficiently using high-resolution clocks
+- Collision detection uses optimized bitmap operations
+- Network operations include latency and connection validation
+- Game loop timing is clamped to prevent performance issues
+
+This example provides a complete foundation for integrating the GamePlayer system into your game engine with proper error handling, debugging, and performance optimization.

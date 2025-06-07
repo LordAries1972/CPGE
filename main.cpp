@@ -104,7 +104,7 @@ const LPCWSTR lpDEFAULT_NAME = L"CPGE_";
 // Required Class Instantiations / Declarations
 //
 // Some classes will reference each other, so we need to
-// declare them here to avoid circular dependencies.
+// declare them here to avoid circular dependencies. 
 //--------------------------------------------------------
 ExceptionHandler exceptionHandler;
 Configuration config;
@@ -426,7 +426,6 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         // Initialize the GamePlayer system
         gamePlayer.Initialize(); 
         gamePlayer.SetPlayerState(PLAYER_1, PlayerState::INACTIVE);
-        gamePlayer.GetPlayerInfo(PLAYER_1)->position2D = { 0.0f, 0.0f };
 
         // Start Required Renderer Threads
         #if !defined(_DEBUG)
