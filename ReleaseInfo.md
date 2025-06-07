@@ -13,15 +13,18 @@
 
 ### Development History by Month and Year
 
+#### 2025
+- [June 2025](#june-2025---ai-and-data-systems)
+- [May 2025](#may-2025---advanced-features)
+- [April 2025](#april-2025---3d-rendering-breakthrough)
+- [March 2025](#march-2025---core-development)
+- [January 2025](#january-2025---major-restructuring-start)
+
+#### 2024
+- June 2024-Dec 2024] - Initial Project started, various modules where created, but with not fully carefully thinking out the development plan I decided to do a clean restart the project again whilst maintaining what I had already developed and could be used.
+
 #### 2023
 - [September 2023](#september-2023---project-foundation)
-
-#### 2025
-- [January 2025](#january-2025---major-restructuring-start)
-- [March 2025](#march-2025---core-development)
-- [April 2025](#april-2025---3d-rendering-breakthrough)
-- [May 2025](#may-2025---advanced-features)
-- [June 2025](#june-2025---ai-and-data-systems)
 
 ### [Future Development](#future-development)
 ### [Technical Requirements](#technical-requirements)
