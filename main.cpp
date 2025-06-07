@@ -750,7 +750,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     }
     catch (const std::exception& e)
     {
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Critical Error: %s", e.what());
+        // Log the exception with context
+        exceptionHandler.LogException(e, "WinMain");
     }
 
 	// Save our Configuration file, Do this here, in-case cleanup fails

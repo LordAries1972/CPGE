@@ -39,10 +39,13 @@ This is to eliminate the need for multiple includes in your project files.
 
     using Microsoft::WRL::ComPtr;
 
+    #ifdef _DEBUG
+    #pragma comment(lib, "dbghelp.lib")
+    #endif
 #endif  // End of #if defined(_WIN64) || defined(_WIN32)
 
 // Windows-specific includes & configuration
-#if defined(_WIN32) || defined(_WIN64)
+#if defined(PLATFORM_WINDOWS)
 // Windows Platform Master Renderer Switches
 #define __USE_DIRECTX_11__
 //#define __USE_DIRECTX_12__

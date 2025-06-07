@@ -269,7 +269,6 @@ void ExceptionHandler::Cleanup() {
 }
 
 // Logs detailed information about a C++ exception
-// Logs detailed information about a C++ exception
 void ExceptionHandler::LogException(const std::exception& ex, const char* context) {
     // Thread-safe exception logging
     std::lock_guard<std::mutex> lock(m_exceptionMutex);

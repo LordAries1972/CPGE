@@ -137,7 +137,7 @@ Once the base DirectX 11 implementation is complete, the project will be release
 
 **April 1, 2025** - Major restructuring milestone:
 1. **XMMODPlayer Class** - Fully functional DirectX Sound playback  
-   *See: [`Constants.h`](Constants.h), [`IOThreadStream.cpp`](IOThreadStream.cpp), [`XMMODPlayer.h/.cpp`](XMMODPlayer.h)*
+	*See: [`XMMODPlayer.h/.cpp`](XMMODPlayer.h), [`Docs/XMMODPlayer-Example-Usage.md`](Docs/XMMODPlayer-Example-Usage.md)*
 2. **Cross-platform preparation** - Major restructuring for multi-platform support
 
 **April 3, 2025** - Rendering system simplification:
@@ -273,13 +273,22 @@ Once the base DirectX 11 implementation is complete, the project will be release
 
 **June 5, 2025** - Exception handling:
 - **ExceptionHandler Class**: Comprehensive exception capture and logging  
-*See: [`ExceptionHandler.h/.cpp`](ExceptionHandler.h)*
+*See: [`ExceptionHandler.h/.cpp`](ExceptionHandler.h), [`Docs/ExceptionHandler-Example-Usage.md`](Docs/ExceptionHandler-Example-Usage.md)*
 
 **June 6, 2025** - **STABLE**: Shader management system:
 - **ShaderManager Class**: Multi-platform shader support (HLSL, GLSL, SPIR-V)  
 *See: [`ShaderManager.h/.cpp`](ShaderManager.h), [`Docs/ShaderManager-Example-Usage.md`](Docs/ShaderManager-Example-Usage.md)*
 - Models.cpp and main.cpp integration
-- RenderFrame() relocation to [`DXRenderFrame.cpp`](DXRenderFrame.cpp)
+- RenderFrame() relocated to seperate file [`DXRenderFrame.cpp`](DXRenderFrame.cpp) as all master rendering should be place here.
+
+**June 7, 2025** - **STABLE**: Cleaning up and Documentation Conversion to Mark Down
+- **ShaderManager Class**: Some basic rework and removed non-needed functionality for Windows Platform.  
+- Fixed a couple of bugs/reworked a couple of things in main.cpp file.
+- Existing Documents in [`Docs/`](/Docs) have been converted to Mark Down format for easier reading and referencing.
+- Created Example usage file for [`ThreadManager`](Docs/ThreadManager-Example-Usage.md)
+- Created Example usage file for [`SoundManager`](Docs/SoundManager-Example-Usage.md)
+- Created Example usage file for [`XMMODPlayer`](Docs/XMMODPlayer-Example-Usage.md)
+- Created Example usage file for [`ExceptionHandler`](Docs/ExceptionHandler-Example-Usage.md)
 
 ---
 
@@ -292,7 +301,7 @@ The DirectX 11 system is nearing **GAMING PRODUCTION READINESS** for Windows 10 
 
 1. **FOSS Contribution**: Supporting Free Open Source Software with professional-grade development
 2. **Developer-Friendly Design**: Comprehensive documentation and example usage for rapid learning
-3. **Production Focus**: Emphasis on game development rather than engine complexity
+3. **Production Focus**: Emphasis on game development rather than engine complexity where I have removed as much of the hard work out for the developer.
 4. **Future Vision**: Next-generation programmatic gaming engine
 
 ### **Developer Guidelines**
@@ -307,7 +316,7 @@ The DirectX 11 system is nearing **GAMING PRODUCTION READINESS** for Windows 10 
 ## Important Notes
 
 ### **⚠️ Development Warning**
-Since this is early-stage days of development (WIP), major reconstruction may occur. **Use at your own risk.**
+Since this is early-stage days of development (WIP), major reconstruction may occur and some system classes need more extending to suit other OS Platforms. **Use at your own risk.**
 
 ### **📋 Current Priority Tasks**
 
@@ -326,6 +335,8 @@ Since this is early-stage days of development (WIP), major reconstruction may oc
 **May 25, 2025** - Optimization:
 - Code optimizations and refactoring
 
+**June 7, 2025** - Sub-Systems Extending:
+- Some System Classes need more work to suit other platforms.
 ---
 
 ## Technical Requirements
