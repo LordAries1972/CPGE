@@ -21,7 +21,7 @@
 - [January 2025](#january-2025---major-restructuring-start)
 
 #### 2024
-- June 2024-Dec 2024] - Initial Project started, various modules where created, but with not fully carefully thinking out the development plan I decided to do a clean restart the project again whilst maintaining what I had already developed and could be used.
+- June 2024 => Dec 2024 - Initial Project started, various modules where created, but with not fully carefully thinking out the development plan, I decided to do a clean restart of the project again, whilst maintaining what I had already developed and could be used.
 
 #### 2023
 - [September 2023](#september-2023---project-foundation)
