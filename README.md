@@ -17,6 +17,9 @@ If you like to know more about me and my history, please click below to read my 
 
 👉 [Blender Modelling System v4+](https://www.blender.org/download/)
 
+## Important Links
+👉 [Release History](ReleaseInfo.md)
+
 ## Features
 
 - Support for multiple platforms (Windows (DirectX 11 & DirectX 12), macOS, iOS, Linux & Android)
