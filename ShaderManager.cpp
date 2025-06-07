@@ -3789,22 +3789,6 @@ void ShaderManager::CleanupShaderProgram(ShaderProgram& program) {
 }
 
 //==============================================================================
-// CleanupAllResources - Release all managed resources
-//==============================================================================
-void ShaderManager::CleanupAllResources() {
-#if defined(_DEBUG_SHADERMANAGER_)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"[ShaderManager] CleanupAllResources() called - releasing all shader and program resources.");
-#endif
-
-    // This method is called from CleanUp() and handles the bulk resource cleanup
-    // Individual cleanup methods are called from CleanUp() for each resource
-
-#if defined(_DEBUG_SHADERMANAGER_)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"[ShaderManager] CleanupAllResources() completed successfully.");
-#endif
-}
-
-//==============================================================================
 // Statistics updating methods
 //==============================================================================
 
@@ -3812,9 +3796,9 @@ void ShaderManager::CleanupAllResources() {
 // UpdateStatistics - Recalculate performance statistics
 //==============================================================================
 void ShaderManager::UpdateStatistics() {
-#if defined(_DEBUG_SHADERMANAGER_)
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[ShaderManager] UpdateStatistics() called.");
-#endif
+    #if defined(_DEBUG_SHADERMANAGER_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[ShaderManager] UpdateStatistics() called.");
+    #endif
 
     // Update shader and program counts
     m_stats.totalShadersLoaded = static_cast<int>(m_shaders.size());           // Update shader count
@@ -3866,9 +3850,9 @@ void ShaderManager::UpdateStatistics() {
     m_stats.memoryUsage = estimatedMemory;                                      // Update memory usage estimate
     m_stats.lastActivity = std::chrono::system_clock::now();                   // Update activity timestamp
 
-#if defined(_DEBUG_SHADERMANAGER_)
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[ShaderManager] UpdateStatistics() completed - memory usage: %llu bytes.", m_stats.memoryUsage);
-#endif
+    #if defined(_DEBUG_SHADERMANAGER_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[ShaderManager] UpdateStatistics() completed - memory usage: %llu bytes.", m_stats.memoryUsage);
+    #endif
 }
 
 //==============================================================================
@@ -3890,18 +3874,15 @@ void ShaderManager::IncrementLinkingFailure() {
     m_stats.linkingFailures++;                                                 // Increment linking failure counter
     m_stats.lastActivity = std::chrono::system_clock::now();                   // Update activity timestamp
 
-#if defined(_DEBUG_SHADERMANAGER_)
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[ShaderManager] Linking failure recorded - total failures: %d", m_stats.linkingFailures);
-#endif
+    #if defined(_DEBUG_SHADERMANAGER_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[ShaderManager] Linking failure recorded - total failures: %d", m_stats.linkingFailures);
+    #endif
 }
 
 //==============================================================================
 // Integration helpers for existing engine systems
 //==============================================================================
 
-//==============================================================================
-// CreateDefaultSamplers - Create default sampler states for missing resources
-//==============================================================================
 //==============================================================================
 // CreateDefaultSamplers - Create default sampler states for missing resources
 //==============================================================================

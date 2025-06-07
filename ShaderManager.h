@@ -291,6 +291,7 @@ private:
     void HandleLinkingError(ShaderProgram& program, const std::string& error); // Process linking error
     bool ValidateShaderResource(const ShaderResource& shader) const; // Verify shader resource integrity
     bool ValidateShaderProgram(const ShaderProgram& program) const; // Verify shader program integrity
+
     // Diagnostic methods for shader linkage debugging
     void DiagnoseShaderLinkageErrors(const std::string& programName);
 
@@ -301,7 +302,6 @@ private:
     // Resource cleanup helpers
     void CleanupShaderResource(ShaderResource& shader); // Release individual shader resources
     void CleanupShaderProgram(ShaderProgram& program); // Release individual program resources
-    void CleanupAllResources(); // Release all managed resources
 
     // Statistics updating
     void UpdateStatistics(); // Recalculate performance statistics

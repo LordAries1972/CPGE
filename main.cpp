@@ -1027,7 +1027,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             }
 
             // Only process resize if renderer is initialized, not minimised and not terminating
-            if (wParam != SIZE_MINIMIZED && renderer && renderer->bIsInitialized.load() && !threadManager.threadVars.bIsShuttingDown.load()) {
+            if (wParam != SIZE_MINIMIZED && renderer && renderer->bIsInitialized.load() && 
+                !threadManager.threadVars.bIsShuttingDown.load()) {
 
                 // Implement debouncing to prevent rapid resize messages
                 auto currentTime = std::chrono::steady_clock::now();
@@ -1200,6 +1201,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     std::this_thread::sleep_for(std::chrono::milliseconds(5));
                 }
                 threadManager.threadVars.bIsShuttingDown.store(true);
+                threadManager.PauseThread(THREAD_RENDERER); // Pause the Renderer Thread
                 PostQuitMessage(0);
             }
 
@@ -1217,6 +1219,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     #endif
                     std::this_thread::sleep_for(std::chrono::milliseconds(5));
                 }
+                threadManager.PauseThread(THREAD_RENDERER); // Pause the Renderer Thread
                 threadManager.threadVars.bIsShuttingDown.store(true);
                 PostQuitMessage(0);
             }
