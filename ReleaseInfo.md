@@ -205,9 +205,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
 
 **May 23, 2025** - Text effects and mathematics:
 - FXManager text scroller routines (LTOR, RTOL, Consistent, Movie)  
-*See: `DX_FXManager.h/.cpp`, `Docs/FXManager-TextScrollers-Example-Usage.txt`*
+*See: `DX_FXManager.h/.cpp`, `Docs/FXManager-TextScrollers-Example-Usage.md`*
 - MathPrecalculation Class introduction  
-*See: `MathPrecalculation.h/.cpp`, `Docs/MathPrecalculation-Example-Usage.txt`*
+*See: `MathPrecalculation.h/.cpp`, `Docs/MathPrecalculation-Example-Usage.md`*
 
 **May 25, 2025** - Fullscreen mode completion:
 - Screen mode selection (width, height)
@@ -224,7 +224,7 @@ Once the base DirectX 11 implementation is complete, the project will be release
 **May 30, 2025** - Platform verification and TTS implementation:
 - DirectX11 renderer compilation verification
 - TTSManager (Text To Speech) implementation  
-*See: `TTSManager.h/.cpp`, `Docs/TTSManager-Example-Usage.txt`*
+*See: `TTSManager.h/.cpp`, `Docs/TTSManager-Example-Usage.md`*
 
 **May 31, 2025** - Network infrastructure:
 - Threaded TCP/UDP Network Manager for Windows  
@@ -233,19 +233,19 @@ Once the base DirectX 11 implementation is complete, the project will be release
 #### June 2025
 **June 1, 2025** - Data management and player systems:
 - **PUNPack Class**: Compression/decompression with checksum support  
-*See: `PUNPack.h/.cpp`, `Docs/PUNPack-Example-Usage.txt`*
+*See: `PUNPack.h/.cpp`, `Docs/PUNPack-Example-Usage.md`*
 - **GamePlayer, GameAccount & GameStatus Classes**: Complete player management  
 *See: `GamePlayer.h/.cpp`, `Docs/GamePlayer-Example-Usage.md`*
 
 **June 2, 2025** - AI system implementation:
 - **GamingAI Class**: Player strategy learning and adaptation  
-*See: `GamingAI.h/.cpp`, `Docs/GamingAI-Example-Usage.txt`*
+*See: `GamingAI.h/.cpp`, `Docs/GamingAI-Example-Usage.md`*
 
 **June 3, 2025** - File operations and random generation:
 - **Thread-Safe FileIO Class**: Cross-platform file operations  
-*See: `FileIO.h/.cpp`, `FileIO-Example-Usage.txt`*
+*See: `FileIO.h/.cpp`, `FileIO-Example-Usage.md`*
 - **MyRandomizer Class**: Gaming-focused random number generation  
-*See: `MyRandomizer.h/.cpp`, `MyRandomizer-Example-Usage.txt`*
+*See: `MyRandomizer.h/.cpp`, `MyRandomizer-Example-Usage.md`*
 - Debug Class integration with FileIO
 
 **June 5, 2025** - Exception handling:
@@ -254,7 +254,7 @@ Once the base DirectX 11 implementation is complete, the project will be release
 
 **June 6, 2025** - **STABLE**: Shader management system:
 - **ShaderManager Class**: Multi-platform shader support (HLSL, GLSL, SPIR-V)  
-*See: `ShaderManager.h/.cpp`, `Docs/ShaderManager-Example-Usage.txt`*
+*See: `ShaderManager.h/.cpp`, `Docs/ShaderManager-Example-Usage.md`*
 - Models.cpp and main.cpp integration
 - RenderFrame() relocation to `DXRenderFrame.cpp`
 
