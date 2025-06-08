@@ -57,6 +57,7 @@
 #include "Configuration.h"
 #include "ThreadManager.h"
 #include "WinSystem.h"
+#include "KeyboardHandler.h"
 #include "NetworkManager.h"
 #include "PUNPack.h"
 #include "GamePlayer.h"
@@ -135,9 +136,9 @@ MyRandomizer myRandomizer;
 #endif
 
 #if defined(__USE_MP3PLAYER__)
-MediaPlayer player;
+    MediaPlayer player;
 #elif defined(__USE_XMPLAYER__)
-XMMODPlayer xmPlayer;
+    XMMODPlayer xmPlayer;
 #endif
 
 // Our Base Models Buffer, Resources & Data (Storage Only / Read Only!).
@@ -334,6 +335,31 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         // Obtain Window Metrics
         sysUtils.GetWindowMetrics(hwnd, winMetrics);
 
+        // Get Singleton KeyboardHandler instance
+        KeyboardHandler& keyboardHandler = KeyboardHandler::GetInstance();
+        // Configuration optimized for competitive gaming
+        KeyboardConfig gamingConfig;
+        gamingConfig.enableKeyLogging = false;                                                  // Disable for maximum performance
+        gamingConfig.enableHotKeyBlocking = true;                                               // Block distracting OS shortcuts
+        gamingConfig.enableKeyRepeat = false;                                                   // Disable repeat for precise control
+        gamingConfig.enableMultiKeyDetection = true;                                            // Enable for complex shortcuts
+        gamingConfig.maxCombinationKeys = 4;                                                    // Limit to 4 keys for performance
+        // Initialize the keyboard handler with the gaming configuration
+        if (!keyboardHandler.Initialize(gamingConfig)) {
+            #if defined(_DEBUG_KEYBOARDHANDLER_)
+                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize Keyboard Management System!");
+            #endif
+        }
+
+        // Now Enable the keyboard system
+        if(!keyboardHandler.EnableKeyboardSystem())
+        {
+            // Handle enable failure
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Failed to enable the Keyboard System!");
+            UnregisterClass(lpDEFAULT_NAME, hInstance);
+            return EXIT_FAILURE;
+        }
+
         // Now Initialise our Renderer
         renderer->Initialize(hwnd, hInstance);
 
@@ -486,6 +512,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             //  Your Main Loop code goes here!!!!!
             //  --------------------------------------------------------------------------
             {
+                // Update key states for edge detection (call once per frame)
+                keyboardHandler.UpdateKeyStates();
+
                 switch (scene.stSceneType)
                 {
                     // Our Starting / CPGE Splash Screen (Need to create a linking library for this section.
@@ -837,6 +866,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     // Cleanup Cached Base Models
     for (int i = 0; i < MAX_MODELS; i++)
         models[i].DestroyModel();
+
+    // Stop and Cleanup the Keyboard Handler system.
+    keyboardHandler.DisableKeyboardSystem();
+    keyboardHandler.Cleanup();
 
     // Stop and Terminate SoundManager system.
     soundManager.StopPlaybackThread();

@@ -296,7 +296,10 @@ Once the base DirectX 11 implementation is complete, the project will be release
 **June 8, 2025** - **STABLE**: DirectX Camera Management System:
 - **Camera Class**: Implemented Camera Animation, Jump & Rotate functions with options for speed & target focusing.
                     Which is now also compliant for both DirectX 11 & 12 platforms.
-*See: [`DXCamera.h/.cpp`](DXCamera.h), [`Docs/DXCamera-Example-Usage.md`](Docs/DXCamera-Example-Usage.md)*
+- *See: [`DXCamera.h/.cpp`](DXCamera.h), [`Docs/DXCamera-Example-Usage.md`](Docs/DXCamera-Example-Usage.md)*
+
+- **KeyboardHandler Class**: Implemented Keyboard Handler Class that supports various functionality for all supporting OS Platforms.
+- *See: [`KeyboardHandler.h/.cpp`](KeyboardHandler.h), [`Docs/KeyboardHandler-Example-Usage.md`](Docs/KeyboardHandler-Example-Usage.md)*
 
 ---
 

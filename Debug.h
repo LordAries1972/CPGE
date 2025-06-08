@@ -34,6 +34,7 @@
 //#define _DEBUG_GUI_                                                     // Define this line, to show all debug output to runtime console for the GUIManager class.
 //#define _DEBUG_WINSYSTEM_                                               // Define this line, to show all debug output to runtime console for the SystemUtils class.
 #define _DEBUG_MATHPRECALC_                                             // Define this line, to show all debug output for the MathPrecalculation class
+#define _DEBUG_KEYBOARDHANDLER_                                         // Define this line, to show all debug output for the KeyboardHandler class.
 //#define _DEBUG_MOVIEPLAYER_                                             // Define this line for MoviePlayer class.
 
 //#define _DUBUG_JOYSTICK_
