@@ -24,112 +24,111 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 #if defined(_WIN64) || defined(_WIN32)
     #ifndef PLATFORM_WINDOWS
         #define PLATFORM_WINDOWS
-    #endif
 
-    // CRITICAL: Define this before any Windows includes to prevent macro conflicts
-    #ifndef NOMINMAX
-        #define NOMINMAX                                                                // Prevents Windows.h from defining min and max macros which allows then to std::min, std::max
-    #endif
+        // CRITICAL: Define this before any Windows includes to prevent macro conflicts
+        #ifndef NOMINMAX
+            #define NOMINMAX                                                                // Prevents Windows.h from defining min and max macros which allows then to std::min, std::max
+        #endif
 
-    #ifndef WIN32_LEAN_AND_MEAN
-        #define WIN32_LEAN_AND_MEAN
-    #endif
+        #ifndef WIN32_LEAN_AND_MEAN
+            #define WIN32_LEAN_AND_MEAN
+        #endif
 
-    #include <windows.h>
-    #include <winerror.h>
-    #include <wincodec.h>                                                               // WIC
-    #include <mfapi.h>
-    #include <mfidl.h>
-    #include <mfobjects.h>
-    #include <mfreadwrite.h>
-    #include <mfplay.h>
-    #include <wrl/client.h>
-    #include <comdef.h>                                                                 // For _com_error
+        #include <windows.h>
+        #include <winerror.h>
+        #include <wincodec.h>                                                               // WIC
+        #include <mfapi.h>
+        #include <mfidl.h>
+        #include <mfobjects.h>
+        #include <mfreadwrite.h>
+        #include <mfplay.h>
+        #include <wrl/client.h>
+        #include <comdef.h>                                                                 // For _com_error
 
-    using Microsoft::WRL::ComPtr;
-
-    #ifdef _DEBUG
-        #pragma comment(lib, "dbghelp.lib")
-    #endif
-
-    // Windows Platform Master Renderer Switches
-    #define __USE_DIRECTX_11__
-    //#define __USE_DIRECTX_12__
-    //#define __USE_OPENGL__
-    //#define __USE_VULKAN__
-
-    #if defined(__USE_DIRECTX_11__)
-        // DirectX 11 Related includes
-        #include <d3d11.h>                      // Core DirectX 11 interface
-        #include <d3d11_1.h>                    // DirectX 11.1 extensions
-        #include <d3dcompiler.h>                // Shader compilation
-        #include <dxgi.h>                       // DirectX Graphics Infrastructure
-        #include <dxgi1_2.h>                    // DXGI 1.2 extensions
-        #include <DirectXMath.h>                // DirectX Math library
-        #include <DirectXColors.h>              // Predefined color constants
-
-        // Audio related includes
-        #include <xaudio2.h>                    // XAudio2 for audio processing
-        #include <dsound.h>                     // DirectSound for legacy audio support
-
-        // Direct2D and DirectWrite for 2D graphics and text rendering
-        #include <d2d1_1.h>                     // Direct2D 1.1 interface
-        #include <d2d1_1helper.h>               // Direct2D helper functions
-        #include <dwrite.h>                     // DirectWrite for text rendering
-
-        // Link the required DirectX 11 libraries
-        #pragma comment(lib, "d3d11.lib")       // Core DirectX 11 library - REQUIRED for D3D11CreateDevice
-        #pragma comment(lib, "dxgi.lib")        // DirectX Graphics Infrastructure library
-        #pragma comment(lib, "d3dcompiler.lib") // Shader compiler library
-
-        // Audio libraries
-        #pragma comment(lib, "xaudio2.lib")     // XAudio2 library
-        #pragma comment(lib, "dsound.lib")      // DirectSound library
-
-        // 2D Graphics and Text libraries
-        #pragma comment(lib, "d2d1.lib")        // Direct2D library
-        #pragma comment(lib, "dwrite.lib")      // DirectWrite library
-
-        // Additional Windows libraries that DirectX depends on
-        #pragma comment(lib, "dxguid.lib")      // DirectX GUIDs
-        #pragma comment(lib, "winmm.lib")       // Windows Multimedia library
-    #endif
-
-    #if defined(__USE_DIRECTX_12__)
-        // DirectX 12 specific includes
-        #include <d3d12.h>
-        #include <dxgi1_6.h>
-        #include <d3dcompiler.h>
-        #include <DirectXMath.h>
-        #include <DirectXColors.h>
-        #include <wrl.h>                                                                  // For Microsoft::WRL::ComPtr
-        #include "d3dx12.h"                                                               // DirectX 12 helper library
-        #include <d3dcompiler.h>
-
-        // DirectX 11-12 compatibility includes for side-by-side operation
-        #include <d3d11.h>
-        #include <d3d11_1.h>
-
-        #pragma comment(lib, "d3d12.lib")
-        #pragma comment(lib, "dxgi.lib")
-        #pragma comment(lib, "d3dcompiler.lib")
-
-        using namespace DirectX;
         using Microsoft::WRL::ComPtr;
-    #endif
 
-    #if defined(__USE_OPENGL__)
-        #include "opengl32.h"
-        #include "GL\glew32.h"
+        #ifdef _DEBUG
+            #pragma comment(lib, "dbghelp.lib")
+        #endif
 
-        #pragma comment(lib, "glfw3.lib")
-        #pragma comment(lib, "glew32.lib")
-        #pragma comment(lib, "opengl32.lib")
-        #pragma comment(lib, "user32.lib")
-        #pragma comment(lib, "gdi32.lib")
-        #pragma comment(lib, "shell32.lib")
-    #endif
+        // Windows Platform Master Renderer Switches
+        #define __USE_DIRECTX_11__
+        //#define __USE_DIRECTX_12__
+        //#define __USE_OPENGL__
+        //#define __USE_VULKAN__
 
+        #if defined(__USE_DIRECTX_11__)
+            // DirectX 11 Related includes
+            #include <d3d11.h>                      // Core DirectX 11 interface
+            #include <d3d11_1.h>                    // DirectX 11.1 extensions
+            #include <d3dcompiler.h>                // Shader compilation
+            #include <dxgi.h>                       // DirectX Graphics Infrastructure
+            #include <dxgi1_2.h>                    // DXGI 1.2 extensions
+            #include <DirectXMath.h>                // DirectX Math library
+            #include <DirectXColors.h>              // Predefined color constants
+
+            // Audio related includes
+            #include <xaudio2.h>                    // XAudio2 for audio processing
+            #include <dsound.h>                     // DirectSound for legacy audio support
+
+            // Direct2D and DirectWrite for 2D graphics and text rendering
+            #include <d2d1_1.h>                     // Direct2D 1.1 interface
+            #include <d2d1_1helper.h>               // Direct2D helper functions
+            #include <dwrite.h>                     // DirectWrite for text rendering
+
+            // Link the required DirectX 11 libraries
+            #pragma comment(lib, "d3d11.lib")       // Core DirectX 11 library - REQUIRED for D3D11CreateDevice
+            #pragma comment(lib, "dxgi.lib")        // DirectX Graphics Infrastructure library
+            #pragma comment(lib, "d3dcompiler.lib") // Shader compiler library
+
+            // Audio libraries
+            #pragma comment(lib, "xaudio2.lib")     // XAudio2 library
+            #pragma comment(lib, "dsound.lib")      // DirectSound library
+
+            // 2D Graphics and Text libraries
+            #pragma comment(lib, "d2d1.lib")        // Direct2D library
+            #pragma comment(lib, "dwrite.lib")      // DirectWrite library
+
+            // Additional Windows libraries that DirectX depends on
+            #pragma comment(lib, "dxguid.lib")      // DirectX GUIDs
+            #pragma comment(lib, "winmm.lib")       // Windows Multimedia library
+        #endif
+
+        #if defined(__USE_DIRECTX_12__)
+            // DirectX 12 specific includes
+            #include <d3d12.h>
+            #include <dxgi1_6.h>
+            #include <d3dcompiler.h>
+            #include <DirectXMath.h>
+            #include <DirectXColors.h>
+            #include <wrl.h>                                                                  // For Microsoft::WRL::ComPtr
+            #include "d3dx12.h"                                                               // DirectX 12 helper library
+            #include <d3dcompiler.h>
+
+            // DirectX 11-12 compatibility includes for side-by-side operation
+            #include <d3d11.h>
+            #include <d3d11_1.h>
+
+            #pragma comment(lib, "d3d12.lib")
+            #pragma comment(lib, "dxgi.lib")
+            #pragma comment(lib, "d3dcompiler.lib")
+
+            using namespace DirectX;
+            using Microsoft::WRL::ComPtr;
+        #endif
+
+        #if defined(__USE_OPENGL__)
+            #include "opengl32.h"
+            #include "GL\glew32.h"
+
+            #pragma comment(lib, "glfw3.lib")
+            #pragma comment(lib, "glew32.lib")
+            #pragma comment(lib, "opengl32.lib")
+            #pragma comment(lib, "user32.lib")
+            #pragma comment(lib, "gdi32.lib")
+            #pragma comment(lib, "shell32.lib")
+        #endif
+    #endif // !PLATFORM_WINDOWS
 #elif defined(__linux__)
     #ifndef PLATFORM_LINUX
         #define PLATFORM_LINUX
