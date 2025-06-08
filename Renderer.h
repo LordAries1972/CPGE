@@ -101,18 +101,6 @@ const LPCWSTR FontName = L"MayaCulpa";
 
 const int MAX_RENDER_OPERATIONS = 4096;
 
-//------------------------------------------
-// VIDEO & Window Specs: Default Settings
-//------------------------------------------
-const bool START_IN_FULLSCREEN = false;
-const int DEFAULT_WINDOW_WIDTH = 800;
-const int DEFAULT_WINDOW_HEIGHT = 600;
-const float fDEFAULT_WINDOW_WIDTH = 800.0f;
-const float fDEFAULT_WINDOW_HEIGHT = 600.0f;
-
-const int MAX_WINDOWS = 32;
-const int MAX_SCREEN_MODES = 64;
-
 enum class RendererType
 {
 	RT_NOT_INITIALIZED,

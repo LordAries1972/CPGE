@@ -177,6 +177,7 @@ void SwitchToGameIntro();
 void SwitchToMovieIntro();
 void OpenMovieAndPlay();
 bool LoadAllShaders();
+bool Load_Music();
 
 // Supressed Warnings
 #pragma warning(disable: 28251)
@@ -289,6 +290,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             UnregisterClass(lpDEFAULT_NAME, hInstance);
             return EXIT_FAILURE;
         }
+        soundManager.LoadAllSFX();
 
         if (!FAST_MATH.Initialize())
         {
@@ -384,8 +386,18 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
         // Initialise our SceneManager
         scene.Initialize(renderer);
-        scene.stSceneType = SceneType::SCENE_SPLASH;
-        scene.SetGotoScene(SceneType::SCENE_INTRO);
+        
+        // Force a Scene Jump Switch to the GAMEPLAY scene when in debug mode, 
+        // so we can get on with the game testing scene without having to wait 
+        // for all the other scenes to load & play through.
+        #if defined(_DEBUG)
+            scene.stSceneType = SceneType::SCENE_GAMEPLAY;
+            scene.SetGotoScene(SceneType::SCENE_NONE);
+        #else
+            scene.stSceneType = SceneType::SCENE_SPLASH;
+            scene.SetGotoScene(SceneType::SCENE_INTRO);
+        #endif
+
         #if defined(_DEBUG)
             winMetrics.isFullScreen = false;
             sysUtils.DisableMouseCursor();
@@ -430,9 +442,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
         // Initialize the GamePlayer system with basic initialization
         gamePlayer.Initialize(); 
-        gamePlayer.SetPlayerState(PLAYER_1, PlayerState::ACTIVE);
         PlayerInfo* player = gamePlayer.GetPlayerInfo(PLAYER_1);            // Get player information
-//        player->score = 0;                                                     // Initialize player score to 0
 
         // Start Required Renderer Threads
         #if !defined(_DEBUG)
@@ -1177,6 +1187,29 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             {
                 case SceneType::SCENE_GAMEPLAY:
                 {
+                    // Move to the other side of the target with F9 key
+                    if (wParam == VK_F9 && !threadManager.threadVars.bIsShuttingDown.load())
+                    {
+                        renderer->myCamera.RotateToOppositeSide(2);
+                        return 0;
+                    }
+                    
+                    // Move around the target with F10 key
+                    if (wParam == VK_NUMPAD0 && !threadManager.threadVars.bIsShuttingDown.load())
+                    {
+                        if (renderer->myCamera.IsRotatingAroundTarget())
+                        {
+                            renderer->myCamera.StopRotating();
+                        }
+                        else
+                        {
+                            renderer->myCamera.SetTarget(XMFLOAT3(0.0f, 0.0f, 0.0f));  // Look at origin
+                            renderer->myCamera.MoveAroundTarget(false, true, false, 20.0f, true);
+                        }
+
+                        return 0;
+                    }
+
                     if (wParam == VK_F2 && !threadManager.threadVars.bIsShuttingDown.load())
                     {
                         renderer->bWireframeMode = renderer->bWireframeMode;
@@ -1244,84 +1277,76 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             switch (wParam)
             {
                 case VK_UP:
+                {
                     switch (scene.stSceneType)
                     {
                         case SceneType::SCENE_GAMEPLAY:
-                            renderer->myCamera.MoveUp(moveStep);
+                        {
+                            renderer->myCamera.JumpTo(0.0f, 8.0f, 69.0f, 1, true);
                             #if !defined(RENDERER_IS_THREAD)
                                 if (!bResizeInProgress.load()) {
                                     renderer->RenderFrame();
                                 }
                             #endif
 
-                            // ADJUST Later: Have the AI Monitor Keyboard interaction.
-                            if (gamingAI.IsMonitoring()) {
-                                gamingAI.CollectInputEventData(INPUT_TYPE_KEYBOARD, static_cast<uint32_t>(wParam)); // For keyboard
-                            }
-
-                            break;
+                            return 0;
+                        }
                     }
+                }
 
                 case VK_DOWN:
+                {
                     switch (scene.stSceneType)
                     {
                         case SceneType::SCENE_GAMEPLAY:
-                            renderer->myCamera.MoveDown(moveStep);
+                        {
+                            renderer->myCamera.JumpTo(-90.0f, 12.0f, -12.0f, 1, true);
                             #if !defined(RENDERER_IS_THREAD)
                                 if (!bResizeInProgress.load()) {
                                     renderer->RenderFrame();
                                 }
                             #endif
 
-                            if (!bResizeInProgress.load()) {
-                                renderer->RenderFrame();
-                            }
-
-                            // ADJUST Later: Have the AI Monitor Keyboard interaction.
-                            if (gamingAI.IsMonitoring()) {
-                                gamingAI.CollectInputEventData(INPUT_TYPE_KEYBOARD, static_cast<uint32_t>(wParam)); // For keyboard
-                            }
-
-                            break;
+                            return 0;
+                        }
                     }
+                }
 
                 case VK_LEFT:
+                {
                     switch (scene.stSceneType)
                     {
                         case SceneType::SCENE_GAMEPLAY:
-                            renderer->myCamera.MoveLeft(moveStep);
+                        {
+                            renderer->myCamera.JumpTo(-90.0f, 0.0f, 5.0f, 1, true);
                             #if !defined(RENDERER_IS_THREAD)
                                 if (!bResizeInProgress.load()) {
                                     renderer->RenderFrame();
                                 }
                             #endif
 
-                            // ADJUST Later: Have the AI Monitor Keyboard interaction.
-                            if (gamingAI.IsMonitoring()) {
-                                gamingAI.CollectInputEventData(INPUT_TYPE_KEYBOARD, static_cast<uint32_t>(wParam)); // For keyboard
-                            }
-
-                            break;
+                            return 0;
+                        }
                     }
+                }
 
                 case VK_RIGHT:
+                {
                     switch (scene.stSceneType)
                     {
                         case SceneType::SCENE_GAMEPLAY:
-                            renderer->myCamera.MoveRight(moveStep);
+                        {
+                            renderer->myCamera.JumpTo(90.0f, 0.0f, 5.0f, 1, true);
                             #if !defined(RENDERER_IS_THREAD)
                                 if (!bResizeInProgress.load()) {
                                     renderer->RenderFrame();
                                 }
                             #endif
 
-                            // ADJUST Later: Have the AI Monitor Keyboard interaction.
-                            if (gamingAI.IsMonitoring()) {
-                                gamingAI.CollectInputEventData(INPUT_TYPE_KEYBOARD, static_cast<uint32_t>(wParam)); // For keyboard
-                            }
-
-                            break;
+                            return 0;
+                        }
                     }
+                }
             } // End of switch (wParam)
 
             return 0;
@@ -1417,4 +1442,33 @@ void SwitchToGameIntro()
     renderer->ResumeLoader();
     // Resume the Renderer Thread
     threadManager.ResumeThread(THREAD_RENDERER);
+}
+
+bool Load_Music()
+{
+    #if defined(__USE_MP3PLAYER__)
+        auto fileName = AssetsDir / SingleMP3Filename;
+        if (player.loadFile(fileName))
+        {
+            player.play();
+            player.fadeIn(5000);
+        }
+        else
+        {
+            threadManager.threadVars.bLoaderTaskFinished.store(true);
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[LOADER]: Failed to load Music File.");
+            return false;
+        }
+    #elif defined(__USE_XMPLAYER__)
+        // Attempt to load in our XM Music Module for playback.
+        auto fileName = AssetsDir / SingleXMFilename;
+        if (!xmPlayer.Play(fileName))
+        {
+            threadManager.threadVars.bLoaderTaskFinished.store(true);
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[LOADER]: Failed to Play the requested Module file.");
+            return false;
+        }
+    #endif
+
+    return true;
 }

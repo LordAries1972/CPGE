@@ -69,7 +69,7 @@ Once the base DirectX 11 implementation is complete, the project will be release
 ## Development History
 
 ### September 2023 - Project Foundation
-**September 11, 2023** - Original project started with focus on building core interface modules
+**September 11, 2023** - Original Conceptional Idea and Project started with focus on building just core interface class modules.
 
 ### January 2025 - Major Restructuring Start
 
@@ -292,6 +292,10 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - Created Example usage file for [`Joystick`](Docs/Joystick-Example-Usage.md)
 - Created Example usage file for [`Lighting`](Docs/Light-Example-Usage.md)
 - Created Example usage file for [`Models`](Docs/Model-Example-Usage.md)
+
+**June 8, 2025** - **STABLE**: DirectX Camera Management System:
+- **Camera Class**: Implemented Camera Animation, Jump & Rotate functions with options for speed & target focusing.
+*See: [`DXCamera.h/.cpp`](DXCamera.h), [`Docs/DXCamera-Example-Usage.md`](Docs/DXCamera-Example-Usage.md)*
 
 ---
 

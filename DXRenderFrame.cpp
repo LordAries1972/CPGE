@@ -179,15 +179,17 @@ void DX11Renderer::RenderFrame()
             catch (const std::exception& e)
             {
                 debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDER] - RenderFrame Clear Failed: " + std::wstring(e.what(), e.what() + strlen(e.what())));
-#ifdef RENDERER_IS_THREAD
-                continue;
-#else
-                return;
-#endif
+                #ifdef RENDERER_IS_THREAD
+                       continue;
+                #else
+                       return;
+                #endif
             }
 
-            // Update the cameras viewmatrix
-            myCamera.UpdateViewMatrix();
+            // Update the camera's jump animation
+            myCamera.UpdateJumpAnimation();
+                // Update the cameras viewmatrix
+//                myCamera.UpdateViewMatrix();
 
             // Update effects
             static auto myLastTime = std::chrono::high_resolution_clock::now();

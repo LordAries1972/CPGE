@@ -11,6 +11,7 @@ for the given scene.
 #if defined(__USE_DIRECTX_11__)
 
 #include "MathPrecalculation.h"
+#include "ExceptionHandler.h"
 #include "ThreadManager.h"
 #include "WinSystem.h"
 #include "ShaderManager.h"
@@ -24,16 +25,8 @@ for the given scene.
 
 using namespace SoundSystem;
 
-// Music Playback
-#if defined(__USE_MP3PLAYER__)
-#include "WinMediaPlayer.h"
-extern MediaPlayer player;
-#elif defined(__USE_XMPLAYER__)
-#include "XMMODPlayer.h"
-extern XMMODPlayer xmPlayer;
-#endif
-
 // Other required external references.
+extern ExceptionHandler exceptionHandler;
 extern ThreadManager threadManager;
 extern SystemUtils sysUtils;
 extern SceneManager scene;
@@ -46,6 +39,7 @@ extern LightsManager lightsManager;
 extern WindowMetrics winMetrics;
 extern bool bResizing;
 extern int textScrollerEffectID;
+extern bool Load_Music();													// Function in main.cpp to load music for the game
 
 std::mutex DX11Renderer::s_loaderMutex;
 
@@ -54,7 +48,8 @@ std::mutex DX11Renderer::s_loaderMutex;
 /* -------------------------------------------------------------- */
 void DX11Renderer::LoaderTaskThread()
 {
-    std::lock_guard<std::mutex> lock(s_loaderMutex);
+	exceptionHandler.RecordFunctionCall("LoaderTaskThread");
+	std::lock_guard<std::mutex> lock(s_loaderMutex);
 
     // Check the status of the Loader thread
     ThreadStatus status = threadManager.GetThreadStatus(THREAD_LOADER);
@@ -79,11 +74,6 @@ void DX11Renderer::LoaderTaskThread()
 			case SceneType::SCENE_SPLASH:
 			{
 				threadManager.threadVars.b2DTexturesLoaded.store(false);
-				if (!threadManager.threadVars.bIsResizing.load())
-				{
-					soundManager.LoadAllSFX();
-				}
-
 				if (LoadAllKnownTextures())
 					// State that we have loade all our required 2D Textures.
 					threadManager.threadVars.b2DTexturesLoaded.store(true);
@@ -104,35 +94,7 @@ void DX11Renderer::LoaderTaskThread()
 				// If we are NOT resizing our window, then ....
 				if (!wasResizing.load())
 				{
-					#if defined(__USE_MP3PLAYER__)
-						auto fileName = AssetsDir / SingleMP3Filename;
-						if (player.loadFile(fileName))
-						{
-							player.play();
-							player.fadeIn(5000);
-							// ==========
-							// IMPORTANT: This must be called as the MediaPlayer will need 
-							//            to process messages before starting playback!
-							// ========== 
-							sysUtils.ProcessMessages();
-						}
-						else
-						{
-							threadManager.threadVars.bLoaderTaskFinished.store(true);
-							debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[LOADER]: Failed to load Music File.");
-						}
-					#elif defined(__USE_XMPLAYER__)
-						// Attempt to load in our XM Music Module for playback.
-						auto fileName = AssetsDir / IntroXMFilename;
-						if (!wasResizing.load())
-						{
-							if (!xmPlayer.Play(fileName))
-							{
-								threadManager.threadVars.bLoaderTaskFinished.store(true);
-								debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[LOADER]: Failed to Play the requested Module file.");
-							}
-						}
-					#endif
+                    Load_Music();
 
 					// Create Game Menu
 					myCamera.SetupDefaultCamera(static_cast<float>(iOrigWidth), static_cast<float>(iOrigHeight));
@@ -188,6 +150,7 @@ void DX11Renderer::LoaderTaskThread()
 					sysUtils.GetMessageAndProcess();
 				}
 				catch (const std::exception& e) {
+                    exceptionHandler.LogException(e, "[LOADER THREAD] SceneType::SCENE_LOAD_MP3");
 					debug.logLevelMessage(LogLevel::LOG_ERROR, L"[LOADER]: Exception: " + std::wstring(e.what(), e.what() + strlen(e.what())));
 				}
 
@@ -257,30 +220,8 @@ void DX11Renderer::LoaderTaskThread()
 					// If we are NOT resizing our window, then ....
 					if (!wasResizing.load())
 					{
-						#if defined(__USE_MP3PLAYER__)
-							auto fileName = AssetsDir / SingleMP3Filename;
-							if (player.loadFile(fileName)) 
-							{
-								player.play();
-								player.fadeIn(5000);
-							}
-							else 
-							{
-								threadManager.threadVars.bLoaderTaskFinished.store(true);
-								debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[LOADER]: Failed to load Music File.");
-							}
-						#elif defined(__USE_XMPLAYER__)
-							// Attempt to load in our XM Music Module for playback.
-							auto fileName = AssetsDir / SingleXMFilename;
-							if (!wasResizing.load()) 
-							{
-								if (!xmPlayer.Play(fileName))
-								{
-									threadManager.threadVars.bLoaderTaskFinished.store(true);
-									debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[LOADER]: Failed to Play the requested Module file.");
-								}
-							}
-						#endif
+						Load_Music();
+
 						// IMPORTANT: This must be called as the MediaPlayer will need 
 						// ========== to process messages before starting playback!
 						sysUtils.ProcessMessages();
@@ -288,6 +229,7 @@ void DX11Renderer::LoaderTaskThread()
 					} // End of Resizing check
 				}
 				catch (const std::exception& e) {
+					exceptionHandler.LogException(e, "[LOADER THREAD] SceneType::GAMEPLAY");
 					threadManager.threadVars.bLoaderTaskFinished.store(true);
 					threadManager.PauseThread(THREAD_LOADER);
 					debug.logLevelMessage(LogLevel::LOG_ERROR, L"[LOADER]: Exception: " + std::wstring(e.what(), e.what() + strlen(e.what())));
