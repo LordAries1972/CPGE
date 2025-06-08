@@ -336,7 +336,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         sysUtils.GetWindowMetrics(hwnd, winMetrics);
 
         // Get Singleton KeyboardHandler instance
-        KeyboardHandler& keyboardHandler = KeyboardHandler::GetInstance();
+        KeyboardHandler& keyboard = KeyboardHandler::GetInstance();
         // Configuration optimized for competitive gaming
         KeyboardConfig gamingConfig;
         gamingConfig.enableKeyLogging = false;                                                  // Disable for maximum performance
@@ -345,14 +345,14 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         gamingConfig.enableMultiKeyDetection = true;                                            // Enable for complex shortcuts
         gamingConfig.maxCombinationKeys = 4;                                                    // Limit to 4 keys for performance
         // Initialize the keyboard handler with the gaming configuration
-        if (!keyboardHandler.Initialize(gamingConfig)) {
+        if (!keyboard.Initialize(gamingConfig)) {
             #if defined(_DEBUG_KEYBOARDHANDLER_)
                 debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize Keyboard Management System!");
             #endif
         }
 
         // Now Enable the keyboard system
-        if(!keyboardHandler.EnableKeyboardSystem())
+        if (!keyboard.EnableKeyboardSystem())
         {
             // Handle enable failure
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Failed to enable the Keyboard System!");
@@ -513,7 +513,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             //  --------------------------------------------------------------------------
             {
                 // Update key states for edge detection (call once per frame)
-                keyboardHandler.UpdateKeyStates();
+                keyboard.UpdateKeyStates();
 
                 switch (scene.stSceneType)
                 {
@@ -868,8 +868,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         models[i].DestroyModel();
 
     // Stop and Cleanup the Keyboard Handler system.
-    keyboardHandler.DisableKeyboardSystem();
-    keyboardHandler.Cleanup();
+    KeyboardHandler& keyboard = KeyboardHandler::GetInstance();
+    keyboard.DisableKeyboardSystem();
+    keyboard.Cleanup();
 
     // Stop and Terminate SoundManager system.
     soundManager.StopPlaybackThread();
