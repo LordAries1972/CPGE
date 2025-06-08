@@ -43,7 +43,10 @@
    See Renderer.h for a full architectural diagram.
 /* ------------------------------------------------------------------------------ */
 #include "Includes.h"
+
+// --------------------------------------------
 // Engine Subsystems
+// --------------------------------------------
 #include "ExceptionHandler.h"
 #include "MathPrecalculation.h"
 #include "FileIO.h"
@@ -60,7 +63,7 @@
 #include "GamingAI.h"
 #include "MyRandomizer.h"
 
-#if defined(_WIN64) || defined(_WIN32)
+#if defined(PLATFORM_WINDOWS)
     #include "TTSManager.h"
 #endif
 
@@ -75,7 +78,9 @@
 #include "OpenGLRenderer.h"
 #endif
 
+// --------------------------------------------
 // Include these after the Renderer's includes
+// --------------------------------------------
 #include "DX_FXManager.h"
 #include "SceneManager.h"
 #include "ShaderManager.h"
@@ -86,8 +91,6 @@
 //------------------------------------------
 // Platform Configuration Macros
 //------------------------------------------
-//#define __USING_JOYSTICKS__
-
 #if defined(__USE_MP3PLAYER__)
     #include "WinMediaPlayer.h"
 #elif defined(__USE_XMPLAYER__)
@@ -246,6 +249,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         UnregisterClass(lpDEFAULT_NAME, hInstance);
         return EXIT_FAILURE;
     }
+
+    exceptionHandler.RecordFunctionCall("WinMain");
 
     sysUtils.CenterSystemWindow(hwnd);
     ShowWindow(hwnd, nCmdShow);
