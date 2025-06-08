@@ -1,4 +1,7 @@
 ﻿#include "Includes.h"
+
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+
 #include "MathPrecalculation.h"
 #include "Configuration.h"
 #include "DXCamera.h"
@@ -2355,3 +2358,4 @@ float Camera::GetEstimatedTimeToComplete() const
     return maxTime;
 }
 
+#endif // End of #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)

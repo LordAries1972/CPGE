@@ -6,6 +6,8 @@
 
 #include "Includes.h"
 
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+
 #include <DirectXMath.h>
 using namespace DirectX;
 
@@ -144,3 +146,4 @@ private:
     XMFLOAT3 CalculateRotationPosition(float angleX, float angleY, float angleZ) const;
 };
 
+#endif // __USE_DIRECTX_11__ || __USE_DIRECTX_12__
