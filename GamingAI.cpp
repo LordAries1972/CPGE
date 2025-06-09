@@ -2643,9 +2643,9 @@ void GamingAI::AIThreadTasking() {
 
                             // Check for emergency shutdown command
                             if (currentCommand.commandType == AICommandType::CMD_EMERGENCY_SHUTDOWN) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Emergency shutdown command processed - terminating AI thread");
-#endif
+                                #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+                                    debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Emergency shutdown command processed - terminating AI thread");
+                                #endif
                                 m_shouldShutdown.store(true);
                                 break;                                  // Exit command processing loop
                             }
@@ -2664,11 +2664,11 @@ void GamingAI::AIThreadTasking() {
                     currentTime - m_lastAnalysisTime);
 
                 if (timeSinceLastAnalysis.count() >= static_cast<long>(m_configuration.analysisIntervalSeconds)) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                    debug.logDebugMessage(LogLevel::LOG_DEBUG,
-                        L"Analysis interval elapsed (%lld seconds) - performing periodic analysis",
-                        timeSinceLastAnalysis.count());
-#endif
+                    #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+                        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                            L"Analysis interval elapsed (%lld seconds) - performing periodic analysis",
+                            timeSinceLastAnalysis.count());
+                    #endif
 
                     // Perform comprehensive periodic analysis
                     PerformPeriodicAnalysis();
@@ -2683,11 +2683,11 @@ void GamingAI::AIThreadTasking() {
                     auto threadRunTime = std::chrono::duration_cast<std::chrono::seconds>(
                         currentTime - threadStartTime);
 
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                    debug.logDebugMessage(LogLevel::LOG_DEBUG,
-                        L"AI thread performance - Runtime: %lld sec, Commands: %llu, Analysis ops: %llu",
-                        threadRunTime.count(), totalCommandsProcessed, totalAnalysisOperations);
-#endif
+                    #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+                        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                            L"AI thread performance - Runtime: %lld sec, Commands: %llu, Analysis ops: %llu",
+                            threadRunTime.count(), totalCommandsProcessed, totalAnalysisOperations);
+                    #endif
                 }
 
                 // Sleep briefly if no work was done to prevent CPU spinning
@@ -2703,38 +2703,39 @@ void GamingAI::AIThreadTasking() {
 
             }
             catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception in AI thread main loop: %S", e.what());
-#endif
+                #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+                    debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception in AI thread main loop: %S", e.what());
+                #endif
 
                 // Continue operation unless it's a critical error
                 std::this_thread::sleep_for(std::chrono::milliseconds(1000)); // Brief pause before retry
             }
         }
 
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_INFO,
-            L"AI thread shutdown completed - Processed %llu commands, %llu analysis operations",
-            totalCommandsProcessed, totalAnalysisOperations);
-#endif
+        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_INFO,
+                L"AI thread shutdown completed - Processed %llu commands, %llu analysis operations",
+                totalCommandsProcessed, totalAnalysisOperations);
+        #endif
 
     }
-    catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Fatal exception in AI thread: %S", e.what());
-#endif
+    catch (const std::exception& e) 
+    {
+        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Fatal exception in AI thread: %S", e.what());
+        #endif
     }
 
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"AI thread terminated");
-#endif
+    #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"AI thread terminated");
+    #endif
 }
 
 // Perform periodic analysis operations
 void GamingAI::PerformPeriodicAnalysis() {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Performing periodic AI analysis");
-#endif
+    #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Performing periodic AI analysis");
+    #endif
 
     try {
         // Record analysis start time for performance measurement
@@ -2745,10 +2746,10 @@ void GamingAI::PerformPeriodicAnalysis() {
             std::vector<int> activePlayerIDs = gamePlayer.GetActivePlayerIDs();
 
             if (!activePlayerIDs.empty()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_DEBUG,
-                    L"Performing analysis for %zu active players", activePlayerIDs.size());
-#endif
+                #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+                    debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                        L"Performing analysis for %zu active players", activePlayerIDs.size());
+                #endif
 
                 // Analyze each active player
                 for (int playerID : activePlayerIDs) {
@@ -2774,20 +2775,20 @@ void GamingAI::PerformPeriodicAnalysis() {
                 // Mark analysis as ready for external consumption
                 m_analysisReady.store(true);
 
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Periodic analysis completed successfully");
-#endif
+                #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+                    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Periodic analysis completed successfully");
+                #endif
             }
             else {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_DEBUG, L"No active players for analysis");
-#endif
+                #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+                    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"No active players for analysis");
+                #endif
             }
         }
         else {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Not monitoring - skipping periodic analysis");
-#endif
+            #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+                debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Not monitoring - skipping periodic analysis");
+            #endif
         }
 
         // Record analysis timing for performance monitoring
@@ -2808,16 +2809,16 @@ void GamingAI::PerformPeriodicAnalysis() {
             }
         }
 
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_DEBUG,
-            L"Periodic analysis timing: %lld ms", analysisDuration.count());
-#endif
+        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                L"Periodic analysis timing: %lld ms", analysisDuration.count());
+        #endif
 
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception in periodic analysis: %S", e.what());
-#endif
+        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception in periodic analysis: %S", e.what());
+        #endif
     }
 }
 
@@ -2827,26 +2828,26 @@ void GamingAI::PerformPeriodicAnalysis() {
 
 // Analyze player movement patterns for specific player
 void GamingAI::AnalyzePlayerMovement(uint32_t playerID) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"Analyzing movement patterns for player %u", playerID);
-#endif
+    #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"Analyzing movement patterns for player %u", playerID);
+    #endif
 
     try {
         // Get player information from GamePlayer system
         const PlayerInfo* playerInfo = gamePlayer.GetPlayerInfo(static_cast<int>(playerID));
         if (playerInfo == nullptr) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Player %u not found for movement analysis", playerID);
-#endif
+            #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_WARNING, L"Player %u not found for movement analysis", playerID);
+            #endif
             return;                                                     // Player not found
         }
 
         // Use ThreadLockHelper for thread-safe analysis data access
         ThreadLockHelper analysisLock(threadManager, "gamingai_movement_analysis", 2000);
         if (!analysisLock.IsLocked()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for movement analysis");
-#endif
+            #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for movement analysis");
+            #endif
             return;                                                     // Failed to acquire lock
         }
 
@@ -2959,42 +2960,42 @@ void GamingAI::AnalyzePlayerMovement(uint32_t playerID) {
         // Update player skill level based on movement analysis
         playerData.skillLevel = CalculatePlayerSkillLevel(playerData);
 
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_DEBUG,
-            L"Movement analysis completed for player %u - Predictability: %.3f, Aggressiveness: %.3f, Skill: %u",
-            playerID, movementData.movementPredictability, movementData.aggressivenessFactor, playerData.skillLevel);
-#endif
+        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                L"Movement analysis completed for player %u - Predictability: %.3f, Aggressiveness: %.3f, Skill: %u",
+                playerID, movementData.movementPredictability, movementData.aggressivenessFactor, playerData.skillLevel);
+        #endif
 
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception analyzing player %u movement: %S", playerID, e.what());
-#endif
+        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception analyzing player %u movement: %S", playerID, e.what());
+        #endif
     }
 }
 
 // Analyze player combat behavior patterns
 void GamingAI::AnalyzePlayerCombat(uint32_t playerID) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"Analyzing combat patterns for player %u", playerID);
-#endif
+    #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"Analyzing combat patterns for player %u", playerID);
+    #endif
 
     try {
         // Get player information from GamePlayer system
         const PlayerInfo* playerInfo = gamePlayer.GetPlayerInfo(static_cast<int>(playerID));
         if (playerInfo == nullptr) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Player %u not found for combat analysis", playerID);
-#endif
+            #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_WARNING, L"Player %u not found for combat analysis", playerID);
+            #endif
             return;                                                     // Player not found
         }
 
         // Use ThreadLockHelper for thread-safe analysis data access
         ThreadLockHelper analysisLock(threadManager, "gamingai_combat_analysis", 2000);
         if (!analysisLock.IsLocked()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for combat analysis");
-#endif
+            #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for combat analysis");
+            #endif
             return;                                                     // Failed to acquire lock
         }
 
@@ -3064,33 +3065,33 @@ void GamingAI::AnalyzePlayerCombat(uint32_t playerID) {
         // This would track actual weapon switching in a real implementation
         combatData.weaponSwitchFrequency = static_cast<uint32_t>(playerData.skillLevel / 20); // More skilled = more weapon switching
 
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_DEBUG,
-            L"Combat analysis completed for player %u - Accuracy: %.3f, Aggression: %.3f, Range: %.1f",
-            playerID, combatData.accuracyPercentage, combatData.combatAggression, combatData.preferredEngagementRange);
-#endif
+        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                L"Combat analysis completed for player %u - Accuracy: %.3f, Aggression: %.3f, Range: %.1f",
+                playerID, combatData.accuracyPercentage, combatData.combatAggression, combatData.preferredEngagementRange);
+        #endif
 
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception analyzing player %u combat: %S", playerID, e.what());
-#endif
+        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception analyzing player %u combat: %S", playerID, e.what());
+        #endif
     }
 }
 
 // Analyze player input patterns and timing
 void GamingAI::AnalyzePlayerInput(uint32_t playerID) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"Analyzing input patterns for player %u", playerID);
-#endif
+    #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"Analyzing input patterns for player %u", playerID);
+    #endif
 
     try {
         // Use ThreadLockHelper for thread-safe analysis data access
         ThreadLockHelper analysisLock(threadManager, "gamingai_input_analysis", 2000);
         if (!analysisLock.IsLocked()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for input analysis");
-#endif
+            #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for input analysis");
+            #endif
             return;                                                     // Failed to acquire lock
         }
 
@@ -3144,11 +3145,11 @@ void GamingAI::AnalyzePlayerInput(uint32_t playerID) {
                     inputData.inputConsistency = 0.1f;                  // Low consistency for minimal input
                 }
 
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_DEBUG,
-                    L"Input analysis for player %u - KB APM: %u, Mouse APM: %u, Consistency: %.3f",
-                    playerID, inputData.keyboardActionsPerMinute, inputData.mouseActionsPerMinute, inputData.inputConsistency);
-#endif
+                #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+                    debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                        L"Input analysis for player %u - KB APM: %u, Mouse APM: %u, Consistency: %.3f",
+                        playerID, inputData.keyboardActionsPerMinute, inputData.mouseActionsPerMinute, inputData.inputConsistency);
+                #endif
             }
         }
 
@@ -3175,9 +3176,9 @@ void GamingAI::AnalyzePlayerInput(uint32_t playerID) {
 
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception analyzing player %u input: %S", playerID, e.what());
-#endif
+        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception analyzing player %u input: %S", playerID, e.what());
+        #endif
     }
 }
 
@@ -3187,17 +3188,17 @@ void GamingAI::AnalyzePlayerInput(uint32_t playerID) {
 
 // Generate strategic recommendations based on analysis
 void GamingAI::GenerateEnemyStrategy() {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Generating enemy AI strategy based on player analysis");
-#endif
+    #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Generating enemy AI strategy based on player analysis");
+    #endif
 
     try {
         // Use ThreadLockHelper for thread-safe strategy generation
         ThreadLockHelper strategyLock(threadManager, "gamingai_strategy_gen", 3000);
         if (!strategyLock.IsLocked()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for strategy generation");
-#endif
+            #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for strategy generation");
+            #endif
             return;                                                     // Failed to acquire lock
         }
 
@@ -3226,9 +3227,9 @@ void GamingAI::GenerateEnemyStrategy() {
         }
 
         if (validPlayerCount == 0) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"No valid player data for strategy generation - using defaults");
-#endif
+            #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"No valid player data for strategy generation - using defaults");
+            #endif
 
             // Use default strategy for no player data
             newStrategy.recommendedDifficulty = 0.5f;                  // Medium difficulty
@@ -3369,38 +3370,38 @@ void GamingAI::GenerateEnemyStrategy() {
         // Store the new strategy
         m_currentStrategy = newStrategy;
 
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_INFO,
-            L"Enemy strategy generated - Difficulty: %.3f, Aggression: %.3f, Intelligence: %.3f, Enemies: %u",
-            newStrategy.recommendedDifficulty, newStrategy.aggressionLevel,
-            newStrategy.tacticalIntelligence, newStrategy.recommendedEnemyCount);
+        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_INFO,
+                L"Enemy strategy generated - Difficulty: %.3f, Aggression: %.3f, Intelligence: %.3f, Enemies: %u",
+                newStrategy.recommendedDifficulty, newStrategy.aggressionLevel,
+                newStrategy.tacticalIntelligence, newStrategy.recommendedEnemyCount);
 
-        debug.logDebugMessage(LogLevel::LOG_DEBUG,
-            L"Strategy details - Range: %.1f, Prediction accuracy: %.3f, Tactics: %zu",
-            newStrategy.engagementRange, newStrategy.predictionAccuracy, newStrategy.recommendedTactics.size());
-#endif
+            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                L"Strategy details - Range: %.1f, Prediction accuracy: %.3f, Tactics: %zu",
+                newStrategy.engagementRange, newStrategy.predictionAccuracy, newStrategy.recommendedTactics.size());
+        #endif
 
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception generating enemy strategy: %S", e.what());
-#endif
+        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception generating enemy strategy: %S", e.what());
+        #endif
     }
 }
 
 // Update overall difficulty recommendations
 void GamingAI::UpdateDifficultyRecommendations() {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Updating difficulty recommendations based on player performance");
-#endif
+    #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Updating difficulty recommendations based on player performance");
+    #endif
 
     try {
         // Use ThreadLockHelper for thread-safe difficulty update
         ThreadLockHelper difficultyLock(threadManager, "gamingai_difficulty_update", 2000);
         if (!difficultyLock.IsLocked()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for difficulty update");
-#endif
+            #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for difficulty update");
+            #endif
             return;                                                     // Failed to acquire lock
         }
 
@@ -3420,33 +3421,33 @@ void GamingAI::UpdateDifficultyRecommendations() {
         // Update current analysis result with new difficulty recommendation
         m_currentAnalysisResult.overallDifficultyRecommendation = adjustedDifficulty;
 
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_DEBUG,
-            L"Difficulty updated - Base: %.3f, Trend: %.3f, Final: %.3f",
-            baseDifficulty, performanceTrend, adjustedDifficulty);
-#endif
+        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                L"Difficulty updated - Base: %.3f, Trend: %.3f, Final: %.3f",
+                baseDifficulty, performanceTrend, adjustedDifficulty);
+        #endif
 
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception updating difficulty: %S", e.what());
-#endif
+        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception updating difficulty: %S", e.what());
+        #endif
     }
 }
 
 // Clean up outdated analysis data
 void GamingAI::ClearOutdatedData() {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Clearing outdated AI analysis data");
-#endif
+    #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Clearing outdated AI analysis data");
+    #endif
 
     try {
         // Use ThreadLockHelper for thread-safe data cleanup
         ThreadLockHelper cleanupLock(threadManager, "gamingai_data_cleanup", 5000);
         if (!cleanupLock.IsLocked()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for data cleanup");
-#endif
+            #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for data cleanup");
+            #endif
             return;                                                     // Failed to acquire lock
         }
 
@@ -3462,11 +3463,11 @@ void GamingAI::ClearOutdatedData() {
             auto dataAge = currentTime - playerData.lastAnalysisTime;
 
             if (dataAge > retentionDuration) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_DEBUG,
-                    L"Removing outdated data for player %u (age: %lld hours)",
-                    playerData.playerID, std::chrono::duration_cast<std::chrono::hours>(dataAge).count());
-#endif
+                #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+                    debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                        L"Removing outdated data for player %u (age: %lld hours)",
+                        playerData.playerID, std::chrono::duration_cast<std::chrono::hours>(dataAge).count());
+                #endif
 
                 it = m_playerAnalysisData.erase(it);
                 playersRemoved++;
@@ -3515,17 +3516,17 @@ void GamingAI::ClearOutdatedData() {
         size_t newModelSize = CalculateCurrentModelSize();
         m_currentModelSize.store(newModelSize);
 
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_INFO,
-            L"Data cleanup completed - Players removed: %zu, Entries cleared: %zu, New model size: %zu bytes",
-            playersRemoved, entriesCleared, newModelSize);
-#endif
+        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_INFO,
+                L"Data cleanup completed - Players removed: %zu, Entries cleared: %zu, New model size: %zu bytes",
+                playersRemoved, entriesCleared, newModelSize);
+        #endif
 
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception clearing outdated data: %S", e.what());
-#endif
+        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception clearing outdated data: %S", e.what());
+        #endif
     }
 }
 

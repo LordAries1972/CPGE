@@ -156,8 +156,8 @@ public:
     // Draws a single X x Y sized pixel at the specified position with the given RGBA color.
     void Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 color);
 
-    void Resize(uint32_t width, uint32_t height) override;
-    void WaitForGPUToFinish();
+    bool Resize(uint32_t width, uint32_t height) override;
+    void WaitForGPUToFinish() override;
     void UnloadTexture(int textureId, bool is2D);
     void Blit2DObject(BlitObj2DIndexType iIndex, int iX, int iY);
     void Blit2DObjectToSize(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight);
@@ -176,8 +176,11 @@ public:
     bool SetFullScreen(void) override;
     bool SetFullExclusive(uint32_t width, uint32_t height) override;
     bool SetWindowedScreen(void) override;
-
-	// Base class overrides
+    
+    // Window resize management function - waits for renderer completion then pauses render thread
+    void WaitToFinishThenPauseThread() override;
+	
+    // Base class overrides
     void DrawRectangle(const Vector2& position, const Vector2& size, const MyColor& color, bool is2D) override;
     void DrawMyText(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize) override;
     void DrawMyText(const std::wstring& text, const Vector2& position, const Vector2& size, const MyColor& color, const float FontSize) override;

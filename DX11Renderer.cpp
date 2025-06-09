@@ -179,10 +179,10 @@ bool DX11Renderer::StartRendererThreads()
         threadManager.SetThread(THREAD_LOADER, [this]() { LoaderTaskThread(); }, true);
         threadManager.StartThread(THREAD_LOADER);
         // Initialize & start the renderer thread
-#ifdef RENDERER_IS_THREAD
-        threadManager.SetThread(THREAD_RENDERER, [this]() { RenderFrame(); }, true);
-        threadManager.StartThread(THREAD_RENDERER);
-#endif
+        #ifdef RENDERER_IS_THREAD
+            threadManager.SetThread(THREAD_RENDERER, [this]() { RenderFrame(); }, true);
+            threadManager.StartThread(THREAD_RENDERER);
+        #endif
     }
     catch (const std::exception& e)
     {
@@ -1284,160 +1284,416 @@ void DX11Renderer::DrawVideoFrame(const Vector2& position, const Vector2& size, 
 //-----------------------------------------
 // Utility Functions
 //-----------------------------------------
-void DX11Renderer::Resize(uint32_t width, uint32_t height)
+bool DX11Renderer::Resize(uint32_t width, uint32_t height)
 {
-    std::string lockName = "renderer_resize_lock";
-    // Try to acquire the render mutex with a 1000ms timeout
-    if (!threadManager.TryLock(lockName, 1000)) {
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"Could not acquire render mutex for resize operation - timeout reached");
-        return;
+    // Acquire comprehensive resize lock to prevent conflicts
+    ThreadLockHelper comprehensiveResizeLock(threadManager, "comprehensive_resize_lock", 10000);
+    if (!comprehensiveResizeLock.IsLocked()) {
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RESIZE] Could not acquire comprehensive resize lock - aborting resize operation");
+        #endif
+        return false;
     }
 
-    #if defined(_DEBUG_RENDERER_)
-        debug.logLevelMessage(LogLevel::LOG_INFO, L"[RENDERER]: Resize requested: " + std::to_wstring(width) + L"x" + std::to_wstring(height));
+    #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[RESIZE] Beginning comprehensive resize operation to %dx%d", width, height);
     #endif
 
-    if (!m_swapChain || !m_d3dDevice || !m_d3dContext)
-    {
-        #if defined(_DEBUG_RENDERER_)
-            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[RENDERER]: Resize - Missing critical DX interfaces.");
+    // Validate resize parameters
+    if (!m_swapChain || !m_d3dDevice || !m_d3dContext) {
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[RESIZE] Missing critical DirectX interfaces - cannot resize");
         #endif
-        // Release the lock when done
-        threadManager.RemoveLock(lockName);
-        return;
+        return false;
     }
 
-    // Save old window size (only in windowed mode)
-    BOOL isFullscreen = FALSE;
-    m_swapChain->GetFullscreenState(&isFullscreen, nullptr);
-    if (!isFullscreen)
-    {
-        prevWindowedWidth = iOrigWidth;
-        prevWindowedHeight = iOrigHeight;
+    // Save current dimensions for comparison
+    UINT oldWidth = iOrigWidth;                                         // Store previous width
+    UINT oldHeight = iOrigHeight;                                       // Store previous height
 
-        #if defined(_DEBUG_RENDERER_)
-            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERER]: Saved previous windowed size: " +
-            std::to_wstring(prevWindowedWidth) + L"x" + std::to_wstring(prevWindowedHeight));
+    // Validate new dimensions are reasonable
+    if (width < 320 || height < 240 || width > 4096 || height > 4096) {
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[RESIZE] Invalid dimensions %dx%d - using fallback", width, height);
+        #endif
+        width = std::max(320U, std::min(width, 4096U));                 // Clamp width to valid range
+        height = std::max(240U, std::min(height, 4096U));               // Clamp height to valid range
+    }
+
+    // Check if resize is actually needed
+    if (width == oldWidth && height == oldHeight) {
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[RESIZE] Dimensions unchanged - skipping resize operation");
+        #endif
+        return false;
+    }
+
+    // Save windowed mode dimensions for later restoration
+    BOOL isFullscreen = FALSE;                                          // Current fullscreen state
+    HRESULT hr = m_swapChain->GetFullscreenState(&isFullscreen, nullptr);
+    if (SUCCEEDED(hr) && !isFullscreen) {
+        prevWindowedWidth = oldWidth;                                   // Save previous windowed width
+        prevWindowedHeight = oldHeight;                                 // Save previous windowed height
+        
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[RESIZE] Saved windowed dimensions: %dx%d", prevWindowedWidth, prevWindowedHeight);
         #endif
     }
 
-    #if defined(RENDERER_IS_THREAD)
-        // Ensure the renderer finishes first!
-        while (threadManager.threadVars.bIsRendering.load())
-        {
-            // Small delay to prevent CPU spinning
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    try {
+        // STEP 1: Ensure all GPU operations are complete
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[RESIZE] Step 1: Ensuring GPU operations complete");
+        #endif
+
+        if (m_d3dContext) {
+            m_d3dContext->Flush();                                      // Flush all pending DirectX commands
+            WaitForGPUToFinish();                                       // Wait for GPU to complete all operations
         }
 
-        // Now terminate the Renderer Thread.
-        threadManager.PauseThread(THREAD_RENDERER);
+        // STEP 2: Clear all Direct2D references that might hold swap chain buffers
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[RESIZE] Step 2: Releasing Direct2D references");
+        #endif
+
+        if (m_d2dContext) {
+            m_d2dContext->SetTarget(nullptr);                           // Clear Direct2D render target
+            m_d2dContext->Flush();                                      // Flush Direct2D operations
+        }
+
+        // STEP 3: Release all Direct2D resources that reference the swap chain
+        m_d2dRenderTarget.Reset();                                      // Release Direct2D render target
+        m_d2dContext.Reset();                                           // Release Direct2D context
+        dxgiSurface.Reset();                                            // Release DXGI surface
+
+        // STEP 4: Clean up all 2D textures to free memory references
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[RESIZE] Step 4: Cleaning 2D textures");
+        #endif
+        Clean2DTextures();                                              // Release all 2D texture references
+
+        // STEP 5: Release Direct3D render targets and depth buffers
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[RESIZE] Step 5: Releasing Direct3D render targets");
+        #endif
+
+        // Clear any bound render targets from the context
+        ID3D11RenderTargetView* nullRTV[1] = { nullptr };               // Null render target array
+        m_d3dContext->OMSetRenderTargets(1, nullRTV, nullptr);          // Clear bound render targets
+
+        // Release render target and depth stencil resources
+        m_renderTargetView.Reset();                                     // Release render target view
+        m_depthStencilView.Reset();                                     // Release depth stencil view
+        m_depthStencilBuffer.Reset();                                   // Release depth stencil buffer
+
+        // STEP 6: Additional context cleanup to ensure no buffer references remain
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[RESIZE] Step 6: Final context cleanup");
+        #endif
+
+        if (m_d3dContext) {
+            // Clear all shader resource views that might reference buffers
+            ID3D11ShaderResourceView* nullSRV[8] = { nullptr };         // Null shader resource array
+            m_d3dContext->PSSetShaderResources(0, 8, nullSRV);          // Clear pixel shader resources
+            m_d3dContext->VSSetShaderResources(0, 8, nullSRV);          // Clear vertex shader resources
+
+            // Clear vertex buffers and other bindings
+            ID3D11Buffer* nullBuffer[1] = { nullptr };                  // Null buffer array
+            UINT nullStride = 0;                                        // Zero stride
+            UINT nullOffset = 0;                                        // Zero offset
+            m_d3dContext->IASetVertexBuffers(0, 1, nullBuffer, &nullStride, &nullOffset); // Clear vertex buffers
+            m_d3dContext->IASetIndexBuffer(nullptr, DXGI_FORMAT_UNKNOWN, 0); // Clear index buffer
+
+            // Final flush and synchronization
+            m_d3dContext->ClearState();                                 // Clear all device context state
+            m_d3dContext->Flush();                                      // Final flush of all operations
+        }
+
+        // STEP 7: Perform the actual swap chain resize
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[RESIZE] Step 7: Resizing swap chain buffers to %dx%d", width, height);
+        #endif
+
+        hr = m_swapChain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0);
+        if (FAILED(hr)) {
+            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"[RESIZE] ResizeBuffers failed with HRESULT: 0x%08X", hr);
+            #endif
+            throw std::runtime_error("DirectX ResizeBuffers operation failed");
+        }
+
+        // STEP 8: Recreate render target view from new back buffer
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[RESIZE] Step 8: Recreating render target view");
+        #endif
+
+        ComPtr<ID3D11Texture2D> backBuffer;                             // New back buffer texture
+        hr = m_swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
+        if (FAILED(hr)) {
+            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"[RESIZE] Failed to get new back buffer: 0x%08X", hr);
+            #endif
+            throw std::runtime_error("Failed to retrieve new back buffer");
+        }
+
+        hr = m_d3dDevice->CreateRenderTargetView(backBuffer.Get(), nullptr, m_renderTargetView.GetAddressOf());
+        if (FAILED(hr)) {
+            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"[RESIZE] Failed to create new render target view: 0x%08X", hr);
+            #endif
+            throw std::runtime_error("Failed to create new render target view");
+        }
+
+        // STEP 9: Recreate depth stencil buffer with new dimensions
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[RESIZE] Step 9: Recreating depth stencil buffer");
+        #endif
+
+        D3D11_TEXTURE2D_DESC depthDesc = {};                           // Depth buffer description
+        depthDesc.Width = width;                                        // New buffer width
+        depthDesc.Height = height;                                      // New buffer height
+        depthDesc.MipLevels = 1;                                        // Single mip level
+        depthDesc.ArraySize = 1;                                        // Single array element
+        depthDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;              // 24-bit depth, 8-bit stencil
+        depthDesc.SampleDesc.Count = 1;                                 // No multisampling
+        depthDesc.SampleDesc.Quality = 0;                               // Default quality
+        depthDesc.Usage = D3D11_USAGE_DEFAULT;                          // Default usage
+        depthDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;                 // Bind as depth stencil
+
+        hr = m_d3dDevice->CreateTexture2D(&depthDesc, nullptr, m_depthStencilBuffer.GetAddressOf());
+        if (FAILED(hr)) {
+            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"[RESIZE] Failed to create new depth stencil buffer: 0x%08X", hr);
+            #endif
+            throw std::runtime_error("Failed to create new depth stencil buffer");
+        }
+
+        hr = m_d3dDevice->CreateDepthStencilView(m_depthStencilBuffer.Get(), nullptr, m_depthStencilView.GetAddressOf());
+        if (FAILED(hr)) {
+            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"[RESIZE] Failed to create new depth stencil view: 0x%08X", hr);
+            #endif
+            throw std::runtime_error("Failed to create new depth stencil view");
+        }
+
+        // STEP 10: Update viewport to match new dimensions
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[RESIZE] Step 10: Updating viewport");
+        #endif
+
+        D3D11_VIEWPORT vp = {};                                         // New viewport configuration
+        vp.Width = static_cast<float>(width);                           // Viewport width
+        vp.Height = static_cast<float>(height);                         // Viewport height
+        vp.MinDepth = 0.0f;                                             // Minimum depth value
+        vp.MaxDepth = 1.0f;                                             // Maximum depth value
+        vp.TopLeftX = 0;                                                // Viewport X origin
+        vp.TopLeftY = 0;                                                // Viewport Y origin
+        m_d3dContext->RSSetViewports(1, &vp);                           // Apply new viewport
+
+        // STEP 11: Bind new render targets to output merger
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[RESIZE] Step 11: Binding new render targets");
+        #endif
+
+        m_d3dContext->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
+
+        // STEP 12: Update internal dimension tracking
+        iOrigWidth = width;                                             // Update internal width
+        iOrigHeight = height;                                           // Update internal height
+
+        // Store render target properties for future use
+        m_renderTargetWidth = width;                                    // Store render target width
+        m_renderTargetHeight = height;                                  // Store render target height
+        m_renderTargetSampleCount = 1;                                  // Store sample count
+        m_renderTargetSampleQuality = 0;                                // Store sample quality
+
+        // STEP 13: Update camera projection for new aspect ratio
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[RESIZE] Step 13: Updating camera projection for new aspect ratio");
+        #endif
+
+        // Calculate new aspect ratio
+        float newAspectRatio = static_cast<float>(width) / static_cast<float>(height);
+
+        // Update camera with new dimensions and aspect ratio
+        myCamera.UpdateResolution(width, height, newAspectRatio);
+
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[RESIZE] Camera updated - New aspect ratio: %.3f", newAspectRatio);
+        #endif
+
+        // STEP 14: Recreate Direct2D resources
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[RESIZE] Step 14: Recreating Direct2D resources");
+        #endif
+
+        CreateDirect2DResources();                                      // Recreate Direct2D rendering context
+
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[RESIZE] Resize operation completed successfully - Old: %dx%d, New: %dx%d", 
+                oldWidth, oldHeight, width, height);
+        #endif
+
+    }
+    catch (const std::exception& e) {
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"[RESIZE] Exception during resize operation: %hs", e.what());
+        #endif
+
+        // Attempt to restore previous state on failure
+        try {
+            iOrigWidth = oldWidth;                                      // Restore previous width
+            iOrigHeight = oldHeight;                                    // Restore previous height
+            
+            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[RESIZE] Restored previous dimensions after failure");
+            #endif
+        }
+        catch (...) {
+            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[RESIZE] Failed to restore previous state");
+            #endif
+        }
+
+        // Re-throw the exception to caller
+        throw;
+        return false;
+    }
+
+    // Resize operation completed successfully
+    return true; 
+}
+
+// *-------------------------------------------------------------------------------------*
+// WaitToFinishThenPauseThread - Safely waits for renderer to complete current operations
+// then pauses the renderer thread to allow for safe resource cleanup during resize
+// *-------------------------------------------------------------------------------------*
+void DX11Renderer::WaitToFinishThenPauseThread() {
+    #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[RENDERER] WaitToFinishThenPauseThread() - Beginning enhanced safe thread pause sequence");
     #endif
 
-    // --- Release all references before ResizeBuffers() ---
-    if (m_d2dContext)
-    {
-        m_d2dContext->SetTarget(nullptr);
-        m_d2dContext->Flush();
-        D2DBusy.store(false);
-    }
-
-    // --- Clean old 2D textures using invalidated render targets ---
-    m_d2dRenderTarget.Reset();
-    m_d2dContext.Reset();
-    dxgiSurface.Reset();
-    Clean2DTextures();
-
-    m_renderTargetView.Reset();
-    m_depthStencilView.Reset();
-    m_depthStencilBuffer.Reset();
-
-    // Resize swap chain
-    HRESULT hr = m_swapChain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0);
-    if (FAILED(hr))
-    {
-        #if defined(_DEBUG_RENDERER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER]: ResizeBuffers failed.");
+    // Step 1: Acquire exclusive DirectX access lock to prevent concurrent operations
+    ThreadLockHelper exclusiveDirectXLock(threadManager, "exclusive_directx_access", 10000);
+    if (!exclusiveDirectXLock.IsLocked()) {
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] WaitToFinishThenPauseThread() - Failed to acquire exclusive DirectX lock");
         #endif
-        threadManager.RemoveLock(lockName);
         return;
     }
 
-    // Recreate render target view
-    ComPtr<ID3D11Texture2D> backBuffer;
-    hr = m_swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
-    if (FAILED(hr))
-    {
-        #if defined(_DEBUG_RENDERER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER]: Failed to retrieve back buffer.");
+    // Step 2: Wait for current rendering operations to complete with enhanced monitoring
+    int waitAttempts = 0;                                               // Counter to prevent infinite waiting
+    const int maxWaitAttempts = 500;                                    // Maximum wait cycles (5 seconds at 10ms intervals)
+    
+    #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[RENDERER] WaitToFinishThenPauseThread() - Waiting for render operations to complete");
+    #endif
+    
+    while (threadManager.threadVars.bIsRendering.load() && waitAttempts < maxWaitAttempts) {
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            if (waitAttempts % 100 == 0 && waitAttempts > 0) {          // Log every 1000ms to avoid spam
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[RENDERER] WaitToFinishThenPauseThread() - Still waiting for render completion, attempt %d", waitAttempts);
+            }
         #endif
-        threadManager.RemoveLock(lockName);
-        return;
+        
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));     // Small delay to prevent CPU spinning
+        waitAttempts++;                                                 // Increment wait counter
     }
 
-    hr = m_d3dDevice->CreateRenderTargetView(backBuffer.Get(), nullptr, m_renderTargetView.GetAddressOf());
-    if (FAILED(hr))
-    {
-        #if defined(_DEBUG_RENDERER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER]: Failed to create render target view.");
+    // Step 3: Check if we timed out waiting for renderer
+    if (waitAttempts >= maxWaitAttempts) {
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[RENDERER] WaitToFinishThenPauseThread() - Timeout waiting for renderer to finish, forcing pause");
         #endif
-        threadManager.RemoveLock(lockName);
-        return;
+    } else {
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[RENDERER] WaitToFinishThenPauseThread() - Renderer completed after %d wait cycles", waitAttempts);
+        #endif
     }
 
-    // Recreate depth stencil buffer
-    D3D11_TEXTURE2D_DESC depthDesc = {};
-    depthDesc.Width = width;
-    depthDesc.Height = height;
-    depthDesc.MipLevels = 1;
-    depthDesc.ArraySize = 1;
-    depthDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-    depthDesc.SampleDesc.Count = 1;
-    depthDesc.Usage = D3D11_USAGE_DEFAULT;
-    depthDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
-
-    hr = m_d3dDevice->CreateTexture2D(&depthDesc, nullptr, m_depthStencilBuffer.GetAddressOf());
-    hr = m_d3dDevice->CreateDepthStencilView(m_depthStencilBuffer.Get(), nullptr, m_depthStencilView.GetAddressOf());
-
-    // Bind new targets
-    m_d3dContext->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
-    CreateDirect2DResources();
-
-    // Recreate viewport
-    D3D11_VIEWPORT vp = {};
-    vp.Width = static_cast<float>(width);
-    vp.Height = static_cast<float>(height);
-    vp.MinDepth = 0.0f;
-    vp.MaxDepth = 1.0f;
-    m_d3dContext->RSSetViewports(1, &vp);
-
-    iOrigWidth = width;
-    iOrigHeight = height;
-
-    // Recreate D2D target
-    hr = m_swapChain->GetBuffer(0, IID_PPV_ARGS(&dxgiSurface));
-    if (SUCCEEDED(hr) && m_d2dDevice)
-    {
-        hr = m_d2dDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &m_d2dContext);
-        if (SUCCEEDED(hr))
-        {
-            D2D1_BITMAP_PROPERTIES1 props = {};
-            props.pixelFormat.format = DXGI_FORMAT_B8G8R8A8_UNORM;
-            props.pixelFormat.alphaMode = D2D1_ALPHA_MODE_PREMULTIPLIED;
-            props.dpiX = 96.0f;
-            props.dpiY = 96.0f;
-            props.bitmapOptions = D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW;
-
-            ComPtr<ID2D1Bitmap1> targetBitmap;
-            hr = m_d2dContext->CreateBitmapFromDxgiSurface(dxgiSurface.Get(), &props, targetBitmap.GetAddressOf());
-            if (SUCCEEDED(hr))
-                m_d2dContext->SetTarget(targetBitmap.Get());
+    // Step 4: Additional DirectX-specific synchronization
+    if (m_d3dContext) {
+        try {
+            // Flush all pending DirectX commands to ensure completion
+            m_d3dContext->Flush();                                       // Force completion of all queued commands
+            
+            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"[RENDERER] WaitToFinishThenPauseThread() - DirectX context flushed");
+            #endif
+        }
+        catch (const std::exception& e) {
+            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERER] WaitToFinishThenPauseThread() - Exception during context flush: %hs", e.what());
+            #endif
         }
     }
 
-    threadManager.threadVars.bIsResizing.store(false);
+    // Step 5: Ensure GPU operations are complete with timeout
+    try {
+        WaitForGPUToFinish();                                           // Use existing GPU synchronization method
+        
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[RENDERER] WaitToFinishThenPauseThread() - GPU operations completed");
+        #endif
+    }
+    catch (const std::exception& e) {
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERER] WaitToFinishThenPauseThread() - Exception during GPU wait: %hs", e.what());
+        #endif
+    }
 
-    // Exit THE render mutex scope
-    threadManager.RemoveLock(lockName);
+    // Step 6: Pause the renderer thread safely
+    ThreadStatus rendererStatus = threadManager.GetThreadStatus(THREAD_RENDERER);
+    if (rendererStatus == ThreadStatus::Running) {
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[RENDERER] WaitToFinishThenPauseThread() - Pausing renderer thread");
+        #endif
+        
+        threadManager.PauseThread(THREAD_RENDERER);                     // Pause the renderer thread
+        
+        // Step 7: Verify thread was successfully paused with extended timeout
+        int pauseVerifyAttempts = 0;                                    // Counter for pause verification
+        const int maxPauseVerifyAttempts = 200;                         // Maximum attempts to verify pause (2 seconds)
+        
+        while (threadManager.GetThreadStatus(THREAD_RENDERER) == ThreadStatus::Running && 
+               pauseVerifyAttempts < maxPauseVerifyAttempts) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10)); // Brief wait for thread state change
+            pauseVerifyAttempts++;                                      // Increment verification counter
+        }
+        
+        if (pauseVerifyAttempts >= maxPauseVerifyAttempts) {
+            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[RENDERER] WaitToFinishThenPauseThread() - Thread pause verification timeout");
+            #endif
+        } else {
+            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"[RENDERER] WaitToFinishThenPauseThread() - Thread successfully paused after %d verification cycles", pauseVerifyAttempts);
+            #endif
+        }
+    } else {
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[RENDERER] WaitToFinishThenPauseThread() - Thread already in state: %d", static_cast<int>(rendererStatus));
+        #endif
+    }
+
+    // Step 8: Final verification that no DirectX operations are active
+    int finalVerifyAttempts = 0;                                        // Counter for final verification
+    const int maxFinalVerifyAttempts = 50;                              // Maximum attempts for final verification
+    
+    while (threadManager.threadVars.bIsRendering.load() && finalVerifyAttempts < maxFinalVerifyAttempts) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));     // Brief wait for operations to cease
+        finalVerifyAttempts++;                                          // Increment final verification counter
+    }
+
+    #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+        if (finalVerifyAttempts > 0) {
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[RENDERER] WaitToFinishThenPauseThread() - Final verification completed after %d cycles", finalVerifyAttempts);
+        }
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[RENDERER] WaitToFinishThenPauseThread() - Enhanced safe thread pause sequence completed successfully");
+    #endif
+
+    // Note: exclusiveDirectXLock will be automatically released when it goes out of scope
 }
 
 void DX11Renderer::ResumeLoader(bool isResizing)

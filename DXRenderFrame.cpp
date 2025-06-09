@@ -54,506 +54,663 @@ extern std::atomic<bool> bFullScreenTransition;                // Prevents handl
 
 void DX11Renderer::RenderFrame()
 {
-    // SAFE-GUARDS
-    if (bHasCleanedUp || !m_d3dDevice || !m_d3dContext || !m_cameraConstantBuffer) return;
-    if (threadManager.threadVars.bIsShuttingDown.load() || bIsMinimized.load() || threadManager.threadVars.bIsResizing.load() ||
-        threadManager.threadVars.bIsRendering.load() || !bIsInitialized.load()) return;
+    // ENHANCED SAFE-GUARDS - Check all critical conditions before proceeding
+    if (bHasCleanedUp || !m_d3dDevice || !m_d3dContext || !m_cameraConstantBuffer) {
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Early exit - missing critical resources");
+        #endif
+        return;
+    }
+    
+    // Check for shutdown, minimized, resizing, or already rendering states
+    if (threadManager.threadVars.bIsShuttingDown.load() || bIsMinimized.load() || 
+        threadManager.threadVars.bIsResizing.load() || !bIsInitialized.load()) {
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Early exit - system state prevents rendering");
+        #endif
+        return;
+    }
+
+    // CRITICAL: Prevent multiple render operations and ensure exclusive DirectX access
+    ThreadLockHelper exclusiveRenderLock(threadManager, "exclusive_render_operation", 50);
+    if (!exclusiveRenderLock.IsLocked()) {
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Could not acquire exclusive render lock - skipping frame");
+        #endif
+        return;
+    }
+
+    // Double-check rendering state after acquiring lock
+    if (threadManager.threadVars.bIsRendering.load()) {
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[RENDERFRAME] Another render operation already active - aborting");
+        #endif
+        return;
+    }
 
     try
     {
-        exceptionHandler.RecordFunctionCall("RenderFrame");
-        // Try to acquire the render frame lock with a 10ms timeout
-        if (!threadManager.TryLock(renderFrameLockName, 10)) {
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Could not acquire render frame lock - timeout reached");
-            return;
-        }
+        exceptionHandler.RecordFunctionCall("RenderFrame");             // Record function call for crash analysis
+        
+        // Set rendering state atomically to indicate we are now rendering
+        threadManager.threadVars.bIsRendering.store(true);
 
-        // Clear buffers & Initialize
-        HRESULT hr = S_OK;
-        HWND hWnd = hwnd;
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Beginning render operation");
+        #endif
 
-        // Save the current Direct3D state
-        ComPtr<ID3D11RenderTargetView> previousRenderTargetView;
-        ComPtr<ID3D11DepthStencilView> previousDepthStencilView;
-        FLOAT clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-        D3D11_VIEWPORT previousViewport;
-        UINT numViewports = 1;
-        D3D11_VIEWPORT viewport = {};
-        RECT rc;
+        // Initialize local variables for rendering
+        HRESULT hr = S_OK;                                              // DirectX operation result
+        HWND hWnd = hwnd;                                               // Window handle for client area calculations
+
+        // Save the current Direct3D state for restoration
+        ComPtr<ID3D11RenderTargetView> previousRenderTargetView;        // Previous render target backup
+        ComPtr<ID3D11DepthStencilView> previousDepthStencilView;        // Previous depth stencil backup
+        FLOAT clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };             // Black clear color with full alpha
+        D3D11_VIEWPORT previousViewport;                                // Previous viewport backup
+        UINT numViewports = 1;                                          // Number of viewports to retrieve
+        D3D11_VIEWPORT viewport = {};                                   // Current viewport configuration
+        RECT rc;                                                        // Client rectangle for viewport calculation
 
 #ifdef RENDERER_IS_THREAD
+        // Thread-based rendering loop - check thread status continuously
         ThreadStatus status = threadManager.GetThreadStatus(THREAD_RENDERER);
-        while (((status == ThreadStatus::Running) || (status == ThreadStatus::Paused)) && (!threadManager.threadVars.bIsShuttingDown.load()))
+        while (((status == ThreadStatus::Running) || (status == ThreadStatus::Paused)) && 
+               (!threadManager.threadVars.bIsShuttingDown.load()))
         {
+            // Update thread status for current iteration
             status = threadManager.GetThreadStatus(THREAD_RENDERER);
+            
+            // Handle paused state - yield CPU and continue loop
             if (status == ThreadStatus::Paused)
             {
-                threadManager.threadVars.bIsRendering.store(false);
-                Sleep(1);
-                continue;
+                threadManager.threadVars.bIsRendering.store(false);     // Clear rendering flag during pause
+                std::this_thread::sleep_for(std::chrono::milliseconds(1)); // Brief yield to prevent CPU spinning
+                continue;                                               // Skip to next iteration
             }
 
+            // Verify we can still render after status check
+            if (threadManager.threadVars.bIsResizing.load() || bIsMinimized.load()) {
+                threadManager.threadVars.bIsRendering.store(false);     // Clear rendering flag
+                std::this_thread::sleep_for(std::chrono::milliseconds(10)); // Longer yield during resize/minimize
+                continue;                                               // Skip to next iteration
+            }
+
+            // Confirm rendering state is active
             threadManager.threadVars.bIsRendering.store(true);
 #endif
 
-            m_d3dContext->OMGetRenderTargets(1, previousRenderTargetView.GetAddressOf(), previousDepthStencilView.GetAddressOf());
-            m_d3dContext->RSGetViewports(&numViewports, &previousViewport);
-
-            if (!winMetrics.isFullScreen)
-            {
-                GetClientRect(hWnd, &rc);
-            }
-            else
-            {
-                rc = winMetrics.monitorFullArea;
-            }
-
-            float width = float(rc.right - rc.left);
-            float height = float(rc.bottom - rc.top);
-            viewport.Width = width;
-            viewport.Height = height;
-            viewport.MinDepth = 0.0f;
-            viewport.MaxDepth = 1.0f;
-            viewport.TopLeftX = 0;
-            viewport.TopLeftY = 0;
-            m_d3dContext->RSSetViewports(1, &viewport);
-
-            static Microsoft::WRL::ComPtr<ID3D11RasterizerState> wireframeRS;
-
-#if defined(_DEBUG_RENDER_WIREFRAME_)
-            if (bWireframeMode && m_wireframeState)
-            {
-                // Set rasterizer state
-                m_d3dContext->RSSetState(m_wireframeState.Get());
-            }
-            else if (m_rasterizerState)
-            {
-                // Set rasterizer state
-                m_d3dContext->RSSetState(m_rasterizerState.Get());
-            }
-#else
-            // DEFAULT: Set rasterizer state
-            m_d3dContext->RSSetState(m_rasterizerState.Get());
-#endif
-
-            // Check the status of the rendering thread
+            // CRITICAL: Check device state and handle device removal
             if (m_d3dDevice)
             {
-                HRESULT hr = m_d3dDevice->GetDeviceRemovedReason();
+                HRESULT deviceStatus = m_d3dDevice->GetDeviceRemovedReason(); // Check for device removal
 
-                // Only attempt reset if:
-                // 1. Device is reporting failure
-                // 2. Thread is NOT actively resizing
-                // 3. Window is not minimized or hidden
-                if (FAILED(hr) && (!threadManager.threadVars.bIsResizing.load()))
+                // Only attempt device reset if conditions are met
+                if (FAILED(deviceStatus) && (!threadManager.threadVars.bIsResizing.load()))
                 {
-                    if (!sysUtils.IsWindowMinimized()) // <- Confirm window state first!
+                    // Verify window is not minimized before attempting device reset
+                    if (!sysUtils.IsWindowMinimized()) 
                     {
-                        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[DX11Renderer] Device removed detected. Attempting Reset.");
-                        threadManager.threadVars.bIsResizing.store(true);
-                        Resize(iOrigWidth, iOrigHeight);
-                        ResumeLoader();
-                        threadManager.threadVars.bIsResizing.store(false);
-                        return;
+                        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[RENDERFRAME] Device removed detected (0x%08X). Attempting reset.", deviceStatus);
+                        #endif
+                        
+                        threadManager.threadVars.bIsResizing.store(true); // Set resize flag for reset operation
+                        
+                        try {
+                            Resize(iOrigWidth, iOrigHeight);             // Attempt device reset through resize
+                            ResumeLoader();                              // Reload resources after reset
+                        }
+                        catch (const std::exception& e) {
+                            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Device reset failed: %hs", e.what());
+                            #endif
+                        }
+                        
+                        threadManager.threadVars.bIsResizing.store(false); // Clear resize flag
+                        threadManager.threadVars.bIsRendering.store(false); // Clear rendering flag
+                        return;                                         // Exit after device reset attempt
                     }
                     else
                     {
-                        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[DX11Renderer] Device removed but window minimized. Skipping reset.");
+                        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Device removed but window minimized. Skipping reset.");
+                        #endif
+                        threadManager.threadVars.bIsRendering.store(false); // Clear rendering flag
+                        return;                                         // Exit without reset
                     }
                 }
             }
 
-            // State that we are now rendering
-            threadManager.threadVars.bIsRendering.store(true);
+            // STEP 1: Save current DirectX state for proper restoration
+            try {
+                m_d3dContext->OMGetRenderTargets(1, previousRenderTargetView.GetAddressOf(), previousDepthStencilView.GetAddressOf());
+                m_d3dContext->RSGetViewports(&numViewports, &previousViewport);
+            }
+            catch (const std::exception& e) {
+                #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                    debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Failed to save DirectX state: %hs", e.what());
+                #endif
+                threadManager.threadVars.bIsRendering.store(false);     // Clear rendering flag on error
+                return;                                                 // Exit on state save failure
+            }
 
-            // Clear the render target and depth stencil view before we start rendering
+            // STEP 2: Calculate viewport dimensions based on fullscreen/windowed mode
+            if (!winMetrics.isFullScreen)
+            {
+                GetClientRect(hWnd, &rc);                               // Get windowed client area
+            }
+            else
+            {
+                rc = winMetrics.monitorFullArea;                        // Use fullscreen monitor area
+            }
+
+            // Configure viewport with calculated dimensions
+            float width = float(rc.right - rc.left);                   // Calculate viewport width
+            float height = float(rc.bottom - rc.top);                  // Calculate viewport height
+            viewport.Width = width;                                     // Set viewport width
+            viewport.Height = height;                                   // Set viewport height
+            viewport.MinDepth = 0.0f;                                   // Set minimum depth value
+            viewport.MaxDepth = 1.0f;                                   // Set maximum depth value
+            viewport.TopLeftX = 0;                                      // Set viewport X origin
+            viewport.TopLeftY = 0;                                      // Set viewport Y origin
+            m_d3dContext->RSSetViewports(1, &viewport);                 // Apply viewport to rendering context
+
+            // STEP 3: Configure rasterizer state based on wireframe mode
+            static Microsoft::WRL::ComPtr<ID3D11RasterizerState> wireframeRS; // Static wireframe state
+
+#if defined(_DEBUG_RENDER_WIREFRAME_)
+            // Debug wireframe rendering mode
+            if (bWireframeMode && m_wireframeState)
+            {
+                m_d3dContext->RSSetState(m_wireframeState.Get());       // Apply wireframe rasterizer state
+            }
+            else if (m_rasterizerState)
+            {
+                m_d3dContext->RSSetState(m_rasterizerState.Get());      // Apply standard rasterizer state
+            }
+#else
+            // Production rendering mode - always use standard rasterizer
+            if (m_rasterizerState) {
+                m_d3dContext->RSSetState(m_rasterizerState.Get());      // Apply standard rasterizer state
+            }
+#endif
+
+            // STEP 4: Clear render targets with thread-safe access
             try
             {
-                if (m_d3dContext && threadManager.TryLock(D2DLockName, 100))
+                // Acquire D2D lock to prevent conflicts with 2D rendering operations
+                ThreadLockHelper d2dClearLock(threadManager, D2DLockName, 100);
+                if (d2dClearLock.IsLocked())
                 {
+                    // Clear render target with black color
                     m_d3dContext->ClearRenderTargetView(m_renderTargetView.Get(), clearColor);
+                    // Clear depth stencil with maximum depth and zero stencil
                     m_d3dContext->ClearDepthStencilView(m_depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-                    threadManager.RemoveLock(D2DLockName);
+                    
+                    #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Render targets cleared successfully");
+                    #endif
+                }
+                else
+                {
+                    #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[RENDERFRAME] Could not acquire D2D lock for clearing - skipping clear");
+                    #endif
                 }
             }
             catch (const std::exception& e)
             {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDER] - RenderFrame Clear Failed: " + std::wstring(e.what(), e.what() + strlen(e.what())));
-                #ifdef RENDERER_IS_THREAD
-                       continue;
-                #else
-                       return;
+                #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                    debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Clear operation failed: %hs", e.what());
                 #endif
+                threadManager.threadVars.bIsRendering.store(false);     // Clear rendering flag on error
+#ifdef RENDERER_IS_THREAD
+                continue;                                               // Continue thread loop on error
+#else
+                return;                                                 // Exit on error in non-threaded mode
+#endif
             }
 
-            // Update the camera's jump animation
-            myCamera.UpdateJumpAnimation();
-                // Update the cameras viewmatrix
-//                myCamera.UpdateViewMatrix();
+            // STEP 5: Update camera animation and timing
+            myCamera.UpdateJumpAnimation();                             // Update camera jump animation state
 
-            // Update effects
-            static auto myLastTime = std::chrono::high_resolution_clock::now();
-            auto myCurrentTime = std::chrono::high_resolution_clock::now();
-            myLastTime = myCurrentTime;
+            // Calculate frame timing for smooth animation
+            auto now = std::chrono::steady_clock::now();                // Get current high-resolution time
+            float deltaTime = std::chrono::duration<float>(now - lastFrameTime).count(); // Calculate delta time in seconds
+            lastFrameTime = now;                                        // Update frame time for next frame
 
-            // Get current frame start time
-            auto now = std::chrono::steady_clock::now();
-
-            // Compute delta time in seconds as a float
-            float deltaTime = std::chrono::duration<float>(now - lastFrameTime).count();
-
-            // Update the timer for the next frame
-            lastFrameTime = now;
-
-            //            GetCursorPos(&cursorPos);
-            //            ScreenToClient(hWnd, &cursorPos);
-            //            myMouseCoords.x = cursorPos.x;
-            //            myMouseCoords.y = cursorPos.y;
-                        // Scale the mouse coordinates
-            //            auto [scaledX, scaledY] = sysUtils.ScaleMouseCoordinates(cursorPos.x, cursorPos.x, iOrigWidth, iOrigHeight, width, height);
-            //            float x = float(scaledX);
-            //			float y = float(scaledY);
-
-                        // We now need to determine which Scene we are to render for?
+            // STEP 6: Set render targets for 3D rendering
             m_d3dContext->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
+
+            // STEP 7: Scene-specific 3D rendering
             switch (scene.stSceneType)
             {
-            case SceneType::SCENE_SPLASH:
-            {
-                // Try to acquire the D2D render lock with a 100ms timeout
-                if (threadManager.TryLock(D2DLockName, 100))                        // Signal that Direct2D is now busy with rendering operations.
+                case SceneType::SCENE_SPLASH:
                 {
-                    // Inform Direct2D we are to begin drawing calls.
-                    m_d2dRenderTarget->BeginDraw();
-
-                    // Present Splash Screen
-                    if ((m_d2dTextures[int(BlitObj2DIndexType::IMG_SPLASH1)]))
-                        Blit2DObjectToSize(BlitObj2DIndexType::IMG_SPLASH1, 0, 0, iOrigWidth, iOrigHeight);
-
-                    m_d2dRenderTarget->EndDraw();
-                    // Release the D2D render lock
-                    threadManager.RemoveLock(D2DLockName);
-                }
-                else
-                {
-                    debug.logLevelMessage(LogLevel::LOG_WARNING, L"Could not acquire D2D render lock - skipping D2D operations");
-                }
-
-                break;
-            }
-
-            case SceneType::SCENE_INTRO_MOVIE:
-            {
-                // Try to acquire the D2D render lock with a 100ms timeout
-                if (threadManager.TryLock(D2DLockName, 100))                        // Signal that Direct2D is now busy with rendering operations.
-                {
-                    // Inform Direct2D we are to begin drawing calls.
-                    m_d2dRenderTarget->BeginDraw();
-                    // Is the movie playing
-                    if (moviePlayer.IsPlaying()) {
-                        // Update the movie frame
-                        moviePlayer.UpdateFrame();
-
-                        // Render the movie to fill the screen
-                        moviePlayer.Render(Vector2(0, 0), Vector2(iOrigWidth, iOrigHeight));
-
-                        // Draw Logo image.
-                        Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - 47);
-
-                        // Check to see if the user has pressed the space bar
-                        if (GetAsyncKeyState(' ') & 0x8000)
-                        {
-                            // Stop Playback as this will switch the scene!
-                            moviePlayer.Stop();
-                            scene.bSceneSwitching = true;
-                            fxManager.FadeToBlack(1.0f, 0.06f);
-                        }
-                    }
-
-                    m_d2dRenderTarget->EndDraw();
-                    // Release the D2D render lock
-                    threadManager.RemoveLock(D2DLockName);
-                }
-                else
-                {
-                    debug.logLevelMessage(LogLevel::LOG_WARNING, L"Could not acquire D2D render lock - skipping D2D operations");
-                }
-
-                break;
-            }
-
-            case SceneType::SCENE_GAMEPLAY:
-            {
-                // Clear buffers
-                if (m_d3dContext)
-                {
-                    // 3D Rendering
-
-                    // Populate the constant buffer data
-                    ConstantBuffer cb;
-                    cb.viewMatrix = myCamera.GetViewMatrix();
-                    cb.projectionMatrix = myCamera.GetProjectionMatrix();
-                    cb.cameraPosition = myCamera.GetPosition();
-
-                    // Update the constant buffer
-                    D3D11_MAPPED_SUBRESOURCE mappedResource;
-                    HRESULT hr = m_d3dContext->Map(m_cameraConstantBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
-                    if (FAILED(hr)) {
-                        debug.logLevelMessage(LogLevel::LOG_ERROR, L"UpdateConstantBuffer: Failed to map constant buffer.");
-                        return;
-                    }
-
-                    // Copy the data to the constant buffer
-                    memcpy(mappedResource.pData, &cb, sizeof(ConstantBuffer));
-                    m_d3dContext->Unmap(m_cameraConstantBuffer.Get(), 0);
-                    // Bind the constant buffer to the vertex shader
-                    m_d3dContext->VSSetConstantBuffers(SLOT_CONST_BUFFER, 1, m_cameraConstantBuffer.GetAddressOf());
-
-                    // Debug constant buffer for debugging pixel shader.
-                    #if defined(_DEBUG_RENDERER_) && defined(_DEBUG) && defined(_DEBUG_PIXSHADER_)
-                        if (GetAsyncKeyState('1') & 0x8000) SetDebugMode(0); // Run as Normally would! Production view!
-                        if (GetAsyncKeyState('2') & 0x8000) SetDebugMode(1); // Normals Only
-                        if (GetAsyncKeyState('3') & 0x8000) SetDebugMode(2); // Texture Only
-                        if (GetAsyncKeyState('4') & 0x8000) SetDebugMode(3); // Lighting Only
-                        if (GetAsyncKeyState('5') & 0x8000) SetDebugMode(4); // Specular Only
-                        if (GetAsyncKeyState('6') & 0x8000) SetDebugMode(5); // Attenuation/Normals
-                        if (GetAsyncKeyState('7') & 0x8000) SetDebugMode(6); // Shadows Only
-                        if (GetAsyncKeyState('8') & 0x8000) SetDebugMode(7); // Reflection Only
-                        if (GetAsyncKeyState('9') & 0x8000) SetDebugMode(8); // Metallic Only
+                    // Splash screen - minimal 3D rendering, primarily 2D
+                    #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Rendering splash scene");
                     #endif
+                    break;
+                }
 
-                    // Ensure all loading is complete before rendering models and lighting.
-                    if (threadManager.threadVars.bLoaderTaskFinished.load())
+                case SceneType::SCENE_INTRO_MOVIE:
+                {
+                    // Movie introduction - minimal 3D rendering
+                    #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Rendering movie intro scene");
+                    #endif
+                    break;
+                }
+
+                case SceneType::SCENE_GAMEPLAY:
+                {
+                    // Primary gameplay scene - full 3D rendering pipeline
+                    if (m_d3dContext && m_cameraConstantBuffer)
                     {
-                        // (Add 3D object rendering here)
-                        #if defined(_RENDERER_WIREFRAME_)
-                            m_d3dContext->RSSetState(wireframeRS.Get());
+                        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Rendering gameplay scene - 3D pipeline");
                         #endif
 
-                        // This block is used if you need to test your Pipeline.
-                        #if defined(_DEBUG_RENDERER_) && defined(_SIMPLE_TRIANGLE_) && defined(_DEBUG)
-                            TestDrawTriangle();                                                                                     // Test triangle for rendering (debug purposes)
+                        // STEP 7A: Update camera constant buffer for 3D rendering
+                        ConstantBuffer cb;                               // Camera constant buffer data
+                        cb.viewMatrix = myCamera.GetViewMatrix();       // Current view matrix from camera
+                        cb.projectionMatrix = myCamera.GetProjectionMatrix(); // Current projection matrix
+                        cb.cameraPosition = myCamera.GetPosition();     // Current camera world position
+
+                        // Map and update the constant buffer
+                        D3D11_MAPPED_SUBRESOURCE mappedResource;        // Mapped resource for buffer update
+                        HRESULT hr = m_d3dContext->Map(m_cameraConstantBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
+                        if (SUCCEEDED(hr)) {
+                            memcpy(mappedResource.pData, &cb, sizeof(ConstantBuffer)); // Copy camera data to GPU
+                            m_d3dContext->Unmap(m_cameraConstantBuffer.Get(), 0); // Unmap the buffer
+                            // Bind the constant buffer to vertex shader slot 0
+                            m_d3dContext->VSSetConstantBuffers(SLOT_CONST_BUFFER, 1, m_cameraConstantBuffer.GetAddressOf());
+                        } else {
+                            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Failed to map camera constant buffer (0x%08X)", hr);
+                            #endif
+                        }
+
+                        // STEP 7B: Debug pixel shader controls (debug builds only)
+                        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG) && defined(_DEBUG_PIXSHADER_)
+                            // Real-time pixel shader debug mode switching
+                            if (GetAsyncKeyState('1') & 0x8000) SetDebugMode(0); // Production view mode
+                            if (GetAsyncKeyState('2') & 0x8000) SetDebugMode(1); // Normals only mode
+                            if (GetAsyncKeyState('3') & 0x8000) SetDebugMode(2); // Texture only mode
+                            if (GetAsyncKeyState('4') & 0x8000) SetDebugMode(3); // Lighting only mode
+                            if (GetAsyncKeyState('5') & 0x8000) SetDebugMode(4); // Specular only mode
+                            if (GetAsyncKeyState('6') & 0x8000) SetDebugMode(5); // Attenuation/normals mode
+                            if (GetAsyncKeyState('7') & 0x8000) SetDebugMode(6); // Shadows only mode
+                            if (GetAsyncKeyState('8') & 0x8000) SetDebugMode(7); // Reflection only mode
+                            if (GetAsyncKeyState('9') & 0x8000) SetDebugMode(8); // Metallic only mode
                         #endif
 
-                        for (int i = 0; i < MAX_MODELS; ++i)
+                        // STEP 7C: Render 3D models if loading is complete
+                        if (threadManager.threadVars.bLoaderTaskFinished.load())
                         {
-                            if (scene.scene_models[i].m_isLoaded)
+                            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                                debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Rendering 3D models");
+                            #endif
+
+                            // Optional wireframe rendering for debug purposes
+                            #if defined(_RENDERER_WIREFRAME_)
+                                if (wireframeRS) {
+                                    m_d3dContext->RSSetState(wireframeRS.Get()); // Apply wireframe rasterizer
+                                }
+                            #endif
+
+                            // Debug triangle test for pipeline verification
+                            #if defined(_DEBUG_RENDERER_) && defined(_SIMPLE_TRIANGLE_) && defined(_DEBUG)
+                                TestDrawTriangle();                      // Render test triangle for pipeline verification
+                            #endif
+
+                            // Render all loaded scene models
+                            for (int i = 0; i < MAX_MODELS; ++i)
                             {
-                                scene.scene_models[i].m_modelInfo.fxActive = false;                                                 // Force this off before render call for now.
-                                scene.scene_models[i].m_modelInfo.viewMatrix = myCamera.GetViewMatrix();
-                                scene.scene_models[i].m_modelInfo.projectionMatrix = myCamera.GetProjectionMatrix();
-                                scene.scene_models[i].m_modelInfo.cameraPosition = myCamera.GetPosition();
-                                scene.scene_models[i].UpdateAnimation(deltaTime);                                                   // Update animation for this model
-                                scene.scene_models[i].Render(m_d3dContext.Get(), deltaTime);
+                                if (scene.scene_models[i].m_isLoaded)   // Only render loaded models
+                                {
+                                    // Configure model rendering parameters
+                                    scene.scene_models[i].m_modelInfo.fxActive = false; // Disable FX for now
+                                    scene.scene_models[i].m_modelInfo.viewMatrix = myCamera.GetViewMatrix();
+                                    scene.scene_models[i].m_modelInfo.projectionMatrix = myCamera.GetProjectionMatrix();
+                                    scene.scene_models[i].m_modelInfo.cameraPosition = myCamera.GetPosition();
+                                    
+                                    // Update model animation with frame delta time
+                                    scene.scene_models[i].UpdateAnimation(deltaTime);
+                                    // Render the model to the current context
+                                    scene.scene_models[i].Render(m_d3dContext.Get(), deltaTime);
+                                }
                             }
                         }
+
+                        // STEP 7D: Update global lighting system
+                        std::vector<LightStruct> globalLights = lightsManager.GetAllLights(); // Get all global lights
+
+                        GlobalLightBuffer glb = {};                     // Global light buffer for GPU
+                        glb.numLights = static_cast<int>(globalLights.size()); // Set number of lights
+                        if (glb.numLights > MAX_GLOBAL_LIGHTS)          // Clamp to maximum supported lights
+                            glb.numLights = MAX_GLOBAL_LIGHTS;
+
+                        // Copy light data to GPU buffer
+                        for (int i = 0; i < glb.numLights; ++i)
+                        {
+                            memcpy(&glb.lights[i], &globalLights[i], sizeof(LightStruct)); // Copy light structure
+
+                            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG_LIGHTING_)
+                                // Debug logging for light information
+                                debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                                    L"[RENDERFRAME] Light[%d] active=%d intensity=%.2f color=(%.2f %.2f %.2f) range=%.2f type=%d pos=(%.2f, %.2f, %.2f)",
+                                    i, glb.lights[i].active, glb.lights[i].intensity,
+                                    glb.lights[i].color.x, glb.lights[i].color.y, glb.lights[i].color.z,
+                                    glb.lights[i].range, glb.lights[i].type,
+                                    glb.lights[i].position.x, glb.lights[i].position.y, glb.lights[i].position.z);
+                            #endif
+                        }
+
+                        // Upload global light buffer to GPU
+                        D3D11_MAPPED_SUBRESOURCE mapped;                // Mapped resource for light buffer
+                        hr = m_d3dContext->Map(m_globalLightBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+                        if (SUCCEEDED(hr)) {
+                            memcpy(mapped.pData, &glb, sizeof(GlobalLightBuffer)); // Copy light data to GPU
+                            m_d3dContext->Unmap(m_globalLightBuffer.Get(), 0); // Unmap the buffer
+                            // Bind global light buffer to pixel shader slot 3
+                            m_d3dContext->PSSetConstantBuffers(SLOT_GLOBAL_LIGHT_BUFFER, 1, m_globalLightBuffer.GetAddressOf());
+                        }
                     }
-
-                    // Animate Lights Per Frame
-    //                    lightsManager.AnimateLights(deltaTime); // TODO: Replace with real deltaTime
-
-                    // Update the General Lighting, not object lighting as
-                    // this is handle elsewhere (ie. Model::Render())
-                    std::vector<LightStruct> globalLights = lightsManager.GetAllLights();
-
-                    GlobalLightBuffer glb = {};
-                    glb.numLights = static_cast<int>(globalLights.size());
-                    if (glb.numLights > MAX_GLOBAL_LIGHTS)
-                        glb.numLights = MAX_GLOBAL_LIGHTS;
-
-                    for (int i = 0; i < glb.numLights; ++i)
-                    {
-                        //                    globalLights[i].intensity = 1.0f;
-                        //                    globalLights[i].baseIntensity = 1.2f;
-                        memcpy(&glb.lights[i], &globalLights[i], sizeof(LightStruct)); // Copy the light data
-#if defined(_DEBUG_RENDERER_) && defined(_DEBUG_LIGHTING_)
-                        debug.logDebugMessage(LogLevel::LOG_INFO, L"Global Lights: %d", glb.numLights);
-                        debug.logDebugMessage(LogLevel::LOG_INFO,
-                            L"Global Light[%zu] active=%d intensity=%.2f color=(%.2f %.2f %.2f) range=%.2f type=%d position=(%.2f, %.2f, %.2f)",
-                            i, glb.lights[i].active, glb.lights[i].intensity,
-                            glb.lights[i].color.x, glb.lights[i].color.y, glb.lights[i].color.z,
-                            glb.lights[i].range, glb.lights[i].type,
-                            glb.lights[i].position.x, glb.lights[i].position.y, glb.lights[i].position.z);
-#endif
-                    }
-
-                    // Upload to GPU
-                    D3D11_MAPPED_SUBRESOURCE mapped;
-                    hr = m_d3dContext->Map(m_globalLightBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
-                    if (SUCCEEDED(hr)) {
-                        memcpy(mapped.pData, &glb, sizeof(GlobalLightBuffer));
-                        m_d3dContext->Unmap(m_globalLightBuffer.Get(), 0);
-                    }
-
-                    // Bind to PS slot b3
-                    m_d3dContext->PSSetConstantBuffers(SLOT_GLOBAL_LIGHT_BUFFER, 1, m_globalLightBuffer.GetAddressOf());
-
-                } // End of 3D Rendering
-
-                break;
-            }
+                    break;
+                }
             }
 
-            // 2D Rendering
+            // STEP 8: 2D Rendering with enhanced thread safety
             if (m_d2dRenderTarget)
             {
-                // Check status of Direct2D to see if available for use.
-                if (threadManager.TryLock(D2DLockName, 100))                        // Signal that Direct2D is now busy with rendering operations.
+                // Acquire D2D rendering lock to prevent conflicts
+                ThreadLockHelper d2dRenderLock(threadManager, D2DLockName, 100);
+                if (d2dRenderLock.IsLocked())
                 {
-                    // Inform Direct2D we are to begin drawing calls.
-                    m_d2dRenderTarget->BeginDraw();
+                    #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Beginning 2D rendering operations");
+                    #endif
 
-                    // (Add 2D UI/text rendering here)
-/*
-                    for (int iX = 0; iX < MAX_2D_IMG_QUEUE_OBJS; iX++)
-                    {
-                        for (int iPhase = int(BlitPhaseLevel::PHASE_LEVEL_1); iPhase <= int(BlitPhaseLevel::PHASE_LEVEL_5); iPhase++)
-                        {
-                            if (My2DBlitQueue[iX].bInUse && int(My2DBlitQueue[iX].BlitPhase) == iPhase)
-                            {
-                                Blit2DObject(My2DBlitQueue[iX].BlitObjDetails.iBlitID, My2DBlitQueue[iX].BlitObjDetails.iBlitX, My2DBlitQueue[iX].BlitObjDetails.iBlitY);
-                            }
-                        }
+                    // Begin Direct2D drawing operations
+                    try {
+                        m_d2dRenderTarget->BeginDraw();                  // Start Direct2D rendering session
                     }
-*/
+                    catch (const std::exception& e) {
+                        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Failed to begin 2D draw: %hs", e.what());
+                        #endif
+                        threadManager.threadVars.bIsRendering.store(false); // Clear rendering flag
+                        return;                                         // Exit on 2D begin failure
+                    }
+
+                    // Verify system state before 2D rendering
                     if ((!threadManager.threadVars.bIsShuttingDown.load()) &&
                         (!bIsMinimized.load()) &&
                         (!threadManager.threadVars.bIsResizing.load()) &&
                         (bIsInitialized.load()))
                     {
+                        // Scene-specific 2D rendering
                         switch (scene.stSceneType)
                         {
-                            case SceneType::SCENE_INTRO:
+                            case SceneType::SCENE_SPLASH:
                             {
-                                // Ensure all loading is complete before rendering models and lighting.
-                                if (threadManager.threadVars.bLoaderTaskFinished.load())
-                                {
-                                    myCamera.SetYawPitch(0.285f, -0.22f);
-                                    // Draw background image first.
-                                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
-                                    // Draw Logo image.
-                                    Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - 47);
-                                    // Render our 3D starfield.
-                                    fxManager.RenderFX(fxManager.starfieldID, m_d3dContext.Get(), myCamera.GetViewMatrix());
-                                }
-                                break;
-                            }
-                        }
-                    }
+                               // Splash screen 2D
+                               #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                                    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Rendering splash screen 2D elements");
+                               #endif
 
-                    // Are we to display the FPS so we can see 
-                    // our render frame rate (Handy for debugging/optimization requirements)
-                    if (USE_FPS_DISPLAY)
-                    {
-                        static auto lastFrameTime = std::chrono::steady_clock::now();
-                        static auto lastFPSTime = lastFrameTime;
-                        static int frameCounter = 0;
+                               // Render splash screen background image
+                               if ((m_d2dTextures[int(BlitObj2DIndexType::IMG_SPLASH1)]))
+                                   Blit2DObjectToSize(BlitObj2DIndexType::IMG_SPLASH1, 0, 0, iOrigWidth, iOrigHeight);
+                               break;
+                           }
 
-                        auto currentTime = std::chrono::steady_clock::now();
-                        float deltaTime = std::chrono::duration<float>(currentTime - lastFrameTime).count();  // Frame delta time
-                        float elapsedForFPS = std::chrono::duration<float>(currentTime - lastFPSTime).count();
+                           case SceneType::SCENE_INTRO_MOVIE:
+                           {
+                               #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                                   debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Rendering movie intro 2D elements");
+                               #endif
 
-                        lastFrameTime = currentTime;
-                        frameCounter++;
+                               // Movie playback 2D rendering
+                               if (moviePlayer.IsPlaying()) {
+                                   // Update the movie frame for current time
+                                   moviePlayer.UpdateFrame();
 
-                        if (elapsedForFPS >= 1.0f)
-                        {
-                            fps = static_cast<float>(frameCounter) / elapsedForFPS;
-                            frameCounter = 0;
-                            lastFPSTime = currentTime;
-                        }
+                                   // Render the movie to fill the entire screen
+                                   moviePlayer.Render(Vector2(0, 0), Vector2(iOrigWidth, iOrigHeight));
 
-                        XMFLOAT3 Coords;
-                        Coords = myCamera.GetPosition();
-                        std::wstring fpsText = L"FPS: " + std::to_wstring(fps) + L"\nMOUSE: x" + std::to_wstring(myMouseCoords.x) + L", y" + std::to_wstring(myMouseCoords.y);
-                        fpsText = fpsText + L"\nCamera X: " + std::to_wstring(Coords.x) + L", Y: " + std::to_wstring(Coords.y) + L", Z: " + std::to_wstring(Coords.z) +
-                            L", Yaw: " + std::to_wstring(myCamera.m_yaw) + L", Pitch: " + std::to_wstring(myCamera.m_pitch) + L"\n";
-                        fpsText = fpsText + L"Global Light Count: " + std::to_wstring(lightsManager.GetLightCount()) + L"\n";
+                                   // Draw company logo overlay
+                                   if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]) {
+                                       Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - 47);
+                                   }
 
-                        DrawMyText(fpsText, Vector2(0, 0), MyColor(255, 255, 255, 255), 10.0f);
-                    }
+                                   // Check for spacebar input to skip movie
+                                   if (GetAsyncKeyState(' ') & 0x8000)
+                                   {
+                                       // Stop movie playback to trigger scene transition
+                                       moviePlayer.Stop();
+                                       scene.bSceneSwitching = true;       // Flag scene transition
+                                       fxManager.FadeToBlack(1.0f, 0.06f); // Start fade effect
+                                   }
+                               }
+                               break;
+                           }
 
-                    if (!threadManager.threadVars.bLoaderTaskFinished.load())
-                    {
-                        delay++;
-                        if (delay > 5)
-                        {
-                            loadIndex++;
-                            if (loadIndex > 9) { loadIndex = 0; }
-                            delay = 0;
-                        }
+                           case SceneType::SCENE_INTRO:
+                           {
+                               #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                                   debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Rendering game intro 2D elements");
+                               #endif
 
-                        if ((m_d2dTextures[int(BlitObj2DIndexType::BG_LOADER_CIRCLE)]))
-                        {
-                            iPosX = loadIndex << 5;
-                            Blit2DObjectAtOffset(BlitObj2DIndexType::BG_LOADER_CIRCLE, width - 32, height - 32, iPosX, 0, 32, 32);
-                        }
-                    }
+                               // Game intro 2D rendering - only if loading complete
+                               if (threadManager.threadVars.bLoaderTaskFinished.load())
+                               {
+                                   // Set camera for intro scene background
+                                   myCamera.SetYawPitch(0.285f, -0.22f);
+                                   
+                                   // Draw background image first
+                                   if (m_d2dTextures[int(BlitObj2DIndexType::IMG_GAMEINTRO1)]) {
+                                       Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
+                                   }
+                                   
+                                   // Draw company logo overlay
+                                   if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]) {
+                                       Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - 47);
+                                   }
+                                   
+                                   // Render 3D starfield effect if available
+                                   if (fxManager.starfieldID > 0) {
+                                       fxManager.RenderFX(fxManager.starfieldID, m_d3dContext.Get(), myCamera.GetViewMatrix());
+                                   }
+                               }
+                               break;
+                           }
 
-                    // Apply 2D Effects.
-                    fxManager.Render2D();
-                    // Now render any windows that are to be displayed.
-                    guiManager.Render();
+                           case SceneType::SCENE_GAMEPLAY:
+                           {
+                               #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                                   debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Rendering gameplay 2D elements");
+                               #endif
+                               // Gameplay-specific 2D elements would go here
+                               break;
+                           }
+                       }
+                   }
 
-                    // Check X & Y Mouse Cursor Boundaries
-//                    if (myMouseCoords.x >= iOrigWidth) { myMouseCoords.x = iOrigWidth - 3; }
-//                    if (cursorPos.y >= iOrigHeight) { cursorPos.y = iOrigHeight - 3; }
-                    if ((m_d2dTextures[int(BlitObj2DIndexType::BLIT_ALWAYS_CURSOR)]))
-                        Blit2DObject(BlitObj2DIndexType::BLIT_ALWAYS_CURSOR, myMouseCoords.x, myMouseCoords.y);
+                   // STEP 8A: Render FPS display and debug information (if enabled)
+                   if (USE_FPS_DISPLAY)
+                   {
+                       // Calculate FPS using frame timing
+                       static auto lastFrameTime = std::chrono::steady_clock::now(); // Last frame timestamp
+                       static auto lastFPSTime = lastFrameTime;                // Last FPS calculation time
+                       static int frameCounter = 0;                           // Frame counter for FPS calculation
 
-                    // State we are NOW finished With Direct2D Drawing.
-                    try
-                    {
-                        HRESULT hr = m_d2dRenderTarget->EndDraw();
-                        if (FAILED(hr))
-                        {
-                            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Direct2D EndDraw failed.");
-                        }
+                       auto currentTime = std::chrono::steady_clock::now();   // Current frame timestamp
+                       float deltaTime = std::chrono::duration<float>(currentTime - lastFrameTime).count(); // Frame delta time
+                       float elapsedForFPS = std::chrono::duration<float>(currentTime - lastFPSTime).count(); // Elapsed time for FPS
 
-                        // Render effects (Fader) (should be after normal rendering but before present)
-                        fxManager.Render();
-                    }
-                    catch (const std::exception& e)
-                    {
-                    }
+                       lastFrameTime = currentTime;                           // Update last frame time
+                       frameCounter++;                                        // Increment frame counter
 
-                    // Release the D2D render lock
-                    threadManager.RemoveLock(D2DLockName);
-                }
-                else
-                {
-                    debug.logLevelMessage(LogLevel::LOG_WARNING, L"Could not acquire D2D render lock - skipping D2D operations");
-                }
-            }
+                       // Update FPS every second
+                       if (elapsedForFPS >= 1.0f)
+                       {
+                           fps = static_cast<float>(frameCounter) / elapsedForFPS; // Calculate FPS
+                           frameCounter = 0;                                   // Reset frame counter
+                           lastFPSTime = currentTime;                          // Reset FPS timer
+                       }
 
-            // Present frame
-//			WaitForGPUToFinish();
-#if defined(_DEBUG_RENDERER_)
-            debug.logLevelMessage(LogLevel::LOG_INFO, L"Presenting frame...");
-#endif
-            if (m_swapChain) { m_swapChain->Present(config.myConfig.enableVSync ? 1 : 0, 0); }
+                       // Build comprehensive debug information string
+                       XMFLOAT3 Coords = myCamera.GetPosition();              // Get current camera position
+                       std::wstring fpsText = L"FPS: " + std::to_wstring(fps) + // FPS display
+                           L"\nMOUSE: x" + std::to_wstring(myMouseCoords.x) + L", y" + std::to_wstring(myMouseCoords.y) + // Mouse coordinates
+                           L"\nCamera X: " + std::to_wstring(Coords.x) + L", Y: " + std::to_wstring(Coords.y) + L", Z: " + std::to_wstring(Coords.z) + // Camera position
+                           L", Yaw: " + std::to_wstring(myCamera.m_yaw) + L", Pitch: " + std::to_wstring(myCamera.m_pitch) + L"\n" + // Camera orientation
+                           L"Global Light Count: " + std::to_wstring(lightsManager.GetLightCount()) + L"\n"; // Light count
 
-            // State that we are no longer rendering    
-            threadManager.threadVars.bIsRendering.store(false);
+                       // Render debug text in top-left corner
+                       DrawMyText(fpsText, Vector2(0, 0), MyColor(255, 255, 255, 255), 10.0f);
+                   }
+
+                   // STEP 8B: Render loading indicator if assets are still loading
+                   if (!threadManager.threadVars.bLoaderTaskFinished.load())
+                   {
+                       // Animate loading indicator
+                       delay++;                                               // Increment animation delay counter
+                       if (delay > 5)                                         // Update animation every 5 frames
+                       {
+                           loadIndex++;                                       // Move to next animation frame
+                           if (loadIndex > 9) { loadIndex = 0; }             // Reset animation cycle
+                           delay = 0;                                         // Reset delay counter
+                       }
+
+                       // Render animated loading circle
+                       if ((m_d2dTextures[int(BlitObj2DIndexType::BG_LOADER_CIRCLE)]))
+                       {
+                           iPosX = loadIndex << 5;                            // Calculate X offset for animation frame
+                           // Draw loading circle in bottom-right corner
+                           Blit2DObjectAtOffset(BlitObj2DIndexType::BG_LOADER_CIRCLE, width - 32, height - 32, iPosX, 0, 32, 32);
+                       }
+                   }
+
+                   // STEP 8C: Apply 2D post-processing effects
+                   try {
+                       fxManager.Render2D();                                  // Render 2D effects overlay
+                   }
+                   catch (const std::exception& e) {
+                       #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                           debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] 2D effects rendering failed: %hs", e.what());
+                       #endif
+                   }
+
+                   // STEP 8D: Render GUI windows and interface elements
+                   try {
+                       guiManager.Render();                                   // Render all GUI windows and controls
+                   }
+                   catch (const std::exception& e) {
+                       #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                           debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] GUI rendering failed: %hs", e.what());
+                       #endif
+                   }
+
+                   // STEP 8E: Render mouse cursor (always on top)
+                   if ((m_d2dTextures[int(BlitObj2DIndexType::BLIT_ALWAYS_CURSOR)]))
+                       Blit2DObject(BlitObj2DIndexType::BLIT_ALWAYS_CURSOR, myMouseCoords.x, myMouseCoords.y);
+
+                   // STEP 8F: End Direct2D drawing operations
+                   try
+                   {
+                       HRESULT hr = m_d2dRenderTarget->EndDraw();             // End Direct2D rendering session
+                       if (FAILED(hr))
+                       {
+                           #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                               debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Direct2D EndDraw failed (0x%08X)", hr);
+                           #endif
+                       }
+
+                       // STEP 8G: Render post-processing effects (after 2D but before present)
+                       fxManager.Render();                                    // Render fade effects and post-processing
+                   }
+                   catch (const std::exception& e)
+                   {
+                       #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                           debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Post-processing effects failed: %hs", e.what());
+                       #endif
+                   }
+
+                   #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                       debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] 2D rendering operations completed");
+                   #endif
+               }
+               else
+               {
+                   #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                       debug.logLevelMessage(LogLevel::LOG_WARNING, L"[RENDERFRAME] Could not acquire D2D render lock - skipping 2D operations");
+                   #endif
+               }
+           }
+
+           // STEP 9: Present the final frame to the display
+           try {
+               #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                   debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Presenting frame to display");
+               #endif
+               
+               // Present frame with VSync setting from configuration
+               if (m_swapChain) { 
+                   HRESULT presentResult = m_swapChain->Present(config.myConfig.enableVSync ? 1 : 0, 0);
+                   
+                   // Check for present failure
+                   if (FAILED(presentResult)) {
+                       #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                           debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Present failed (0x%08X)", presentResult);
+                       #endif
+                   }
+               }
+           }
+           catch (const std::exception& e) {
+               #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                   debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Present operation failed: %hs", e.what());
+               #endif
+           }
+
+           // STEP 10: Clear rendering state for next frame
+           threadManager.threadVars.bIsRendering.store(false);            // Clear rendering flag atomically
+
 #ifdef RENDERER_IS_THREAD
-        }
+       } // End of while loop for threaded rendering
 #endif
 
-        // Make sure to remove the lock
-        threadManager.RemoveLock(renderFrameLockName);
-    }
-    catch (const std::exception& e)
-    {
-        // Make sure to remove the lock even if an exception occurs
-        threadManager.RemoveLock(renderFrameLockName);
-        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[RENDER] - " + std::wstring(e.what(), e.what() + strlen(e.what())));
-    }
+       #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+           debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Render operation completed successfully");
+       #endif
+   }
+   catch (const std::exception& e)
+   {
+       // CRITICAL: Exception handling with proper cleanup
+       #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+           debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"[RENDERFRAME] Critical exception occurred: %hs", e.what());
+       #endif
+       
+       // Ensure rendering flag is cleared on exception
+       threadManager.threadVars.bIsRendering.store(false);
+   }
 
-#ifdef RENDERER_IS_THREAD
-    debug.logLevelMessage(LogLevel::LOG_WARNING, L"Render Thread Exiting.");
-#endif
+   #ifdef RENDERER_IS_THREAD
+      // Thread exit logging
+      #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+          debug.logLevelMessage(LogLevel::LOG_INFO, L"[RENDERFRAME] Render thread exiting normally");
+      #endif
+   #endif
+
+   // FINAL: Ensure rendering state is cleared
+   threadManager.threadVars.bIsRendering.store(false);
+
+   // Note: exclusiveRenderLock will be automatically released when it goes out of scope
 }
-
 #pragma warning(pop)
 
 #endif

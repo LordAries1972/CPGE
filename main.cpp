@@ -48,11 +48,11 @@
 // Engine Subsystems
 // --------------------------------------------
 #include "ExceptionHandler.h"
+#include "SoundManager.h"
 #include "MathPrecalculation.h"
 #include "FileIO.h"
 #include "Debug.h"
 #include "GUIManager.h"
-#include "SoundManager.h"
 #include "Joystick.h"
 #include "Configuration.h"
 #include "ThreadManager.h"
@@ -182,6 +182,7 @@ void SwitchToMovieIntro();
 void OpenMovieAndPlay();
 bool LoadAllShaders();
 bool Load_Music();
+void SetMyKeyUpHandler(KeyboardHandler& keyboard);
 
 // Supressed Warnings
 #pragma warning(disable: 28251)
@@ -335,8 +336,13 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         // Obtain Window Metrics
         sysUtils.GetWindowMetrics(hwnd, winMetrics);
 
+        // Initialize the GamePlayer system with basic initialization
+        gamePlayer.Initialize();
+        PlayerInfo* player = gamePlayer.GetPlayerInfo(PLAYER_1);            // Get player information
+
         // Get Singleton KeyboardHandler instance
         KeyboardHandler& keyboard = KeyboardHandler::GetInstance();
+
         // Configuration optimized for competitive gaming
         KeyboardConfig gamingConfig;
         gamingConfig.enableKeyLogging = false;                                                  // Disable for maximum performance
@@ -344,12 +350,16 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         gamingConfig.enableKeyRepeat = false;                                                   // Disable repeat for precise control
         gamingConfig.enableMultiKeyDetection = true;                                            // Enable for complex shortcuts
         gamingConfig.maxCombinationKeys = 4;                                                    // Limit to 4 keys for performance
+
         // Initialize the keyboard handler with the gaming configuration
         if (!keyboard.Initialize(gamingConfig)) {
             #if defined(_DEBUG_KEYBOARDHANDLER_)
                 debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize Keyboard Management System!");
             #endif
         }
+
+        // Setup the Keyboard Handlers
+        SetMyKeyUpHandler(keyboard);
 
         // Now Enable the keyboard system
         if (!keyboard.EnableKeyboardSystem())
@@ -471,10 +481,6 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         // Configure for 3D usage (Like for FPS, TPS, 3D flight etc)
         js.ConfigureFor3DMovement();
 
-        // Initialize the GamePlayer system with basic initialization
-        gamePlayer.Initialize(); 
-        PlayerInfo* player = gamePlayer.GetPlayerInfo(PLAYER_1);            // Get player information
-
         // Start Required Renderer Threads
         #if !defined(_DEBUG)
             if (!renderer->StartRendererThreads())
@@ -496,7 +502,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         }
 
         //  --------------------------------------------------------------------------
-        // --- Main Loop ---
+        //  --- Main Loop ---
         //  --------------------------------------------------------------------------
         MSG msg = {};
 		sysUtils.StartTimer();                                  // Start the system timer
@@ -864,8 +870,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     #endif
 
     // Cleanup Cached Base Models
-    for (int i = 0; i < MAX_MODELS; i++)
-        models[i].DestroyModel();
+//    for (int i = 0; i < MAX_MODELS; i++)
+//        models[i].DestroyModel();
 
     // Stop and Cleanup the Keyboard Handler system.
     KeyboardHandler& keyboard = KeyboardHandler::GetInstance();
@@ -952,74 +958,71 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     switch (uMsg)
     {
-        case WM_MOUSEMOVE:
-            // Check if we are in fullscreen transition or resize - ignore mouse messages
-            if (threadManager.threadVars.bSettingFullScreen.load() ||
-                bResizeInProgress.load() || !isSystemInitialized ||
-                bFullScreenTransition.load()) {
-                return 0;
-            }
+    case WM_MOUSEMOVE:
+        // Check if we are in fullscreen transition or resize - ignore mouse messages
+        if (threadManager.threadVars.bSettingFullScreen.load() ||
+            bResizeInProgress.load() || !isSystemInitialized ||
+            bFullScreenTransition.load()) {
+            return 0;
+        }
 
-            GetCursorPos(&cursorPos);
-            ScreenToClient(hwnd, &cursorPos);
-            myMouseCoords.x = static_cast<float>(cursorPos.x);
-            myMouseCoords.y = static_cast<float>(cursorPos.y);
-            if (cursorPos.x >= winMetrics.width) { myMouseCoords.x = winMetrics.width; SetCursorPos(cursorPos.x, cursorPos.y); }
-            if (cursorPos.y >= winMetrics.height) { myMouseCoords.y = winMetrics.height; SetCursorPos(cursorPos.x, cursorPos.y); }
-            guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
+        GetCursorPos(&cursorPos);                                   // Get current cursor position
+        ScreenToClient(hwnd, &cursorPos);                           // Convert to client coordinates
+        myMouseCoords.x = static_cast<float>(cursorPos.x);          // Store mouse X coordinate
+        myMouseCoords.y = static_cast<float>(cursorPos.y);          // Store mouse Y coordinate
 
-            switch (scene.stSceneType)
+        // Clamp mouse coordinates to window bounds
+        if (cursorPos.x >= winMetrics.width) {
+            myMouseCoords.x = static_cast<float>(winMetrics.width - 1);
+            SetCursorPos(cursorPos.x, cursorPos.y);
+        }
+        if (cursorPos.y >= winMetrics.height) {
+            myMouseCoords.y = static_cast<float>(winMetrics.height - 1);
+            SetCursorPos(cursorPos.x, cursorPos.y);
+        }
+
+        guiManager.HandleAllInput(myMouseCoords, isLeftClicked);     // Handle GUI input
+
+        switch (scene.stSceneType)
+        {
+            case SceneType::SCENE_GAMEPLAY:
             {
-                case SceneType::SCENE_GAMEPLAY:
+                // Handle right mouse button camera control
+                if (isRightClicked && renderer && renderer->bIsInitialized.load())
                 {
-                    // Has the Right Mouse button been clicked?
-                    if (isRightClicked)
+                    // Ensure we have valid previous mouse position
+                    if (lastMousePos.x == 0 && lastMousePos.y == 0)
                     {
-                        // Ensure we have no negative coordinates.
-                        if (lastMousePos.x == 0 && lastMousePos.y == 0)
-                        {
-                            lastMousePos = cursorPos;
-                            return 0; // prevent junk delta
-                        }
-
-                        // Adjust Camera to new position.
-                        int deltaX = cursorPos.x - lastMousePos.x;
-                        int deltaY = cursorPos.y - lastMousePos.y;
-                        lastMousePos = cursorPos;
-
-                        float sensitivity = config.myConfig.moveSensitivity;
-
-                        yaw += deltaX * sensitivity;
-                        pitch += deltaY * sensitivity;
-                        float pitchMax = XMConvertToRadians(static_cast<float>(config.myConfig.maxPitch));
-                        float pitchMin = XMConvertToRadians(static_cast<float>(config.myConfig.minPitch));
-                        pitch = std::clamp(pitch, pitchMin, pitchMax);
-
-                        XMVECTOR forward = XMVectorSet(
-                            FAST_COS(pitch) * FAST_SIN(yaw),
-                            FAST_SIN(pitch),
-                            FAST_COS(pitch) * FAST_COS(yaw),
-                            0.0f
-                        );
-
-                        XMVECTOR right = XMVector3Normalize(XMVector3Cross({ 0, 1, 0 }, forward));
-                        XMVECTOR up = XMVector3Normalize(XMVector3Cross(forward, right));
-
-                        renderer->myCamera.SetYawPitch(yaw, pitch);
+                        lastMousePos = cursorPos;                   // Initialize previous position
+                        return 0;                                   // Skip first frame to prevent jitter
                     }
 
-                    // Only render if not resizing or in fullscreen transition
-                    #if !defined(RENDERER_IS_THREAD)
-                        if (!bResizeInProgress.load() && !bFullScreenTransition.load()) {
-                            renderer->RenderFrame();
-                        }
-                    #endif
-                    break;
-                }
-            }
+                    // Calculate mouse movement delta
+                    int deltaX = cursorPos.x - lastMousePos.x;      // X movement delta
+                    int deltaY = cursorPos.y - lastMousePos.y;      // Y movement delta
+                    lastMousePos = cursorPos;                       // Update previous position
 
-            guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
-            return 0;
+                    // Apply camera movement with sensitivity scaling
+                    float sensitivity = config.myConfig.moveSensitivity; // Get sensitivity from config
+
+                    // Update camera rotation
+                    yaw += deltaX * sensitivity;                    // Apply horizontal rotation
+                    pitch += deltaY * sensitivity;                  // Apply vertical rotation
+
+                    // Clamp pitch to prevent camera flipping
+                    float pitchMax = XMConvertToRadians(static_cast<float>(config.myConfig.maxPitch));
+                    float pitchMin = XMConvertToRadians(static_cast<float>(config.myConfig.minPitch));
+                    pitch = std::clamp(pitch, pitchMin, pitchMax);  // Clamp pitch within limits
+
+                    // Apply rotation to camera
+                    if (renderer && renderer->bIsInitialized.load()) {
+                        renderer->myCamera.SetYawPitch(yaw, pitch); // Update camera orientation
+                    }
+                }
+                break;
+            }
+        }
+        return 0;
 
         case WM_LBUTTONDOWN:
             // Ignore input during resize or fullscreen transitions
@@ -1063,84 +1066,227 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             return 0;
 
         case WM_SIZE:
-            // Early exit if system not initialized or already resizing
+            // Step 1: Early exit conditions and debouncing
             if (!isSystemInitialized || bResizeInProgress.load()) {
-                return 0;
-            }
-
-            // Handle minimization state immediately
-            if (wParam == SIZE_MINIMIZED) {
-                #if defined(__USE_DIRECTX_11__)
-                    renderer->bIsMinimized.store(true);
+                #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
+                    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[WM_SIZE] Skipping resize - system not ready or already resizing. Init: %d, InProgress: %d", 
+                        isSystemInitialized, bResizeInProgress.load());
                 #endif
                 return 0;
             }
 
-            // Only process resize if renderer is initialized, not minimised and not terminating
-            if (wParam != SIZE_MINIMIZED && renderer && renderer->bIsInitialized.load() && 
-                !threadManager.threadVars.bIsShuttingDown.load()) {
+            // Handle minimization state immediately without further processing
+            if (wParam == SIZE_MINIMIZED) {
+                #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
+                    debug.logLevelMessage(LogLevel::LOG_INFO, L"[WM_SIZE] Window minimized - setting renderer minimized flag");
+                #endif
+                
+                #if defined(__USE_DIRECTX_11__)
+                    if (renderer && renderer->bIsInitialized.load()) {
+                        renderer->bIsMinimized.store(true);             // Mark renderer as minimized
+                    }
+                #endif
+                return 0;
+            }
 
-                // Implement debouncing to prevent rapid resize messages
+            // Handle restoration from minimized state
+            if (wParam == SIZE_RESTORED && renderer && renderer->bIsInitialized.load()) {
+                #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
+                    debug.logLevelMessage(LogLevel::LOG_INFO, L"[WM_SIZE] Window restored from minimized state");
+                #endif
+                
+                #if defined(__USE_DIRECTX_11__)
+                    renderer->bIsMinimized.store(false);                // Clear minimized flag
+                #endif
+                // Continue with normal resize processing for restoration
+            }
+
+            // Only process resize for valid size changes when renderer is ready
+            if (renderer && renderer->bIsInitialized.load() && 
+                !threadManager.threadVars.bIsShuttingDown.load() && 
+                !threadManager.threadVars.bSettingFullScreen.load() &&
+                !threadManager.threadVars.bIsResizing.load()) {
+
+                // Implement debouncing to prevent rapid resize message flooding
                 auto currentTime = std::chrono::steady_clock::now();
                 auto timeSinceLastResize = std::chrono::duration_cast<std::chrono::milliseconds>(
                     currentTime - lastResizeTime).count();
 
                 if (timeSinceLastResize < RESIZE_DEBOUNCE_MS) {
-                    return 0; // Too soon, ignore this resize message
+                    #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
+                        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[WM_SIZE] Debouncing resize message - only %lld ms since last resize", timeSinceLastResize);
+                    #endif
+                    return 0; // Too soon, ignore this resize message to prevent flooding
                 }
 
-                lastResizeTime = currentTime;
+                lastResizeTime = currentTime;                           // Update last resize time for debouncing
 
-                // Set resize in progress flag to prevent race conditions
-                bResizeInProgress.store(true);
+                // Extract new dimensions from message parameters
+                UINT width = LOWORD(lParam);                            // Extract width from low word
+                UINT height = HIWORD(lParam);                           // Extract height from high word
 
-                UINT width = LOWORD(lParam);
-                UINT height = HIWORD(lParam);
+                // Validate dimensions are reasonable (prevent zero or invalid sizes)
+                if (width < 320 || height < 240 || width > 4096 || height > 4096) {
+                    #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
+                        debug.logDebugMessage(LogLevel::LOG_WARNING, L"[WM_SIZE] Invalid resize dimensions: %dx%d - ignoring", width, height);
+                    #endif
+                    return 0;
+                }
 
-                debug.logLevelMessage(LogLevel::LOG_INFO, L"WM_SIZE - Beginning resize to " +
-                    std::to_wstring(width) + L"x" + std::to_wstring(height));
+                #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
+                    debug.logDebugMessage(LogLevel::LOG_INFO, L"[WM_SIZE] Beginning controlled resize operation to %dx%d", width, height);
+                #endif
 
-                // Stop all active FX effects before resize
-                fxManager.StopAllFXForResize();
+                // STEP 1: Set resize in progress flag atomically to prevent race conditions
+                bResizeInProgress.store(true);                          // Atomic flag to prevent multiple resize operations
+                threadManager.threadVars.bIsResizing.store(true);       // ThreadManager flag for resize state
 
-                switch (scene.stSceneType)
-                {
-                    case SceneType::SCENE_INTRO:
-                    case SceneType::SCENE_GAMEPLAY:
+                // Use ThreadManager locking system for proper synchronization
+                ThreadLockHelper resizeLock(threadManager, "window_resize_operation", 5000);
+                if (!resizeLock.IsLocked()) {
+                    #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
+                        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[WM_SIZE] Failed to acquire resize lock - aborting resize operation");
+                    #endif
+                    bResizeInProgress.store(false);                     // Clear progress flag on lock failure
+                    threadManager.threadVars.bIsResizing.store(false);  // Clear ThreadManager resize flag
+                    return 0;
+                }
+
+                try {
+                    // STEP 2: Wait for renderer to finish current operations and pause thread
+                    #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
+                        debug.logLevelMessage(LogLevel::LOG_INFO, L"[WM_SIZE] Step 2: Waiting for renderer completion and pausing thread");
+                    #endif
+
+                    #if defined(__USE_DIRECTX_11__)
+                        // Use new DX11Renderer method to safely pause renderer thread
+                        auto dx11 = std::dynamic_pointer_cast<DX11Renderer>(renderer);
+                        if (dx11) {
+                            dx11->WaitToFinishThenPauseThread();         // New method for safe thread pause
+                        }
+                    #endif
+
+                    // STEP 3: Free all resources required for DirectX resize process
+                    #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
+                        debug.logLevelMessage(LogLevel::LOG_INFO, L"[WM_SIZE] Step 3: Freeing DirectX resources for resize");
+                    #endif
+
+                    // Save camera state BEFORE any resize operations
+                    renderer->myCamera.SaveCameraStateForResize();
+
+                    // Stop all FX effects before resize to prevent rendering conflicts
+                    fxManager.StopAllFXForResize();
+
+                    // Handle scene-specific resize operations
+                    switch (scene.stSceneType)
                     {
-                        // Perform the resize operation
-                        renderer->bIsMinimized.store(false);
-                        threadManager.threadVars.bIsResizing.store(true);
+                        case SceneType::SCENE_INTRO:
+                        case SceneType::SCENE_GAMEPLAY:
+                        case SceneType::SCENE_SPLASH:
+                        case SceneType::SCENE_INTRO_MOVIE:
+                        {
+                            #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
+                                debug.logDebugMessage(LogLevel::LOG_INFO, L"[WM_SIZE] Processing resize for scene type: %d", static_cast<int>(scene.stSceneType));
+                            #endif
 
-                        // Perform DirectX resize
-                        renderer->Resize(width, height);
+                            // Clear minimized flag for valid resize operations
+                            #if defined(__USE_DIRECTX_11__)
+                                renderer->bIsMinimized.store(false);     // Clear minimized state
+                            #endif
 
-                        // Update window metrics
-                        sysUtils.GetWindowMetrics(hwnd, winMetrics);
+                            // Perform the actual DirectX resize operation with error handling
+                            try {
+                                // Execute DirectX buffer resize
+                                if (!renderer->Resize(width, height))
+                                {
+                                    // Clear flags on resize failure
+                                    threadManager.threadVars.bIsResizing.store(false);
+                                    bResizeInProgress.store(false);
+                                    #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
+                                        debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"[WM_SIZE] DirectX resize operation failed for %dx%d", width, height);
+                                    #endif
+                                    
+                                    return 0; // Exit early on failure
+                                }
+                                
+                                #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
+                                    debug.logDebugMessage(LogLevel::LOG_INFO, L"[WM_SIZE] DirectX resize operation completed successfully for %dx%d", width, height);
+                                #endif
 
-                        // Resume loader with resize flag
-                        renderer->ResumeLoader(true);
+                                // Update window metrics after successful resize
+                                sysUtils.GetWindowMetrics(hwnd, winMetrics);
 
-                        // Clear resize flag
-                        threadManager.threadVars.bIsResizing.store(false);
-                        #if defined(RENDERER_IS_THREAD)
-                            // Now Resume the Renderer Thread.
-                            if (threadManager.threadVars.bLoaderTaskFinished.load())
-                                threadManager.ResumeThread(THREAD_RENDERER);
-                        #endif
-                        break;
+                                #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
+                                    debug.logDebugMessage(LogLevel::LOG_INFO, L"[WM_SIZE] Window metrics updated - new size: %dx%d", winMetrics.width, winMetrics.height);
+                                #endif
+                            }
+                            catch (const std::exception& e) {
+                                #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
+                                    debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"[WM_SIZE] DirectX resize operation failed: %hs", e.what());
+                                #endif
+                                
+                                // Clear flags on resize failure
+                                threadManager.threadVars.bIsResizing.store(false);
+                                bResizeInProgress.store(false);
+                                return 0;
+                            }
+
+                            // STEP 4: Resume the Renderer Thread
+                            #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
+                                debug.logLevelMessage(LogLevel::LOG_INFO, L"[WM_SIZE] Step 4: Resuming renderer thread");
+                            #endif
+
+                            threadManager.ResumeThread(THREAD_RENDERER);    // Resume renderer thread for continued operation
+
+                            // STEP 5: Resume the Loader Thread to reload required resources
+                            #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
+                                debug.logLevelMessage(LogLevel::LOG_INFO, L"[WM_SIZE] Step 5: Resuming loader thread for resource reload");
+                            #endif
+
+                            renderer->ResumeLoader(true);               // Resume loader with resize flag to reload resources
+
+                            // Restore camera state AFTER all resources are recreated
+                            renderer->myCamera.RestoreCameraStateAfterResize();
+
+                            break;
+                        }
+
+                        default:
+                            #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
+                                debug.logDebugMessage(LogLevel::LOG_WARNING, L"[WM_SIZE] Resize attempted in unsupported scene type: %d", static_cast<int>(scene.stSceneType));
+                            #endif
+                            break;
                     }
+                }
+                catch (const std::exception& e) {
+                    // CRITICAL: Exception handling to prevent crashes
+                    #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
+                        debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"[WM_SIZE] Exception during resize operation: %hs", e.what());
+                    #endif
 
-                default:
-                    debug.logLevelMessage(LogLevel::LOG_WARNING, L"Resize attempted in unsupported scene type");
-                    break;
+                    // Clean up all flags on exception
+                    threadManager.threadVars.bIsResizing.store(false);
                 }
 
-                // Clear resize in progress flag
-                bResizeInProgress.store(false);
+                // STEP 6: Clear resize flags to indicate completion
+                threadManager.threadVars.bIsResizing.store(false);      // Clear ThreadManager resize flag
+                bResizeInProgress.store(false);                         // Clear atomic resize progress flag
 
-                debug.logLevelMessage(LogLevel::LOG_INFO, L"WM_SIZE - Resize completed successfully");
+                #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
+                    debug.logLevelMessage(LogLevel::LOG_INFO, L"[WM_SIZE] Step 6: Resize operation completed successfully - flags cleared");
+                #endif
             }
+            else {
+                #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
+                    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[WM_SIZE] Skipping resize - conditions not met. Renderer: %s, Initialized: %d, Shutting down: %d, Setting fullscreen: %d, Resizing: %d", 
+                        renderer ? "valid" : "null", 
+                        renderer ? renderer->bIsInitialized.load() : 0,
+                        threadManager.threadVars.bIsShuttingDown.load(),
+                        threadManager.threadVars.bSettingFullScreen.load(),
+                        threadManager.threadVars.bIsResizing.load());
+                #endif
+            }
+            
             return 0;
 
         case WM_KILLFOCUS:
@@ -1158,24 +1304,27 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             {
                 case SceneType::SCENE_GAMEPLAY:
                 {
-                    short delta = GET_WHEEL_DELTA_WPARAM(wParam);
-
-                    // Zoom sensitivity scaling factor
-                    const float zoomStep = 1.0f;
-
-                    if (delta > 0)
+                    // Safe camera zoom with proper validation
+                    if (renderer && renderer->bIsInitialized.load() && 
+                        !threadManager.threadVars.bIsResizing.load())
                     {
-                        renderer->myCamera.MoveIn(zoomStep);
-                        #if defined(_DEBUG_CAMERA_)
-                            debug.logDebugMessage(LogLevel::LOG_INFO, L"Camera Zoom In: delta = %d", delta);
-                        #endif
-                    }
-                    else if (delta < 0)
-                    {
-                        renderer->myCamera.MoveOut(zoomStep);
-                        #if defined(_DEBUG_CAMERA_)
-                            debug.logDebugMessage(LogLevel::LOG_INFO, L"Camera Zoom Out: delta = %d", delta);
-                        #endif
+                        short delta = GET_WHEEL_DELTA_WPARAM(wParam);    // Get wheel delta
+                        const float zoomStep = 1.0f;                     // Zoom sensitivity
+
+                        if (delta > 0)
+                        {
+                            renderer->myCamera.MoveIn(zoomStep);         // Zoom in
+                            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[CAMERA] Zoom In: delta = %d", delta);
+                            #endif
+                        }
+                        else if (delta < 0)
+                        {
+                            renderer->myCamera.MoveOut(zoomStep);        // Zoom out
+                            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[CAMERA] Zoom Out: delta = %d", delta);
+                            #endif
+                        }
                     }
                     return 0;
                 }
@@ -1216,70 +1365,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             // No special handling needed
             return 0;
 
-        case WM_KEYUP:
-            // Ignore key input during resize or fullscreen transitions
-            if (bResizeInProgress.load() || bFullScreenTransition.load()) {
-                return 0;
-            }
-
-            switch (scene.stSceneType)
-            {
-                case SceneType::SCENE_GAMEPLAY:
-                {
-                    // Move to the other side of the target with F9 key
-                    if (wParam == VK_F9 && !threadManager.threadVars.bIsShuttingDown.load())
-                    {
-                        renderer->myCamera.RotateToOppositeSide(2);
-                        return 0;
-                    }
-                    
-                    // Move around the target with F10 key
-                    if (wParam == VK_NUMPAD0 && !threadManager.threadVars.bIsShuttingDown.load())
-                    {
-                        if (renderer->myCamera.IsRotatingAroundTarget())
-                        {
-                            renderer->myCamera.StopRotating();
-                        }
-                        else
-                        {
-                            renderer->myCamera.SetTarget(XMFLOAT3(0.0f, 0.0f, 0.0f));  // Look at origin
-                            renderer->myCamera.MoveAroundTarget(false, true, false, 20.0f, true);
-                        }
-
-                        return 0;
-                    }
-
-                    if (wParam == VK_F2 && !threadManager.threadVars.bIsShuttingDown.load())
-                    {
-                        renderer->bWireframeMode = renderer->bWireframeMode;
-                        return 0;
-                    }
-
-                    // ADJUST Later: Have the AI Monitor Keyboard interaction.
-                    if (gamingAI.IsMonitoring()) {
-                        gamingAI.CollectInputEventData(INPUT_TYPE_KEYBOARD, static_cast<uint32_t>(wParam)); // For keyboard
-                    }
-                }
-            }
-
-            // Handle ESC key for shutdown
-            if (wParam == VK_ESCAPE && !threadManager.threadVars.bIsShuttingDown.load()) {
-                fxManager.FadeToBlack(1.0f, 0.03f);
-                soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
-                while (fxManager.IsFadeActive()) 
-                {
-                    #if !defined(RENDERER_IS_THREAD)
-                        renderer->RenderFrame();
-                    #endif
-                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-                }
-                threadManager.threadVars.bIsShuttingDown.store(true);
-                threadManager.PauseThread(THREAD_RENDERER); // Pause the Renderer Thread
-                PostQuitMessage(0);
-            }
-
-            return 0;
-
         case WM_CLOSE:
             // Handle close request with proper fade effect
             if (!threadManager.threadVars.bIsShuttingDown.load()) {
@@ -1311,8 +1396,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 return 0;
             }
 
-            constexpr float moveStep = 0.75f;
-
             switch (wParam)
             {
                 case VK_UP:
@@ -1321,16 +1404,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     {
                         case SceneType::SCENE_GAMEPLAY:
                         {
-                            renderer->myCamera.JumpTo(0.0f, 8.0f, 69.0f, 1, true);
-                            #if !defined(RENDERER_IS_THREAD)
-                                if (!bResizeInProgress.load()) {
-                                    renderer->RenderFrame();
-                                }
-                            #endif
-
+                            // Safe camera jump with renderer validation
+                            if (renderer && renderer->bIsInitialized.load() && 
+                                !threadManager.threadVars.bIsResizing.load()) {
+                                renderer->myCamera.JumpTo(0.0f, 8.0f, 69.0f, 1, true); // Camera position 1
+                            }
                             return 0;
                         }
                     }
+                    break;
                 }
 
                 case VK_DOWN:
@@ -1339,16 +1421,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     {
                         case SceneType::SCENE_GAMEPLAY:
                         {
-                            renderer->myCamera.JumpTo(-90.0f, 12.0f, -12.0f, 1, true);
-                            #if !defined(RENDERER_IS_THREAD)
-                                if (!bResizeInProgress.load()) {
-                                    renderer->RenderFrame();
-                                }
-                            #endif
-
+                            // Safe camera jump with renderer validation
+                            if (renderer && renderer->bIsInitialized.load() && 
+                                !threadManager.threadVars.bIsResizing.load()) {
+                                renderer->myCamera.JumpTo(-90.0f, 12.0f, -12.0f, 1, true); // Camera position 2
+                            }
                             return 0;
                         }
                     }
+                    break;
                 }
 
                 case VK_LEFT:
@@ -1357,16 +1438,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     {
                         case SceneType::SCENE_GAMEPLAY:
                         {
-                            renderer->myCamera.JumpTo(-90.0f, 0.0f, 5.0f, 1, true);
-                            #if !defined(RENDERER_IS_THREAD)
-                                if (!bResizeInProgress.load()) {
-                                    renderer->RenderFrame();
-                                }
-                            #endif
-
+                            // Safe camera jump with renderer validation
+                            if (renderer && renderer->bIsInitialized.load() && 
+                                !threadManager.threadVars.bIsResizing.load()) {
+                                renderer->myCamera.JumpTo(-90.0f, 0.0f, 5.0f, 1, true); // Camera position 3
+                            }
                             return 0;
                         }
                     }
+                    break;
                 }
 
                 case VK_RIGHT:
@@ -1375,21 +1455,19 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     {
                         case SceneType::SCENE_GAMEPLAY:
                         {
-                            renderer->myCamera.JumpTo(90.0f, 0.0f, 5.0f, 1, true);
-                            #if !defined(RENDERER_IS_THREAD)
-                                if (!bResizeInProgress.load()) {
-                                    renderer->RenderFrame();
-                                }
-                            #endif
-
+                            // Safe camera jump with renderer validation
+                            if (renderer && renderer->bIsInitialized.load() && 
+                                !threadManager.threadVars.bIsResizing.load()) {
+                                renderer->myCamera.JumpTo(90.0f, 0.0f, 5.0f, 1, true); // Camera position 4
+                            }
                             return 0;
                         }
                     }
+                    break;
                 }
-            } // End of switch (wParam)
-
+            }
             return 0;
-        } // End of case WM_KEYDOWN:
+        }
 
         default:
             return DefWindowProc(hwnd, uMsg, wParam, lParam);

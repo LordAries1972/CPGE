@@ -924,147 +924,290 @@ std::string KeyboardHandler::KeyCodeToString(KeyCode keyCode) const {
 
 // Convert platform-specific key code to our KeyCode enum
 KeyCode KeyboardHandler::PlatformKeyToKeyCode(uint32_t platformKey) const {
-   #if defined(PLATFORM_WINDOWS)
-       // Windows virtual key code mapping
-       switch (platformKey) {
-           // Use ASCII values for letters (Windows VK codes match ASCII for A-Z)
-           case 'A': return KeyCode::KEY_A;
-           case 'B': return KeyCode::KEY_B;
-           case 'C': return KeyCode::KEY_C;
-           case 'D': return KeyCode::KEY_D;
-           case 'E': return KeyCode::KEY_E;
-           case 'F': return KeyCode::KEY_F;
-           case 'G': return KeyCode::KEY_G;
-           case 'H': return KeyCode::KEY_H;
-           case 'I': return KeyCode::KEY_I;
-           case 'J': return KeyCode::KEY_J;
-           case 'K': return KeyCode::KEY_K;
-           case 'L': return KeyCode::KEY_L;
-           case 'M': return KeyCode::KEY_M;
-           case 'N': return KeyCode::KEY_N;
-           case 'O': return KeyCode::KEY_O;
-           case 'P': return KeyCode::KEY_P;
-           case 'Q': return KeyCode::KEY_Q;
-           case 'R': return KeyCode::KEY_R;
-           case 'S': return KeyCode::KEY_S;
-           case 'T': return KeyCode::KEY_T;
-           case 'U': return KeyCode::KEY_U;
-           case 'V': return KeyCode::KEY_V;
-           case 'W': return KeyCode::KEY_W;
-           case 'X': return KeyCode::KEY_X;
-           case 'Y': return KeyCode::KEY_Y;
-           case 'Z': return KeyCode::KEY_Z;
-           case '0': return KeyCode::KEY_0;
-           case '1': return KeyCode::KEY_1;
-           case '2': return KeyCode::KEY_2;
-           case '3': return KeyCode::KEY_3;
-           case '4': return KeyCode::KEY_4;
-           case '5': return KeyCode::KEY_5;
-           case '6': return KeyCode::KEY_6;
-           case '7': return KeyCode::KEY_7;
-           case '8': return KeyCode::KEY_8;
-           case '9': return KeyCode::KEY_9;
-           case VK_F1: return KeyCode::KEY_F1;
-           case VK_F2: return KeyCode::KEY_F2;
-           case VK_F3: return KeyCode::KEY_F3;
-           case VK_F4: return KeyCode::KEY_F4;
-           case VK_F5: return KeyCode::KEY_F5;
-           case VK_F6: return KeyCode::KEY_F6;
-           case VK_F7: return KeyCode::KEY_F7;
-           case VK_F8: return KeyCode::KEY_F8;
-           case VK_F9: return KeyCode::KEY_F9;
-           case VK_F10: return KeyCode::KEY_F10;
-           case VK_F11: return KeyCode::KEY_F11;
-           case VK_F12: return KeyCode::KEY_F12;
-           case VK_LSHIFT: return KeyCode::KEY_SHIFT_LEFT;
-           case VK_RSHIFT: return KeyCode::KEY_SHIFT_RIGHT;
-           case VK_LCONTROL: return KeyCode::KEY_CTRL_LEFT;
-           case VK_RCONTROL: return KeyCode::KEY_CTRL_RIGHT;
-           case VK_LMENU: return KeyCode::KEY_ALT_LEFT;
-           case VK_RMENU: return KeyCode::KEY_ALT_RIGHT;
-           case VK_LWIN: return KeyCode::KEY_WIN_LEFT;
-           case VK_RWIN: return KeyCode::KEY_WIN_RIGHT;
-           case VK_UP: return KeyCode::KEY_ARROW_UP;
-           case VK_DOWN: return KeyCode::KEY_ARROW_DOWN;
-           case VK_LEFT: return KeyCode::KEY_ARROW_LEFT;
-           case VK_RIGHT: return KeyCode::KEY_ARROW_RIGHT;
-           case VK_SPACE: return KeyCode::KEY_SPACE;
-           case VK_RETURN: return KeyCode::KEY_ENTER;
-           case VK_BACK: return KeyCode::KEY_BACKSPACE;
-           case VK_TAB: return KeyCode::KEY_TAB;
-           case VK_ESCAPE: return KeyCode::KEY_ESCAPE;
-           default: return KeyCode::KEY_UNKNOWN;
-       }
-   #elif defined(PLATFORM_LINUX)
-       // X11 KeySym mapping
-       switch (platformKey) {
-           case XK_a: case XK_A: return KeyCode::KEY_A;
-           case XK_b: case XK_B: return KeyCode::KEY_B;
-           case XK_c: case XK_C: return KeyCode::KEY_C;
-           case XK_d: case XK_D: return KeyCode::KEY_D;
-           case XK_e: case XK_E: return KeyCode::KEY_E;
-           case XK_f: case XK_F: return KeyCode::KEY_F;
-           case XK_g: case XK_G: return KeyCode::KEY_G;
-           case XK_h: case XK_H: return KeyCode::KEY_H;
-           case XK_i: case XK_I: return KeyCode::KEY_I;
-           case XK_j: case XK_J: return KeyCode::KEY_J;
-           case XK_k: case XK_K: return KeyCode::KEY_K;
-           case XK_l: case XK_L: return KeyCode::KEY_L;
-           case XK_m: case XK_M: return KeyCode::KEY_M;
-           case XK_n: case XK_N: return KeyCode::KEY_N;
-           case XK_o: case XK_O: return KeyCode::KEY_O;
-           case XK_p: case XK_P: return KeyCode::KEY_P;
-           case XK_q: case XK_Q: return KeyCode::KEY_Q;
-           case XK_r: case XK_R: return KeyCode::KEY_R;
-           case XK_s: case XK_S: return KeyCode::KEY_S;
-           case XK_t: case XK_T: return KeyCode::KEY_T;
-           case XK_u: case XK_U: return KeyCode::KEY_U;
-           case XK_v: case XK_V: return KeyCode::KEY_V;
-           case XK_w: case XK_W: return KeyCode::KEY_W;
-           case XK_x: case XK_X: return KeyCode::KEY_X;
-           case XK_y: case XK_Y: return KeyCode::KEY_Y;
-           case XK_z: case XK_Z: return KeyCode::KEY_Z;
-           case XK_0: return KeyCode::KEY_0;
-           case XK_1: return KeyCode::KEY_1;
-           case XK_2: return KeyCode::KEY_2;
-           case XK_3: return KeyCode::KEY_3;
-           case XK_4: return KeyCode::KEY_4;
-           case XK_5: return KeyCode::KEY_5;
-           case XK_6: return KeyCode::KEY_6;
-           case XK_7: return KeyCode::KEY_7;
-           case XK_8: return KeyCode::KEY_8;
-           case XK_9: return KeyCode::KEY_9;
-           case XK_F1: return KeyCode::KEY_F1;
-           case XK_F2: return KeyCode::KEY_F2;
-           case XK_F3: return KeyCode::KEY_F3;
-           case XK_F4: return KeyCode::KEY_F4;
-           case XK_F5: return KeyCode::KEY_F5;
-           case XK_F6: return KeyCode::KEY_F6;
-           case XK_F7: return KeyCode::KEY_F7;
-           case XK_F8: return KeyCode::KEY_F8;
-           case XK_F9: return KeyCode::KEY_F9;
-           case XK_F10: return KeyCode::KEY_F10;
-           case XK_F11: return KeyCode::KEY_F11;
-           case XK_F12: return KeyCode::KEY_F12;
-           case XK_Shift_L: return KeyCode::KEY_SHIFT_LEFT;
-           case XK_Shift_R: return KeyCode::KEY_SHIFT_RIGHT;
-           case XK_Control_L: return KeyCode::KEY_CTRL_LEFT;
-           case XK_Control_R: return KeyCode::KEY_CTRL_RIGHT;
-           case XK_Alt_L: return KeyCode::KEY_ALT_LEFT;
-           case XK_Alt_R: return KeyCode::KEY_ALT_RIGHT;
-           case XK_space: return KeyCode::KEY_SPACE;
-           case XK_Return: return KeyCode::KEY_ENTER;
-           case XK_BackSpace: return KeyCode::KEY_BACKSPACE;
-           case XK_Tab: return KeyCode::KEY_TAB;
-           case XK_Delete: return KeyCode::KEY_DELETE;
-           case XK_Insert: return KeyCode::KEY_INSERT;
-           case XK_Escape: return KeyCode::KEY_ESCAPE;
-           default: return KeyCode::KEY_UNKNOWN;
-       }
-   #else
-       // Default mapping for other platforms
-       return KeyCode::KEY_UNKNOWN;
-   #endif
+    #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[KeyboardHandler] Converting platform key 0x%08X to KeyCode", platformKey);
+    #endif
+
+    #if defined(PLATFORM_WINDOWS)
+        // Windows virtual key code mapping - COMPLETE IMPLEMENTATION
+        switch (platformKey) {
+            // Alphabet keys (Windows VK codes match ASCII for A-Z)
+            case 'A': return KeyCode::KEY_A;                            // Letter A key
+            case 'B': return KeyCode::KEY_B;                            // Letter B key
+            case 'C': return KeyCode::KEY_C;                            // Letter C key
+            case 'D': return KeyCode::KEY_D;                            // Letter D key
+            case 'E': return KeyCode::KEY_E;                            // Letter E key
+            case 'F': return KeyCode::KEY_F;                            // Letter F key
+            case 'G': return KeyCode::KEY_G;                            // Letter G key
+            case 'H': return KeyCode::KEY_H;                            // Letter H key
+            case 'I': return KeyCode::KEY_I;                            // Letter I key
+            case 'J': return KeyCode::KEY_J;                            // Letter J key
+            case 'K': return KeyCode::KEY_K;                            // Letter K key
+            case 'L': return KeyCode::KEY_L;                            // Letter L key
+            case 'M': return KeyCode::KEY_M;                            // Letter M key
+            case 'N': return KeyCode::KEY_N;                            // Letter N key
+            case 'O': return KeyCode::KEY_O;                            // Letter O key
+            case 'P': return KeyCode::KEY_P;                            // Letter P key
+            case 'Q': return KeyCode::KEY_Q;                            // Letter Q key
+            case 'R': return KeyCode::KEY_R;                            // Letter R key
+            case 'S': return KeyCode::KEY_S;                            // Letter S key
+            case 'T': return KeyCode::KEY_T;                            // Letter T key
+            case 'U': return KeyCode::KEY_U;                            // Letter U key
+            case 'V': return KeyCode::KEY_V;                            // Letter V key
+            case 'W': return KeyCode::KEY_W;                            // Letter W key
+            case 'X': return KeyCode::KEY_X;                            // Letter X key
+            case 'Y': return KeyCode::KEY_Y;                            // Letter Y key
+            case 'Z': return KeyCode::KEY_Z;                            // Letter Z key
+
+            // Number keys (top row - Windows VK codes match ASCII for 0-9)
+            case '0': return KeyCode::KEY_0;                            // Number 0 key (top row)
+            case '1': return KeyCode::KEY_1;                            // Number 1 key (top row)
+            case '2': return KeyCode::KEY_2;                            // Number 2 key (top row)
+            case '3': return KeyCode::KEY_3;                            // Number 3 key (top row)
+            case '4': return KeyCode::KEY_4;                            // Number 4 key (top row)
+            case '5': return KeyCode::KEY_5;                            // Number 5 key (top row)
+            case '6': return KeyCode::KEY_6;                            // Number 6 key (top row)
+            case '7': return KeyCode::KEY_7;                            // Number 7 key (top row)
+            case '8': return KeyCode::KEY_8;                            // Number 8 key (top row)
+            case '9': return KeyCode::KEY_9;                            // Number 9 key (top row)
+
+            // Function keys (F1-F15)
+            case VK_F1: return KeyCode::KEY_F1;                         // Function key F1
+            case VK_F2: return KeyCode::KEY_F2;                         // Function key F2
+            case VK_F3: return KeyCode::KEY_F3;                         // Function key F3
+            case VK_F4: return KeyCode::KEY_F4;                         // Function key F4
+            case VK_F5: return KeyCode::KEY_F5;                         // Function key F5
+            case VK_F6: return KeyCode::KEY_F6;                         // Function key F6
+            case VK_F7: return KeyCode::KEY_F7;                         // Function key F7
+            case VK_F8: return KeyCode::KEY_F8;                         // Function key F8
+            case VK_F9: return KeyCode::KEY_F9;                         // Function key F9
+            case VK_F10: return KeyCode::KEY_F10;                       // Function key F10
+            case VK_F11: return KeyCode::KEY_F11;                       // Function key F11
+            case VK_F12: return KeyCode::KEY_F12;                       // Function key F12
+            case VK_F13: return KeyCode::KEY_F13;                       // Function key F13 (extended)
+            case VK_F14: return KeyCode::KEY_F14;                       // Function key F14 (extended)
+            case VK_F15: return KeyCode::KEY_F15;                       // Function key F15 (extended)
+
+            // Modifier keys (left and right variants)
+            case VK_LSHIFT: return KeyCode::KEY_SHIFT_LEFT;             // Left Shift key
+            case VK_RSHIFT: return KeyCode::KEY_SHIFT_RIGHT;            // Right Shift key
+            case VK_LCONTROL: return KeyCode::KEY_CTRL_LEFT;            // Left Control key
+            case VK_RCONTROL: return KeyCode::KEY_CTRL_RIGHT;           // Right Control key
+            case VK_LMENU: return KeyCode::KEY_ALT_LEFT;                // Left Alt key
+            case VK_RMENU: return KeyCode::KEY_ALT_RIGHT;               // Right Alt key (AltGr)
+            case VK_LWIN: return KeyCode::KEY_WIN_LEFT;                 // Left Windows/Command key
+            case VK_RWIN: return KeyCode::KEY_WIN_RIGHT;                // Right Windows/Command key
+
+            // Navigation arrow keys
+            case VK_UP: return KeyCode::KEY_ARROW_UP;                   // Up arrow key
+            case VK_DOWN: return KeyCode::KEY_ARROW_DOWN;               // Down arrow key
+            case VK_LEFT: return KeyCode::KEY_ARROW_LEFT;               // Left arrow key
+            case VK_RIGHT: return KeyCode::KEY_ARROW_RIGHT;             // Right arrow key
+
+            // Navigation cluster keys
+            case VK_HOME: return KeyCode::KEY_HOME;                     // Home key
+            case VK_END: return KeyCode::KEY_END;                       // End key
+            case VK_PRIOR: return KeyCode::KEY_PAGE_UP;                 // Page Up key (VK_PRIOR)
+            case VK_NEXT: return KeyCode::KEY_PAGE_DOWN;                // Page Down key (VK_NEXT)
+
+            // Special control keys
+            case VK_SPACE: return KeyCode::KEY_SPACE;                   // Space bar
+            case VK_RETURN: return KeyCode::KEY_ENTER;                  // Enter/Return key
+            case VK_BACK: return KeyCode::KEY_BACKSPACE;                // Backspace key
+            case VK_TAB: return KeyCode::KEY_TAB;                       // Tab key
+            case VK_DELETE: return KeyCode::KEY_DELETE;                 // Delete key
+            case VK_INSERT: return KeyCode::KEY_INSERT;                 // Insert key
+            case VK_ESCAPE: return KeyCode::KEY_ESCAPE;                 // Escape key
+
+            // Lock state keys
+            case VK_CAPITAL: return KeyCode::KEY_CAPS_LOCK;             // Caps Lock key
+            case VK_NUMLOCK: return KeyCode::KEY_NUM_LOCK;              // Num Lock key
+            case VK_SCROLL: return KeyCode::KEY_SCROLL_LOCK;            // Scroll Lock key
+
+            // NUMPAD KEYS
+            case VK_NUMPAD0: return KeyCode::KEY_NUMPAD_0;              // Numpad 0
+            case VK_NUMPAD1: return KeyCode::KEY_NUMPAD_1;              // Numpad 1
+            case VK_NUMPAD2: return KeyCode::KEY_NUMPAD_2;              // Numpad 2
+            case VK_NUMPAD3: return KeyCode::KEY_NUMPAD_3;              // Numpad 3
+            case VK_NUMPAD4: return KeyCode::KEY_NUMPAD_4;              // Numpad 4
+            case VK_NUMPAD5: return KeyCode::KEY_NUMPAD_5;              // Numpad 5
+            case VK_NUMPAD6: return KeyCode::KEY_NUMPAD_6;              // Numpad 6
+            case VK_NUMPAD7: return KeyCode::KEY_NUMPAD_7;              // Numpad 7
+            case VK_NUMPAD8: return KeyCode::KEY_NUMPAD_8;              // Numpad 8
+            case VK_NUMPAD9: return KeyCode::KEY_NUMPAD_9;              // Numpad 9
+            case VK_MULTIPLY: return KeyCode::KEY_NUMPAD_MULTIPLY;      // Numpad * (multiply)
+            case VK_ADD: return KeyCode::KEY_NUMPAD_ADD;                // Numpad + (add)
+            case VK_SUBTRACT: return KeyCode::KEY_NUMPAD_SUBTRACT;      // Numpad - (subtract)
+            case VK_DECIMAL: return KeyCode::KEY_NUMPAD_DECIMAL;        // Numpad . (decimal)
+            case VK_DIVIDE: return KeyCode::KEY_NUMPAD_DIVIDE;          // Numpad / (divide)
+
+            // Punctuation and symbol keys (OEM keys)
+            case VK_OEM_1: return KeyCode::KEY_SEMICOLON;               // ; (semicolon) and : (colon)
+            case VK_OEM_PLUS: return KeyCode::KEY_EQUALS;               // = (equals sign) and + (plus)
+            case VK_OEM_COMMA: return KeyCode::KEY_COMMA;               // , (comma) and < (less than)
+            case VK_OEM_MINUS: return KeyCode::KEY_MINUS;               // - (minus/hyphen) and _ (underscore)
+            case VK_OEM_PERIOD: return KeyCode::KEY_PERIOD;             // . (period) and > (greater than)
+            case VK_OEM_2: return KeyCode::KEY_SLASH;                   // / (forward slash) and ? (question mark)
+            case VK_OEM_3: return KeyCode::KEY_GRAVE;                   // ` (grave accent/backtick) and ~ (tilde)
+            case VK_OEM_4: return KeyCode::KEY_BRACKET_LEFT;            // [ (left bracket) and { (left brace)
+            case VK_OEM_5: return KeyCode::KEY_BACKSLASH;               // \ (backslash) and | (pipe)
+            case VK_OEM_6: return KeyCode::KEY_BRACKET_RIGHT;           // ] (right bracket) and } (right brace)
+            case VK_OEM_7: return KeyCode::KEY_QUOTE;                   // ' (apostrophe/quote) and " (double quote)
+
+            // Media control keys
+            case VK_VOLUME_UP: return KeyCode::KEY_VOLUME_UP;           // Volume Up key
+            case VK_VOLUME_DOWN: return KeyCode::KEY_VOLUME_DOWN;       // Volume Down key
+            case VK_VOLUME_MUTE: return KeyCode::KEY_VOLUME_MUTE;       // Volume Mute key
+            case VK_MEDIA_PLAY_PAUSE: return KeyCode::KEY_MEDIA_PLAY_PAUSE; // Media Play/Pause key
+            case VK_MEDIA_STOP: return KeyCode::KEY_MEDIA_STOP;         // Media Stop key
+            case VK_MEDIA_PREV_TRACK: return KeyCode::KEY_MEDIA_PREV;   // Media Previous Track key
+            case VK_MEDIA_NEXT_TRACK: return KeyCode::KEY_MEDIA_NEXT;   // Media Next Track key
+
+            // Browser navigation keys
+            case VK_BROWSER_BACK: return KeyCode::KEY_BROWSER_BACK;     // Browser Back key
+            case VK_BROWSER_FORWARD: return KeyCode::KEY_BROWSER_FORWARD; // Browser Forward key
+            case VK_BROWSER_REFRESH: return KeyCode::KEY_BROWSER_REFRESH; // Browser Refresh key
+            case VK_BROWSER_STOP: return KeyCode::KEY_BROWSER_STOP;     // Browser Stop key
+            case VK_BROWSER_SEARCH: return KeyCode::KEY_BROWSER_SEARCH; // Browser Search key
+            case VK_BROWSER_FAVORITES: return KeyCode::KEY_BROWSER_FAVORITES; // Browser Favorites key
+            case VK_BROWSER_HOME: return KeyCode::KEY_BROWSER_HOME;     // Browser Home key
+
+            // System control keys
+            case VK_SNAPSHOT: return KeyCode::KEY_PRINT_SCREEN;         // Print Screen key
+            case VK_PAUSE: return KeyCode::KEY_PAUSE;                   // Pause/Break key
+            case VK_APPS: return KeyCode::KEY_MENU;                     // Menu/Context key (between right Alt and Ctrl)
+            case VK_SLEEP: return KeyCode::KEY_SLEEP;                   // Sleep key
+
+            // Default case for unmapped keys
+            default: 
+            {
+                #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
+                    debug.logDebugMessage(LogLevel::LOG_WARNING, L"[KeyboardHandler] Unknown Windows VK code: 0x%08X", platformKey);
+                #endif
+                return KeyCode::KEY_UNKNOWN;                            // Unknown or unmapped key
+            }
+        }
+
+    #elif defined(PLATFORM_LINUX)
+        // X11 KeySym mapping for Linux
+        switch (platformKey) {
+            // Alphabet keys (both lowercase and uppercase variants)
+            case XK_a: case XK_A: return KeyCode::KEY_A;                // Letter A key
+            case XK_b: case XK_B: return KeyCode::KEY_B;                // Letter B key
+            case XK_c: case XK_C: return KeyCode::KEY_C;                // Letter C key
+            case XK_d: case XK_D: return KeyCode::KEY_D;                // Letter D key
+            case XK_e: case XK_E: return KeyCode::KEY_E;                // Letter E key
+            case XK_f: case XK_F: return KeyCode::KEY_F;                // Letter F key
+            case XK_g: case XK_G: return KeyCode::KEY_G;                // Letter G key
+            case XK_h: case XK_H: return KeyCode::KEY_H;                // Letter H key
+            case XK_i: case XK_I: return KeyCode::KEY_I;                // Letter I key
+            case XK_j: case XK_J: return KeyCode::KEY_J;                // Letter J key
+            case XK_k: case XK_K: return KeyCode::KEY_K;                // Letter K key
+            case XK_l: case XK_L: return KeyCode::KEY_L;                // Letter L key
+            case XK_m: case XK_M: return KeyCode::KEY_M;                // Letter M key
+            case XK_n: case XK_N: return KeyCode::KEY_N;                // Letter N key
+            case XK_o: case XK_O: return KeyCode::KEY_O;                // Letter O key
+            case XK_p: case XK_P: return KeyCode::KEY_P;                // Letter P key
+            case XK_q: case XK_Q: return KeyCode::KEY_Q;                // Letter Q key
+            case XK_r: case XK_R: return KeyCode::KEY_R;                // Letter R key
+            case XK_s: case XK_S: return KeyCode::KEY_S;                // Letter S key
+            case XK_t: case XK_T: return KeyCode::KEY_T;                // Letter T key
+            case XK_u: case XK_U: return KeyCode::KEY_U;                // Letter U key
+            case XK_v: case XK_V: return KeyCode::KEY_V;                // Letter V key
+            case XK_w: case XK_W: return KeyCode::KEY_W;                // Letter W key
+            case XK_x: case XK_X: return KeyCode::KEY_X;                // Letter X key
+            case XK_y: case XK_Y: return KeyCode::KEY_Y;                // Letter Y key
+            case XK_z: case XK_Z: return KeyCode::KEY_Z;                // Letter Z key
+
+            // Number keys (top row)
+            case XK_0: return KeyCode::KEY_0;                           // Number 0 key (top row)
+            case XK_1: return KeyCode::KEY_1;                           // Number 1 key (top row)
+            case XK_2: return KeyCode::KEY_2;                           // Number 2 key (top row)
+            case XK_3: return KeyCode::KEY_3;                           // Number 3 key (top row)
+            case XK_4: return KeyCode::KEY_4;                           // Number 4 key (top row)
+            case XK_5: return KeyCode::KEY_5;                           // Number 5 key (top row)
+            case XK_6: return KeyCode::KEY_6;                           // Number 6 key (top row)
+            case XK_7: return KeyCode::KEY_7;                           // Number 7 key (top row)
+            case XK_8: return KeyCode::KEY_8;                           // Number 8 key (top row)
+            case XK_9: return KeyCode::KEY_9;                           // Number 9 key (top row)
+
+            // Function keys
+            case XK_F1: return KeyCode::KEY_F1;                         // Function key F1
+            case XK_F2: return KeyCode::KEY_F2;                         // Function key F2
+            case XK_F3: return KeyCode::KEY_F3;                         // Function key F3
+            case XK_F4: return KeyCode::KEY_F4;                         // Function key F4
+            case XK_F5: return KeyCode::KEY_F5;                         // Function key F5
+            case XK_F6: return KeyCode::KEY_F6;                         // Function key F6
+            case XK_F7: return KeyCode::KEY_F7;                         // Function key F7
+            case XK_F8: return KeyCode::KEY_F8;                         // Function key F8
+            case XK_F9: return KeyCode::KEY_F9;                         // Function key F9
+            case XK_F10: return KeyCode::KEY_F10;                       // Function key F10
+            case XK_F11: return KeyCode::KEY_F11;                       // Function key F11
+            case XK_F12: return KeyCode::KEY_F12;                       // Function key F12
+
+            // Modifier keys
+            case XK_Shift_L: return KeyCode::KEY_SHIFT_LEFT;            // Left Shift key
+            case XK_Shift_R: return KeyCode::KEY_SHIFT_RIGHT;           // Right Shift key
+            case XK_Control_L: return KeyCode::KEY_CTRL_LEFT;           // Left Control key
+            case XK_Control_R: return KeyCode::KEY_CTRL_RIGHT;          // Right Control key
+            case XK_Alt_L: return KeyCode::KEY_ALT_LEFT;                // Left Alt key
+            case XK_Alt_R: return KeyCode::KEY_ALT_RIGHT;               // Right Alt key
+
+            // Navigation arrow keys
+            case XK_Up: return KeyCode::KEY_ARROW_UP;                   // Up arrow key
+            case XK_Down: return KeyCode::KEY_ARROW_DOWN;               // Down arrow key
+            case XK_Left: return KeyCode::KEY_ARROW_LEFT;               // Left arrow key
+            case XK_Right: return KeyCode::KEY_ARROW_RIGHT;             // Right arrow key
+
+            // Navigation cluster keys
+            case XK_Home: return KeyCode::KEY_HOME;                     // Home key
+            case XK_End: return KeyCode::KEY_END;                       // End key
+            case XK_Page_Up: return KeyCode::KEY_PAGE_UP;               // Page Up key
+            case XK_Page_Down: return KeyCode::KEY_PAGE_DOWN;           // Page Down key
+
+            // Special control keys
+            case XK_space: return KeyCode::KEY_SPACE;                   // Space bar
+            case XK_Return: return KeyCode::KEY_ENTER;                  // Enter/Return key
+            case XK_BackSpace: return KeyCode::KEY_BACKSPACE;           // Backspace key
+            case XK_Tab: return KeyCode::KEY_TAB;                       // Tab key
+            case XK_Delete: return KeyCode::KEY_DELETE;                 // Delete key
+            case XK_Insert: return KeyCode::KEY_INSERT;                 // Insert key
+            case XK_Escape: return KeyCode::KEY_ESCAPE;                 // Escape key
+
+            // LINUX NUMPAD KEYS - COMPLETE MAPPING
+            case XK_KP_0: return KeyCode::KEY_NUMPAD_0;                 // Numpad 0
+            case XK_KP_1: return KeyCode::KEY_NUMPAD_1;                 // Numpad 1
+            case XK_KP_2: return KeyCode::KEY_NUMPAD_2;                 // Numpad 2
+            case XK_KP_3: return KeyCode::KEY_NUMPAD_3;                 // Numpad 3
+            case XK_KP_4: return KeyCode::KEY_NUMPAD_4;                 // Numpad 4
+            case XK_KP_5: return KeyCode::KEY_NUMPAD_5;                 // Numpad 5
+            case XK_KP_6: return KeyCode::KEY_NUMPAD_6;                 // Numpad 6
+            case XK_KP_7: return KeyCode::KEY_NUMPAD_7;                 // Numpad 7
+            case XK_KP_8: return KeyCode::KEY_NUMPAD_8;                 // Numpad 8
+            case XK_KP_9: return KeyCode::KEY_NUMPAD_9;                 // Numpad 9
+            case XK_KP_Multiply: return KeyCode::KEY_NUMPAD_MULTIPLY;   // Numpad * (multiply)
+            case XK_KP_Add: return KeyCode::KEY_NUMPAD_ADD;             // Numpad + (add)
+            case XK_KP_Subtract: return KeyCode::KEY_NUMPAD_SUBTRACT;   // Numpad - (subtract)
+            case XK_KP_Decimal: return KeyCode::KEY_NUMPAD_DECIMAL;     // Numpad . (decimal)
+            case XK_KP_Divide: return KeyCode::KEY_NUMPAD_DIVIDE;       // Numpad / (divide)
+            case XK_KP_Enter: return KeyCode::KEY_NUMPAD_ENTER;         // Numpad Enter key
+
+            // Default case for unmapped keys
+            default: 
+            {
+                #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
+                    debug.logDebugMessage(LogLevel::LOG_WARNING, L"[KeyboardHandler] Unknown Linux KeySym: 0x%08X", platformKey);
+                #endif
+                return KeyCode::KEY_UNKNOWN;                            // Unknown or unmapped key
+            }
+        }
+    #else
+        // Unsupported platform fallback
+        #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[KeyboardHandler] Unsupported platform for key mapping: 0x%08X", platformKey);
+        #endif
+        return KeyCode::KEY_UNKNOWN;                                    // Unknown platform
+    #endif
 }
 
 // Get current modifier flags (Ctrl, Shift, Alt combinations)

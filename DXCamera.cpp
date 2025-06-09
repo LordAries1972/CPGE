@@ -5,13 +5,19 @@
 #include "MathPrecalculation.h"
 #include "Configuration.h"
 #include "DXCamera.h"
+#include "Renderer.h"
 #include "Debug.h"
+#include "WinSystem.h"
 
 class Debug;
 class Configuration;
 
 extern Debug debug;
 extern Configuration config;
+//extern SystemUtils sysUtils;
+
+extern std::shared_ptr<Renderer> renderer;
+extern WindowMetrics winMetrics;
 
 using namespace DirectX;
 
@@ -22,40 +28,48 @@ Camera::Camera() {
     
     // Initialize jump animation variables
     m_isJumping = false;
-    m_focusOnTarget = false;                    // Initialize focus flag
-    m_isJumpingBackInHistory = false;           // Initialize history jumping flag
-    m_historyJumpStepsRemaining = 0;            // Initialize history steps counter
+    m_focusOnTarget = false;                                                // Initialize focus flag
+    m_isJumpingBackInHistory = false;                                       // Initialize history jumping flag
+    m_historyJumpStepsRemaining = 0;                                        // Initialize history steps counter
     m_jumpStartPosition = XMFLOAT3(0.0f, 0.0f, 0.0f);
     m_jumpTargetPosition = XMFLOAT3(0.0f, 0.0f, 0.0f);
-    m_originalTarget = XMFLOAT3(0.0f, 0.0f, 0.0f);     // Initialize original target storage
+    m_originalTarget = XMFLOAT3(0.0f, 0.0f, 0.0f);                          // Initialize original target storage
     m_jumpSpeed = 1;
     m_currentPathIndex = 0;
     m_jumpAnimationTimer = 0.0f;
     m_totalJumpTime = 0.0f;
     
+    // In Camera constructor initialization list, add:
+    m_screenWidth = fDEFAULT_WINDOW_WIDTH;                                  // Default screen width
+    m_screenHeight = fDEFAULT_WINDOW_HEIGHT;                                // Default screen height  
+    m_aspectRatio = fDEFAULT_WINDOW_WIDTH / fDEFAULT_WINDOW_HEIGHT;         // Default aspect ratio (4:3)
+    m_fieldOfView = XMConvertToRadians(45.0f);                              // Default 45-degree FOV
+    m_nearPlane = 0.1f;                                                     // Default near plane
+    m_farPlane = 1000.0f;                                                   // Default far plane
+
     // Initialize continuous rotation variables
-    m_isRotatingAroundTarget = false;           // Initialize rotation flag
-    m_continuousRotation = false;               // Initialize continuous rotation flag
-    m_rotateAroundX = false;                    // Initialize X-axis rotation flag
-    m_rotateAroundY = false;                    // Initialize Y-axis rotation flag
-    m_rotateAroundZ = false;                    // Initialize Z-axis rotation flag
-    m_rotationSpeedX = 60.0f;                   // Default 60 degrees per second for X-axis
-    m_rotationSpeedY = 60.0f;                   // Default 60 degrees per second for Y-axis
-    m_rotationSpeedZ = 60.0f;                   // Default 60 degrees per second for Z-axis
-    m_currentRotationX = 0.0f;                  // Initialize current X rotation
-    m_currentRotationY = 0.0f;                  // Initialize current Y rotation
-    m_currentRotationZ = 0.0f;                  // Initialize current Z rotation
-    m_targetRotationX = 360.0f;                 // Target 360 degrees for full X rotation
-    m_targetRotationY = 360.0f;                 // Target 360 degrees for full Y rotation
-    m_targetRotationZ = 360.0f;                 // Target 360 degrees for full Z rotation
-    m_rotationStartPosition = XMFLOAT3(0.0f, 0.0f, 0.0f);  // Initialize rotation start position
-    m_rotationTarget = XMFLOAT3(0.0f, 0.0f, 0.0f);         // Initialize rotation target
-    m_rotationDistance = 0.0f;                  // Initialize rotation distance
+    m_isRotatingAroundTarget = false;                                       // Initialize rotation flag
+    m_continuousRotation = false;                                           // Initialize continuous rotation flag
+    m_rotateAroundX = false;                                                // Initialize X-axis rotation flag
+    m_rotateAroundY = false;                                                // Initialize Y-axis rotation flag
+    m_rotateAroundZ = false;                                                // Initialize Z-axis rotation flag
+    m_rotationSpeedX = 60.0f;                                               // Default 60 degrees per second for X-axis
+    m_rotationSpeedY = 60.0f;                                               // Default 60 degrees per second for Y-axis
+    m_rotationSpeedZ = 60.0f;                                               // Default 60 degrees per second for Z-axis
+    m_currentRotationX = 0.0f;                                              // Initialize current X rotation
+    m_currentRotationY = 0.0f;                                              // Initialize current Y rotation
+    m_currentRotationZ = 0.0f;                                              // Initialize current Z rotation
+    m_targetRotationX = 360.0f;                                             // Target 360 degrees for full X rotation
+    m_targetRotationY = 360.0f;                                             // Target 360 degrees for full Y rotation
+    m_targetRotationZ = 360.0f;                                             // Target 360 degrees for full Z rotation
+    m_rotationStartPosition = XMFLOAT3(0.0f, 0.0f, 0.0f);                   // Initialize rotation start position
+    m_rotationTarget = XMFLOAT3(0.0f, 0.0f, 0.0f);                          // Initialize rotation target
+    m_rotationDistance = 0.0f;                                              // Initialize rotation distance
     
     // Reserve memory for jump history to avoid reallocations
     m_jumpHistory.reserve(MAX_JUMP_HISTORY);
     
-    SetupDefaultCamera(800.0f, 600.0f); // Default window size
+    SetupDefaultCamera(fDEFAULT_WINDOW_WIDTH, fDEFAULT_WINDOW_HEIGHT);      // Default window size
     UpdateViewMatrix();
 
     #if defined(_DEBUG_CAMERA_)
@@ -87,6 +101,231 @@ Camera::~Camera() {
     #if defined(_DEBUG_CAMERA_)
         debug.logLevelMessage(LogLevel::LOG_INFO, L"DX Camera destroyed with complete jump animation, history, and rotation cleanup!");
     #endif
+}
+
+// Function to save current camera state before resize operations
+void Camera::SaveCameraStateForResize() 
+{
+    #if defined(_DEBUG_WINSYSTEM_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[CAMERA] SaveCameraStateForResize() called");
+    #endif
+
+    try {
+        // Save camera position and orientation directly from class members
+        savedCameraState.position = position;
+        savedCameraState.target = target;
+        savedCameraState.up = up;
+        savedCameraState.yaw = m_yaw;
+        savedCameraState.pitch = m_pitch;
+        
+        // Save camera projection parameters with safe fallbacks
+        try {
+            // Get current field of view with validation
+            float currentFov = GetFieldOfView();
+            if (currentFov > 0.0f && currentFov < 180.0f) {
+                savedCameraState.fieldOfView = currentFov;
+            } else {
+                savedCameraState.fieldOfView = 45.0f; // Safe fallback
+                #if defined(_DEBUG_WINSYSTEM_)
+                    debug.logDebugMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid FOV detected (%.2f), using fallback: 45.0", currentFov);
+                #endif
+            }
+        }
+        catch (...) {
+            savedCameraState.fieldOfView = 45.0f; // Safe fallback on any exception
+            #if defined(_DEBUG_WINSYSTEM_)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[CAMERA] Exception getting FOV, using fallback: 45.0");
+            #endif
+        }
+
+        try {
+            // Get current near and far planes with validation
+            float currentNear = GetNearPlane();
+            float currentFar = GetFarPlane();
+            
+            if (currentNear > 0.0f && currentFar > currentNear) {
+                savedCameraState.nearPlane = currentNear;
+                savedCameraState.farPlane = currentFar;
+            } else {
+                savedCameraState.nearPlane = 0.1f;   // Safe fallback
+                savedCameraState.farPlane = 1000.0f; // Safe fallback
+                #if defined(_DEBUG_WINSYSTEM_)
+                    debug.logDebugMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid near/far planes (%.3f/%.3f), using fallbacks", currentNear, currentFar);
+                #endif
+            }
+        }
+        catch (...) {
+            savedCameraState.nearPlane = 0.1f;   // Safe fallback on any exception
+            savedCameraState.farPlane = 1000.0f; // Safe fallback on any exception
+            #if defined(_DEBUG_WINSYSTEM_)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[CAMERA] Exception getting near/far planes, using fallbacks");
+            #endif
+        }
+        
+        // Mark state as valid
+        savedCameraState.isValid = true;
+
+        #if defined(_DEBUG_WINSYSTEM_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[CAMERA] Camera state saved - Position: (%.2f, %.2f, %.2f), Yaw: %.2f, Pitch: %.2f, FOV: %.2f", 
+                savedCameraState.position.x, savedCameraState.position.y, savedCameraState.position.z,
+                savedCameraState.yaw, savedCameraState.pitch, savedCameraState.fieldOfView);
+        #endif
+    }
+    catch (const std::exception& e) {
+        #if defined(_DEBUG_WINSYSTEM_)
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[CAMERA] Exception saving camera state: %hs", e.what());
+        #endif
+        savedCameraState.isValid = false;
+    }
+    catch (...) {
+        #if defined(_DEBUG_WINSYSTEM_)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[CAMERA] Unknown exception saving camera state");
+        #endif
+        savedCameraState.isValid = false;
+    }
+}
+
+// Function to restore camera state after resize operations complete
+void Camera::RestoreCameraStateAfterResize() 
+{
+    #if defined(_DEBUG_WINSYSTEM_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[CAMERA] RestoreCameraStateAfterResize() called");
+    #endif
+
+    if (!savedCameraState.isValid) {
+        #if defined(_DEBUG_WINSYSTEM_)
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[CAMERA] Cannot restore camera state - no valid saved state");
+        #endif
+        return;
+    }
+
+    try {
+        // Use ThreadManager locking to ensure thread-safe camera restoration
+/*
+        ThreadLockHelper cameraRestoreLock(threadManager, "camera_restore_operation", 2000);
+        if (!cameraRestoreLock.IsLocked()) {
+            #if defined(_DEBUG_WINSYSTEM_)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[CAMERA] Failed to acquire camera restore lock");
+            #endif
+            return;
+        }
+*/
+        // Restore basic camera properties first (these are always safe)
+        position = savedCameraState.position;
+        target = savedCameraState.target;
+        up = savedCameraState.up;
+        m_yaw = savedCameraState.yaw;
+        m_pitch = savedCameraState.pitch;
+
+        #if defined(_DEBUG_WINSYSTEM_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[CAMERA] Basic camera properties restored: pos(%.2f, %.2f, %.2f), yaw: %.3f, pitch: %.3f", 
+                position.x, position.y, position.z, m_yaw, m_pitch);
+        #endif
+
+        // Calculate aspect ratio safely before setting field of view
+        float aspectRatio = 16.0f / 9.0f; // Default fallback aspect ratio
+        
+        // Try to get aspect ratio from window metrics first
+        if (winMetrics.width > 0 && winMetrics.height > 0) {
+            aspectRatio = static_cast<float>(winMetrics.width) / static_cast<float>(winMetrics.height);
+            #if defined(_DEBUG_WINSYSTEM_)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[CAMERA] Using window metrics aspect ratio: %.3f (%dx%d)", 
+                    aspectRatio, winMetrics.width, winMetrics.height);
+            #endif
+        }
+        // Fallback to config if window metrics are invalid
+        else if (config.myConfig.aspectRatio > 0.0f) {
+            aspectRatio = static_cast<float>(config.myConfig.aspectRatio);
+            #if defined(_DEBUG_WINSYSTEM_)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[CAMERA] Using config aspect ratio: %.3f", aspectRatio);
+            #endif
+        }
+        else {
+            #if defined(_DEBUG_WINSYSTEM_)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[CAMERA] Using fallback aspect ratio: 16:9");
+            #endif
+        }
+
+        // Ensure aspect ratio is within reasonable bounds
+        aspectRatio = std::clamp(aspectRatio, 0.5f, 4.0f);
+
+        // Restore camera projection parameters with safe validation
+        try {
+            // Validate and restore field of view
+            float fovToRestore = savedCameraState.fieldOfView;
+            if (fovToRestore <= 0.0f || fovToRestore >= 180.0f) {
+                fovToRestore = 45.0f; // Safe fallback
+                #if defined(_DEBUG_WINSYSTEM_)
+                    debug.logDebugMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid saved FOV (%.2f), using fallback: 45.0", savedCameraState.fieldOfView);
+                #endif
+            }
+
+            // Create projection matrix directly instead of using SetFieldOfView() to avoid config dependency
+            float fovRadians = XMConvertToRadians(fovToRestore);
+            float nearPlane = std::max(0.01f, savedCameraState.nearPlane);  // Ensure valid near plane
+            float farPlane = std::max(nearPlane + 1.0f, savedCameraState.farPlane); // Ensure valid far plane
+            
+            projectionMatrix = XMMatrixPerspectiveFovLH(fovRadians, aspectRatio, nearPlane, farPlane);
+
+            #if defined(_DEBUG_WINSYSTEM_)
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"[CAMERA] Projection matrix restored: FOV=%.2f°, aspect=%.3f, near=%.3f, far=%.3f", 
+                    fovToRestore, aspectRatio, nearPlane, farPlane);
+            #endif
+        }
+        catch (const std::exception& e) {
+            #if defined(_DEBUG_WINSYSTEM_)
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[CAMERA] Exception restoring projection: %hs, using defaults", e.what());
+            #endif
+            
+            // Create default projection matrix on failure
+            constexpr float defaultFov = XMConvertToRadians(45.0f);
+            projectionMatrix = XMMatrixPerspectiveFovLH(defaultFov, aspectRatio, 0.1f, 1000.0f);
+        }
+
+        // Force camera matrix update to ensure consistency
+        try {
+            // Update view matrix using the restored position and target
+            XMVECTOR eyePos = XMLoadFloat3(&position);
+            XMVECTOR targetPos = XMLoadFloat3(&target);
+            XMVECTOR upVector = XMLoadFloat3(&up);
+            
+            viewMatrix = XMMatrixLookAtLH(eyePos, targetPos, upVector);
+
+            // Update forward vector for consistency
+            XMVECTOR lookDirection = XMVector3Normalize(targetPos - eyePos);
+            XMStoreFloat3(&forward, lookDirection);
+
+            #if defined(_DEBUG_WINSYSTEM_)
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"[CAMERA] View matrix updated successfully");
+            #endif
+        }
+        catch (const std::exception& e) {
+            #if defined(_DEBUG_WINSYSTEM_)
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[CAMERA] Exception updating view matrix: %hs", e.what());
+            #endif
+        }
+
+        #if defined(_DEBUG_WINSYSTEM_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[CAMERA] Camera state restored successfully - Position: (%.2f, %.2f, %.2f), Yaw: %.2f, Pitch: %.2f", 
+                savedCameraState.position.x, savedCameraState.position.y, savedCameraState.position.z,
+                savedCameraState.yaw, savedCameraState.pitch);
+        #endif
+
+        // Mark state as used (prevent multiple restorations)
+        savedCameraState.isValid = false;
+    }
+    catch (const std::exception& e) {
+        #if defined(_DEBUG_WINSYSTEM_)
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[CAMERA] Exception restoring camera state: %hs", e.what());
+        #endif
+        savedCameraState.isValid = false;
+    }
+    catch (...) {
+        #if defined(_DEBUG_WINSYSTEM_)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[CAMERA] Unknown exception restoring camera state");
+        #endif
+        savedCameraState.isValid = false;
+    }
 }
 
 // === CAMERA JUMP FUNCTIONALITY ===
@@ -1564,6 +1803,362 @@ void Camera::SetTarget(const XMFLOAT3& newTarget)
     #endif
 }
 
+// === FIELD OF VIEW, UP VECTOR, AND CLIPPING PLANE FUNCTIONS ===
+
+float Camera::GetFieldOfView() const
+{
+    // Extract field of view from the current projection matrix
+    // For perspective projection, FOV can be calculated from the projection matrix elements
+    XMFLOAT4X4 projMatrix;
+    XMStoreFloat4x4(&projMatrix, projectionMatrix);
+    
+    // For a perspective projection matrix, the FOV can be calculated from m22 element
+    // m22 = cot(fovY/2) where fovY is the vertical field of view in radians
+    float cotHalfFovY = projMatrix._22;
+    
+    // Calculate vertical FOV in radians: fovY = 2 * atan(1 / cotHalfFovY)
+    float fovYRadians = 2.0f * FAST_ATAN(1.0f / cotHalfFovY);
+    
+    // Convert from radians to degrees for return value
+    float fovYDegrees = XMConvertToDegrees(fovYRadians);
+    
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+            L"[Camera] GetFieldOfView() returning: %.2f degrees (%.4f radians)", 
+            fovYDegrees, fovYRadians);
+    #endif
+    
+    return fovYDegrees;
+}
+
+XMFLOAT3 Camera::GetUpVector() const
+{
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+            L"[Camera] GetUpVector() returning: (%.3f, %.3f, %.3f)", 
+            up.x, up.y, up.z);
+    #endif
+    
+    return up;
+}
+
+float Camera::GetFarPlane() const
+{
+    // Extract far plane distance from the current projection matrix
+    // For perspective projection, far plane can be calculated from matrix elements
+    XMFLOAT4X4 projMatrix;
+    XMStoreFloat4x4(&projMatrix, projectionMatrix);
+    
+    // For a perspective projection matrix: m33 = -(far + near) / (far - near)
+    // and m43 = -2 * far * near / (far - near)
+    // Solving for far: far = m43 / (m33 - 1)
+    float m33 = projMatrix._33;
+    float m43 = projMatrix._43;
+    
+    // Calculate far plane distance using the projection matrix elements
+    float farPlane = -m43 / (m33 + 1.0f);
+    
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+            L"[Camera] GetFarPlane() returning: %.3f (calculated from projection matrix)", 
+            farPlane);
+    #endif
+    
+    return farPlane;
+}
+
+float Camera::GetNearPlane() const
+{
+    // Extract near plane distance from the current projection matrix
+    // For perspective projection, near plane can be calculated from matrix elements
+    XMFLOAT4X4 projMatrix;
+    XMStoreFloat4x4(&projMatrix, projectionMatrix);
+    
+    // For a perspective projection matrix: m33 = -(far + near) / (far - near)
+    // and m43 = -2 * far * near / (far - near)
+    // Solving for near: near = m43 / (m33 - 1)
+    float m33 = projMatrix._33;
+    float m43 = projMatrix._43;
+    
+    // Calculate near plane distance using the projection matrix elements
+    float nearPlane = m43 / (m33 - 1.0f);
+    
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+            L"[Camera] GetNearPlane() returning: %.3f (calculated from projection matrix)", 
+            nearPlane);
+    #endif
+    
+    return nearPlane;
+}
+
+void Camera::SetFieldOfView(float fovDegrees)
+{
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] SetFieldOfView() called with: %.2f degrees", fovDegrees);
+    #endif
+    
+    // Validate field of view parameter (must be between 1 and 179 degrees)
+    if (fovDegrees <= 0.0f || fovDegrees >= 180.0f)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Invalid field of view: %.2f degrees. Clamping to valid range [1.0, 179.0]", 
+                fovDegrees);
+        #endif
+        
+        // Clamp to valid range for perspective projection
+        fovDegrees = std::clamp(fovDegrees, 1.0f, 179.0f);
+    }
+    
+    // Get current near and far planes to preserve them during FOV change
+    float currentNear = GetNearPlane();
+    float currentFar = GetFarPlane();
+    
+    // Calculate aspect ratio from current configuration or default values
+    float aspectRatio = static_cast<float>(config.myConfig.aspectRatio);
+    if (aspectRatio <= 0.0f)
+    {
+        // Fallback to common aspect ratio if configuration is invalid
+        aspectRatio = 16.0f / 9.0f;
+        
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Invalid aspect ratio in config, using fallback: %.3f", aspectRatio);
+        #endif
+    }
+    
+    // Convert field of view from degrees to radians for DirectX calculation
+    float fovRadians = XMConvertToRadians(fovDegrees);
+    
+    // Create new projection matrix with updated field of view
+    projectionMatrix = XMMatrixPerspectiveFovLH(fovRadians, aspectRatio, currentNear, currentFar);
+    
+    // Update configuration to reflect the new field of view setting
+    config.myConfig.fov = fovDegrees;
+    
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] Field of view updated: %.2f degrees (%.4f radians), aspect: %.3f, near: %.3f, far: %.3f", 
+            fovDegrees, fovRadians, aspectRatio, currentNear, currentFar);
+    #endif
+}
+
+void Camera::SetUpVector(const XMFLOAT3& newUp)
+{
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] SetUpVector() called with: (%.3f, %.3f, %.3f)", 
+            newUp.x, newUp.y, newUp.z);
+    #endif
+    
+    // Validate that the up vector is not a zero vector
+    XMVECTOR upVector = XMLoadFloat3(&newUp);
+    float upVectorLength = XMVectorGetX(XMVector3Length(upVector));
+    
+    if (upVectorLength < 0.001f)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Invalid up vector (too close to zero): length=%.6f. Using default Y-up vector", 
+                upVectorLength);
+        #endif
+        
+        // Use default Y-up vector when provided vector is invalid
+        up = XMFLOAT3(0.0f, 1.0f, 0.0f);
+    }
+    else
+    {
+        // Normalize the up vector to ensure it's a unit vector
+        XMVECTOR normalizedUp = XMVector3Normalize(upVector);
+        XMStoreFloat3(&up, normalizedUp);
+        
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] Up vector normalized from length %.6f to unit vector: (%.3f, %.3f, %.3f)", 
+                upVectorLength, up.x, up.y, up.z);
+        #endif
+    }
+    
+    // Update the view matrix to reflect the new up vector
+    UpdateViewMatrix();
+    
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] Up vector updated and view matrix recalculated");
+    #endif
+}
+
+void Camera::SetNearFarPlanes(float nearPlane, float farPlane)
+{
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] SetNearFarPlanes() called with: near=%.3f, far=%.3f", 
+            nearPlane, farPlane);
+    #endif
+    
+    // Validate near and far plane parameters
+    if (nearPlane <= 0.0f)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Invalid near plane: %.3f. Must be positive. Setting to 0.1f", nearPlane);
+        #endif
+        nearPlane = 0.1f; // Default minimum near plane distance
+    }
+    
+    if (farPlane <= nearPlane)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Invalid far plane: %.3f. Must be greater than near plane: %.3f. Setting to near + 1000.0f", 
+                farPlane, nearPlane);
+        #endif
+        farPlane = nearPlane + 1000.0f; // Set far plane to reasonable distance beyond near plane
+    }
+    
+    // Get current field of view to preserve it during plane change
+    float currentFov = GetFieldOfView();
+    
+    // Calculate aspect ratio from current configuration
+    float aspectRatio = static_cast<float>(config.myConfig.aspectRatio);
+    if (aspectRatio <= 0.0f)
+    {
+        // Fallback to common aspect ratio if configuration is invalid
+        aspectRatio = 16.0f / 9.0f;
+        
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Invalid aspect ratio in config, using fallback: %.3f", aspectRatio);
+        #endif
+    }
+    
+    // Convert field of view from degrees to radians for DirectX calculation
+    float fovRadians = XMConvertToRadians(currentFov);
+    
+    // Create new projection matrix with updated near and far planes
+    projectionMatrix = XMMatrixPerspectiveFovLH(fovRadians, aspectRatio, nearPlane, farPlane);
+    
+    // Update configuration to reflect the new clipping plane settings
+    config.myConfig.nearPlane = nearPlane;
+    config.myConfig.farPlane = farPlane;
+    
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] Clipping planes updated: near=%.3f, far=%.3f, FOV=%.2f degrees, aspect=%.3f", 
+            nearPlane, farPlane, currentFov, aspectRatio);
+    #endif
+}
+
+void Camera::UpdateCameraMatrices()
+{
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] UpdateCameraMatrices() called - refreshing view and projection matrices");
+    #endif
+    
+    // Update the view matrix using current position, target, and up vector
+    XMVECTOR eyePos = XMLoadFloat3(&position);
+    XMVECTOR targetPos = XMLoadFloat3(&target);
+    XMVECTOR upVector = XMLoadFloat3(&up);
+    
+    // Validate that position and target are different to avoid degenerate view matrix
+    XMVECTOR positionDifference = targetPos - eyePos;
+    float distanceToTarget = XMVectorGetX(XMVector3Length(positionDifference));
+    
+    if (distanceToTarget < 0.001f)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Position and target are too close (distance: %.6f). Adjusting target for valid view matrix", 
+                distanceToTarget);
+        #endif
+        
+        // Adjust target to be slightly in front of camera position for valid view matrix
+        XMVECTOR forwardVector = XMLoadFloat3(&forward);
+        targetPos = eyePos + (forwardVector * 1.0f); // Place target 1 unit in front
+        XMStoreFloat3(&target, targetPos);
+    }
+    
+    // Create updated view matrix
+    viewMatrix = XMMatrixLookAtLH(eyePos, targetPos, upVector);
+    
+    // Update the projection matrix using current settings
+    float currentFov = config.myConfig.fov;
+    float aspectRatio = static_cast<float>(config.myConfig.aspectRatio);
+    float nearPlane = config.myConfig.nearPlane;
+    float farPlane = config.myConfig.farPlane;
+    
+    // Validate configuration values and use defaults if invalid
+    if (currentFov <= 0.0f || currentFov >= 180.0f)
+    {
+        currentFov = 45.0f; // Default field of view
+        
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Invalid FOV in config, using default: %.2f degrees", currentFov);
+        #endif
+    }
+    
+    if (aspectRatio <= 0.0f)
+    {
+        aspectRatio = 16.0f / 9.0f; // Default aspect ratio
+        
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Invalid aspect ratio in config, using default: %.3f", aspectRatio);
+        #endif
+    }
+    
+    if (nearPlane <= 0.0f)
+    {
+        nearPlane = 0.1f; // Default near plane
+        
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Invalid near plane in config, using default: %.3f", nearPlane);
+        #endif
+    }
+    
+    if (farPlane <= nearPlane)
+    {
+        farPlane = nearPlane + 1000.0f; // Default far plane
+        
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Invalid far plane in config, using default: %.3f", farPlane);
+        #endif
+    }
+    
+    // Convert field of view from degrees to radians
+    float fovRadians = XMConvertToRadians(currentFov);
+    
+    // Create updated projection matrix
+    projectionMatrix = XMMatrixPerspectiveFovLH(fovRadians, aspectRatio, nearPlane, farPlane);
+    
+    // Update forward vector to maintain consistency
+    XMVECTOR lookDirection = XMVector3Normalize(targetPos - eyePos);
+    XMStoreFloat3(&forward, lookDirection);
+    
+    // Update yaw and pitch to match the new forward direction
+    UpdateYawPitchFromDirection(forward);
+    
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] Camera matrices updated successfully:");
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+            L"  Position: (%.3f, %.3f, %.3f), Target: (%.3f, %.3f, %.3f)", 
+            position.x, position.y, position.z, target.x, target.y, target.z);
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+            L"  FOV: %.2f°, Aspect: %.3f, Near: %.3f, Far: %.3f", 
+            currentFov, aspectRatio, nearPlane, farPlane);
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+            L"  Forward: (%.3f, %.3f, %.3f), Up: (%.3f, %.3f, %.3f)", 
+            forward.x, forward.y, forward.z, up.x, up.y, up.z);
+    #endif
+}
+
 void Camera::SetNearFar(float nearPlane, float farPlane)
 {
     float aspect = static_cast<float>(config.myConfig.aspectRatio);
@@ -1676,7 +2271,7 @@ void Camera::UpdateViewMatrix()
             m_yaw, m_pitch);
     #endif
 
-#if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
     {
         XMMATRIX view = viewMatrix;
         XMVECTOR camPos = XMLoadFloat3(&position);
@@ -1689,8 +2284,36 @@ void Camera::UpdateViewMatrix()
 
         debug.logDebugMessage(LogLevel::LOG_INFO, L"[CAMERA] Position: %.2f %.2f %.2f", camPos.m128_f32[0], camPos.m128_f32[1], camPos.m128_f32[2]);
     }
-#endif
+    #endif
 
+}
+
+void Camera::UpdateProjectionMatrix()
+{
+    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[CAMERA] UpdateProjectionMatrix() - FOV: %.2f°, Aspect: %.3f, Near: %.3f, Far: %.3f", 
+            XMConvertToDegrees(m_fieldOfView), m_aspectRatio, m_nearPlane, m_farPlane);
+    #endif
+
+    // Validate projection parameters before creating matrix
+    if (m_aspectRatio <= 0.0f || m_nearPlane <= 0.0f || m_nearPlane >= m_farPlane || m_fieldOfView <= 0.0f) {
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid projection parameters detected, using safe defaults");
+        #endif
+        
+        // Use safe defaults for invalid parameters
+        m_aspectRatio = (m_aspectRatio <= 0.0f) ? (16.0f / 9.0f) : m_aspectRatio;      // Default to 16:9 if invalid
+        m_nearPlane = (m_nearPlane <= 0.0f) ? 0.1f : m_nearPlane;                     // Default near plane
+        m_farPlane = (m_farPlane <= m_nearPlane) ? 1000.0f : m_farPlane;               // Default far plane
+        m_fieldOfView = (m_fieldOfView <= 0.0f) ? XMConvertToRadians(45.0f) : m_fieldOfView; // Default FOV
+    }
+
+    // Create perspective projection matrix
+    projectionMatrix = XMMatrixPerspectiveFovLH(m_fieldOfView, m_aspectRatio, m_nearPlane, m_farPlane);
+
+    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[CAMERA] Projection matrix updated successfully");
+    #endif
 }
 
 void Camera::SetYawPitchFromForward()
@@ -2356,6 +2979,56 @@ float Camera::GetEstimatedTimeToComplete() const
     }
 
     return maxTime;
+}
+
+void Camera::UpdateResolution(uint32_t newWidth, uint32_t newHeight, float newAspectRatio)
+{
+    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[CAMERA] UpdateResolution() called - New dimensions: %dx%d, Aspect ratio: %.3f", 
+            newWidth, newHeight, newAspectRatio);
+    #endif
+
+    // Update internal resolution tracking
+    m_screenWidth = static_cast<float>(newWidth);                       // Store new screen width
+    m_screenHeight = static_cast<float>(newHeight);                     // Store new screen height
+    m_aspectRatio = newAspectRatio;                                     // Store new aspect ratio
+
+    // Validate aspect ratio is reasonable
+    if (m_aspectRatio <= 0.1f || m_aspectRatio >= 10.0f) {
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid aspect ratio %.3f, using fallback 16:9", m_aspectRatio);
+        #endif
+        m_aspectRatio = 16.0f / 9.0f;                                   // Use 16:9 as fallback
+    }
+
+    // Update near and far planes if they seem invalid
+    if (m_nearPlane <= 0.0f || m_nearPlane >= m_farPlane) {
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid near/far planes (%.3f/%.3f), resetting to defaults", 
+                m_nearPlane, m_farPlane);
+        #endif
+        m_nearPlane = 0.1f;                                             // Default near plane
+        m_farPlane = 1000.0f;                                           // Default far plane
+    }
+
+    // Validate and adjust field of view if necessary
+    if (m_fieldOfView <= 0.0f || m_fieldOfView >= XM_PI) {
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid FOV %.3f, resetting to default", m_fieldOfView);
+        #endif
+        m_fieldOfView = XMConvertToRadians(45.0f);                      // Default 45-degree FOV
+    }
+
+    // Recalculate projection matrix with new parameters
+    UpdateProjectionMatrix();                                           // Rebuild projection matrix
+
+    // Force view matrix update to ensure consistency
+    UpdateViewMatrix();                                                 // Rebuild view matrix
+
+    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[CAMERA] Resolution update completed - FOV: %.2f°, Near: %.3f, Far: %.3f, Aspect: %.3f", 
+            XMConvertToDegrees(m_fieldOfView), m_nearPlane, m_farPlane, m_aspectRatio);
+    #endif
 }
 
 #endif // End of #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)

@@ -57,104 +57,104 @@ Texture::~Texture() {
 bool Texture::LoadFromFile(const std::wstring& path) {
     texturePath = path;
 
-#ifdef __USE_DIRECTX_11__
-    auto dx11 = std::dynamic_pointer_cast<DX11Renderer>(renderer);
-    ComPtr<ID3D11Device> device = dx11->m_d3dDevice;
-    if (!device) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX11: No device context available");
-        return false;
-    }
+    #ifdef __USE_DIRECTX_11__
+        auto dx11 = std::dynamic_pointer_cast<DX11Renderer>(renderer);
+        ComPtr<ID3D11Device> device = dx11->m_d3dDevice;
+        if (!device) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX11: No device context available");
+            return false;
+        }
 
-    // Reset previous SRV if reused
-    if (textureSRV) {
-        textureSRV->Release();
-        textureSRV = nullptr;
-    }
+        // Reset previous SRV if reused
+        if (textureSRV) {
+            textureSRV->Release();
+            textureSRV = nullptr;
+        }
 
-    if (!std::filesystem::exists(path)) {
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"Texture file does not exist: " + path);
-        return false;
-    }
+        if (!std::filesystem::exists(path)) {
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Texture file does not exist: " + path);
+            return false;
+        }
 
-    IWICImagingFactory* wicFactory = nullptr;
-    IWICBitmapDecoder* decoder = nullptr;
-    IWICBitmapFrameDecode* frame = nullptr;
-    IWICFormatConverter* converter = nullptr;
+        IWICImagingFactory* wicFactory = nullptr;
+        IWICBitmapDecoder* decoder = nullptr;
+        IWICBitmapFrameDecode* frame = nullptr;
+        IWICFormatConverter* converter = nullptr;
 
-    HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wicFactory));
-    if (FAILED(hr)) return false;
+        HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wicFactory));
+        if (FAILED(hr)) return false;
 
-    hr = wicFactory->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnLoad, &decoder);
-    if (FAILED(hr)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX11: Failed to decode texture: " + path);
-        wicFactory->Release();
-        return false;
-    }
+        hr = wicFactory->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnLoad, &decoder);
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX11: Failed to decode texture: " + path);
+            wicFactory->Release();
+            return false;
+        }
 
-    hr = decoder->GetFrame(0, &frame);
-    if (FAILED(hr)) {
-        decoder->Release(); wicFactory->Release();
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX11: No frame found in texture: " + path);
-        return false;
-    }
+        hr = decoder->GetFrame(0, &frame);
+        if (FAILED(hr)) {
+            decoder->Release(); wicFactory->Release();
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX11: No frame found in texture: " + path);
+            return false;
+        }
 
-    hr = wicFactory->CreateFormatConverter(&converter);
-    if (FAILED(hr)) {
-        frame->Release(); decoder->Release(); wicFactory->Release();
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX11: Format converter creation failed for: " + path);
-        return false;
-    }
+        hr = wicFactory->CreateFormatConverter(&converter);
+        if (FAILED(hr)) {
+            frame->Release(); decoder->Release(); wicFactory->Release();
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX11: Format converter creation failed for: " + path);
+            return false;
+        }
 
-    hr = converter->Initialize(frame, GUID_WICPixelFormat32bppBGRA, WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom);
-    if (FAILED(hr)) {
+        hr = converter->Initialize(frame, GUID_WICPixelFormat32bppBGRA, WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom);
+        if (FAILED(hr)) {
+            converter->Release(); frame->Release(); decoder->Release(); wicFactory->Release();
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX11: Converter initialization failed for: " + path);
+            return false;
+        }
+
+        UINT width = 0, height = 0;
+        converter->GetSize(&width, &height);
+        std::vector<BYTE> pixels(width * height * 4);
+        converter->CopyPixels(nullptr, width * 4, static_cast<UINT>(pixels.size()), pixels.data());
+
+        D3D11_TEXTURE2D_DESC desc = {};
+        desc.Width = width;
+        desc.Height = height;
+        desc.MipLevels = 1;
+        desc.ArraySize = 1;
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.Usage = D3D11_USAGE_IMMUTABLE;
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+        D3D11_SUBRESOURCE_DATA initData = {};
+        initData.pSysMem = pixels.data();
+        initData.SysMemPitch = width * 4;
+
+        ID3D11Texture2D* tex = nullptr;
+        hr = device->CreateTexture2D(&desc, &initData, &tex);
+        if (FAILED(hr)) {
+            converter->Release(); frame->Release(); decoder->Release(); wicFactory->Release();
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX11: Failed to create texture from pixel data: " + path);
+            return false;
+        }
+
+        hr = device->CreateShaderResourceView(tex, nullptr, &textureSRV);
+        tex->Release();
         converter->Release(); frame->Release(); decoder->Release(); wicFactory->Release();
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX11: Converter initialization failed for: " + path);
+
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX11: SRV creation failed for: " + path);
+            return false;
+        }
+
+        #if defined(_DEBUG_MODEL_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"DX11 Texture loaded: " + path);
+        #endif
+        return true;
+    #else
         return false;
-    }
-
-    UINT width = 0, height = 0;
-    converter->GetSize(&width, &height);
-    std::vector<BYTE> pixels(width * height * 4);
-    converter->CopyPixels(nullptr, width * 4, static_cast<UINT>(pixels.size()), pixels.data());
-
-    D3D11_TEXTURE2D_DESC desc = {};
-    desc.Width = width;
-    desc.Height = height;
-    desc.MipLevels = 1;
-    desc.ArraySize = 1;
-    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    desc.SampleDesc.Count = 1;
-    desc.Usage = D3D11_USAGE_IMMUTABLE;
-    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-
-    D3D11_SUBRESOURCE_DATA initData = {};
-    initData.pSysMem = pixels.data();
-    initData.SysMemPitch = width * 4;
-
-    ID3D11Texture2D* tex = nullptr;
-    hr = device->CreateTexture2D(&desc, &initData, &tex);
-    if (FAILED(hr)) {
-        converter->Release(); frame->Release(); decoder->Release(); wicFactory->Release();
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX11: Failed to create texture from pixel data: " + path);
-        return false;
-    }
-
-    hr = device->CreateShaderResourceView(tex, nullptr, &textureSRV);
-    tex->Release();
-    converter->Release(); frame->Release(); decoder->Release(); wicFactory->Release();
-
-    if (FAILED(hr)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX11: SRV creation failed for: " + path);
-        return false;
-    }
-
-    #if defined(_DEBUG_MODEL_)
-        debug.logLevelMessage(LogLevel::LOG_INFO, L"DX11 Texture loaded: " + path);
     #endif
-    return true;
-#else
-    return false;
-#endif
 }
 
 // ==========================================================================================

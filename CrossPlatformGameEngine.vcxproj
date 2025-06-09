@@ -145,6 +145,7 @@
     <ClCompile Include="IOStreamDX11Thread.cpp" />
     <ClCompile Include="IOStreamDX12Thread.cpp" />
     <ClCompile Include="Joystick.cpp" />
+    <ClCompile Include="KBHandlersCode.cpp" />
     <ClCompile Include="KeyboardHandler.cpp" />
     <ClCompile Include="Lights.cpp" />
     <ClCompile Include="main.cpp" />

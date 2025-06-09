@@ -292,21 +292,25 @@ public:
     virtual void* GetDeviceContext() = 0;                                   // Returns generic device context pointer (castable to ComPtr<ID3D11DeviceContext>, etc.)
     virtual void* GetSwapChain() = 0;                                       // Returns generic swap chain pointer (castable to ComPtr<IDXGISwapChain>, etc.)
 
-    // INTERNAL THREAD: Add the virtual declaration for RenderFrame
+    // INTERNAL TASKING THREAD HANDLERS:
     virtual void RenderFrame() = 0;
-    // INTERNAL THREAD: Add the virtual declaration for LoaderTaskThread
     virtual void LoaderTaskThread() = 0;
+
 	// Thread Helper Functions
     virtual bool StartRendererThreads() = 0;
     virtual void ResumeLoader(bool isResizing = false) = 0;
 
 	// Window / Screen Management
-    virtual void Resize(uint32_t width, uint32_t height) = 0;
+    virtual bool Resize(uint32_t width, uint32_t height) = 0;
     virtual bool SetFullScreen(void) = 0;
     virtual bool SetFullExclusive(uint32_t width, uint32_t height) = 0;
     virtual bool SetWindowedScreen(void) = 0;
 
-	// Primitive Drawing Functions
+    // Wait & Synchronization Functions
+    virtual void WaitToFinishThenPauseThread() = 0;
+    virtual void WaitForGPUToFinish() = 0;
+
+    // Primitive Drawing Functions
     virtual void DrawRectangle(const Vector2& position, const Vector2& size, const MyColor& color, bool is2D) = 0;
     virtual void DrawMyText(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize) = 0;
     virtual void DrawMyText(const std::wstring& text, const Vector2& position, const Vector2& size, const MyColor& color, const float FontSize) = 0;
