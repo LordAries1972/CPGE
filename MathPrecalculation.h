@@ -52,6 +52,26 @@ const float INTERP_PRECISION_FACTOR = static_cast<float>(INTERPOLATION_TABLE_SIZ
 const int INVERSE_TRIG_TABLE_SIZE = 32768;                                     // Inverse trig lookup table size for domain [-1, 1]
 const float INVERSE_TRIG_PRECISION_FACTOR = static_cast<float>(INVERSE_TRIG_TABLE_SIZE - 1) / 2.0f;  // Maps [-1, 1] to [0, table_size-1]
 
+//===================================================
+// Physics Constants
+//===================================================
+const int GRAVITY_LOOKUP_TABLE_SIZE = 1024;                                    // Size of gravity intensity lookup table
+const int REFLECTION_ANGLE_TABLE_SIZE = 360;                                   // Size of reflection angle lookup table
+const int INERTIA_COEFFICIENT_TABLE_SIZE = 256;                                // Size of inertia coefficient lookup table
+const int COLLISION_RESPONSE_TABLE_SIZE = 512;                                 // Size of collision response lookup table
+const int AUDIO_PROPAGATION_TABLE_SIZE = 256;                                  // Size of audio propagation lookup table
+const int GRAVITY_INTENSITY_TABLE_SIZE = 2048;                                 // Gravity intensity lookup table for distance-based calculations
+const int AUDIO_ATTENUATION_TABLE_SIZE = 1024;                                 // Audio attenuation lookup table for distance-based sound
+const int ORBITAL_MECHANICS_TABLE_SIZE = 512;                                  // Orbital mechanics lookup table for velocity calculations
+
+// Physics precision factors for lookup table indexing
+const float GRAVITY_DISTANCE_PRECISION = static_cast<float>(GRAVITY_INTENSITY_TABLE_SIZE) / 1000.0f;  // Maps distance [0, 1000] to table
+const float REFLECTION_ANGLE_PRECISION = static_cast<float>(REFLECTION_ANGLE_TABLE_SIZE) / (2.0f * XM_PI);  // Maps angle [0, 2π] to table
+const float INERTIA_MASS_PRECISION = static_cast<float>(INERTIA_COEFFICIENT_TABLE_SIZE) / 100.0f;     // Maps mass [0, 100] to table
+const float COLLISION_RESPONSE_PRECISION = static_cast<float>(COLLISION_RESPONSE_TABLE_SIZE) / 1.0f;  // Maps coefficients [0, 1] to table
+const float AUDIO_DISTANCE_PRECISION = static_cast<float>(AUDIO_ATTENUATION_TABLE_SIZE) / 500.0f;     // Maps distance [0, 500] to table
+const float ORBITAL_DISTANCE_PRECISION = static_cast<float>(ORBITAL_MECHANICS_TABLE_SIZE) / 10000.0f; // Maps distance [0, 10000] to table
+
 //==============================================================================
 // Precalculated Data Structures
 //==============================================================================
@@ -103,6 +123,49 @@ struct MatrixTransformData {
     XMMATRIX rotationMatrix;                                                    // Precalculated rotation matrix
     XMMATRIX translationMatrix;                                                 // Precalculated translation matrix
     XMMATRIX combinedMatrix;                                                    // Combined transformation matrix
+};
+
+// Physics-specific data structures for precalculated values
+struct GravityIntensityData {
+    float force;                                                                // Gravity force magnitude
+    float acceleration;                                                         // Gravity acceleration
+    float potential;                                                            // Gravitational potential energy coefficient
+    float tidalForce;                                                           // Tidal force coefficient for advanced effects
+};
+
+struct ReflectionAngleData {
+    XMFLOAT3 reflectionVector;                                                  // Precalculated reflection vector
+    float energyLoss;                                                           // Energy loss coefficient
+    float tangentialFriction;                                                   // Tangential friction component
+    float normalRestitution;                                                    // Normal restitution component
+};
+
+struct InertiaData {
+    float momentOfInertia;                                                      // Moment of inertia for rotation
+    float angularMass;                                                          // Angular mass coefficient
+    float gyroscopicEffect;                                                     // Gyroscopic effect coefficient
+    float torqueResponse;                                                       // Torque response coefficient
+};
+
+struct CollisionResponseData {
+    XMFLOAT3 velocityChange;                                                    // Velocity change vector
+    float impulseStrength;                                                      // Impulse magnitude
+    float separationDistance;                                                   // Required separation distance
+    float contactTime;                                                          // Contact duration estimate
+};
+
+struct AudioAttenuationData {
+    float volumeAttenuation;                                                    // Volume attenuation factor
+    float frequencyShift;                                                       // Frequency shift for distance effects
+    float reverbCoefficient;                                                    // Reverb coefficient
+    float occlusionFactor;                                                      // Occlusion factor
+};
+
+struct OrbitalMechanicsData {
+    float orbitalVelocity;                                                      // Circular orbital velocity
+    float escapeVelocity;                                                       // Escape velocity
+    float periodTime;                                                           // Orbital period
+    float eccentricity;                                                         // Orbital eccentricity coefficient
 };
 
 //==============================================================================
@@ -273,6 +336,39 @@ public:
     uint32_t FastCountSetBits(uint32_t value) const;
     uint32_t FastReverseBits(uint32_t value) const;
 
+    //==========================================================================
+    // Physics Optimization Methods
+    //==========================================================================
+
+    // Forward declaration for physics vector type
+    struct PhysicsVector3D;
+
+    // Fast gravity intensity calculation for physics simulations
+    float FastGravityIntensity(float distance, float mass, float intensity = 1.0f) const;
+
+    // Fast reflection angle calculation for collision response
+    XMFLOAT3 FastReflectionVector(const XMFLOAT3& incoming, const XMFLOAT3& normal, float restitution = 0.8f) const;
+
+    // Fast inertia coefficient lookup for rotational physics
+    float FastInertiaCoefficient(float mass, float radius) const;
+
+    // Fast collision response calculation
+    XMFLOAT3 FastCollisionResponse(const XMFLOAT3& velocity, const XMFLOAT3& normal,
+        float restitution, float friction) const;
+
+    // Fast audio propagation coefficient
+    float FastAudioPropagation(float distance, float occlusionFactor = 0.0f) const;
+
+    // Fast projectile trajectory calculation
+    XMFLOAT3 FastProjectileTrajectory(const XMFLOAT3& startPos, const XMFLOAT3& targetPos,
+        float launchSpeed, float gravity = 9.81f) const;
+
+    // Fast orbital velocity calculation
+    float FastOrbitalVelocity(float distance, float mass) const;
+
+    // Fast escape velocity calculation
+    float FastEscapeVelocity(float distance, float mass) const;
+
 private:
     // Private constructor for singleton pattern
     MathPrecalculation();
@@ -305,6 +401,15 @@ private:
 
     // Initialize text rendering optimizations
     void InitializeTextOptimizations();
+
+    // Physics-specific initialization methods
+    void InitializeGravityIntensityTables();
+    void InitializeReflectionAngleTables();
+    void InitializeInertiaTables();
+    void InitializeCollisionResponseTables();
+    void InitializeAudioAttenuationTables();
+    void InitializeOrbitalMechanicsTables();
+    void InitializePhysicsPrecalculations();
 
     //==========================================================================
     // Helper Methods
@@ -360,6 +465,14 @@ private:
     // Debug and statistics
     mutable std::atomic<size_t> m_totalMemoryUsage;
     mutable std::atomic<size_t> m_lookupCount;
+
+    // Physics-specific lookup tables
+    std::vector<GravityIntensityData> m_gravityIntensityTable;                  // Gravity intensity lookup table
+    std::vector<ReflectionAngleData> m_reflectionAngleTable;                    // Reflection angle lookup table
+    std::vector<InertiaData> m_inertiaTable;                                    // Inertia coefficient lookup table
+    std::vector<CollisionResponseData> m_collisionResponseTable;                // Collision response lookup table
+    std::vector<AudioAttenuationData> m_audioAttenuationTable;                  // Audio attenuation lookup table
+    std::vector<OrbitalMechanicsData> m_orbitalMechanicsTable;                  // Orbital mechanics lookup table
 };
 
 //==============================================================================
@@ -376,6 +489,16 @@ private:
 #define FAST_ACOS(value) FAST_MATH.FastACos(value)
 #define FAST_ATAN(value) FAST_MATH.FastATan(value)
 #define FAST_ATAN2(y, x) FAST_MATH.FastATan2(y, x)
+
+// Physics optimization macros
+#define FAST_GRAVITY_INTENSITY(distance, mass, intensity) FAST_MATH.FastGravityIntensity(distance, mass, intensity)
+#define FAST_REFLECTION_VECTOR(incoming, normal, restitution) FAST_MATH.FastReflectionVector(incoming, normal, restitution)
+#define FAST_INERTIA_COEFFICIENT(mass, radius) FAST_MATH.FastInertiaCoefficient(mass, radius)
+#define FAST_COLLISION_RESPONSE(velocity, normal, restitution, friction) FAST_MATH.FastCollisionResponse(velocity, normal, restitution, friction)
+#define FAST_AUDIO_PROPAGATION(distance, occlusion) FAST_MATH.FastAudioPropagation(distance, occlusion)
+#define FAST_PROJECTILE_TRAJECTORY(start, target, speed, gravity) FAST_MATH.FastProjectileTrajectory(start, target, speed, gravity)
+#define FAST_ORBITAL_VELOCITY(distance, mass) FAST_MATH.FastOrbitalVelocity(distance, mass)
+#define FAST_ESCAPE_VELOCITY(distance, mass) FAST_MATH.FastEscapeVelocity(distance, mass)
 
 //==============================================================================
 // Debug Preprocessor Directives

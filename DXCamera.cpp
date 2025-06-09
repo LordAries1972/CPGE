@@ -2,11 +2,13 @@
 
 #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
 
+#include "Debug.h"
+#include "Configuration.h"
+#include "ExceptionHandler.h"
 #include "MathPrecalculation.h"
 #include "Configuration.h"
 #include "DXCamera.h"
 #include "Renderer.h"
-#include "Debug.h"
 #include "WinSystem.h"
 
 class Debug;
@@ -43,9 +45,10 @@ Camera::Camera() {
     m_screenWidth = fDEFAULT_WINDOW_WIDTH;                                  // Default screen width
     m_screenHeight = fDEFAULT_WINDOW_HEIGHT;                                // Default screen height  
     m_aspectRatio = fDEFAULT_WINDOW_WIDTH / fDEFAULT_WINDOW_HEIGHT;         // Default aspect ratio (4:3)
-    m_fieldOfView = XMConvertToRadians(45.0f);                              // Default 45-degree FOV
-    m_nearPlane = 0.1f;                                                     // Default near plane
-    m_farPlane = 1000.0f;                                                   // Default far plane
+//    m_fieldOfView = XMConvertToRadians(45.0f);                              // Default Config Settings for FOV
+    m_fieldOfView = XMConvertToRadians(config.myConfig.fov);                // Default Config Settings for FOV
+    m_nearPlane = config.myConfig.nearPlane;                                // Default near plane
+    m_farPlane = config.myConfig.farPlane;                                  // Default far plane
 
     // Initialize continuous rotation variables
     m_isRotatingAroundTarget = false;                                       // Initialize rotation flag
@@ -3029,6 +3032,311 @@ void Camera::UpdateResolution(uint32_t newWidth, uint32_t newHeight, float newAs
         debug.logDebugMessage(LogLevel::LOG_INFO, L"[CAMERA] Resolution update completed - FOV: %.2f°, Near: %.3f, Far: %.3f, Aspect: %.3f", 
             XMConvertToDegrees(m_fieldOfView), m_nearPlane, m_farPlane, m_aspectRatio);
     #endif
+}
+
+void Camera::UpdateDirectionVectors(const XMVECTOR& forwardVector, const XMVECTOR& rightVector, const XMVECTOR& upVector)
+{
+    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[Camera] UpdateDirectionVectors() called - updating internal direction vectors");
+    #endif
+
+    try {
+        // Validate input vectors to ensure they are not zero vectors
+        float forwardLength = XMVectorGetX(XMVector3Length(forwardVector));   // Calculate forward vector length
+        float rightLength = XMVectorGetX(XMVector3Length(rightVector));       // Calculate right vector length  
+        float upLength = XMVectorGetX(XMVector3Length(upVector));             // Calculate up vector length
+
+        // Check for invalid (zero-length) vectors that would cause camera issues
+        if (forwardLength < 0.001f || rightLength < 0.001f || upLength < 0.001f)
+        {
+            #if defined(_DEBUG_CAMERA_MOUSE_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                    L"[Camera] Invalid direction vectors detected - lengths: forward=%.6f, right=%.6f, up=%.6f. Using fallback vectors", 
+                    forwardLength, rightLength, upLength);
+            #endif
+
+            // Use safe fallback vectors when invalid vectors are provided
+            XMVECTOR safeFwd = XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f);          // Default forward (positive Z)
+            XMVECTOR safeRight = XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);        // Default right (positive X)
+            XMVECTOR safeUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);           // Default up (positive Y)
+
+            // Store the safe fallback vectors
+            XMStoreFloat3(&forward, safeFwd);                                  // Store safe forward vector
+            XMStoreFloat3(&up, safeUp);                                        // Store safe up vector
+
+            // Calculate target from position and forward direction
+            XMVECTOR currentPos = XMLoadFloat3(&position);                     // Load current camera position
+            XMVECTOR newTarget = XMVectorAdd(currentPos, safeFwd);            // Calculate new target position
+            XMStoreFloat3(&target, newTarget);                                 // Store new target position
+
+            #if defined(_DEBUG_CAMERA_MOUSE_) && defined(_DEBUG)
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"[Camera] Applied safe fallback direction vectors");
+            #endif
+        }
+        else
+        {
+            // Normalize the vectors to ensure they are unit vectors for consistent behavior
+            XMVECTOR normalizedForward = XMVector3Normalize(forwardVector);    // Normalize forward vector to unit length
+            XMVECTOR normalizedRight = XMVector3Normalize(rightVector);        // Normalize right vector to unit length
+            XMVECTOR normalizedUp = XMVector3Normalize(upVector);              // Normalize up vector to unit length
+
+            // Store the normalized direction vectors in the camera's internal state
+            XMStoreFloat3(&forward, normalizedForward);                        // Update internal forward vector
+            XMStoreFloat3(&up, normalizedUp);                                  // Update internal up vector
+
+            // Calculate and update the new target position based on the updated forward direction
+            XMVECTOR currentPos = XMLoadFloat3(&position);                     // Load current camera position as vector
+            XMVECTOR newTarget = XMVectorAdd(currentPos, normalizedForward);   // Calculate new target = position + forward
+            XMStoreFloat3(&target, newTarget);                                 // Store the calculated target position
+
+            // Update yaw and pitch angles to match the new forward direction for consistency
+            UpdateYawPitchFromDirection(forward);                              // Synchronize yaw/pitch with new direction
+
+            #if defined(_DEBUG_CAMERA_MOUSE_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                    L"[Camera] Direction vectors updated - Forward: (%.3f, %.3f, %.3f), Up: (%.3f, %.3f, %.3f)", 
+                    forward.x, forward.y, forward.z, up.x, up.y, up.z);
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                    L"[Camera] Updated target: (%.3f, %.3f, %.3f), Yaw: %.3f, Pitch: %.3f", 
+                    target.x, target.y, target.z, m_yaw, m_pitch);
+            #endif
+        }
+
+        // Ensure view matrix is updated with the new direction vectors for immediate effect
+        UpdateViewMatrix();                                                    // Recalculate view matrix with new vectors
+
+        #if defined(_DEBUG_CAMERA_MOUSE_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[Camera] UpdateDirectionVectors() completed successfully");
+        #endif
+    }
+    catch (const std::exception& e)
+    {
+        // Handle any exceptions that occur during direction vector updates
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION, 
+                L"[Camera] Exception in UpdateDirectionVectors: %hs. Using safe fallback vectors", e.what());
+        #endif
+
+        // Apply safe fallback vectors in case of exception to prevent camera from breaking
+        XMVECTOR safeFwd = XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f);              // Safe forward direction
+        XMVECTOR safeUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);               // Safe up direction
+
+        // Store safe vectors and update camera state
+        XMStoreFloat3(&forward, safeFwd);                                      // Apply safe forward vector
+        XMStoreFloat3(&up, safeUp);                                            // Apply safe up vector
+
+        // Recalculate target with safe vectors
+        XMVECTOR currentPos = XMLoadFloat3(&position);                         // Get current position
+        XMVECTOR safeTarget = XMVectorAdd(currentPos, safeFwd);               // Calculate safe target
+        XMStoreFloat3(&target, safeTarget);                                    // Apply safe target
+
+        // Update view matrix with safe vectors
+        UpdateViewMatrix();                                                    // Update view matrix safely
+
+        // Log the exception using ExceptionHandler (Rule #45)
+        exceptionHandler.LogException(e, "Camera::UpdateDirectionVectors");   // Log exception for debugging
+    }
+    catch (...)
+    {
+        // Handle any unknown exceptions that might occur
+        #if defined(_DEBUG_CAMERA_MOUSE_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_TERMINATION, 
+                L"[Camera] Unknown exception in UpdateDirectionVectors. Applying emergency fallback vectors");
+        #endif
+
+        // Apply emergency fallback vectors for unknown exceptions
+        forward = XMFLOAT3(0.0f, 0.0f, 1.0f);                                 // Emergency forward vector
+        up = XMFLOAT3(0.0f, 1.0f, 0.0f);                                      // Emergency up vector
+        target = XMFLOAT3(position.x, position.y, position.z + 1.0f);         // Emergency target (1 unit forward)
+
+        // Update view matrix with emergency vectors
+        UpdateViewMatrix();                                                    // Emergency view matrix update
+
+        // Log custom exception for unknown errors
+        exceptionHandler.LogCustomException("Unknown exception in Camera::UpdateDirectionVectors", "Camera direction update");
+    }
+}
+
+void Camera::CalculateDirectionVectors(float yaw, float pitch, XMVECTOR& outForward, XMVECTOR& outRight, XMVECTOR& outUp) const
+{
+    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] CalculateDirectionVectors() called with yaw=%.3f, pitch=%.3f", yaw, pitch);
+    #endif
+
+    try {
+        // Validate input parameters to ensure they are within reasonable bounds
+        if (yaw < -XM_2PI || yaw > XM_2PI) {
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                    L"[Camera] Yaw angle %.3f is outside reasonable bounds [-2π, 2π], normalizing", yaw);
+            #endif
+            
+            // Normalize yaw to [-2π, 2π] range using fast math operations
+            while (yaw > XM_2PI) yaw -= XM_2PI;                            // Reduce large positive angles
+            while (yaw < -XM_2PI) yaw += XM_2PI;                           // Reduce large negative angles
+        }
+
+        // Clamp pitch to prevent gimbal lock (just under ±90 degrees)
+        const float maxPitch = XM_PIDIV2 - 0.01f;                          // Just under 90 degrees to prevent gimbal lock
+        if (pitch > maxPitch || pitch < -maxPitch) {
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                    L"[Camera] Pitch angle %.3f is outside safe bounds [%.3f, %.3f], clamping", 
+                    pitch, -maxPitch, maxPitch);
+            #endif
+            
+            pitch = std::clamp(pitch, -maxPitch, maxPitch);                 // Clamp pitch to safe range
+        }
+
+        // Calculate trigonometric values using MathPrecalculation for optimization
+        float cosPitch = FAST_COS(pitch);                                   // Cosine of pitch angle for vertical rotation
+        float sinPitch = FAST_SIN(pitch);                                   // Sine of pitch angle for vertical rotation
+        float cosYaw = FAST_COS(yaw);                                       // Cosine of yaw angle for horizontal rotation
+        float sinYaw = FAST_SIN(yaw);                                       // Sine of yaw angle for horizontal rotation
+
+        // Calculate forward vector (direction camera is looking)
+        // Forward vector components: X = cos(pitch) * sin(yaw), Y = sin(pitch), Z = cos(pitch) * cos(yaw)
+        outForward = XMVectorSet(
+            cosPitch * sinYaw,                                              // X component: horizontal forward direction
+            sinPitch,                                                       // Y component: vertical look direction
+            cosPitch * cosYaw,                                              // Z component: depth forward direction
+            0.0f                                                            // W component: not used for direction vectors
+        );
+        
+        // Normalize forward vector to ensure it's a unit vector
+        outForward = XMVector3Normalize(outForward);                        // Ensure forward vector is normalized
+
+        // Calculate right vector (perpendicular to forward, always horizontal)
+        // Right vector is perpendicular to forward and world up (0, 1, 0)
+        XMVECTOR worldUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);           // World up vector (positive Y axis)
+        outRight = XMVector3Cross(worldUp, outForward);                     // Cross product gives perpendicular right vector
+        outRight = XMVector3Normalize(outRight);                            // Normalize right vector to unit length
+
+        // Calculate up vector (perpendicular to both forward and right)
+        // Up vector is calculated as cross product of forward and right vectors
+        outUp = XMVector3Cross(outForward, outRight);                       // Cross product gives camera's local up vector
+        outUp = XMVector3Normalize(outUp);                                  // Normalize up vector to unit length
+
+        // Validate calculated vectors to ensure they are valid unit vectors
+        float forwardLength = XMVectorGetX(XMVector3Length(outForward));    // Check forward vector length
+        float rightLength = XMVectorGetX(XMVector3Length(outRight));        // Check right vector length
+        float upLength = XMVectorGetX(XMVector3Length(outUp));              // Check up vector length
+
+        // Verify all vectors are properly normalized (length should be ~1.0)
+        if (abs(forwardLength - 1.0f) > 0.01f || abs(rightLength - 1.0f) > 0.01f || abs(upLength - 1.0f) > 0.01f) {
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                    L"[Camera] Direction vectors not properly normalized - Forward: %.3f, Right: %.3f, Up: %.3f", 
+                    forwardLength, rightLength, upLength);
+            #endif
+            
+            // Force re-normalization if vectors are not unit length
+            outForward = XMVector3Normalize(outForward);                    // Re-normalize forward vector
+            outRight = XMVector3Normalize(outRight);                        // Re-normalize right vector
+            outUp = XMVector3Normalize(outUp);                              // Re-normalize up vector
+        }
+
+        // Verify vectors are orthogonal to each other (dot products should be ~0)
+        float forwardRightDot = XMVectorGetX(XMVector3Dot(outForward, outRight));     // Should be near 0
+        float forwardUpDot = XMVectorGetX(XMVector3Dot(outForward, outUp));           // Should be near 0
+        float rightUpDot = XMVectorGetX(XMVector3Dot(outRight, outUp));               // Should be near 0
+
+        if (abs(forwardRightDot) > 0.01f || abs(forwardUpDot) > 0.01f || abs(rightUpDot) > 0.01f) {
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                    L"[Camera] Direction vectors not orthogonal - F·R: %.3f, F·U: %.3f, R·U: %.3f", 
+                    forwardRightDot, forwardUpDot, rightUpDot);
+            #endif
+        }
+
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            // Extract vector components for detailed logging
+            XMFLOAT3 fwd, right, up;                                       // Temporary storage for vector components
+            XMStoreFloat3(&fwd, outForward);                                // Store forward vector components
+            XMStoreFloat3(&right, outRight);                                // Store right vector components
+            XMStoreFloat3(&up, outUp);                                      // Store up vector components
+            
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] Calculated direction vectors:");
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"  Forward: (%.3f, %.3f, %.3f), Right: (%.3f, %.3f, %.3f), Up: (%.3f, %.3f, %.3f)", 
+                fwd.x, fwd.y, fwd.z, right.x, right.y, right.z, up.x, up.y, up.z);
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] Vector lengths - Forward: %.3f, Right: %.3f, Up: %.3f", 
+                forwardLength, rightLength, upLength);
+        #endif
+    }
+    catch (const std::exception& e) {
+        // Handle any exceptions that occur during direction vector calculation
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION, 
+                L"[Camera] Exception in CalculateDirectionVectors: %hs. Using safe fallback vectors", e.what());
+        #endif
+
+        // Apply safe fallback vectors in case of exception to prevent camera from breaking
+        outForward = XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f);                 // Safe forward direction (positive Z)
+        outRight = XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);                   // Safe right direction (positive X)
+        outUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);                      // Safe up direction (positive Y)
+
+        // Log the exception using ExceptionHandler (Rule #45)
+        exceptionHandler.LogException(e, "Camera::CalculateDirectionVectors"); // Log exception for debugging
+    }
+    catch (...) {
+        // Handle any unknown exceptions that might occur
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_TERMINATION, 
+                L"[Camera] Unknown exception in CalculateDirectionVectors. Applying emergency fallback vectors");
+        #endif
+
+        // Apply emergency fallback vectors for unknown exceptions
+        outForward = XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f);                 // Emergency forward vector
+        outRight = XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);                   // Emergency right vector
+        outUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);                      // Emergency up vector
+
+        // Log custom exception for unknown errors
+        exceptionHandler.LogCustomException("Unknown exception in Camera::CalculateDirectionVectors", "Camera direction calculation");
+    }
+}
+
+void Camera::UpdateCameraDirectionFromAngles(float yaw, float pitch)
+{
+    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] UpdateCameraDirectionFromAngles() called with yaw=%.3f, pitch=%.3f", yaw, pitch);
+    #endif
+
+    try {
+        // Declare vectors to store calculated direction vectors
+        XMVECTOR forwardVector, rightVector, upVector;                      // Direction vectors to be calculated
+
+        // Calculate direction vectors from yaw and pitch angles
+        CalculateDirectionVectors(yaw, pitch, forwardVector, rightVector, upVector); // Calculate all three direction vectors
+
+        // Update camera's internal direction vectors using the calculated vectors
+        UpdateDirectionVectors(forwardVector, rightVector, upVector);       // Apply calculated vectors to camera
+
+        // Store the yaw and pitch values in camera for consistency
+        m_yaw = yaw;                                                        // Store yaw angle for future reference
+        m_pitch = pitch;                                                    // Store pitch angle for future reference
+
+        UpdateViewMatrix();                                                 // Update the View Matrix to reflect new direction vectors
+
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, 
+                L"[Camera] Camera direction updated successfully from yaw/pitch angles");
+        #endif
+    }
+    catch (const std::exception& e) {
+        // Handle exceptions during camera direction update
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION, 
+                L"[Camera] Exception in UpdateCameraDirectionFromAngles: %hs", e.what());
+        #endif
+
+        // Log the exception using ExceptionHandler (Rule #45)
+        exceptionHandler.LogException(e, "Camera::UpdateCameraDirectionFromAngles");
+    }
 }
 
 #endif // End of #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)

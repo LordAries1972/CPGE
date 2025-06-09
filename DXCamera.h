@@ -102,7 +102,14 @@ public:
     void SetUpVector(const XMFLOAT3& newUp);
     void SetNearFarPlanes(float nearPlane, float farPlane);
     void UpdateCameraMatrices();
-    
+
+    // Method to update camera's internal direction vectors after mouse or joystick movement
+    void UpdateDirectionVectors(const XMVECTOR& forward, const XMVECTOR& right, const XMVECTOR& up);
+    // Method to calculate direction vectors from yaw and pitch angles
+    void CalculateDirectionVectors(float yaw, float pitch, XMVECTOR& outForward, XMVECTOR& outRight, XMVECTOR& outUp) const;
+    // Method to update camera direction from yaw and pitch angles
+    void UpdateCameraDirectionFromAngles(float yaw, float pitch);
+
     // Resize functions for Camera state preservation
     void SaveCameraStateForResize();
     void RestoreCameraStateAfterResize();

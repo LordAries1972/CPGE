@@ -1016,7 +1016,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
                     // Apply rotation to camera
                     if (renderer && renderer->bIsInitialized.load()) {
-                        renderer->myCamera.SetYawPitch(yaw, pitch); // Update camera orientation
+                       renderer->myCamera.UpdateCameraDirectionFromAngles(yaw, pitch);
                     }
                 }
                 break;

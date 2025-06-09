@@ -7,6 +7,7 @@
 //-------------------------------------------------------------------------------------------------
 
 #include "Includes.h"
+#include "Physics.h"
 #include "MathPrecalculation.h"
 #include "Debug.h"
 
@@ -1534,6 +1535,13 @@ size_t MathPrecalculation::GetMemoryUsage() const
     totalMemory += m_particleDirections.size() * sizeof(ParticleData);
     totalMemory += m_transparencyLookup.size() * sizeof(float);
     totalMemory += m_inverseTrigonometricTable.size() * sizeof(InverseTrigonometricData);
+    // Calculate memory usage for physics-specific lookup tables
+    totalMemory += m_gravityIntensityTable.size() * sizeof(GravityIntensityData);
+    totalMemory += m_reflectionAngleTable.size() * sizeof(ReflectionAngleData);
+    totalMemory += m_inertiaTable.size() * sizeof(InertiaData);
+    totalMemory += m_collisionResponseTable.size() * sizeof(CollisionResponseData);
+    totalMemory += m_audioAttenuationTable.size() * sizeof(AudioAttenuationData);
+    totalMemory += m_orbitalMechanicsTable.size() * sizeof(OrbitalMechanicsData);
 
     // Calculate memory usage for hash maps
     for (const auto& pair : m_explosionPatterns)
@@ -1553,9 +1561,9 @@ bool MathPrecalculation::ValidateTables() const
     // Ensure the system is initialized before validation
     if (!m_bIsInitialized.load())
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Cannot validate tables - system not initialized");
-#endif
+        #if defined(_DEBUG_MATHPRECALC_)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Cannot validate tables - system not initialized");
+        #endif
         return false;
     }
 
@@ -1564,36 +1572,36 @@ bool MathPrecalculation::ValidateTables() const
     // Validate trigonometric table
     if (m_trigonometricTable.size() != TRIG_TABLE_SIZE)
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Trigonometric table size mismatch");
-#endif
+        #if defined(_DEBUG_MATHPRECALC_)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Trigonometric table size mismatch");
+        #endif
         isValid = false;
     }
 
     // Validate square root table
     if (m_sqrtTable.size() != SQRT_TABLE_SIZE)
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Square root table size mismatch");
-#endif
+        #if defined(_DEBUG_MATHPRECALC_)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Square root table size mismatch");
+        #endif
         isValid = false;
     }
 
     // Validate interpolation table
     if (m_interpolationTable.size() != INTERPOLATION_TABLE_SIZE)
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Interpolation table size mismatch");
-#endif
+        #if defined(_DEBUG_MATHPRECALC_)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Interpolation table size mismatch");
+        #endif
         isValid = false;
     }
 
     // Validate particle directions table
     if (m_particleDirections.size() != PARTICLE_ANGLE_DIVISIONS)
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Particle directions table size mismatch");
-#endif
+        #if defined(_DEBUG_MATHPRECALC_)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Particle directions table size mismatch");
+        #endif
         isValid = false;
     }
 
@@ -1603,9 +1611,9 @@ bool MathPrecalculation::ValidateTables() const
         const TrigonometricData& zeroData = m_trigonometricTable[0];
         if (std::abs(zeroData.sine - 0.0f) > 1e-6f || std::abs(zeroData.cosine - 1.0f) > 1e-6f)
         {
-#if defined(_DEBUG_MATHPRECALC_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Trigonometric values at angle 0 are incorrect");
-#endif
+            #if defined(_DEBUG_MATHPRECALC_)
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Trigonometric values at angle 0 are incorrect");
+            #endif
             isValid = false;
         }
     }
@@ -1613,9 +1621,9 @@ bool MathPrecalculation::ValidateTables() const
     // Validate inverse trigonometric table
     if (m_inverseTrigonometricTable.size() != INVERSE_TRIG_TABLE_SIZE)
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Inverse trigonometric table size mismatch");
-#endif
+        #if defined(_DEBUG_MATHPRECALC_)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Inverse trigonometric table size mismatch");
+        #endif
         isValid = false;
     }
 
@@ -1627,11 +1635,60 @@ bool MathPrecalculation::ValidateTables() const
         const InverseTrigonometricData& zeroData = m_inverseTrigonometricTable[zeroIndex];
         if (std::abs(zeroData.arcSine - 0.0f) > 1e-6f)
         {
-#if defined(_DEBUG_MATHPRECALC_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Inverse trigonometric values at input 0 are incorrect");
-#endif
+            #if defined(_DEBUG_MATHPRECALC_)
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Inverse trigonometric values at input 0 are incorrect");
+            #endif
             isValid = false;
         }
+    }
+
+    // Validate physics-specific tables
+    if (m_gravityIntensityTable.size() != GRAVITY_INTENSITY_TABLE_SIZE)
+    {
+        #if defined(_DEBUG_MATHPRECALC_)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Gravity intensity table size mismatch");
+        #endif
+        isValid = false;
+    }
+
+    if (m_reflectionAngleTable.size() != REFLECTION_ANGLE_TABLE_SIZE)
+    {
+        #if defined(_DEBUG_MATHPRECALC_)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Reflection angle table size mismatch");
+        #endif
+        isValid = false;
+    }
+
+    if (m_inertiaTable.size() != INERTIA_COEFFICIENT_TABLE_SIZE)
+    {
+        #if defined(_DEBUG_MATHPRECALC_)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Inertia coefficient table size mismatch");
+        #endif
+        isValid = false;
+    }
+
+    if (m_collisionResponseTable.size() != COLLISION_RESPONSE_TABLE_SIZE)
+    {
+        #if defined(_DEBUG_MATHPRECALC_)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Collision response table size mismatch");
+        #endif
+        isValid = false;
+    }
+
+    if (m_audioAttenuationTable.size() != AUDIO_ATTENUATION_TABLE_SIZE)
+    {
+        #if defined(_DEBUG_MATHPRECALC_)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Audio attenuation table size mismatch");
+        #endif
+        isValid = false;
+    }
+
+    if (m_orbitalMechanicsTable.size() != ORBITAL_MECHANICS_TABLE_SIZE)
+    {
+        #if defined(_DEBUG_MATHPRECALC_)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Orbital mechanics table size mismatch");
+        #endif
+        isValid = false;
     }
 
 #if defined(_DEBUG_MATHPRECALC_)
@@ -1665,6 +1722,13 @@ void MathPrecalculation::DumpTableStatistics() const
     debug.logDebugMessage(LogLevel::LOG_INFO, L"Transparency lookup entries: %zu", m_transparencyLookup.size());
     debug.logDebugMessage(LogLevel::LOG_INFO, L"Total memory usage: %zu bytes", GetMemoryUsage());
     debug.logDebugMessage(LogLevel::LOG_INFO, L"Total lookups performed: %zu", m_lookupCount.load());
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"Physics-specific lookup tables:");
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"Gravity intensity entries: %zu", m_gravityIntensityTable.size());
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"Reflection angle entries: %zu", m_reflectionAngleTable.size());
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"Inertia coefficient entries: %zu", m_inertiaTable.size());
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"Collision response entries: %zu", m_collisionResponseTable.size());
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"Audio attenuation entries: %zu", m_audioAttenuationTable.size());
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"Orbital mechanics entries: %zu", m_orbitalMechanicsTable.size());
     debug.logLevelMessage(LogLevel::LOG_INFO, L"[MathPrecalculation] === End Statistics ===");
 #endif
 }
@@ -1686,9 +1750,9 @@ void MathPrecalculation::Cleanup()
         return;
     }
 
-#if defined(_DEBUG_MATHPRECALC_)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"[MathPrecalculation] Starting cleanup of lookup tables");
-#endif
+    #if defined(_DEBUG_MATHPRECALC_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[MathPrecalculation] Starting cleanup of lookup tables");
+    #endif
 
     // Clear all lookup tables and free memory
     m_trigonometricTable.clear();
@@ -1720,15 +1784,34 @@ void MathPrecalculation::Cleanup()
     m_transparencyLookup.clear();
     m_transparencyLookup.shrink_to_fit();
 
+    // Clear physics-specific lookup tables
+    m_gravityIntensityTable.clear();
+    m_gravityIntensityTable.shrink_to_fit();
+
+    m_reflectionAngleTable.clear();
+    m_reflectionAngleTable.shrink_to_fit();
+
+    m_inertiaTable.clear();
+    m_inertiaTable.shrink_to_fit();
+
+    m_collisionResponseTable.clear();
+    m_collisionResponseTable.shrink_to_fit();
+
+    m_audioAttenuationTable.clear();
+    m_audioAttenuationTable.shrink_to_fit();
+
+    m_orbitalMechanicsTable.clear();
+    m_orbitalMechanicsTable.shrink_to_fit();
+    
     // Reset state flags
     m_bIsInitialized.store(false);
     m_bHasCleanedUp.store(true);
     m_totalMemoryUsage.store(0);
     m_lookupCount.store(0);
 
-#if defined(_DEBUG_MATHPRECALC_)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"[MathPrecalculation] Cleanup completed successfully");
-#endif
+    #if defined(_DEBUG_MATHPRECALC_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[MathPrecalculation] Cleanup completed successfully");
+    #endif
 }
 
 //==============================================================================
@@ -2082,4 +2165,847 @@ uint32_t MathPrecalculation::FastNextPowerOfTwo(uint32_t value) const
     }
 
     return value;
+}
+
+//==============================================================================
+// Physics Optimization Methods Implementation
+//==============================================================================
+float MathPrecalculation::FastGravityIntensity(float distance, float mass, float intensity) const
+{
+    PHYSICS_RECORD_FUNCTION();
+    
+    // Ensure the system is initialized before attempting calculation
+    if (!m_bIsInitialized.load())
+    {
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastGravityIntensity called before initialization");
+#endif
+        // Fallback to standard calculation
+        if (distance < 0.1f) distance = 0.1f; // Prevent division by zero
+        return intensity * mass / (distance * distance);
+    }
+    
+    // Prevent division by zero for very close distances
+    if (distance < 0.1f)
+    {
+        distance = 0.1f;
+    }
+    
+    // Use fast square calculation instead of multiplication for optimization
+    float distanceSquared = distance * distance;
+    
+    // Newton's law of universal gravitation simplified for gaming
+    // F = G * m1 * m2 / r^2, simplified as F = intensity * mass / r^2
+    float gravityForce = intensity * mass / distanceSquared;
+    
+    // Increment lookup counter for statistics
+    m_lookupCount.fetch_add(1);
+    
+#if defined(_DEBUG_MATHPRECALC_)
+    static int debugCounter = 0;
+    if (++debugCounter % 1000 == 0) // Log every 1000 calls to avoid spam
+    {
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+            L"[MathPrecalculation] FastGravityIntensity - Distance: %.3f, Mass: %.3f, Force: %.6f", 
+            distance, mass, gravityForce);
+    }
+#endif
+    
+    return gravityForce;
+}
+
+XMFLOAT3 MathPrecalculation::FastReflectionVector(const XMFLOAT3& incoming, const XMFLOAT3& normal, float restitution) const
+{
+    PHYSICS_RECORD_FUNCTION();
+    
+    // Ensure the system is initialized before attempting calculation
+    if (!m_bIsInitialized.load())
+    {
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastReflectionVector called before initialization");
+#endif
+        // Fallback to standard reflection calculation
+        float dotProduct = incoming.x * normal.x + incoming.y * normal.y + incoming.z * normal.z;
+        XMFLOAT3 reflection;
+        reflection.x = incoming.x - 2.0f * dotProduct * normal.x;
+        reflection.y = incoming.y - 2.0f * dotProduct * normal.y;
+        reflection.z = incoming.z - 2.0f * dotProduct * normal.z;
+        
+        // Apply restitution
+        reflection.x *= restitution;
+        reflection.y *= restitution;
+        reflection.z *= restitution;
+        
+        return reflection;
+    }
+    
+    // Clamp restitution to valid range [0, 1]
+    restitution = std::clamp(restitution, 0.0f, 1.0f);
+    
+    try
+    {
+        // Calculate dot product of incoming velocity and surface normal
+        float dotProduct = incoming.x * normal.x + incoming.y * normal.y + incoming.z * normal.z;
+        
+        // Calculate reflection using formula: R = V - 2(V·N)N
+        XMFLOAT3 reflection;
+        reflection.x = incoming.x - 2.0f * dotProduct * normal.x;
+        reflection.y = incoming.y - 2.0f * dotProduct * normal.y;
+        reflection.z = incoming.z - 2.0f * dotProduct * normal.z;
+        
+        // Apply restitution coefficient (energy loss during collision)
+        reflection.x *= restitution;
+        reflection.y *= restitution;
+        reflection.z *= restitution;
+        
+        // Increment lookup counter for statistics
+        m_lookupCount.fetch_add(1);
+        
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+            L"[MathPrecalculation] FastReflectionVector - Restitution: %.3f, DotProduct: %.3f", 
+            restitution, dotProduct);
+#endif
+        
+        return reflection;
+    }
+    catch (const std::exception& e)
+    {
+        // Convert exception message to wide string for logging
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        
+        debug.logLevelMessage(LogLevel::LOG_ERROR, 
+            L"[MathPrecalculation] Error in FastReflectionVector: " + wErrorMsg);
+        
+        // Return zero vector on error
+        return XMFLOAT3(0.0f, 0.0f, 0.0f);
+    }
+}
+
+float MathPrecalculation::FastInertiaCoefficient(float mass, float radius) const
+{
+    PHYSICS_RECORD_FUNCTION();
+    
+    // Ensure the system is initialized before attempting calculation
+    if (!m_bIsInitialized.load())
+    {
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastInertiaCoefficient called before initialization");
+#endif
+        // Fallback to standard calculation for solid sphere: I = (2/5) * m * r^2
+        return (2.0f / 5.0f) * mass * radius * radius;
+    }
+    
+    // Validate input parameters
+    if (mass <= 0.0f || radius <= 0.0f)
+    {
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] Invalid parameters for FastInertiaCoefficient");
+#endif
+        return 0.0f;
+    }
+    
+    try
+    {
+        // Calculate moment of inertia for a solid sphere: I = (2/5) * m * r^2
+        // This is the most common case for gaming physics
+        float radiusSquared = radius * radius;
+        float inertiaCoefficient = (2.0f / 5.0f) * mass * radiusSquared;
+        
+        // Increment lookup counter for statistics
+        m_lookupCount.fetch_add(1);
+        
+#if defined(_DEBUG_MATHPRECALC_)
+        static int debugCounter = 0;
+        if (++debugCounter % 500 == 0) // Log every 500 calls to avoid spam
+        {
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[MathPrecalculation] FastInertiaCoefficient - Mass: %.3f, Radius: %.3f, Inertia: %.6f", 
+                mass, radius, inertiaCoefficient);
+        }
+#endif
+        
+        return inertiaCoefficient;
+    }
+    catch (const std::exception& e)
+    {
+        // Convert exception message to wide string for logging
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        
+        debug.logLevelMessage(LogLevel::LOG_ERROR, 
+            L"[MathPrecalculation] Error in FastInertiaCoefficient: " + wErrorMsg);
+        
+        return 0.0f;
+    }
+}
+
+XMFLOAT3 MathPrecalculation::FastCollisionResponse(const XMFLOAT3& velocity, const XMFLOAT3& normal, 
+                                                   float restitution, float friction) const
+{
+    PHYSICS_RECORD_FUNCTION();
+    
+    // Ensure the system is initialized before attempting calculation
+    if (!m_bIsInitialized.load())
+    {
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastCollisionResponse called before initialization");
+#endif
+        // Fallback to simple reflection
+        return FastReflectionVector(velocity, normal, restitution);
+    }
+    
+    // Clamp parameters to valid ranges
+    restitution = std::clamp(restitution, 0.0f, 1.0f);
+    friction = std::clamp(friction, 0.0f, 1.0f);
+    
+    try
+    {
+        // Calculate velocity components relative to surface normal
+        float normalVelocity = velocity.x * normal.x + velocity.y * normal.y + velocity.z * normal.z;
+        
+        // Calculate normal component of velocity
+        XMFLOAT3 normalComponent;
+        normalComponent.x = normal.x * normalVelocity;
+        normalComponent.y = normal.y * normalVelocity;
+        normalComponent.z = normal.z * normalVelocity;
+        
+        // Calculate tangential component of velocity
+        XMFLOAT3 tangentialComponent;
+        tangentialComponent.x = velocity.x - normalComponent.x;
+        tangentialComponent.y = velocity.y - normalComponent.y;
+        tangentialComponent.z = velocity.z - normalComponent.z;
+        
+        // Apply restitution to normal component (bounce)
+        XMFLOAT3 reflectedNormal;
+        reflectedNormal.x = -normalComponent.x * restitution;
+        reflectedNormal.y = -normalComponent.y * restitution;
+        reflectedNormal.z = -normalComponent.z * restitution;
+        
+        // Apply friction to tangential component
+        XMFLOAT3 reflectedTangential;
+        float frictionFactor = 1.0f - friction;
+        reflectedTangential.x = tangentialComponent.x * frictionFactor;
+        reflectedTangential.y = tangentialComponent.y * frictionFactor;
+        reflectedTangential.z = tangentialComponent.z * frictionFactor;
+        
+        // Combine normal and tangential components for final result
+        XMFLOAT3 result;
+        result.x = reflectedNormal.x + reflectedTangential.x;
+        result.y = reflectedNormal.y + reflectedTangential.y;
+        result.z = reflectedNormal.z + reflectedTangential.z;
+        
+        // Increment lookup counter for statistics
+        m_lookupCount.fetch_add(1);
+        
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+            L"[MathPrecalculation] FastCollisionResponse - Restitution: %.3f, Friction: %.3f", 
+            restitution, friction);
+#endif
+        
+        return result;
+    }
+    catch (const std::exception& e)
+    {
+        // Convert exception message to wide string for logging
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        
+        debug.logLevelMessage(LogLevel::LOG_ERROR, 
+            L"[MathPrecalculation] Error in FastCollisionResponse: " + wErrorMsg);
+        
+        // Return zero vector on error
+        return XMFLOAT3(0.0f, 0.0f, 0.0f);
+    }
+}
+
+float MathPrecalculation::FastAudioPropagation(float distance, float occlusionFactor) const
+{
+    PHYSICS_RECORD_FUNCTION();
+    
+    // Ensure the system is initialized before attempting calculation
+    if (!m_bIsInitialized.load())
+    {
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastAudioPropagation called before initialization");
+#endif
+        // Fallback to standard inverse square law calculation
+        if (distance <= 0.1f) return 1.0f;
+        float attenuation = 1.0f / (1.0f + distance * distance * 0.01f);
+        return attenuation * (1.0f - std::clamp(occlusionFactor, 0.0f, 1.0f));
+    }
+    
+    // Validate input parameters
+    if (distance < 0.0f)
+    {
+        distance = 0.0f;
+    }
+    
+    // Clamp occlusion factor to valid range [0, 1]
+    occlusionFactor = std::clamp(occlusionFactor, 0.0f, 1.0f);
+    
+    try
+    {
+        // Calculate audio attenuation based on distance using inverse square law
+        float attenuation = 1.0f;
+        
+        if (distance > 0.1f)
+        {
+            // Inverse square law: intensity ∝ 1/r²
+            // Modified for gaming: more gradual falloff
+            attenuation = 1.0f / (1.0f + distance * distance * 0.01f);
+        }
+        
+        // Apply occlusion factor (0 = no occlusion, 1 = complete occlusion)
+        float occludedAttenuation = attenuation * (1.0f - occlusionFactor);
+        
+        // Ensure result is in valid range [0, 1]
+        occludedAttenuation = std::clamp(occludedAttenuation, 0.0f, 1.0f);
+        
+        // Increment lookup counter for statistics
+        m_lookupCount.fetch_add(1);
+        
+#if defined(_DEBUG_MATHPRECALC_)
+        static int debugCounter = 0;
+        if (++debugCounter % 200 == 0) // Log every 200 calls to avoid spam
+        {
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[MathPrecalculation] FastAudioPropagation - Distance: %.3f, Occlusion: %.3f, Result: %.6f", 
+                distance, occlusionFactor, occludedAttenuation);
+        }
+#endif
+        
+        return occludedAttenuation;
+    }
+    catch (const std::exception& e)
+    {
+        // Convert exception message to wide string for logging
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        
+        debug.logLevelMessage(LogLevel::LOG_ERROR, 
+            L"[MathPrecalculation] Error in FastAudioPropagation: " + wErrorMsg);
+        
+        return 0.0f;
+    }
+}
+
+XMFLOAT3 MathPrecalculation::FastProjectileTrajectory(const XMFLOAT3& startPos, const XMFLOAT3& targetPos, 
+                                                       float launchSpeed, float gravity) const
+{
+    PHYSICS_RECORD_FUNCTION();
+    
+    // Ensure the system is initialized before attempting calculation
+    if (!m_bIsInitialized.load())
+    {
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastProjectileTrajectory called before initialization");
+#endif
+        // Fallback to simple trajectory calculation
+        XMFLOAT3 direction;
+        direction.x = targetPos.x - startPos.x;
+        direction.y = targetPos.y - startPos.y;
+        direction.z = targetPos.z - startPos.z;
+        
+        float distance = std::sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z);
+        if (distance > 0.001f)
+        {
+            float invDistance = 1.0f / distance;
+            direction.x *= invDistance;
+            direction.y *= invDistance;
+            direction.z *= invDistance;
+        }
+        
+        // Use 45-degree angle as default
+        float angle = 0.785398f; // π/4 radians
+        XMFLOAT3 velocity;
+        velocity.x = direction.x * std::cos(angle) * launchSpeed;
+        velocity.y = std::sin(angle) * launchSpeed;
+        velocity.z = direction.z * std::cos(angle) * launchSpeed;
+        
+        return velocity;
+    }
+    
+    // Validate input parameters
+    if (launchSpeed <= 0.0f || gravity <= 0.0f)
+    {
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] Invalid parameters for FastProjectileTrajectory");
+#endif
+        return XMFLOAT3(0.0f, 0.0f, 0.0f);
+    }
+    
+    try
+    {
+        // Calculate displacement vector
+        XMFLOAT3 displacement;
+        displacement.x = targetPos.x - startPos.x;
+        displacement.y = targetPos.y - startPos.y;
+        displacement.z = targetPos.z - startPos.z;
+        
+        // Calculate horizontal distance using fast square root
+        float horizontalDistanceSquared = displacement.x * displacement.x + displacement.z * displacement.z;
+        float horizontalDistance = FastSqrt(horizontalDistanceSquared);
+        float verticalDistance = displacement.y;
+        
+        // Calculate optimal launch angle using ballistic trajectory formula
+        float v = launchSpeed;
+        float g = gravity;
+        
+        // Check if target is reachable with given launch speed
+        float discriminant = (v * v * v * v) - g * (g * horizontalDistance * horizontalDistance + 2.0f * verticalDistance * v * v);
+        
+        float angle;
+        if (discriminant < 0.0f)
+        {
+            // Target unreachable, use maximum range angle (45 degrees)
+            angle = XM_PI * 0.25f;
+        }
+        else
+        {
+            // Calculate optimal angle using fast arctangent
+            float sqrtDiscriminant = FastSqrt(discriminant);
+            angle = FastATan((v * v + sqrtDiscriminant) / (g * horizontalDistance));
+        }
+        
+        // Calculate launch velocity components
+        XMFLOAT3 horizontalDirection;
+        if (horizontalDistance > 0.001f)
+        {
+            float invHorizontalDistance = 1.0f / horizontalDistance;
+            horizontalDirection.x = displacement.x * invHorizontalDistance;
+            horizontalDirection.y = 0.0f;
+            horizontalDirection.z = displacement.z * invHorizontalDistance;
+        }
+        else
+        {
+            horizontalDirection = XMFLOAT3(1.0f, 0.0f, 0.0f);
+        }
+        
+        // Calculate final launch velocity using fast trigonometric functions
+        float horizontalSpeed = launchSpeed * FastCos(angle);
+        float verticalSpeed = launchSpeed * FastSin(angle);
+        
+        XMFLOAT3 launchVelocity;
+        launchVelocity.x = horizontalDirection.x * horizontalSpeed;
+        launchVelocity.y = verticalSpeed;
+        launchVelocity.z = horizontalDirection.z * horizontalSpeed;
+        
+        // Increment lookup counter for statistics
+        m_lookupCount.fetch_add(1);
+        
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+            L"[MathPrecalculation] FastProjectileTrajectory - Launch angle: %.3f degrees, Speed: %.3f", 
+            angle * 180.0f / XM_PI, launchSpeed);
+#endif
+        
+        return launchVelocity;
+    }
+    catch (const std::exception& e)
+    {
+        // Convert exception message to wide string for logging
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        
+        debug.logLevelMessage(LogLevel::LOG_ERROR, 
+            L"[MathPrecalculation] Error in FastProjectileTrajectory: " + wErrorMsg);
+        
+        // Return zero vector on error
+        return XMFLOAT3(0.0f, 0.0f, 0.0f);
+    }
+}
+
+float MathPrecalculation::FastOrbitalVelocity(float distance, float mass) const
+{
+    PHYSICS_RECORD_FUNCTION();
+    
+    // Ensure the system is initialized before attempting calculation
+    if (!m_bIsInitialized.load())
+    {
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastOrbitalVelocity called before initialization");
+#endif
+        // Fallback to standard calculation
+        if (distance <= 0.1f) return 0.0f;
+        return std::sqrt(mass / distance);
+    }
+    
+    // Validate input parameters
+    if (distance <= 0.1f || mass <= 0.0f)
+    {
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] Invalid parameters for FastOrbitalVelocity");
+#endif
+        return 0.0f;
+    }
+    
+    try
+    {
+        // Orbital velocity formula: v = sqrt(GM/r)
+        // Simplified for gaming: v = sqrt(mass/distance)
+        float orbitalVelocity = FastSqrt(mass / distance);
+        
+        // Increment lookup counter for statistics
+        m_lookupCount.fetch_add(1);
+        
+#if defined(_DEBUG_MATHPRECALC_)
+        static int debugCounter = 0;
+        if (++debugCounter % 100 == 0) // Log every 100 calls to avoid spam
+        {
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[MathPrecalculation] FastOrbitalVelocity - Distance: %.3f, Mass: %.3f, Velocity: %.6f", 
+                distance, mass, orbitalVelocity);
+        }
+#endif
+        
+        return orbitalVelocity;
+    }
+    catch (const std::exception& e)
+    {
+        // Convert exception message to wide string for logging
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        
+        debug.logLevelMessage(LogLevel::LOG_ERROR, 
+            L"[MathPrecalculation] Error in FastOrbitalVelocity: " + wErrorMsg);
+        
+        return 0.0f;
+    }
+}
+
+float MathPrecalculation::FastEscapeVelocity(float distance, float mass) const
+{
+    PHYSICS_RECORD_FUNCTION();
+    
+    // Ensure the system is initialized before attempting calculation
+    if (!m_bIsInitialized.load())
+    {
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastEscapeVelocity called before initialization");
+#endif
+        // Fallback to standard calculation
+        if (distance <= 0.1f) return 0.0f;
+        return std::sqrt(2.0f * mass / distance);
+    }
+    
+    // Validate input parameters
+    if (distance <= 0.1f || mass <= 0.0f)
+    {
+#if defined(_DEBUG_MATHPRECALC_)
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] Invalid parameters for FastEscapeVelocity");
+#endif
+        return 0.0f;
+    }
+    
+    try
+    {
+        // Escape velocity formula: v = sqrt(2*GM/r)
+        // Simplified for gaming: v = sqrt(2*mass/distance)
+        float escapeVelocity = FastSqrt(2.0f * mass / distance);
+        
+        // Increment lookup counter for statistics
+        m_lookupCount.fetch_add(1);
+        
+#if defined(_DEBUG_MATHPRECALC_)
+        static int debugCounter = 0;
+        if (++debugCounter % 100 == 0) // Log every 100 calls to avoid spam
+        {
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[MathPrecalculation] FastEscapeVelocity - Distance: %.3f, Mass: %.3f, Velocity: %.6f", 
+                distance, mass, escapeVelocity);
+        }
+#endif
+        
+        return escapeVelocity;
+    }
+    catch (const std::exception& e)
+    {
+        // Convert exception message to wide string for logging
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        
+        debug.logLevelMessage(LogLevel::LOG_ERROR, 
+            L"[MathPrecalculation] Error in FastEscapeVelocity: " + wErrorMsg);
+        
+        return 0.0f;
+    }
+}
+
+//==============================================================================
+// Physics-Specific Lookup Table Initialization Methods
+//==============================================================================
+void MathPrecalculation::InitializeGravityIntensityTables()
+{
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[MathPrecalculation] Initializing gravity intensity lookup tables");
+#endif
+    
+    // Clear and resize the gravity intensity table
+    m_gravityIntensityTable.clear();
+    m_gravityIntensityTable.resize(GRAVITY_INTENSITY_TABLE_SIZE);
+    
+    // Precalculate gravity intensity values for different distances
+    for (int i = 0; i < GRAVITY_INTENSITY_TABLE_SIZE; ++i)
+    {
+        // Calculate distance for this table entry (range 0.1 to 1000)
+        float distance = 0.1f + (static_cast<float>(i) / static_cast<float>(GRAVITY_INTENSITY_TABLE_SIZE - 1)) * 999.9f;
+        
+        GravityIntensityData& data = m_gravityIntensityTable[i];
+        
+        // Calculate gravity force using Newton's law: F = GM/r²
+        // Using unit mass and simplified gravitational constant for gaming
+        data.force = 1.0f / (distance * distance);
+        
+        // Calculate acceleration (F = ma, so a = F when m = 1)
+        data.acceleration = data.force;
+        
+        // Calculate gravitational potential energy coefficient: U = -GM/r
+        data.potential = -1.0f / distance;
+        
+        // Calculate tidal force coefficient for advanced effects: F_tidal ∝ 1/r³
+        data.tidalForce = 1.0f / (distance * distance * distance);
+    }
+    
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"[MathPrecalculation] Gravity intensity table initialized - Entries: %d", 
+                         GRAVITY_INTENSITY_TABLE_SIZE);
+#endif
+}
+
+void MathPrecalculation::InitializeReflectionAngleTables()
+{
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[MathPrecalculation] Initializing reflection angle lookup tables");
+#endif
+    
+    // Clear and resize the reflection angle table
+    m_reflectionAngleTable.clear();
+    m_reflectionAngleTable.resize(REFLECTION_ANGLE_TABLE_SIZE);
+    
+    // Precalculate reflection data for different incident angles
+    for (int i = 0; i < REFLECTION_ANGLE_TABLE_SIZE; ++i)
+    {
+        // Calculate incident angle for this table entry (range 0 to 2π)
+        float angle = (static_cast<float>(i) / static_cast<float>(REFLECTION_ANGLE_TABLE_SIZE - 1)) * 2.0f * XM_PI;
+        
+        ReflectionAngleData& data = m_reflectionAngleTable[i];
+        
+        // Calculate reflection vector for surface normal pointing up (0, 1, 0)
+        // Incident vector from angle: (sin(angle), -cos(angle), 0)
+        float incidentX = std::sin(angle);
+        float incidentY = -std::cos(angle);
+        
+        // Reflection formula: R = I - 2(I·N)N where N = (0, 1, 0)
+        float dotProduct = incidentY; // I·N = incidentY * 1
+        data.reflectionVector.x = incidentX;
+        data.reflectionVector.y = incidentY - 2.0f * dotProduct;
+        data.reflectionVector.z = 0.0f;
+        
+        // Calculate energy loss based on angle (grazing angles lose more energy)
+        float normalizedAngle = std::abs(angle - XM_PIDIV2) / XM_PIDIV2; // Normalize around 90 degrees
+        data.energyLoss = normalizedAngle * 0.1f; // Maximum 10% energy loss
+        
+        // Calculate friction components
+        data.tangentialFriction = std::sin(angle) * 0.3f; // Friction proportional to tangential component
+        data.normalRestitution = std::cos(angle) * 0.8f;  // Restitution proportional to normal component
+    }
+    
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"[MathPrecalculation] Reflection angle table initialized - Entries: %d", 
+                         REFLECTION_ANGLE_TABLE_SIZE);
+#endif
+}
+
+void MathPrecalculation::InitializeInertiaTables()
+{
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[MathPrecalculation] Initializing inertia coefficient lookup tables");
+#endif
+    
+    // Clear and resize the inertia table
+    m_inertiaTable.clear();
+    m_inertiaTable.resize(INERTIA_COEFFICIENT_TABLE_SIZE);
+    
+    // Precalculate inertia data for different mass values
+    for (int i = 0; i < INERTIA_COEFFICIENT_TABLE_SIZE; ++i)
+    {
+        // Calculate mass for this table entry (range 0.1 to 100)
+        float mass = 0.1f + (static_cast<float>(i) / static_cast<float>(INERTIA_COEFFICIENT_TABLE_SIZE - 1)) * 99.9f;
+        
+        InertiaData& data = m_inertiaTable[i];
+        
+        // Calculate moment of inertia for solid sphere: I = (2/5) * m * r²
+        // Assume unit radius for lookup table
+        data.momentOfInertia = (2.0f / 5.0f) * mass;
+        
+        // Calculate angular mass coefficient for rotational dynamics
+        data.angularMass = mass * 0.4f; // Simplified coefficient
+        
+        // Calculate gyroscopic effect coefficient
+        data.gyroscopicEffect = mass * 0.2f; // Proportional to mass
+        
+        // Calculate torque response coefficient (inverse of moment of inertia)
+        data.torqueResponse = 1.0f / data.momentOfInertia;
+    }
+    
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"[MathPrecalculation] Inertia coefficient table initialized - Entries: %d", 
+                         INERTIA_COEFFICIENT_TABLE_SIZE);
+#endif
+}
+
+void MathPrecalculation::InitializeCollisionResponseTables()
+{
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[MathPrecalculation] Initializing collision response lookup tables");
+#endif
+    
+    // Clear and resize the collision response table
+    m_collisionResponseTable.clear();
+    m_collisionResponseTable.resize(COLLISION_RESPONSE_TABLE_SIZE);
+    
+    // Precalculate collision response data for different restitution values
+    for (int i = 0; i < COLLISION_RESPONSE_TABLE_SIZE; ++i)
+    {
+        // Calculate restitution coefficient for this table entry (range 0 to 1)
+        float restitution = static_cast<float>(i) / static_cast<float>(COLLISION_RESPONSE_TABLE_SIZE - 1);
+        
+        CollisionResponseData& data = m_collisionResponseTable[i];
+        
+        // Calculate velocity change for unit collision (normal component)
+        data.velocityChange.x = 0.0f;
+        data.velocityChange.y = -(1.0f + restitution); // Velocity reversal with restitution
+        data.velocityChange.z = 0.0f;
+        
+        // Calculate impulse strength
+        data.impulseStrength = 1.0f + restitution;
+        
+        // Calculate required separation distance to prevent interpenetration
+        data.separationDistance = 0.01f * (1.0f - restitution); // Less separation for bouncy objects
+        
+        // Estimate contact time based on restitution
+        data.contactTime = 0.016f * (1.0f - restitution * 0.5f); // Shorter contact for bouncy objects
+    }
+    
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"[MathPrecalculation] Collision response table initialized - Entries: %d", 
+                         COLLISION_RESPONSE_TABLE_SIZE);
+#endif
+}
+
+void MathPrecalculation::InitializeAudioAttenuationTables()
+{
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[MathPrecalculation] Initializing audio attenuation lookup tables");
+#endif
+    
+    // Clear and resize the audio attenuation table
+    m_audioAttenuationTable.clear();
+    m_audioAttenuationTable.resize(AUDIO_ATTENUATION_TABLE_SIZE);
+    
+    // Precalculate audio attenuation data for different distances
+    for (int i = 0; i < AUDIO_ATTENUATION_TABLE_SIZE; ++i)
+    {
+        // Calculate distance for this table entry (range 0 to 500)
+        float distance = static_cast<float>(i) / static_cast<float>(AUDIO_ATTENUATION_TABLE_SIZE - 1) * 500.0f;
+        
+        AudioAttenuationData& data = m_audioAttenuationTable[i];
+        
+        // Calculate volume attenuation using inverse square law with linear falloff for gaming
+        if (distance < 1.0f)
+        {
+            data.volumeAttenuation = 1.0f; // Full volume at close range
+        }
+        else
+        {
+            // Modified inverse square law for better gaming experience
+            data.volumeAttenuation = 1.0f / (1.0f + distance * distance * 0.001f);
+        }
+        
+        // Calculate frequency shift for distance effects (higher frequencies attenuate faster)
+        data.frequencyShift = 1.0f - (distance * 0.0005f); // Slight frequency reduction with distance
+        data.frequencyShift = std::max(0.5f, data.frequencyShift); // Clamp to reasonable range
+        
+        // Calculate reverb coefficient based on distance
+        data.reverbCoefficient = std::min(0.8f, distance * 0.002f); // More reverb with distance
+        
+        // Default occlusion factor (can be modified by obstacles)
+        data.occlusionFactor = 0.0f;
+    }
+    
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"[MathPrecalculation] Audio attenuation table initialized - Entries: %d", 
+                         AUDIO_ATTENUATION_TABLE_SIZE);
+#endif
+}
+
+void MathPrecalculation::InitializeOrbitalMechanicsTables()
+{
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[MathPrecalculation] Initializing orbital mechanics lookup tables");
+#endif
+    
+    // Clear and resize the orbital mechanics table
+    m_orbitalMechanicsTable.clear();
+    m_orbitalMechanicsTable.resize(ORBITAL_MECHANICS_TABLE_SIZE);
+    
+    // Precalculate orbital mechanics data for different distances
+    for (int i = 0; i < ORBITAL_MECHANICS_TABLE_SIZE; ++i)
+    {
+        // Calculate distance for this table entry (range 1 to 10000)
+        float distance = 1.0f + (static_cast<float>(i) / static_cast<float>(ORBITAL_MECHANICS_TABLE_SIZE - 1)) * 9999.0f;
+        
+        OrbitalMechanicsData& data = m_orbitalMechanicsTable[i];
+        
+        // Calculate orbital velocity for circular orbit: v = sqrt(GM/r)
+        // Using unit mass for simplification
+        data.orbitalVelocity = std::sqrt(1.0f / distance);
+        
+        // Calculate escape velocity: v_escape = sqrt(2*GM/r)
+        data.escapeVelocity = std::sqrt(2.0f / distance);
+        
+        // Calculate orbital period: T = 2π * sqrt(r³/GM)
+        // Using unit mass for simplification
+        data.periodTime = 2.0f * XM_PI * std::sqrt(distance * distance * distance);
+        
+        // Calculate eccentricity coefficient for elliptical orbits
+        data.eccentricity = 0.1f * (1.0f - 1.0f / (1.0f + distance * 0.001f)); // Slightly elliptical at larger distances
+    }
+    
+    #if defined(_DEBUG_MATHPRECALC_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[MathPrecalculation] Orbital mechanics table initialized - Entries: %d", 
+                                ORBITAL_MECHANICS_TABLE_SIZE);
+    #endif
+}
+
+void MathPrecalculation::InitializePhysicsPrecalculations()
+{
+    #if defined(_DEBUG_MATHPRECALC_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[MathPrecalculation] Initializing physics-specific precalculations");
+    #endif
+
+    try
+    {
+        // Initialize all physics-specific lookup tables
+        InitializeGravityIntensityTables();
+        InitializeReflectionAngleTables();
+        InitializeInertiaTables();
+        InitializeCollisionResponseTables();
+        InitializeAudioAttenuationTables();
+        InitializeOrbitalMechanicsTables();
+
+        #if defined(_DEBUG_MATHPRECALC_)
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"[MathPrecalculation] Physics precalculations initialized successfully");
+        #endif
+    }
+    catch (const std::exception& e)
+    {
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Error initializing physics precalculations: " + wErrorMsg);
+        throw;
+    }
 }

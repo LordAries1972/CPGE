@@ -3,6 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2025*
 
+*Current Build Version: v0.0.695*
 ---
 
 ## Table of Contents
@@ -300,6 +301,15 @@ Once the base DirectX 11 implementation is complete, the project will be release
 
 - **KeyboardHandler Class**: Implemented Keyboard Handler Class that supports various functionality for all supporting OS Platforms.
 - *See: [`KeyboardHandler.h/.cpp`](KeyboardHandler.h), [`Docs/KeyboardHandler-Example-Usage.md`](Docs/KeyboardHandler-Example-Usage.md)*
+
+**June 09-10, 2025** - Implementation: Comprehensive Physics Class Implementation:
+
+- Physics Class: Complete physics simulation system with 10 major physics laws implemented
+- MathPrecalculation Integration: Added 8 new physics optimization methods with lookup tables
+- Performance Optimization: 6 new lookup tables for gravity, reflection, inertia, collision, audio, and orbital mechanics
+- Cross-Platform Compatibility: Full C++17 compliant implementation for all target platforms
+- Some bug fixes for the DXCamera
+- *See: [`Physics.h/.cpp`](Physics.h), [`Docs/Physics-Example-Usage.md`](Docs/Physics-Example-Usage.md)*
 
 ---
 
