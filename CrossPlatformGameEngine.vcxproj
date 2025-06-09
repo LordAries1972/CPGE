@@ -226,4 +226,45 @@
       <ErrorText>This project references NuGet package(s) that are missing on this computer. Use NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
     </PropertyGroup>
   </Target>
+<Target Name="UpdateVersionFile" BeforeTargets="ClCompile">
+  <PropertyGroup>
+    <!-- Define your Master and SubRelease versions -->
+    <MasterVersion>0</MasterVersion>
+    <SubReleaseVersion>0</SubReleaseVersion>
+    <VersionFilePath>$(ProjectDir)Version.id</VersionFilePath>
+    <DefaultBuildNumber>695</DefaultBuildNumber>
+  </PropertyGroup>
+  
+  <!-- Read existing version file if it exists -->
+  <ReadLinesFromFile File="$(VersionFilePath)" Condition="Exists('$(VersionFilePath)')">
+    <Output TaskParameter="Lines" ItemName="ExistingVersionLines"/>
+  </ReadLinesFromFile>
+  
+  <!-- Extract current build number from existing file -->
+  <PropertyGroup>
+    <ExistingVersionLine>@(ExistingVersionLines)</ExistingVersionLine>
+    <!-- Extract number after 'v' and last dot -->
+    <CurrentBuildStr>$([System.Text.RegularExpressions.Regex]::Match('$(ExistingVersionLine)', 'v\d+\.\d+\.(\d+)').Groups[1].Value)</CurrentBuildStr>
+    <CurrentBuild Condition="'$(CurrentBuildStr)' != ''">$(CurrentBuildStr)</CurrentBuild>
+    <CurrentBuild Condition="'$(CurrentBuildStr)' == ''">$(DefaultBuildNumber)</CurrentBuild>
+    <!-- Increment build number -->
+    <NewBuildNumber>$([MSBuild]::Add($(CurrentBuild), 1))</NewBuildNumber>
+    <!-- Create new version string -->
+    <NewVersionString>v$(MasterVersion).$(SubReleaseVersion).$(NewBuildNumber)</NewVersionString>
+    <VersionFileContent>Current Build Version: $(NewVersionString)</VersionFileContent>
+  </PropertyGroup>
+  
+  <!-- Write updated version to file -->
+  <WriteLinesToFile 
+    File="$(VersionFilePath)" 
+    Lines="$(VersionFileContent)" 
+    Overwrite="true" 
+    Encoding="UTF-8" />
+  
+	<!-- Display message in build output -->
+	<Message Text="════════════════════════════════════════" Importance="high" />
+	<Message Text="VERSION UPDATE: $(NewVersionString)" Importance="high" />
+	<Message Text="Previous: v$(MasterVersion).$(SubReleaseVersion).$(CurrentBuild)" Importance="high" />
+	<Message Text="Current:  $(NewVersionString)" Importance="high" />
+	<Message Text="════════════════════════════════════════" Importance="high" /></Target>
 </Project>
