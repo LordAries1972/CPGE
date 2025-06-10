@@ -17,7 +17,10 @@
 #include "Lights.h"
 #include "SceneManager.h"
 
-   // Forward declarations for integration with existing systems
+#pragma warning(push)
+#pragma warning(disable: 4101)
+
+// Forward declarations for integration with existing systems
 class Model;
 class LightsManager;
 class SceneManager;
@@ -27,33 +30,33 @@ const int MAX_SHADERS = 512;
 
 // Shader type enumeration for multi-platform support
 enum class ShaderType : int {
-    VERTEX_SHADER = 0,                                                  // Vertex processing stage
-    PIXEL_SHADER,                                                       // Fragment/Pixel processing stage  
-    GEOMETRY_SHADER,                                                    // Geometry processing stage
-    HULL_SHADER,                                                        // Tessellation hull stage (DirectX)
-    DOMAIN_SHADER,                                                      // Tessellation domain stage (DirectX)
-    COMPUTE_SHADER,                                                     // Compute processing stage
-    TESSELLATION_CONTROL_SHADER,                                        // Tessellation control stage (OpenGL)
-    TESSELLATION_EVALUATION_SHADER,                                     // Tessellation evaluation stage (OpenGL)
-    UNKNOWN_SHADER                                                      // Invalid or unrecognized shader type
+    VERTEX_SHADER = 0,                                                                  // Vertex processing stage
+    PIXEL_SHADER,                                                                       // Fragment/Pixel processing stage  
+    GEOMETRY_SHADER,                                                                    // Geometry processing stage
+    HULL_SHADER,                                                                        // Tessellation hull stage (DirectX)
+    DOMAIN_SHADER,                                                                      // Tessellation domain stage (DirectX)
+    COMPUTE_SHADER,                                                                     // Compute processing stage
+    TESSELLATION_CONTROL_SHADER,                                                        // Tessellation control stage (OpenGL)
+    TESSELLATION_EVALUATION_SHADER,                                                     // Tessellation evaluation stage (OpenGL)
+    UNKNOWN_SHADER                                                                      // Invalid or unrecognized shader type
 };
 
 // Shader compilation target platform
 enum class ShaderPlatform : int {
-    PLATFORM_DIRECTX11 = 0,                                             // DirectX 11 HLSL compilation
-    PLATFORM_DIRECTX12,                                                 // DirectX 12 HLSL compilation
-    PLATFORM_OPENGL,                                                    // OpenGL GLSL compilation
-    PLATFORM_VULKAN,                                                    // Vulkan SPIR-V compilation
-    PLATFORM_AUTO_DETECT                                                // Automatically detect based on active renderer
+    PLATFORM_DIRECTX11 = 0,                                                             // DirectX 11 HLSL compilation
+    PLATFORM_DIRECTX12,                                                                 // DirectX 12 HLSL compilation
+    PLATFORM_OPENGL,                                                                    // OpenGL GLSL compilation
+    PLATFORM_VULKAN,                                                                    // Vulkan SPIR-V compilation
+    PLATFORM_AUTO_DETECT                                                                // Automatically detect based on active renderer
 };
 
 // Shader compilation profile information
 struct ShaderProfile {
-    std::string entryPoint;                                             // Main function name (e.g., "main", "VSMain")
-    std::string profileVersion;                                         // Version string (e.g., "vs_5_0", "330 core")
-    std::vector<std::string> defines;                                   // Preprocessor definitions
-    bool optimized;                                                     // Enable optimization during compilation
-    bool debugInfo;                                                     // Include debug information in compiled shader
+    std::string entryPoint;                                                             // Main function name (e.g., "main", "VSMain")
+    std::string profileVersion;                                                         // Version string (e.g., "vs_5_0", "330 core")
+    std::vector<std::string> defines;                                                   // Preprocessor definitions
+    bool optimized;                                                                     // Enable optimization during compilation
+    bool debugInfo;                                                                     // Include debug information in compiled shader
 
     // Default constructor with sensible defaults
     ShaderProfile() :
@@ -66,43 +69,43 @@ struct ShaderProfile {
 
 // Cross-platform shader resource container
 struct ShaderResource {
-    std::string name;                                                   // Unique identifier for shader lookup
-    std::wstring filePath;                                              // Source file path for shader code
-    ShaderType type;                                                    // Type of shader (vertex, pixel, etc.)
-    ShaderPlatform platform;                                            // Target compilation platform
-    ShaderProfile profile;                                              // Compilation profile and settings
+    std::string name;                                                                   // Unique identifier for shader lookup
+    std::wstring filePath;                                                              // Source file path for shader code
+    ShaderType type;                                                                    // Type of shader (vertex, pixel, etc.)
+    ShaderPlatform platform;                                                            // Target compilation platform
+    ShaderProfile profile;                                                              // Compilation profile and settings
 
     // Platform-specific compiled shader objects
 #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-    Microsoft::WRL::ComPtr<ID3D11VertexShader> d3d11VertexShader;       // DirectX 11 vertex shader
-    Microsoft::WRL::ComPtr<ID3D11PixelShader> d3d11PixelShader;         // DirectX 11 pixel shader
-    Microsoft::WRL::ComPtr<ID3D11GeometryShader> d3d11GeometryShader;   // DirectX 11 geometry shader
-    Microsoft::WRL::ComPtr<ID3D11HullShader> d3d11HullShader;           // DirectX 11 hull shader
-    Microsoft::WRL::ComPtr<ID3D11DomainShader> d3d11DomainShader;       // DirectX 11 domain shader
-    Microsoft::WRL::ComPtr<ID3D11ComputeShader> d3d11ComputeShader;     // DirectX 11 compute shader
-    Microsoft::WRL::ComPtr<ID3DBlob> shaderBlob;                        // Compiled shader bytecode
-    Microsoft::WRL::ComPtr<ID3D11InputLayout> inputLayout;              // Vertex input layout (vertex shaders only)
+    Microsoft::WRL::ComPtr<ID3D11VertexShader> d3d11VertexShader;                       // DirectX 11 vertex shader
+    Microsoft::WRL::ComPtr<ID3D11PixelShader> d3d11PixelShader;                         // DirectX 11 pixel shader
+    Microsoft::WRL::ComPtr<ID3D11GeometryShader> d3d11GeometryShader;                   // DirectX 11 geometry shader
+    Microsoft::WRL::ComPtr<ID3D11HullShader> d3d11HullShader;                           // DirectX 11 hull shader
+    Microsoft::WRL::ComPtr<ID3D11DomainShader> d3d11DomainShader;                       // DirectX 11 domain shader
+    Microsoft::WRL::ComPtr<ID3D11ComputeShader> d3d11ComputeShader;                     // DirectX 11 compute shader
+    Microsoft::WRL::ComPtr<ID3DBlob> shaderBlob;                                        // Compiled shader bytecode
+    Microsoft::WRL::ComPtr<ID3D11InputLayout> inputLayout;                              // Vertex input layout (vertex shaders only)
 #endif
 
 #if defined(__USE_OPENGL__)
-    GLuint openglShaderID;                                              // OpenGL shader object identifier
-    GLuint openglProgramID;                                             // OpenGL shader program identifier
+    GLuint openglShaderID;                                                              // OpenGL shader object identifier
+    GLuint openglProgramID;                                                             // OpenGL shader program identifier
 #endif
 
 #if defined(__USE_VULKAN__)
-    VkShaderModule vulkanShaderModule;                                  // Vulkan shader module handle
-    std::vector<uint32_t> spirvBytecode;                                // SPIR-V compiled bytecode
+    VkShaderModule vulkanShaderModule;                                                  // Vulkan shader module handle
+    std::vector<uint32_t> spirvBytecode;                                                // SPIR-V compiled bytecode
 #endif
 
     // Compilation status and error information
-    bool isCompiled;                                                    // Successfully compiled flag
-    bool isLoaded;                                                      // Successfully loaded into GPU memory flag
-    std::string compilationErrors;                                      // Error messages from compilation process
-    std::chrono::system_clock::time_point lastModified;                 // File modification timestamp for hot-reloading
+    bool isCompiled;                                                                    // Successfully compiled flag
+    bool isLoaded;                                                                      // Successfully loaded into GPU memory flag
+    std::string compilationErrors;                                                      // Error messages from compilation process
+    std::chrono::system_clock::time_point lastModified;                                 // File modification timestamp for hot-reloading
 
     // Resource management flags
-    bool isInUse;                                                       // Currently bound to rendering pipeline flag
-    int referenceCount;                                                 // Number of objects using this shader
+    bool isInUse;                                                                       // Currently bound to rendering pipeline flag
+    int referenceCount;                                                                 // Number of objects using this shader
 
     // Default constructor
     ShaderResource() :
@@ -124,19 +127,19 @@ struct ShaderResource {
 
 // Shader combination for multi-stage rendering passes
 struct ShaderProgram {
-    std::string programName;                                            // Unique program identifier
-    std::string vertexShaderName;                                       // Name of vertex shader in manager
-    std::string pixelShaderName;                                        // Name of pixel/fragment shader in manager
-    std::string geometryShaderName;                                     // Name of geometry shader (optional)
-    std::string hullShaderName;                                         // Name of hull/tessellation control shader (optional)
-    std::string domainShaderName;                                       // Name of domain/tessellation evaluation shader (optional)
-    std::string computeShaderName;                                      // Name of compute shader (optional)
+    std::string programName;                                                            // Unique program identifier
+    std::string vertexShaderName;                                                       // Name of vertex shader in manager
+    std::string pixelShaderName;                                                        // Name of pixel/fragment shader in manager
+    std::string geometryShaderName;                                                     // Name of geometry shader (optional)
+    std::string hullShaderName;                                                         // Name of hull/tessellation control shader (optional)
+    std::string domainShaderName;                                                       // Name of domain/tessellation evaluation shader (optional)
+    std::string computeShaderName;                                                      // Name of compute shader (optional)
 
-    bool isLinked;                                                      // Successfully linked program flag
-    std::string linkingErrors;                                          // Error messages from linking process
+    bool isLinked;                                                                      // Successfully linked program flag
+    std::string linkingErrors;                                                          // Error messages from linking process
 
 #if defined(__USE_OPENGL__)
-    GLuint openglProgramID;                                             // OpenGL linked program identifier
+    GLuint openglProgramID;                                                             // OpenGL linked program identifier
 #endif
 
     // Default constructor
@@ -149,12 +152,12 @@ struct ShaderProgram {
 
 // Statistics and performance monitoring
 struct ShaderManagerStats {
-    int totalShadersLoaded;                                             // Total number of shaders currently loaded
-    int totalProgramsLinked;                                            // Total number of shader programs linked
-    int compilationFailures;                                            // Number of compilation failures encountered
-    int linkingFailures;                                                // Number of linking failures encountered
-    std::chrono::system_clock::time_point lastActivity;                 // Timestamp of last shader operation
-    size_t memoryUsage;                                                 // Estimated GPU memory usage in bytes
+    int totalShadersLoaded;                                                             // Total number of shaders currently loaded
+    int totalProgramsLinked;                                                            // Total number of shader programs linked
+    int compilationFailures;                                                            // Number of compilation failures encountered
+    int linkingFailures;                                                                // Number of linking failures encountered
+    std::chrono::system_clock::time_point lastActivity;                                 // Timestamp of last shader operation
+    size_t memoryUsage;                                                                 // Estimated GPU memory usage in bytes
 
     // Default constructor
     ShaderManagerStats() :
@@ -259,66 +262,65 @@ private:
     std::string GenerateShaderDefines(const std::vector<std::string>& defines);         // Convert defines to preprocessor string
 
     // DirectX-specific compilation methods
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-    bool CompileD3D11VertexShader(ShaderResource& shader);                              // Compile DirectX 11 vertex shader
-    bool CompileD3D11PixelShader(ShaderResource& shader);                               // Compile DirectX 11 pixel shader
-    bool CompileD3D11GeometryShader(ShaderResource& shader);                            // Compile DirectX 11 geometry shader
-    bool CompileD3D11HullShader(ShaderResource& shader);                                // Compile DirectX 11 hull shader
-    bool CompileD3D11DomainShader(ShaderResource& shader);                              // Compile DirectX 11 domain shader
-    bool CompileD3D11ComputeShader(ShaderResource& shader);                             // Compile DirectX 11 compute shader
+    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+        bool CompileD3D11VertexShader(ShaderResource& shader);                          // Compile DirectX 11 vertex shader
+        bool CompileD3D11PixelShader(ShaderResource& shader);                           // Compile DirectX 11 pixel shader
+        bool CompileD3D11GeometryShader(ShaderResource& shader);                        // Compile DirectX 11 geometry shader
+        bool CompileD3D11HullShader(ShaderResource& shader);                            // Compile DirectX 11 hull shader
+        bool CompileD3D11DomainShader(ShaderResource& shader);                          // Compile DirectX 11 domain shader
+        bool CompileD3D11ComputeShader(ShaderResource& shader);                         // Compile DirectX 11 compute shader
 
-    // DirectX-specific input layout creation methods
-    bool CreateInputLayoutForShader(ShaderResource& shader, const std::vector<D3D11_INPUT_ELEMENT_DESC>& layout);    // Create vertex input layout
-
-#endif
+        // DirectX-specific input layout creation methods
+        bool CreateInputLayoutForShader(ShaderResource& shader, const std::vector<D3D11_INPUT_ELEMENT_DESC>& layout);    // Create vertex input layout
+    #endif
 
     // OpenGL-specific compilation methods
-#if defined(__USE_OPENGL__)
-    bool CompileOpenGLShader(ShaderResource& shader); // Compile OpenGL shader
-    bool LinkOpenGLProgram(ShaderProgram& program); // Link OpenGL shader program
-    GLenum GetOpenGLShaderType(ShaderType type); // Convert ShaderType to OpenGL enum
-#endif
+    #if defined(__USE_OPENGL__)
+        bool CompileOpenGLShader(ShaderResource& shader); // Compile OpenGL shader
+        bool LinkOpenGLProgram(ShaderProgram& program); // Link OpenGL shader program
+        GLenum GetOpenGLShaderType(ShaderType type); // Convert ShaderType to OpenGL enum
+    #endif
 
-    // Vulkan-specific compilation methods
-#if defined(__USE_VULKAN__)
-    bool CompileVulkanShader(ShaderResource& shader); // Compile Vulkan SPIR-V shader
-    bool CreateVulkanShaderModule(ShaderResource& shader); // Create Vulkan shader module
-#endif
+        // Vulkan-specific compilation methods
+    #if defined(__USE_VULKAN__)
+        bool CompileVulkanShader(ShaderResource& shader); // Compile Vulkan SPIR-V shader
+        bool CreateVulkanShaderModule(ShaderResource& shader); // Create Vulkan shader module
+    #endif
 
     // Error handling and validation
-    void HandleCompilationError(ShaderResource& shader, const std::string& error); // Process compilation error
-    void HandleLinkingError(ShaderProgram& program, const std::string& error); // Process linking error
-    bool ValidateShaderResource(const ShaderResource& shader) const; // Verify shader resource integrity
-    bool ValidateShaderProgram(const ShaderProgram& program) const; // Verify shader program integrity
+    void HandleCompilationError(ShaderResource& shader, const std::string& error);                  // Process compilation error
+    void HandleLinkingError(ShaderProgram& program, const std::string& error);                      // Process linking error
+    bool ValidateShaderResource(const ShaderResource& shader) const;                                // Verify shader resource integrity
+    bool ValidateShaderProgram(const ShaderProgram& program) const;                                 // Verify shader program integrity
 
     // Diagnostic methods for shader linkage debugging
     void DiagnoseShaderLinkageErrors(const std::string& programName);
 
     // Hot-reloading support
-    std::chrono::system_clock::time_point GetFileModificationTime(const std::wstring& filePath); // Get file timestamp
-    void UpdateShaderFileTimestamp(ShaderResource& shader); // Update cached file timestamp
+    std::chrono::system_clock::time_point GetFileModificationTime(const std::wstring& filePath);    // Get file timestamp
+    void UpdateShaderFileTimestamp(ShaderResource& shader);                                         // Update cached file timestamp
 
     // Resource cleanup helpers
-    void CleanupShaderResource(ShaderResource& shader); // Release individual shader resources
-    void CleanupShaderProgram(ShaderProgram& program); // Release individual program resources
+    void CleanupShaderResource(ShaderResource& shader);                                             // Release individual shader resources
+    void CleanupShaderProgram(ShaderProgram& program);                                              // Release individual program resources
 
     // Statistics updating
-    void UpdateStatistics(); // Recalculate performance statistics
-    void IncrementCompilationFailure(); // Record compilation failure
-    void IncrementLinkingFailure(); // Record linking failure
+    void UpdateStatistics();                                                                        // Recalculate performance statistics
+    void IncrementCompilationFailure();                                                             // Record compilation failure
+    void IncrementLinkingFailure();                                                                 // Record linking failure
 
     // Integration helpers for existing engine systems
-    bool SetupModelShaderBindings(Model* model, ShaderProgram* program); // Configure model-shader bindings
-    bool ConfigureLightingUniforms(ShaderProgram* program, LightsManager* lightManager); // Setup lighting parameters
+    bool SetupModelShaderBindings(Model* model, ShaderProgram* program);                            // Configure model-shader bindings
+    bool ConfigureLightingUniforms(ShaderProgram* program, LightsManager* lightManager);            // Setup lighting parameters
     bool LoadDefaultShaders(); // Load standard engine shaders
 
     // Thread safety enforcement (using ThreadManager system)
-    bool AcquireShaderLock(int timeoutMs = 100);                        // Acquire thread lock for shader operations
-    void ReleaseShaderLock();                                           // Release thread lock
+    bool AcquireShaderLock(int timeoutMs = 100);                                                    // Acquire thread lock for shader operations
+    void ReleaseShaderLock();                                                                       // Release thread lock
 
     // Prevent copying and assignment
-    ShaderManager(const ShaderManager&) = delete;                       // Delete copy constructor
-    ShaderManager& operator=(const ShaderManager&) = delete;            // Delete assignment operator
+    ShaderManager(const ShaderManager&) = delete;                                                   // Delete copy constructor
+    ShaderManager& operator=(const ShaderManager&) = delete;                                        // Delete assignment operator
 };
 
 // Global shader manager instance declaration
@@ -328,3 +330,5 @@ extern ShaderManager shaderManager;
 extern ThreadManager threadManager;
 extern Debug debug;
 extern std::shared_ptr<Renderer> renderer;
+
+#pragma warning(pop)

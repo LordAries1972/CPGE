@@ -44,6 +44,8 @@ extern SceneManager scene;
 // Abstract Renderer Pointer
 extern std::shared_ptr<Renderer> renderer;
 
+extern void SwitchToGameIntro();
+
 void SetMyKeyUpHandler(KeyboardHandler& keyboard)
 { 
     // Register key up handler for release events
@@ -52,19 +54,43 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
         switch (keyCode) 
         {
             case KeyCode::KEY_ESCAPE:
-                fxManager.FadeToBlack(1.0f, 0.03f);
-                soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
-                while (fxManager.IsFadeActive()) 
+                switch (scene.stSceneType)
                 {
-                    #if !defined(RENDERER_IS_THREAD)
-                        renderer->RenderFrame();
-                    #endif
-                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-                }
+                    case SceneType::SCENE_GAMEPLAY:
+                    {
+                        fxManager.FadeToBlack(1.0f, 0.03f);
+                        soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+                        while (fxManager.IsFadeActive()) 
+                        {
+                            #if !defined(RENDERER_IS_THREAD)
+                                renderer->RenderFrame();
+                            #endif
+                            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                        }
 
-                threadManager.threadVars.bIsShuttingDown.store(true);
-                renderer->WaitToFinishThenPauseThread();
-                PostQuitMessage(0);
+                        SwitchToGameIntro(); // Switch to game intro scene
+                        break;
+                    }
+                    
+                    case SceneType::SCENE_INTRO:
+                    {
+                        fxManager.FadeToBlack(1.0f, 0.03f);
+                        soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+                        while (fxManager.IsFadeActive()) 
+                        {
+                            #if !defined(RENDERER_IS_THREAD)
+                                renderer->RenderFrame();
+                            #endif
+                            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                        }
+
+                        threadManager.threadVars.bIsShuttingDown.store(true);
+                        renderer->WaitToFinishThenPauseThread();
+                        PostQuitMessage(0);
+                        break;
+                    }
+                } // End of switch (keyCode)
+
                 break;
 
                 // Toggle wireframe mode with F2 key
@@ -87,7 +113,7 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
                     switch (scene.stSceneType)
                     {
                         case SceneType::SCENE_GAMEPLAY:
-                            renderer->myCamera.RotateToOppositeSide(2);  // Rotate camera to opposite side
+                            renderer->myCamera.RotateToOppositeSide(2);                                 // Rotate camera to opposite side
                     }
 
                     break;
@@ -102,15 +128,83 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
                         case SceneType::SCENE_GAMEPLAY:
                             if (renderer->myCamera.IsRotatingAroundTarget())
                             {
-                                renderer->myCamera.StopRotating();      // Stop current rotation
+                                renderer->myCamera.StopRotating();                                      // Stop current rotation
                             }
                             else
                             {
-                                renderer->myCamera.SetTarget(XMFLOAT3(0.0f, 0.0f, 0.0f)); // Set target to origin
-                                renderer->myCamera.MoveAroundTarget(false, true, false, 20.0f, true); // Start rotation
+                                renderer->myCamera.SetTarget(XMFLOAT3(0.0f, 0.0f, 0.0f));               // Set target to origin
+                                renderer->myCamera.MoveAroundTarget(false, true, false, 20.0f, true);   // Start rotation
                             }
                     }
 
+                    break;
+                }
+
+                case KeyCode::KEY_NUMPAD_8:
+                {
+                    switch (scene.stSceneType)
+                    {
+                        case SceneType::SCENE_GAMEPLAY:
+                        {
+                            // Safe camera jump with renderer validation
+                            if (renderer && renderer->bIsInitialized.load() &&
+                                !threadManager.threadVars.bIsResizing.load()) {
+                                renderer->myCamera.JumpToWithYawPitch(0.0f, 8.0f, 85.0f, 3.14f, 0, 1, true);            // Camera position 1
+                            }
+                            break;
+                        }
+                    }
+                    break;
+                }
+
+                case KeyCode::KEY_NUMPAD_2:
+                {
+                    switch (scene.stSceneType)
+                    {
+                        case SceneType::SCENE_GAMEPLAY:
+                        {
+                            // Safe camera jump with renderer validation
+                            if (renderer && renderer->bIsInitialized.load() &&
+                                !threadManager.threadVars.bIsResizing.load()) {
+                                renderer->myCamera.JumpToWithYawPitch(0.14f, 8.11f, -69.0f, 0.004f, 0.025f, 1, true);   // Camera position 2
+                            }
+                            break;
+                        }
+                    }
+                    break;
+                }
+
+                case KeyCode::KEY_NUMPAD_4:
+                {
+                    switch (scene.stSceneType)
+                    {
+                        case SceneType::SCENE_GAMEPLAY:
+                        {
+                            // Safe camera jump with renderer validation
+                            if (renderer && renderer->bIsInitialized.load() &&
+                                !threadManager.threadVars.bIsResizing.load()) {
+                                renderer->myCamera.JumpToWithYawPitch(-90.0f, 0.0f, 5.0f, 0, 0, 1, true);               // Camera position 3
+                            }
+                            break;
+                        }
+                    }
+                    break;
+                }
+
+                case KeyCode::KEY_NUMPAD_6:
+                {
+                    switch (scene.stSceneType)
+                    {
+                        case SceneType::SCENE_GAMEPLAY:
+                        {
+                            // Safe camera jump with renderer validation
+                            if (renderer && renderer->bIsInitialized.load() &&
+                                !threadManager.threadVars.bIsResizing.load()) {
+                                renderer->myCamera.JumpToWithYawPitch(90.0f, 0.0f, 5.0f, -1.66f, 0.089f, 1, true);      // Camera position 4
+                            }
+                            break;
+                        }
+                    }
                     break;
                 }
         } // End of switch (keyCode)

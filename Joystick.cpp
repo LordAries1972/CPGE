@@ -325,8 +325,8 @@ void Joystick::ConfigureFor3DMovement()
     setMovementMode(MovementMode::MODE_3D);
 
     // Set sensitivity values suitable for your game
-    setMovementSensitivity(0.1f);                                                                       // Movement speed
-    setRotationSensitivity(0.01f);                                                                      // Look rotation speed
+    setMovementSensitivity(0.01f);                                                                       // Movement speed
+    setRotationSensitivity(0.001f);                                                                      // Look rotation speed
 
     // State we are using 3D Mode.
     is3DMode = true;
@@ -342,7 +342,7 @@ void Joystick::ConfigureFor2DMovement()
     setMovementMode(MovementMode::MODE_2D);
 
     // Set sensitivity value suitable for your 2D game 
-    setMovementSensitivity(1.5f);                                                                       // Faster for 2D
+    setMovementSensitivity(0.01f);                                                                       // Faster for 2D
 
     #if defined(_DEBUG) && defined(_DUBUG_JOYSTICK_)
         debug.logLevelMessage(LogLevel::LOG_INFO, L"Joystick configured for 2D movement");

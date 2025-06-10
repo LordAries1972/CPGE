@@ -109,6 +109,12 @@ public:
     void CalculateDirectionVectors(float yaw, float pitch, XMVECTOR& outForward, XMVECTOR& outRight, XMVECTOR& outUp) const;
     // Method to update camera direction from yaw and pitch angles
     void UpdateCameraDirectionFromAngles(float yaw, float pitch);
+    // Method to calculate direction vectors from current camera state and mouse delta
+    void CalculateDirectionVectorsFromMouseDelta(float mouseDeltaX, float mouseDeltaY, float sensitivity,
+        XMVECTOR& outForward, XMVECTOR& outRight, XMVECTOR& outUp);
+
+    // Method to update camera direction from mouse movement while preserving current view
+    void UpdateCameraFromMouseMovement(float mouseDeltaX, float mouseDeltaY, float sensitivity);
 
     // Resize functions for Camera state preservation
     void SaveCameraStateForResize();
@@ -116,6 +122,8 @@ public:
 
     // Updated camera movement functions with focus control
     void JumpTo(float new_x, float new_y, float new_z, int speed, bool FocusOnTarget);
+    void JumpToWithYawPitch(float new_x, float new_y, float new_z, float newYaw, float newPitch, int speed, bool FocusOnTarget);
+
     void JumpBackHistory(int numOfJumps);
     void RotateX(float degrees, int speed, bool FocusOnTarget = true);
     void RotateY(float degrees, int speed, bool FocusOnTarget = true);

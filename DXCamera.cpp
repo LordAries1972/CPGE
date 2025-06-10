@@ -335,85 +335,335 @@ void Camera::RestoreCameraStateAfterResize()
 
 void Camera::JumpTo(float new_x, float new_y, float new_z, int speed, bool FocusOnTarget)
 {
-    #if defined(_DEBUG_CAMERA_)
+    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
         debug.logDebugMessage(LogLevel::LOG_INFO,
             L"[Camera] JumpTo called: target(%.2f, %.2f, %.2f), speed=%d, focusOnTarget=%s",
             new_x, new_y, new_z, speed, FocusOnTarget ? L"true" : L"false");
     #endif
 
-    // Validate speed parameter (must be positive)
-    if (speed <= 0)
-    {
-        speed = 1; // Default to fastest speed
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING,
-                L"[Camera] Invalid speed parameter, defaulting to speed=1");
-        #endif
-    }
+    try {
+        // Validate speed parameter (must be positive)
+        if (speed <= 0)
+        {
+            speed = 1; // Default to fastest speed
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_WARNING,
+                    L"[Camera] Invalid speed parameter, defaulting to speed=1");
+            #endif
+        }
 
-    // Store current position as starting point
-    m_jumpStartPosition = position;
+        // Store current position as starting point
+        m_jumpStartPosition = position;                                     // Save current camera position
 
-    // Set target position
-    m_jumpTargetPosition = XMFLOAT3(new_x, new_y, new_z);
+        // Set target position
+        m_jumpTargetPosition = XMFLOAT3(new_x, new_y, new_z);             // Set destination position
 
-    // Store focus behavior flag
-    m_focusOnTarget = FocusOnTarget;
+        // Store focus behavior flag
+        m_focusOnTarget = FocusOnTarget;                                   // Store focus preference
 
-    // If FocusOnTarget is true, store the original target to maintain focus
-    if (m_focusOnTarget)
-    {
-        m_originalTarget = target;
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_DEBUG,
-                L"[Camera] Maintaining focus on target: (%.2f, %.2f, %.2f)",
-                m_originalTarget.x, m_originalTarget.y, m_originalTarget.z);
-        #endif
-    }
+        // If FocusOnTarget is true, store the original target to maintain focus
+        if (m_focusOnTarget)
+        {
+            m_originalTarget = target;                                      // Store current target for focus maintenance
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                    L"[Camera] Maintaining focus on target: (%.2f, %.2f, %.2f)",
+                    m_originalTarget.x, m_originalTarget.y, m_originalTarget.z);
+            #endif
+        }
+        else
+        {
+            // For free-look mode, preserve current yaw and pitch orientation
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                    L"[Camera] Free-look mode: preserving current orientation - Yaw: %.3f, Pitch: %.3f",
+                    m_yaw, m_pitch);
+            #endif
+        }
 
-    // Check if we're already at the target position (within small tolerance)
-    float distance = FAST_MATH.FastDistance(XMFLOAT2(position.x, position.z),
-        XMFLOAT2(new_x, new_z)) +
-        abs(position.y - new_y);
+        // Check if we're already at the target position (within small tolerance)
+        float distance = FAST_MATH.FastDistance(XMFLOAT2(position.x, position.z),
+            XMFLOAT2(new_x, new_z)) +
+            abs(position.y - new_y);                                       // Calculate total distance to target
 
-    if (distance < 0.01f)
-    {
-        #if defined(_DEBUG_CAMERA_)
+        if (distance < 0.01f)
+        {
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_INFO,
+                    L"[Camera] Already at target position, jump completed immediately");
+            #endif
+            return; // Already at target, no need to jump
+        }
+
+        // Calculate number of path points based on distance and speed
+        // Increased base points and reduced speed divisor for faster movement
+        int pathPoints = static_cast<int>((distance * 15.0f) / (speed * 2.0f)) + 15; // Calculate path complexity
+        pathPoints = std::clamp(pathPoints, 15, 120); // Reduced maximum for faster animation
+
+        // Step 1: Calculate smooth travel path using MathPrecalculation Class
+        m_currentTravelPath = CalculateSmoothTravelPath(m_jumpStartPosition, m_jumpTargetPosition, pathPoints);
+
+        // Step 2: Set status flag that jumping is occurring
+        m_isJumping = true;                                             // Mark camera as jumping
+        m_jumpSpeed = speed;                                            // Store jump speed
+        m_currentPathIndex = 0;                                         // Reset path index
+        m_jumpAnimationTimer = 0.0f;                                    // Reset animation timer
+
+        // Calculate total time for this jump - significantly faster timing
+        // Base time is now much faster, with speed 1 being very fast
+        float baseTime = 0.8f;                                          // Adjust for much faster or slower (higher value) base speed
+        float speedMultiplier = 1.0f / (static_cast<float>(speed) * 1.5f); // Increased speed effect
+        m_totalJumpTime = baseTime * speedMultiplier * (1.0f + distance * 0.1f); // Distance factor
+        m_totalJumpTime = std::clamp(m_totalJumpTime, 0.2f, 3.0f);      // Much faster bounds
+
+        // Step 3: Add to jump history (record history for last 10 locations)
+        AddToJumpHistory(m_jumpStartPosition, m_jumpTargetPosition, m_currentTravelPath, speed, FocusOnTarget);
+
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
             debug.logDebugMessage(LogLevel::LOG_INFO,
-                L"[Camera] Already at target position, jump completed immediately");
+                L"[Camera] Jump initiated: distance=%.2f, pathPoints=%d, totalTime=%.2f, focus=%s, preserving yaw=%.3f, pitch=%.3f",
+                distance, pathPoints, m_totalJumpTime, FocusOnTarget ? L"maintained" : L"free", m_yaw, m_pitch);
         #endif
-        return; // Already at target, no need to jump
     }
+    catch (const std::exception& e) {
+        // Handle any exceptions that occur during jump initialization
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION,
+                L"[Camera] Exception in JumpTo: %hs", e.what());
+        #endif
 
-    // Calculate number of path points based on distance and speed
-    // Increased base points and reduced speed divisor for faster movement
-    int pathPoints = static_cast<int>((distance * 15.0f) / (speed * 2.0f)) + 15;
-    pathPoints = std::clamp(pathPoints, 15, 120); // Reduced maximum for faster animation
+        // Reset jump state on exception to prevent stuck state
+        m_isJumping = false;                                            // Clear jumping flag
+        m_currentPathIndex = 0;                                         // Reset path index
+        m_jumpAnimationTimer = 0.0f;                                    // Reset timer
 
-    // Step 1: Calculate smooth travel path using MathPrecalculation Class
-    m_currentTravelPath = CalculateSmoothTravelPath(m_jumpStartPosition, m_jumpTargetPosition, pathPoints);
+        // Log the exception using ExceptionHandler (Rule #45)
+        exceptionHandler.LogException(e, "Camera::JumpTo");
+    }
+    catch (...) {
+        // Handle unknown exceptions
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_TERMINATION,
+                L"[Camera] Unknown exception in JumpTo. Resetting jump state");
+        #endif
 
-    // Step 2: Set status flag that jumping is occurring
-    m_isJumping = true;
-    m_jumpSpeed = speed;
-    m_currentPathIndex = 0;
-    m_jumpAnimationTimer = 0.0f;
+        // Reset jump state on unknown exception
+        m_isJumping = false;                                            // Clear jumping flag
+        m_currentPathIndex = 0;                                         // Reset path index
+        m_jumpAnimationTimer = 0.0f;                                    // Reset timer
 
-    // Calculate total time for this jump - significantly faster timing
-    // Base time is now much faster, with speed 1 being very fast
-    float baseTime = 0.8f;                                                      // Adjust for much faster or slower (higer value) base speed
-    float speedMultiplier = 1.0f / (static_cast<float>(speed) * 1.5f);          // Increased speed effect
-    m_totalJumpTime = baseTime * speedMultiplier * (1.0f + distance * 0.1f);    // Distance factor
-    m_totalJumpTime = std::clamp(m_totalJumpTime, 0.2f, 3.0f);                  // Much faster bounds
+        // Log custom exception for unknown errors
+        exceptionHandler.LogCustomException("Unknown exception in Camera::JumpTo", "Camera jump initialization");
+    }
+}
 
-    // Step 2: Add to jump history (record history for last 10 locations)
-    AddToJumpHistory(m_jumpStartPosition, m_jumpTargetPosition, m_currentTravelPath, speed, FocusOnTarget);
-
-    #if defined(_DEBUG_CAMERA_)
+void Camera::JumpToWithYawPitch(float new_x, float new_y, float new_z, float newYaw, float newPitch, int speed, bool FocusOnTarget)
+{
+    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
         debug.logDebugMessage(LogLevel::LOG_INFO,
-            L"[Camera] Jump initiated: distance=%.2f, pathPoints=%d, totalTime=%.2f, focus=%s",
-            distance, pathPoints, m_totalJumpTime, FocusOnTarget ? L"maintained" : L"free");
+            L"[Camera] JumpToWithYawPitch called: target(%.2f, %.2f, %.2f), newYaw=%.3f, newPitch=%.3f, speed=%d, focusOnTarget=%s",
+            new_x, new_y, new_z, newYaw, newPitch, speed, FocusOnTarget ? L"true" : L"false");
     #endif
+
+    try {
+        // Validate speed parameter (must be positive)
+        if (speed <= 0)
+        {
+            speed = 1; // Default to fastest speed
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_WARNING,
+                    L"[Camera] Invalid speed parameter, defaulting to speed=1");
+            #endif
+        }
+
+        // Validate and normalize yaw parameter to prevent invalid angles
+        float normalizedYaw = newYaw;                                       // Copy yaw for normalization
+        while (normalizedYaw > XM_2PI) normalizedYaw -= XM_2PI;            // Wrap large positive angles
+        while (normalizedYaw < -XM_2PI) normalizedYaw += XM_2PI;           // Wrap large negative angles
+
+        // Validate and clamp pitch parameter to prevent gimbal lock
+        const float maxPitch = XM_PIDIV2 - 0.01f;                          // Just under 90 degrees to prevent gimbal lock
+        const float minPitch = -XM_PIDIV2 + 0.01f;                         // Just over -90 degrees to prevent gimbal lock
+        float clampedPitch = std::clamp(newPitch, minPitch, maxPitch);      // Clamp pitch to safe range
+
+        // Log angle adjustments if they were modified
+        if (abs(normalizedYaw - newYaw) > 0.001f || abs(clampedPitch - newPitch) > 0.001f) {
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_WARNING,
+                    L"[Camera] Angle adjustments - Original Yaw: %.3f -> %.3f, Original Pitch: %.3f -> %.3f",
+                    newYaw, normalizedYaw, newPitch, clampedPitch);
+            #endif
+        }
+
+        // Store current position as starting point for jump animation
+        m_jumpStartPosition = position;                                     // Save current camera position
+
+        // Set target position for jump destination
+        m_jumpTargetPosition = XMFLOAT3(new_x, new_y, new_z);             // Set destination position
+
+        // Store focus behavior flag for jump completion handling
+        m_focusOnTarget = FocusOnTarget;                                   // Store focus preference
+
+        // CRITICAL: Set new yaw and pitch values to camera's internal state (New State)
+        m_yaw = normalizedYaw;                                             // Set new yaw angle as internal state
+        m_pitch = clampedPitch;                                            // Set new pitch angle as internal state
+
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_INFO,
+                L"[Camera] Camera internal state updated - New Yaw: %.3f, New Pitch: %.3f",
+                m_yaw, m_pitch);
+        #endif
+
+        // Calculate new forward vector from new yaw and pitch angles
+        float cosPitch = FAST_COS(m_pitch);                                // Cosine of new pitch angle
+        float sinPitch = FAST_SIN(m_pitch);                                // Sine of new pitch angle
+        float cosYaw = FAST_COS(m_yaw);                                    // Cosine of new yaw angle
+        float sinYaw = FAST_SIN(m_yaw);                                    // Sine of new yaw angle
+
+        // Calculate new forward vector based on new orientation
+        XMVECTOR newForward = XMVectorSet(
+            cosPitch * sinYaw,                                             // X component from new angles
+            sinPitch,                                                      // Y component from new angles
+            cosPitch * cosYaw,                                             // Z component from new angles
+            0.0f                                                           // W component not used
+        );
+        newForward = XMVector3Normalize(newForward);                       // Normalize new forward vector
+
+        // Store new forward vector in camera state
+        XMStoreFloat3(&forward, newForward);                               // Update camera forward direction
+
+        // Calculate new target based on new orientation if not focusing on specific target
+        if (!m_focusOnTarget)
+        {
+            // For free-look mode, calculate target from new position and new forward direction
+            XMVECTOR newPos = XMLoadFloat3(&m_jumpTargetPosition);         // Load target position
+            XMVECTOR calculatedTarget = XMVectorAdd(newPos, newForward);   // Calculate new target from forward direction
+            XMStoreFloat3(&m_originalTarget, calculatedTarget);            // Store calculated target
+            
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                    L"[Camera] Free-look mode: calculated new target from orientation: (%.2f, %.2f, %.2f)",
+                    m_originalTarget.x, m_originalTarget.y, m_originalTarget.z);
+            #endif
+        }
+        else
+        {
+            // For focus mode, store the current target to maintain focus during jump
+            m_originalTarget = target;                                     // Store current target for focus maintenance
+            
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                    L"[Camera] Focus mode: maintaining focus on current target: (%.2f, %.2f, %.2f)",
+                    m_originalTarget.x, m_originalTarget.y, m_originalTarget.z);
+            #endif
+        }
+
+        // Check if we're already at the target position (within small tolerance)
+        float distance = FAST_MATH.FastDistance(XMFLOAT2(position.x, position.z),
+            XMFLOAT2(new_x, new_z)) +
+            abs(position.y - new_y);                                       // Calculate total distance to target
+
+        if (distance < 0.01f)
+        {
+            // Already at target position, immediately apply new orientation
+            position = m_jumpTargetPosition;                               // Set final position
+            
+            // Apply new orientation immediately
+            if (!m_focusOnTarget)
+            {
+                // For free-look mode, update target based on new orientation
+                XMVECTOR finalPos = XMLoadFloat3(&position);               // Load final position
+                XMVECTOR finalTarget = XMVectorAdd(finalPos, newForward);  // Calculate final target
+                XMStoreFloat3(&target, finalTarget);                       // Store final target
+            }
+            else
+            {
+                // For focus mode, keep original target
+                target = m_originalTarget;                                 // Restore original target
+            }
+
+            // Update view matrix with new orientation
+            XMVECTOR finalPos = XMLoadFloat3(&position);                   // Load final position
+            XMVECTOR finalTarget = XMLoadFloat3(&target);                  // Load final target
+            XMVECTOR upVec = XMLoadFloat3(&up);                            // Load up vector
+            viewMatrix = XMMatrixLookAtLH(finalPos, finalTarget, upVec);   // Update view matrix
+
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_INFO,
+                    L"[Camera] Already at target position, orientation applied immediately - Yaw: %.3f, Pitch: %.3f",
+                    m_yaw, m_pitch);
+            #endif
+            return; // Already at target, no need to jump
+        }
+
+        // Calculate number of path points based on distance and speed
+        int pathPoints = static_cast<int>((distance * 15.0f) / (speed * 2.0f)) + 15; // Calculate path complexity
+        pathPoints = std::clamp(pathPoints, 15, 120);                     // Clamp path points to reasonable range
+
+        // Calculate smooth travel path using MathPrecalculation Class
+        m_currentTravelPath = CalculateSmoothTravelPath(m_jumpStartPosition, m_jumpTargetPosition, pathPoints);
+
+        // Set jump animation state flags
+        m_isJumping = true;                                                // Mark camera as jumping
+        m_jumpSpeed = speed;                                               // Store jump speed
+        m_currentPathIndex = 0;                                            // Reset path index
+        m_jumpAnimationTimer = 0.0f;                                       // Reset animation timer
+
+        // Calculate total time for this jump animation
+        float baseTime = 0.8f;                                             // Base animation time
+        float speedMultiplier = 1.0f / (static_cast<float>(speed) * 1.5f); // Speed effect multiplier
+        m_totalJumpTime = baseTime * speedMultiplier * (1.0f + distance * 0.1f); // Calculate total time with distance factor
+        m_totalJumpTime = std::clamp(m_totalJumpTime, 0.2f, 3.0f);         // Clamp to reasonable time bounds
+
+        // Add to jump history for potential rollback functionality
+        AddToJumpHistory(m_jumpStartPosition, m_jumpTargetPosition, m_currentTravelPath, speed, FocusOnTarget);
+
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_INFO,
+                L"[Camera] JumpToWithYawPitch initiated: distance=%.2f, pathPoints=%d, totalTime=%.2f, focus=%s",
+                distance, pathPoints, m_totalJumpTime, FocusOnTarget ? L"maintained" : L"free");
+            debug.logDebugMessage(LogLevel::LOG_INFO,
+                L"[Camera] New camera state set - Yaw: %.3f, Pitch: %.3f, Forward: (%.3f, %.3f, %.3f)",
+                m_yaw, m_pitch, forward.x, forward.y, forward.z);
+        #endif
+    }
+    catch (const std::exception& e) {
+        // Handle any exceptions that occur during jump initialization
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION,
+                L"[Camera] Exception in JumpToWithYawPitch: %hs", e.what());
+        #endif
+
+        // Reset jump state on exception to prevent stuck state
+        m_isJumping = false;                                               // Clear jumping flag
+        m_currentPathIndex = 0;                                            // Reset path index
+        m_jumpAnimationTimer = 0.0f;                                       // Reset timer
+
+        // Note: Do not reset yaw/pitch on exception as they represent desired new state
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_WARNING,
+                L"[Camera] Preserving new yaw/pitch state despite exception - Yaw: %.3f, Pitch: %.3f",
+                m_yaw, m_pitch);
+        #endif
+
+        // Log the exception using ExceptionHandler (Rule #45)
+        exceptionHandler.LogException(e, "Camera::JumpToWithYawPitch");
+    }
+    catch (...) {
+        // Handle unknown exceptions
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_TERMINATION,
+                L"[Camera] Unknown exception in JumpToWithYawPitch. Preserving new orientation state");
+        #endif
+
+        // Reset jump state on unknown exception but preserve orientation
+        m_isJumping = false;                                               // Clear jumping flag
+        m_currentPathIndex = 0;                                            // Reset path index
+        m_jumpAnimationTimer = 0.0f;                                       // Reset timer
+
+        // Log custom exception for unknown errors
+        exceptionHandler.LogCustomException("Unknown exception in Camera::JumpToWithYawPitch", "Camera jump with orientation initialization");
+    }
 }
 
 void Camera::UpdateJumpAnimation()
@@ -427,170 +677,259 @@ void Camera::UpdateJumpAnimation()
         return;
     }
 
-    // Increment animation timer based on frame time - increased speed
-    // Using faster time step for more responsive animation
-    float deltaTime = 1.0f / 60.0f; // Assuming 60 FPS
-    float speedBoost = 1.8f; // Increased from 1.0f for overall faster animation
-    m_jumpAnimationTimer += deltaTime * speedBoost;
+    try {
+        // Increment animation timer based on frame time - increased speed
+        // Using faster time step for more responsive animation
+        float deltaTime = 1.0f / 60.0f; // Assuming 60 FPS
+        float speedBoost = 1.8f; // Increased from 1.0f for overall faster animation
+        m_jumpAnimationTimer += deltaTime * speedBoost;                 // Update animation progress
 
-    // Calculate current progress (0.0 to 1.0)
-    float progress = m_jumpAnimationTimer / m_totalJumpTime;
-    progress = std::clamp(progress, 0.0f, 1.0f);
+        // Calculate current progress (0.0 to 1.0)
+        float progress = m_jumpAnimationTimer / m_totalJumpTime;         // Calculate completion percentage
+        progress = std::clamp(progress, 0.0f, 1.0f);                    // Ensure progress is within bounds
 
-    // Step 3: Animate movement using calculated travel path with speed variation
-    if (progress >= 1.0f)
-    {
-        // Step 4: Jump completed - set final position and clear jumping state
-        position = m_jumpTargetPosition;
-        m_isJumping = false;
-        m_currentPathIndex = 0;
-        m_jumpAnimationTimer = 0.0f;
-        
-        // Check if this was a history jump that just completed
-        if (m_isJumpingBackInHistory)
+        // Step 3: Animate movement using calculated travel path with speed variation
+        if (progress >= 1.0f)
         {
-            // Calculate how many entries to remove from history
-            int entriesToRemove = m_historyJumpStepsRemaining;
-            int currentHistorySize = static_cast<int>(m_jumpHistory.size());
+            // Step 4: Jump completed - set final position and clear jumping state
+            position = m_jumpTargetPosition;                             // Set final position
+            m_isJumping = false;                                         // Clear jumping flag
+            m_currentPathIndex = 0;                                      // Reset path index
+            m_jumpAnimationTimer = 0.0f;                                 // Reset timer
             
-            // Remove forward history entries (entries after our target position)
-            if (entriesToRemove > 0 && entriesToRemove <= currentHistorySize)
+            // Check if this was a history jump that just completed
+            if (m_isJumpingBackInHistory)
             {
-                RemoveForwardHistoryEntries(currentHistorySize - entriesToRemove);
+                // Calculate how many entries to remove from history
+                int entriesToRemove = m_historyJumpStepsRemaining;
+                int currentHistorySize = static_cast<int>(m_jumpHistory.size());
                 
-                #if defined(_DEBUG_CAMERA_)
+                // Remove forward history entries (entries after our target position)
+                if (entriesToRemove > 0 && entriesToRemove <= currentHistorySize)
+                {
+                    RemoveForwardHistoryEntries(currentHistorySize - entriesToRemove);
+                    
+                    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                        debug.logDebugMessage(LogLevel::LOG_INFO, 
+                            L"[Camera] History jump completed. Removed %d forward entries, %d entries remain", 
+                            entriesToRemove, static_cast<int>(m_jumpHistory.size()));
+                    #endif
+                }
+                
+                // Clear history jump state
+                m_isJumpingBackInHistory = false;                       // Clear history jump flag
+                m_historyJumpStepsRemaining = 0;                        // Reset steps counter
+            }
+            
+            // Handle completion based on focus behavior
+            if (m_focusOnTarget)
+            {
+                // Calculate the new forward direction from final position to original target
+                XMVECTOR finalPos = XMLoadFloat3(&position);             // Load final camera position
+                XMVECTOR originalTarget = XMLoadFloat3(&m_originalTarget); // Load original target
+                XMVECTOR newForwardDirection = XMVector3Normalize(originalTarget - finalPos); // Calculate look direction
+                
+                // Store the new forward direction
+                XMStoreFloat3(&forward, newForwardDirection);            // Update forward vector
+                
+                // Update target to match the maintained focus
+                XMStoreFloat3(&target, originalTarget);                  // Restore original target
+                
+                // CRITICAL: Calculate new yaw and pitch from the forward direction
+                // Extract yaw from the forward vector (rotation around Y-axis)
+                float newYaw = FAST_ATAN2(XMVectorGetX(newForwardDirection), XMVectorGetZ(newForwardDirection));
+                
+                // Extract pitch from the forward vector (rotation around X-axis)
+                float forwardLength = FAST_SQRT(XMVectorGetX(newForwardDirection) * XMVectorGetX(newForwardDirection) + 
+                                              XMVectorGetZ(newForwardDirection) * XMVectorGetZ(newForwardDirection));
+                float newPitch = FAST_ATAN2(XMVectorGetY(newForwardDirection), forwardLength);
+                
+                // Update the camera's internal yaw and pitch to match the new view direction
+                m_yaw = newYaw;                                          // Store new yaw angle
+                m_pitch = newPitch;                                      // Store new pitch angle
+                
+                // Ensure up vector is correct
+                up = XMFLOAT3(0.0f, 1.0f, 0.0f);                        // Reset up vector
+                
+                // Create the final view matrix with all properly calculated values
+                XMVECTOR upVec = XMLoadFloat3(&up);                      // Load up vector
+                viewMatrix = XMMatrixLookAtLH(finalPos, originalTarget, upVec); // Update view matrix
+                
+                #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
                     debug.logDebugMessage(LogLevel::LOG_INFO, 
-                        L"[Camera] History jump completed. Removed %d forward entries, %d entries remain", 
-                        entriesToRemove, static_cast<int>(m_jumpHistory.size()));
+                        L"[Camera] Jump completed with focus maintained: pos(%.2f, %.2f, %.2f), target(%.2f, %.2f, %.2f)", 
+                        position.x, position.y, position.z, target.x, target.y, target.z);
+                    debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                        L"[Camera] Updated orientation: yaw=%.3f, pitch=%.3f, forward(%.3f, %.3f, %.3f)", 
+                        m_yaw, m_pitch, forward.x, forward.y, forward.z);
                 #endif
             }
-            
-            // Clear history jump state
-            m_isJumpingBackInHistory = false;
-            m_historyJumpStepsRemaining = 0;
-        }
-        
-        // Handle completion based on focus behavior
-        if (m_focusOnTarget)
-        {
-            // Calculate the new forward direction from final position to original target
-            XMVECTOR finalPos = XMLoadFloat3(&position);
-            XMVECTOR originalTarget = XMLoadFloat3(&m_originalTarget);
-            XMVECTOR newForwardDirection = XMVector3Normalize(originalTarget - finalPos);
-            
-            // Store the new forward direction
-            XMStoreFloat3(&forward, newForwardDirection);
-            
-            // Update target to match the maintained focus
-            XMStoreFloat3(&target, originalTarget);
-            
-            // Calculate new yaw and pitch based on the new forward direction
-            // Extract yaw from the forward vector (rotation around Y-axis)
-            float newYaw = FAST_ATAN2(XMVectorGetX(newForwardDirection), XMVectorGetZ(newForwardDirection));
-            
-            // Extract pitch from the forward vector (rotation around X-axis)
-            float forwardLength = FAST_SQRT(XMVectorGetX(newForwardDirection) * XMVectorGetX(newForwardDirection) + 
-                                          XMVectorGetZ(newForwardDirection) * XMVectorGetZ(newForwardDirection));
-            float newPitch = FAST_ATAN2(XMVectorGetY(newForwardDirection), forwardLength);
-            
-            // Update the camera's yaw and pitch to match the new view direction
-            m_yaw = newYaw;
-            m_pitch = newPitch;
-            
-            // Ensure up vector is correct
-            up = XMFLOAT3(0.0f, 1.0f, 0.0f);
-            
-            // Create the final view matrix with all properly calculated values
-            XMVECTOR upVec = XMLoadFloat3(&up);
-            viewMatrix = XMMatrixLookAtLH(finalPos, originalTarget, upVec);
-            
-            #if defined(_DEBUG_CAMERA_)
-                debug.logDebugMessage(LogLevel::LOG_INFO, 
-                    L"[Camera] Jump completed with focus maintained: pos(%.2f, %.2f, %.2f), target(%.2f, %.2f, %.2f)", 
-                    position.x, position.y, position.z, target.x, target.y, target.z);
-                debug.logDebugMessage(LogLevel::LOG_DEBUG, 
-                    L"[Camera] Updated orientation: yaw=%.3f, pitch=%.3f, forward(%.3f, %.3f, %.3f)", 
-                    m_yaw, m_pitch, forward.x, forward.y, forward.z);
-            #endif
-        }
-        else
-        {
-            // For free-look behavior, update view matrix normally without changing target
-            UpdateViewMatrix();
-            
-            #if defined(_DEBUG_CAMERA_)
-                debug.logDebugMessage(LogLevel::LOG_INFO, 
-                    L"[Camera] Jump completed with free-look: final position(%.2f, %.2f, %.2f)", 
-                    position.x, position.y, position.z);
-            #endif
-        }
-
-        return;
-    }
-
-    // Calculate current position along the travel path using enhanced smooth interpolation
-    float pathProgress = CalculateJumpAnimationSpeed(progress, m_jumpSpeed);
-    
-    // Find the appropriate point in the travel path
-    int totalPathPoints = static_cast<int>(m_currentTravelPath.size());
-    if (totalPathPoints > 1)
-    {
-        float exactIndex = pathProgress * (totalPathPoints - 1);
-        int currentIndex = static_cast<int>(exactIndex);
-        int nextIndex = std::min(currentIndex + 1, totalPathPoints - 1);
-        float interpolationFactor = exactIndex - currentIndex;
-
-        // Interpolate between current and next path points using MathPrecalculation
-        const XMFLOAT3& currentPoint = m_currentTravelPath[currentIndex];
-        const XMFLOAT3& nextPoint = m_currentTravelPath[nextIndex];
-
-        position.x = FAST_MATH.FastLerp(currentPoint.x, nextPoint.x, interpolationFactor);
-        position.y = FAST_MATH.FastLerp(currentPoint.y, nextPoint.y, interpolationFactor);
-        position.z = FAST_MATH.FastLerp(currentPoint.z, nextPoint.z, interpolationFactor);
-
-        // Handle focus behavior during animation
-        if (m_focusOnTarget)
-        {
-            // Maintain focus on original target during movement
-            XMVECTOR currentPos = XMLoadFloat3(&position);
-            XMVECTOR originalTarget = XMLoadFloat3(&m_originalTarget);
-            XMVECTOR upVec = XMLoadFloat3(&up);
-            
-            // Keep looking at the original target throughout the jump
-            viewMatrix = XMMatrixLookAtLH(currentPos, originalTarget, upVec);
-            
-            // Update forward vector to match the maintained focus during animation
-            XMVECTOR focusDirection = XMVector3Normalize(originalTarget - currentPos);
-            XMStoreFloat3(&forward, focusDirection);
-            XMStoreFloat3(&target, originalTarget);
-            
-            // Update yaw and pitch during animation to keep them synchronized
-            float animYaw = FAST_ATAN2(XMVectorGetX(focusDirection), XMVectorGetZ(focusDirection));
-            float forwardLength = FAST_SQRT(XMVectorGetX(focusDirection) * XMVectorGetX(focusDirection) + 
-                                          XMVectorGetZ(focusDirection) * XMVectorGetZ(focusDirection));
-            float animPitch = FAST_ATAN2(XMVectorGetY(focusDirection), forwardLength);
-            
-            // Smoothly interpolate yaw and pitch during animation for consistent behavior
-            m_yaw = animYaw;
-            m_pitch = animPitch;
-        }
-        else
-        {
-            // Free-look behavior - update view matrix normally
-            UpdateViewMatrix();
-        }
-
-        #if defined(_DEBUG_CAMERA_)
-            if (currentIndex != m_currentPathIndex) // Only log when we move to a new path point
+            else
             {
-                const wchar_t* jumpType = m_isJumpingBackInHistory ? L"history" : L"normal";
-                debug.logDebugMessage(LogLevel::LOG_DEBUG, 
-                    L"[Camera] %ls jump progress: %.1f%%, position(%.2f, %.2f, %.2f), focus=%s, yaw=%.2f, pitch=%.2f", 
-                    jumpType, progress * 100.0f, position.x, position.y, position.z,
-                    m_focusOnTarget ? L"maintained" : L"free", m_yaw, m_pitch);
-                m_currentPathIndex = currentIndex;
+                // For free-look behavior, PRESERVE current yaw and pitch
+                // Calculate forward vector from preserved yaw and pitch
+                float cosPitch = FAST_COS(m_pitch);                      // Use preserved pitch
+                float sinPitch = FAST_SIN(m_pitch);                      // Use preserved pitch
+                float cosYaw = FAST_COS(m_yaw);                          // Use preserved yaw
+                float sinYaw = FAST_SIN(m_yaw);                          // Use preserved yaw
+
+                // Reconstruct forward vector from preserved angles
+                XMVECTOR preservedForward = XMVectorSet(
+                    cosPitch * sinYaw,                                   // X component from preserved angles
+                    sinPitch,                                            // Y component from preserved angles
+                    cosPitch * cosYaw,                                   // Z component from preserved angles
+                    0.0f
+                );
+                preservedForward = XMVector3Normalize(preservedForward); // Normalize forward vector
+
+                // Store preserved forward direction
+                XMStoreFloat3(&forward, preservedForward);               // Update forward with preserved direction
+
+                // Calculate new target from position and preserved forward direction
+                XMVECTOR newPos = XMLoadFloat3(&position);               // Load new position
+                XMVECTOR newTarget = XMVectorAdd(newPos, preservedForward); // Calculate target from preserved forward
+                XMStoreFloat3(&target, newTarget);                       // Store new target
+
+                // Update view matrix with preserved orientation
+                XMVECTOR upVec = XMLoadFloat3(&up);                      // Load up vector
+                viewMatrix = XMMatrixLookAtLH(newPos, newTarget, upVec); // Update view matrix
+                
+                #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                    debug.logDebugMessage(LogLevel::LOG_INFO, 
+                        L"[Camera] Jump completed with free-look: final position(%.2f, %.2f, %.2f), preserved yaw=%.3f, pitch=%.3f", 
+                        position.x, position.y, position.z, m_yaw, m_pitch);
+                #endif
             }
+
+            return;
+        }
+
+        // Calculate current position along the travel path using enhanced smooth interpolation
+        float pathProgress = CalculateJumpAnimationSpeed(progress, m_jumpSpeed); // Apply easing curve
+        
+        // Find the appropriate point in the travel path
+        int totalPathPoints = static_cast<int>(m_currentTravelPath.size());
+        if (totalPathPoints > 1)
+        {
+            float exactIndex = pathProgress * (totalPathPoints - 1);        // Calculate exact path position
+            int currentIndex = static_cast<int>(exactIndex);                // Get current path index
+            int nextIndex = std::min(currentIndex + 1, totalPathPoints - 1); // Get next path index
+            float interpolationFactor = exactIndex - currentIndex;          // Calculate interpolation factor
+
+            // Interpolate between current and next path points using MathPrecalculation
+            const XMFLOAT3& currentPoint = m_currentTravelPath[currentIndex]; // Get current path point
+            const XMFLOAT3& nextPoint = m_currentTravelPath[nextIndex];      // Get next path point
+
+            // Smoothly interpolate position between path points
+            position.x = FAST_MATH.FastLerp(currentPoint.x, nextPoint.x, interpolationFactor); // Interpolate X
+            position.y = FAST_MATH.FastLerp(currentPoint.y, nextPoint.y, interpolationFactor); // Interpolate Y
+            position.z = FAST_MATH.FastLerp(currentPoint.z, nextPoint.z, interpolationFactor); // Interpolate Z
+
+            // Handle focus behavior during animation
+            if (m_focusOnTarget)
+            {
+                // Maintain focus on original target during movement
+                XMVECTOR currentPos = XMLoadFloat3(&position);           // Load current position
+                XMVECTOR originalTarget = XMLoadFloat3(&m_originalTarget); // Load original target
+                XMVECTOR upVec = XMLoadFloat3(&up);                      // Load up vector
+                
+                // Keep looking at the original target throughout the jump
+                viewMatrix = XMMatrixLookAtLH(currentPos, originalTarget, upVec); // Update view matrix
+                
+                // Update forward vector to match the maintained focus during animation
+                XMVECTOR focusDirection = XMVector3Normalize(originalTarget - currentPos); // Calculate focus direction
+                XMStoreFloat3(&forward, focusDirection);                 // Store focus direction
+                XMStoreFloat3(&target, originalTarget);                  // Store original target
+                
+                // Update yaw and pitch during animation to keep them synchronized
+                float animYaw = FAST_ATAN2(XMVectorGetX(focusDirection), XMVectorGetZ(focusDirection)); // Calculate yaw
+                float forwardLength = FAST_SQRT(XMVectorGetX(focusDirection) * XMVectorGetX(focusDirection) + 
+                                              XMVectorGetZ(focusDirection) * XMVectorGetZ(focusDirection)); // Calculate horizontal length
+                float animPitch = FAST_ATAN2(XMVectorGetY(focusDirection), forwardLength); // Calculate pitch
+                
+                // Smoothly interpolate yaw and pitch during animation for consistent behavior
+                m_yaw = animYaw;                                         // Update yaw for consistency
+                m_pitch = animPitch;                                     // Update pitch for consistency
+            }
+else
+            {
+                // For free-look behavior, use the stored yaw and pitch from JumpToWithYawPitch or preserve existing
+                // Calculate forward vector from stored yaw and pitch (works for both JumpTo and JumpToWithYawPitch)
+                float cosPitch = FAST_COS(m_pitch);                      // Use stored pitch (new or preserved)
+                float sinPitch = FAST_SIN(m_pitch);                      // Use stored pitch (new or preserved)
+                float cosYaw = FAST_COS(m_yaw);                          // Use stored yaw (new or preserved)
+                float sinYaw = FAST_SIN(m_yaw);                          // Use stored yaw (new or preserved)
+
+                // Reconstruct forward vector from stored angles
+                XMVECTOR storedForward = XMVectorSet(
+                    cosPitch * sinYaw,                                   // X component from stored angles
+                    sinPitch,                                            // Y component from stored angles
+                    cosPitch * cosYaw,                                   // Z component from stored angles
+                    0.0f
+                );
+                storedForward = XMVector3Normalize(storedForward);       // Normalize forward vector
+
+                // Store forward direction from stored angles
+                XMStoreFloat3(&forward, storedForward);                  // Update forward with stored direction
+
+                // Calculate new target from position and stored forward direction
+                XMVECTOR newPos = XMLoadFloat3(&position);               // Load new position
+                XMVECTOR newTarget = XMVectorAdd(newPos, storedForward); // Calculate target from stored forward
+                XMStoreFloat3(&target, newTarget);                       // Store new target
+
+                // Update view matrix with stored orientation
+                XMVECTOR upVec = XMLoadFloat3(&up);                      // Load up vector
+                viewMatrix = XMMatrixLookAtLH(newPos, newTarget, upVec); // Update view matrix
+                
+                #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                    debug.logDebugMessage(LogLevel::LOG_INFO, 
+                        L"[Camera] Jump completed with stored orientation: final position(%.2f, %.2f, %.2f), yaw=%.3f, pitch=%.3f", 
+                        position.x, position.y, position.z, m_yaw, m_pitch);
+                #endif
+            }
+
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                if (currentIndex != m_currentPathIndex) // Only log when we move to a new path point
+                {
+                    const wchar_t* jumpType = m_isJumpingBackInHistory ? L"history" : L"normal";
+                    debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                        L"[Camera] %ls jump progress: %.1f%%, position(%.2f, %.2f, %.2f), focus=%s, preserved yaw=%.2f, pitch=%.2f", 
+                        jumpType, progress * 100.0f, position.x, position.y, position.z,
+                        m_focusOnTarget ? L"maintained" : L"preserved", m_yaw, m_pitch);
+                    m_currentPathIndex = currentIndex;                   // Update path index for logging
+                }
+            #endif
+        }
+    }
+    catch (const std::exception& e) {
+        // Handle any exceptions that occur during jump animation
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION,
+                L"[Camera] Exception in UpdateJumpAnimation: %hs", e.what());
         #endif
+
+        // Reset jump state on exception to prevent stuck state
+        m_isJumping = false;                                            // Clear jumping flag
+        m_currentPathIndex = 0;                                         // Reset path index
+        m_jumpAnimationTimer = 0.0f;                                    // Reset timer
+
+        // Log the exception using ExceptionHandler (Rule #45)
+        exceptionHandler.LogException(e, "Camera::UpdateJumpAnimation");
+    }
+    catch (...) {
+        // Handle unknown exceptions
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_TERMINATION,
+                L"[Camera] Unknown exception in UpdateJumpAnimation. Resetting jump state");
+        #endif
+
+        // Reset jump state on unknown exception
+        m_isJumping = false;                                            // Clear jumping flag
+        m_currentPathIndex = 0;                                         // Reset path index
+        m_jumpAnimationTimer = 0.0f;                                    // Reset timer
+
+        // Log custom exception for unknown errors
+        exceptionHandler.LogCustomException("Unknown exception in Camera::UpdateJumpAnimation", "Camera jump animation");
     }
 }
 
@@ -3336,6 +3675,192 @@ void Camera::UpdateCameraDirectionFromAngles(float yaw, float pitch)
 
         // Log the exception using ExceptionHandler (Rule #45)
         exceptionHandler.LogException(e, "Camera::UpdateCameraDirectionFromAngles");
+    }
+}
+
+void Camera::CalculateDirectionVectorsFromMouseDelta(float mouseDeltaX, float mouseDeltaY, float sensitivity, 
+                                                     XMVECTOR& outForward, XMVECTOR& outRight, XMVECTOR& outUp)
+{
+    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] CalculateDirectionVectorsFromMouseDelta() called with deltaX=%.3f, deltaY=%.3f, sensitivity=%.3f", 
+            mouseDeltaX, mouseDeltaY, sensitivity);
+    #endif
+
+    try {
+        // Get current yaw and pitch from camera state (preserve existing view)
+        float currentYaw = m_yaw;                                           // Current horizontal rotation
+        float currentPitch = m_pitch;                                       // Current vertical rotation
+
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] Current camera state - Yaw: %.3f, Pitch: %.3f", currentYaw, currentPitch);
+        #endif
+
+        // Calculate new yaw and pitch by adding mouse delta (incremental changes)
+        float newYaw = currentYaw + (mouseDeltaX * sensitivity);            // Add horizontal mouse movement
+        float newPitch = currentPitch + (mouseDeltaY * sensitivity);        // Add vertical mouse movement
+
+        // Clamp pitch to prevent camera flipping (gimbal lock prevention)
+        const float maxPitch = XM_PIDIV2 - 0.01f;                          // Just under 90 degrees
+        const float minPitch = -XM_PIDIV2 + 0.01f;                         // Just over -90 degrees
+        newPitch = std::clamp(newPitch, minPitch, maxPitch);                // Clamp pitch to safe range
+
+        // Normalize yaw to keep it within reasonable bounds (-2π to 2π)
+        while (newYaw > XM_2PI) newYaw -= XM_2PI;                          // Wrap large positive angles
+        while (newYaw < -XM_2PI) newYaw += XM_2PI;                         // Wrap large negative angles
+
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] New calculated angles - Yaw: %.3f, Pitch: %.3f", newYaw, newPitch);
+        #endif
+
+        // Calculate trigonometric values using MathPrecalculation for optimization
+        float cosPitch = FAST_COS(newPitch);                                // Cosine of new pitch angle
+        float sinPitch = FAST_SIN(newPitch);                                // Sine of new pitch angle
+        float cosYaw = FAST_COS(newYaw);                                    // Cosine of new yaw angle
+        float sinYaw = FAST_SIN(newYaw);                                    // Sine of new yaw angle
+
+        // Calculate new forward vector based on updated angles
+        outForward = XMVectorSet(
+            cosPitch * sinYaw,                                              // X component: horizontal forward direction
+            sinPitch,                                                       // Y component: vertical look direction (pitch)
+            cosPitch * cosYaw,                                              // Z component: depth forward direction
+            0.0f                                                            // W component: not used for direction vectors
+        );
+        
+        // Normalize forward vector to ensure it's a unit vector
+        outForward = XMVector3Normalize(outForward);                        // Ensure forward vector is normalized
+
+        // Calculate right vector (perpendicular to forward, always horizontal)
+        XMVECTOR worldUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);           // World up vector (positive Y axis)
+        outRight = XMVector3Cross(worldUp, outForward);                     // Cross product gives perpendicular right vector
+        outRight = XMVector3Normalize(outRight);                            // Normalize right vector to unit length
+
+        // Calculate up vector (perpendicular to both forward and right)
+        outUp = XMVector3Cross(outForward, outRight);                       // Cross product gives camera's local up vector
+        outUp = XMVector3Normalize(outUp);                                  // Normalize up vector to unit length
+
+        // Update internal yaw and pitch values to maintain state consistency
+        m_yaw = newYaw;                                                     // Store new yaw for next frame
+        m_pitch = newPitch;                                                 // Store new pitch for next frame
+
+        // Validate calculated vectors to ensure they are valid unit vectors
+        float forwardLength = XMVectorGetX(XMVector3Length(outForward));    // Check forward vector length
+        float rightLength = XMVectorGetX(XMVector3Length(outRight));        // Check right vector length
+        float upLength = XMVectorGetX(XMVector3Length(outUp));              // Check up vector length
+
+        // Verify all vectors are properly normalized (length should be ~1.0)
+        if (abs(forwardLength - 1.0f) > 0.01f || abs(rightLength - 1.0f) > 0.01f || abs(upLength - 1.0f) > 0.01f) {
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                    L"[Camera] Direction vectors not properly normalized - Forward: %.3f, Right: %.3f, Up: %.3f", 
+                    forwardLength, rightLength, upLength);
+            #endif
+            
+            // Force re-normalization if vectors are not unit length
+            outForward = XMVector3Normalize(outForward);                    // Re-normalize forward vector
+            outRight = XMVector3Normalize(outRight);                        // Re-normalize right vector
+            outUp = XMVector3Normalize(outUp);                              // Re-normalize up vector
+        }
+
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            // Extract vector components for detailed logging
+            XMFLOAT3 fwd, right, up;                                       // Temporary storage for vector components
+            XMStoreFloat3(&fwd, outForward);                                // Store forward vector components
+            XMStoreFloat3(&right, outRight);                                // Store right vector components
+            XMStoreFloat3(&up, outUp);                                      // Store up vector components
+            
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] Updated direction vectors from mouse delta:");
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"  Forward: (%.3f, %.3f, %.3f), Right: (%.3f, %.3f, %.3f), Up: (%.3f, %.3f, %.3f)", 
+                fwd.x, fwd.y, fwd.z, right.x, right.y, right.z, up.x, up.y, up.z);
+        #endif
+    }
+    catch (const std::exception& e) {
+        // Handle any exceptions that occur during direction vector calculation
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION, 
+                L"[Camera] Exception in CalculateDirectionVectorsFromMouseDelta: %hs. Preserving current vectors", e.what());
+        #endif
+
+        // Preserve current direction vectors instead of using fallback
+        XMVECTOR currentForward = XMLoadFloat3(&forward);                   // Load current forward vector
+        XMVECTOR currentUp = XMLoadFloat3(&up);                             // Load current up vector
+        XMVECTOR currentRight = XMVector3Cross(currentUp, currentForward);  // Calculate current right vector
+        
+        outForward = XMVector3Normalize(currentForward);                    // Preserve normalized forward
+        outRight = XMVector3Normalize(currentRight);                       // Preserve normalized right
+        outUp = XMVector3Normalize(currentUp);                             // Preserve normalized up
+
+        // Log the exception using ExceptionHandler (Rule #45)
+        exceptionHandler.LogException(e, "Camera::CalculateDirectionVectorsFromMouseDelta");
+    }
+    catch (...) {
+        // Handle any unknown exceptions that might occur
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_TERMINATION, 
+                L"[Camera] Unknown exception in CalculateDirectionVectorsFromMouseDelta. Preserving current state");
+        #endif
+
+        // Preserve current direction vectors for unknown exceptions
+        XMVECTOR currentForward = XMLoadFloat3(&forward);                   // Load current forward vector
+        XMVECTOR currentUp = XMLoadFloat3(&up);                             // Load current up vector
+        XMVECTOR currentRight = XMVector3Cross(currentUp, currentForward);  // Calculate current right vector
+        
+        outForward = XMVector3Normalize(currentForward);                    // Preserve normalized forward
+        outRight = XMVector3Normalize(currentRight);                       // Preserve normalized right
+        outUp = XMVector3Normalize(currentUp);                             // Preserve normalized up
+
+        // Log custom exception for unknown errors
+        exceptionHandler.LogCustomException("Unknown exception in Camera::CalculateDirectionVectorsFromMouseDelta", "Camera mouse delta calculation");
+    }
+}
+
+void Camera::UpdateCameraFromMouseMovement(float mouseDeltaX, float mouseDeltaY, float sensitivity)
+{
+    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] UpdateCameraFromMouseMovement() called with deltaX=%.3f, deltaY=%.3f, sensitivity=%.3f", 
+            mouseDeltaX, mouseDeltaY, sensitivity);
+    #endif
+
+    try {
+        // Only update if there is actual mouse movement to avoid unnecessary calculations
+        if (abs(mouseDeltaX) < 0.001f && abs(mouseDeltaY) < 0.001f) {
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                    L"[Camera] No significant mouse movement detected, skipping update");
+            #endif
+            return;                                                         // Skip update for negligible movement
+        }
+
+        // Declare vectors to store calculated direction vectors
+        XMVECTOR forwardVector, rightVector, upVector;                      // Direction vectors to be calculated
+
+        // Calculate direction vectors from mouse delta while preserving current view
+        CalculateDirectionVectorsFromMouseDelta(mouseDeltaX, mouseDeltaY, sensitivity, 
+                                               forwardVector, rightVector, upVector);
+
+        // Update camera's internal direction vectors using the calculated vectors
+        UpdateDirectionVectors(forwardVector, rightVector, upVector);       // Apply calculated vectors to camera
+
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_INFO, 
+                L"[Camera] Camera updated successfully from mouse movement - New Yaw: %.3f, Pitch: %.3f", 
+                m_yaw, m_pitch);
+        #endif
+    }
+    catch (const std::exception& e) {
+        // Handle exceptions during camera update from mouse movement
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION, 
+                L"[Camera] Exception in UpdateCameraFromMouseMovement: %hs", e.what());
+        #endif
+
+        // Log the exception using ExceptionHandler (Rule #45)
+        exceptionHandler.LogException(e, "Camera::UpdateCameraFromMouseMovement");
     }
 }
 

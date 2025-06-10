@@ -36,6 +36,9 @@
 
 using namespace DirectX;
 
+#pragma warning(push)
+#pragma warning(disable: 4101)
+
 //==============================================================================
 // Physics Constants and Configuration
 //==============================================================================
@@ -610,3 +613,5 @@ extern Physics* g_pPhysics;
 // External references
 extern Debug debug;
 extern ExceptionHandler exceptionHandler;
+
+#pragma warning(pop)

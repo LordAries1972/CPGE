@@ -3,6 +3,9 @@
 
 #include "Includes.h"
 
+#pragma warning(push)
+#pragma warning(disable: 4101)
+
 namespace SoundSystem {
 
     enum class PlaybackType {
@@ -121,3 +124,5 @@ namespace SoundSystem {
     };
 
 } // namespace SoundSystem
+
+#pragma warning(pop)

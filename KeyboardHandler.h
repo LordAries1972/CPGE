@@ -24,6 +24,9 @@
 #include <unordered_map>
 #include <functional>
 
+#pragma warning(push)
+#pragma warning(disable: 4101)
+
 // Forward declarations
 extern Debug debug;
 extern ThreadManager threadManager;
@@ -580,3 +583,5 @@ private:
     KeyboardHandler(const KeyboardHandler&) = delete;
     KeyboardHandler& operator=(const KeyboardHandler&) = delete;
 };
+
+#pragma warning(pop)

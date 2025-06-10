@@ -87,8 +87,8 @@ private:
 
     // New movement-related members
     MovementMode m_movementMode = MovementMode::MODE_3D;
-    float m_movementSensitivity = 0.05f;
-    float m_rotationSensitivity = 0.02f;
+    float m_movementSensitivity = 0.000005f;
+    float m_rotationSensitivity = 0.000002f;
 
     // Last 2D position (for 2D mode)
     struct Position2D {
