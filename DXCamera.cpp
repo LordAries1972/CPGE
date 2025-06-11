@@ -3837,7 +3837,7 @@ void Camera::UpdateCameraFromMouseMovement(float mouseDeltaX, float mouseDeltaY,
                 debug.logDebugMessage(LogLevel::LOG_DEBUG, 
                     L"[Camera] No significant mouse movement detected, skipping update");
             #endif
-            return;                                                         // Skip update for negligible movement
+            return;                                                         
         }
 
         // Declare vectors to store calculated direction vectors
