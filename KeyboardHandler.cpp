@@ -15,6 +15,7 @@ extern ThreadManager threadManager;
 #pragma warning(push)
 #pragma warning(disable: 4996)  // Suppress deprecated function warnings for cross-platform compatibility
 #pragma warning(disable: 4127)  // Suppress conditional expression is constant for template optimizations
+#pragma warning(disable: 4101)  // Warning Suppression for unused parameters
 
 //==============================================================================
 // Global Static Instance and Platform-Specific Variables

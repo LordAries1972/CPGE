@@ -11,6 +11,10 @@
 #include "Renderer.h"
 #include "WinSystem.h"
 
+// Warning Suppression for unused parameters
+#pragma warning(push)
+#pragma warning(disable: 4101)
+
 class Debug;
 class Configuration;
 
@@ -3863,5 +3867,8 @@ void Camera::UpdateCameraFromMouseMovement(float mouseDeltaX, float mouseDeltaY,
         exceptionHandler.LogException(e, "Camera::UpdateCameraFromMouseMovement");
     }
 }
+
+// Restore previous warning state
+#pragma warning(pop) 
 
 #endif // End of #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)

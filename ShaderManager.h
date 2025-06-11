@@ -17,9 +17,6 @@
 #include "Lights.h"
 #include "SceneManager.h"
 
-#pragma warning(push)
-#pragma warning(disable: 4101)
-
 // Forward declarations for integration with existing systems
 class Model;
 class LightsManager;
@@ -331,4 +328,3 @@ extern ThreadManager threadManager;
 extern Debug debug;
 extern std::shared_ptr<Renderer> renderer;
 
-#pragma warning(pop)

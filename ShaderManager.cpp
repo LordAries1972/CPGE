@@ -34,6 +34,10 @@
     #include <shaderc/shaderc.hpp>                                                  // SPIR-V compiler
 #endif
 
+// Warning Suppression for unused parameters
+#pragma warning(push)
+#pragma warning(disable: 4101)
+
 // External references to existing engine systems
 extern ThreadManager threadManager;
 extern Debug debug;
@@ -4035,3 +4039,5 @@ bool ShaderManager::LoadDefaultShaders() {
 
     return allShadersLoaded;
 }
+
+#pragma warning(pop)
