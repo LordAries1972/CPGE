@@ -209,7 +209,7 @@ void DX11Renderer::LoaderTaskThread()
 				// -----------------------------------------------------------------------------
 				// Load in our required models and Initialize	
 				// -----------------------------------------------------------------------------
-				scene.ParseGLTFScene(AssetsDir / L"scene.gltf");
+				scene.ParseGLTFScene(AssetsDir / L"maze.gltf");
 				if (!scene.bGltfCameraParsed)
 				{
 					scene.AutoFrameSceneToCamera();

@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2025*
 
-*Current Build Version: v0.0.709*
+*Current Build Version: v0.0.711*
 ---
 
 ## Table of Contents
@@ -311,6 +311,14 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - Some bug fixes for the DXCamera
 - *See: [`Physics.h/.cpp`](Physics.h), [`Docs/Physics-Example-Usage.md`](Docs/Physics-Example-Usage.md)*
 
+**June 15, 2025** - Implementation: SceneManager Enhancements:
+
+- Implemented ParseGLBScene() which now imports GLB 2.0 format files.
+- GLTFAnimator Class: Complete Animation system that are parsed via ParseGLTFScene() or ParseGLBScene() in SceneManager class.
+- Models now have an assigned Parent ID if model is of a Child Model Object.
+- Created the SceneManager & Animator Documentation.
+- *See: [`GLTFAnimator.h/.cpp`](GLTFAnimator.h), [`Docs/SceneManager-Example-Usage.md`](Docs/SceneManager-Example-Usage.md)*
+
 ---
 
 ## Future Development
@@ -349,9 +357,6 @@ Since this is early-stage days of development (WIP), major reconstruction may oc
 - Steam Class implementation
 - GooglePlay interface for Android
 - AppStore interface for iOS
-
-**April 26, 2025** - Format expansion:
-- GLB 2.0 (binary GLTF) parser implementation
 
 **May 25, 2025** - Optimization:
 - Code optimizations and refactoring

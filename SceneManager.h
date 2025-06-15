@@ -3,6 +3,7 @@
 #include "Includes.h"
 #include "DX11Renderer.h"
 #include <nlohmann/json.hpp>
+#include "GLTFAnimator.h"
 
 #if defined(_WIN32) || defined(_WIN64)
 #include "WinSystem.h"
@@ -59,6 +60,10 @@ public:
 	bool bGltfCameraParsed = false;
 	bool bSceneSwitching = false;
 	std::vector<uint8_t> gltfBinaryData;                                             // Loaded .bin buffer (temporary global for parsing)
+	bool bAnimationsLoaded = false;                                                  // Flag indicating if animations were loaded from current scene
+
+	// Global animator instance
+	GLTFAnimator gltfAnimator;
 
 	// Our Models Buffer, Resources & Data that will be rendered in A GIVEN scene.
 	Model scene_models[MAX_SCENE_MODELS];
@@ -70,14 +75,17 @@ public:
 	bool SaveSceneState(const std::wstring& path);
 	bool LoadSceneState(const std::wstring& path);
 	bool IsSketchfabScene() const;
+
 	bool ParseGLTFScene(const std::wstring& gltfFile);
-	
+	bool ParseGLBScene(const std::wstring& glbFile);                                 // Parses GLB 2.0 binary format with parent-child relationships
+
 	void SetGotoScene(SceneType gotoScene);
 	void InitiateScene();
 	SceneType GetGotoScene();
 
 	void AutoFrameSceneToCamera(float fovYRadians = XMConvertToRadians(60.0f), float padding = 1.2f);
 	const std::wstring& GetLastDetectedExporter() const;
+	void UpdateSceneAnimations(float deltaTime);                                    // Updates all active animations in the scene
 
 private:
 	bool bIsDestroyed = false;
@@ -92,7 +100,8 @@ private:
 	void BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo& info, Model& model, const json& doc);
 	void ParseGLTFCamera(const nlohmann::json& gltf, Camera& camera, float windowWidth, float windowHeight);
 	bool ParseGLTFLights(const json& doc);
-	void ParseGLTFNodeRecursive(const json& node, const XMMATRIX& parentTransform, const json& doc, const json& allNodes, int& instanceIndex);
+	void ParseGLTFNodeRecursive(const json& node, const XMMATRIX& parentTransform, const json& doc, const json& allNodes, int& instanceIndex, int parentModelID);
+	void ParseGLBNodeRecursive(const json& node, const XMMATRIX& parentTransform, const json& doc, const json& allNodes, int& instanceIndex, int parentModelID);
 	void LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model& model);
 
 	DX11Renderer* myRenderer = nullptr;												 // Pointer to the DX11 renderer

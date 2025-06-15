@@ -46,10 +46,10 @@ Texture::Texture(const std::wstring& path) {
 
 Texture::~Texture() {
     if (bTextureDestroyed) return;
-#ifdef __USE_DIRECTX_11__
-    if (textureSRV) textureSRV->Release();
-    if (textureResource) textureResource->Release();
-#endif
+    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+        if (textureSRV) textureSRV->Release();
+        if (textureResource) textureResource->Release();
+    #endif
 
     bTextureDestroyed = true;
 }
@@ -58,8 +58,8 @@ bool Texture::LoadFromFile(const std::wstring& path) {
     texturePath = path;
 
     #ifdef __USE_DIRECTX_11__
-        auto dx11 = std::dynamic_pointer_cast<DX11Renderer>(renderer);
-        ComPtr<ID3D11Device> device = dx11->m_d3dDevice;
+        ComPtr<ID3D11Device> device;
+        device.Attach(static_cast<ID3D11Device*>(renderer->GetDevice())); 
         if (!device) {
             debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX11: No device context available");
             return false;

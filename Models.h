@@ -55,6 +55,89 @@ enum ModelID
 };
 
 //==============================================================================
+// Animation Data Structures for GLTF/GLB Animation Support
+//==============================================================================
+
+// Animation interpolation types supported by GLTF specification
+enum class AnimationInterpolation : int
+{
+    LINEAR = 0,                                                                      // Linear interpolation between keyframes
+    STEP = 1,                                                                        // Step interpolation (no smoothing)
+    CUBICSPLINE = 2                                                                  // Cubic spline interpolation
+};
+
+// Animation target property types that can be animated
+enum class AnimationTargetPath : int
+{
+    TRANSLATION = 0,                                                                 // Position animation (3 floats)
+    ROTATION = 1,                                                                    // Rotation animation (4 floats - quaternion)
+    SCALE = 2,                                                                       // Scale animation (3 floats)
+    WEIGHTS = 3                                                                      // Morph target weights animation
+};
+
+// Single keyframe data for animation sampling
+struct AnimationKeyframe
+{
+    float time;                                                                      // Time in seconds for this keyframe
+    std::vector<float> values;                                                       // Value data (3 for translation/scale, 4 for rotation)
+
+    // Constructor for easy initialization
+    AnimationKeyframe() : time(0.0f) {}
+    AnimationKeyframe(float t, const std::vector<float>& v) : time(t), values(v) {}
+};
+
+// Animation sampler defines how keyframes are interpolated
+struct AnimationSampler
+{
+    std::vector<AnimationKeyframe> keyframes;                                        // All keyframes for this sampler
+    AnimationInterpolation interpolation;                                            // Interpolation method to use
+    float minTime;                                                                   // Minimum time value in keyframes
+    float maxTime;                                                                   // Maximum time value in keyframes
+
+    // Constructor with default values
+    AnimationSampler() : interpolation(AnimationInterpolation::LINEAR), minTime(0.0f), maxTime(0.0f) {}
+};
+
+// Animation channel connects a sampler to a specific node and property
+struct AnimationChannel
+{
+    int samplerIndex;                                                                // Index into animation's samplers array
+    int targetNodeIndex;                                                             // Index of the node to animate
+    AnimationTargetPath targetPath;                                                 // Which property to animate
+
+    // Constructor with default values
+    AnimationChannel() : samplerIndex(-1), targetNodeIndex(-1), targetPath(AnimationTargetPath::TRANSLATION) {}
+};
+
+// Complete animation definition containing all samplers and channels
+struct GLTFAnimation
+{
+    std::wstring name;                                                               // Name of this animation
+    std::vector<AnimationSampler> samplers;                                          // All samplers for this animation
+    std::vector<AnimationChannel> channels;                                          // All channels for this animation
+    float duration;                                                                  // Total duration of animation in seconds
+
+    // Constructor with default values
+    GLTFAnimation() : name(L"Unnamed Animation"), duration(0.0f) {}
+};
+
+// Animation instance for playback - tracks current state of a playing animation
+struct AnimationInstance
+{
+    int animationIndex;                                                              // Index into GLTFAnimations array
+    float currentTime;                                                               // Current playback time in seconds
+    float playbackSpeed;                                                             // Speed multiplier (1.0 = normal speed)
+    bool isPlaying;                                                                  // Whether animation is currently playing
+    bool isLooping;                                                                  // Whether animation should loop
+    int parentModelID;                                                               // Parent model ID this animation applies to
+
+    // Constructor with default values
+    AnimationInstance() : animationIndex(-1), currentTime(0.0f), playbackSpeed(1.0f),
+        isPlaying(false), isLooping(true), parentModelID(-1) {
+    }
+};
+
+//==============================================================================
 // Texture Class Declaration
 //==============================================================================
 // Encapsulates GPU texture resource loading and access for DX11.
@@ -73,11 +156,11 @@ public:
 private:
     std::wstring texturePath;                                                       // File path of the texture
 	bool bTextureDestroyed = false;                                                 // Flag to prevent double deletion
-#if defined(__USE_DIRECTX_11__)
-    ID3D11ShaderResourceView* textureSRV = nullptr;                                 // Shader Resource View
-    ID3D11Resource* textureResource = nullptr;                                      // Original texture resource
-    bool IsValid() const { return textureSRV != nullptr; }
-#endif
+    #if defined(__USE_DIRECTX_11__)
+        ID3D11ShaderResourceView* textureSRV = nullptr;                             // Shader Resource View
+        ID3D11Resource* textureResource = nullptr;                                  // Original texture resource
+        bool IsValid() const { return textureSRV != nullptr; }
+    #endif
 
     // Prevent copy (not safe with raw COM pointers)
     Texture(const Texture&) = delete;
@@ -123,7 +206,8 @@ struct Material {
 // In Models.h, update the ModelInfo structure:
 //==============================================================================
 struct ModelInfo {
-    int ID = 0;                                                                     // Model ID number.    
+    int ID = 0;                                                                     // This Model ID number.    
+    int iParentModelID = -1;                                                        // Parent model ID (if any) -> -1 = Is Parent Model.
     std::wstring name;                                                              // Model name
 
 #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
