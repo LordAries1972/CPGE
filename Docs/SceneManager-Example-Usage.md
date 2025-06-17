@@ -27,7 +27,7 @@ The **GLTFAnimator** is a specialized animation engine that handles the complex 
 
 ### Integration with the CPGE Engine
 
-Both classes are integral components of the CPGE (Complete Performance Gaming Engine) architecture, designed to work seamlessly with DirectX 11/12 rendering pipelines, multi-threaded operations, and comprehensive debugging systems. They follow the engine's strict coding standards including detailed debug logging, exception handling, and memory management protocols.
+Both classes are integral components of the CPGE (Cross Platform Gaming Engine) architecture, designed to work seamlessly with DirectX 11/12 rendering pipelines, multi-threaded operations, and comprehensive debugging systems. They follow the engine's strict coding standards including detailed debug logging, exception handling, and memory management protocols.
 
 ---
 
