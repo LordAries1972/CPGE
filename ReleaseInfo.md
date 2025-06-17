@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2025*
 
-*Current Build Version: v0.0.711*
+*{{< readfile file="Version.id" >}}*
 ---
 
 ## Table of Contents
