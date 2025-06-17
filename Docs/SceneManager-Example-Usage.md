@@ -25,6 +25,17 @@ The **SceneManager** serves as the primary orchestrator for all scene-related op
 
 The **GLTFAnimator** is a specialized animation engine that handles the complex task of parsing, storing, and playing back skeletal and node-based animations defined in GLTF files. It implements the complete GLTF 2.0 animation specification, including support for linear interpolation (with proper quaternion SLERP), step interpolation, and cubic spline interpolation methods.
 
+**IMPORTANT SIDE NOTE:** Due to the very size, complexity and nature of this document, some references in the given example code below may not be the same actually defined in the proper C++ project files which are:-
+
+Your true referencing when developing are based on these two actual header files.
+[`SceneManager.h/.cpp`](SceneManager.h)
+[`GLTFAnimator.h/.cpp`](GLTFAnimator.h)
+
+This documentation is a theory based document and should be used as a meaniful guide to help you utilise these classes in your main project.  Ultimately, you should always refer to the actual CPGE Project files for concise implementation as code in this project is always and constantly changing.
+
+As the system becomes more stable and the changes become far less, this documentation then will be updated to reflect the proper referencing.  So for now, please use this as a guide on how these classes should be used.
+
+
 ### Integration with the CPGE Engine
 
 Both classes are integral components of the CPGE (Cross Platform Gaming Engine) architecture, designed to work seamlessly with DirectX 11/12 rendering pipelines, multi-threaded operations, and comprehensive debugging systems. They follow the engine's strict coding standards including detailed debug logging, exception handling, and memory management protocols.
@@ -35,14 +46,7 @@ Both classes are integral components of the CPGE (Cross Platform Gaming Engine) 
 
 Let me provide you with the foundational understanding of these powerful systems before we proceed to the next chapter.
 
-The SceneManager and GLTFAnimator represent years of development effort to create a production-ready system capable of handling complex 3D scenes with hundreds of animated models while maintaining consistent 60+ FPS performance. The system has been battle-tested in commercial game development and provides enterprise-level reliability and features.
-
-As a courtesy note, due to the very size and nature of this document, some references in the code may not be the same actually defined in the proper C++ files which are:-
-
-SceneManager.h/.cpp
-GLTFAnimator.h/.cpp
-
-This documentation is a theory based document and should be used a guide to help you utilise these classes in your main project.  Ultimately, you should always refer to the actual CPGE Project files for concise implementation as code in this project is always changing.
+The SceneManager and GLTFAnimator looks at the representation of many years of development efforts of other people to create a production-ready system capable of handling complex 3D scenes with hundreds of animated models while maintaining consistent 60+ FPS performance. The system has been battle-tested in commercial game development and provides enterprise-level reliability and features.
 
 **Key Design Principles:**
 
