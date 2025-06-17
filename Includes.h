@@ -51,6 +51,16 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
             #pragma comment(lib, "dbghelp.lib")
         #endif
 
+        #if defined(__USE_NETWORKING__)
+            #include <winsock2.h>                                                   // Main Winsock API
+            #include <ws2tcpip.h>                                                   // Additional TCP/IP functions
+            #include <iphlpapi.h>                                                   // IP Helper API
+
+            // Required Network Link libraries
+            #pragma comment(lib, "ws2_32.lib")                                      // Winsock 2 library
+            #pragma comment(lib, "iphlpapi.lib")                                    // IP Helper API library
+        #endif // __USE_NETWORKING__
+        
         // Windows Platform Master Renderer Switches
         #define __USE_DIRECTX_11__
         //#define __USE_DIRECTX_12__

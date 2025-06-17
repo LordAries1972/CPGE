@@ -2,11 +2,12 @@
 
 #include "Includes.h"
 #include "DX11Renderer.h"
-#include <nlohmann/json.hpp>
 #include "GLTFAnimator.h"
 
-#if defined(_WIN32) || defined(_WIN64)
-#include "WinSystem.h"
+#include <nlohmann/json.hpp>
+
+#if defined(PLATFORM_WINDOWS)
+	#include "WinSystem.h"
 #endif
 
 using json = nlohmann::json;
@@ -86,6 +87,9 @@ public:
 	void AutoFrameSceneToCamera(float fovYRadians = XMConvertToRadians(60.0f), float padding = 1.2f);
 	const std::wstring& GetLastDetectedExporter() const;
 	void UpdateSceneAnimations(float deltaTime);                                    // Updates all active animations in the scene
+	int FindParentModelID(const std::wstring& modelName);                           // Retrieves Model ID (Parent) from Model Name
+
+	void DiagnoseGLBParsing(const std::wstring& glbFile);
 
 private:
 	bool bIsDestroyed = false;

@@ -315,16 +315,21 @@ void DX11Renderer::RenderFrame()
 
                         // STEP 7A: Update camera constant buffer for 3D rendering
                         ConstantBuffer cb;                               // Camera constant buffer data
-                        cb.viewMatrix = myCamera.GetViewMatrix();       // Current view matrix from camera
-                        cb.projectionMatrix = myCamera.GetProjectionMatrix(); // Current projection matrix
-                        cb.cameraPosition = myCamera.GetPosition();     // Current camera world position
+                        // Current view matrix from camera
+                        cb.viewMatrix = myCamera.GetViewMatrix();               
+                        // Current projection matrix
+                        cb.projectionMatrix = myCamera.GetProjectionMatrix(); 
+                        // Current camera world position
+                        cb.cameraPosition = myCamera.GetPosition();     
 
                         // Map and update the constant buffer
-                        D3D11_MAPPED_SUBRESOURCE mappedResource;        // Mapped resource for buffer update
+                        D3D11_MAPPED_SUBRESOURCE mappedResource;
                         HRESULT hr = m_d3dContext->Map(m_cameraConstantBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
                         if (SUCCEEDED(hr)) {
-                            memcpy(mappedResource.pData, &cb, sizeof(ConstantBuffer)); // Copy camera data to GPU
-                            m_d3dContext->Unmap(m_cameraConstantBuffer.Get(), 0); // Unmap the buffer
+                            // Copy camera data to GPU
+                            memcpy(mappedResource.pData, &cb, sizeof(ConstantBuffer)); 
+                            // Unmap the buffer
+                            m_d3dContext->Unmap(m_cameraConstantBuffer.Get(), 0); 
                             // Bind the constant buffer to vertex shader slot 0
                             m_d3dContext->VSSetConstantBuffers(SLOT_CONST_BUFFER, 1, m_cameraConstantBuffer.GetAddressOf());
                         } else {
@@ -366,6 +371,10 @@ void DX11Renderer::RenderFrame()
                                 TestDrawTriangle();                      // Render test triangle for pipeline verification
                             #endif
 
+                            // Update all model animations
+                            if (scene.gltfAnimator.IsAnimationPlaying(0))
+                                scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS);
+
                             // Render all loaded scene models
                             for (int i = 0; i < MAX_MODELS; ++i)
                             {
@@ -377,8 +386,6 @@ void DX11Renderer::RenderFrame()
                                     scene.scene_models[i].m_modelInfo.projectionMatrix = myCamera.GetProjectionMatrix();
                                     scene.scene_models[i].m_modelInfo.cameraPosition = myCamera.GetPosition();
                                     
-                                    // Update model animation with frame delta time
-                                    scene.scene_models[i].UpdateAnimation(deltaTime);
                                     // Render the model to the current context
                                     scene.scene_models[i].Render(m_d3dContext.Get(), deltaTime);
                                 }
@@ -388,15 +395,21 @@ void DX11Renderer::RenderFrame()
                         // STEP 7D: Update global lighting system
                         std::vector<LightStruct> globalLights = lightsManager.GetAllLights(); // Get all global lights
 
-                        GlobalLightBuffer glb = {};                     // Global light buffer for GPU
-                        glb.numLights = static_cast<int>(globalLights.size()); // Set number of lights
-                        if (glb.numLights > MAX_GLOBAL_LIGHTS)          // Clamp to maximum supported lights
+                        // Global light buffer for GPU
+                        GlobalLightBuffer glb = {};                     
+
+                        // Set number of lights
+                        glb.numLights = static_cast<int>(globalLights.size()); 
+
+                        // Clamp to maximum supported lights
+                        if (glb.numLights > MAX_GLOBAL_LIGHTS)          
                             glb.numLights = MAX_GLOBAL_LIGHTS;
 
                         // Copy light data to GPU buffer
                         for (int i = 0; i < glb.numLights; ++i)
                         {
-                            memcpy(&glb.lights[i], &globalLights[i], sizeof(LightStruct)); // Copy light structure
+                            // Copy light structure
+                            memcpy(&glb.lights[i], &globalLights[i], sizeof(LightStruct)); 
 
                             #if defined(_DEBUG_RENDERER_) && defined(_DEBUG_LIGHTING_)
                                 // Debug logging for light information
@@ -410,11 +423,15 @@ void DX11Renderer::RenderFrame()
                         }
 
                         // Upload global light buffer to GPU
-                        D3D11_MAPPED_SUBRESOURCE mapped;                // Mapped resource for light buffer
+                        D3D11_MAPPED_SUBRESOURCE mapped;
                         hr = m_d3dContext->Map(m_globalLightBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
                         if (SUCCEEDED(hr)) {
-                            memcpy(mapped.pData, &glb, sizeof(GlobalLightBuffer)); // Copy light data to GPU
-                            m_d3dContext->Unmap(m_globalLightBuffer.Get(), 0); // Unmap the buffer
+                            // Copy light data to GPU
+                            memcpy(mapped.pData, &glb, sizeof(GlobalLightBuffer)); 
+
+                            // Unmap the buffer
+                            m_d3dContext->Unmap(m_globalLightBuffer.Get(), 0); 
+
                             // Bind global light buffer to pixel shader slot 3
                             m_d3dContext->PSSetConstantBuffers(SLOT_GLOBAL_LIGHT_BUFFER, 1, m_globalLightBuffer.GetAddressOf());
                         }
@@ -436,14 +453,18 @@ void DX11Renderer::RenderFrame()
 
                     // Begin Direct2D drawing operations
                     try {
-                        m_d2dRenderTarget->BeginDraw();                  // Start Direct2D rendering session
+                        // Start Direct2D rendering session
+                        m_d2dRenderTarget->BeginDraw();                  
                     }
                     catch (const std::exception& e) {
                         #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
                             debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Failed to begin 2D draw: %hs", e.what());
                         #endif
-                        threadManager.threadVars.bIsRendering.store(false); // Clear rendering flag
-                        return;                                         // Exit on 2D begin failure
+                        
+                        // Clear rendering flag
+                        threadManager.threadVars.bIsRendering.store(false); 
+                        // Exit on 2D begin failure
+                        return;                                         
                     }
 
                     // Verify system state before 2D rendering

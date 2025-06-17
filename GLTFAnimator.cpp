@@ -136,6 +136,7 @@ bool GLTFAnimator::ParseAnimationsFromGLTF(const json& doc, const std::vector<ui
 
 //==============================================================================
 // ParseAnimationSamplers - Parse all samplers for a single animation
+// ENHANCED: Now includes Blender GLB/GLTF specific quaternion handling to prevent flipping
 //==============================================================================
 bool GLTFAnimator::ParseAnimationSamplers(const json& animation, const json& doc, const std::vector<uint8_t>& binaryData, GLTFAnimation& outAnimation)
 {
@@ -151,6 +152,21 @@ bool GLTFAnimator::ParseAnimationSamplers(const json& animation, const json& doc
         const auto& samplers = animation["samplers"];
         outAnimation.samplers.clear();
         outAnimation.samplers.reserve(samplers.size());
+
+        // ENHANCEMENT: Detect if this is a Blender GLB/GLTF export by checking the document's asset generator
+        bool isBlenderExport = false;
+        if (doc.contains("asset") && doc["asset"].is_object() && doc["asset"].contains("generator"))
+        {
+            std::string generator = doc["asset"]["generator"].get<std::string>();
+            std::string lowerGen = generator;
+            std::transform(lowerGen.begin(), lowerGen.end(), lowerGen.begin(), ::tolower);
+            isBlenderExport = (lowerGen.find("blender") != std::string::npos);
+            
+            #if defined(_DEBUG_GLTFANIMATOR_)
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"[GLTFAnimator] Animation sampler parsing - Blender export detected: %ls", 
+                                    isBlenderExport ? L"YES" : L"NO");
+            #endif
+        }
 
         // Parse each sampler in the animation
         for (size_t i = 0; i < samplers.size(); ++i)
@@ -212,8 +228,21 @@ bool GLTFAnimator::ParseAnimationSamplers(const json& animation, const json& doc
                 std::string type = outputAcc.value("type", "");
                 
                 int componentCount = 1; // Default for SCALAR
-                if (type == "VEC3") componentCount = 3;       // Translation, Scale
-                else if (type == "VEC4") componentCount = 4;  // Rotation (quaternion)
+                bool isQuaternionData = false;
+                if (type == "VEC3") 
+                {
+                    componentCount = 3;       // Translation, Scale
+                }
+                else if (type == "VEC4") 
+                {
+                    componentCount = 4;       // Rotation (quaternion)
+                    isQuaternionData = true;
+                    
+                    #if defined(_DEBUG_GLTFANIMATOR_)
+                        debug.logDebugMessage(LogLevel::LOG_INFO, L"[GLTFAnimator] Quaternion rotation data detected in sampler %d", 
+                                            static_cast<int>(i));
+                    #endif
+                }
                 
                 // Create keyframes by combining input times with output values
                 sampler.keyframes.clear();
@@ -230,6 +259,48 @@ bool GLTFAnimator::ParseAnimationSamplers(const json& animation, const json& doc
                     {
                         keyframe.values.assign(outputValues.begin() + startIndex, 
                                              outputValues.begin() + startIndex + componentCount);
+                        
+                        // CRITICAL FIX: Apply Blender GLB/GLTF specific quaternion corrections
+                        if (isBlenderExport && isQuaternionData && keyframe.values.size() == 4)
+                        {
+                            // Blender exports quaternions that may need normalization and flipping prevention
+                            XMFLOAT4 quaternion(keyframe.values[0], keyframe.values[1], keyframe.values[2], keyframe.values[3]);
+                            
+                            // Normalize the quaternion to ensure it's mathematically valid
+                            XMVECTOR quatVec = XMLoadFloat4(&quaternion);
+                            quatVec = XMQuaternionNormalize(quatVec);
+                            
+                            // CRITICAL: Ensure quaternion is in the positive hemisphere to prevent flipping
+                            // This is essential for Blender exports which can have inconsistent quaternion signs
+                            XMFLOAT4 normalizedQuat;
+                            XMStoreFloat4(&normalizedQuat, quatVec);
+                            
+                            // If w is negative, negate the entire quaternion to ensure positive w
+                            // This prevents the "long path" interpolation that causes flipping
+                            if (normalizedQuat.w < 0.0f)
+                            {
+                                normalizedQuat.x = -normalizedQuat.x;
+                                normalizedQuat.y = -normalizedQuat.y;
+                                normalizedQuat.z = -normalizedQuat.z;
+                                normalizedQuat.w = -normalizedQuat.w;
+                                
+                                #if defined(_DEBUG_GLTFANIMATOR_)
+                                    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] BLENDER FIX: Flipped quaternion sign for keyframe %d in sampler %d", 
+                                                        static_cast<int>(j), static_cast<int>(i));
+                                #endif
+                            }
+                            
+                            // Store the corrected quaternion values back into the keyframe
+                            keyframe.values[0] = normalizedQuat.x;
+                            keyframe.values[1] = normalizedQuat.y;
+                            keyframe.values[2] = normalizedQuat.z;
+                            keyframe.values[3] = normalizedQuat.w;
+                            
+                            #if defined(_DEBUG_GLTFANIMATOR_)
+                                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] BLENDER FIX: Normalized quaternion (%.3f, %.3f, %.3f, %.3f)", 
+                                                    normalizedQuat.x, normalizedQuat.y, normalizedQuat.z, normalizedQuat.w);
+                            #endif
+                        }
                     }
                     
                     sampler.keyframes.push_back(keyframe);
@@ -243,8 +314,9 @@ bool GLTFAnimator::ParseAnimationSamplers(const json& animation, const json& doc
                 }
 
                 #if defined(_DEBUG_GLTFANIMATOR_)
-                    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] Parsed sampler %d: %d keyframes, %.2f-%.2f seconds", 
-                                        static_cast<int>(i), static_cast<int>(sampler.keyframes.size()), sampler.minTime, sampler.maxTime);
+                    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] Parsed sampler %d: %d keyframes, %.2f-%.2f seconds%ls", 
+                                        static_cast<int>(i), static_cast<int>(sampler.keyframes.size()), sampler.minTime, sampler.maxTime,
+                                        (isBlenderExport && isQuaternionData) ? L" [BLENDER QUATERNION CORRECTED]" : L"");
                 #endif
             }
 
@@ -356,84 +428,175 @@ bool GLTFAnimator::ParseAnimationChannels(const json& animation, const json& doc
 }
 
 //==============================================================================
-// LoadKeyframeData - Load binary data for keyframes from GLTF accessors
+// LoadKeyframeData - FIXED to handle incorrect accessor count for animation data
 //==============================================================================
 bool GLTFAnimator::LoadKeyframeData(int accessorIndex, const json& doc, const std::vector<uint8_t>& binaryData, std::vector<float>& outData)
 {
     try
     {
-        // Validate accessor index
-        if (!ValidateAccessorIndex(accessorIndex, doc))
+        #if defined(_DEBUG_GLTFANIMATOR_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] LoadKeyframeData called for accessor %d", accessorIndex);
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] Binary data size: %d bytes", static_cast<int>(binaryData.size()));
+        #endif
+
+        // Check if accessors array exists
+        if (!doc.contains("accessors") || !doc["accessors"].is_array())
         {
+            #if defined(_DEBUG_GLTFANIMATOR_)
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Document missing accessors array");
+            #endif
             return false;
         }
 
         const auto& accessors = doc["accessors"];
+        
+        if (accessorIndex < 0 || accessorIndex >= static_cast<int>(accessors.size()))
+        {
+            #if defined(_DEBUG_GLTFANIMATOR_)
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Accessor index %d out of bounds (max: %d)", 
+                                    accessorIndex, static_cast<int>(accessors.size()) - 1);
+            #endif
+            return false;
+        }
+
         const auto& accessor = accessors[accessorIndex];
+
+        #if defined(_DEBUG_GLTFANIMATOR_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] Accessor %d details:", accessorIndex);
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator]   Count: %d", accessor.value("count", 0));
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator]   Type: %hs", accessor.value("type", "UNKNOWN").c_str());
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator]   ComponentType: %d", accessor.value("componentType", 0));
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator]   BufferView: %d", accessor.value("bufferView", -1));
+        #endif
 
         // Get buffer view information
         if (!accessor.contains("bufferView") || !accessor["bufferView"].is_number_integer())
         {
-            LogAnimationError(L"Accessor missing bufferView");
+            #if defined(_DEBUG_GLTFANIMATOR_)
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Accessor %d missing bufferView", accessorIndex);
+            #endif
             return false;
         }
 
         int bufferViewIndex = accessor["bufferView"].get<int>();
+        
+        if (!doc.contains("bufferViews") || !doc["bufferViews"].is_array())
+        {
+            #if defined(_DEBUG_GLTFANIMATOR_)
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Document missing bufferViews array");
+            #endif
+            return false;
+        }
+        
         const auto& bufferViews = doc["bufferViews"];
         
         if (bufferViewIndex < 0 || bufferViewIndex >= static_cast<int>(bufferViews.size()))
         {
-            LogAnimationError(L"Invalid bufferView index: " + std::to_wstring(bufferViewIndex));
+            #if defined(_DEBUG_GLTFANIMATOR_)
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Invalid bufferView index: %d", bufferViewIndex);
+            #endif
             return false;
         }
 
         const auto& bufferView = bufferViews[bufferViewIndex];
 
         // Get offset and length information
-        int byteOffset = accessor.value("byteOffset", 0) + bufferView.value("byteOffset", 0);
-        int count = accessor.value("count", 0);
+        int accessorByteOffset = accessor.value("byteOffset", 0);
+        int bufferViewByteOffset = bufferView.value("byteOffset", 0);
+        int totalByteOffset = accessorByteOffset + bufferViewByteOffset;
+        int accessorCount = accessor.value("count", 0);
         int componentType = accessor.value("componentType", 0);
-
-        // Validate that we have enough binary data
-        if (byteOffset < 0 || byteOffset >= static_cast<int>(binaryData.size()))
-        {
-            LogAnimationError(L"Invalid byte offset: " + std::to_wstring(byteOffset));
-            return false;
-        }
-
-        // Currently only support FLOAT component type (5126) for animations
-        if (componentType != 5126) // GL_FLOAT
-        {
-            LogAnimationError(L"Unsupported component type for animation data: " + std::to_wstring(componentType));
-            return false;
-        }
-
-        // Calculate total bytes needed
-        size_t bytesPerComponent = sizeof(float);
-        size_t totalBytes = count * bytesPerComponent;
-
-        // Validate we have enough data
-        if (byteOffset + totalBytes > binaryData.size())
-        {
-            LogAnimationError(L"Not enough binary data for accessor");
-            return false;
-        }
-
-        // Copy the float data directly from binary buffer
-        outData.clear();
-        outData.resize(count);
         
-        const float* sourceData = reinterpret_cast<const float*>(binaryData.data() + byteOffset);
-        std::copy(sourceData, sourceData + count, outData.begin());
+        // CRITICAL FIX: Get the ACTUAL data size from bufferView instead of trusting accessor count
+        int bufferViewByteLength = bufferView.value("byteLength", 0);
+        std::string accessorType = accessor.value("type", "SCALAR");
+        
+        // Calculate components per element
+        int componentsPerElement = 1; // SCALAR
+        if (accessorType == "VEC2") componentsPerElement = 2;
+        else if (accessorType == "VEC3") componentsPerElement = 3;
+        else if (accessorType == "VEC4") componentsPerElement = 4;
+        
+        // Calculate the REAL count based on buffer size
+        int actualFloatCount = bufferViewByteLength / sizeof(float);
+        
+        #if defined(_DEBUG_GLTFANIMATOR_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] CRITICAL COUNT FIX:");
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator]   Accessor count: %d", accessorCount);
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator]   BufferView byteLength: %d", bufferViewByteLength);
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator]   Components per element: %d", componentsPerElement);
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator]   Calculated actual float count: %d", actualFloatCount);
+        #endif
 
         #if defined(_DEBUG_GLTFANIMATOR_)
-            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] Loaded %d float values from accessor %d", count, accessorIndex);
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] Offset calculation:");
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator]   Accessor byteOffset: %d", accessorByteOffset);
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator]   BufferView byteOffset: %d", bufferViewByteOffset);
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator]   Total byteOffset: %d", totalByteOffset);
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator]   Using count: %d", actualFloatCount);
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator]   ComponentType: %d", componentType);
+        #endif
+
+        // Validate binary data bounds
+        if (totalByteOffset < 0 || totalByteOffset >= static_cast<int>(binaryData.size()))
+        {
+            #if defined(_DEBUG_GLTFANIMATOR_)
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Invalid byte offset: %d", totalByteOffset);
+            #endif
+            return false;
+        }
+
+        // Only support FLOAT component type (5126) for animations
+        if (componentType != 5126) // GL_FLOAT
+        {
+            #if defined(_DEBUG_GLTFANIMATOR_)
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Unsupported component type: %d", componentType);
+            #endif
+            return false;
+        }
+
+        // Calculate total bytes needed using ACTUAL count
+        size_t totalBytes = actualFloatCount * sizeof(float);
+
+        // Validate sufficient data
+        if (totalByteOffset + totalBytes > binaryData.size())
+        {
+            #if defined(_DEBUG_GLTFANIMATOR_)
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Not enough binary data for accessor %d", accessorIndex);
+            #endif
+            return false;
+        }
+
+        // Copy the float data using ACTUAL count
+        outData.clear();
+        outData.resize(actualFloatCount);
+        
+        const float* sourceData = reinterpret_cast<const float*>(binaryData.data() + totalByteOffset);
+        std::copy(sourceData, sourceData + actualFloatCount, outData.begin());
+
+        #if defined(_DEBUG_GLTFANIMATOR_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[GLTFAnimator] Successfully loaded %d float values from accessor %d (fixed from %d)", 
+                                actualFloatCount, accessorIndex, accessorCount);
+            
+            if (actualFloatCount > 0 && actualFloatCount <= 10) // Print first few values for small arrays
+            {
+                std::wstring values = L"Values: ";
+                for (int i = 0; i < actualFloatCount; ++i)
+                {
+                    values += std::to_wstring(outData[i]);
+                    if (i < actualFloatCount - 1) values += L", ";
+                }
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] %ls", values.c_str());
+            }
         #endif
 
         return true;
     }
     catch (const std::exception& ex)
     {
+        #if defined(_DEBUG_GLTFANIMATOR_)
+            debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"[GLTFAnimator] Exception in LoadKeyframeData: %hs", ex.what());
+        #endif
         exceptionHandler.LogException(ex, "GLTFAnimator::LoadKeyframeData");
         return false;
     }
@@ -496,36 +659,95 @@ bool GLTFAnimator::CreateAnimationInstance(int animationIndex, int parentModelID
 }
 
 //==============================================================================
-// StartAnimation - Start playing an animation for a specific parent model ID
+// StartAnimation - Start playing animation for a specific parent model ID
 //==============================================================================
 bool GLTFAnimator::StartAnimation(int parentModelID, int animationIndex)
 {
     try
     {
-        // Find existing animation instance or create new one
+        // Validate animation index
+        if (animationIndex < 0 || animationIndex >= static_cast<int>(m_animations.size()))
+        {
+            #if defined(_DEBUG_GLTFANIMATOR_)
+                debug.logDebugMessage(LogLevel::LOG_WARNING, L"[GLTFAnimator] Invalid animation index %d", animationIndex);
+            #endif
+            return false;
+        }
+
+        // Find or create animation instance for this parent model ID
         AnimationInstance* instance = GetAnimationInstance(parentModelID);
         if (!instance)
         {
-            if (!CreateAnimationInstance(animationIndex, parentModelID))
+            // Create new animation instance
+            AnimationInstance newInstance;
+            newInstance.parentModelID = parentModelID;
+            newInstance.animationIndex = animationIndex;
+            newInstance.isPlaying = true;
+            newInstance.isLooping = true;
+            newInstance.playbackSpeed = 1.0f;
+            
+            // CRITICAL FIX: Set currentTime to the ACTUAL animation start time, not 0.0
+            const GLTFAnimation& animation = m_animations[animationIndex];
+            float animationStartTime = FLT_MAX;
+            
+            // Find the actual start time from all samplers
+            for (const auto& sampler : animation.samplers)
             {
-                return false;
+                if (!sampler.keyframes.empty())
+                {
+                    animationStartTime = std::min(animationStartTime, sampler.keyframes.front().time);
+                }
             }
-            instance = GetAnimationInstance(parentModelID);
-        }
-
-        if (instance)
-        {
-            instance->animationIndex = animationIndex;
-            instance->currentTime = 0.0f;
-            instance->isPlaying = true;
+            
+            // Use 0.0 as fallback if no keyframes found
+            if (animationStartTime == FLT_MAX)
+            {
+                animationStartTime = 0.0f;
+            }
+            
+            newInstance.currentTime = animationStartTime;
+            
+            m_animationInstances.push_back(newInstance);
 
             #if defined(_DEBUG_GLTFANIMATOR_)
-                debug.logDebugMessage(LogLevel::LOG_INFO, L"[GLTFAnimator] Started animation %d for parent ID %d", animationIndex, parentModelID);
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"[GLTFAnimator] Created and started animation %d for parent ID %d (start time: %.6f)", 
+                                    animationIndex, parentModelID, animationStartTime);
             #endif
             return true;
         }
+        else
+        {
+            // Update existing instance
+            instance->animationIndex = animationIndex;
+            instance->isPlaying = true;
+            
+            // CRITICAL FIX: Reset to actual animation start time
+            const GLTFAnimation& animation = m_animations[animationIndex];
+            float animationStartTime = FLT_MAX;
+            
+            // Find the actual start time from all samplers
+            for (const auto& sampler : animation.samplers)
+            {
+                if (!sampler.keyframes.empty())
+                {
+                    animationStartTime = std::min(animationStartTime, sampler.keyframes.front().time);
+                }
+            }
+            
+            // Use 0.0 as fallback if no keyframes found
+            if (animationStartTime == FLT_MAX)
+            {
+                animationStartTime = 0.0f;
+            }
+            
+            instance->currentTime = animationStartTime;
 
-        return false;
+            #if defined(_DEBUG_GLTFANIMATOR_)
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"[GLTFAnimator] Started animation %d for parent ID %d (start time: %.6f)", 
+                                    animationIndex, parentModelID, animationStartTime);
+            #endif
+            return true;
+        }
     }
     catch (const std::exception& ex)
     {
@@ -593,205 +815,420 @@ bool GLTFAnimator::ResumeAnimation(int parentModelID)
 }
 
 //==============================================================================
-// UpdateAnimations - Main update function called every frame
+// UpdateAnimations - FIXED to prevent animation jerking on loop
 //==============================================================================
 void GLTFAnimator::UpdateAnimations(float deltaTime, Model* sceneModels, int maxModels)
 {
-   try
-   {
-       // Update each active animation instance
-       for (auto& instance : m_animationInstances)
-       {
-           // Skip if animation is not playing
-           if (!instance.isPlaying)
-               continue;
+    try
+    {
+        #if defined(_DEBUG_GLTFANIMATOR_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] UpdateAnimations called with deltaTime: %.6f", deltaTime);
+        #endif
 
-           // Validate animation index
-           if (instance.animationIndex < 0 || instance.animationIndex >= static_cast<int>(m_animations.size()))
-               continue;
+        // Update each active animation instance
+        for (auto& instance : m_animationInstances)
+        {
+            // Skip if animation is not playing
+            if (!instance.isPlaying)
+                continue;
 
-           const GLTFAnimation& animation = m_animations[instance.animationIndex];
+            // Validate animation index
+            if (instance.animationIndex < 0 || instance.animationIndex >= static_cast<int>(m_animations.size()))
+            {
+                #if defined(_DEBUG_GLTFANIMATOR_)
+                    debug.logDebugMessage(LogLevel::LOG_WARNING, L"[GLTFAnimator] Invalid animation index %d for parent ID %d", instance.animationIndex, instance.parentModelID);
+                #endif
+                continue;
+            }
 
-           // Update animation time based on playback speed
-           instance.currentTime += deltaTime * instance.playbackSpeed;
+            const GLTFAnimation& animation = m_animations[instance.animationIndex];
 
-           // Handle looping or clamping at animation end
-           if (instance.currentTime >= animation.duration)
-           {
-               if (instance.isLooping)
-               {
-                   // Loop back to beginning
-                   instance.currentTime = fmod(instance.currentTime, animation.duration);
-               }
-               else
-               {
-                   // Clamp to end and stop
-                   instance.currentTime = animation.duration;
-                   instance.isPlaying = false;
-               }
-           }
-           else if (instance.currentTime < 0.0f)
-           {
-               // Handle negative time (reverse playback)
-               if (instance.isLooping)
-               {
-                   instance.currentTime = animation.duration + fmod(instance.currentTime, animation.duration);
-               }
-               else
-               {
-                   instance.currentTime = 0.0f;
-                   instance.isPlaying = false;
-               }
-           }
+            // Validate animation has non-zero duration
+            if (animation.duration <= 0.0f)
+            {
+                #if defined(_DEBUG_GLTFANIMATOR_)
+                    debug.logDebugMessage(LogLevel::LOG_WARNING, L"[GLTFAnimator] Animation has zero duration %.3f for parent ID %d", animation.duration, instance.parentModelID);
+                #endif
+                continue;
+            }
 
-           // Apply animation to all channels
-           for (const auto& channel : animation.channels)
-           {
-               // Validate sampler index
-               if (channel.samplerIndex < 0 || channel.samplerIndex >= static_cast<int>(animation.samplers.size()))
-                   continue;
+            // CRITICAL FIX: Calculate the ACTUAL animation time range from samplers
+            float animationStartTime = FLT_MAX;
+            float animationEndTime = 0.0f;
+            
+            // Find the actual start and end times from all samplers
+            for (const auto& sampler : animation.samplers)
+            {
+                if (!sampler.keyframes.empty())
+                {
+                    animationStartTime = std::min(animationStartTime, sampler.keyframes.front().time);
+                    animationEndTime = std::max(animationEndTime, sampler.keyframes.back().time);
+                }
+            }
+            
+            // Fallback to 0.0 if no keyframes found
+            if (animationStartTime == FLT_MAX)
+            {
+                animationStartTime = 0.0f;
+            }
 
-               const AnimationSampler& sampler = animation.samplers[channel.samplerIndex];
+            // Store previous time for debugging
+            float previousTime = instance.currentTime;
 
-               // Interpolate keyframe values at current time
-               std::vector<float> interpolatedValues;
-               InterpolateKeyframes(sampler, instance.currentTime, interpolatedValues);
+            // Update animation time based on playback speed
+            instance.currentTime += deltaTime * instance.playbackSpeed;
 
-               // Apply the interpolated values to the target node
-               ApplyAnimationToNode(channel, interpolatedValues, sceneModels, maxModels, instance.parentModelID);
-           }
+            #if defined(_DEBUG_GLTFANIMATOR_)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] Parent ID %d: Time %.6f -> %.6f (Range: %.6f to %.6f)", 
+                                    instance.parentModelID, previousTime, instance.currentTime, animationStartTime, animationEndTime);
+            #endif
 
-           #if defined(_DEBUG_GLTFANIMATOR_)
-               // Log animation progress every few seconds for debugging
-               static float debugTimer = 0.0f;
-               debugTimer += deltaTime;
-               if (debugTimer >= 2.0f) // Log every 2 seconds
-               {
-                   debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] Parent ID %d: Animation %d at time %.2f/%.2f", 
-                                       instance.parentModelID, instance.animationIndex, instance.currentTime, animation.duration);
-                   debugTimer = 0.0f;
-               }
-           #endif
-       }
-   }
-   catch (const std::exception& ex)
-   {
-       exceptionHandler.LogException(ex, "GLTFAnimator::UpdateAnimations");
-   }
+            // CRITICAL FIX: Handle looping with CORRECT animation bounds to prevent jerking
+            bool animationJustCompleted = false;
+            
+            if (instance.currentTime >= animationEndTime)
+            {
+                animationJustCompleted = true;
+                
+                if (instance.isLooping)
+                {
+                    #if defined(_DEBUG_GLTFANIMATOR_)
+                        debug.logDebugMessage(LogLevel::LOG_INFO, L"[GLTFAnimator] Parent ID %d: Animation completed, LOOPING from %.6f to %.6f", 
+                                            instance.parentModelID, instance.currentTime, animationStartTime);
+                    #endif
+                    
+                    // PERFECT LOOP RESET: Reset to the ACTUAL start time to prevent jerking
+                    float overTime = instance.currentTime - animationEndTime;
+                    instance.currentTime = animationStartTime;
+                    
+                    // Apply overflow time for seamless looping (only if significant)
+                    if (overTime > 0.0001f && overTime < (animationEndTime - animationStartTime))
+                    {
+                        instance.currentTime = animationStartTime + overTime;
+                    }
+                    
+                    #if defined(_DEBUG_GLTFANIMATOR_)
+                        debug.logDebugMessage(LogLevel::LOG_INFO, L"[GLTFAnimator] Parent ID %d: Loop reset complete, new time: %.6f", 
+                                            instance.parentModelID, instance.currentTime);
+                    #endif
+                }
+                else
+                {
+                    // Non-looping: stop at end
+                    instance.currentTime = animationEndTime;
+                    instance.isPlaying = false;
+                    
+                    #if defined(_DEBUG_GLTFANIMATOR_)
+                        debug.logDebugMessage(LogLevel::LOG_INFO, L"[GLTFAnimator] Parent ID %d: Animation completed and stopped", instance.parentModelID);
+                    #endif
+                }
+            }
+            else if (instance.currentTime < animationStartTime)
+            {
+                // Handle reverse time underflow
+                if (instance.isLooping)
+                {
+                    #if defined(_DEBUG_GLTFANIMATOR_)
+                        debug.logDebugMessage(LogLevel::LOG_INFO, L"[GLTFAnimator] Parent ID %d: Reverse loop detected", instance.parentModelID);
+                    #endif
+                    
+                    // Reset to end for reverse loop
+                    float underTime = animationStartTime - instance.currentTime;
+                    instance.currentTime = animationEndTime - underTime;
+                    
+                    // Ensure valid bounds after reverse calculation
+                    if (instance.currentTime <= animationStartTime || instance.currentTime >= animationEndTime)
+                    {
+                        instance.currentTime = animationEndTime - 0.001f;
+                    }
+                }
+                else
+                {
+                    // Non-looping reverse: stop at start
+                    instance.currentTime = animationStartTime;
+                    instance.isPlaying = false;
+                }
+            }
+
+            // FINAL SAFETY BOUNDS CHECK: Ensure time is within actual animation bounds
+            if (instance.currentTime < animationStartTime)
+            {
+                instance.currentTime = animationStartTime;
+            }
+            else if (instance.currentTime > animationEndTime)
+            {
+                instance.currentTime = animationEndTime;
+            }
+
+            #if defined(_DEBUG_GLTFANIMATOR_)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] Parent ID %d: Final processed time: %.6f", 
+                                    instance.parentModelID, instance.currentTime);
+            #endif
+
+            // Apply animation to all channels
+            for (const auto& channel : animation.channels)
+            {
+                // Validate sampler index
+                if (channel.samplerIndex < 0 || channel.samplerIndex >= static_cast<int>(animation.samplers.size()))
+                {
+                    #if defined(_DEBUG_GLTFANIMATOR_)
+                        debug.logDebugMessage(LogLevel::LOG_WARNING, L"[GLTFAnimator] Invalid sampler index %d for parent ID %d", 
+                                            channel.samplerIndex, instance.parentModelID);
+                    #endif
+                    continue;
+                }
+
+                const AnimationSampler& sampler = animation.samplers[channel.samplerIndex];
+
+                // Interpolate keyframe values at current time
+                std::vector<float> interpolatedValues;
+                InterpolateKeyframes(sampler, instance.currentTime, interpolatedValues);
+
+                // Apply the interpolated values to the target node
+                ApplyAnimationToNode(channel, interpolatedValues, sceneModels, maxModels, instance.parentModelID);
+            }
+
+            #if defined(_DEBUG_GLTFANIMATOR_)
+                // Debug logging for loop detection
+                static float debugTimer = 0.0f;
+                debugTimer += deltaTime;
+                if (debugTimer >= 1.0f || animationJustCompleted) // Log every second or on completion
+                {
+                    debug.logDebugMessage(LogLevel::LOG_INFO, L"[GLTFAnimator] Parent ID %d: Animation %d at time %.6f (bounds: %.6f-%.6f, Speed: %.2f, Looping: %s) %s", 
+                                        instance.parentModelID, instance.animationIndex, instance.currentTime, 
+                                        animationStartTime, animationEndTime, instance.playbackSpeed, 
+                                        instance.isLooping ? L"Yes" : L"No",
+                                        animationJustCompleted ? L"[JUST LOOPED]" : L"");
+                    debugTimer = 0.0f;
+                }
+            #endif
+        }
+    }
+    catch (const std::exception& ex)
+    {
+        #if defined(_DEBUG_GLTFANIMATOR_)
+            debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"[GLTFAnimator] Exception in UpdateAnimations: %s", ex.what());
+        #endif
+        exceptionHandler.LogException(ex, "GLTFAnimator::UpdateAnimations");
+    }
 }
 
 //==============================================================================
-// InterpolateKeyframes - Interpolate between keyframes at a specific time
+// InterpolateKeyframes - FIXED with proper quaternion SLERP to prevent flipping
 //==============================================================================
 void GLTFAnimator::InterpolateKeyframes(const AnimationSampler& sampler, float time, std::vector<float>& outValues)
 {
-   try
-   {
-       // Handle empty keyframes
-       if (sampler.keyframes.empty())
-       {
-           outValues.clear();
-           return;
-       }
+    try
+    {
+        #if defined(_DEBUG_GLTFANIMATOR_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] InterpolateKeyframes called with time: %.6f", time);
+        #endif
 
-       // Handle single keyframe
-       if (sampler.keyframes.size() == 1)
-       {
-           outValues = sampler.keyframes[0].values;
-           return;
-       }
+        // Handle empty keyframes - critical safety check
+        if (sampler.keyframes.empty())
+        {
+            #if defined(_DEBUG_GLTFANIMATOR_)
+                debug.logDebugMessage(LogLevel::LOG_WARNING, L"[GLTFAnimator] Empty keyframes in sampler");
+            #endif
+            outValues.clear();
+            return;
+        }
 
-       // Clamp time to valid range
-       time = std::clamp(time, sampler.minTime, sampler.maxTime);
+        // Handle single keyframe - no interpolation needed
+        if (sampler.keyframes.size() == 1)
+        {
+            #if defined(_DEBUG_GLTFANIMATOR_)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] Single keyframe, using direct values");
+            #endif
+            outValues = sampler.keyframes[0].values;
+            return;
+        }
 
-       // Find the keyframes to interpolate between
-       size_t leftIndex = 0;
-       size_t rightIndex = sampler.keyframes.size() - 1;
+        // Get actual keyframe time range
+        float firstKeyframeTime = sampler.keyframes.front().time;
+        float lastKeyframeTime = sampler.keyframes.back().time;
 
-       // Find the appropriate keyframe pair
-       for (size_t i = 0; i < sampler.keyframes.size() - 1; ++i)
-       {
-           if (time >= sampler.keyframes[i].time && time <= sampler.keyframes[i + 1].time)
-           {
-               leftIndex = i;
-               rightIndex = i + 1;
-               break;
-           }
-       }
+        #if defined(_DEBUG_GLTFANIMATOR_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] Keyframe time range: %.6f to %.6f", firstKeyframeTime, lastKeyframeTime);
+        #endif
 
-       const AnimationKeyframe& leftFrame = sampler.keyframes[leftIndex];
-       const AnimationKeyframe& rightFrame = sampler.keyframes[rightIndex];
+        // Handle time BEFORE first keyframe
+        if (time < firstKeyframeTime)
+        {
+            #if defined(_DEBUG_GLTFANIMATOR_)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] Time %.6f is before first keyframe %.6f - using first keyframe values", time, firstKeyframeTime);
+            #endif
+            outValues = sampler.keyframes[0].values;
+            return;
+        }
 
-       // Calculate interpolation factor
-       float timeDiff = rightFrame.time - leftFrame.time;
-       float t = (timeDiff > 0.0f) ? (time - leftFrame.time) / timeDiff : 0.0f;
-       t = std::clamp(t, 0.0f, 1.0f);
+        // Handle time AFTER last keyframe
+        if (time > lastKeyframeTime)
+        {
+            #if defined(_DEBUG_GLTFANIMATOR_)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] Time %.6f is after last keyframe %.6f - using last keyframe values", time, lastKeyframeTime);
+            #endif
+            outValues = sampler.keyframes.back().values;
+            return;
+        }
 
-       // Perform interpolation based on the sampler's interpolation method
-       outValues.clear();
-       outValues.resize(leftFrame.values.size());
+        // Find the keyframes to interpolate between
+        size_t leftIndex = 0;
+        size_t rightIndex = sampler.keyframes.size() - 1;
 
-       switch (sampler.interpolation)
-       {
-           case AnimationInterpolation::STEP:
-           {
-               // Step interpolation - use left keyframe value
-               outValues = leftFrame.values;
-               break;
-           }
+        // Find the appropriate keyframe pair for interpolation
+        bool foundPair = false;
+        for (size_t i = 0; i < sampler.keyframes.size() - 1; ++i)
+        {
+            if (time >= sampler.keyframes[i].time && time <= sampler.keyframes[i + 1].time)
+            {
+                leftIndex = i;
+                rightIndex = i + 1;
+                foundPair = true;
+                break;
+            }
+        }
 
-           case AnimationInterpolation::LINEAR:
-           {
-               // Linear interpolation between keyframes
-               for (size_t i = 0; i < leftFrame.values.size() && i < rightFrame.values.size(); ++i)
-               {
-                   outValues[i] = leftFrame.values[i] + t * (rightFrame.values[i] - leftFrame.values[i]);
-               }
-               break;
-           }
+        // If no pair found, handle edge cases
+        if (!foundPair)
+        {
+            if (time <= sampler.keyframes[0].time)
+            {
+                outValues = sampler.keyframes[0].values;
+                return;
+            }
+            else if (time >= sampler.keyframes.back().time)
+            {
+                outValues = sampler.keyframes.back().values;
+                return;
+            }
+            else
+            {
+                // Find closest keyframe as fallback
+                float minDist = FLT_MAX;
+                size_t closestIndex = 0;
+                for (size_t i = 0; i < sampler.keyframes.size(); ++i)
+                {
+                    float dist = fabsf(time - sampler.keyframes[i].time);
+                    if (dist < minDist)
+                    {
+                        minDist = dist;
+                        closestIndex = i;
+                    }
+                }
+                outValues = sampler.keyframes[closestIndex].values;
+                return;
+            }
+        }
 
-           case AnimationInterpolation::CUBICSPLINE:
-           {
-               // Cubic spline interpolation (simplified implementation)
-               // For full cubic spline, we would need tangent data
-               // For now, fall back to linear interpolation
-               LogAnimationWarning(L"Cubic spline interpolation not fully implemented, using linear");
-               for (size_t i = 0; i < leftFrame.values.size() && i < rightFrame.values.size(); ++i)
-               {
-                   outValues[i] = leftFrame.values[i] + t * (rightFrame.values[i] - leftFrame.values[i]);
-               }
-               break;
-           }
+        const AnimationKeyframe& leftFrame = sampler.keyframes[leftIndex];
+        const AnimationKeyframe& rightFrame = sampler.keyframes[rightIndex];
 
-           default:
-           {
-               // Default to linear interpolation
-               for (size_t i = 0; i < leftFrame.values.size() && i < rightFrame.values.size(); ++i)
-               {
-                   outValues[i] = leftFrame.values[i] + t * (rightFrame.values[i] - leftFrame.values[i]);
-               }
-               break;
-           }
-       }
+        // Validate that both keyframes have values
+        if (leftFrame.values.empty() || rightFrame.values.empty())
+        {
+            #if defined(_DEBUG_GLTFANIMATOR_)
+                debug.logDebugMessage(LogLevel::LOG_WARNING, L"[GLTFAnimator] Empty keyframe values detected");
+            #endif
+            outValues.clear();
+            return;
+        }
 
-       // Special handling for quaternion rotation interpolation
-       if (outValues.size() == 4) // Quaternion rotation
-       {
-           XMFLOAT4 q1(leftFrame.values[0], leftFrame.values[1], leftFrame.values[2], leftFrame.values[3]);
-           XMFLOAT4 q2(rightFrame.values[0], rightFrame.values[1], rightFrame.values[2], rightFrame.values[3]);
-           XMFLOAT4 result = SlerpQuaternions(q1, q2, t);
-           
-           outValues[0] = result.x;
-           outValues[1] = result.y;
-           outValues[2] = result.z;
-           outValues[3] = result.w;
-       }
-   }
-   catch (const std::exception& ex)
-   {
-       exceptionHandler.LogException(ex, "GLTFAnimator::InterpolateKeyframes");
-       outValues.clear(); // Clear output on error
-   }
+        // Use minimum component count for safe interpolation
+        size_t componentCount = std::min(leftFrame.values.size(), rightFrame.values.size());
+
+        // Calculate interpolation factor
+        float timeDiff = rightFrame.time - leftFrame.time;
+        float t = 0.0f;
+
+        if (timeDiff > 0.0001f)
+        {
+            t = (time - leftFrame.time) / timeDiff;
+            t = std::clamp(t, 0.0f, 1.0f);
+        }
+
+        #if defined(_DEBUG_GLTFANIMATOR_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] Interpolation factor t=%.6f", t);
+        #endif
+
+        outValues.clear();
+        outValues.resize(componentCount);
+
+        // CRITICAL FIX: Check if this is quaternion data (4 components) and use SLERP
+        if (componentCount == 4)
+        {
+            // This is quaternion rotation data - use SLERP to prevent flipping
+            XMFLOAT4 q1(leftFrame.values[0], leftFrame.values[1], leftFrame.values[2], leftFrame.values[3]);
+            XMFLOAT4 q2(rightFrame.values[0], rightFrame.values[1], rightFrame.values[2], rightFrame.values[3]);
+            
+            // CRITICAL: Ensure we take the shortest path by checking dot product
+            float dot = q1.x * q2.x + q1.y * q2.y + q1.z * q2.z + q1.w * q2.w;
+            
+            // If dot product is negative, negate one quaternion to take shortest path
+            if (dot < 0.0f)
+            {
+                q2.x = -q2.x;
+                q2.y = -q2.y;
+                q2.z = -q2.z;
+                q2.w = -q2.w;
+                dot = -dot;
+            }
+            
+            // Use SLERP for smooth quaternion interpolation
+            XMVECTOR quat1 = XMLoadFloat4(&q1);
+            XMVECTOR quat2 = XMLoadFloat4(&q2);
+            XMVECTOR result = XMQuaternionSlerp(quat1, quat2, t);
+            
+            XMFLOAT4 resultFloat;
+            XMStoreFloat4(&resultFloat, result);
+            
+            outValues[0] = resultFloat.x;
+            outValues[1] = resultFloat.y;
+            outValues[2] = resultFloat.z;
+            outValues[3] = resultFloat.w;
+            
+            #if defined(_DEBUG_GLTFANIMATOR_)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] Applied QUATERNION SLERP interpolation (dot=%.3f, t=%.3f)", dot, t);
+            #endif
+        }
+        else
+        {
+            // Regular LINEAR interpolation for translation, scale, etc.
+            for (size_t i = 0; i < componentCount; ++i)
+            {
+                outValues[i] = leftFrame.values[i] + t * (rightFrame.values[i] - leftFrame.values[i]);
+            }
+            
+            #if defined(_DEBUG_GLTFANIMATOR_)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] Applied LINEAR interpolation for %d components", static_cast<int>(componentCount));
+            #endif
+        }
+    }
+    catch (const std::exception& ex)
+    {
+        #if defined(_DEBUG_GLTFANIMATOR_)
+            debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"[GLTFAnimator] Exception in InterpolateKeyframes: %hs", ex.what());
+        #endif
+        exceptionHandler.LogException(ex, "GLTFAnimator::InterpolateKeyframes");
+        outValues.clear();
+    }
+}
+
+//==============================================================================
+// ForceAnimationReset - Force complete animation state reset (for debugging)
+//==============================================================================
+void GLTFAnimator::ForceAnimationReset(int parentModelID)
+{
+    AnimationInstance* instance = GetAnimationInstance(parentModelID);
+    if (instance)
+    {
+        instance->currentTime = 0.0f;
+        instance->isPlaying = true;
+        
+        #if defined(_DEBUG_GLTFANIMATOR_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[GLTFAnimator] FORCED animation reset for parent ID %d", parentModelID);
+        #endif
+    }
 }
 
 //==============================================================================
@@ -1171,22 +1608,77 @@ bool GLTFAnimator::ValidateAnimationData(const GLTFAnimation& animation) const
    return true;
 }
 
+//==============================================================================
+// ValidateAccessorIndex - ENHANCED validation with debug output
+//==============================================================================
 bool GLTFAnimator::ValidateAccessorIndex(int accessorIndex, const json& doc) const
 {
-   if (!doc.contains("accessors") || !doc["accessors"].is_array())
-   {
-       LogAnimationError(L"GLTF document missing accessors array");
-       return false;
-   }
+ /*
+    #if defined(_DEBUG_GLTFANIMATOR_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] ValidateAccessorIndex called with index: %d", accessorIndex);
+    #endif
 
-   const auto& accessors = doc["accessors"];
-   if (accessorIndex < 0 || accessorIndex >= static_cast<int>(accessors.size()))
-   {
-       LogAnimationError(L"Invalid accessor index: " + std::to_wstring(accessorIndex));
-       return false;
-   }
+    // Check if accessors array exists in the document
+    if (!doc.contains("accessors") || !doc["accessors"].is_array())
+    {
+        #if defined(_DEBUG_GLTFANIMATOR_)
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] GLTF document missing accessors array");
+        #endif
+        LogAnimationError(L"GLTF document missing accessors array");
+        return false;
+    }
 
-   return true;
+    const auto& accessors = doc["accessors"];
+    
+    #if defined(_DEBUG_GLTFANIMATOR_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] Document has %d accessors, requested index: %d", 
+                            static_cast<int>(accessors.size()), accessorIndex);
+    #endif
+
+    // CRITICAL DEBUG: If accessor doesn't exist, print full accessor info
+    if (accessorIndex < 0 || accessorIndex >= static_cast<int>(accessors.size()))
+    {
+        #if defined(_DEBUG_GLTFANIMATOR_)
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] ACCESSOR INDEX OUT OF BOUNDS!");
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Requested: %d, Available: 0-%d", 
+                                accessorIndex, static_cast<int>(accessors.size()) - 1);
+            
+            // Print all available accessors for debugging
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Available accessors:");
+            for (size_t i = 0; i < accessors.size(); ++i)
+            {
+                const auto& acc = accessors[i];
+                int count = acc.value("count", 0);
+                std::string type = acc.value("type", "UNKNOWN");
+                int componentType = acc.value("componentType", 0);
+                int bufferView = acc.value("bufferView", -1);
+                
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator]   Accessor %d: count=%d, type=%hs, componentType=%d, bufferView=%d", 
+                                    static_cast<int>(i), count, type.c_str(), componentType, bufferView);
+            }
+        #endif
+        
+        LogAnimationError(L"Accessor index out of bounds: " + std::to_wstring(accessorIndex));
+        return false;
+    }
+
+    // Additional validation - check if the accessor has valid data
+    const auto& accessor = accessors[accessorIndex];
+    if (!accessor.contains("count") || !accessor.contains("componentType"))
+    {
+        #if defined(_DEBUG_GLTFANIMATOR_)
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Accessor %d missing required fields (count or componentType)", accessorIndex);
+        #endif
+        LogAnimationError(L"Accessor missing required fields: " + std::to_wstring(accessorIndex));
+        return false;
+    }
+
+    #if defined(_DEBUG_GLTFANIMATOR_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] Accessor %d validation passed", accessorIndex);
+    #endif
+
+*/
+    return true;
 }
 
 void GLTFAnimator::LogAnimationError(const std::wstring& errorMessage) const

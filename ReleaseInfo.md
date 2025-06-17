@@ -319,6 +319,14 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - Created the SceneManager & Animator Documentation.
 - *See: [`GLTFAnimator.h/.cpp`](GLTFAnimator.h), [`Docs/SceneManager-Example-Usage.md`](Docs/SceneManager-Example-Usage.md)*
 
+**June 17, 2025** - Bug Fixes & Corrections: SceneManager & GLTFAnimator:
+
+- Fixed various issues in the Scene Managers ParseGLTFScene() & ParseGLBScene() functionality for diverse compatibility with Blender v4.4
+- GLTFAnimator Class: Corrected various problems in regards to Animations, playback is now smooth and with looping.
+- Models now have their true name assigned from the GLTF/GLB file, if one does not exist, then its given a generated name.
+- Updated the SceneManager & Animator Documentation.
+- *See: [`GLTFAnimator.h/.cpp`](GLTFAnimator.h), [`Docs/SceneManager-Example-Usage.md`](Docs/SceneManager-Example-Usage.md)*
+
 ---
 
 ## Future Development

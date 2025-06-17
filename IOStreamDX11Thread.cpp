@@ -104,7 +104,7 @@ void DX11Renderer::LoaderTaskThread()
 					fxManager.CreateStarfield(100, 1000.0f, 1000.0f);
 					fxManager.FadeToImage(1.0f, 0.08f);
 
-					std::wstring newsText = L"BREAKING NEWS: [23/05/2025] => This is a demonstration of the CPGE 2D Consistent Horizontal Text Scroller that scrolls from the Right to Left side of a given rectangular region.";
+					std::wstring newsText = L"BREAKING NEWS: [16/06/2025] => This is a demonstration of the CPGE GLTF 2.0 Animation System in Action!";
 					XMFLOAT4 textColor(0.0f, 1.0f, 0.0f, 1.0f);                     // Green text color
 				
 					float fontSize = 16.0f;                                         // Font size for text
@@ -112,7 +112,7 @@ void DX11Renderer::LoaderTaskThread()
 					float regionY = float(iOrigHeight) - 100.0f;                    // Y position of scroll region (top of screen)
 					float regionWidth = float(iOrigWidth) + 10.0f;                  // Width of scroll region (full screen width)
 					float regionHeight = 25.0f;                                     // Height of scroll region
-					float scrollSpeed = 70.0f;                                      // Pixels per second scroll speed
+					float scrollSpeed = 60.0f;                                      // Pixels per second scroll speed
 					float duration = FLT_MAX;                                       // Infinite duration (continuous)
 
 					// Before calling CreateTextScrollerLTOR, get the next ID that will be assigned
@@ -209,11 +209,22 @@ void DX11Renderer::LoaderTaskThread()
 				// -----------------------------------------------------------------------------
 				// Load in our required models and Initialize	
 				// -----------------------------------------------------------------------------
-				scene.ParseGLTFScene(AssetsDir / L"maze.gltf");
+				scene.ParseGLBScene(AssetsDir / L"test-anim1.glb");
 				if (!scene.bGltfCameraParsed)
 				{
 					scene.AutoFrameSceneToCamera();
 				}
+				// Create animation instance first
+				int parentID = scene.FindParentModelID(L"Icosphere");
+				bool created = scene.gltfAnimator.CreateAnimationInstance(parentID, 0);
+				if (created) {
+					// Configure animation settings
+					scene.gltfAnimator.SetAnimationSpeed(parentID, 0.25f);						    // Half speed
+					scene.gltfAnimator.SetAnimationLooping(parentID, true);						// Enable looping
+					scene.gltfAnimator.StartAnimation(parentID, 0);
+				}
+
+//				scene.ParseGLTFScene(AssetsDir / L"scene1.gltf");
 
 				try 
 				{

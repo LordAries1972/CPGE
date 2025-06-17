@@ -41,15 +41,15 @@ void XMMODPlayer::Shutdown() {
     instruments.clear();
     unpackedPatterns.clear();
 
-#if defined(_DEBUG_XMPlayer_)    
-    debug.DebugLog("Shutdown(): Resources freed and state reset.\n");
-#endif
+    #if defined(_DEBUG_XMPlayer_)    
+        debug.DebugLog("Shutdown(): Resources freed and state reset.\n");
+    #endif
 }
 
 bool XMMODPlayer::Initialize(const std::wstring& filename) {
-#if defined(_DEBUG_XMPlayer_)    
-    debug.DebugLog("XMMODPlayer initialization started...\n");
-#endif
+    #if defined(_DEBUG_XMPlayer_)    
+        debug.DebugLog("XMMODPlayer initialization started...\n");
+    #endif
     if (!bIsInitialized) {
         if (!CreateAudioDevice()) {
             debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to Initialize Audio Device");

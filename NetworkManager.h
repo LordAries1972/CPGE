@@ -1,38 +1,23 @@
 // -------------------------------------------------------------------------------------------------------------
-// NetworkManager.h - Network communication interface for TCP/UDP packet handling
+// NetworkManager.h 
+// 
+// Originally Programmed by Daniel J. Hobson, Australia 2025
+// This file is part of the Open Source Project "CPGE (Cross Platform Gaming Engine".
+//
+// Network communication interface for TCP/UDP packet handling
 // This class provides comprehensive networking capabilities including authentication,
 // command processing, and threaded network operations for optimal performance.
 // -------------------------------------------------------------------------------------------------------------
 #pragma once
 
 #include "Includes.h"
+
+// Are we using Networking features?
+#if defined(__USE_NETWORKING__)
+
 #include "ThreadManager.h"
 #include "Debug.h"
 #include "Vectors.h"
-
-// CRITICAL: Windows networking headers must be included in correct order
-#ifdef __USE_NETWORKING__
-
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN                                             // Exclude rarely-used Windows APIs
-#endif
-
-#include <windows.h>                                                    // Must be included before winsock2.h
-#include <winsock2.h>                                                   // Main Winsock API
-#include <ws2tcpip.h>                                                   // Additional TCP/IP functions
-#include <iphlpapi.h>                                                   // IP Helper API
-#include <vector>                                                       // STL vector container
-#include <queue>                                                        // STL queue container
-#include <unordered_map>                                                // STL hash map container
-#include <chrono>                                                       // Time utilities
-#include <atomic>                                                       // Atomic operations
-#include <mutex>                                                        // Mutex synchronization
-#include <thread>                                                       // Thread support
-#include <functional>                                                   // Function objects
-
-// Link with required Windows libraries
-#pragma comment(lib, "ws2_32.lib")                                      // Winsock 2 library
-#pragma comment(lib, "iphlpapi.lib")                                    // IP Helper API library
 
 // Forward declarations
 extern Debug debug;
@@ -89,7 +74,7 @@ enum class AuthResult {
 };
 
 // Network packet header structure - all packets must begin with this header
-#pragma pack(push, 1)                                                  // Ensure exact byte alignment for network transmission
+#pragma pack(push, 1)                                                   // Ensure exact byte alignment for network transmission
 struct NetworkPacketHeader {
     uint32_t packetID;                                                  // Unique packet identifier for validation
     uint32_t packetSize;                                                // Total size of packet including header
@@ -104,9 +89,9 @@ struct NetworkPacketHeader {
 struct UserCredentials {
     std::string username;                                               // User account name
     std::string password;                                               // User account password (should be hashed)
-    std::string sessionToken;                                          // Session authentication token
+    std::string sessionToken;                                           // Session authentication token
     uint32_t userID;                                                    // Unique user identifier from server
-    std::chrono::steady_clock::time_point lastActivity;                // Last activity timestamp for timeout detection
+    std::chrono::steady_clock::time_point lastActivity;                 // Last activity timestamp for timeout detection
 
     // Constructor with default initialization
     UserCredentials() : userID(0), lastActivity(std::chrono::steady_clock::now()) {}

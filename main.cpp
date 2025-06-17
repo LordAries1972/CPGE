@@ -58,7 +58,12 @@
 #include "ThreadManager.h"
 #include "WinSystem.h"
 #include "KeyboardHandler.h"
-#include "NetworkManager.h"
+
+// Are we using Networking features?
+#if defined(__USE_NETWORKING__)
+    #include "NetworkManager.h"
+#endif
+
 #include "PUNPack.h"
 #include "GamePlayer.h"
 #include "GamingAI.h"
@@ -124,14 +129,20 @@ SceneManager scene;
 ShaderManager shaderManager;
 ThreadManager threadManager;
 MoviePlayer moviePlayer;
-NetworkManager networkManager;
+
 PUNPack punPack;
 GamePlayer gamePlayer;
 PlayerInfo playerInfo[MAX_PLAYERS]; // Player Info Array
 GamingAI gamingAI;
 MyRandomizer myRandomizer;
 
-#if defined(_WIN64) || defined(_WIN32)
+// Are we using Networking features?
+#if defined(__USE_NETWORKING__)
+NetworkManager networkManager;
+#endif
+
+// If we are using Text To Speech, we need to include the TTSManager (Only for Windows)
+#if defined(PLATFORM_WINDOWS)
     TTSManager ttsManager;
 #endif
 
@@ -180,11 +191,13 @@ void SwitchToGamePlay();
 void SwitchToGameIntro();
 void SwitchToMovieIntro();
 void OpenMovieAndPlay();
+void StopMusicPlayback();
 bool LoadAllShaders();
 bool Load_Music();
 void SetMyKeyUpHandler(KeyboardHandler& keyboard);
 
 // Supressed Warnings
+#pragma warning(push)
 #pragma warning(disable: 28251)
 #pragma warning(disable: 4996)  // Suppress deprecated function warnings
 #pragma warning(disable: 4267)  // Suppress size_t conversion warnings
@@ -201,7 +214,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
     baseDir = sysUtils.Get_Current_Directory();
 
-    #if defined(_WIN32) || defined(_WIN64)
+    #if defined(PLATFORM_WINDOWS)
         WindowsVersion winVer = sysUtils.GetWindowsVersion();
         if (winVer < WindowsVersion::WINVER_WIN10)
         {
@@ -1383,6 +1396,7 @@ void SwitchToGamePlay()
 	threadManager.PauseThread(THREAD_RENDERER); // Pause the Renderer Thread
     fxManager.StopStarfield();
     fxManager.StopTextScroller(textScrollerEffectID);
+    StopMusicPlayback();
     if (config.myConfig.UseTTS)
     {
         if (ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR) {
@@ -1445,6 +1459,7 @@ void SwitchToMovieIntro()
 void SwitchToGameIntro()
 {
     threadManager.PauseThread(THREAD_RENDERER); // Pause the Renderer Thread
+    StopMusicPlayback();
     // Add TTS announcement for movie intro
     if (config.myConfig.UseTTS)
     {
@@ -1464,6 +1479,19 @@ void SwitchToGameIntro()
     threadManager.ResumeThread(THREAD_RENDERER);
 }
 
+void StopMusicPlayback()
+{
+    #if defined(__USE_MP3PLAYER__)
+        // Stop the MP3 player
+        if (player.isPlaying())
+            player.stop();
+    #elif defined(__USE_XMPLAYER__)
+        // Stop the XM player
+        if (xmPlayer.IsPlaying())
+            xmPlayer.Shutdown(); 
+    #endif
+}
+
 bool Load_Music()
 {
     #if defined(__USE_MP3PLAYER__)
@@ -1481,14 +1509,47 @@ bool Load_Music()
         }
     #elif defined(__USE_XMPLAYER__)
         // Attempt to load in our XM Music Module for playback.
-        auto fileName = AssetsDir / SingleXMFilename;
-        if (!xmPlayer.Play(fileName))
+        switch (scene.stSceneType)
         {
-            threadManager.threadVars.bLoaderTaskFinished.store(true);
-            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[LOADER]: Failed to Play the requested Module file.");
-            return false;
+            case SceneType::SCENE_INTRO:
+            case SceneType::SCENE_INTRO_MOVIE:
+                break;
+
+            case SceneType::SCENE_SPLASH:
+            {
+                // Load the Intro Music Module
+                std::wstring XMFilename = L"thevoid.xm";
+                auto fileName = AssetsDir / XMFilename;
+                if (!xmPlayer.Play(fileName))
+                {
+                    threadManager.threadVars.bLoaderTaskFinished.store(true);
+                    debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[LOADER]: Failed to Play the requested Module file.");
+                    return false;
+                }
+                break;
+            }
+            case SceneType::SCENE_GAMEPLAY:
+            {
+                // Load the Gameplay Music Module
+                std::wstring XMFilename = L"todie4.xm";
+                auto fileName = AssetsDir / XMFilename;
+                if (!xmPlayer.Play(fileName))
+                {
+                    threadManager.threadVars.bLoaderTaskFinished.store(true);
+                    debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[LOADER]: Failed to Play the requested Module file.");
+                    return false;
+                }
+                break;
+            }
+            default:
+            {
+                break;
+            }
         }
+
     #endif
 
     return true;
 }
+
+#pragma warning(pop)

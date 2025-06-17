@@ -285,38 +285,6 @@ bool Model::LoadModel(const std::wstring& filename, int ID) {
     return result;
 }
 
-// Updates the model’s animation state.
-void Model::UpdateAnimation(float deltaTime)
-{
-#if defined(_DEBUG_MODEL_) && defined(_DEBUG)
-    debug.logDebugMessage(LogLevel::LOG_INFO, L"Model ID %d world matrix updated at t=%.2f", m_modelInfo.ID, deltaTime);
-#endif
-
-    // If animation vertices exist, apply transform updates
-    if (!m_modelInfo.animationVertices.empty())
-    {
-        m_animationTime += deltaTime;
-
-        float angle = m_animationTime;
-        XMMATRIX scale = XMMatrixScaling(m_modelInfo.scale.x, m_modelInfo.scale.y, m_modelInfo.scale.z);
-        XMMATRIX rotate = XMMatrixRotationRollPitchYaw(m_modelInfo.rotation.x, m_modelInfo.rotation.y + angle, m_modelInfo.rotation.z);
-        XMMATRIX translate = XMMatrixTranslation(m_modelInfo.position.x, m_modelInfo.position.y, m_modelInfo.position.z);
-
-        m_modelInfo.worldMatrix = scale * rotate * translate;
-
-#if defined(_DEBUG_MODEL_)
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"[ANIM] World matrix overridden via animation logic.");
-#endif
-    }
-    else
-    {
-        // 🔒 Do not override worldMatrix if it's from GLTF transform
-#if defined(_DEBUG_MODEL_)
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"[ANIM] No animation: Preserving GLTF world matrix.");
-#endif
-    }
-}
-
 // Models.cpp
 void Model::DestroyModel()
 {
@@ -857,9 +825,9 @@ void Model::CopyFrom(const Model& other)
 
     if (threadManager.threadVars.bIsResizing)
     {
-#if defined(_DEBUG_MODEL_)
-        debug.logDebugMessage(LogLevel::LOG_WARNING, L"[Model::CopyFrom] Resize Detected → Resetting ONLY GPU resources (SRVs, Buffers, Shaders) - NOT textures!");
-#endif
+        #if defined(_DEBUG_MODEL_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[Model::CopyFrom] Resize Detected → Resetting ONLY GPU resources (SRVs, Buffers, Shaders) - NOT textures!");
+        #endif
         // Clear SRVs
         for (auto& srv : m_modelInfo.textureSRVs)
             srv.Reset();
@@ -1213,26 +1181,23 @@ void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
 #if defined(__USE_DIRECTX_11__)
     if (!deviceContext || !threadManager.threadVars.bLoaderTaskFinished.load())
     {
-#if defined(_DEBUG_MODEL_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_CRITICAL,
-            L"Model ID: %d, Device=%p, Context=%p, Loading Completed=%s", 
-            m_modelInfo.ID, 
-            dx11 ? dx11->m_d3dContext.Get() : nullptr, 
-            threadManager.threadVars.bLoaderTaskFinished.load() ? L"True" : L"False"); 
-#endif
+        #if defined(_DEBUG_MODEL_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_CRITICAL,
+                    L"Model ID: %d, Device=%p, Context=%p, Loading Completed=%s", 
+                    m_modelInfo.ID, 
+                    dx11 ? dx11->m_d3dContext.Get() : nullptr, 
+                    threadManager.threadVars.bLoaderTaskFinished.load() ? L"True" : L"False"); 
+        #endif
         return; 
     }
 
     if (!m_isLoaded || bIsDestroyed)
     {
-#if defined(_DEBUG_MODEL_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID %d has FAILED SAFETY CHECK!", m_modelInfo.ID);
-#endif
+        #if defined(_DEBUG_MODEL_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID %d has FAILED SAFETY CHECK!", m_modelInfo.ID);
+        #endif
         return;
     }
-
-    // Updates the model's animation state.
-    UpdateAnimation(deltaTime);
 
     // Updates the constant buffer with the current world matrix.
     UpdateConstantBuffer();
@@ -1306,16 +1271,16 @@ void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
 
     // Apply fallback texture if missing
     if (m_modelInfo.textureSRVs.empty()) {
-#if defined(_DEBUG_MODEL_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID %d has no textures. Applying fallback texture.", m_modelInfo.ID);
-#endif
+        #if defined(_DEBUG_MODEL_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID %d has no textures. Applying fallback texture.", m_modelInfo.ID);
+        #endif
         LoadFallbackTexture();
     }
 
     if (m_modelInfo.normalMapSRVs.empty()) {
-#if defined(_DEBUG_MODEL_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID %d has no normal maps. Applying flat normal fallback.", m_modelInfo.ID);
-#endif
+        #if defined(_DEBUG_MODEL_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID %d has no normal maps. Applying flat normal fallback.", m_modelInfo.ID);
+        #endif
         LoadFallbackNormalMap();
     }
 
@@ -1351,9 +1316,9 @@ void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
     // Update model-specific lighting parameters.
     UpdateModelLighting();
 
-#if defined(_DEBUG_MODEL_RENDERER_) && defined(_DEBUG)
-    DebugInfoForModel();
-#endif
+    #if defined(_DEBUG_MODEL_RENDERER_) && defined(_DEBUG)
+        DebugInfoForModel();
+    #endif
 
     // Render the model
     deviceContext->DrawIndexed(static_cast<UINT>(m_modelInfo.indices.size()), 0, 0);
@@ -1363,44 +1328,44 @@ void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
 
 void Model::DebugInfoForModel() const
 {
-#if defined(_DEBUG_MODEL_RENDERER_) && defined(_DEBUG)
-    const ModelInfo& info = m_modelInfo;
+    #if defined(_DEBUG_MODEL_RENDERER_) && defined(_DEBUG)
+        const ModelInfo& info = m_modelInfo;
 
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[MODEL DEBUG] ID=%d | Name=%ls", info.ID, info.name.c_str());
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[MODEL DEBUG] ID=%d | Name=%ls", info.ID, info.name.c_str());
 
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[POSITION] X=%.2f Y=%.2f Z=%.2f", info.position.x, info.position.y, info.position.z);
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[SCALE]    X=%.2f Y=%.2f Z=%.2f", info.scale.x, info.scale.y, info.scale.z);
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[ROTATION] X=%.2f Y=%.2f Z=%.2f", info.rotation.x, info.rotation.y, info.rotation.z);
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[POSITION] X=%.2f Y=%.2f Z=%.2f", info.position.x, info.position.y, info.position.z);
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[SCALE]    X=%.2f Y=%.2f Z=%.2f", info.scale.x, info.scale.y, info.scale.z);
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[ROTATION] X=%.2f Y=%.2f Z=%.2f", info.rotation.x, info.rotation.y, info.rotation.z);
 
-    // Dump worldMatrix via XMStoreFloat4x4
-    XMFLOAT4X4 matOut = {};
-    XMStoreFloat4x4(&matOut, info.worldMatrix);
+        // Dump worldMatrix via XMStoreFloat4x4
+        XMFLOAT4X4 matOut = {};
+        XMStoreFloat4x4(&matOut, info.worldMatrix);
 
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[WORLD MATRIX]");
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L" %.2f %.2f %.2f %.2f", matOut._11, matOut._12, matOut._13, matOut._14);
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L" %.2f %.2f %.2f %.2f", matOut._21, matOut._22, matOut._23, matOut._24);
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L" %.2f %.2f %.2f %.2f", matOut._31, matOut._32, matOut._33, matOut._34);
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L" %.2f %.2f %.2f %.2f", matOut._41, matOut._42, matOut._43, matOut._44);
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[WORLD MATRIX]");
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L" %.2f %.2f %.2f %.2f", matOut._11, matOut._12, matOut._13, matOut._14);
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L" %.2f %.2f %.2f %.2f", matOut._21, matOut._22, matOut._23, matOut._24);
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L" %.2f %.2f %.2f %.2f", matOut._31, matOut._32, matOut._33, matOut._34);
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L" %.2f %.2f %.2f %.2f", matOut._41, matOut._42, matOut._43, matOut._44);
 
-    // Geometry
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GEOMETRY] Vertices = %zu | Indices = %zu", info.vertices.size(), info.indices.size());
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[LOCAL LIGHTS] Count = %zu", info.localLights.size());
+        // Geometry
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GEOMETRY] Vertices = %zu | Indices = %zu", info.vertices.size(), info.indices.size());
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[LOCAL LIGHTS] Count = %zu", info.localLights.size());
 
-    // Materials
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[MATERIALS] %zu entries", m_materials.size());
-    int i = 0;
-    for (const auto& [name, mat] : m_materials)
-    {
-        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"  [%d] Name: %hs", i, name.c_str());
-        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"      DiffuseMap: %hs | NormalMap: %hs",
-            mat.diffuseMapPath.c_str(), mat.normalMapPath.c_str());
-        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"      Kd: %.2f %.2f %.2f | Ks: %.2f %.2f %.2f | Ns=%.2f",
-            mat.Kd.x, mat.Kd.y, mat.Kd.z,
-            mat.Ks.x, mat.Ks.y, mat.Ks.z,
-            mat.Ns);
-        ++i;
-    }
-#endif
+        // Materials
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[MATERIALS] %zu entries", m_materials.size());
+        int i = 0;
+        for (const auto& [name, mat] : m_materials)
+        {
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"  [%d] Name: %hs", i, name.c_str());
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"      DiffuseMap: %hs | NormalMap: %hs",
+                mat.diffuseMapPath.c_str(), mat.normalMapPath.c_str());
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"      Kd: %.2f %.2f %.2f | Ks: %.2f %.2f %.2f | Ns=%.2f",
+                mat.Kd.x, mat.Kd.y, mat.Kd.z,
+                mat.Ks.x, mat.Ks.y, mat.Ks.z,
+                mat.Ns);
+            ++i;
+        }
+    #endif
 }
 
 // Implementation for Model class PBR extension methods

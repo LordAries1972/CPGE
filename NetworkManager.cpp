@@ -3,12 +3,9 @@
 // Provides comprehensive TCP/UDP networking with authentication and command processing
 // -------------------------------------------------------------------------------------------------------------
 
-// CRITICAL: Define this before any Windows includes to prevent macro conflicts
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-
 #include "Includes.h"
+
+#if defined(__USE_NETWORKING__)
 #include "NetworkManager.h"
 #include "ThreadLockHelper.h"
 
@@ -1237,11 +1234,13 @@ void NetworkManager::LogNetworkActivity(const std::string& activity) {
 
 // Log detailed packet information
 void NetworkManager::LogPacketInfo(const NetworkPacket& packet, bool sending) {
-#if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-    const wchar_t* direction = sending ? L"SENT" : L"RECEIVED";
-    debug.logDebugMessage(LogLevel::LOG_DEBUG,
-        L"%s packet - ID: %u, Command: 0x%X, Size: %u, Sequence: %u",
-        direction, packet.header.packetID, static_cast<uint32_t>(packet.header.command),
-        packet.header.packetSize, packet.header.sequenceNumber);
-#endif
+    #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
+        const wchar_t* direction = sending ? L"SENT" : L"RECEIVED";
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"%s packet - ID: %u, Command: 0x%X, Size: %u, Sequence: %u",
+            direction, packet.header.packetID, static_cast<uint32_t>(packet.header.command),
+            packet.header.packetSize, packet.header.sequenceNumber);
+    #endif
 }
+
+#endif // NETWORKMANAGER_CPP

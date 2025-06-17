@@ -116,12 +116,12 @@ SceneType SceneManager::GetGotoScene()
     return (stOurGotoScene);
 }
 
-// --------------------------------------------------------------------------------------------------
+//==============================================================================
 // SceneManager::ParseGLBScene()
 // Parses GLB 2.0 binary format files and loads them into the scene with proper parent-child relationships.
 // GLB format: 12-byte header + JSON chunk + embedded BIN chunk (all binary data is self-contained)
 // Parent models have iParentModelID = -1, children reference their parent's instanceIndex
-// --------------------------------------------------------------------------------------------------
+//==============================================================================
 bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
 {
     #if defined(_DEBUG_SCENEMANAGER_)
@@ -181,6 +181,23 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
         return false;
     }
 
+    // Get actual file size for validation
+    file.seekg(0, std::ios::end);
+    std::streampos actualFileSize = file.tellg();
+    file.seekg(sizeof(GLBHeader), std::ios::beg);                                  // Reset to after header
+
+    #if defined(_DEBUG_SCENEMANAGER_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] GLB Header validated - Version: %d, Header length: %d bytes, Actual file: %d bytes", 
+            header.version, header.length, static_cast<uint32_t>(actualFileSize));
+    #endif
+
+    // Handle Blender GLB export bug where header.length is incorrect
+    if (header.length != static_cast<uint32_t>(actualFileSize)) {
+        #if defined(_DEBUG_SCENEMANAGER_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] GLB header length mismatch - using actual file size for validation (Blender export bug)");
+        #endif
+    }
+    
     #if defined(_DEBUG_SCENEMANAGER_)
         debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] GLB Header validated - Version: %d, Total length: %d bytes", header.version, header.length);
     #endif
@@ -228,30 +245,59 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
 
     // Check if there's a BIN chunk following the JSON chunk (embedded binary data)
     gltfBinaryData.clear();                                                         // Clear any existing binary data
-    GLBChunk binChunk;
-    if (file.read(reinterpret_cast<char*>(&binChunk), sizeof(GLBChunk))) {
-        // Validate BIN chunk type (0x004E4942 = 'BIN\0' in little-endian)
-        if (binChunk.type == 0x004E4942) {
-            // Read the embedded binary chunk data into the global binary buffer
-            gltfBinaryData.resize(binChunk.length);
-            file.read(reinterpret_cast<char*>(gltfBinaryData.data()), binChunk.length);
-            if (file.gcount() != static_cast<std::streamsize>(binChunk.length)) {
-                #if defined(_DEBUG_SCENEMANAGER_)
-                    debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] Incomplete embedded BIN chunk read (%d/%d bytes).", static_cast<int>(file.gcount()), binChunk.length);
-                #endif
+    
+    // Calculate where BIN chunk should start (after JSON chunk with 4-byte alignment)
+    size_t binChunkStart = 20 + jsonChunk.length;                                  // JSON start + JSON data
+    
+    // Align to 4-byte boundary as required by GLB specification
+    while (binChunkStart % 4 != 0) {
+        binChunkStart++;
+    }
+    
+    #if defined(_DEBUG_SCENEMANAGER_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Looking for BIN chunk at byte offset: %d", static_cast<int>(binChunkStart));
+    #endif
+    
+    // Check if we have enough bytes left for a BIN chunk header
+    if (binChunkStart + 8 < static_cast<size_t>(actualFileSize)) {
+        // Seek to potential BIN chunk location
+        file.seekg(binChunkStart);
+        
+        GLBChunk binChunk;
+        if (file.read(reinterpret_cast<char*>(&binChunk), sizeof(GLBChunk))) {
+            #if defined(_DEBUG_SCENEMANAGER_)
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Found chunk: length=%d, type=0x%08X", 
+                    binChunk.length, binChunk.type);
+            #endif
+            
+            // Validate BIN chunk type (0x004E4942 = 'BIN\0' in little-endian)
+            if (binChunk.type == 0x004E4942) {
+                // Read the BIN chunk data into our global binary buffer
+                gltfBinaryData.resize(binChunk.length);
+                file.read(reinterpret_cast<char*>(gltfBinaryData.data()), binChunk.length);
+                
+                if (file.gcount() == static_cast<std::streamsize>(binChunk.length)) {
+                    #if defined(_DEBUG_SCENEMANAGER_)
+                        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] BIN chunk loaded successfully (%d bytes).", binChunk.length);
+                    #endif
+                } else {
+                    #if defined(_DEBUG_SCENEMANAGER_)
+                        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[SceneManager] Failed to read complete BIN chunk data.");
+                    #endif
+                }
             } else {
                 #if defined(_DEBUG_SCENEMANAGER_)
-                    debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Embedded BIN chunk loaded successfully (%d bytes).", binChunk.length);
+                    debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] Invalid BIN chunk type: 0x%08X", binChunk.type);
                 #endif
             }
         } else {
             #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] No BIN chunk found or unsupported chunk type: 0x%08X", binChunk.type);
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[SceneManager] Failed to read potential BIN chunk header");
             #endif
         }
     } else {
         #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_INFO, L"[SceneManager] No additional chunks found - GLB contains JSON only.");
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[SceneManager] No space for BIN chunk - GLB contains JSON only");
         #endif
     }
 
@@ -262,6 +308,74 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
     json doc;
     try {
         doc = json::parse(jsonData);
+        
+        // CRITICAL DEBUG: Check what we actually parsed
+        #if defined(_DEBUG_SCENEMANAGER_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] JSON PARSING DEBUG:");
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] JSON string length: %d characters", static_cast<int>(jsonData.length()));
+            
+            // Check if accessors exist and how many
+            if (doc.contains("accessors") && doc["accessors"].is_array()) {
+                int accessorCount = static_cast<int>(doc["accessors"].size());
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Found %d accessors in parsed JSON", accessorCount);
+                
+                // Print details of each accessor
+                for (int i = 0; i < accessorCount; ++i) {
+                    const auto& acc = doc["accessors"][i];
+                    int count = acc.value("count", 0);
+                    std::string type = acc.value("type", "UNKNOWN");
+                    int componentType = acc.value("componentType", 0);
+                    int bufferView = acc.value("bufferView", -1);
+                    
+                    debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager]   Accessor %d: count=%d, type=%hs, componentType=%d, bufferView=%d", 
+                                        i, count, type.c_str(), componentType, bufferView);
+                }
+            } else {
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[SceneManager] NO ACCESSORS FOUND in parsed JSON!");
+            }
+            
+            // Check if bufferViews exist
+            if (doc.contains("bufferViews") && doc["bufferViews"].is_array()) {
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Found %d bufferViews", static_cast<int>(doc["bufferViews"].size()));
+            } else {
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[SceneManager] NO BUFFER VIEWS FOUND in parsed JSON!");
+            }
+            
+            // Check if animations exist and what accessors they reference
+            if (doc.contains("animations") && doc["animations"].is_array()) {
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Found %d animations", static_cast<int>(doc["animations"].size()));
+                
+                const auto& anims = doc["animations"];
+                for (size_t a = 0; a < anims.size(); ++a) {
+                    const auto& anim = anims[a];
+                    if (anim.contains("samplers") && anim["samplers"].is_array()) {
+                        const auto& samplers = anim["samplers"];
+                        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager]   Animation %d has %d samplers", static_cast<int>(a), static_cast<int>(samplers.size()));
+                        
+                        for (size_t s = 0; s < samplers.size(); ++s) {
+                            const auto& sampler = samplers[s];
+                            int input = sampler.value("input", -1);
+                            int output = sampler.value("output", -1);
+                            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager]     Sampler %d: input=%d, output=%d", static_cast<int>(s), input, output);
+                        }
+                    }
+                }
+            } else {
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[SceneManager] NO ANIMATIONS FOUND in parsed JSON!");
+            }
+            
+            // CRITICAL: Print first 500 and last 500 characters of JSON to see if truncation
+            std::string jsonStart = jsonData.substr(0, std::min(500, static_cast<int>(jsonData.length())));
+            std::string jsonEnd = jsonData.length() > 500 ? jsonData.substr(jsonData.length() - 500) : "";
+            
+            std::wstring wJsonStart(jsonStart.begin(), jsonStart.end());
+            std::wstring wJsonEnd(jsonEnd.begin(), jsonEnd.end());
+            
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] JSON START: %ls", wJsonStart.c_str());
+            if (!jsonEnd.empty()) {
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] JSON END: %ls", wJsonEnd.c_str());
+            }
+        #endif
     }
     catch (const std::exception& ex) {
         // Convert narrow string exception message to wide string for debug output
@@ -369,24 +483,32 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
         return false;
     }
 
-    // Get reference to the nodes array for recursive parsing
-    const auto& nodes = doc["nodes"];
-    int instanceIndex = 0;                                                          // Counter for scene model instances
+    // Start processing nodes recursively from the root nodes
+    int instanceIndex = 0;
 
-    // Process each root node and its children recursively with parent-child tracking
-    for (int nodeIndex : rootNodeIndices) 
+    #if defined(_DEBUG_SCENEMANAGER_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Starting GLB node processing with %d root nodes.", static_cast<int>(rootNodeIndices.size()));
+    #endif
+
+    // Process each root node and its children recursively
+    for (int rootNodeIndex : rootNodeIndices) 
     {
-        // Validate node index is within valid range
-        if (nodeIndex < 0 || nodeIndex >= static_cast<int>(nodes.size()))
-            continue;
-
-        const json& rootNode = nodes[nodeIndex];
-        // Parse this root node as a parent (parentModelID = -1) 
-        ParseGLBNodeRecursive(rootNode, XMMatrixIdentity(), doc, nodes, instanceIndex, -1);
+        if (doc.contains("nodes") && doc["nodes"].is_array()) 
+        {
+            const auto& nodes = doc["nodes"];
+            if (rootNodeIndex >= 0 && rootNodeIndex < static_cast<int>(nodes.size())) 
+            {
+                const auto& rootNode = nodes[rootNodeIndex];
+                XMMATRIX identity = XMMatrixIdentity();                            // Root nodes start with identity transform
+                
+                // Parse this root node and all its children recursively
+                ParseGLBNodeRecursive(rootNode, identity, doc, nodes, instanceIndex, -1);
+            }
+        }
     }
 
     #if defined(_DEBUG_SCENEMANAGER_)
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] GLB Scene Load Complete. Total Instances: %d", instanceIndex);
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] GLB parsing completed. Total Instances: %d", instanceIndex);
     #endif
 
     // Return success if at least one model instance was created
@@ -437,8 +559,30 @@ void SceneManager::ParseGLBNodeRecursive(const json& node, const XMMATRIX& paren
         // Validate mesh index is within valid range
         if (meshIndex < 0 || meshIndex >= (int)meshes.size()) return;
 
-        // Generate a unique model name for this mesh instance
-        std::wstring modelName = L"GLB_Mesh_" + std::to_wstring(meshIndex);
+        // Extract proper model name from GLB node FIRST, only use default if none exists**
+        std::wstring modelName;
+        if (node.contains("name") && node["name"].is_string())
+        {
+            // Use the actual node name from GLB file
+            std::string nodeName = node["name"];
+            modelName = std::wstring(nodeName.begin(), nodeName.end());
+            scene_models[instanceIndex].m_modelInfo.name = modelName;
+            
+            #if defined(_DEBUG_SCENEMANAGER_)
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Using node name from GLB: \"%ls\"", scene_models[instanceIndex].m_modelInfo.name.c_str());
+            #endif
+        }
+        else
+        {
+            // No name provided in GLB node - generate default name and log this situation
+            modelName = L"GLBNode_" + std::to_wstring(instanceIndex) + L"_Mesh_" + std::to_wstring(meshIndex);
+            scene_models[instanceIndex].m_modelInfo.name = modelName;
+            
+            #if defined(_DEBUG_SCENEMANAGER_)
+                debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] No name found in GLB node - using default name: \"%ls\"", scene_models[instanceIndex].m_modelInfo.name.c_str());
+            #endif
+        }
+        
         int modelSlot = -1;
 
         // Search for existing model with the same name in global models array
@@ -514,12 +658,14 @@ void SceneManager::ParseGLBNodeRecursive(const json& node, const XMMATRIX& paren
         
         // Assign unique instance ID and descriptive name
         scene_models[instanceIndex].m_modelInfo.ID = instanceIndex;
-        scene_models[instanceIndex].m_modelInfo.name = L"GLBNode_" + std::to_wstring(instanceIndex) + L"_Mesh_" + std::to_wstring(meshIndex);
+        scene_models[instanceIndex].m_modelInfo.name = modelName;
 
         // Setup model for rendering and apply default lighting
         scene_models[instanceIndex].SetupModelForRendering(scene_models[instanceIndex].m_modelInfo.ID);
         scene_models[instanceIndex].ApplyDefaultLightingFromManager(lightsManager);
         
+        scene_models[instanceIndex].m_isLoaded = true;
+
         #if defined(_DEBUG_SCENEMANAGER_)
             debug.logDebugMessage(LogLevel::LOG_INFO,
                 L"[SceneManager] scene_models[%d] lighting: %d local lights applied.",
@@ -806,8 +952,30 @@ void SceneManager::ParseGLTFNodeRecursive(const json& node, const XMMATRIX& pare
         // Validate mesh index is within valid range
         if (meshIndex < 0 || meshIndex >= (int)meshes.size()) return;
 
-        // Generate a unique model name for this mesh instance
-        std::wstring modelName = L"GLTF_Mesh_" + std::to_wstring(meshIndex);
+        // Extract proper model name from GLTF node FIRST, only use default if none exists**
+        std::wstring modelName;
+        if (node.contains("name") && node["name"].is_string())
+        {
+            // Use the actual node name from GLTF file
+            std::string nodeName = node["name"];
+            modelName = std::wstring(nodeName.begin(), nodeName.end());
+            scene_models[instanceIndex].m_modelInfo.name = modelName;
+            
+            #if defined(_DEBUG_SCENEMANAGER_)
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Using node name from GLTF: \"%ls\"", scene_models[instanceIndex].m_modelInfo.name.c_str());
+            #endif
+        }
+        else
+        {
+            // No name provided in GLTF node - generate default name and log this situation
+            modelName = L"Node_" + std::to_wstring(instanceIndex) + L"_Mesh_" + std::to_wstring(meshIndex);
+            scene_models[instanceIndex].m_modelInfo.name = modelName;
+            
+            #if defined(_DEBUG_SCENEMANAGER_)
+                debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] No name found in GLTF node - using default name: \"%ls\"", scene_models[instanceIndex].m_modelInfo.name.c_str());
+            #endif
+        }
+
         int modelSlot = -1;
 
         // Search for existing model with the same name in global models array
@@ -883,12 +1051,14 @@ void SceneManager::ParseGLTFNodeRecursive(const json& node, const XMMATRIX& pare
         
         // Assign unique instance ID and descriptive name
         scene_models[instanceIndex].m_modelInfo.ID = instanceIndex;
-        scene_models[instanceIndex].m_modelInfo.name = L"Node_" + std::to_wstring(instanceIndex) + L"_Mesh_" + std::to_wstring(meshIndex);
+        scene_models[instanceIndex].m_modelInfo.name = modelName;
 
         // Setup model for rendering and apply default lighting
         scene_models[instanceIndex].SetupModelForRendering(scene_models[instanceIndex].m_modelInfo.ID);
         scene_models[instanceIndex].ApplyDefaultLightingFromManager(lightsManager);
         
+        scene_models[instanceIndex].m_isLoaded = true;
+
         #if defined(_DEBUG_SCENEMANAGER_)
             debug.logDebugMessage(LogLevel::LOG_INFO,
                 L"[SceneManager] scene_models[%d] lighting: %d local lights applied.",
@@ -948,34 +1118,98 @@ void SceneManager::ParseGLTFNodeRecursive(const json& node, const XMMATRIX& pare
 
 // --------------------------------------------------------------------------------------------------
 
+// Enhanced LoadGLTFMeshPrimitives with comprehensive debug output
+// Replace the existing LoadGLTFMeshPrimitives function with this version
 void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model& model)
 {
-    if (!doc.contains("meshes") || !doc.contains("accessors") || !doc.contains("bufferViews")) return;
+    #if defined(_DEBUG_SCENEMANAGER_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] LoadGLTFMeshPrimitives() - meshIndex: %d", meshIndex);
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] gltfBinaryData size: %d bytes", static_cast<int>(gltfBinaryData.size()));
+    #endif
+
+    if (!doc.contains("meshes") || !doc.contains("accessors") || !doc.contains("bufferViews")) {
+        #if defined(_DEBUG_SCENEMANAGER_)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] Missing required GLB sections: meshes, accessors, or bufferViews");
+        #endif
+        return;
+    }
 
     const auto& meshes = doc["meshes"];
     const auto& accessors = doc["accessors"];
     const auto& bufferViews = doc["bufferViews"];
 
-    if (meshIndex < 0 || meshIndex >= static_cast<int>(meshes.size())) return;
+    if (meshIndex < 0 || meshIndex >= static_cast<int>(meshes.size())) {
+        #if defined(_DEBUG_SCENEMANAGER_)
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[SceneManager] Invalid mesh index: %d (max: %d)", 
+                meshIndex, static_cast<int>(meshes.size()));
+        #endif
+        return;
+    }
+
     const auto& mesh = meshes[meshIndex];
 
-    if (!mesh.contains("primitives")) return;
+    if (!mesh.contains("primitives")) {
+        #if defined(_DEBUG_SCENEMANAGER_)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] Mesh has no primitives array");
+        #endif
+        return;
+    }
+
+    #if defined(_DEBUG_SCENEMANAGER_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Processing %d primitives", 
+            static_cast<int>(mesh["primitives"].size()));
+    #endif
 
     for (const auto& prim : mesh["primitives"])
     {
-        if (!prim.contains("attributes")) continue;
+        if (!prim.contains("attributes")) {
+            #if defined(_DEBUG_SCENEMANAGER_)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[SceneManager] Primitive missing attributes - skipping");
+            #endif
+            continue;
+        }
+
         const auto& attributes = prim["attributes"];
         int posAccessor = attributes.value("POSITION", -1);
         int idxAccessor = prim.value("indices", -1);
 
-        if (posAccessor < 0 || posAccessor >= (int)accessors.size() || idxAccessor < 0 || idxAccessor >= (int)accessors.size())
+        #if defined(_DEBUG_SCENEMANAGER_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Position accessor: %d, Index accessor: %d", 
+                posAccessor, idxAccessor);
+        #endif
+
+        if (posAccessor < 0 || posAccessor >= (int)accessors.size() || idxAccessor < 0 || idxAccessor >= (int)accessors.size()) {
+            #if defined(_DEBUG_SCENEMANAGER_)
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[SceneManager] Invalid accessor indices - pos: %d, idx: %d (max: %d)", 
+                    posAccessor, idxAccessor, static_cast<int>(accessors.size()));
+            #endif
             continue;
+        }
+
+        // Verify binary data is available
+        if (gltfBinaryData.empty()) {
+            #if defined(_DEBUG_SCENEMANAGER_)
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] CRITICAL: gltfBinaryData is empty - cannot load vertex data!");
+            #endif
+            return;
+        }
 
         // Load RAW vertices
         const auto& posAcc = accessors[posAccessor];
         int posViewIdx = posAcc["bufferView"];
         size_t posOffset = bufferViews[posViewIdx].value("byteOffset", 0) + posAcc.value("byteOffset", 0);
         int vertexCount = posAcc["count"];
+
+        #if defined(_DEBUG_SCENEMANAGER_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Loading %d vertices from offset %d", 
+                vertexCount, static_cast<int>(posOffset));
+            
+            // Check if offset is within bounds
+            if (posOffset + (vertexCount * 12) > gltfBinaryData.size()) {
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] CRITICAL: Position data extends beyond binary buffer!");
+                return;
+            }
+        #endif
 
         std::vector<Vertex> rawVertices(vertexCount);
         for (int vi = 0; vi < vertexCount; ++vi)
@@ -987,6 +1221,11 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
             rawVertices[vi].texCoord = XMFLOAT2(0, 0);
         }
 
+        #if defined(_DEBUG_SCENEMANAGER_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] First vertex position: (%.3f, %.3f, %.3f)", 
+                rawVertices[0].position.x, rawVertices[0].position.y, rawVertices[0].position.z);
+        #endif
+
         // Load NORMAL if present
         if (attributes.contains("NORMAL"))
         {
@@ -994,6 +1233,11 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
             const auto& norm = accessors[normAcc];
             int normView = norm["bufferView"];
             size_t normOffset = bufferViews[normView].value("byteOffset", 0) + norm.value("byteOffset", 0);
+
+            #if defined(_DEBUG_SCENEMANAGER_)
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Loading normals from offset %d", 
+                    static_cast<int>(normOffset));
+            #endif
 
             for (int vi = 0; vi < vertexCount; ++vi)
             {
@@ -1011,6 +1255,11 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
             int texView = tex["bufferView"];
             size_t texOffset = bufferViews[texView].value("byteOffset", 0) + tex.value("byteOffset", 0);
 
+            #if defined(_DEBUG_SCENEMANAGER_)
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Loading texture coordinates from offset %d", 
+                    static_cast<int>(texOffset));
+            #endif
+
             for (int vi = 0; vi < vertexCount; ++vi)
             {
                 rawVertices[vi].texCoord.x = *reinterpret_cast<const float*>(&gltfBinaryData[texOffset + vi * 8 + 0]);
@@ -1025,6 +1274,11 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
         int idxComponentType = idxAcc["componentType"];
         size_t idxOffset = bufferViews[idxViewIdx].value("byteOffset", 0) + idxAcc.value("byteOffset", 0);
 
+        #if defined(_DEBUG_SCENEMANAGER_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Loading %d indices from offset %d (component type: %d)", 
+                idxCount, static_cast<int>(idxOffset), idxComponentType);
+        #endif
+
         std::vector<uint32_t> rawIndices(idxCount);
 
         for (int k = 0; k < idxCount; ++k)
@@ -1037,7 +1291,12 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
             }
         }
 
-        // === Weld Now After Having RawVertices + RawIndices
+        #if defined(_DEBUG_SCENEMANAGER_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Raw data loaded - vertices: %d, indices: %d", 
+                static_cast<int>(rawVertices.size()), static_cast<int>(rawIndices.size()));
+        #endif
+
+        // === Weld vertices (existing code continues...)
         struct VertexKey
         {
             XMFLOAT3 pos, norm;
@@ -1082,6 +1341,11 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
                 model.m_modelInfo.indices.push_back(newIndex);
             }
         }
+
+        #if defined(_DEBUG_SCENEMANAGER_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] After welding - Final vertices: %d, Final indices: %d", 
+                static_cast<int>(model.m_modelInfo.vertices.size()), static_cast<int>(model.m_modelInfo.indices.size()));
+        #endif
 
         // === Generate Tangents if TEXCOORDs present
         if (!model.m_modelInfo.vertices.empty() && !model.m_modelInfo.indices.empty())
@@ -1998,4 +2262,117 @@ void SceneManager::UpdateSceneAnimations(float deltaTime)
         // Update all animations using the scene models array
         gltfAnimator.UpdateAnimations(deltaTime, scene_models, MAX_SCENE_MODELS);
     }
+}
+
+// --------------------------------------------------------------------------------------------------
+// SceneManager::FindParentModelID()
+// Retrieves the ID from the appropriate Model Name within the scene_models array.
+// Returns the ModelID for the specified model, or -1 if model not found.
+// This function searches through all loaded scene models to find the matching name.
+// --------------------------------------------------------------------------------------------------
+int SceneManager::FindParentModelID(const std::wstring& modelName)
+{
+    #if defined(_DEBUG_SCENEMANAGER_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[SceneManager] FindParentModelID() searching for model: \"%ls\"", modelName.c_str());
+    #endif
+
+    // Search through all scene models to find the specified model name
+    for (int i = 0; i < MAX_SCENE_MODELS; ++i)
+    {
+        // Check if this slot contains a loaded model with matching name
+        if (scene_models[i].m_isLoaded && scene_models[i].m_modelInfo.name == modelName && 
+            scene_models[i].m_modelInfo.iParentModelID == -1)
+        {
+            // Found the model, return its parent ID
+            int parentID = i;
+            
+            #if defined(_DEBUG_SCENEMANAGER_)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[SceneManager] Found Parent Model \"%ls\" at Index: %d", 
+                    modelName.c_str(), i);
+            #endif
+            
+            return parentID;
+        }
+    }
+
+    // Model not found in scene_models array
+    #if defined(_DEBUG_SCENEMANAGER_)
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] Model \"%ls\" not found in scene_models array", modelName.c_str());
+    #endif
+    
+    return -1;  // Return -1 to indicate model not found
+}
+
+// --------------------------------------------------------------------------------------------------
+// SceneManager::DiagnoseGLBParsing()
+// Diagnostic function to identify where GLB parsing is failing.
+// Add this to SceneManager.h as a private function and call it in ParseGLBScene.
+// This will help identify if the issue is with binary data, vertex loading, or model creation.
+// --------------------------------------------------------------------------------------------------
+void SceneManager::DiagnoseGLBParsing(const std::wstring& glbFile)
+{
+    #if defined(_DEBUG_SCENEMANAGER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[SceneManager] === GLB DIAGNOSTIC START ===");
+    #endif
+
+    // Check if ParseGLBScene was successful
+    bool parseResult = ParseGLBScene(glbFile);
+    
+    #if defined(_DEBUG_SCENEMANAGER_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] ParseGLBScene() result: %s", parseResult ? L"SUCCESS" : L"FAILED");
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] gltfBinaryData size: %d bytes", static_cast<int>(gltfBinaryData.size()));
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Detected exporter: %ls", m_lastDetectedExporter.c_str());
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Animations loaded: %s", bAnimationsLoaded ? L"YES" : L"NO");
+    #endif
+
+    // Check scene_models array for loaded models
+    int loadedModels = 0;
+    int modelsWithVertices = 0;
+    int modelsWithIndices = 0;
+    
+    for (int i = 0; i < MAX_SCENE_MODELS; ++i)
+    {
+        if (scene_models[i].m_isLoaded)
+        {
+            loadedModels++;
+            
+            #if defined(_DEBUG_SCENEMANAGER_)
+                debug.logDebugMessage(LogLevel::LOG_INFO, 
+                    L"[SceneManager] scene_models[%d]: \"%ls\" | Vertices: %d | Indices: %d | ParentID: %d",
+                    i, 
+                    scene_models[i].m_modelInfo.name.c_str(),
+                    static_cast<int>(scene_models[i].m_modelInfo.vertices.size()),
+                    static_cast<int>(scene_models[i].m_modelInfo.indices.size()),
+                    scene_models[i].m_modelInfo.iParentModelID);
+            #endif
+            
+            if (!scene_models[i].m_modelInfo.vertices.empty()) modelsWithVertices++;
+            if (!scene_models[i].m_modelInfo.indices.empty()) modelsWithIndices++;
+        }
+    }
+    
+    #if defined(_DEBUG_SCENEMANAGER_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Total loaded models: %d", loadedModels);
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Models with vertices: %d", modelsWithVertices);
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Models with indices: %d", modelsWithIndices);
+        
+        if (loadedModels == 0)
+        {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] CRITICAL: No models loaded into scene_models[]!");
+        }
+        else if (modelsWithVertices == 0)
+        {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] CRITICAL: Models loaded but contain no vertex data!");
+        }
+        else if (modelsWithIndices == 0)
+        {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] CRITICAL: Models loaded but contain no index data!");
+        }
+        else
+        {
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[SceneManager] Models appear to have valid geometry data.");
+        }
+        
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[SceneManager] === GLB DIAGNOSTIC END ===");
+    #endif
 }

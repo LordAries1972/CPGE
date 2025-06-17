@@ -32,6 +32,7 @@ public:
     bool PauseAnimation(int parentModelID);
     bool ResumeAnimation(int parentModelID);
     void UpdateAnimations(float deltaTime, Model* sceneModels, int maxModels);
+    void ForceAnimationReset(int parentModelID);                                                            // Force animation state reset
 
     // Animation query and control functions
     int GetAnimationCount() const;

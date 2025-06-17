@@ -328,8 +328,7 @@ public:
     // Loads a model from a file (.obj formats).
     bool LoadModel(const std::wstring& filename, int ID);
     bool LoadMTL(const std::wstring& mtlPath);
-    // Updates the model's animation state.
-    void UpdateAnimation(float deltaTime);
+
     // Frees all model resources.
     void DestroyModel();
 
