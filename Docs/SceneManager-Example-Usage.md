@@ -37,6 +37,13 @@ Let me provide you with the foundational understanding of these powerful systems
 
 The SceneManager and GLTFAnimator represent years of development effort to create a production-ready system capable of handling complex 3D scenes with hundreds of animated models while maintaining consistent 60+ FPS performance. The system has been battle-tested in commercial game development and provides enterprise-level reliability and features.
 
+As a courtesy note, due to the very size and nature of this document, some references in the code may not be the same actually defined in the proper C++ files which are:-
+
+SceneManager.h/.cpp
+GLTFAnimator.h/.cpp
+
+This documentation is a theory based document and should be used a guide to help you utilise these classes in your main project.  Ultimately, you should always refer to the actual CPGE Project files for concise implementation as code in this project is always changing.
+
 **Key Design Principles:**
 
 1. **Performance First**: Every function is optimized for real-time execution with minimal CPU overhead
