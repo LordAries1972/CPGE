@@ -377,7 +377,7 @@ Since this is early-stage days of development (WIP), major reconstruction may oc
 ## Technical Requirements
 
 - **Operating System**: Windows 10 SP1+ (64-bit)
-- **Development Environment**: Visual Studio 2022
+- **Development Environment**: Visual Studio 2019/2022
 - **Language Standard**: C++17 Compliant
 - **Graphics APIs**: DirectX 11/12, OpenGL, Vulkan
 - **Architecture**: x64 only
