@@ -345,7 +345,7 @@ The DirectX 11 system is nearing **GAMING PRODUCTION READINESS** for Windows 10 
 ### **Developer Guidelines**
 
 - **Testing Protocol**: Always test the complete GitHub base with full clone/pull before starting projects
-- **Issue Reporting**: Email `cpgeengine@gmail.com` with subject "CPGE Problem - [Brief Description]"
+- **Issue Reporting**: Email `development@effectualdesigns.com` with subject "CPGE Problem - [Brief Description]"
 - **Debug Information**: Include compile/runtime logs from DEBUG builds
 - **License**: Perpetual MIT License with lifetime updates
 
@@ -380,7 +380,7 @@ Since this is early-stage days of development (WIP), major reconstruction may oc
 - **Development Environment**: Visual Studio 2019/2022
 - **Language Standard**: C++17 Compliant
 - **Graphics APIs**: DirectX 11/12, OpenGL, Vulkan
-- **Architecture**: x64 only
+- **Architecture**: Win x64, Linux, Android, iOS and MacOS only!
 
 ---
 
