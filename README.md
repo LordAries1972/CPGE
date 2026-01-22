@@ -9,7 +9,7 @@ CPGE is a powerful and flexible gaming engine designed to work across multiple p
 The idea of this is to give the developer a great starting frame-work to use with a game or system that they want to develop and the objective of this is to make it work across all platforms (Yes a big project!).  To use
 this successfully, you will need a very good understanding on C/C++ programming, especially on the targeted O/S you want to develop it for as some things can vary from each platform.
 
-If you like to know more about me and my history, please click below to read my about.md.
+If you like to know more about me and my history, please goto my website at https://www.ultimanium.com/index.php?action=aboutus
 
 ## Important Links
 
