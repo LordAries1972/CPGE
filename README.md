@@ -1,6 +1,6 @@
 # Cross Platform Gaming Engine (CPGE)
 
-Welcome to the Cross Platform Gaming Engine (CPGE) repository which was originally co-founded & designed by Daniel J. Hobson of Melbourne, Australia 2023-2025!
+Welcome to the Cross Platform Gaming Engine (CPGE) repository which was originally co-founded & designed by Daniel J. Hobson of Melbourne, Australia 2022-2026!
 
 ## Introduction
 
