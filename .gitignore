@@ -14,3 +14,8 @@
 *.map
 /x64/Debug
 /Docs/Doc-Helper.txt
+*.dmp
+/CrossPlatformGameEngine-report.txt
+/DebugLog.txt
+/Docs/chatgpt-instructions.txt
+/Docs/AI-Project-Rules.txt
