@@ -1,10 +1,11 @@
 ﻿#include "Includes.h"
 #include "XMMODPlayer.h"
-#include <algorithm>
 #include "Debug.h"
+#include "Configuration.h"
 
 extern HWND hwnd;
 extern Debug debug;
+extern Configuration config;
 
 #pragma comment(lib, "dsound.lib")
 #pragma comment(lib, "dxguid.lib")   // For DirectSound GUIDs
@@ -40,6 +41,8 @@ void XMMODPlayer::Shutdown() {
     patterns.clear();
     instruments.clear();
     unpackedPatterns.clear();
+    bIsInitialized = false;
+    isTerminating = false;
 
     #if defined(_DEBUG_XMPlayer_)    
         debug.DebugLog("Shutdown(): Resources freed and state reset.\n");
@@ -73,9 +76,9 @@ bool XMMODPlayer::Initialize(const std::wstring& filename) {
     voices.clear();
     voices.resize(xmHeader.numChannels);
 
-    globalVolume = 64; // <-- explicitly set here
-    currentVolume = 64; // ensure fade volume starts correctly
-    targetVolume = 64;
+    globalVolume = config.myConfig.musicVolume; // <-- explicitly set here
+    currentVolume = config.myConfig.musicVolume; // ensure fade volume starts correctly
+    targetVolume = config.myConfig.musicVolume;
 
     lastTickTime = std::chrono::steady_clock::now();
 

@@ -39,6 +39,7 @@ struct MyConfig {
     long double fov = 60.0f;
     long double zoomSensitivity = 0.05f;
     long double moveSensitivity = 0.005f;
+    long double joystickSensitivity = 0.00025f;
     long double nearPlane = 0.1f;
     long double farPlane = 1000.0f;
     long double aspectRatio = 16.0 / 9.0;                                       // Default widescreen
@@ -47,7 +48,7 @@ struct MyConfig {
 
     // Add more configuration parameters as needed
     bool UseTTS = true;
-    double TTSVolume = 1.0f;
+    long double TTSVolume = 1.0f;
 };
 
 class Configuration {

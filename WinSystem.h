@@ -91,7 +91,6 @@ public:
     bool CheckElapsedTime(int NumOfSeconds);                             // Checks if specified seconds have elapsed since StartTimer()
 
     std::tuple<int, int> GetPrimaryMonitorFullScreenSize();
-
 	std::wstring Get_Current_Directory();
 	std::wstring ToWString(const std::string& input);
 	std::wstring widen(const std::string& str);

@@ -61,6 +61,7 @@ bool Configuration::loadConfig() {
         myConfig.aspectRatio = j.value("aspectRatio", 16.0 / 9.0);
         myConfig.zoomSensitivity = j["zoomSensitivity"];
         myConfig.moveSensitivity = j["moveSensitivity"];
+        myConfig.joystickSensitivity = j["joystickSensitivity"];
         myConfig.TTSVolume = j["TTSVolume"];
         myConfig.UseTTS = j["UseTTS"];
         myConfig.chksum = j["chksum"];
@@ -129,6 +130,7 @@ bool Configuration::saveConfig() {
         j["minPitch"] = myConfig.minPitch;
         j["zoomSensitivity"] = myConfig.zoomSensitivity;
         j["moveSensitivity"] = myConfig.moveSensitivity;
+        j["joystickSensitivity"] = myConfig.joystickSensitivity;
         j["nearPlane"] = myConfig.nearPlane;
 		j["farPlane"] = myConfig.farPlane;
         j["aspectRatio"] = myConfig.aspectRatio;
@@ -177,6 +179,7 @@ long double Configuration::calculateChecksum(const MyConfig& cfg) const
         << cfg.minPitch
         << cfg.zoomSensitivity
         << cfg.moveSensitivity
+        << cfg.joystickSensitivity
         << cfg.nearPlane
 		<< cfg.farPlane
         << cfg.aspectRatio

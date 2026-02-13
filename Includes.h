@@ -37,6 +37,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
         #include <windows.h>
         #include <winerror.h>
         #include <wincodec.h>                                                               // WIC
+        #include <memory>
         #include <mfapi.h>
         #include <mfidl.h>
         #include <mfobjects.h>
@@ -299,3 +300,5 @@ const int MAX_TEXTURE_BUFFERS = ARRAYSIZE(texFilename);
 const int MAX_TEXTURE_BUFFERS_3D = ARRAYSIZE(tex3DFilename);
 const int MAX_MODEL_FILES = ARRAYSIZE(modelFilePath);
 
+// Model Names
+const std::wstring ShipName1 = L"Ship1";

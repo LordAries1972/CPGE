@@ -10,6 +10,7 @@
 #include "ThreadManager.h"
 #include "ShaderManager.h"
 #include "ExceptionHandler.h"
+#include "ThreadLockHelper.h"
 
 #ifdef __USE_DIRECTX_11__
 #include <d3d11.h>
@@ -54,108 +55,165 @@ Texture::~Texture() {
     bTextureDestroyed = true;
 }
 
-bool Texture::LoadFromFile(const std::wstring& path) {
+bool Texture::LoadFromFile(const std::wstring& path)
+{
+    // Store the texture path for reference and debugging.
     texturePath = path;
 
-    #ifdef __USE_DIRECTX_11__
-        ComPtr<ID3D11Device> device;
-        device.Attach(static_cast<ID3D11Device*>(renderer->GetDevice())); 
-        if (!device) {
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX11: No device context available");
-            return false;
-        }
-
-        // Reset previous SRV if reused
-        if (textureSRV) {
-            textureSRV->Release();
-            textureSRV = nullptr;
-        }
-
-        if (!std::filesystem::exists(path)) {
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Texture file does not exist: " + path);
-            return false;
-        }
-
-        IWICImagingFactory* wicFactory = nullptr;
-        IWICBitmapDecoder* decoder = nullptr;
-        IWICBitmapFrameDecode* frame = nullptr;
-        IWICFormatConverter* converter = nullptr;
-
-        HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wicFactory));
-        if (FAILED(hr)) return false;
-
-        hr = wicFactory->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnLoad, &decoder);
-        if (FAILED(hr)) {
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX11: Failed to decode texture: " + path);
-            wicFactory->Release();
-            return false;
-        }
-
-        hr = decoder->GetFrame(0, &frame);
-        if (FAILED(hr)) {
-            decoder->Release(); wicFactory->Release();
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX11: No frame found in texture: " + path);
-            return false;
-        }
-
-        hr = wicFactory->CreateFormatConverter(&converter);
-        if (FAILED(hr)) {
-            frame->Release(); decoder->Release(); wicFactory->Release();
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX11: Format converter creation failed for: " + path);
-            return false;
-        }
-
-        hr = converter->Initialize(frame, GUID_WICPixelFormat32bppBGRA, WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom);
-        if (FAILED(hr)) {
-            converter->Release(); frame->Release(); decoder->Release(); wicFactory->Release();
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX11: Converter initialization failed for: " + path);
-            return false;
-        }
-
-        UINT width = 0, height = 0;
-        converter->GetSize(&width, &height);
-        std::vector<BYTE> pixels(width * height * 4);
-        converter->CopyPixels(nullptr, width * 4, static_cast<UINT>(pixels.size()), pixels.data());
-
-        D3D11_TEXTURE2D_DESC desc = {};
-        desc.Width = width;
-        desc.Height = height;
-        desc.MipLevels = 1;
-        desc.ArraySize = 1;
-        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-        desc.SampleDesc.Count = 1;
-        desc.Usage = D3D11_USAGE_IMMUTABLE;
-        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-
-        D3D11_SUBRESOURCE_DATA initData = {};
-        initData.pSysMem = pixels.data();
-        initData.SysMemPitch = width * 4;
-
-        ID3D11Texture2D* tex = nullptr;
-        hr = device->CreateTexture2D(&desc, &initData, &tex);
-        if (FAILED(hr)) {
-            converter->Release(); frame->Release(); decoder->Release(); wicFactory->Release();
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX11: Failed to create texture from pixel data: " + path);
-            return false;
-        }
-
-        hr = device->CreateShaderResourceView(tex, nullptr, &textureSRV);
-        tex->Release();
-        converter->Release(); frame->Release(); decoder->Release(); wicFactory->Release();
-
-        if (FAILED(hr)) {
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX11: SRV creation failed for: " + path);
-            return false;
-        }
-
-        #if defined(_DEBUG_MODEL_)
-            debug.logLevelMessage(LogLevel::LOG_INFO, L"DX11 Texture loaded: " + path);
-        #endif
-        return true;
-    #else
+#ifdef __USE_DIRECTX_11__
+    // IMPORTANT:
+    // Do not use ComPtr::Attach() with renderer-owned COM pointers.
+    // Attach() assumes ownership and will Release() on scope exit, which can prematurely destroy the device and destabilize the engine.
+    ID3D11Device* device = static_cast<ID3D11Device*>(renderer->GetDevice());
+    if (device == nullptr)
+    {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[Texture] DX11: No device available");
         return false;
-    #endif
+    }
+
+    // Reset previous SRV if reused.
+    if (textureSRV != nullptr)
+    {
+        textureSRV->Release();
+        textureSRV = nullptr;
+    }
+
+    // Validate the file path before attempting to decode.
+    if (!std::filesystem::exists(path))
+    {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[Texture] File does not exist: " + path);
+        return false;
+    }
+
+    IWICImagingFactory* wicFactory = nullptr;
+    IWICBitmapDecoder* decoder = nullptr;
+    IWICBitmapFrameDecode* frame = nullptr;
+    IWICFormatConverter* converter = nullptr;
+
+    HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wicFactory));
+    if (FAILED(hr) || (wicFactory == nullptr))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] CoCreateInstance(WICImagingFactory) failed. HRESULT: 0x%08X", hr);
+        return false;
+    }
+
+    hr = wicFactory->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnLoad, &decoder);
+    if (FAILED(hr) || (decoder == nullptr))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] WIC decode failed. HRESULT: 0x%08X", hr);
+        wicFactory->Release();
+        return false;
+    }
+
+    hr = decoder->GetFrame(0, &frame);
+    if (FAILED(hr) || (frame == nullptr))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] WIC GetFrame failed. HRESULT: 0x%08X", hr);
+        decoder->Release();
+        wicFactory->Release();
+        return false;
+    }
+
+    hr = wicFactory->CreateFormatConverter(&converter);
+    if (FAILED(hr) || (converter == nullptr))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] WIC CreateFormatConverter failed. HRESULT: 0x%08X", hr);
+        frame->Release();
+        decoder->Release();
+        wicFactory->Release();
+        return false;
+    }
+
+    hr = converter->Initialize(frame, GUID_WICPixelFormat32bppBGRA, WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom);
+    if (FAILED(hr))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] WIC converter Initialize failed. HRESULT: 0x%08X", hr);
+        converter->Release();
+        frame->Release();
+        decoder->Release();
+        wicFactory->Release();
+        return false;
+    }
+
+    UINT width = 0;
+    UINT height = 0;
+    converter->GetSize(&width, &height);
+    if (width == 0 || height == 0)
+    {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[Texture] Invalid image size (0). Aborting load.");
+        converter->Release();
+        frame->Release();
+        decoder->Release();
+        wicFactory->Release();
+        return false;
+    }
+
+    // Allocate a tight BGRA buffer and copy pixels out of WIC.
+    std::vector<BYTE> pixels((size_t)width * (size_t)height * (size_t)4);
+    hr = converter->CopyPixels(nullptr, width * 4, static_cast<UINT>(pixels.size()), pixels.data());
+    if (FAILED(hr))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] WIC CopyPixels failed. HRESULT: 0x%08X", hr);
+        converter->Release();
+        frame->Release();
+        decoder->Release();
+        wicFactory->Release();
+        return false;
+    }
+
+    // Describe and create an immutable DX11 texture (mip generation is not handled here).
+    D3D11_TEXTURE2D_DESC desc = {};
+    desc.Width = width;
+    desc.Height = height;
+    desc.MipLevels = 1;
+    desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_IMMUTABLE;
+    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+    D3D11_SUBRESOURCE_DATA initData = {};
+    initData.pSysMem = pixels.data();
+    initData.SysMemPitch = width * 4;
+
+    ID3D11Texture2D* tex = nullptr;
+    hr = device->CreateTexture2D(&desc, &initData, &tex);
+    if (FAILED(hr) || (tex == nullptr))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] CreateTexture2D failed. HRESULT: 0x%08X", hr);
+        converter->Release();
+        frame->Release();
+        decoder->Release();
+        wicFactory->Release();
+        return false;
+    }
+
+    hr = device->CreateShaderResourceView(tex, nullptr, &textureSRV);
+    tex->Release();
+
+    // Release WIC resources.
+    converter->Release();
+    frame->Release();
+    decoder->Release();
+    wicFactory->Release();
+
+    if (FAILED(hr) || (textureSRV == nullptr))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] CreateShaderResourceView failed. HRESULT: 0x%08X", hr);
+        return false;
+    }
+
+#if defined(_DEBUG_MODEL_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[Texture] DX11 Texture loaded: " + path);
+#endif
+
+    return true;
+#else
+    // Non-DX11 platforms are not implemented here.
+    return false;
+#endif
 }
+
 
 // ==========================================================================================
 // CreateSolidColorTexture
@@ -163,18 +221,35 @@ bool Texture::LoadFromFile(const std::wstring& path) {
 // ==========================================================================================
 bool Texture::CreateSolidColorTexture(uint32_t width, uint32_t height, const XMFLOAT4& color)
 {
+    // Validate input dimensions.
     if (width == 0 || height == 0)
         return false;
 
-    // Create CPU-side color buffer
-    std::vector<uint8_t> textureData(width * height * 4); // 4 bytes per pixel (RGBA)
+#ifdef __USE_DIRECTX_11__
+    // Retrieve the renderer-owned device without taking ownership (no ComPtr::Attach).
+    ID3D11Device* device = static_cast<ID3D11Device*>(renderer->GetDevice());
+    if (device == nullptr)
+    {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[Texture] DX11: No device available for CreateSolidColorTexture");
+        return false;
+    }
 
-    uint8_t r = static_cast<uint8_t>(color.x * 255.0f);
-    uint8_t g = static_cast<uint8_t>(color.y * 255.0f);
-    uint8_t b = static_cast<uint8_t>(color.z * 255.0f);
-    uint8_t a = static_cast<uint8_t>(color.w * 255.0f);
+    // Reset previous SRV if reused.
+    if (textureSRV != nullptr)
+    {
+        textureSRV->Release();
+        textureSRV = nullptr;
+    }
 
-    for (uint32_t i = 0; i < width * height; ++i)
+    // Create CPU-side color buffer (RGBA8).
+    std::vector<uint8_t> textureData((size_t)width * (size_t)height * (size_t)4);
+
+    const uint8_t r = static_cast<uint8_t>(std::clamp(color.x, 0.0f, 1.0f) * 255.0f);
+    const uint8_t g = static_cast<uint8_t>(std::clamp(color.y, 0.0f, 1.0f) * 255.0f);
+    const uint8_t b = static_cast<uint8_t>(std::clamp(color.z, 0.0f, 1.0f) * 255.0f);
+    const uint8_t a = static_cast<uint8_t>(std::clamp(color.w, 0.0f, 1.0f) * 255.0f);
+
+    for (size_t i = 0; i < (size_t)width * (size_t)height; ++i)
     {
         textureData[i * 4 + 0] = r; // Red
         textureData[i * 4 + 1] = g; // Green
@@ -182,7 +257,7 @@ bool Texture::CreateSolidColorTexture(uint32_t width, uint32_t height, const XMF
         textureData[i * 4 + 3] = a; // Alpha
     }
 
-    // Describe texture
+    // Describe the GPU texture.
     D3D11_TEXTURE2D_DESC texDesc = {};
     texDesc.Width = width;
     texDesc.Height = height;
@@ -190,58 +265,109 @@ bool Texture::CreateSolidColorTexture(uint32_t width, uint32_t height, const XMF
     texDesc.ArraySize = 1;
     texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     texDesc.SampleDesc.Count = 1;
-    texDesc.Usage = D3D11_USAGE_DEFAULT;
+    texDesc.Usage = D3D11_USAGE_IMMUTABLE;
     texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 
+    // Provide initial data.
     D3D11_SUBRESOURCE_DATA initData = {};
     initData.pSysMem = textureData.data();
     initData.SysMemPitch = width * 4;
 
-    Microsoft::WRL::ComPtr<ID3D11Texture2D> texture2D;
-    // Retrieve our Device and Context from Renderer
-    ComPtr<ID3D11Device> device;
-    ComPtr<ID3D11DeviceContext> context;
-    device = static_cast<ID3D11Device*>(renderer->GetDevice());
-    context = static_cast<ID3D11DeviceContext*>(renderer->GetDeviceContext());
-
+    ID3D11Texture2D* texture2D = nullptr;
     HRESULT hr = device->CreateTexture2D(&texDesc, &initData, &texture2D);
-    if (FAILED(hr))
+    if (FAILED(hr) || (texture2D == nullptr))
     {
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] Failed to create solid color texture. HRESULT: 0x%08X", hr);
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] CreateTexture2D(solid) failed. HRESULT: 0x%08X", hr);
         return false;
     }
 
-    D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-    srvDesc.Format = texDesc.Format;
-    srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-    srvDesc.Texture2D.MipLevels = 1;
+    hr = device->CreateShaderResourceView(texture2D, nullptr, &textureSRV);
+    texture2D->Release();
 
-    hr = device->CreateShaderResourceView(texture2D.Get(), &srvDesc, &textureSRV);
-    if (FAILED(hr))
+    if (FAILED(hr) || (textureSRV == nullptr))
     {
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] Failed to create SRV for solid color texture. HRESULT: 0x%08X", hr);
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] CreateShaderResourceView(solid) failed. HRESULT: 0x%08X", hr);
         return false;
     }
 
     return true;
+#else
+    // Non-DX11 platforms are not implemented here.
+    return false;
+#endif
 }
+
 
 //==============================================================================
 // Model Class Implementation
 //==============================================================================
 
 // Constructor.
-Model::Model() : m_isLoaded(false), m_animationTime(0.0f) {
-    SecureZeroMemory(&m_modelInfo, sizeof(m_modelInfo));
-	m_modelInfo.name = L"";
+Model::Model() : m_isLoaded(false), m_animationTime(0.0f)
+{
+    // NOTE:
+    // Never clear complex C++ objects (std::vector, ComPtr, std::wstring, etc.) with SecureZeroMemory/memset.
+    // Doing so corrupts internal state and will eventually crash when vectors are used (e.g. push_back in GLTF texture binding).
 
-    // Explicitly initialize vectors to avoid uninitialized memory issues
-    m_modelInfo.vertices = std::vector<Vertex>();
-    m_modelInfo.indices = std::vector<uint32_t>();
-    m_modelInfo.tempPositions = std::vector<XMFLOAT3>();
-    m_modelInfo.tempNormals = std::vector<XMFLOAT3>();
-    m_modelInfo.tempTexCoords = std::vector<XMFLOAT2>();
+    // Initialize core state flags.
+    bInitialized = false;
+    bIsDestroyed = false;
+
+    // Initialize basic identifiers and naming.
+    m_modelInfo.ID = 0;
+    m_modelInfo.iParentModelID = -1;
+    m_modelInfo.name = L"";
+
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+    // Initialize transforms for DirectX render paths.
+    m_modelInfo.position = XMFLOAT3(0.0f, 0.0f, 0.0f);
+    m_modelInfo.scale = XMFLOAT3(0.01f, 0.01f, 0.01f);
+    m_modelInfo.rotation = XMFLOAT3(0.0f, 0.0f, 0.0f);
+    m_modelInfo.worldMatrix = XMMatrixIdentity();
+    m_modelInfo.viewMatrix = XMMatrixIdentity();
+    m_modelInfo.projectionMatrix = XMMatrixIdentity();
+    m_modelInfo.cameraPosition = XMFLOAT3(0.0f, 0.0f, 0.0f);
+#endif
+
+    // Ensure containers begin in a known, valid state.
+    m_modelInfo.vertices.clear();
+    m_modelInfo.indices.clear();
+    m_modelInfo.animationVertices.clear();
+    m_modelInfo.textures.clear();
+    m_modelInfo.localLights.clear();
+    m_modelInfo.gltfBinaryBuffer.clear();
+
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+    m_modelInfo.textureSRVs.clear();
+    m_modelInfo.normalMapSRVs.clear();
+    m_modelInfo.tempPositions.clear();
+    m_modelInfo.tempNormals.clear();
+    m_modelInfo.tempTexCoords.clear();
+    m_modelInfo.materials.clear();
+
+    // Reset PBR defaults.
+    m_modelInfo.metallic = 0.0f;
+    m_modelInfo.roughness = 0.5f;
+    m_modelInfo.reflectionStrength = 1.0f;
+    m_modelInfo.envIntensity = 1.0f;
+    m_modelInfo.envTint = XMFLOAT3(1.0f, 1.0f, 1.0f);
+    m_modelInfo.mipLODBias = 0.0f;
+    m_modelInfo.fresnel0 = 0.04f;
+    m_modelInfo.useMetallicMap = false;
+    m_modelInfo.useRoughnessMap = false;
+    m_modelInfo.useAOMap = false;
+    m_modelInfo.useEnvironmentMap = false;
+#endif
+
+    // Reset animation index.
+    m_modelInfo.iAnimationIndex = 0;
+
+#if defined(_DEBUG_MODEL_)
+    // Constructor debug output (Info only per project rules).
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[Model] Model() constructed.");
+#endif
 }
+
 
 // Destructor.
 Model::~Model() {
@@ -297,22 +423,22 @@ void Model::DestroyModel()
     // =========================================================
     // Release All DirectX GPU Resources
     // =========================================================
-    if (m_modelInfo.vertexBuffer) { m_modelInfo.vertexBuffer->Release(); }
-    if (m_modelInfo.indexBuffer) { m_modelInfo.indexBuffer->Release(); }
-    if (m_modelInfo.materialBuffer) { m_modelInfo.materialBuffer->Release(); }
-    if (m_modelInfo.lightConstantBuffer) { m_modelInfo.lightConstantBuffer->Release(); }
-    if (m_modelInfo.debugConstantBuffer) { m_modelInfo.debugConstantBuffer->Release(); }
+    if (m_modelInfo.vertexBuffer) { m_modelInfo.vertexBuffer.Reset(); }
+    if (m_modelInfo.indexBuffer) { m_modelInfo.indexBuffer.Reset(); }
+    if (m_modelInfo.materialBuffer) { m_modelInfo.materialBuffer.Reset(); }
+    if (m_modelInfo.lightConstantBuffer) { m_modelInfo.lightConstantBuffer.Reset(); }
+    if (m_modelInfo.debugConstantBuffer) { m_modelInfo.debugConstantBuffer.Reset(); }
 
     if (threadManager.threadVars.bIsShuttingDown.load())
     {
-        if (m_modelInfo.samplerState) { m_modelInfo.samplerState->Release(); }
-        if (m_modelInfo.environmentSamplerState) { m_modelInfo.environmentSamplerState->Release(); }
-        if (m_modelInfo.vertexShader) { m_modelInfo.vertexShader->Release(); }
-		if (m_modelInfo.pixelShader) { m_modelInfo.pixelShader->Release(); }
-		if (m_modelInfo.inputLayout) { m_modelInfo.inputLayout->Release(); }
-		if (m_modelInfo.vertexShaderBlob) { m_modelInfo.vertexShaderBlob->Release(); }
-		if (m_modelInfo.pixelShaderBlob) { m_modelInfo.pixelShaderBlob->Release(); }
-		if (m_modelInfo.constantBuffer) { m_modelInfo.constantBuffer->Release(); }
+        if (m_modelInfo.samplerState) { m_modelInfo.samplerState.Reset(); }
+        if (m_modelInfo.environmentSamplerState) { m_modelInfo.environmentSamplerState.Reset(); }
+        if (m_modelInfo.vertexShader) { m_modelInfo.vertexShader.Reset(); }
+        if (m_modelInfo.pixelShader) { m_modelInfo.pixelShader.Reset(); }
+        if (m_modelInfo.inputLayout) { m_modelInfo.inputLayout.Reset(); }
+        if (m_modelInfo.vertexShaderBlob) { m_modelInfo.vertexShaderBlob.Reset(); }
+        if (m_modelInfo.pixelShaderBlob) { m_modelInfo.pixelShaderBlob.Reset(); }
+        if (m_modelInfo.constantBuffer) { m_modelInfo.constantBuffer.Reset(); }
     }
 
     // =========================================================
@@ -320,10 +446,10 @@ void Model::DestroyModel()
     // =========================================================
     for (auto& srv : m_modelInfo.textures)
     {
-		srv.reset();
+        srv.reset();
     }
     m_modelInfo.textures.clear();
-	m_modelInfo.textures.shrink_to_fit();
+    m_modelInfo.textures.shrink_to_fit();
 
     for (auto& srv : m_modelInfo.textureSRVs)
     {
@@ -337,7 +463,7 @@ void Model::DestroyModel()
         if (srv) srv.Reset();
     }
     m_modelInfo.normalMapSRVs.clear();
-	m_modelInfo.normalMapSRVs.shrink_to_fit();
+    m_modelInfo.normalMapSRVs.shrink_to_fit();
 
     // =========================================================
     // Clear All Materials
@@ -350,8 +476,8 @@ void Model::DestroyModel()
     m_modelInfo.vertices.clear();
     m_modelInfo.indices.clear();
     m_modelInfo.tempPositions.clear();
-	m_modelInfo.tempNormals.clear();
-	m_modelInfo.tempTexCoords.clear();
+    m_modelInfo.tempNormals.clear();
+    m_modelInfo.tempTexCoords.clear();
     m_modelInfo.animationVertices.clear(); // If used for animations
 
     // =========================================================
@@ -372,22 +498,19 @@ void Model::DestroyModel()
     // Reset Lighting Information
     // =========================================================
     m_modelInfo.localLights.clear();
-	m_modelInfo.localLights.shrink_to_fit();
+    m_modelInfo.localLights.shrink_to_fit();
 
     m_modelInfo.fxActive = false;
     if (threadManager.threadVars.bIsResizing.load())
-	{
+    {
         ModelInfo newModelInfo;
         m_modelInfo = newModelInfo;                                     // Reset model info to default state
-		SecureZeroMemory(&m_modelInfo, sizeof(m_modelInfo));            // Clear the model info struct to avoid double destruction.
+        // NOTE: Do NOT SecureZeroMemory() ModelInfo. It contains std::vector and ComPtr members.
         m_modelInfo.name = L"";
-
-        // Explicitly initialize vectors to avoid uninitialized memory issues
-        m_modelInfo.vertices = std::vector<Vertex>();
-        m_modelInfo.indices = std::vector<uint32_t>();
-        m_modelInfo.tempPositions = std::vector<XMFLOAT3>();
-        m_modelInfo.tempNormals = std::vector<XMFLOAT3>();
-        m_modelInfo.tempTexCoords = std::vector<XMFLOAT2>();
+        m_modelInfo.ID = 0;
+        m_modelInfo.fxID = -1;
+        m_modelInfo.iAnimationIndex = 0;
+        m_modelInfo.fxActive = false;
     }
     else
     {
@@ -395,18 +518,31 @@ void Model::DestroyModel()
     }
 
     // =========================================================
-	// Reset Loaded State
-	// =========================================================
-	m_isLoaded = false;
+    // Reset Loaded State
+    // =========================================================
+    m_isLoaded = false;
     if (threadManager.threadVars.bIsShuttingDown.load())
     {
-		SecureZeroMemory(&m_modelInfo, sizeof(m_modelInfo));
-		m_modelInfo.name = L"";
-		m_modelInfo.ID = -1;
-		m_modelInfo.fxID = -1;
-		m_modelInfo.iAnimationIndex = -1;
-		m_modelInfo.fxActive = false;
-	}
+        // NOTE: Do NOT SecureZeroMemory() ModelInfo. It contains std::vector and ComPtr members.
+        // Reset critical identifiers and flags only.
+        m_modelInfo.name = L"";
+        m_modelInfo.ID = -1;
+        m_modelInfo.fxID = -1;
+        m_modelInfo.iAnimationIndex = -1;
+        m_modelInfo.fxActive = false;
+
+        // Clear container data safely.
+        m_modelInfo.vertices.clear();
+        m_modelInfo.indices.clear();
+        m_modelInfo.tempPositions.clear();
+        m_modelInfo.tempNormals.clear();
+        m_modelInfo.tempTexCoords.clear();
+        m_modelInfo.animationVertices.clear();
+        m_modelInfo.textures.clear();
+        m_modelInfo.textureSRVs.clear();
+        m_modelInfo.normalMapSRVs.clear();
+        m_modelInfo.localLights.clear();
+    }
 
 #if defined(_DEBUG_MODEL_)
     debug.logDebugMessage(LogLevel::LOG_INFO, L"[Model] DestroyModel() completed for model name: %hs", m_modelInfo.modelName.c_str());
@@ -583,24 +719,58 @@ bool Model::LoadMTL(const std::wstring& mtlPath)
 
 void Model::LoadFallbackTexture()
 {
+    // Lock all texture vector mutations for this model instance.
+    // This prevents cross-thread corruption (loader thread vs render thread).
+    std::string lockName = "model_texture_update_" + std::to_string(m_modelInfo.ID);
+    ThreadLockHelper lock(threadManager, lockName.c_str(), 5000);
+
     static std::shared_ptr<Texture> fallback;
 
     if (!fallback)
     {
         auto fileName = AssetsDir / L"bricks1.png";
-        if (!std::filesystem::exists(fileName)) {
+
+        if (!std::filesystem::exists(fileName))
+        {
             debug.logLevelMessage(LogLevel::LOG_ERROR, L"Missing fallback texture: " + fileName.wstring());
             return;
         }
 
         fallback = std::make_shared<Texture>();
-        fallback->LoadFromFile(fileName);           // provide a known good fallback
+
+        if (!fallback->LoadFromFile(fileName))
+        {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to load fallback texture: " + fileName.wstring());
+            fallback.reset();
+            return;
+        }
     }
 
+    // Prevent duplicate insertion if multiple code paths request fallback.
+    // This also avoids unbounded growth if Render() requests fallback repeatedly.
+    if (!m_modelInfo.textures.empty())
+    {
+        if (m_modelInfo.textures[0] == fallback)
+        {
+            // Ensure SRVs are also valid.
+            if (!m_modelInfo.textureSRVs.empty() && m_modelInfo.textureSRVs[0].Get() == fallback->GetSRV())
+            {
+                return;
+            }
+        }
+    }
+
+    // Ensure textures list has the fallback entry.
+    m_modelInfo.textures.clear();
     m_modelInfo.textures.push_back(fallback);
-    m_modelInfo.textureSRVs = std::vector<Microsoft::WRL::ComPtr<ID3D11ShaderResourceView>>();
+
+    // Reset SRVs safely under lock.
+    m_modelInfo.textureSRVs.clear();
+    m_modelInfo.textureSRVs.shrink_to_fit();
+    m_modelInfo.textureSRVs.reserve(1);
     m_modelInfo.textureSRVs.push_back(fallback->GetSRV());
 }
+
 
 //==============================================================================
 // Loads a model from a Wavefront OBJ file.
@@ -960,24 +1130,39 @@ void Model::SetPosition(XMFLOAT3 position)
 
 void Model::LoadFallbackNormalMap()
 {
+    // Lock all normal-map vector mutations for this model instance.
+    std::string lockName = "model_texture_update_" + std::to_string(m_modelInfo.ID);
+    ThreadLockHelper lock(threadManager, lockName.c_str(), 5000);
+
     static std::shared_ptr<Texture> flatNormal;
 
     if (!flatNormal)
     {
-        auto fileName = AssetsDir / L"flat_normal.png";  // Must exist!
-        if (!std::filesystem::exists(fileName)) {
+        auto fileName = AssetsDir / L"flat_normal.png";
+
+        if (!std::filesystem::exists(fileName))
+        {
             debug.logLevelMessage(LogLevel::LOG_ERROR, L"Missing fallback normal map: " + fileName.wstring());
             return;
         }
 
         flatNormal = std::make_shared<Texture>();
-        flatNormal->LoadFromFile(fileName);
+
+        if (!flatNormal->LoadFromFile(fileName))
+        {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to load fallback normal map: " + fileName.wstring());
+            flatNormal.reset();
+            return;
+        }
     }
 
-    // SAFELY Reset the normalMapSRVs and textureSRVs before fallback loading
-    m_modelInfo.normalMapSRVs = std::vector<Microsoft::WRL::ComPtr<ID3D11ShaderResourceView>>();
+    // Reset normal SRVs safely under lock.
+    m_modelInfo.normalMapSRVs.clear();
+    m_modelInfo.normalMapSRVs.shrink_to_fit();
+    m_modelInfo.normalMapSRVs.reserve(1);
     m_modelInfo.normalMapSRVs.push_back(flatNormal->GetSRV());
 }
+
 
 //==============================================================================
 // Restored SetupModelForRendering with shader setup and DX11 macro protection
@@ -1000,9 +1185,28 @@ bool Model::SetupModelForRendering(int ID)
 bool Model::SetupModelForRendering()
 {
 #ifdef __USE_DIRECTX_11__
+    // Prevent multiple threads from setting up the same model simultaneously.
+    bool expected = false;
+    if (!bIsSettingUpModel.compare_exchange_strong(expected, true))
+    {
+        #if defined(_DEBUG_MODEL_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[Model] SetupModelForRendering re-entry blocked for Model ID: %d", m_modelInfo.ID);
+        #endif
+        return false;
+    }
+
+    // Ensure the flag is always cleared when we exit this function.
+    struct SetupGuard
+    {
+        std::atomic<bool>* flag;
+        SetupGuard(std::atomic<bool>* f) : flag(f) {}
+        ~SetupGuard() { flag->store(false); }
+    } guard(&bIsSettingUpModel);
+
     std::shared_ptr<DX11Renderer> dx11;
 
-    if (!renderer) {
+    if (!renderer)
+    {
         debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID: %d Status: Invalid Renderer has been provided.)", m_modelInfo.ID, m_isLoaded);
         return false;
     }
@@ -1010,33 +1214,39 @@ bool Model::SetupModelForRendering()
     // Retrieve our Device and Context from Renderer
     ComPtr<ID3D11Device> device;
     ComPtr<ID3D11DeviceContext> context;
+
     device = static_cast<ID3D11Device*>(renderer->GetDevice());
     context = static_cast<ID3D11DeviceContext*>(renderer->GetDeviceContext());
+
     if (!device || !context)
     {
         debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID: %d Status: %d Failed to Setup (Device or Context could be NULL)", m_modelInfo.ID, m_isLoaded);
         return false;
     }
 
-    // If no SRVs were loaded, force a fallback so GPU doesn't crash
-    if (m_modelInfo.textureSRVs.empty()) {
-        debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID %d has no textures. Applying fallback texture.", m_modelInfo.ID);
-        LoadFallbackTexture(); // creates and assigns fallback to m_modelInfo.textureSRVs
+    // Lock texture updates while we potentially apply fallbacks.
+    {
+        std::string lockName = "model_texture_update_" + std::to_string(m_modelInfo.ID);
+        ThreadLockHelper lock(threadManager, lockName.c_str(), 5000);
+
+        // If no SRVs were loaded, force a fallback so GPU doesn't crash
+        if (m_modelInfo.textureSRVs.empty())
+        {
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID %d has no textures. Applying fallback texture.", m_modelInfo.ID);
+            LoadFallbackTexture();
+        }
+
+        // Ensure at least one normal map SRV exists to prevent GPU crash
+        if (m_modelInfo.normalMapSRVs.empty())
+        {
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID %d has no normal maps. Applying flat normal fallback.", m_modelInfo.ID);
+            LoadFallbackNormalMap();
+        }
     }
 
-    // Ensure at least one normal map SRV exists to prevent GPU crash
-    if (m_modelInfo.normalMapSRVs.empty()) {
-        debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID %d has no normal maps. Applying flat normal fallback.", m_modelInfo.ID);
-        LoadFallbackNormalMap();
-    }
-
-    //=== USE SHADER MANAGER INSTEAD OF DIRECT SHADER COMPILATION ===//
-    // The ShaderManager will handle all shader compilation and input layout creation
-    // This removes the need for manual shader compilation in the Model class
-
-#if defined(_DEBUG_MODEL_)
-    debug.logDebugMessage(LogLevel::LOG_INFO, L"[Model] Using ShaderManager for shader setup - no manual compilation needed.");
-#endif
+    #if defined(_DEBUG_MODEL_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[Model] Using ShaderManager for shader setup - no manual compilation needed.");
+    #endif
 
     //=== BUFFER SETUP ===//
     D3D11_BUFFER_DESC vbDesc = {};
@@ -1045,10 +1255,13 @@ bool Model::SetupModelForRendering()
     vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
 
     D3D11_SUBRESOURCE_DATA vbData = { m_modelInfo.vertices.data() };
-#if defined(_DEBUG_MODEL_)
-    debug.logDebugMessage(LogLevel::LOG_INFO, L"Vertex count: %d", (int)m_modelInfo.vertices.size());
-#endif
-    if (FAILED(device->CreateBuffer(&vbDesc, &vbData, &m_modelInfo.vertexBuffer))) {
+
+    #if defined(_DEBUG_MODEL_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"Vertex count: %d", (int)m_modelInfo.vertices.size());
+    #endif
+
+    if (FAILED(device->CreateBuffer(&vbDesc, &vbData, &m_modelInfo.vertexBuffer)))
+    {
         debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create vertex buffer for model ID: %d", m_modelInfo.ID);
         return false;
     }
@@ -1059,10 +1272,13 @@ bool Model::SetupModelForRendering()
     ibDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
 
     D3D11_SUBRESOURCE_DATA ibData = { m_modelInfo.indices.data() };
-#if defined(_DEBUG_MODEL_)
-    debug.logDebugMessage(LogLevel::LOG_INFO, L"Index count: %d", (int)m_modelInfo.indices.size());
-#endif
-    if (FAILED(device->CreateBuffer(&ibDesc, &ibData, &m_modelInfo.indexBuffer))) {
+
+    #if defined(_DEBUG_MODEL_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"Index count: %d", (int)m_modelInfo.indices.size());
+    #endif
+
+    if (FAILED(device->CreateBuffer(&ibDesc, &ibData, &m_modelInfo.indexBuffer)))
+    {
         debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create index buffer for model ID: %d", m_modelInfo.ID);
         return false;
     }
@@ -1073,7 +1289,9 @@ bool Model::SetupModelForRendering()
     cbDesc.Usage = D3D11_USAGE_DYNAMIC;
     cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-    if (FAILED(device->CreateBuffer(&cbDesc, nullptr, &m_modelInfo.constantBuffer))) {
+
+    if (FAILED(device->CreateBuffer(&cbDesc, nullptr, &m_modelInfo.constantBuffer)))
+    {
         debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create Constant Buffer for model ID: %d", m_modelInfo.ID);
         return false;
     }
@@ -1083,7 +1301,9 @@ bool Model::SetupModelForRendering()
     lightDesc.Usage = D3D11_USAGE_DYNAMIC;
     lightDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     lightDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-    if (FAILED(device->CreateBuffer(&lightDesc, nullptr, &m_modelInfo.lightConstantBuffer))) {
+
+    if (FAILED(device->CreateBuffer(&lightDesc, nullptr, &m_modelInfo.lightConstantBuffer)))
+    {
         debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create Light Buffer for model ID: %d", m_modelInfo.ID);
         return false;
     }
@@ -1093,7 +1313,9 @@ bool Model::SetupModelForRendering()
     matDesc.Usage = D3D11_USAGE_DYNAMIC;
     matDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     matDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-    if (FAILED(device->CreateBuffer(&matDesc, nullptr, m_modelInfo.materialBuffer.GetAddressOf()))) {
+
+    if (FAILED(device->CreateBuffer(&matDesc, nullptr, m_modelInfo.materialBuffer.GetAddressOf())))
+    {
         debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create Material Buffer for model ID: %d", m_modelInfo.ID);
         return false;
     }
@@ -1107,26 +1329,26 @@ bool Model::SetupModelForRendering()
     sampDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
     sampDesc.MinLOD = 0;
     sampDesc.MaxLOD = D3D11_FLOAT32_MAX;
-    if (FAILED(device->CreateSamplerState(&sampDesc, &m_modelInfo.samplerState))) {
+
+    if (FAILED(device->CreateSamplerState(&sampDesc, &m_modelInfo.samplerState)))
+    {
         debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create Sampler State for model ID: %d", m_modelInfo.ID);
         return false;
     }
 
     // Setup PBR resources
-    if (!SetupPBRResources()) {
+    if (!SetupPBRResources())
+    {
         debug.logDebugMessage(LogLevel::LOG_WARNING, L"Failed to setup PBR resources for model ID: %d", m_modelInfo.ID);
-        // Don't fail completely, PBR is optional
     }
-
-#if defined(_DEBUG_MODEL_)
-    debug.logDebugMessage(LogLevel::LOG_INFO, L"[Model] SetupModelForRendering() completed successfully for model ID: %d", m_modelInfo.ID);
-#endif
 
     return true;
 #else
+    debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"SetupModelForRendering: DirectX 11 is not enabled.");
     return false;
 #endif
 }
+
 
 // ============================================================================
 // UpdateModelLighting() - Pushes local lights to GPU constant buffer (b1)
@@ -1269,22 +1491,26 @@ void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
            deviceContext->PSSetConstantBuffers(SLOT_MATERIAL_BUFFER, 1, m_modelInfo.materialBuffer.GetAddressOf());
     }
 
-    // Apply fallback texture if missing
-    if (m_modelInfo.textureSRVs.empty()) {
+    std::string lockName = "model_texture_update_" + std::to_string(m_modelInfo.ID);
+    ThreadLockHelper lock(threadManager, lockName.c_str(), 5000);
+
+    if (m_modelInfo.textureSRVs.empty())
+    {
         #if defined(_DEBUG_MODEL_) && defined(_DEBUG)
             debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID %d has no textures. Applying fallback texture.", m_modelInfo.ID);
         #endif
         LoadFallbackTexture();
     }
 
-    if (m_modelInfo.normalMapSRVs.empty()) {
+    if (m_modelInfo.normalMapSRVs.empty())
+    {
         #if defined(_DEBUG_MODEL_) && defined(_DEBUG)
             debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID %d has no normal maps. Applying flat normal fallback.", m_modelInfo.ID);
         #endif
         LoadFallbackNormalMap();
     }
 
-    // Bind texture SRVs to pixel shader slots
+    // Bind texture SRVs to pixel shader slots (read under lock)
     ID3D11ShaderResourceView* texSRV = m_modelInfo.textureSRVs.empty() ? nullptr : m_modelInfo.textureSRVs[0].Get();
     ID3D11ShaderResourceView* normSRV = m_modelInfo.normalMapSRVs.empty() ? nullptr : m_modelInfo.normalMapSRVs[0].Get();
     ID3D11ShaderResourceView* metalMapSRV = m_modelInfo.metallicMapSRV ? nullptr : m_modelInfo.metallicMapSRV.Get();

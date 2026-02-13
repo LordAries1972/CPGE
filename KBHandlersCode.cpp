@@ -45,6 +45,7 @@ extern SceneManager scene;
 extern std::shared_ptr<Renderer> renderer;
 
 extern void SwitchToGameIntro();
+extern void StopMusicPlayback();
 
 void SetMyKeyUpHandler(KeyboardHandler& keyboard)
 { 
@@ -68,6 +69,7 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
                             std::this_thread::sleep_for(std::chrono::milliseconds(5));
                         }
 
+                        StopMusicPlayback();
                         SwitchToGameIntro(); // Switch to game intro scene
                         break;
                     }

@@ -1,6 +1,7 @@
 ﻿// SceneManager.cpp (continued)
 #include "Includes.h"
 #include "SceneManager.h"
+#include "ThreadLockHelper.h"
 #include "Renderer.h"
 #include "DX11Renderer.h"
 #include "DX_FXManager.h"
@@ -565,7 +566,8 @@ void SceneManager::ParseGLBNodeRecursive(const json& node, const XMMATRIX& paren
         {
             // Use the actual node name from GLB file
             std::string nodeName = node["name"];
-            modelName = std::wstring(nodeName.begin(), nodeName.end());
+            modelName = sysUtils.ToWString(nodeName);
+//            modelName = std::wstring(nodeName.begin(), nodeName.end());
             scene_models[instanceIndex].m_modelInfo.name = modelName;
             
             #if defined(_DEBUG_SCENEMANAGER_)
@@ -640,10 +642,37 @@ void SceneManager::ParseGLBNodeRecursive(const json& node, const XMMATRIX& paren
         scene_models[instanceIndex].CopyFrom(models[modelSlot]);
         scene_models[instanceIndex].m_modelInfo.worldMatrix = worldTransform;
 
-        // Copy texture and material data from the source model
         scene_models[instanceIndex].m_modelInfo.textures = models[modelSlot].m_modelInfo.textures;
         scene_models[instanceIndex].m_modelInfo.textureSRVs = models[modelSlot].m_modelInfo.textureSRVs;
         scene_models[instanceIndex].m_modelInfo.normalMapSRVs = models[modelSlot].m_modelInfo.normalMapSRVs;
+
+        // === CRITICAL FIX: Pre-allocate texture vectors AFTER copy to prevent reallocation ===
+        // Vector assignment copies SIZE not CAPACITY, so we must re-reserve on the scene_model
+        // Calculate based on number of primitives in the source mesh
+        if (doc.contains("meshes") && doc["meshes"].is_array())
+        {
+            const auto& meshes = doc["meshes"];
+            if (meshIndex >= 0 && meshIndex < (int)meshes.size())
+            {
+                const auto& mesh = meshes[meshIndex];
+                if (mesh.contains("primitives") && mesh["primitives"].is_array())
+                {
+                    size_t numPrimitives = mesh["primitives"].size();
+                    size_t maxTexturesNeeded = numPrimitives * 3;  // 3 textures per primitive max
+                    
+                    // Reserve capacity on the SCENE model's vectors (not the global model)
+                    scene_models[instanceIndex].m_modelInfo.textures.reserve(maxTexturesNeeded);
+                    scene_models[instanceIndex].m_modelInfo.textureSRVs.reserve(maxTexturesNeeded);
+                    scene_models[instanceIndex].m_modelInfo.normalMapSRVs.reserve(maxTexturesNeeded);
+                    
+                    #if defined(_DEBUG_SCENEMANAGER_)
+                        debug.logDebugMessage(LogLevel::LOG_INFO, 
+                            L"[SceneManager] Pre-allocated %d texture slots for scene_models[%d] (%d primitives)", 
+                            static_cast<int>(maxTexturesNeeded), instanceIndex, static_cast<int>(numPrimitives));
+                    #endif
+                }
+            }
+        }
 
         // Set parent-child relationship: -1 for parent models, parent's instanceIndex for children
         scene_models[instanceIndex].m_modelInfo.iParentModelID = parentModelID;
@@ -958,7 +987,8 @@ void SceneManager::ParseGLTFNodeRecursive(const json& node, const XMMATRIX& pare
         {
             // Use the actual node name from GLTF file
             std::string nodeName = node["name"];
-            modelName = std::wstring(nodeName.begin(), nodeName.end());
+            modelName = sysUtils.ToWString(nodeName);
+//            modelName = std::wstring(nodeName.begin(), nodeName.end());
             scene_models[instanceIndex].m_modelInfo.name = modelName;
             
             #if defined(_DEBUG_SCENEMANAGER_)
@@ -996,10 +1026,13 @@ void SceneManager::ParseGLTFNodeRecursive(const json& node, const XMMATRIX& pare
                 if (models[m].m_modelInfo.name.empty())
                 {
                     modelSlot = m;                                                  // Found empty slot for new model
-                    models[m].m_modelInfo.name = modelName;                        // Assign the model name
-                    models[m].m_modelInfo.ID = m;                                  // Set the model ID
-                    models[m].m_modelInfo.vertices.clear();                       // Clear any existing vertex data
-                    models[m].m_modelInfo.indices.clear();                        // Clear any existing index data
+                    models[m].m_modelInfo.name = modelName;                         // Assign the model name
+                    models[m].m_modelInfo.ID = m;                                   // Set the model ID
+                    models[m].m_modelInfo.vertices.clear();
+                    models[m].m_modelInfo.indices.clear();
+                    models[m].m_modelInfo.textures.clear();                         // Clear texture vectors too
+                    models[m].m_modelInfo.textureSRVs.clear();
+                    models[m].m_modelInfo.normalMapSRVs.clear();
 
                     // Load mesh geometry data using existing GLTF primitive loader
                     LoadGLTFMeshPrimitives(meshIndex, doc, models[m]);
@@ -1034,9 +1067,37 @@ void SceneManager::ParseGLTFNodeRecursive(const json& node, const XMMATRIX& pare
         scene_models[instanceIndex].m_modelInfo.worldMatrix = worldTransform;
 
         // Copy texture and material data from the source model
-        scene_models[instanceIndex].m_modelInfo.textures = models[modelSlot].m_modelInfo.textures;
-        scene_models[instanceIndex].m_modelInfo.textureSRVs = models[modelSlot].m_modelInfo.textureSRVs;
-        scene_models[instanceIndex].m_modelInfo.normalMapSRVs = models[modelSlot].m_modelInfo.normalMapSRVs;
+        //scene_models[instanceIndex].m_modelInfo.textures = models[modelSlot].m_modelInfo.textures;
+        //scene_models[instanceIndex].m_modelInfo.textureSRVs = models[modelSlot].m_modelInfo.textureSRVs;
+        //scene_models[instanceIndex].m_modelInfo.normalMapSRVs = models[modelSlot].m_modelInfo.normalMapSRVs;
+
+        // === CRITICAL FIX: Pre-allocate texture vectors AFTER copy to prevent reallocation ===
+        // Vector assignment copies SIZE not CAPACITY, so we must re-reserve on the scene_model
+        // Calculate based on number of primitives in the source mesh
+        if (doc.contains("meshes") && doc["meshes"].is_array())
+        {
+            const auto& meshes = doc["meshes"];
+            if (meshIndex >= 0 && meshIndex < (int)meshes.size())
+            {
+                const auto& mesh = meshes[meshIndex];
+                if (mesh.contains("primitives") && mesh["primitives"].is_array())
+                {
+                    size_t numPrimitives = mesh["primitives"].size();
+                    size_t maxTexturesNeeded = numPrimitives * 3;  // 3 textures per primitive max
+                    
+                    // Reserve capacity on the SCENE model's vectors (not the global model)
+                    scene_models[instanceIndex].m_modelInfo.textures.reserve(maxTexturesNeeded);
+                    scene_models[instanceIndex].m_modelInfo.textureSRVs.reserve(maxTexturesNeeded);
+                    scene_models[instanceIndex].m_modelInfo.normalMapSRVs.reserve(maxTexturesNeeded);
+                    
+                    #if defined(_DEBUG_SCENEMANAGER_)
+                        debug.logDebugMessage(LogLevel::LOG_INFO, 
+                            L"[SceneManager] Pre-allocated %d texture slots for scene_models[%d] (%d primitives)", 
+                            static_cast<int>(maxTexturesNeeded), instanceIndex, static_cast<int>(numPrimitives));
+                    #endif
+                }
+            }
+        }
 
         // Set parent-child relationship: -1 for parent models, parent's instanceIndex for children
         scene_models[instanceIndex].m_modelInfo.iParentModelID = parentModelID;
@@ -1127,7 +1188,9 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
         debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] gltfBinaryData size: %d bytes", static_cast<int>(gltfBinaryData.size()));
     #endif
 
-    if (!doc.contains("meshes") || !doc.contains("accessors") || !doc.contains("bufferViews")) {
+    // Validate required GLTF sections. (Prevents invalid JSON access.)
+    if (!doc.contains("meshes") || !doc.contains("accessors") || !doc.contains("bufferViews"))
+    {
         #if defined(_DEBUG_SCENEMANAGER_)
             debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] Missing required GLB sections: meshes, accessors, or bufferViews");
         #endif
@@ -1138,17 +1201,24 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
     const auto& accessors = doc["accessors"];
     const auto& bufferViews = doc["bufferViews"];
 
-    if (meshIndex < 0 || meshIndex >= static_cast<int>(meshes.size())) {
+    // Validate mesh index range. (Prevents out of range mesh selection.)
+    if (meshIndex < 0 || meshIndex >= static_cast<int>(meshes.size()))
+    {
         #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[SceneManager] Invalid mesh index: %d (max: %d)", 
-                meshIndex, static_cast<int>(meshes.size()));
+            debug.logDebugMessage(
+                LogLevel::LOG_ERROR,
+                L"[SceneManager] Invalid mesh index: %d (max: %d)",
+                meshIndex,
+                static_cast<int>(meshes.size()));
         #endif
         return;
     }
 
     const auto& mesh = meshes[meshIndex];
 
-    if (!mesh.contains("primitives")) {
+    // Validate primitives array. (No primitives means no geometry.)
+    if (!mesh.contains("primitives"))
+    {
         #if defined(_DEBUG_SCENEMANAGER_)
             debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] Mesh has no primitives array");
         #endif
@@ -1156,13 +1226,49 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
     }
 
     #if defined(_DEBUG_SCENEMANAGER_)
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Processing %d primitives", 
+        debug.logDebugMessage(
+            LogLevel::LOG_INFO,
+            L"[SceneManager] Processing %d primitives",
             static_cast<int>(mesh["primitives"].size()));
+    #endif
+
+    // Clear output arrays for this model. (Ensures no stale geometry remains.)
+    model.m_modelInfo.vertices.clear();
+    model.m_modelInfo.indices.clear();
+
+    // Validate binary buffer presence. (GLB must have data for accessors.)
+    if (gltfBinaryData.empty())
+    {
+        #if defined(_DEBUG_SCENEMANAGER_)
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[SceneManager] CRITICAL: gltfBinaryData is empty - cannot load vertex/index data!");
+        #endif
+        return;
+    }
+
+    // Pre-allocate texture vectors to prevent reallocations. (Keeps existing behavior.)
+    size_t numPrimitives = mesh["primitives"].size(); // Number of primitives to process.
+    size_t maxTexturesNeeded = numPrimitives * 3;     // Albedo + Normal + Fallback worst-case.
+
+    model.m_modelInfo.textures.clear();               // Clear textures list for this model instance.
+    model.m_modelInfo.textures.reserve(maxTexturesNeeded); // Reserve to avoid frequent reallocation.
+    model.m_modelInfo.textureSRVs.clear();            // Clear SRV list for this model instance.
+    model.m_modelInfo.textureSRVs.reserve(maxTexturesNeeded); // Reserve to match texture list.
+    model.m_modelInfo.normalMapSRVs.clear();          // Clear normal SRV list for this model instance.
+    model.m_modelInfo.normalMapSRVs.reserve(maxTexturesNeeded); // Reserve to match expected usage.
+
+    #if defined(_DEBUG_SCENEMANAGER_)
+        debug.logDebugMessage(
+            LogLevel::LOG_INFO,
+            L"[SceneManager] PRE-ALLOCATED %d texture slots on models[] array for %d primitives",
+            static_cast<int>(maxTexturesNeeded),
+            static_cast<int>(numPrimitives));
     #endif
 
     for (const auto& prim : mesh["primitives"])
     {
-        if (!prim.contains("attributes")) {
+        // Ensure primitive has attributes. (Required for POSITION and others.)
+        if (!prim.contains("attributes"))
+        {
             #if defined(_DEBUG_SCENEMANAGER_)
                 debug.logLevelMessage(LogLevel::LOG_WARNING, L"[SceneManager] Primitive missing attributes - skipping");
             #endif
@@ -1174,137 +1280,332 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
         int idxAccessor = prim.value("indices", -1);
 
         #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Position accessor: %d, Index accessor: %d", 
-                posAccessor, idxAccessor);
+            debug.logDebugMessage(
+                LogLevel::LOG_INFO,
+                L"[SceneManager] Position accessor: %d, Index accessor: %d",
+                posAccessor,
+                idxAccessor);
         #endif
 
-        if (posAccessor < 0 || posAccessor >= (int)accessors.size() || idxAccessor < 0 || idxAccessor >= (int)accessors.size()) {
+        // Validate accessor indices. (Prevents out-of-range JSON accessors.)
+        if (posAccessor < 0 || posAccessor >= (int)accessors.size() || idxAccessor < 0 || idxAccessor >= (int)accessors.size())
+        {
             #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[SceneManager] Invalid accessor indices - pos: %d, idx: %d (max: %d)", 
-                    posAccessor, idxAccessor, static_cast<int>(accessors.size()));
+                debug.logDebugMessage(
+                    LogLevel::LOG_ERROR,
+                    L"[SceneManager] Invalid accessor indices - pos: %d, idx: %d (max: %d)",
+                    posAccessor,
+                    idxAccessor,
+                    static_cast<int>(accessors.size()));
             #endif
             continue;
         }
 
-        // Verify binary data is available
-        if (gltfBinaryData.empty()) {
+        // -----------------------------
+        // Load RAW positions (float3)
+        // -----------------------------
+        const auto& posAcc = accessors[posAccessor];
+        int posViewIdx = posAcc.value("bufferView", -1);
+
+        // Validate bufferView index for positions.
+        if (posViewIdx < 0 || posViewIdx >= (int)bufferViews.size())
+        {
             #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] CRITICAL: gltfBinaryData is empty - cannot load vertex data!");
+                debug.logDebugMessage(
+                    LogLevel::LOG_ERROR,
+                    L"[SceneManager] Invalid position bufferView index: %d (max: %d)",
+                    posViewIdx,
+                    static_cast<int>(bufferViews.size()));
             #endif
-            return;
+            continue;
         }
 
-        // Load RAW vertices
-        const auto& posAcc = accessors[posAccessor];
-        int posViewIdx = posAcc["bufferView"];
-        size_t posOffset = bufferViews[posViewIdx].value("byteOffset", 0) + posAcc.value("byteOffset", 0);
-        int vertexCount = posAcc["count"];
+        size_t posOffset = (size_t)bufferViews[posViewIdx].value("byteOffset", 0) + (size_t)posAcc.value("byteOffset", 0);
+        int vertexCount = posAcc.value("count", 0);
+
+        // Validate vertexCount and buffer bounds for positions. (12 bytes per vertex for float3.)
+        if (vertexCount <= 0)
+        {
+            #if defined(_DEBUG_SCENEMANAGER_)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[SceneManager] POSITION accessor has zero vertices - skipping primitive");
+            #endif
+            continue;
+        }
+
+        const size_t posBytesNeeded = (size_t)vertexCount * (size_t)12; // float3
+        if (posOffset > gltfBinaryData.size() || (posOffset + posBytesNeeded) > gltfBinaryData.size())
+        {
+            #if defined(_DEBUG_SCENEMANAGER_)
+                debug.logDebugMessage(
+                    LogLevel::LOG_ERROR,
+                    L"[SceneManager] CRITICAL: Position data out of bounds. Offset=%d Needed=%d BufferSize=%d",
+                    static_cast<int>(posOffset),
+                    static_cast<int>(posBytesNeeded),
+                    static_cast<int>(gltfBinaryData.size()));
+            #endif
+            continue;
+        }
 
         #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Loading %d vertices from offset %d", 
-                vertexCount, static_cast<int>(posOffset));
-            
-            // Check if offset is within bounds
-            if (posOffset + (vertexCount * 12) > gltfBinaryData.size()) {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] CRITICAL: Position data extends beyond binary buffer!");
-                return;
-            }
+            debug.logDebugMessage(
+                LogLevel::LOG_INFO,
+                L"[SceneManager] Loading %d vertices from offset %d",
+                vertexCount,
+                static_cast<int>(posOffset));
         #endif
 
-        std::vector<Vertex> rawVertices(vertexCount);
+        std::vector<Vertex> rawVertices((size_t)vertexCount); // Allocate vertex container for this primitive.
+
+        // Decode float3 positions.
         for (int vi = 0; vi < vertexCount; ++vi)
         {
-            rawVertices[vi].position.x = *reinterpret_cast<const float*>(&gltfBinaryData[posOffset + vi * 12 + 0]);
-            rawVertices[vi].position.y = *reinterpret_cast<const float*>(&gltfBinaryData[posOffset + vi * 12 + 4]);
-            rawVertices[vi].position.z = *reinterpret_cast<const float*>(&gltfBinaryData[posOffset + vi * 12 + 8]);
-            rawVertices[vi].normal = XMFLOAT3(0, 1, 0);
-            rawVertices[vi].texCoord = XMFLOAT2(0, 0);
+            const size_t base = posOffset + (size_t)vi * (size_t)12; // Base byte offset for this vertex.
+            rawVertices[(size_t)vi].position.x = *reinterpret_cast<const float*>(&gltfBinaryData[base + 0]);
+            rawVertices[(size_t)vi].position.y = *reinterpret_cast<const float*>(&gltfBinaryData[base + 4]);
+            rawVertices[(size_t)vi].position.z = *reinterpret_cast<const float*>(&gltfBinaryData[base + 8]);
+            rawVertices[(size_t)vi].normal = XMFLOAT3(0, 1, 0);       // Default normal if none provided.
+            rawVertices[(size_t)vi].texCoord = XMFLOAT2(0, 0);        // Default UV if none provided.
         }
 
         #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] First vertex position: (%.3f, %.3f, %.3f)", 
-                rawVertices[0].position.x, rawVertices[0].position.y, rawVertices[0].position.z);
+            debug.logDebugMessage(
+                LogLevel::LOG_INFO,
+                L"[SceneManager] First vertex position: (%.3f, %.3f, %.3f)",
+                rawVertices[0].position.x,
+                rawVertices[0].position.y,
+                rawVertices[0].position.z);
         #endif
 
-        // Load NORMAL if present
+        // -----------------------------
+        // Load normals (float3) if present
+        // -----------------------------
         if (attributes.contains("NORMAL"))
         {
-            int normAcc = attributes["NORMAL"];
-            const auto& norm = accessors[normAcc];
-            int normView = norm["bufferView"];
-            size_t normOffset = bufferViews[normView].value("byteOffset", 0) + norm.value("byteOffset", 0);
-
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Loading normals from offset %d", 
-                    static_cast<int>(normOffset));
-            #endif
-
-            for (int vi = 0; vi < vertexCount; ++vi)
+            int normAccIdx = attributes.value("NORMAL", -1); // Normal accessor index.
+            if (normAccIdx >= 0 && normAccIdx < (int)accessors.size())
             {
-                rawVertices[vi].normal.x = *reinterpret_cast<const float*>(&gltfBinaryData[normOffset + vi * 12 + 0]);
-                rawVertices[vi].normal.y = *reinterpret_cast<const float*>(&gltfBinaryData[normOffset + vi * 12 + 4]);
-                rawVertices[vi].normal.z = *reinterpret_cast<const float*>(&gltfBinaryData[normOffset + vi * 12 + 8]);
+                const auto& normAcc = accessors[normAccIdx];
+                int normViewIdx = normAcc.value("bufferView", -1);
+
+                // Validate normal bufferView.
+                if (normViewIdx >= 0 && normViewIdx < (int)bufferViews.size())
+                {
+                    size_t normOffset = (size_t)bufferViews[normViewIdx].value("byteOffset", 0) + (size_t)normAcc.value("byteOffset", 0);
+                    const size_t normBytesNeeded = (size_t)vertexCount * (size_t)12; // float3 normals.
+
+                    // Validate bounds for normals.
+                    if (normOffset <= gltfBinaryData.size() && (normOffset + normBytesNeeded) <= gltfBinaryData.size())
+                    {
+                        #if defined(_DEBUG_SCENEMANAGER_)
+                            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Loading normals from offset %d", static_cast<int>(normOffset));
+                        #endif
+
+                        for (int vi = 0; vi < vertexCount; ++vi)
+                        {
+                            const size_t base = normOffset + (size_t)vi * (size_t)12; // Normal base offset.
+                            rawVertices[(size_t)vi].normal.x = *reinterpret_cast<const float*>(&gltfBinaryData[base + 0]);
+                            rawVertices[(size_t)vi].normal.y = *reinterpret_cast<const float*>(&gltfBinaryData[base + 4]);
+                            rawVertices[(size_t)vi].normal.z = *reinterpret_cast<const float*>(&gltfBinaryData[base + 8]);
+                        }
+                    }
+                    else
+                    {
+                        #if defined(_DEBUG_SCENEMANAGER_)
+                            debug.logDebugMessage(
+                                LogLevel::LOG_WARNING,
+                                L"[SceneManager] NORMAL data out of bounds. Offset=%d Needed=%d BufferSize=%d. Using default normals.",
+                                static_cast<int>(normOffset),
+                                static_cast<int>(normBytesNeeded),
+                                static_cast<int>(gltfBinaryData.size()));
+                        #endif
+                    }
+                }
+                else
+                {
+                    #if defined(_DEBUG_SCENEMANAGER_)
+                        debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] Invalid normal bufferView index: %d. Using default normals.", normViewIdx);
+                    #endif
+                }
             }
         }
 
-        // Load TEXCOORD if present
+        // -----------------------------
+        // Load UVs (float2) if present
+        // -----------------------------
         if (attributes.contains("TEXCOORD_0"))
         {
-            int texAcc = attributes["TEXCOORD_0"];
-            const auto& tex = accessors[texAcc];
-            int texView = tex["bufferView"];
-            size_t texOffset = bufferViews[texView].value("byteOffset", 0) + tex.value("byteOffset", 0);
-
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Loading texture coordinates from offset %d", 
-                    static_cast<int>(texOffset));
-            #endif
-
-            for (int vi = 0; vi < vertexCount; ++vi)
+            int texAccIdx = attributes.value("TEXCOORD_0", -1); // UV accessor index.
+            if (texAccIdx >= 0 && texAccIdx < (int)accessors.size())
             {
-                rawVertices[vi].texCoord.x = *reinterpret_cast<const float*>(&gltfBinaryData[texOffset + vi * 8 + 0]);
-                rawVertices[vi].texCoord.y = *reinterpret_cast<const float*>(&gltfBinaryData[texOffset + vi * 8 + 4]);
+                const auto& texAcc = accessors[texAccIdx];
+                int texViewIdx = texAcc.value("bufferView", -1);
+
+                // Validate UV bufferView.
+                if (texViewIdx >= 0 && texViewIdx < (int)bufferViews.size())
+                {
+                    size_t texOffset = (size_t)bufferViews[texViewIdx].value("byteOffset", 0) + (size_t)texAcc.value("byteOffset", 0);
+                    const size_t texBytesNeeded = (size_t)vertexCount * (size_t)8; // float2 uvs.
+
+                    // Validate bounds for UVs.
+                    if (texOffset <= gltfBinaryData.size() && (texOffset + texBytesNeeded) <= gltfBinaryData.size())
+                    {
+                        #if defined(_DEBUG_SCENEMANAGER_)
+                            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Loading texture coordinates from offset %d", static_cast<int>(texOffset));
+                        #endif
+
+                        for (int vi = 0; vi < vertexCount; ++vi)
+                        {
+                            const size_t base = texOffset + (size_t)vi * (size_t)8; // UV base offset.
+                            rawVertices[(size_t)vi].texCoord.x = *reinterpret_cast<const float*>(&gltfBinaryData[base + 0]);
+                            rawVertices[(size_t)vi].texCoord.y = *reinterpret_cast<const float*>(&gltfBinaryData[base + 4]);
+                        }
+                    }
+                    else
+                    {
+                        #if defined(_DEBUG_SCENEMANAGER_)
+                            debug.logDebugMessage(
+                                LogLevel::LOG_WARNING,
+                                L"[SceneManager] TEXCOORD_0 data out of bounds. Offset=%d Needed=%d BufferSize=%d. Using default UVs.",
+                                static_cast<int>(texOffset),
+                                static_cast<int>(texBytesNeeded),
+                                static_cast<int>(gltfBinaryData.size()));
+                        #endif
+                    }
+                }
             }
         }
 
-        // Load RAW indices
+        // -----------------------------
+        // Load indices (u8/u16/u32)
+        // -----------------------------
         const auto& idxAcc = accessors[idxAccessor];
-        int idxViewIdx = idxAcc["bufferView"];
-        int idxCount = idxAcc["count"];
-        int idxComponentType = idxAcc["componentType"];
-        size_t idxOffset = bufferViews[idxViewIdx].value("byteOffset", 0) + idxAcc.value("byteOffset", 0);
+        int idxViewIdx = idxAcc.value("bufferView", -1);
+
+        // Validate index bufferView before accessing.
+        if (idxViewIdx < 0 || idxViewIdx >= (int)bufferViews.size())
+        {
+            #if defined(_DEBUG_SCENEMANAGER_)
+                debug.logDebugMessage(
+                    LogLevel::LOG_ERROR,
+                    L"[SceneManager] Invalid index bufferView index: %d (max: %d)",
+                    idxViewIdx,
+                    static_cast<int>(bufferViews.size()) - 1);
+            #endif
+            continue;
+        }
+
+        int idxCount = idxAcc.value("count", 0);                 // Number of indices.
+        int idxComponentType = idxAcc.value("componentType", 0); // GLTF component type.
+        size_t idxOffset = (size_t)bufferViews[idxViewIdx].value("byteOffset", 0) + (size_t)idxAcc.value("byteOffset", 0);
+
+        // Validate idxCount.
+        if (idxCount <= 0)
+        {
+            #if defined(_DEBUG_SCENEMANAGER_)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[SceneManager] Indices accessor has zero indices - skipping primitive");
+            #endif
+            continue;
+        }
+
+        // Determine index stride in bytes.
+        size_t bytesPerIndex = 0; // Byte size per index based on component type.
+        if (idxComponentType == 5121) bytesPerIndex = 1; // UNSIGNED_BYTE
+        if (idxComponentType == 5123) bytesPerIndex = 2; // UNSIGNED_SHORT
+        if (idxComponentType == 5125) bytesPerIndex = 4; // UNSIGNED_INT
+
+        // Reject unsupported component types.
+        if (bytesPerIndex == 0)
+        {
+            #if defined(_DEBUG_SCENEMANAGER_)
+                debug.logDebugMessage(
+                    LogLevel::LOG_ERROR,
+                    L"[SceneManager] Unsupported index componentType: %d - skipping primitive",
+                    idxComponentType);
+            #endif
+            continue;
+        }
+
+        const size_t idxBytesNeeded = (size_t)idxCount * bytesPerIndex; // Total bytes needed for indices.
+
+        // Validate index data bounds.
+        if (idxOffset > gltfBinaryData.size() || (idxOffset + idxBytesNeeded) > gltfBinaryData.size())
+        {
+            #if defined(_DEBUG_SCENEMANAGER_)
+                debug.logDebugMessage(
+                    LogLevel::LOG_ERROR,
+                    L"[SceneManager] CRITICAL: Index data out of bounds. Offset=%d Needed=%d BufferSize=%d - skipping primitive",
+                    static_cast<int>(idxOffset),
+                    static_cast<int>(idxBytesNeeded),
+                    static_cast<int>(gltfBinaryData.size()));
+            #endif
+            continue;
+        }
 
         #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Loading %d indices from offset %d (component type: %d)", 
-                idxCount, static_cast<int>(idxOffset), idxComponentType);
+            debug.logDebugMessage(
+                LogLevel::LOG_INFO,
+                L"[SceneManager] Loading %d indices from offset %d (component type: %d)",
+                idxCount,
+                static_cast<int>(idxOffset),
+                idxComponentType);
         #endif
 
-        std::vector<uint32_t> rawIndices(idxCount);
+        std::vector<uint32_t> rawIndices((size_t)idxCount); // Index buffer for this primitive.
 
+        // Decode indices to uint32_t.
         for (int k = 0; k < idxCount; ++k)
         {
-            switch (idxComponentType)
-            {
-            case 5121: rawIndices[k] = gltfBinaryData[idxOffset + k]; break; // UNSIGNED_BYTE
-            case 5123: rawIndices[k] = *reinterpret_cast<const uint16_t*>(&gltfBinaryData[idxOffset + k * 2]); break; // UNSIGNED_SHORT
-            case 5125: rawIndices[k] = *reinterpret_cast<const uint32_t*>(&gltfBinaryData[idxOffset + k * 4]); break; // UNSIGNED_INT
-            }
+            const size_t base = idxOffset + (size_t)k * bytesPerIndex; // Base offset for current index.
+            if (idxComponentType == 5121) rawIndices[(size_t)k] = (uint32_t)gltfBinaryData[base];
+            if (idxComponentType == 5123) rawIndices[(size_t)k] = (uint32_t)(*reinterpret_cast<const uint16_t*>(&gltfBinaryData[base]));
+            if (idxComponentType == 5125) rawIndices[(size_t)k] = (uint32_t)(*reinterpret_cast<const uint32_t*>(&gltfBinaryData[base]));
         }
 
         #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Raw data loaded - vertices: %d, indices: %d", 
-                static_cast<int>(rawVertices.size()), static_cast<int>(rawIndices.size()));
+            debug.logDebugMessage(
+                LogLevel::LOG_INFO,
+                L"[SceneManager] Raw data loaded - vertices: %d, indices: %d",
+                static_cast<int>(rawVertices.size()),
+                static_cast<int>(rawIndices.size()));
         #endif
 
-        // === Weld vertices (existing code continues...)
+        // -----------------------------
+        // Validate indices against vertex count (CRITICAL)
+        // -----------------------------
+        bool hasInvalidIndex = false; // Tracks whether this primitive references invalid vertices.
+        uint32_t maxIndexSeen = 0;     // Tracks the maximum index value seen for debug output.
+
+        for (size_t i = 0; i < rawIndices.size(); ++i)
+        {
+            const uint32_t idx = rawIndices[i]; // Index value.
+            if (idx > maxIndexSeen) maxIndexSeen = idx; // Track maximum index.
+            if ((size_t)idx >= rawVertices.size()) hasInvalidIndex = true; // Detect out-of-range index.
+        }
+
+        if (hasInvalidIndex)
+        {
+            #if defined(_DEBUG_SCENEMANAGER_)
+                debug.logDebugMessage(
+                    LogLevel::LOG_ERROR,
+                    L"[SceneManager] CRITICAL: Primitive has out-of-range indices. MaxIndex=%d VertexCount=%d - skipping primitive to prevent heap corruption",
+                    static_cast<int>(maxIndexSeen),
+                    static_cast<int>(rawVertices.size()));
+            #endif
+            continue;
+        }
+
+        // -----------------------------
+        // Weld vertices (safe, since indices are validated)
+        // -----------------------------
         struct VertexKey
         {
-            XMFLOAT3 pos, norm;
-            XMFLOAT2 uv;
+            XMFLOAT3 pos;  // Position component for hashing.
+            XMFLOAT3 norm; // Normal component for hashing.
+            XMFLOAT2 uv;   // UV component for hashing.
 
             bool operator==(const VertexKey& other) const
             {
-                return memcmp(this, &other, sizeof(VertexKey)) == 0;
+                return memcmp(this, &other, sizeof(VertexKey)) == 0; // Bitwise compare for exact match.
             }
         };
 
@@ -1312,97 +1613,113 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
         {
             size_t operator()(const VertexKey& key) const
             {
-                size_t h1 = std::hash<float>()(key.pos.x) ^ std::hash<float>()(key.pos.y) ^ std::hash<float>()(key.pos.z);
-                size_t h2 = std::hash<float>()(key.norm.x) ^ std::hash<float>()(key.norm.y) ^ std::hash<float>()(key.norm.z);
-                size_t h3 = std::hash<float>()(key.uv.x) ^ std::hash<float>()(key.uv.y);
-                return h1 ^ h2 ^ h3;
+                size_t h1 = std::hash<float>()(key.pos.x) ^ std::hash<float>()(key.pos.y) ^ std::hash<float>()(key.pos.z); // Hash position.
+                size_t h2 = std::hash<float>()(key.norm.x) ^ std::hash<float>()(key.norm.y) ^ std::hash<float>()(key.norm.z); // Hash normal.
+                size_t h3 = std::hash<float>()(key.uv.x) ^ std::hash<float>()(key.uv.y); // Hash uv.
+                return h1 ^ h2 ^ h3; // Combine hashes.
             }
         };
 
-        std::unordered_map<VertexKey, uint32_t, VertexKeyHasher> uniqueVerts;
-        model.m_modelInfo.vertices.clear();
-        model.m_modelInfo.indices.clear();
+        std::unordered_map<VertexKey, uint32_t, VertexKeyHasher> uniqueVerts; // Tracks unique vertex mapping.
 
-        for (auto idx : rawIndices)
+        for (size_t ii = 0; ii < rawIndices.size(); ++ii)
         {
-            const Vertex& v = rawVertices[idx];
-            VertexKey key{ v.position, v.normal, v.texCoord };
+            const uint32_t idx = rawIndices[ii];        // Validated index.
+            const Vertex& v = rawVertices[(size_t)idx]; // Safe vertex fetch.
+            VertexKey key;                               // Vertex key for hashing.
+            key.pos = v.position;                        // Copy position.
+            key.norm = v.normal;                         // Copy normal.
+            key.uv = v.texCoord;                         // Copy uv.
 
-            auto it = uniqueVerts.find(key);
+            auto it = uniqueVerts.find(key);             // Find existing vertex mapping.
             if (it != uniqueVerts.end())
             {
-                model.m_modelInfo.indices.push_back(it->second);
+                model.m_modelInfo.indices.push_back(it->second); // Reuse existing welded index.
             }
             else
             {
-                uint32_t newIndex = static_cast<uint32_t>(model.m_modelInfo.vertices.size());
-                uniqueVerts[key] = newIndex;
-                model.m_modelInfo.vertices.push_back(v);
-                model.m_modelInfo.indices.push_back(newIndex);
+                uint32_t newIndex = static_cast<uint32_t>(model.m_modelInfo.vertices.size()); // New welded index.
+                uniqueVerts[key] = newIndex;               // Store mapping.
+                model.m_modelInfo.vertices.push_back(v);   // Store unique vertex.
+                model.m_modelInfo.indices.push_back(newIndex); // Store index.
             }
         }
 
         #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] After welding - Final vertices: %d, Final indices: %d", 
-                static_cast<int>(model.m_modelInfo.vertices.size()), static_cast<int>(model.m_modelInfo.indices.size()));
+            debug.logDebugMessage(
+                LogLevel::LOG_INFO,
+                L"[SceneManager] After welding - Final vertices: %d, Final indices: %d",
+                static_cast<int>(model.m_modelInfo.vertices.size()),
+                static_cast<int>(model.m_modelInfo.indices.size()));
         #endif
 
-        // === Generate Tangents if TEXCOORDs present
-        if (!model.m_modelInfo.vertices.empty() && !model.m_modelInfo.indices.empty())
+        // -----------------------------
+        // Generate Tangents (requires triangle list)
+        // -----------------------------
+        if (!model.m_modelInfo.vertices.empty() && model.m_modelInfo.indices.size() >= 3)
         {
-            std::vector<XMFLOAT3> tangentAccum(model.m_modelInfo.vertices.size(), XMFLOAT3(0, 0, 0));
+            // Ensure we do not walk beyond the index array if it is not a multiple of 3.
+            const size_t triLimit = (model.m_modelInfo.indices.size() / 3) * 3; // Largest multiple of 3.
 
-            for (size_t i = 0; i < model.m_modelInfo.indices.size(); i += 3)
+            std::vector<XMFLOAT3> tangentAccum(model.m_modelInfo.vertices.size(), XMFLOAT3(0, 0, 0)); // Accumulator array.
+
+            for (size_t i = 0; i < triLimit; i += 3)
             {
-                uint32_t i0 = model.m_modelInfo.indices[i];
-                uint32_t i1 = model.m_modelInfo.indices[i + 1];
-                uint32_t i2 = model.m_modelInfo.indices[i + 2];
+                uint32_t i0 = model.m_modelInfo.indices[i + 0]; // Triangle index 0.
+                uint32_t i1 = model.m_modelInfo.indices[i + 1]; // Triangle index 1.
+                uint32_t i2 = model.m_modelInfo.indices[i + 2]; // Triangle index 2.
 
-                const Vertex& v0 = model.m_modelInfo.vertices[i0];
-                const Vertex& v1 = model.m_modelInfo.vertices[i1];
-                const Vertex& v2 = model.m_modelInfo.vertices[i2];
+                // Validate triangle indices into vertex array (defensive).
+                if ((size_t)i0 >= model.m_modelInfo.vertices.size()) continue; // Skip invalid triangle.
+                if ((size_t)i1 >= model.m_modelInfo.vertices.size()) continue; // Skip invalid triangle.
+                if ((size_t)i2 >= model.m_modelInfo.vertices.size()) continue; // Skip invalid triangle.
 
-                XMVECTOR p0 = XMLoadFloat3(&v0.position);
-                XMVECTOR p1 = XMLoadFloat3(&v1.position);
-                XMVECTOR p2 = XMLoadFloat3(&v2.position);
+                const Vertex& v0 = model.m_modelInfo.vertices[(size_t)i0]; // Vertex 0.
+                const Vertex& v1 = model.m_modelInfo.vertices[(size_t)i1]; // Vertex 1.
+                const Vertex& v2 = model.m_modelInfo.vertices[(size_t)i2]; // Vertex 2.
 
-                float du1 = v1.texCoord.x - v0.texCoord.x;
-                float dv1 = v1.texCoord.y - v0.texCoord.y;
-                float du2 = v2.texCoord.x - v0.texCoord.x;
-                float dv2 = v2.texCoord.y - v0.texCoord.y;
+                XMVECTOR p0 = XMLoadFloat3(&v0.position); // Load position 0.
+                XMVECTOR p1 = XMLoadFloat3(&v1.position); // Load position 1.
+                XMVECTOR p2 = XMLoadFloat3(&v2.position); // Load position 2.
 
-                XMVECTOR deltaPos1 = p1 - p0;
-                XMVECTOR deltaPos2 = p2 - p0;
+                float du1 = v1.texCoord.x - v0.texCoord.x; // Delta u for edge 0->1.
+                float dv1 = v1.texCoord.y - v0.texCoord.y; // Delta v for edge 0->1.
+                float du2 = v2.texCoord.x - v0.texCoord.x; // Delta u for edge 0->2.
+                float dv2 = v2.texCoord.y - v0.texCoord.y; // Delta v for edge 0->2.
 
-                float r = (du1 * dv2 - du2 * dv1);
-                r = (fabs(r) < 1e-8f) ? 1.0f : 1.0f / r;
+                XMVECTOR deltaPos1 = p1 - p0;              // Position delta 0->1.
+                XMVECTOR deltaPos2 = p2 - p0;              // Position delta 0->2.
 
-                XMVECTOR tangent = (deltaPos1 * dv2 - deltaPos2 * dv1) * r;
+                float r = (du1 * dv2 - du2 * dv1);         // Compute determinant.
+                r = (fabs(r) < 1e-8f) ? 1.0f : 1.0f / r;   // Prevent divide-by-zero.
 
-                XMFLOAT3 tan;
-                XMStoreFloat3(&tan, tangent);
+                XMVECTOR tangent = (deltaPos1 * dv2 - deltaPos2 * dv1) * r; // Tangent direction.
 
-                tangentAccum[i0].x += tan.x; tangentAccum[i0].y += tan.y; tangentAccum[i0].z += tan.z;
-                tangentAccum[i1].x += tan.x; tangentAccum[i1].y += tan.y; tangentAccum[i1].z += tan.z;
-                tangentAccum[i2].x += tan.x; tangentAccum[i2].y += tan.y; tangentAccum[i2].z += tan.z;
+                XMFLOAT3 tan;                               // Temporary tangent storage.
+                XMStoreFloat3(&tan, tangent);               // Store tangent vector.
+
+                tangentAccum[(size_t)i0].x += tan.x; tangentAccum[(size_t)i0].y += tan.y; tangentAccum[(size_t)i0].z += tan.z; // Accumulate.
+                tangentAccum[(size_t)i1].x += tan.x; tangentAccum[(size_t)i1].y += tan.y; tangentAccum[(size_t)i1].z += tan.z; // Accumulate.
+                tangentAccum[(size_t)i2].x += tan.x; tangentAccum[(size_t)i2].y += tan.y; tangentAccum[(size_t)i2].z += tan.z; // Accumulate.
             }
 
             for (size_t i = 0; i < model.m_modelInfo.vertices.size(); ++i)
             {
-                XMVECTOR tan = XMLoadFloat3(&tangentAccum[i]);
-                tan = XMVector3Normalize(tan);
-                XMStoreFloat3(&model.m_modelInfo.vertices[i].tangent, tan);
+                XMVECTOR tan = XMLoadFloat3(&tangentAccum[i]); // Load accumulated tangent.
+                tan = XMVector3Normalize(tan);                 // Normalize tangent.
+                XMStoreFloat3(&model.m_modelInfo.vertices[i].tangent, tan); // Store to vertex.
             }
         }
 
-        // Handle material if available
+        // Handle material if available. (This now runs after safe geometry processing.)
         if (prim.contains("material"))
         {
-            int matIndex = prim["material"];
-            BindGLTFMaterialTexturesToModel(matIndex, model.m_modelInfo, model, doc);
+            int matIndex = prim.value("material", -1); // Material index for this primitive.
+            BindGLTFMaterialTexturesToModel(matIndex, model.m_modelInfo, model, doc); // Bind textures/material into model.
         }
     }
 }
+
 
 // --------------------------------------------------------------------------------------------------
 XMMATRIX SceneManager::GetNodeWorldMatrix(const json& node)
@@ -2272,10 +2589,6 @@ void SceneManager::UpdateSceneAnimations(float deltaTime)
 // --------------------------------------------------------------------------------------------------
 int SceneManager::FindParentModelID(const std::wstring& modelName)
 {
-    #if defined(_DEBUG_SCENEMANAGER_)
-        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[SceneManager] FindParentModelID() searching for model: \"%ls\"", modelName.c_str());
-    #endif
-
     // Search through all scene models to find the specified model name
     for (int i = 0; i < MAX_SCENE_MODELS; ++i)
     {
@@ -2285,12 +2598,6 @@ int SceneManager::FindParentModelID(const std::wstring& modelName)
         {
             // Found the model, return its parent ID
             int parentID = i;
-            
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[SceneManager] Found Parent Model \"%ls\" at Index: %d", 
-                    modelName.c_str(), i);
-            #endif
-            
             return parentID;
         }
     }

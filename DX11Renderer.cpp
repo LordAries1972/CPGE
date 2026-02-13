@@ -1287,7 +1287,7 @@ void DX11Renderer::DrawVideoFrame(const Vector2& position, const Vector2& size, 
 bool DX11Renderer::Resize(uint32_t width, uint32_t height)
 {
     // Acquire comprehensive resize lock to prevent conflicts
-    ThreadLockHelper comprehensiveResizeLock(threadManager, "comprehensive_resize_lock", 10000);
+    ThreadLockHelper comprehensiveResizeLock(threadManager, "comprehensive_resize_lock", 5000);
     if (!comprehensiveResizeLock.IsLocked()) {
         #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
             debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RESIZE] Could not acquire comprehensive resize lock - aborting resize operation");
@@ -1308,8 +1308,8 @@ bool DX11Renderer::Resize(uint32_t width, uint32_t height)
     }
 
     // Save current dimensions for comparison
-    UINT oldWidth = iOrigWidth;                                         // Store previous width
-    UINT oldHeight = iOrigHeight;                                       // Store previous height
+    UINT oldWidth = iOrigWidth;                                         
+    UINT oldHeight = iOrigHeight;                                       
 
     // Validate new dimensions are reasonable
     if (width < 320 || height < 240 || width > 4096 || height > 4096) {
@@ -1341,17 +1341,19 @@ bool DX11Renderer::Resize(uint32_t width, uint32_t height)
     }
 
     try {
-        // STEP 1: Ensure all GPU operations are complete
+        // Ensure all GPU operations are complete
         #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
             debug.logLevelMessage(LogLevel::LOG_INFO, L"[RESIZE] Step 1: Ensuring GPU operations complete");
         #endif
 
         if (m_d3dContext) {
-            m_d3dContext->Flush();                                      // Flush all pending DirectX commands
-            WaitForGPUToFinish();                                       // Wait for GPU to complete all operations
+            // Flush all pending DirectX commands
+            m_d3dContext->Flush();                                      
+            // Wait for GPU to complete all operations
+            WaitForGPUToFinish();                                       
         }
 
-        // STEP 2: Clear all Direct2D references that might hold swap chain buffers
+        // Clear all Direct2D references that might hold swap chain buffers
         #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
             debug.logLevelMessage(LogLevel::LOG_INFO, L"[RESIZE] Step 2: Releasing Direct2D references");
         #endif
@@ -1361,18 +1363,18 @@ bool DX11Renderer::Resize(uint32_t width, uint32_t height)
             m_d2dContext->Flush();                                      // Flush Direct2D operations
         }
 
-        // STEP 3: Release all Direct2D resources that reference the swap chain
+        // Release all Direct2D resources that reference the swap chain
         m_d2dRenderTarget.Reset();                                      // Release Direct2D render target
         m_d2dContext.Reset();                                           // Release Direct2D context
         dxgiSurface.Reset();                                            // Release DXGI surface
 
-        // STEP 4: Clean up all 2D textures to free memory references
+        // Clean up all 2D textures to free memory references
         #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
             debug.logLevelMessage(LogLevel::LOG_INFO, L"[RESIZE] Step 4: Cleaning 2D textures");
         #endif
         Clean2DTextures();                                              // Release all 2D texture references
 
-        // STEP 5: Release Direct3D render targets and depth buffers
+        // Release Direct3D render targets and depth buffers
         #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
             debug.logLevelMessage(LogLevel::LOG_INFO, L"[RESIZE] Step 5: Releasing Direct3D render targets");
         #endif
@@ -1386,7 +1388,7 @@ bool DX11Renderer::Resize(uint32_t width, uint32_t height)
         m_depthStencilView.Reset();                                     // Release depth stencil view
         m_depthStencilBuffer.Reset();                                   // Release depth stencil buffer
 
-        // STEP 6: Additional context cleanup to ensure no buffer references remain
+        // Additional context cleanup to ensure no buffer references remain
         #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
             debug.logLevelMessage(LogLevel::LOG_INFO, L"[RESIZE] Step 6: Final context cleanup");
         #endif
@@ -1409,7 +1411,7 @@ bool DX11Renderer::Resize(uint32_t width, uint32_t height)
             m_d3dContext->Flush();                                      // Final flush of all operations
         }
 
-        // STEP 7: Perform the actual swap chain resize
+        // Perform the actual swap chain resize
         #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
             debug.logDebugMessage(LogLevel::LOG_INFO, L"[RESIZE] Step 7: Resizing swap chain buffers to %dx%d", width, height);
         #endif
@@ -1422,7 +1424,7 @@ bool DX11Renderer::Resize(uint32_t width, uint32_t height)
             throw std::runtime_error("DirectX ResizeBuffers operation failed");
         }
 
-        // STEP 8: Recreate render target view from new back buffer
+        // Recreate render target view from new back buffer
         #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
             debug.logLevelMessage(LogLevel::LOG_INFO, L"[RESIZE] Step 8: Recreating render target view");
         #endif
@@ -1444,7 +1446,7 @@ bool DX11Renderer::Resize(uint32_t width, uint32_t height)
             throw std::runtime_error("Failed to create new render target view");
         }
 
-        // STEP 9: Recreate depth stencil buffer with new dimensions
+        // Recreate depth stencil buffer with new dimensions
         #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
             debug.logLevelMessage(LogLevel::LOG_INFO, L"[RESIZE] Step 9: Recreating depth stencil buffer");
         #endif
@@ -1476,7 +1478,7 @@ bool DX11Renderer::Resize(uint32_t width, uint32_t height)
             throw std::runtime_error("Failed to create new depth stencil view");
         }
 
-        // STEP 10: Update viewport to match new dimensions
+        // Update viewport to match new dimensions
         #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
             debug.logLevelMessage(LogLevel::LOG_INFO, L"[RESIZE] Step 10: Updating viewport");
         #endif
@@ -1490,14 +1492,14 @@ bool DX11Renderer::Resize(uint32_t width, uint32_t height)
         vp.TopLeftY = 0;                                                // Viewport Y origin
         m_d3dContext->RSSetViewports(1, &vp);                           // Apply new viewport
 
-        // STEP 11: Bind new render targets to output merger
+        // Bind new render targets to output merger
         #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
             debug.logLevelMessage(LogLevel::LOG_INFO, L"[RESIZE] Step 11: Binding new render targets");
         #endif
 
         m_d3dContext->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
 
-        // STEP 12: Update internal dimension tracking
+        // Update internal dimension tracking
         iOrigWidth = width;                                             // Update internal width
         iOrigHeight = height;                                           // Update internal height
 
@@ -1507,7 +1509,7 @@ bool DX11Renderer::Resize(uint32_t width, uint32_t height)
         m_renderTargetSampleCount = 1;                                  // Store sample count
         m_renderTargetSampleQuality = 0;                                // Store sample quality
 
-        // STEP 13: Update camera projection for new aspect ratio
+        // Update camera projection for new aspect ratio
         #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
             debug.logLevelMessage(LogLevel::LOG_INFO, L"[RESIZE] Step 13: Updating camera projection for new aspect ratio");
         #endif
@@ -1522,7 +1524,7 @@ bool DX11Renderer::Resize(uint32_t width, uint32_t height)
             debug.logDebugMessage(LogLevel::LOG_INFO, L"[RESIZE] Camera updated - New aspect ratio: %.3f", newAspectRatio);
         #endif
 
-        // STEP 14: Recreate Direct2D resources
+        // Recreate Direct2D resources
         #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
             debug.logLevelMessage(LogLevel::LOG_INFO, L"[RESIZE] Step 14: Recreating Direct2D resources");
         #endif

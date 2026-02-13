@@ -76,7 +76,7 @@ typedef struct {
     DWORD dwReserved2;
 } DDS_HEADER;
 
-struct AvailModes {										                        // Details of Available Screen Resolution Mode from Enumeration of device.
+struct AvailModes {										                                // Details of Available Screen Resolution Mode from Enumeration of device.
     bool InUse;
     int iWidth;
     int iHeight;
@@ -91,8 +91,114 @@ struct AvailModes {										                        // Details of Available Scr
 
 struct AvailScreenModes {
     int iAdapter = 0;
-    std::vector<AvailModes> modes;                                              // Dynamic storage
+    std::vector<AvailModes> modes;                                                      // Dynamic storage
 }; 
+
+// DELTA TIME SMOOTHING IMPLEMENTATION - Add this to DX11Renderer.h private section
+class DeltaTimeSmoothing
+{
+    private:
+        static constexpr int HISTORY_SIZE = 8;                                          // Number of previous deltas to track
+        static constexpr float MAX_DELTA_VARIANCE = 0.004f;                             // Maximum allowed variance (4ms)
+        float deltaHistory[HISTORY_SIZE];                                               // Circular buffer for delta history
+        int historyIndex;                                                               // Current position in circular buffer
+        float smoothedDelta;                                                            // Current smoothed delta value
+        float frameTargetTime;                                                          // Target frame time based on refresh rate
+        float accumulatedError;                                                         // Accumulated timing error for correction
+        bool isInitialized;                                                             // Whether smoothing is initialized
+
+    public:
+        DeltaTimeSmoothing() : historyIndex(0), smoothedDelta(0.0f), frameTargetTime(1.0f / 60.0f),
+            accumulatedError(0.0f), isInitialized(false)
+        {
+            
+            // Initialize delta history with target frame time
+            for (int i = 0; i < HISTORY_SIZE; ++i)
+            {
+                deltaHistory[i] = frameTargetTime;
+            }
+
+        #if defined(_DEBUG_RENDERER_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[DX11Renderer] Delta time smoothing initialized");
+        #endif
+        }
+
+        // Process raw delta time and return smoothed value
+        float ProcessDelta(float rawDelta, float refreshRate)
+        {
+            // Update target frame time based on actual refresh rate
+            frameTargetTime = 1.0f / refreshRate;
+
+            // Clamp extreme delta values to prevent animation jumps
+            float clampedDelta = std::clamp(rawDelta, frameTargetTime * 0.5f, frameTargetTime * 2.0f);
+
+            // Add to history
+            deltaHistory[historyIndex] = clampedDelta;
+            historyIndex = (historyIndex + 1) % HISTORY_SIZE;
+
+            if (!isInitialized)
+            {
+                // For first few frames, just use the clamped delta
+                if (historyIndex >= HISTORY_SIZE - 1)
+                {
+                    isInitialized = true;
+                }
+                smoothedDelta = clampedDelta;
+                return smoothedDelta;
+            }
+
+            // Calculate weighted average with emphasis on recent frames
+            float weightedSum = 0.0f;
+            float totalWeight = 0.0f;
+
+            for (int i = 0; i < HISTORY_SIZE; ++i)
+            {
+                // More weight for recent frames
+                float weight = static_cast<float>(i + 1) / static_cast<float>(HISTORY_SIZE);
+                int index = (historyIndex - 1 - i + HISTORY_SIZE) % HISTORY_SIZE;
+                weightedSum += deltaHistory[index] * weight;
+                totalWeight += weight;
+            }
+
+            float averageDelta = weightedSum / totalWeight;
+
+            // Apply frame target correction to minimize drift
+            float targetDifference = frameTargetTime - averageDelta;
+            accumulatedError += targetDifference * 0.1f;                    // Gradual error correction
+
+            // Apply correction but limit its impact to prevent overcorrection
+            float correctedDelta = averageDelta + std::clamp(accumulatedError, -MAX_DELTA_VARIANCE, MAX_DELTA_VARIANCE);
+
+            smoothedDelta = correctedDelta;
+
+            #if defined(_DEBUG_RENDERER_)
+                static int debugCounter = 0;
+                if (++debugCounter % 300 == 0)                               // Log every 5 seconds at 60fps
+                {
+                    debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                        L"[DX11Renderer] Delta smoothing: Raw=%.4f, Smoothed=%.4f, Target=%.4f, Error=%.4f",
+                        rawDelta * 1000.0f, smoothedDelta * 1000.0f, frameTargetTime * 1000.0f, accumulatedError * 1000.0f);
+                }
+            #endif
+
+            return smoothedDelta;
+        }
+
+        // Get current smoothed delta without processing
+        float GetSmoothedDelta() const { return smoothedDelta; }
+
+        // Reset smoothing state
+        void Reset()
+        {
+            historyIndex = 0;
+            accumulatedError = 0.0f;
+            isInitialized = false;
+            for (int i = 0; i < HISTORY_SIZE; ++i)
+            {
+                deltaHistory[i] = frameTargetTime;
+            }
+        }
+};
 
 // -----------------------------------
 // Our Main DirectX 11 Renderer Class
@@ -220,8 +326,10 @@ private:
     float fps = 0.0f;
     uint32_t prevWindowedWidth = 0;
     uint32_t prevWindowedHeight = 0;
-
     D3D_FEATURE_LEVEL m_featureLevel;
+
+    // Timing
+    DeltaTimeSmoothing deltaTimeSmoothing;
 
     // Thread Lock Names
     std::string renderFrameLockName = "renderer_frame_lock";
@@ -240,6 +348,10 @@ private:
     void Clean2DTextures();
     XMFLOAT4 ConvertColor(uint8_t r, uint8_t g, uint8_t b, uint8_t a);
     inline void ThrowError(const std::string& message);
+
+    // Game Scene Rendering Functions
+    inline void RenderGamePlay(float deltaTime);
+    inline void RenderIntroMovie();
 
     // Our private ComPtr definitions
     std::atomic<bool> playing{ false };

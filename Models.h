@@ -10,7 +10,7 @@
 //==============================================================================
 const int MAX_MODELS = 2048;                                                        // Maximum number of unique models in the scene    
 const int MAX_MODEL_LIGHTS = MAX_LIGHTS;                                            // Maximum number of lights per model
-
+const std::wstring ShipName = L"Ship1";
 //==============================================================================
 // namespaces
 //==============================================================================

@@ -6,6 +6,7 @@
 
 #pragma comment(lib, "Winmm.lib")
 
+// Header of an XM Module.
 #pragma pack(push, 1)
 struct XMSampleHeader {
     uint32_t length;
@@ -21,6 +22,7 @@ struct XMSampleHeader {
 };
 #pragma pack(pop)
 
+// Instrument Record of an XM Module.
 #pragma pack(push, 1)
 struct XMInstrumentHeader {
     uint32_t headerSize = 0;                // Offset 0: size of this header
@@ -55,6 +57,7 @@ struct XMInstrumentHeader {
 };
 #pragma pack(pop)
 
+// Pattern Header of an XM Module.
 #pragma pack(push, 1)
 struct XMPatternHeader {
     uint32_t headerSize;
@@ -64,6 +67,7 @@ struct XMPatternHeader {
 };
 #pragma pack(pop)
 
+// Collective Header of an XM Module - Where this all starts!
 #pragma pack(push, 1)
 struct XMHeader {
     char idText[17];           // "Extended Module: "
@@ -84,6 +88,7 @@ struct XMHeader {
 };
 #pragma pack(pop)
 
+// Sample Structure definition
 struct XMSample {
     uint32_t length = 0;
     uint32_t loopStart = 0;
@@ -100,11 +105,13 @@ struct XMSample {
     std::vector<int16_t> decoded16;      // Unpacked 16-bit
 };
 
+// Instrument Structure Defintion of an XM Module.
 struct XMInstrument {
     XMInstrumentHeader header;
     std::vector<XMSample> samples;
 };
 
+// Actual Pattern Structure of an XM Player - What is played (Note holder structure)
 struct XMPattern {
     XMPatternHeader header{};
     std::vector<uint8_t> data;

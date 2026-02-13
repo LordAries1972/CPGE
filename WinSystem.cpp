@@ -1,9 +1,11 @@
 #include "Includes.h"
 #include "WinSystem.h"
 #include "Debug.h"
+#include "ExceptionHandler.h"
 
 extern HWND hwnd;
 extern Debug debug;
+extern ExceptionHandler exceptionHandler;
 
 #pragma comment(lib, "Version.lib")
 

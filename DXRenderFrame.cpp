@@ -106,7 +106,14 @@ void DX11Renderer::RenderFrame()
         // Save the current Direct3D state for restoration
         ComPtr<ID3D11RenderTargetView> previousRenderTargetView;        // Previous render target backup
         ComPtr<ID3D11DepthStencilView> previousDepthStencilView;        // Previous depth stencil backup
-        FLOAT clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };             // Black clear color with full alpha
+        
+        // MODEL SAFETY CHECK!
+        #if defined(_DEBUG)
+            FLOAT clearColor[4] = { 0.2f, 0.2f, 0.2f, 1.0f };               // Use Dark Grey clear color with full alpha to ensure all models are rendering properly.
+        #elif 
+            FLOAT clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };               // Black clear color with full alpha
+        #endif
+
         D3D11_VIEWPORT previousViewport;                                // Previous viewport backup
         UINT numViewports = 1;                                          // Number of viewports to retrieve
         D3D11_VIEWPORT viewport = {};                                   // Current viewport configuration
@@ -158,8 +165,10 @@ void DX11Renderer::RenderFrame()
                         threadManager.threadVars.bIsResizing.store(true); // Set resize flag for reset operation
                         
                         try {
-                            Resize(iOrigWidth, iOrigHeight);             // Attempt device reset through resize
-                            ResumeLoader();                              // Reload resources after reset
+                            // Attempt device reset through resize
+                            Resize(iOrigWidth, iOrigHeight);             
+                            // Reload resources after reset
+                            ResumeLoader();                              
                         }
                         catch (const std::exception& e) {
                             #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
@@ -167,9 +176,12 @@ void DX11Renderer::RenderFrame()
                             #endif
                         }
                         
-                        threadManager.threadVars.bIsResizing.store(false); // Clear resize flag
-                        threadManager.threadVars.bIsRendering.store(false); // Clear rendering flag
-                        return;                                         // Exit after device reset attempt
+                        // Clear resize flag
+                        threadManager.threadVars.bIsResizing.store(false);  
+                        // Clear rendering flag
+                        threadManager.threadVars.bIsRendering.store(false); 
+                        // Exit after device reset attempt
+                        return;                                             
                     }
                     else
                     {
@@ -219,22 +231,22 @@ void DX11Renderer::RenderFrame()
             // STEP 3: Configure rasterizer state based on wireframe mode
             static Microsoft::WRL::ComPtr<ID3D11RasterizerState> wireframeRS; // Static wireframe state
 
-#if defined(_DEBUG_RENDER_WIREFRAME_)
-            // Debug wireframe rendering mode
-            if (bWireframeMode && m_wireframeState)
-            {
-                m_d3dContext->RSSetState(m_wireframeState.Get());       // Apply wireframe rasterizer state
-            }
-            else if (m_rasterizerState)
-            {
-                m_d3dContext->RSSetState(m_rasterizerState.Get());      // Apply standard rasterizer state
-            }
-#else
-            // Production rendering mode - always use standard rasterizer
-            if (m_rasterizerState) {
-                m_d3dContext->RSSetState(m_rasterizerState.Get());      // Apply standard rasterizer state
-            }
-#endif
+            #if defined(_DEBUG_RENDER_WIREFRAME_)
+                // Debug wireframe rendering mode
+                if (bWireframeMode && m_wireframeState)
+                {
+                    m_d3dContext->RSSetState(m_wireframeState.Get());       // Apply wireframe rasterizer state
+                }
+                else if (m_rasterizerState)
+                {
+                    m_d3dContext->RSSetState(m_rasterizerState.Get());      // Apply standard rasterizer state
+                }
+            #else
+                // Production rendering mode - always use standard rasterizer
+                if (m_rasterizerState) {
+                    m_d3dContext->RSSetState(m_rasterizerState.Get());      // Apply standard rasterizer state
+                }
+            #endif
 
             // STEP 4: Clear render targets with thread-safe access
             try
@@ -265,25 +277,47 @@ void DX11Renderer::RenderFrame()
                     debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Clear operation failed: %hs", e.what());
                 #endif
                 threadManager.threadVars.bIsRendering.store(false);     // Clear rendering flag on error
-#ifdef RENDERER_IS_THREAD
-                continue;                                               // Continue thread loop on error
-#else
-                return;                                                 // Exit on error in non-threaded mode
-#endif
+                #ifdef RENDERER_IS_THREAD
+                    continue;                                           // Continue thread loop on error
+                #else
+                    return;                                             // Exit on error in non-threaded mode
+                #endif
             }
 
-            // STEP 5: Update camera animation and timing
-            myCamera.UpdateJumpAnimation();                             // Update camera jump animation state
+            // Update camera animation and timing
+            myCamera.UpdateJumpAnimation();
 
-            // Calculate frame timing for smooth animation
-            auto now = std::chrono::steady_clock::now();                // Get current high-resolution time
-            float deltaTime = std::chrono::duration<float>(now - lastFrameTime).count(); // Calculate delta time in seconds
-            lastFrameTime = now;                                        // Update frame time for next frame
+            // Get current high-resolution time
+            auto now = std::chrono::steady_clock::now();                                   
+            // Calculate raw delta time in seconds
+            float rawDeltaTime = std::chrono::duration<float>(now - lastFrameTime).count(); 
+            
+            // Target 60 FPS for smoothing
+            float smoothedDeltaTime = deltaTimeSmoothing.ProcessDelta(rawDeltaTime, 60.0f); 
+            // Use smoothed delta time for animations
+            float deltaTime = smoothedDeltaTime;
 
-            // STEP 6: Set render targets for 3D rendering
+            // SAFETY: Clamp delta time to prevent massive jumps during debugging or frame drops
+            deltaTime = std::clamp(deltaTime, 0.001f, 0.1f);                              // Min 0.001s (1000 FPS), Max 0.1s (10 FPS)
+
+            // Update frame time for next frame
+            lastFrameTime = now;                                                           
+
+            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                // Debug output for delta time analysis every 60 frames
+                static int frameCounter = 0;
+                frameCounter++;
+                if (frameCounter >= 60)
+                {
+                    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Delta time - Raw: %.6f, Smoothed: %.6f", rawDeltaTime, deltaTime);
+                    frameCounter = 0;
+                }
+            #endif
+
+            // Set render targets for 3D rendering
             m_d3dContext->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
 
-            // STEP 7: Scene-specific 3D rendering
+            // Scene-specific 3D rendering
             switch (scene.stSceneType)
             {
                 case SceneType::SCENE_SPLASH:
@@ -295,152 +329,14 @@ void DX11Renderer::RenderFrame()
                     break;
                 }
 
-                case SceneType::SCENE_INTRO_MOVIE:
-                {
-                    // Movie introduction - minimal 3D rendering
-                    #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Rendering movie intro scene");
-                    #endif
-                    break;
-                }
-
                 case SceneType::SCENE_GAMEPLAY:
                 {
-                    // Primary gameplay scene - full 3D rendering pipeline
-                    if (m_d3dContext && m_cameraConstantBuffer)
-                    {
-                        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Rendering gameplay scene - 3D pipeline");
-                        #endif
-
-                        // STEP 7A: Update camera constant buffer for 3D rendering
-                        ConstantBuffer cb;                               // Camera constant buffer data
-                        // Current view matrix from camera
-                        cb.viewMatrix = myCamera.GetViewMatrix();               
-                        // Current projection matrix
-                        cb.projectionMatrix = myCamera.GetProjectionMatrix(); 
-                        // Current camera world position
-                        cb.cameraPosition = myCamera.GetPosition();     
-
-                        // Map and update the constant buffer
-                        D3D11_MAPPED_SUBRESOURCE mappedResource;
-                        HRESULT hr = m_d3dContext->Map(m_cameraConstantBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
-                        if (SUCCEEDED(hr)) {
-                            // Copy camera data to GPU
-                            memcpy(mappedResource.pData, &cb, sizeof(ConstantBuffer)); 
-                            // Unmap the buffer
-                            m_d3dContext->Unmap(m_cameraConstantBuffer.Get(), 0); 
-                            // Bind the constant buffer to vertex shader slot 0
-                            m_d3dContext->VSSetConstantBuffers(SLOT_CONST_BUFFER, 1, m_cameraConstantBuffer.GetAddressOf());
-                        } else {
-                            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Failed to map camera constant buffer (0x%08X)", hr);
-                            #endif
-                        }
-
-                        // STEP 7B: Debug pixel shader controls (debug builds only)
-                        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG) && defined(_DEBUG_PIXSHADER_)
-                            // Real-time pixel shader debug mode switching
-                            if (GetAsyncKeyState('1') & 0x8000) SetDebugMode(0); // Production view mode
-                            if (GetAsyncKeyState('2') & 0x8000) SetDebugMode(1); // Normals only mode
-                            if (GetAsyncKeyState('3') & 0x8000) SetDebugMode(2); // Texture only mode
-                            if (GetAsyncKeyState('4') & 0x8000) SetDebugMode(3); // Lighting only mode
-                            if (GetAsyncKeyState('5') & 0x8000) SetDebugMode(4); // Specular only mode
-                            if (GetAsyncKeyState('6') & 0x8000) SetDebugMode(5); // Attenuation/normals mode
-                            if (GetAsyncKeyState('7') & 0x8000) SetDebugMode(6); // Shadows only mode
-                            if (GetAsyncKeyState('8') & 0x8000) SetDebugMode(7); // Reflection only mode
-                            if (GetAsyncKeyState('9') & 0x8000) SetDebugMode(8); // Metallic only mode
-                        #endif
-
-                        // STEP 7C: Render 3D models if loading is complete
-                        if (threadManager.threadVars.bLoaderTaskFinished.load())
-                        {
-                            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                                debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Rendering 3D models");
-                            #endif
-
-                            // Optional wireframe rendering for debug purposes
-                            #if defined(_RENDERER_WIREFRAME_)
-                                if (wireframeRS) {
-                                    m_d3dContext->RSSetState(wireframeRS.Get()); // Apply wireframe rasterizer
-                                }
-                            #endif
-
-                            // Debug triangle test for pipeline verification
-                            #if defined(_DEBUG_RENDERER_) && defined(_SIMPLE_TRIANGLE_) && defined(_DEBUG)
-                                TestDrawTriangle();                      // Render test triangle for pipeline verification
-                            #endif
-
-                            // Update all model animations
-                            if (scene.gltfAnimator.IsAnimationPlaying(0))
-                                scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS);
-
-                            // Render all loaded scene models
-                            for (int i = 0; i < MAX_MODELS; ++i)
-                            {
-                                if (scene.scene_models[i].m_isLoaded)   // Only render loaded models
-                                {
-                                    // Configure model rendering parameters
-                                    scene.scene_models[i].m_modelInfo.fxActive = false; // Disable FX for now
-                                    scene.scene_models[i].m_modelInfo.viewMatrix = myCamera.GetViewMatrix();
-                                    scene.scene_models[i].m_modelInfo.projectionMatrix = myCamera.GetProjectionMatrix();
-                                    scene.scene_models[i].m_modelInfo.cameraPosition = myCamera.GetPosition();
-                                    
-                                    // Render the model to the current context
-                                    scene.scene_models[i].Render(m_d3dContext.Get(), deltaTime);
-                                }
-                            }
-                        }
-
-                        // STEP 7D: Update global lighting system
-                        std::vector<LightStruct> globalLights = lightsManager.GetAllLights(); // Get all global lights
-
-                        // Global light buffer for GPU
-                        GlobalLightBuffer glb = {};                     
-
-                        // Set number of lights
-                        glb.numLights = static_cast<int>(globalLights.size()); 
-
-                        // Clamp to maximum supported lights
-                        if (glb.numLights > MAX_GLOBAL_LIGHTS)          
-                            glb.numLights = MAX_GLOBAL_LIGHTS;
-
-                        // Copy light data to GPU buffer
-                        for (int i = 0; i < glb.numLights; ++i)
-                        {
-                            // Copy light structure
-                            memcpy(&glb.lights[i], &globalLights[i], sizeof(LightStruct)); 
-
-                            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG_LIGHTING_)
-                                // Debug logging for light information
-                                debug.logDebugMessage(LogLevel::LOG_DEBUG,
-                                    L"[RENDERFRAME] Light[%d] active=%d intensity=%.2f color=(%.2f %.2f %.2f) range=%.2f type=%d pos=(%.2f, %.2f, %.2f)",
-                                    i, glb.lights[i].active, glb.lights[i].intensity,
-                                    glb.lights[i].color.x, glb.lights[i].color.y, glb.lights[i].color.z,
-                                    glb.lights[i].range, glb.lights[i].type,
-                                    glb.lights[i].position.x, glb.lights[i].position.y, glb.lights[i].position.z);
-                            #endif
-                        }
-
-                        // Upload global light buffer to GPU
-                        D3D11_MAPPED_SUBRESOURCE mapped;
-                        hr = m_d3dContext->Map(m_globalLightBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
-                        if (SUCCEEDED(hr)) {
-                            // Copy light data to GPU
-                            memcpy(mapped.pData, &glb, sizeof(GlobalLightBuffer)); 
-
-                            // Unmap the buffer
-                            m_d3dContext->Unmap(m_globalLightBuffer.Get(), 0); 
-
-                            // Bind global light buffer to pixel shader slot 3
-                            m_d3dContext->PSSetConstantBuffers(SLOT_GLOBAL_LIGHT_BUFFER, 1, m_globalLightBuffer.GetAddressOf());
-                        }
-                    }
+                    RenderGamePlay(deltaTime);
                     break;
                 }
             }
 
-            // STEP 8: 2D Rendering with enhanced thread safety
+            // 2D Rendering with enhanced thread safety
             if (m_d2dRenderTarget)
             {
                 // Acquire D2D rendering lock to prevent conflicts
@@ -491,32 +387,7 @@ void DX11Renderer::RenderFrame()
 
                            case SceneType::SCENE_INTRO_MOVIE:
                            {
-                               #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                                   debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Rendering movie intro 2D elements");
-                               #endif
-
-                               // Movie playback 2D rendering
-                               if (moviePlayer.IsPlaying()) {
-                                   // Update the movie frame for current time
-                                   moviePlayer.UpdateFrame();
-
-                                   // Render the movie to fill the entire screen
-                                   moviePlayer.Render(Vector2(0, 0), Vector2(iOrigWidth, iOrigHeight));
-
-                                   // Draw company logo overlay
-                                   if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]) {
-                                       Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - 47);
-                                   }
-
-                                   // Check for spacebar input to skip movie
-                                   if (GetAsyncKeyState(' ') & 0x8000)
-                                   {
-                                       // Stop movie playback to trigger scene transition
-                                       moviePlayer.Stop();
-                                       scene.bSceneSwitching = true;       // Flag scene transition
-                                       fxManager.FadeToBlack(1.0f, 0.06f); // Start fade effect
-                                   }
-                               }
+                               RenderIntroMovie(); // Render intro movie scene
                                break;
                            }
 
@@ -561,50 +432,52 @@ void DX11Renderer::RenderFrame()
                        }
                    }
 
-                   // STEP 8A: Render FPS display and debug information (if enabled)
+                   // Render FPS display and debug information (if enabled)
                    if (USE_FPS_DISPLAY)
                    {
                        // Calculate FPS using frame timing
-                       static auto lastFrameTime = std::chrono::steady_clock::now(); // Last frame timestamp
-                       static auto lastFPSTime = lastFrameTime;                // Last FPS calculation time
-                       static int frameCounter = 0;                           // Frame counter for FPS calculation
+                       static auto lastFrameTime = std::chrono::steady_clock::now();                            // Last frame timestamp
+                       static auto lastFPSTime = lastFrameTime;                                                 // Last FPS calculation time
+                       static int frameCounter = 0;                                                             // Frame counter for FPS calculation
 
                        auto currentTime = std::chrono::steady_clock::now();   // Current frame timestamp
-                       float deltaTime = std::chrono::duration<float>(currentTime - lastFrameTime).count(); // Frame delta time
-                       float elapsedForFPS = std::chrono::duration<float>(currentTime - lastFPSTime).count(); // Elapsed time for FPS
+                       float deltaTime = std::chrono::duration<float>(currentTime - lastFrameTime).count();     // Frame delta time
+                       float elapsedForFPS = std::chrono::duration<float>(currentTime - lastFPSTime).count();   // Elapsed time for FPS
 
-                       lastFrameTime = currentTime;                           // Update last frame time
-                       frameCounter++;                                        // Increment frame counter
+                       lastFrameTime = currentTime;                                                             // Update last frame time
+                       frameCounter++;                                                                          // Increment frame counter
 
                        // Update FPS every second
                        if (elapsedForFPS >= 1.0f)
                        {
-                           fps = static_cast<float>(frameCounter) / elapsedForFPS; // Calculate FPS
-                           frameCounter = 0;                                   // Reset frame counter
-                           lastFPSTime = currentTime;                          // Reset FPS timer
+                           fps = static_cast<float>(frameCounter) / elapsedForFPS;                              // Calculate FPS
+                           frameCounter = 0;                                                                    // Reset frame counter
+                           lastFPSTime = currentTime;                                                           // Reset FPS timer
                        }
 
                        // Build comprehensive debug information string
-                       XMFLOAT3 Coords = myCamera.GetPosition();              // Get current camera position
-                       std::wstring fpsText = L"FPS: " + std::to_wstring(fps) + // FPS display
-                           L"\nMOUSE: x" + std::to_wstring(myMouseCoords.x) + L", y" + std::to_wstring(myMouseCoords.y) + // Mouse coordinates
-                           L"\nCamera X: " + std::to_wstring(Coords.x) + L", Y: " + std::to_wstring(Coords.y) + L", Z: " + std::to_wstring(Coords.z) + // Camera position
-                           L", Yaw: " + std::to_wstring(myCamera.m_yaw) + L", Pitch: " + std::to_wstring(myCamera.m_pitch) + L"\n" + // Camera orientation
-                           L"Global Light Count: " + std::to_wstring(lightsManager.GetLightCount()) + L"\n"; // Light count
+                       XMFLOAT3 Coords = myCamera.GetPosition();                                                
+
+                       // Display Relative Information.
+                       std::wstring fpsText = L"FPS: " + std::to_wstring(fps) +                                 
+                           L"\nMOUSE: x" + std::to_wstring(myMouseCoords.x) + L", y" + std::to_wstring(myMouseCoords.y) +
+                           L"\nCamera X: " + std::to_wstring(Coords.x) + L", Y: " + std::to_wstring(Coords.y) + L", Z: " + std::to_wstring(Coords.z) +
+                           L", Yaw: " + std::to_wstring(myCamera.m_yaw) + L", Pitch: " + std::to_wstring(myCamera.m_pitch) + L"\n" +
+                           L"Global Light Count: " + std::to_wstring(lightsManager.GetLightCount()) + L"\n";    
 
                        // Render debug text in top-left corner
                        DrawMyText(fpsText, Vector2(0, 0), MyColor(255, 255, 255, 255), 10.0f);
                    }
 
-                   // STEP 8B: Render loading indicator if assets are still loading
+                   // Render loading indicator if assets are still loading
                    if (!threadManager.threadVars.bLoaderTaskFinished.load())
                    {
                        // Animate loading indicator
                        delay++;                                               // Increment animation delay counter
-                       if (delay > 5)                                         // Update animation every 5 frames
+                       if (delay > 3)                                         // Update animation every 3 frames
                        {
                            loadIndex++;                                       // Move to next animation frame
-                           if (loadIndex > 9) { loadIndex = 0; }             // Reset animation cycle
+                           if (loadIndex > 9) { loadIndex = 0; }              // Reset animation cycle
                            delay = 0;                                         // Reset delay counter
                        }
 
@@ -617,7 +490,7 @@ void DX11Renderer::RenderFrame()
                        }
                    }
 
-                   // STEP 8C: Apply 2D post-processing effects
+                   // Apply 2D post-processing effects
                    try {
                        fxManager.Render2D();                                  // Render 2D effects overlay
                    }
@@ -627,7 +500,7 @@ void DX11Renderer::RenderFrame()
                        #endif
                    }
 
-                   // STEP 8D: Render GUI windows and interface elements
+                   // Render GUI windows and interface elements
                    try {
                        guiManager.Render();                                   // Render all GUI windows and controls
                    }
@@ -637,11 +510,11 @@ void DX11Renderer::RenderFrame()
                        #endif
                    }
 
-                   // STEP 8E: Render mouse cursor (always on top)
+                   // Render mouse cursor (always on top)
                    if ((m_d2dTextures[int(BlitObj2DIndexType::BLIT_ALWAYS_CURSOR)]))
                        Blit2DObject(BlitObj2DIndexType::BLIT_ALWAYS_CURSOR, myMouseCoords.x, myMouseCoords.y);
 
-                   // STEP 8F: End Direct2D drawing operations
+                   // End Direct2D drawing operations
                    try
                    {
                        HRESULT hr = m_d2dRenderTarget->EndDraw();             // End Direct2D rendering session
@@ -732,6 +605,176 @@ void DX11Renderer::RenderFrame()
 
    // Note: exclusiveRenderLock will be automatically released when it goes out of scope
 }
+
+/* ---------------------------------------------------------------------
+   This function is for the SceneType::SCENE_GAMEPLAY rendering logic
+   --------------------------------------------------------------------- */
+inline void DX11Renderer::RenderGamePlay(float deltaTime)
+{
+    // Primary gameplay scene - full 3D rendering pipeline
+    if (m_d3dContext && m_cameraConstantBuffer)
+    {
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Rendering gameplay scene - 3D pipeline");
+        #endif
+
+        // Update camera constant buffer for 3D rendering
+        ConstantBuffer cb;                               // Camera constant buffer data
+        // Current view matrix from camera
+        cb.viewMatrix = myCamera.GetViewMatrix();
+        // Current projection matrix
+        cb.projectionMatrix = myCamera.GetProjectionMatrix();
+        // Current camera world position
+        cb.cameraPosition = myCamera.GetPosition();
+
+        // Map and update the constant buffer
+        D3D11_MAPPED_SUBRESOURCE mappedResource;
+        HRESULT hr = m_d3dContext->Map(m_cameraConstantBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
+        if (SUCCEEDED(hr)) {
+            // Copy camera data to GPU
+            memcpy(mappedResource.pData, &cb, sizeof(ConstantBuffer));
+            // Unmap the buffer
+            m_d3dContext->Unmap(m_cameraConstantBuffer.Get(), 0);
+            // Bind the constant buffer to vertex shader slot 0
+            m_d3dContext->VSSetConstantBuffers(SLOT_CONST_BUFFER, 1, m_cameraConstantBuffer.GetAddressOf());
+        }
+        else {
+            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Failed to map camera constant buffer (0x%08X)", hr);
+            #endif
+        }
+
+        // Debug pixel shader controls (debug builds only)
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG) && defined(_DEBUG_PIXSHADER_)
+        // Real-time pixel shader debug mode switching
+            if (GetAsyncKeyState('1') & 0x8000) SetDebugMode(0); // Production view mode
+            if (GetAsyncKeyState('2') & 0x8000) SetDebugMode(1); // Normals only mode
+            if (GetAsyncKeyState('3') & 0x8000) SetDebugMode(2); // Texture only mode
+            if (GetAsyncKeyState('4') & 0x8000) SetDebugMode(3); // Lighting only mode
+            if (GetAsyncKeyState('5') & 0x8000) SetDebugMode(4); // Specular only mode
+            if (GetAsyncKeyState('6') & 0x8000) SetDebugMode(5); // Attenuation/normals mode
+            if (GetAsyncKeyState('7') & 0x8000) SetDebugMode(6); // Shadows only mode
+            if (GetAsyncKeyState('8') & 0x8000) SetDebugMode(7); // Reflection only mode
+            if (GetAsyncKeyState('9') & 0x8000) SetDebugMode(8); // Metallic only mode
+        #endif
+
+        // Render 3D models if loading is complete
+        if (threadManager.threadVars.bLoaderTaskFinished.load())
+        {
+            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Rendering 3D models");
+            #endif
+
+            // Optional wireframe rendering for debug purposes
+            #if defined(_RENDERER_WIREFRAME_)
+                if (wireframeRS) {
+                    m_d3dContext->RSSetState(wireframeRS.Get()); // Apply wireframe rasterizer
+                }
+            #endif
+
+            // Update all model animations
+            int iModelID = scene.FindParentModelID(ShipName1);
+            if (scene.gltfAnimator.IsAnimationPlaying(iModelID))
+                scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS);
+
+            // Render all loaded scene models
+            for (int i = 0; i < MAX_SCENE_MODELS; ++i)
+            {
+                if (scene.scene_models[i].m_isLoaded)   // Only render loaded models
+                {
+                    // Configure model rendering parameters
+                    scene.scene_models[i].m_modelInfo.fxActive = false; // Disable FX for now
+                    scene.scene_models[i].m_modelInfo.viewMatrix = myCamera.GetViewMatrix();
+                    scene.scene_models[i].m_modelInfo.projectionMatrix = myCamera.GetProjectionMatrix();
+                    scene.scene_models[i].m_modelInfo.cameraPosition = myCamera.GetPosition();
+
+                    // Render the model to the current context
+                    scene.scene_models[i].Render(m_d3dContext.Get(), deltaTime);
+                }
+            }
+        }
+
+        // Update global lighting system
+        std::vector<LightStruct> globalLights = lightsManager.GetAllLights(); // Get all global lights
+
+        // Global light buffer for GPU
+        GlobalLightBuffer glb = {};
+
+        // Set number of lights
+        glb.numLights = static_cast<int>(globalLights.size());
+
+        // Clamp to maximum supported lights
+        if (glb.numLights > MAX_GLOBAL_LIGHTS)
+            glb.numLights = MAX_GLOBAL_LIGHTS;
+
+        // Copy light data to GPU buffer
+        for (int i = 0; i < glb.numLights; ++i)
+        {
+            // Copy light structure
+            memcpy(&glb.lights[i], &globalLights[i], sizeof(LightStruct));
+
+            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG_LIGHTING_)
+                // Debug logging for light information
+                debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                    L"[RENDERFRAME] Light[%d] active=%d intensity=%.2f color=(%.2f %.2f %.2f) range=%.2f type=%d pos=(%.2f, %.2f, %.2f)",
+                    i, glb.lights[i].active, glb.lights[i].intensity,
+                    glb.lights[i].color.x, glb.lights[i].color.y, glb.lights[i].color.z,
+                    glb.lights[i].range, glb.lights[i].type,
+                    glb.lights[i].position.x, glb.lights[i].position.y, glb.lights[i].position.z);
+            #endif
+        }
+
+        // Upload global light buffer to GPU
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        hr = m_d3dContext->Map(m_globalLightBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+        if (SUCCEEDED(hr)) {
+            // Copy light data to GPU
+            memcpy(mapped.pData, &glb, sizeof(GlobalLightBuffer));
+
+            // Unmap the buffer
+            m_d3dContext->Unmap(m_globalLightBuffer.Get(), 0);
+
+            // Bind global light buffer to pixel shader slot 3
+            m_d3dContext->PSSetConstantBuffers(SLOT_GLOBAL_LIGHT_BUFFER, 1, m_globalLightBuffer.GetAddressOf());
+        }
+    }
+}
+
+/* ---------------------------------------------------------------------
+   This function is for the SceneType::SCENE_INTRO_MOVIE rendering logic
+   --------------------------------------------------------------------- */
+inline void DX11Renderer::RenderIntroMovie()
+{
+    #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Rendering movie intro 2D elements");
+    #endif
+
+    // Movie playback 2D rendering
+    if (moviePlayer.IsPlaying()) {
+        // Update the movie frame for current time
+        moviePlayer.UpdateFrame();
+
+        // Render the movie to fill the entire screen
+        moviePlayer.Render(Vector2(0, 0), Vector2(iOrigWidth, iOrigHeight));
+
+        // Draw company logo overlay
+        if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]) {
+            Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - 47);
+        }
+
+        // Check for spacebar input to skip movie
+        if (GetAsyncKeyState(' ') & 0x8000)
+        {
+            // Stop movie playback to trigger scene transition
+            moviePlayer.Stop();
+            // Flag scene transition
+            scene.bSceneSwitching = true;
+            // Start fade effect
+            fxManager.FadeToBlack(1.0f, 0.06f);
+        }
+    }
+}
+
 #pragma warning(pop)
 
 #endif

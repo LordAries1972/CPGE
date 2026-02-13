@@ -43,6 +43,7 @@
    See Renderer.h for a full architectural diagram.
 /* ------------------------------------------------------------------------------ */
 #include "Includes.h"
+#include <memory>
 
 // --------------------------------------------
 // Engine Subsystems
@@ -106,7 +107,7 @@
 //------------------------------------------
 // Constants
 //------------------------------------------
-const LPCWSTR MY_WINDOW_TITLE = L"DirectX 11 Renderer by Daniel J. Hobson of Australia 2024-2025";
+const LPCWSTR MY_WINDOW_TITLE = L"DirectX 11 Renderer by Daniel J. Hobson of Australia 2023-2026";
 const LPCWSTR lpDEFAULT_NAME = L"CPGE_";
 
 //--------------------------------------------------------
@@ -138,7 +139,7 @@ MyRandomizer myRandomizer;
 
 // Are we using Networking features?
 #if defined(__USE_NETWORKING__)
-NetworkManager networkManager;
+    NetworkManager networkManager;
 #endif
 
 // If we are using Text To Speech, we need to include the TTSManager (Only for Windows)
@@ -260,7 +261,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
     // Initialize the exception handler for comprehensive error tracking
     if (!exceptionHandler.Initialize()) {
-        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Failed to initialize exception handler - continuing without it");
+        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Failed to initialize exception handler - Aborting!");
         UnregisterClass(lpDEFAULT_NAME, hInstance);
         return EXIT_FAILURE;
     }
@@ -564,35 +565,33 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                                 #if !defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)
                                 // If renderer is not threaded, manually render frames during fade
                                 try {
-                                    WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
-                                        {
-                                            if (!dx11) {
-                                                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SCENE] DX11 renderer is null during fade");
-                                                return;
-                                            }
+                                    auto dx11 = std::dynamic_pointer_cast<DX11Renderer>(renderer);
+                                    if (!dx11) {
+                                        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SCENE] DX11 renderer is null during fade");
+                                        return 0;
+                                    }
 
-                                            // Continue rendering while fade effect is active
-                                            int frameCount = 0;                                    // Safety counter to prevent infinite loops
-                                            const int maxFrames = 300;                             // Maximum frames to render (5 seconds at 60fps)
+                                    // Continue rendering while fade effect is active
+                                    int frameCount = 0;                                    // Safety counter to prevent infinite loops
+                                    const int maxFrames = 300;                             // Maximum frames to render (5 seconds at 60fps)
 
-                                            while (fxManager.IsFadeActive() && frameCount < maxFrames)
-                                            {
-                                                try {
-                                                    dx11->RenderFrame();                           // Render current frame
-                                                    frameCount++;                                  // Increment safety counter
-                                                    std::this_thread::sleep_for(std::chrono::milliseconds(5)); // Small delay to prevent CPU spinning
-                                                }
-                                                catch (const std::exception& e) {
-                                                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SCENE] Exception during fade rendering: " +
-                                                        std::wstring(e.what(), e.what() + strlen(e.what())));
-                                                    break;                                         // Exit render loop on error
-                                                }
-                                            }
+                                    while (fxManager.IsFadeActive() && frameCount < maxFrames)
+                                    {
+                                        try {
+                                            dx11->RenderFrame();                           // Render current frame
+                                            frameCount++;                                  // Increment safety counter
+                                            std::this_thread::sleep_for(std::chrono::milliseconds(5)); // Small delay to prevent CPU spinning
+                                        }
+                                        catch (const std::exception& e) {
+                                            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SCENE] Exception during fade rendering: " +
+                                                std::wstring(e.what(), e.what() + strlen(e.what())));
+                                            break;                                         // Exit render loop on error
+                                        }
+                                    }
 
-                                            if (frameCount >= maxFrames) {
-                                                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[SCENE] Fade rendering exceeded maximum frames - forcing completion");
-                                            }
-                                        });
+                                    if (frameCount >= maxFrames) {
+                                        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[SCENE] Fade rendering exceeded maximum frames - forcing completion");
+                                    }
                                 }
                                 catch (const std::exception& e) {
                                     debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SCENE] Exception in fade rendering: " +
@@ -613,31 +612,29 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                                     #if !defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)
                                         // If renderer is not threaded, render frames during fade in
                                         try {
-                                            WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
-                                                {
-                                                    if (!dx11) {
-                                                        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SCENE] DX11 renderer is null during fade in");
-                                                        return;
-                                                    }
+                                            auto dx11 = std::dynamic_pointer_cast<DX11Renderer>(renderer);
+                                            if (!dx11) {
+                                                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SCENE] DX11 renderer is null during fade in");
+                                                return 0;
+                                            }
 
-                                                    // Continue rendering while new scene fade effect is active
-                                                    int frameCount = 0;                               // Safety counter
-                                                    const int maxFrames = 300;                        // Maximum frames to render
+                                            // Continue rendering while new scene fade effect is active
+                                            int frameCount = 0;                               // Safety counter
+                                            const int maxFrames = 300;                        // Maximum frames to render
 
-                                                    while (fxManager.IsFadeActive() && frameCount < maxFrames)
-                                                    {
-                                                        try {
-                                                            dx11->RenderFrame();                       // Render current frame
-                                                            frameCount++;                              // Increment safety counter
-                                                            std::this_thread::sleep_for(std::chrono::milliseconds(5)); // Small delay
-                                                        }
-                                                        catch (const std::exception& e) {
-                                                            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SCENE] Exception during fade in rendering: " +
-                                                                std::wstring(e.what(), e.what() + strlen(e.what())));
-                                                            break;
-                                                        }
-                                                    }
-                                                });
+                                            while (fxManager.IsFadeActive() && frameCount < maxFrames)
+                                            {
+                                                try {
+                                                    dx11->RenderFrame();                       // Render current frame
+                                                    frameCount++;                              // Increment safety counter
+                                                    std::this_thread::sleep_for(std::chrono::milliseconds(5)); // Small delay
+                                                }
+                                                catch (const std::exception& e) {
+                                                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SCENE] Exception during fade in rendering: " +
+                                                        std::wstring(e.what(), e.what() + strlen(e.what())));
+                                                    break;
+                                                }
+                                            }
                                         }
                                         catch (const std::exception& e) {
                                             debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SCENE] Exception in fade in rendering: " +
@@ -711,14 +708,12 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                             fxManager.FadeToBlack(1.0f, 0.06f);
 
                             #if !defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)
-                                WithDX11Renderer([](std::shared_ptr<DX11Renderer> dx11)
+                                auto dx11 = std::dynamic_pointer_cast<DX11Renderer>(renderer);
+                                while (fxManager.IsFadeActive())
                                 {
-                                    while (fxManager.IsFadeActive())
-                                    {
-                                        dx11->RenderFrame();
-                                        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-                                    }
-                                });
+                                    dx11->RenderFrame();
+                                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                                }
                             #endif      
                         }
 
@@ -1488,7 +1483,9 @@ void StopMusicPlayback()
     #elif defined(__USE_XMPLAYER__)
         // Stop the XM player
         if (xmPlayer.IsPlaying())
-            xmPlayer.Shutdown(); 
+            xmPlayer.Stop();
+
+        xmPlayer.Shutdown();
     #endif
 }
 
@@ -1512,14 +1509,11 @@ bool Load_Music()
         switch (scene.stSceneType)
         {
             case SceneType::SCENE_INTRO:
-            case SceneType::SCENE_INTRO_MOVIE:
-                break;
-
-            case SceneType::SCENE_SPLASH:
             {
                 // Load the Intro Music Module
                 std::wstring XMFilename = L"thevoid.xm";
                 auto fileName = AssetsDir / XMFilename;
+                xmPlayer.Initialize(fileName);
                 if (!xmPlayer.Play(fileName))
                 {
                     threadManager.threadVars.bLoaderTaskFinished.store(true);
@@ -1528,11 +1522,31 @@ bool Load_Music()
                 }
                 break;
             }
+
+            case SceneType::SCENE_INTRO_MOVIE:
+                break;
+
+            case SceneType::SCENE_SPLASH:
+            {
+                // Load the Intro Music Module
+                std::wstring XMFilename = L"thevoid.xm";
+                auto fileName = AssetsDir / XMFilename;
+                xmPlayer.Initialize(fileName);
+                if (!xmPlayer.Play(fileName))
+                {
+                    threadManager.threadVars.bLoaderTaskFinished.store(true);
+                    debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[LOADER]: Failed to Play the requested Module file.");
+                    return false;
+                }
+                break;
+            }
+
             case SceneType::SCENE_GAMEPLAY:
             {
                 // Load the Gameplay Music Module
                 std::wstring XMFilename = L"todie4.xm";
                 auto fileName = AssetsDir / XMFilename;
+                xmPlayer.Initialize(fileName);
                 if (!xmPlayer.Play(fileName))
                 {
                     threadManager.threadVars.bLoaderTaskFinished.store(true);

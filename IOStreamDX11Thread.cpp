@@ -59,12 +59,17 @@ void DX11Renderer::LoaderTaskThread()
 	while (((status == ThreadStatus::Running) || (status == ThreadStatus::Paused)) &&
 		  (status != ThreadStatus::Terminated) && (!threadManager.threadVars.bIsShuttingDown.load()) && (status != ThreadStatus::Stopped))
     {
+		// Becareful here! ProcessMessages() will initiatate your message handler queue, 
+		// so make sure you don't do anything that could cause a crash and check all status flags carefully 
+		// before handling your messages within the message handler queue - !
 		sysUtils.ProcessMessages();
+		
+		// Check status of our loader thread!
 		status = threadManager.GetThreadStatus(THREAD_LOADER);
 		if (status == ThreadStatus::Paused)
         {
 			// Pause and then recheck
-            Sleep(100);
+            Sleep(10);
             continue;
         }
 
@@ -205,23 +210,30 @@ void DX11Renderer::LoaderTaskThread()
 				lightsManager.CreateLight(L"Sun", sunLight);
 
 				// -----------------------------------------------------------------------------
-				// ====----- THIS BLOCK WILL BE REPLACED WITH PROPER SCENE MANAGEMENT -----=====
+				// === PRE-ALLOCATE ALL MODEL TEXTURE VECTORS BEFORE LOADING ===
 				// -----------------------------------------------------------------------------
-				// Load in our required models and Initialize	
-				// -----------------------------------------------------------------------------
-				scene.ParseGLBScene(AssetsDir / L"test-anim1.glb");
-				if (!scene.bGltfCameraParsed)
+				ThreadLockHelper preAllocLock(threadManager, "SceneManager_PreAllocation", 2000);
+				if (preAllocLock.IsLocked())
 				{
-					scene.AutoFrameSceneToCamera();
-				}
-				// Create animation instance first
-				int parentID = scene.FindParentModelID(L"Icosphere");
-				bool created = scene.gltfAnimator.CreateAnimationInstance(parentID, 0);
-				if (created) {
-					// Configure animation settings
-					scene.gltfAnimator.SetAnimationSpeed(parentID, 0.25f);						    // Half speed
-					scene.gltfAnimator.SetAnimationLooping(parentID, true);						// Enable looping
-					scene.gltfAnimator.StartAnimation(parentID, 0);
+					scene.ParseGLTFScene(AssetsDir / L"test1.gltf");
+	//				scene.ParseGLBScene(AssetsDir / L"test1.glb");
+					if (!scene.bGltfCameraParsed)
+					{
+						scene.AutoFrameSceneToCamera();
+					}
+
+					// Create animation instance first
+/*
+					int parentID = scene.FindParentModelID(ShipName1);
+					bool created = scene.gltfAnimator.CreateAnimationInstance(0, parentID);
+					if (created) {
+						// Configure animation settings
+						scene.gltfAnimator.ForceAnimationReset(parentID);
+						scene.gltfAnimator.SetAnimationSpeed(parentID, 0.25f);						    // Half speed
+						scene.gltfAnimator.SetAnimationLooping(parentID, true);							// Enable looping
+						scene.gltfAnimator.StartAnimation(parentID, 0);
+					}
+*/
 				}
 
 //				scene.ParseGLTFScene(AssetsDir / L"scene1.gltf");
