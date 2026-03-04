@@ -135,6 +135,7 @@ more importantly, demonstrates the very power of the people and FOSS (Free Open-
 For inquiries, collaboration, or contributions to CPGE:
 
 📂 GitHub Repository: [https://github.com/LordAries1972/CPGE](https://github.com/LordAries1972/CPGE)  
+📂 My Website: [https://ultimanium.com/](https://ultimanium.com/index.php?action=cpge)  
 📂 JSON Parser by Niels Lohmann GitHub Repository: [https://github.com/nlohmann/json](https://github.com/nlohmann/json)  
 💬 Open issues or discussions directly on the repo  
 📧 Contact via GitHub (or define a dedicated project email if desired)
