@@ -1,0 +1,33 @@
+// Microsoft Visual C++ generated resource script.
+//
+#include "resource.h"
+#include "windows.h"
+#include "winuser.h"
+
+// Version resource
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 1,0,0,0
+ PRODUCTVERSION 1,0,0,0
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"  // English - United States
+        BEGIN
+            VALUE "CompanyName", "Daniel Hobson"
+            VALUE "FileDescription", "Cross Platform Gaming Engine"
+            VALUE "FileVersion", "1.0.0.0"
+            VALUE "InternalName", "CPGE"
+            VALUE "OriginalFilename", "CrossPlatformGameEngine.exe"
+            VALUE "ProductName", "CrossPlatformGameEngine"
+            VALUE "ProductVersion", "1.0.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+//        VALUE "Translation", 0x0409, 1200
+    END
+END

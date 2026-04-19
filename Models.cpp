@@ -1,0 +1,1931 @@
+#define NOMINMAX
+#include "Includes.h"
+#include "Configuration.h"
+#include "Models.h"
+#include "ConstantBuffer.h"
+#include "DX_FXManager.h"
+#include "DXCamera.h" // For matrix usage if needed
+#include "Debug.h"
+#include "WinSystem.h"
+#include "ThreadManager.h"
+#include "ShaderManager.h"
+#include "ExceptionHandler.h"
+#include "ThreadLockHelper.h"
+
+// =====================================================================
+// Local helper: Direct3D 11 constant buffers require ByteWidth multiple of 16.
+// This helper rounds up a byte size to the next 16-byte boundary.
+// =====================================================================
+static inline UINT Align16(UINT value)
+{
+    // Round up to next multiple of 16 bytes.
+    return (value + 15u) & ~15u;
+}
+
+#ifdef __USE_DIRECTX_11__
+#include <d3d11.h>
+#include <wincodec.h>
+#include <d3dcompiler.h> // For D3DCompileFromFile
+
+// Linking DirectX 11 libraries
+#pragma comment(lib, "d3dcompiler.lib") // Link D3DCompiler library
+#pragma comment(lib, "windowscodecs.lib")
+
+using namespace DirectX;
+
+// Requires valid D3D11 device (assume global/context access)
+#endif
+
+extern std::shared_ptr<Renderer> renderer;
+extern Model models[MAX_MODELS];                                         // Our Models Data, defined in main.cpp
+extern Debug debug;
+extern ExceptionHandler exceptionHandler;
+extern FXManager fxManager;
+extern SystemUtils sysUtils;
+extern ThreadManager threadManager;
+extern Configuration config;
+extern ShaderManager shaderManager;
+
+//==============================================================================
+// Texture Implementation
+//==============================================================================
+Texture::Texture() = default;
+
+Texture::Texture(const std::wstring& path) {
+    LoadFromFile(path);
+}
+
+Texture::~Texture() {
+    if (bTextureDestroyed) return;
+    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+        if (textureSRV) textureSRV->Release();
+        if (textureResource) textureResource->Release();
+    #endif
+
+    bTextureDestroyed = true;
+}
+
+bool Texture::LoadFromFile(const std::wstring& path)
+{
+    // Store the texture path for reference and debugging.
+    texturePath = path;
+
+#ifdef __USE_DIRECTX_11__
+    // IMPORTANT:
+    // Do not use ComPtr::Attach() with renderer-owned COM pointers.
+    // Attach() assumes ownership and will Release() on scope exit, which can prematurely destroy the device and destabilize the engine.
+    ID3D11Device* device = static_cast<ID3D11Device*>(renderer->GetDevice());
+    if (device == nullptr)
+    {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[Texture] DX11: No device available");
+        return false;
+    }
+
+    // Reset previous SRV if reused.
+    if (textureSRV != nullptr)
+    {
+        textureSRV->Release();
+        textureSRV = nullptr;
+    }
+
+    // Validate the file path before attempting to decode.
+    if (!std::filesystem::exists(path))
+    {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[Texture] File does not exist: " + path);
+        return false;
+    }
+
+    IWICImagingFactory* wicFactory = nullptr;
+    IWICBitmapDecoder* decoder = nullptr;
+    IWICBitmapFrameDecode* frame = nullptr;
+    IWICFormatConverter* converter = nullptr;
+
+    HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wicFactory));
+    if (FAILED(hr) || (wicFactory == nullptr))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] CoCreateInstance(WICImagingFactory) failed. HRESULT: 0x%08X", hr);
+        return false;
+    }
+
+    hr = wicFactory->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnLoad, &decoder);
+    if (FAILED(hr) || (decoder == nullptr))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] WIC decode failed. HRESULT: 0x%08X", hr);
+        wicFactory->Release();
+        return false;
+    }
+
+    hr = decoder->GetFrame(0, &frame);
+    if (FAILED(hr) || (frame == nullptr))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] WIC GetFrame failed. HRESULT: 0x%08X", hr);
+        decoder->Release();
+        wicFactory->Release();
+        return false;
+    }
+
+    hr = wicFactory->CreateFormatConverter(&converter);
+    if (FAILED(hr) || (converter == nullptr))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] WIC CreateFormatConverter failed. HRESULT: 0x%08X", hr);
+        frame->Release();
+        decoder->Release();
+        wicFactory->Release();
+        return false;
+    }
+
+    hr = converter->Initialize(frame, GUID_WICPixelFormat32bppBGRA, WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom);
+    if (FAILED(hr))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] WIC converter Initialize failed. HRESULT: 0x%08X", hr);
+        converter->Release();
+        frame->Release();
+        decoder->Release();
+        wicFactory->Release();
+        return false;
+    }
+
+    UINT width = 0;
+    UINT height = 0;
+    converter->GetSize(&width, &height);
+    if (width == 0 || height == 0)
+    {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[Texture] Invalid image size (0). Aborting load.");
+        converter->Release();
+        frame->Release();
+        decoder->Release();
+        wicFactory->Release();
+        return false;
+    }
+
+    // Allocate a tight BGRA buffer and copy pixels out of WIC.
+    std::vector<BYTE> pixels((size_t)width * (size_t)height * (size_t)4);
+    hr = converter->CopyPixels(nullptr, width * 4, static_cast<UINT>(pixels.size()), pixels.data());
+    if (FAILED(hr))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] WIC CopyPixels failed. HRESULT: 0x%08X", hr);
+        converter->Release();
+        frame->Release();
+        decoder->Release();
+        wicFactory->Release();
+        return false;
+    }
+
+    // Describe and create an immutable DX11 texture (mip generation is not handled here).
+    D3D11_TEXTURE2D_DESC desc = {};
+    desc.Width = width;
+    desc.Height = height;
+    desc.MipLevels = 1;
+    desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_IMMUTABLE;
+    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+    D3D11_SUBRESOURCE_DATA initData = {};
+    initData.pSysMem = pixels.data();
+    initData.SysMemPitch = width * 4;
+
+    ID3D11Texture2D* tex = nullptr;
+    hr = device->CreateTexture2D(&desc, &initData, &tex);
+    if (FAILED(hr) || (tex == nullptr))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] CreateTexture2D failed. HRESULT: 0x%08X", hr);
+        converter->Release();
+        frame->Release();
+        decoder->Release();
+        wicFactory->Release();
+        return false;
+    }
+
+    hr = device->CreateShaderResourceView(tex, nullptr, &textureSRV);
+    tex->Release();
+
+    // Release WIC resources.
+    converter->Release();
+    frame->Release();
+    decoder->Release();
+    wicFactory->Release();
+
+    if (FAILED(hr) || (textureSRV == nullptr))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] CreateShaderResourceView failed. HRESULT: 0x%08X", hr);
+        return false;
+    }
+
+#if defined(_DEBUG_MODEL_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[Texture] DX11 Texture loaded: " + path);
+#endif
+
+    return true;
+#else
+    // Non-DX11 platforms are not implemented here.
+    return false;
+#endif
+}
+
+
+// ==========================================================================================
+// CreateSolidColorTexture
+// Creates a 2D texture filled with a constant color.
+// ==========================================================================================
+bool Texture::CreateSolidColorTexture(uint32_t width, uint32_t height, const XMFLOAT4& color)
+{
+    // Validate input dimensions.
+    if (width == 0 || height == 0)
+        return false;
+
+#ifdef __USE_DIRECTX_11__
+    // Retrieve the renderer-owned device without taking ownership (no ComPtr::Attach).
+    ID3D11Device* device = static_cast<ID3D11Device*>(renderer->GetDevice());
+    if (device == nullptr)
+    {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[Texture] DX11: No device available for CreateSolidColorTexture");
+        return false;
+    }
+
+    // Reset previous SRV if reused.
+    if (textureSRV != nullptr)
+    {
+        textureSRV->Release();
+        textureSRV = nullptr;
+    }
+
+    // Create CPU-side color buffer (RGBA8).
+    std::vector<uint8_t> textureData((size_t)width * (size_t)height * (size_t)4);
+
+    const uint8_t r = static_cast<uint8_t>(std::clamp(color.x, 0.0f, 1.0f) * 255.0f);
+    const uint8_t g = static_cast<uint8_t>(std::clamp(color.y, 0.0f, 1.0f) * 255.0f);
+    const uint8_t b = static_cast<uint8_t>(std::clamp(color.z, 0.0f, 1.0f) * 255.0f);
+    const uint8_t a = static_cast<uint8_t>(std::clamp(color.w, 0.0f, 1.0f) * 255.0f);
+
+    for (size_t i = 0; i < (size_t)width * (size_t)height; ++i)
+    {
+        textureData[i * 4 + 0] = r; // Red
+        textureData[i * 4 + 1] = g; // Green
+        textureData[i * 4 + 2] = b; // Blue
+        textureData[i * 4 + 3] = a; // Alpha
+    }
+
+    // Describe the GPU texture.
+    D3D11_TEXTURE2D_DESC texDesc = {};
+    texDesc.Width = width;
+    texDesc.Height = height;
+    texDesc.MipLevels = 1;
+    texDesc.ArraySize = 1;
+    texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    texDesc.SampleDesc.Count = 1;
+    texDesc.Usage = D3D11_USAGE_IMMUTABLE;
+    texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+    // Provide initial data.
+    D3D11_SUBRESOURCE_DATA initData = {};
+    initData.pSysMem = textureData.data();
+    initData.SysMemPitch = width * 4;
+
+    ID3D11Texture2D* texture2D = nullptr;
+    HRESULT hr = device->CreateTexture2D(&texDesc, &initData, &texture2D);
+    if (FAILED(hr) || (texture2D == nullptr))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] CreateTexture2D(solid) failed. HRESULT: 0x%08X", hr);
+        return false;
+    }
+
+    hr = device->CreateShaderResourceView(texture2D, nullptr, &textureSRV);
+    texture2D->Release();
+
+    if (FAILED(hr) || (textureSRV == nullptr))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] CreateShaderResourceView(solid) failed. HRESULT: 0x%08X", hr);
+        return false;
+    }
+
+    return true;
+#else
+    // Non-DX11 platforms are not implemented here.
+    return false;
+#endif
+}
+
+
+//==============================================================================
+// Model Class Implementation
+//==============================================================================
+
+// Constructor.
+Model::Model() : m_isLoaded(false), m_animationTime(0.0f)
+{
+    // NOTE:
+    // Never clear complex C++ objects (std::vector, ComPtr, std::wstring, etc.) with SecureZeroMemory/memset.
+    // Doing so corrupts internal state and will eventually crash when vectors are used (e.g. push_back in GLTF texture binding).
+
+    // Initialize core state flags.
+    bInitialized = false;
+    bIsDestroyed = false;
+
+    // Initialize basic identifiers and naming.
+    m_modelInfo.ID = 0;
+    m_modelInfo.iParentModelID = -1;
+    m_modelInfo.name = L"";
+
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+    // Initialize transforms for DirectX render paths.
+    m_modelInfo.position = XMFLOAT3(0.0f, 0.0f, 0.0f);
+    m_modelInfo.scale = XMFLOAT3(0.01f, 0.01f, 0.01f);
+    m_modelInfo.rotation = XMFLOAT3(0.0f, 0.0f, 0.0f);
+    m_modelInfo.worldMatrix = XMMatrixIdentity();
+    m_modelInfo.viewMatrix = XMMatrixIdentity();
+    m_modelInfo.projectionMatrix = XMMatrixIdentity();
+    m_modelInfo.cameraPosition = XMFLOAT3(0.0f, 0.0f, 0.0f);
+#endif
+
+    // Ensure containers begin in a known, valid state.
+    m_modelInfo.vertices.clear();
+    m_modelInfo.indices.clear();
+    m_modelInfo.animationVertices.clear();
+    m_modelInfo.textures.clear();
+    m_modelInfo.localLights.clear();
+    m_modelInfo.gltfBinaryBuffer.clear();
+
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+    m_modelInfo.textureSRVs.clear();
+    m_modelInfo.normalMapSRVs.clear();
+    m_modelInfo.tempPositions.clear();
+    m_modelInfo.tempNormals.clear();
+    m_modelInfo.tempTexCoords.clear();
+    m_modelInfo.materials.clear();
+
+    // Reset PBR defaults.
+    m_modelInfo.metallic = 0.0f;
+    m_modelInfo.roughness = 0.5f;
+    m_modelInfo.reflectionStrength = 1.0f;
+    m_modelInfo.envIntensity = 1.0f;
+    m_modelInfo.envTint = XMFLOAT3(1.0f, 1.0f, 1.0f);
+    m_modelInfo.mipLODBias = 0.0f;
+    m_modelInfo.fresnel0 = 0.04f;
+    m_modelInfo.useMetallicMap = false;
+    m_modelInfo.useRoughnessMap = false;
+    m_modelInfo.useAOMap = false;
+    m_modelInfo.useEnvironmentMap = false;
+#endif
+
+    // Reset animation index.
+    m_modelInfo.iAnimationIndex = 0;
+
+#if defined(_DEBUG_MODEL_)
+    // Constructor debug output (Info only per project rules).
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[Model] Model() constructed.");
+#endif
+}
+
+
+// Destructor.
+Model::~Model() {
+    if (bIsDestroyed) return;
+    DestroyModel();
+    bIsDestroyed = true;
+}
+
+// Loads a model from file. Supports both ".obj" and ".blend" formats.
+bool Model::LoadModel(const std::wstring& filename, int ID) {
+    // Thread Safety Lock for Render and Loader Threads.
+//    std::lock_guard<std::mutex> lock(m_ModelMutex);
+    // Initialize model info
+    m_modelInfo.ID = ID;
+    m_modelInfo.vertices.clear();
+    m_modelInfo.indices.clear();
+    m_modelInfo.textures.clear();
+    m_modelInfo.materials.clear();
+
+    bool result = false;
+    std::filesystem::path filePath(filename);
+    std::string extension = filePath.extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+
+    if (extension == ".obj") {
+        std::string narrowPath(filename.begin(), filename.end());
+        result = LoadOBJ(narrowPath);
+    }
+    else {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Unsupported file format: " + std::wstring(extension.begin(), extension.end()));
+        return false;
+    }
+
+    if (result) {
+        m_isLoaded = true;
+        #if defined(_DEBUG_MODEL_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"Model loaded successfully.");
+        #endif
+    }
+
+    return result;
+}
+
+// Models.cpp
+void Model::DestroyModel()
+{
+    if ((!m_isLoaded) || (bIsDestroyed)) return;
+
+#if defined(_DEBUG_MODEL_)
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"[Model] DestroyModel() called for model name: %hs", m_modelInfo.modelName.c_str());
+#endif
+
+    // =========================================================
+    // Release All DirectX GPU Resources
+    // =========================================================
+    if (m_modelInfo.vertexBuffer) { m_modelInfo.vertexBuffer.Reset(); }
+    if (m_modelInfo.indexBuffer) { m_modelInfo.indexBuffer.Reset(); }
+    if (m_modelInfo.materialBuffer) { m_modelInfo.materialBuffer.Reset(); }
+    if (m_modelInfo.lightConstantBuffer) { m_modelInfo.lightConstantBuffer.Reset(); }
+    if (m_modelInfo.debugConstantBuffer) { m_modelInfo.debugConstantBuffer.Reset(); }
+
+    if (threadManager.threadVars.bIsShuttingDown.load())
+    {
+        if (m_modelInfo.samplerState) { m_modelInfo.samplerState.Reset(); }
+        if (m_modelInfo.environmentSamplerState) { m_modelInfo.environmentSamplerState.Reset(); }
+        if (m_modelInfo.vertexShader) { m_modelInfo.vertexShader.Reset(); }
+        if (m_modelInfo.pixelShader) { m_modelInfo.pixelShader.Reset(); }
+        if (m_modelInfo.inputLayout) { m_modelInfo.inputLayout.Reset(); }
+        if (m_modelInfo.vertexShaderBlob) { m_modelInfo.vertexShaderBlob.Reset(); }
+        if (m_modelInfo.pixelShaderBlob) { m_modelInfo.pixelShaderBlob.Reset(); }
+        if (m_modelInfo.constantBuffer) { m_modelInfo.constantBuffer.Reset(); }
+    }
+
+    // =========================================================
+    // Release and Clear All Textures and Shader Resource Views
+    // =========================================================
+    for (auto& srv : m_modelInfo.textures)
+    {
+        srv.reset();
+    }
+    m_modelInfo.textures.clear();
+    m_modelInfo.textures.shrink_to_fit();
+
+    for (auto& srv : m_modelInfo.textureSRVs)
+    {
+        if (srv) srv.Reset();
+    }
+    m_modelInfo.textureSRVs.clear();
+    m_modelInfo.textureSRVs.shrink_to_fit();
+
+    for (auto& srv : m_modelInfo.normalMapSRVs)
+    {
+        if (srv) srv.Reset();
+    }
+    m_modelInfo.normalMapSRVs.clear();
+    m_modelInfo.normalMapSRVs.shrink_to_fit();
+
+    // =========================================================
+    // Clear All Materials
+    // =========================================================
+    m_materials.clear();
+
+    // =========================================================
+    // Clear All Geometry Data
+    // =========================================================
+    m_modelInfo.vertices.clear();
+    m_modelInfo.indices.clear();
+    m_modelInfo.tempPositions.clear();
+    m_modelInfo.tempNormals.clear();
+    m_modelInfo.tempTexCoords.clear();
+    m_modelInfo.animationVertices.clear(); // If used for animations
+
+    // =========================================================
+    // Reset Primitive Counts and Flags
+    // =========================================================
+    m_modelInfo.iAnimationIndex = 0;
+    m_animationTime = 0.0f;
+
+    // =========================================================
+    // Reset Transformation Data
+    // =========================================================
+    m_modelInfo.position = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+    m_modelInfo.scale = DirectX::XMFLOAT3(1.0f, 1.0f, 1.0f);
+    m_modelInfo.rotation = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+    m_modelInfo.worldMatrix = DirectX::XMMatrixIdentity();
+
+    // =========================================================
+    // Reset Lighting Information
+    // =========================================================
+    m_modelInfo.localLights.clear();
+    m_modelInfo.localLights.shrink_to_fit();
+
+    m_modelInfo.fxActive = false;
+    if (threadManager.threadVars.bIsResizing.load())
+    {
+        ModelInfo newModelInfo;
+        m_modelInfo = newModelInfo;                                     // Reset model info to default state
+        // NOTE: Do NOT SecureZeroMemory() ModelInfo. It contains std::vector and ComPtr members.
+        m_modelInfo.name = L"";
+        m_modelInfo.ID = 0;
+        m_modelInfo.fxID = -1;
+        m_modelInfo.iAnimationIndex = 0;
+        m_modelInfo.fxActive = false;
+    }
+    else
+    {
+        bIsDestroyed = true;
+    }
+
+    // =========================================================
+    // Reset Loaded State
+    // =========================================================
+    m_isLoaded = false;
+    if (threadManager.threadVars.bIsShuttingDown.load())
+    {
+        // NOTE: Do NOT SecureZeroMemory() ModelInfo. It contains std::vector and ComPtr members.
+        // Reset critical identifiers and flags only.
+        m_modelInfo.name = L"";
+        m_modelInfo.ID = -1;
+        m_modelInfo.fxID = -1;
+        m_modelInfo.iAnimationIndex = -1;
+        m_modelInfo.fxActive = false;
+
+        // Clear container data safely.
+        m_modelInfo.vertices.clear();
+        m_modelInfo.indices.clear();
+        m_modelInfo.tempPositions.clear();
+        m_modelInfo.tempNormals.clear();
+        m_modelInfo.tempTexCoords.clear();
+        m_modelInfo.animationVertices.clear();
+        m_modelInfo.textures.clear();
+        m_modelInfo.textureSRVs.clear();
+        m_modelInfo.normalMapSRVs.clear();
+        m_modelInfo.localLights.clear();
+    }
+
+#if defined(_DEBUG_MODEL_)
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"[Model] DestroyModel() completed for model name: %hs", m_modelInfo.modelName.c_str());
+#endif
+}
+
+void Model::ApplyDefaultLightingFromManager(LightsManager& myLightsManager)
+{
+#if defined(_DEBUG_MODEL_)
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"Applying global lights from LightsManager to model ID %d", m_modelInfo.ID);
+#endif
+
+    // Pull all lights currently registered in the manager.
+    std::vector<LightStruct> globalLights = myLightsManager.GetAllLights();
+
+    // Sort lights to ensure deterministic selection when clamping to MAX_MODEL_LIGHTS.
+    // This prevents imported GLTF lights from pushing out the engine primary light due to unordered_map iteration order.
+    std::sort(globalLights.begin(), globalLights.end(), [](const LightStruct& a, const LightStruct& b)
+    {
+        // Active lights first.
+        if (a.active != b.active)
+            return a.active > b.active;
+
+        // Higher intensity first.
+        if (a.intensity != b.intensity)
+            return a.intensity > b.intensity;
+
+        // Prefer directional lights (often the main sun light).
+        if (a.type != b.type)
+            return a.type == int(LightType::DIRECTIONAL);
+
+        return false;
+    });
+
+    // Clamp to max shader lights if needed.
+    if (globalLights.size() > MAX_MODEL_LIGHTS)
+        globalLights.resize(MAX_MODEL_LIGHTS);
+
+    // Assign lights as model-local lights for the shader.
+    m_modelInfo.localLights = globalLights;
+
+}
+
+
+bool Model::LoadMTL(const std::wstring& mtlPath)
+{
+    std::wstring fileName = sysUtils.StripQuotes(mtlPath);
+    std::ifstream file(fileName);
+    if (!file.is_open())
+    {
+#if defined(_DEBUG_MODEL_)
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Model: Failed to open MTL file \"" + fileName + L"\"");
+#endif
+        return false;
+    }
+
+    std::string line;
+    Material currentMat;
+
+    while (std::getline(file, line))
+    {
+        std::istringstream iss(line);
+        std::string tag;
+        iss >> tag;
+
+        if (tag == "newmtl")
+        {
+            if (!currentMat.name.empty())
+            {
+                m_materials[currentMat.name] = currentMat;
+            }
+
+            iss >> currentMat.name;
+            currentMat.diffuseMapPath.clear();
+            currentMat.diffuseTexture = nullptr;
+            currentMat.Kd = { 1.0f, 1.0f, 1.0f };
+            currentMat.Ka = { 0.1f, 0.1f, 0.1f };
+            currentMat.Ks = { 0.5f, 0.5f, 0.5f };
+            currentMat.Ns = 32.0f;
+        }
+        else if (tag == "map_Kd")
+        {
+            std::string texPath;
+            iss >> texPath;
+
+            currentMat.diffuseMapPath = texPath;
+
+            auto tex = std::make_shared<Texture>();
+            std::wstring txPath = sysUtils.ToWString(texPath);
+            std::wstring texPathStr = sysUtils.StripQuotes(txPath);
+            std::wstring myFilename = AssetsDir / texPathStr;
+
+#if defined(_DEBUG_MODEL_) || defined(_DEBUG_SCENEMANAGER_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"LoadMTL(): Model: Attempting to Load texture from " + myFilename);
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"LoadMTL(): -> Attempting to load image URI: %hs", texPathStr.c_str());
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"LoadMTL(): -> Resolved full texture path: %ls", myFilename.c_str());
+#endif
+            if (tex->LoadFromFile(myFilename))
+            {
+                currentMat.diffuseTexture = tex;
+#if defined(_DEBUG_MODEL_)
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"Model: Loaded texture for material " + std::wstring(currentMat.name.begin(), currentMat.name.end()));
+#endif
+            }
+            else
+            {
+#if defined(_DEBUG_MODEL_)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"Model: Failed to load texture: " + std::wstring(texPath.begin(), texPath.end()));
+#endif
+            }
+        }
+        else if (tag == "map_Bump" || tag == "bump")
+        {
+            std::string bumpPath;
+            iss >> bumpPath;
+            currentMat.normalMapPath = bumpPath;
+
+            auto bumpTex = std::make_shared<Texture>();
+            std::wstring newMtlFile = sysUtils.ToWString(bumpPath);
+            std::wstring fileName = sysUtils.StripQuotes(newMtlFile);
+            std::filesystem::path fullPath = AssetsDir / fileName;
+#if defined(_DEBUG_MODEL_) || defined(_DEBUG_SCENEMANAGER_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"LoadMTL(): Model: Attempting to Load Materia texture from " + fileName);
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"LoadMTL(): -> Attempting to load Material image URI: %hs", fileName.c_str());
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"LoadMTL(): -> Resolved full Material path: %ls", fullPath.c_str());
+#endif
+            if (bumpTex->LoadFromFile(fullPath))
+                currentMat.normalMap = bumpTex;
+            else
+                currentMat.normalMap = nullptr;
+        }
+        else if (tag == "map_Ka") {
+            std::string texPath;
+            iss >> texPath;
+            std::wstring newMtlFile = sysUtils.ToWString(texPath);
+            std::wstring fileName = sysUtils.StripQuotes(newMtlFile);
+            std::filesystem::path fullPath = AssetsDir / fileName;
+
+            auto tex = std::make_shared<Texture>();
+            if (tex->LoadFromFile(fullPath)) {
+                currentMat.ambientTexture = tex;
+            }
+            else {
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"Model: Failed to load ambient texture: " + sysUtils.ToWString(texPath));
+            }
+        }
+        else if (tag == "map_Ks") {
+            std::string texPath;
+            iss >> texPath;
+            std::wstring newMtlFile = sysUtils.ToWString(texPath);
+            std::wstring fileName = sysUtils.StripQuotes(newMtlFile);
+            std::filesystem::path fullPath = AssetsDir / fileName;
+            currentMat.specularMapPath = fullPath;
+
+            auto tex = std::make_shared<Texture>();
+            if (tex->LoadFromFile(fullPath)) {
+                currentMat.specularTexture = tex;
+            }
+            else {
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"Model: Failed to load specular texture: " + sysUtils.ToWString(texPath));
+            }
+        }
+        else if (tag == "d") {
+            iss >> currentMat.dissolve;
+        }
+        else if (tag == "illum") {
+            iss >> currentMat.illumModel;
+        }
+        else if (tag == "Kd")
+        {
+            iss >> currentMat.Kd.x >> currentMat.Kd.y >> currentMat.Kd.z;
+        }
+        else if (tag == "Ka")
+        {
+            iss >> currentMat.Ka.x >> currentMat.Ka.y >> currentMat.Ka.z;
+        }
+        else if (tag == "Ks")
+        {
+            iss >> currentMat.Ks.x >> currentMat.Ks.y >> currentMat.Ks.z;
+        }
+        else if (tag == "Ns")
+        {
+            iss >> currentMat.Ns;
+        }
+    }
+
+    // Don't forget the final material
+    if (!currentMat.name.empty())
+    {
+        m_materials[currentMat.name] = currentMat;
+    }
+
+    file.close();
+    return true;
+}
+
+void Model::LoadFallbackTexture()
+{
+    // Lock all texture vector mutations for this model instance.
+    // This prevents cross-thread corruption (loader thread vs render thread).
+    std::string lockName = "model_texture_update_" + std::to_string(m_modelInfo.ID);
+    ThreadLockHelper lock(threadManager, lockName.c_str(), 5000);
+
+    static std::shared_ptr<Texture> fallback;
+
+    if (!fallback)
+    {
+        auto fileName = AssetsDir / L"bricks1.png";
+
+        if (!std::filesystem::exists(fileName))
+        {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Missing fallback texture: " + fileName.wstring());
+            return;
+        }
+
+        fallback = std::make_shared<Texture>();
+
+        if (!fallback->LoadFromFile(fileName))
+        {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to load fallback texture: " + fileName.wstring());
+            fallback.reset();
+            return;
+        }
+    }
+
+    // Prevent duplicate insertion if multiple code paths request fallback.
+    // This also avoids unbounded growth if Render() requests fallback repeatedly.
+    if (!m_modelInfo.textures.empty())
+    {
+        if (m_modelInfo.textures[0] == fallback)
+        {
+            // Ensure SRVs are also valid.
+            if (!m_modelInfo.textureSRVs.empty() && m_modelInfo.textureSRVs[0].Get() == fallback->GetSRV())
+            {
+                return;
+            }
+        }
+    }
+
+    // Ensure textures list has the fallback entry.
+    m_modelInfo.textures.clear();
+    m_modelInfo.textures.push_back(fallback);
+
+    // Reset SRVs safely under lock.
+    m_modelInfo.textureSRVs.clear();
+    m_modelInfo.textureSRVs.shrink_to_fit();
+    m_modelInfo.textureSRVs.reserve(1);
+    m_modelInfo.textureSRVs.push_back(fallback->GetSRV());
+}
+
+
+//==============================================================================
+// Loads a model from a Wavefront OBJ file.
+// In Models.cpp, add the following implementation:
+//==============================================================================
+bool Model::LoadOBJ(const std::string& path)
+{
+    std::ifstream file(path);
+    if (!file.is_open())
+        return false;
+
+    std::vector<XMFLOAT3> tempPositions;
+    std::vector<XMFLOAT3> tempNormals;
+    std::vector<XMFLOAT2> tempTexCoords;
+
+    std::string currentMaterial;
+    std::string mtlFileToLoad;
+    std::unordered_map<std::string, UINT> uniqueVertices;
+
+    std::string line;
+    while (std::getline(file, line))
+    {
+        std::istringstream iss(line);
+        std::string tag;
+        iss >> tag;
+
+        if (tag == "mtllib")
+        {
+            iss >> mtlFileToLoad;
+            std::wstring wfile = sysUtils.StripQuotes(sysUtils.ToWString(mtlFileToLoad));
+            LoadMTL((AssetsDir / wfile).wstring());
+        }
+        else if (tag == "v")
+        {
+            XMFLOAT3 pos;
+            iss >> pos.x >> pos.y >> pos.z;
+            tempPositions.push_back(pos);
+        }
+        else if (tag == "vt")
+        {
+            XMFLOAT2 tex;
+            iss >> tex.x >> tex.y;
+            tempTexCoords.push_back(tex);
+        }
+        else if (tag == "vn")
+        {
+            XMFLOAT3 norm;
+            iss >> norm.x >> norm.y >> norm.z;
+            tempNormals.push_back(norm);
+        }
+        else if (tag == "usemtl")
+        {
+            iss >> currentMaterial;
+        }
+        else if (tag == "f")
+        {
+            std::string v[3];
+            // OBJ format can have their vertex indices in different orders
+            if (config.myConfig.BackCulling)
+            {
+                // Go Forward direction.
+                iss >> v[0] >> v[1] >> v[2];
+            }
+            else
+            { 
+                // Go Reverse direction.
+                iss >> v[2] >> v[1] >> v[0];
+            }
+            
+            for (int i = 0; i < 3; ++i)
+            {
+                std::istringstream vstream(v[i]);
+                std::string posStr, texStr, normStr;
+                std::getline(vstream, posStr, '/');
+                std::getline(vstream, texStr, '/');
+                std::getline(vstream, normStr, '/');
+
+                int posIdx = std::stoi(posStr) - 1;
+                int texIdx = texStr.empty() ? 0 : std::stoi(texStr) - 1;
+                int normIdx = normStr.empty() ? 0 : std::stoi(normStr) - 1;
+
+                Vertex vertex;
+                vertex.position = tempPositions[posIdx];
+                vertex.texCoord = texIdx >= 0 && texIdx < tempTexCoords.size() ? tempTexCoords[texIdx] : XMFLOAT2(0, 0);
+                vertex.normal = normIdx >= 0 && normIdx < tempNormals.size() ? tempNormals[normIdx] : XMFLOAT3(0, 1, 0);
+                vertex.tangent = XMFLOAT3(0, 0, 0); // will compute later
+
+                m_modelInfo.vertices.push_back(vertex);
+                m_modelInfo.indices.push_back(static_cast<uint32_t>(m_modelInfo.vertices.size() - 1));
+            }
+
+            if (std::find(m_modelInfo.materials.begin(), m_modelInfo.materials.end(), currentMaterial) == m_modelInfo.materials.end()) {
+                m_modelInfo.materials.push_back(currentMaterial);
+            }
+        }
+    }
+
+    // Tangent calculation
+    std::vector<XMFLOAT3> accumulatedTangents(m_modelInfo.vertices.size(), XMFLOAT3(0, 0, 0));
+    std::vector<uint32_t> tangentCounts(m_modelInfo.vertices.size(), 0);
+
+    for (size_t i = 0; i < m_modelInfo.indices.size(); i += 3)
+    {
+        uint32_t i0 = m_modelInfo.indices[i];
+        uint32_t i1 = m_modelInfo.indices[i + 1];
+        uint32_t i2 = m_modelInfo.indices[i + 2];
+
+        Vertex& v0 = m_modelInfo.vertices[i0];
+        Vertex& v1 = m_modelInfo.vertices[i1];
+        Vertex& v2 = m_modelInfo.vertices[i2];
+
+        XMVECTOR p0 = XMLoadFloat3(&v0.position);
+        XMVECTOR p1 = XMLoadFloat3(&v1.position);
+        XMVECTOR p2 = XMLoadFloat3(&v2.position);
+
+        XMFLOAT2 uv0 = v0.texCoord;
+        XMFLOAT2 uv1 = v1.texCoord;
+        XMFLOAT2 uv2 = v2.texCoord;
+
+        XMVECTOR deltaPos1 = p1 - p0;
+        XMVECTOR deltaPos2 = p2 - p0;
+        float du1 = uv1.x - uv0.x;
+        float dv1 = uv1.y - uv0.y;
+        float du2 = uv2.x - uv0.x;
+        float dv2 = uv2.y - uv0.y;
+
+//        float r = 1.0f / (du1 * dv2 - du2 * dv1);
+        // Safe guard this and ensure no division by zero!
+        float denom = (du1 * dv2 - du2 * dv1);
+        float r = denom == 0.0f ? 1.0f : 1.0f / denom;
+
+        XMVECTOR tangent = (deltaPos1 * dv2 - deltaPos2 * dv1) * r;
+
+        for (uint32_t idx : { i0, i1, i2 }) {
+            XMVECTOR oldTangent = XMLoadFloat3(&accumulatedTangents[idx]);
+            oldTangent += tangent;
+            XMStoreFloat3(&accumulatedTangents[idx], oldTangent);
+            tangentCounts[idx]++;
+        }
+    }
+
+    for (size_t i = 0; i < m_modelInfo.vertices.size(); ++i)
+    {
+        if (tangentCounts[i] > 0)
+        {
+            XMVECTOR t = XMLoadFloat3(&accumulatedTangents[i]);
+            XMVECTOR n = XMLoadFloat3(&m_modelInfo.vertices[i].normal);
+
+            // Gram-Schmidt orthogonalize tangent with normal
+            t = XMVector3Normalize(t - n * XMVector3Dot(n, t));
+
+            XMStoreFloat3(&m_modelInfo.vertices[i].tangent, t);
+        }
+        else
+        {
+            // Fallback to a default tangent if no tangents were calculated
+            m_modelInfo.vertices[i].tangent = XMFLOAT3(1, 0, 0);
+        }
+    }
+
+    return true;
+}
+
+//==============================================================================
+// Helper function to compile shaders
+//==============================================================================
+HRESULT Model::CompileShaderFromFile(const std::wstring& filePath, const std::string& entryPoint, const std::string& shaderModel, ID3DBlob** blobOut) {
+    HRESULT hr = S_OK;
+
+    DWORD shaderFlags = D3DCOMPILE_ENABLE_STRICTNESS;
+#ifdef _DEBUG
+    shaderFlags |= D3DCOMPILE_DEBUG;
+    shaderFlags |= D3DCOMPILE_SKIP_OPTIMIZATION;
+#endif
+
+    if (!std::filesystem::exists(filePath)) {
+#if defined(_DEBUG_MODEL_) || defined(_DEBUG_SCENEMANAGER_)
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Shader file NOT found!");
+#endif
+        return E_FAIL;
+    }
+    ID3DBlob* errorBlob = nullptr;
+    hr = D3DCompileFromFile(
+        filePath.c_str(),
+        nullptr,
+        D3D_COMPILE_STANDARD_FILE_INCLUDE,
+        entryPoint.c_str(),
+        shaderModel.c_str(),
+        shaderFlags,
+        0,
+        blobOut,
+        &errorBlob
+    );
+
+    if (FAILED(hr)) {
+        if (errorBlob) {
+            std::string errorMsg(static_cast<const char*>(errorBlob->GetBufferPointer()), errorBlob->GetBufferSize());
+#if defined(_DEBUG_MODEL_) || defined(_DEBUG_SCENEMANAGER_)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Shader compilation error: " + sysUtils.ToWString(errorMsg));
+#endif
+            errorBlob->Release();
+        }
+        return hr;
+    }
+
+    if (errorBlob) {
+        errorBlob->Release();
+    }
+
+    return hr;
+}
+
+// --------------------------------------------------------------------------------------------------
+// Model::CopyFrom
+// Deeply copies all fields from another Model instance into this one.
+// Ensures full structure integrity, no shared pointers, no shallow copies.
+// --------------------------------------------------------------------------------------------------
+void Model::CopyFrom(const Model& other)
+{
+    // === Basic Shallow Copy First ===
+    m_modelInfo = other.m_modelInfo;
+
+    if (threadManager.threadVars.bIsResizing)
+    {
+        #if defined(_DEBUG_MODEL_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[Model::CopyFrom] Resize Detected -> Resetting ONLY GPU resources (SRVs, Buffers, Shaders) - NOT textures!");
+        #endif
+        // Clear SRVs
+        for (auto& srv : m_modelInfo.textureSRVs)
+            srv.Reset();
+        m_modelInfo.textureSRVs.clear();
+        m_modelInfo.textureSRVs.shrink_to_fit();
+
+        for (auto& srv : m_modelInfo.normalMapSRVs)
+            srv.Reset();
+        m_modelInfo.normalMapSRVs.clear();
+        m_modelInfo.normalMapSRVs.shrink_to_fit();
+
+        m_modelInfo.metallicMapSRV.Reset();
+        m_modelInfo.roughnessMapSRV.Reset();
+        m_modelInfo.aoMapSRV.Reset();
+        m_modelInfo.environmentMapSRV.Reset();
+
+        // Clear GPU Buffers
+        m_modelInfo.vertexBuffer.Reset();
+        m_modelInfo.indexBuffer.Reset();
+        m_modelInfo.constantBuffer.Reset();
+        m_modelInfo.lightConstantBuffer.Reset();
+        m_modelInfo.materialBuffer.Reset();
+        m_modelInfo.environmentBuffer.Reset();
+
+        // Clear Shaders
+        m_modelInfo.vertexShader.Reset();
+        m_modelInfo.pixelShader.Reset();
+        m_modelInfo.vertexShaderBlob.Reset();
+        m_modelInfo.pixelShaderBlob.Reset();
+
+        // Clear Input Layout
+        m_modelInfo.inputLayout.Reset();
+
+        // Clear Sampler State
+        m_modelInfo.samplerState.Reset();
+        m_modelInfo.environmentSamplerState.Reset();
+
+        // === 🛡️ DO NOT TOUCH: ===
+        // m_modelInfo.textures
+        // m_modelInfo.materials
+        // m_materials
+    }
+
+    if (m_modelInfo.name.empty())
+        m_modelInfo.name = L"UnnamedModel_" + std::to_wstring(m_modelInfo.ID);
+
+    // Reset dynamic flags
+    m_isLoaded = false;
+    m_animationTime = 0.0f;
+    bIsDestroyed = false;
+}
+
+// Updates the constant buffer with the world matrix.
+void Model::UpdateConstantBuffer() {
+#ifdef __USE_DIRECTX_11__
+    // Ensure the model is loaded and the constant buffer is valid
+    if (!m_isLoaded || !m_modelInfo.constantBuffer) {
+#if defined(_DEBUG_MODEL_) || defined(_DEBUG_SCENEMANAGER_)
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"UpdateConstantBuffer: Model not loaded or constant buffer is invalid.");
+#endif
+        return;
+    }
+
+    // Get the device context from the renderer
+    auto dx11 = std::dynamic_pointer_cast<DX11Renderer>(renderer);
+    ComPtr<ID3D11DeviceContext> deviceContext = dx11->m_d3dContext;
+    ConstantBuffer cb = {};
+    m_modelInfo.cameraPosition = dx11->myCamera.GetPosition();
+    cb.worldMatrix = XMMatrixTranspose(m_modelInfo.worldMatrix);
+    cb.viewMatrix = XMMatrixTranspose(m_modelInfo.viewMatrix);
+    cb.projectionMatrix = XMMatrixTranspose(m_modelInfo.projectionMatrix);
+    cb.cameraPosition = m_modelInfo.cameraPosition;
+    cb.modelScale = m_modelInfo.scale;
+
+    if (m_modelInfo.constantBuffer)
+    {
+        D3D11_MAPPED_SUBRESOURCE mappedResource = {};
+        HRESULT hr = deviceContext->Map(m_modelInfo.constantBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
+        if (SUCCEEDED(hr)) {
+            memcpy(mappedResource.pData, &cb, sizeof(ConstantBuffer));
+            deviceContext->Unmap(m_modelInfo.constantBuffer.Get(), 0);
+        }
+    }
+#else
+    debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"UpdateConstantBuffer: DirectX 11 is not enabled.");
+#endif
+}
+
+void Model::TriggerEffect(int effectID)
+{
+    m_modelInfo.fxID = effectID;
+    m_modelInfo.fxActive = true;
+}
+
+void FXManager::CancelEffect(int effectID)
+{
+    effects.erase(std::remove_if(effects.begin(), effects.end(),
+        [effectID](const FXItem& fx) { return fx.fxID == effectID; }),
+        effects.end());
+}
+
+void FXManager::RestartEffect(int effectID)
+{
+    for (FXItem& fx : effects)
+    {
+        if (fx.fxID == effectID)
+        {
+            fx.startTime = std::chrono::high_resolution_clock::now();
+            break;
+        }
+    }
+}
+
+void FXManager::ChainEffect(int fromEffectID, int toEffectID)
+{
+    for (FXItem& fx : effects)
+    {
+        if (fx.fxID == fromEffectID)
+        {
+            fx.nextEffectID = toEffectID;
+            break;
+        }
+    }
+}
+
+void Model::SetPosition(XMFLOAT3 position)
+{
+    m_modelInfo.position = position;
+}
+
+void Model::LoadFallbackNormalMap()
+{
+    // Lock all normal-map vector mutations for this model instance.
+    // This prevents cross-thread corruption between loader and renderer.
+    std::string lockName = "model_texture_update_" + std::to_string(m_modelInfo.ID);
+    ThreadLockHelper lock(threadManager, lockName.c_str(), 5000);
+
+    if (!lock.IsLocked())
+    {
+        #if defined(_DEBUG_MODEL_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[Model] Could not acquire lock for fallback normal map on Model ID: %d", m_modelInfo.ID);
+        #endif
+        return;
+    }
+
+    // -------------------------------------------------------------------------
+    // IMPORTANT:
+    // The ModelPixel.hlsl ALWAYS samples normalMap at slot t1.
+    // If no normal SRV is bound, sampling results are undefined and can easily
+    // produce fully black lighting.
+    //
+    // To guarantee correctness, we create an in-memory 1x1 "flat" normal map:
+    // RGB(0.5, 0.5, 1.0) which corresponds to tangent-space (0, 0, 1).
+    // -------------------------------------------------------------------------
+    static std::shared_ptr<Texture> flatNormal;
+
+    if (!flatNormal)
+    {
+        flatNormal = std::make_shared<Texture>();
+
+        // Create 1x1 tangent-space flat normal map (0.5, 0.5, 1.0, 1.0).
+        // This prevents black models when no normal maps are provided by assets.
+        flatNormal->CreateSolidColorTexture(1, 1, XMFLOAT4(0.5f, 0.5f, 1.0f, 1.0f));
+
+        #if defined(_DEBUG_MODEL_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[Model] Created in-memory fallback flat normal map (1x1).");
+        #endif
+    }
+
+    // Reset normal SRVs safely under lock.
+    m_modelInfo.normalMapSRVs.clear();
+    m_modelInfo.normalMapSRVs.shrink_to_fit();
+    m_modelInfo.normalMapSRVs.reserve(1);
+    m_modelInfo.normalMapSRVs.push_back(flatNormal->GetSRV());
+}
+
+
+
+//==============================================================================
+// Restored SetupModelForRendering with shader setup and DX11 macro protection
+//==============================================================================
+bool Model::SetupModelForRendering(int ID)
+{ 
+    bool result = false;
+    result = SetupModelForRendering();
+
+#if defined(_DEBUG_MODEL_) || defined(_DEBUG_SCENEMANAGER_)
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"[Model] CopyFrom() completed for model name: \"%ls\"", m_modelInfo.name.c_str());
+#endif
+
+    return result;
+}
+
+//==============================================================================
+// Restored SetupModelForRendering with shader setup and DX11 macro protection
+//==============================================================================
+bool Model::SetupModelForRendering()
+{
+#ifdef __USE_DIRECTX_11__
+    // Prevent multiple threads from setting up the same model simultaneously.
+    bool expected = false;
+    if (!bIsSettingUpModel.compare_exchange_strong(expected, true))
+    {
+        #if defined(_DEBUG_MODEL_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[Model] SetupModelForRendering re-entry blocked for Model ID: %d", m_modelInfo.ID);
+        #endif
+        return false;
+    }
+
+    // Ensure the flag is always cleared when we exit this function.
+    struct SetupGuard
+    {
+        std::atomic<bool>* flag;
+        SetupGuard(std::atomic<bool>* f) : flag(f) {}
+        ~SetupGuard() { flag->store(false); }
+    } guard(&bIsSettingUpModel);
+
+    if (!renderer)
+    {
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID: %d Status: Invalid Renderer has been provided.)", m_modelInfo.ID, m_isLoaded);
+        return false;
+    }
+
+    // Retrieve our Device from Renderer.
+    //
+    // IMPORTANT:
+    // SetupModelForRendering() is called from the Loader thread during scene parsing.
+    // The Direct3D11 immediate context is not safe to use from this background thread.
+    // Creating buffers via ID3D11Device is thread-safe; mapping/updating via the
+    // immediate context is not. Therefore we only use the device here.
+    ComPtr<ID3D11Device> device;
+
+    device = static_cast<ID3D11Device*>(renderer->GetDevice());
+
+    if (!device)
+    {
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID: %d Status: %d Failed to Setup (Device could be NULL)", m_modelInfo.ID, m_isLoaded);
+        return false;
+    }
+
+    // Lock texture updates while we potentially apply fallbacks.
+    {
+        std::string lockName = "model_texture_update_" + std::to_string(m_modelInfo.ID);
+        ThreadLockHelper lock(threadManager, lockName.c_str(), 5000);
+
+        // If no SRVs were loaded, force a fallback so GPU doesn't crash
+        if (m_modelInfo.textureSRVs.empty())
+        {
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID %d has no textures. Applying fallback texture.", m_modelInfo.ID);
+            LoadFallbackTexture();
+        }
+
+        // Ensure at least one normal map SRV exists to prevent GPU crash
+        if (m_modelInfo.normalMapSRVs.empty())
+        {
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID %d has no normal maps. Applying flat normal fallback.", m_modelInfo.ID);
+            LoadFallbackNormalMap();
+        }
+    }
+
+    #if defined(_DEBUG_MODEL_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[Model] Using ShaderManager for shader setup - no manual compilation needed.");
+    #endif
+
+    //=== BUFFER SETUP ===//
+    D3D11_BUFFER_DESC vbDesc = {};
+    vbDesc.ByteWidth = static_cast<UINT>(m_modelInfo.vertices.size() * sizeof(Vertex));
+    vbDesc.Usage = D3D11_USAGE_IMMUTABLE;
+    vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+
+    D3D11_SUBRESOURCE_DATA vbData = { m_modelInfo.vertices.data() };
+
+    #if defined(_DEBUG_MODEL_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"Vertex count: %d", (int)m_modelInfo.vertices.size());
+    #endif
+
+    if (FAILED(device->CreateBuffer(&vbDesc, &vbData, &m_modelInfo.vertexBuffer)))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create vertex buffer for model ID: %d", m_modelInfo.ID);
+        return false;
+    }
+
+    D3D11_BUFFER_DESC ibDesc = {};
+    ibDesc.ByteWidth = static_cast<UINT>(m_modelInfo.indices.size() * sizeof(uint32_t));
+    ibDesc.Usage = D3D11_USAGE_IMMUTABLE;
+    ibDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+
+    D3D11_SUBRESOURCE_DATA ibData = { m_modelInfo.indices.data() };
+
+    #if defined(_DEBUG_MODEL_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"Index count: %d", (int)m_modelInfo.indices.size());
+    #endif
+
+    if (FAILED(device->CreateBuffer(&ibDesc, &ibData, &m_modelInfo.indexBuffer)))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create index buffer for model ID: %d", m_modelInfo.ID);
+        return false;
+    }
+
+    //=== CONSTANT BUFFERS ===//
+    D3D11_BUFFER_DESC cbDesc = {};
+    cbDesc.ByteWidth = Align16(static_cast<UINT>(sizeof(ConstantBuffer)));
+    cbDesc.Usage = D3D11_USAGE_DYNAMIC;
+    cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+    if (FAILED(device->CreateBuffer(&cbDesc, nullptr, &m_modelInfo.constantBuffer)))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create Constant Buffer for model ID: %d", m_modelInfo.ID);
+        return false;
+    }
+
+    D3D11_BUFFER_DESC lightDesc = {};
+    // NOTE:
+// The runtime-compiled ModelPixel shader is expecting a Light constant buffer size of at least 1728 bytes for b1/b3.
+// Our CPU LightBuffer struct is smaller (typically 1296 bytes for 8 lights with 160-byte LightStruct stride),
+// which triggers DEVICE_DRAW_CONSTANT_BUFFER_TOO_SMALL warnings and can lead to zero reads in shader.
+// We allocate the buffer to the minimum required size so the shader always has enough space.
+const UINT kExpectedLightCBSizeBytes = 1728;
+const UINT lightStructSizeBytes = static_cast<UINT>(sizeof(LightBuffer));
+const UINT finalLightCBSizeBytes = Align16((lightStructSizeBytes > kExpectedLightCBSizeBytes) ? lightStructSizeBytes : kExpectedLightCBSizeBytes);
+
+lightDesc.ByteWidth = finalLightCBSizeBytes;
+lightDesc.Usage = D3D11_USAGE_DYNAMIC;
+    lightDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    lightDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+    if (FAILED(device->CreateBuffer(&lightDesc, nullptr, &m_modelInfo.lightConstantBuffer)))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create Light Buffer for model ID: %d", m_modelInfo.ID);
+        return false;
+    }
+
+    D3D11_BUFFER_DESC matDesc = {};
+    matDesc.ByteWidth = Align16(static_cast<UINT>(sizeof(MaterialGPU)));
+    matDesc.Usage = D3D11_USAGE_DYNAMIC;
+    matDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    matDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+    if (FAILED(device->CreateBuffer(&matDesc, nullptr, m_modelInfo.materialBuffer.GetAddressOf())))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create Material Buffer for model ID: %d", m_modelInfo.ID);
+        return false;
+    }
+
+    //=== DEBUG CONSTANT BUFFER (b2) ===//
+    // This buffer is REQUIRED because ModelPixel.hlsl reads debugMode.
+    //
+    // IMPORTANT:
+    // SetupModelForRendering() runs on the Loader thread, therefore we MUST NOT
+    // call ID3D11DeviceContext::Map/Unmap here (immediate context is not thread-safe).
+    // We create the buffer with an initial value (debugMode = 0) so no mapping is required.
+    DebugBuffer dbg = {};
+    dbg.debugMode = 0;
+
+    D3D11_BUFFER_DESC dbgDesc = {};
+    dbgDesc.ByteWidth = Align16(static_cast<UINT>(sizeof(DebugBuffer)));
+    dbgDesc.Usage = D3D11_USAGE_DEFAULT;
+    dbgDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    dbgDesc.CPUAccessFlags = 0;
+
+    D3D11_SUBRESOURCE_DATA dbgData = {};
+    dbgData.pSysMem = &dbg;
+
+    if (FAILED(device->CreateBuffer(&dbgDesc, &dbgData, m_modelInfo.debugConstantBuffer.GetAddressOf())))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create Debug Buffer for model ID: %d", m_modelInfo.ID);
+        return false;
+    }
+
+    //=== SAMPLER ===//
+    D3D11_SAMPLER_DESC sampDesc = {};
+    sampDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+    sampDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
+    sampDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
+    sampDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+    sampDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+    sampDesc.MinLOD = 0;
+    sampDesc.MaxLOD = D3D11_FLOAT32_MAX;
+
+    if (FAILED(device->CreateSamplerState(&sampDesc, &m_modelInfo.samplerState)))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create Sampler State for model ID: %d", m_modelInfo.ID);
+        return false;
+    }
+
+    // Setup PBR resources
+    if (!SetupPBRResources())
+    {
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"Failed to setup PBR resources for model ID: %d", m_modelInfo.ID);
+    }
+
+    return true;
+#else
+    debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"SetupModelForRendering: DirectX 11 is not enabled.");
+    return false;
+#endif
+}
+
+
+// ============================================================================
+// UpdateModelLighting() - Pushes local lights to GPU constant buffer (b1)
+// ============================================================================
+void Model::UpdateModelLighting()
+{
+    if (!m_modelInfo.lightConstantBuffer)
+        return;
+
+    LightBuffer buffer = {};
+    int maxLights = std::min(static_cast<int>(m_modelInfo.localLights.size()), MAX_MODEL_LIGHTS);
+    buffer.numLights = maxLights;
+
+    for (int i = 0; i < maxLights; ++i)
+    {
+        buffer.lights[i] = m_modelInfo.localLights[i];
+    }
+
+    // Retrieve our Device and Context from Renderer
+    ComPtr<ID3D11DeviceContext> context;
+    context = static_cast<ID3D11DeviceContext*>(renderer->GetDeviceContext());
+
+    if (m_modelInfo.lightConstantBuffer)
+    {
+        D3D11_MAPPED_SUBRESOURCE mappedLight = {};
+        HRESULT hr = context->Map(m_modelInfo.lightConstantBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedLight);
+        if (SUCCEEDED(hr))
+        {
+            // Zero the entire mapped constant buffer to avoid undefined data beyond sizeof(LightBuffer).
+// This is critical because the shader expects at least 1728 bytes for the Light buffer.
+const UINT kExpectedLightCBSizeBytes = 1728;
+const UINT lightStructSizeBytes = static_cast<UINT>(sizeof(LightBuffer));
+const UINT finalLightCBSizeBytes = (lightStructSizeBytes > kExpectedLightCBSizeBytes) ? lightStructSizeBytes : kExpectedLightCBSizeBytes;
+
+memset(mappedLight.pData, 0, finalLightCBSizeBytes);
+
+// Copy our CPU light data into the start of the constant buffer.
+memcpy(mappedLight.pData, &buffer, sizeof(LightBuffer));
+
+// Unmap and bind to both the model light slot (b1) and the global light slot (b3).
+context->Unmap(m_modelInfo.lightConstantBuffer.Get(), 0);
+context->PSSetConstantBuffers(SLOT_LIGHT_BUFFER, 1, m_modelInfo.lightConstantBuffer.GetAddressOf());
+context->PSSetConstantBuffers(SLOT_GLOBAL_LIGHT_BUFFER, 1, m_modelInfo.lightConstantBuffer.GetAddressOf());
+#if defined(_DEBUG_MODEL_)
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"[Model] Lighting updated (%d lights)", buffer.numLights);
+            #endif
+        }
+    }
+    else
+    {
+#if defined(_DEBUG_MODEL_)
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[Model] Failed to map light buffer for writing.");
+#endif
+    }
+}
+
+//=============================================================================
+// void Model::Render(ID3D11DeviceContext* deviceContext)
+//=============================================================================
+void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
+{
+#if defined(__USE_DIRECTX_11__)
+    if (!deviceContext || !threadManager.threadVars.bLoaderTaskFinished.load())
+    {
+        #if defined(_DEBUG_MODEL_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_CRITICAL,
+                    L"Model ID: %d, Device=%p, Context=%p, Loading Completed=%s", 
+                    m_modelInfo.ID, 
+                    dx11 ? dx11->m_d3dContext.Get() : nullptr, 
+                    threadManager.threadVars.bLoaderTaskFinished.load() ? L"True" : L"False"); 
+        #endif
+        return; 
+    }
+
+    if (!m_isLoaded || bIsDestroyed)
+    {
+        #if defined(_DEBUG_MODEL_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID %d has FAILED SAFETY CHECK!", m_modelInfo.ID);
+        #endif
+        return;
+    }
+
+    // =====================================================================
+    // GLTF Transform-Only Node Support
+    // These nodes exist only to preserve the GLTF hierarchy (Blender empties,
+    // collections, armature roots, etc.). They must be animatable, but they
+    // MUST NOT attempt to render because no GPU buffers exist.
+    // =====================================================================
+    if (m_modelInfo.bIsTransformOnly || m_modelInfo.bIsTransformProxy)
+    {
+        // NOTE: This model instance is intentionally not rendered.
+        return;
+    }
+
+    // Updates the constant buffer with the current world matrix.
+    UpdateConstantBuffer();
+
+    // Set the input layout and shaders
+    // Use ShaderManager instead of direct shader binding
+    bool shaderBound = shaderManager.UseShaderProgram("ModelProgram");
+    if (!shaderBound)
+    {
+        // Fallback program name used by older code paths.
+        shaderBound = shaderManager.UseShaderProgram("GameplayModelProgram");
+    }
+
+    if (!shaderBound)
+    {
+        #if defined(_DEBUG_MODEL_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[Model] Render() failed - could not bind ModelProgram (or GameplayModelProgram).");
+        #endif
+        return;
+    }
+
+    {
+        //    deviceContext->IASetInputLayout(m_modelInfo.inputLayout.Get());
+        //    deviceContext->VSSetShader(m_modelInfo.vertexShader.Get(), nullptr, 0);
+        //    deviceContext->PSSetShader(m_modelInfo.pixelShader.Get(), nullptr, 0);
+
+        // Set the vertex and index buffers
+        UINT stride = sizeof(Vertex);
+        UINT offset = 0;
+        deviceContext->IASetVertexBuffers(0, 1, m_modelInfo.vertexBuffer.GetAddressOf(), &stride, &offset);
+        deviceContext->IASetIndexBuffer(m_modelInfo.indexBuffer.Get(), DXGI_FORMAT_R32_UINT, 0);
+        deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+        // Bind constant buffers
+        deviceContext->VSSetConstantBuffers(SLOT_CONST_BUFFER, 1, m_modelInfo.constantBuffer.GetAddressOf());
+        deviceContext->PSSetConstantBuffers(SLOT_CONST_BUFFER, 1, m_modelInfo.constantBuffer.GetAddressOf());
+    }
+
+    // === Update Material Buffer (b4) ===
+    if (m_modelInfo.materialBuffer)
+    {
+        D3D11_MAPPED_SUBRESOURCE mappedResource;
+        HRESULT hr = deviceContext->Map(m_modelInfo.materialBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
+        if (SUCCEEDED(hr))
+        {
+            MaterialGPU* matGPU = reinterpret_cast<MaterialGPU*>(mappedResource.pData);
+
+            // Clear the entire mapped buffer to avoid undefined flags (can cause black output).
+            memset(matGPU, 0, sizeof(MaterialGPU));
+
+            // Resolve the first material as active (engine currently uses single material per model at render time).
+            const Material* mat = nullptr;
+            if (!m_materials.empty())
+            {
+                mat = &(m_materials.begin()->second);
+            }
+
+            if (mat)
+            {
+                // Copy classic material terms.
+                matGPU->Ka = mat->Ka;
+                matGPU->Kd = mat->Kd;
+                matGPU->Ks = mat->Ks;
+                matGPU->Ns = mat->Ns;
+
+                // Copy PBR terms (fallback to ModelInfo defaults if material leaves them at defaults).
+                matGPU->Metallic = mat->Metallic;
+                matGPU->Roughness = mat->Roughness;
+                matGPU->ReflectionStrength = mat->Reflection;
+            }
+            else
+            {
+                // Fallback material if no materials are defined.
+                matGPU->Ka = XMFLOAT3(0.1f, 0.1f, 0.1f);
+                matGPU->Kd = XMFLOAT3(0.8f, 0.8f, 0.8f);
+                matGPU->Ks = XMFLOAT3(1.0f, 1.0f, 1.0f);
+                matGPU->Ns = 16.0f;
+
+                // Fallback PBR scalars.
+                matGPU->Metallic = m_modelInfo.metallic;
+                matGPU->Roughness = m_modelInfo.roughness;
+                matGPU->ReflectionStrength = m_modelInfo.reflectionStrength;
+            }
+
+            
+            // Ensure we have a non-zero ambient term. If Ka is left as (0,0,0) by importer/material setup,
+            // the shader ambient path becomes black, and if direct lighting is low this can appear as a solid black model.
+            if ((matGPU->Ka.x <= 0.0001f) && (matGPU->Ka.y <= 0.0001f) && (matGPU->Ka.z <= 0.0001f))
+            {
+                matGPU->Ka = XMFLOAT3(0.35f, 0.35f, 0.35f);
+            }
+// Determine texture map usage flags based on SRV presence.
+            matGPU->useMetallicMap = (m_modelInfo.metallicMapSRV != nullptr) ? 1.0f : 0.0f;
+            matGPU->useRoughnessMap = (m_modelInfo.roughnessMapSRV != nullptr) ? 1.0f : 0.0f;
+            matGPU->useAOMap = (m_modelInfo.aoMapSRV != nullptr) ? 1.0f : 0.0f;
+            matGPU->useEnvMap = (m_modelInfo.environmentMapSRV != nullptr) ? 1.0f : 0.0f;
+
+            // Unmap the constant buffer so the GPU can read it.
+            deviceContext->Unmap(m_modelInfo.materialBuffer.Get(), 0);
+        }
+
+        // Bind b4 Materials to pixel shader
+        if (m_modelInfo.materialBuffer)
+           deviceContext->PSSetConstantBuffers(SLOT_MATERIAL_BUFFER, 1, m_modelInfo.materialBuffer.GetAddressOf());
+    }
+
+    // === Bind Debug Buffer (b2) ===
+    // ModelPixel.hlsl reads debugMode from register b2.
+    // If this buffer is missing, debugMode can be undefined and output black.
+    if (m_modelInfo.debugConstantBuffer)
+    {
+        deviceContext->PSSetConstantBuffers(SLOT_DEBUG_BUFFER, 1, m_modelInfo.debugConstantBuffer.GetAddressOf());
+    }
+
+    // === Update and bind environment buffer (b5) ===
+    // This controls environment intensity/tint and reflection sampling.
+    UpdateEnvironmentBuffer();
+
+    std::string lockName = "model_texture_update_" + std::to_string(m_modelInfo.ID);
+    ThreadLockHelper lock(threadManager, lockName.c_str(), 5000);
+
+    if (m_modelInfo.textureSRVs.empty())
+    {
+        #if defined(_DEBUG_MODEL_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID %d has no textures. Applying fallback texture.", m_modelInfo.ID);
+        #endif
+        LoadFallbackTexture();
+    }
+
+    if (m_modelInfo.normalMapSRVs.empty())
+    {
+        #if defined(_DEBUG_MODEL_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID %d has no normal maps. Applying flat normal fallback.", m_modelInfo.ID);
+        #endif
+        LoadFallbackNormalMap();
+    }
+
+    // Bind texture SRVs to pixel shader slots (read under lock)
+    ID3D11ShaderResourceView* texSRV = m_modelInfo.textureSRVs.empty() ? nullptr : m_modelInfo.textureSRVs[0].Get();
+    ID3D11ShaderResourceView* normSRV = m_modelInfo.normalMapSRVs.empty() ? nullptr : m_modelInfo.normalMapSRVs[0].Get();
+    ID3D11ShaderResourceView* metalMapSRV = m_modelInfo.metallicMapSRV ? m_modelInfo.metallicMapSRV.Get() : nullptr;
+    ID3D11ShaderResourceView* roughMapSRV = m_modelInfo.roughnessMapSRV ? m_modelInfo.roughnessMapSRV.Get() : nullptr;
+    ID3D11ShaderResourceView* aoMapSRV = m_modelInfo.aoMapSRV ? m_modelInfo.aoMapSRV.Get() : nullptr;
+    ID3D11ShaderResourceView* enviroMapSRV = m_modelInfo.environmentMapSRV ? m_modelInfo.environmentMapSRV.Get() : nullptr;
+
+    if (texSRV)
+        deviceContext->PSSetShaderResources(SLOT_diffuseTexture, 1, &texSRV);
+
+    if (normSRV)
+        deviceContext->PSSetShaderResources(SLOT_normalMap, 1, &normSRV);
+
+    if (metalMapSRV)
+        deviceContext->PSSetShaderResources(SLOT_metallicMap, 1, &metalMapSRV);
+
+    if (roughMapSRV)
+        deviceContext->PSSetShaderResources(SLOT_roughnessMap, 1, &roughMapSRV);
+
+    if (aoMapSRV)
+        deviceContext->PSSetShaderResources(SLOT_aoMap, 1, &aoMapSRV);
+
+    if (enviroMapSRV)
+        deviceContext->PSSetShaderResources(SLOT_environmentMap, 1, &enviroMapSRV);
+
+    deviceContext->PSSetSamplers(SLOT_SAMPLER_STATE, 1, m_modelInfo.samplerState.GetAddressOf());
+    deviceContext->PSSetSamplers(SLOT_ENVIRO_SAMPLER_STATE, 1, m_modelInfo.environmentSamplerState.GetAddressOf());
+
+    // Update model-specific lighting parameters.
+    UpdateModelLighting();
+
+    #if defined(_DEBUG_MODEL_RENDERER_) && defined(_DEBUG)
+        DebugInfoForModel();
+    #endif
+
+    // Render the model
+    deviceContext->DrawIndexed(static_cast<UINT>(m_modelInfo.indices.size()), 0, 0);
+
+#endif
+}
+
+void Model::DebugInfoForModel() const
+{
+    #if defined(_DEBUG_MODEL_RENDERER_) && defined(_DEBUG)
+        const ModelInfo& info = m_modelInfo;
+
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[MODEL DEBUG] ID=%d | Name=%ls", info.ID, info.name.c_str());
+
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[POSITION] X=%.2f Y=%.2f Z=%.2f", info.position.x, info.position.y, info.position.z);
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[SCALE]    X=%.2f Y=%.2f Z=%.2f", info.scale.x, info.scale.y, info.scale.z);
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[ROTATION] X=%.2f Y=%.2f Z=%.2f", info.rotation.x, info.rotation.y, info.rotation.z);
+
+        // Dump worldMatrix via XMStoreFloat4x4
+        XMFLOAT4X4 matOut = {};
+        XMStoreFloat4x4(&matOut, info.worldMatrix);
+
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[WORLD MATRIX]");
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L" %.2f %.2f %.2f %.2f", matOut._11, matOut._12, matOut._13, matOut._14);
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L" %.2f %.2f %.2f %.2f", matOut._21, matOut._22, matOut._23, matOut._24);
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L" %.2f %.2f %.2f %.2f", matOut._31, matOut._32, matOut._33, matOut._34);
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L" %.2f %.2f %.2f %.2f", matOut._41, matOut._42, matOut._43, matOut._44);
+
+        // Geometry
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GEOMETRY] Vertices = %zu | Indices = %zu", info.vertices.size(), info.indices.size());
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[LOCAL LIGHTS] Count = %zu", info.localLights.size());
+
+        // Materials
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[MATERIALS] %zu entries", m_materials.size());
+        int i = 0;
+        for (const auto& [name, mat] : m_materials)
+        {
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"  [%d] Name: %hs", i, name.c_str());
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"      DiffuseMap: %hs | NormalMap: %hs",
+                mat.diffuseMapPath.c_str(), mat.normalMapPath.c_str());
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"      Kd: %.2f %.2f %.2f | Ks: %.2f %.2f %.2f | Ns=%.2f",
+                mat.Kd.x, mat.Kd.y, mat.Kd.z,
+                mat.Ks.x, mat.Ks.y, mat.Ks.z,
+                mat.Ns);
+            ++i;
+        }
+    #endif
+}
+
+// Implementation for Model class PBR extension methods
+bool Model::SetupPBRResources() {
+    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+        // IMPORTANT:
+        // Do NOT use ComPtr::Attach() with renderer-owned COM pointers.
+        // Attach() assumes ownership and will Release() on scope exit.
+        ID3D11Device* device = static_cast<ID3D11Device*>(renderer->GetDevice());
+        if (device == nullptr) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Invalid D3D11 device in SetupPBRResources");
+            return false;
+        }
+        // Create environment buffer
+        D3D11_BUFFER_DESC envBufferDesc = {};
+        envBufferDesc.ByteWidth = Align16(static_cast<UINT>(sizeof(EnvBufferGPU)));
+        envBufferDesc.Usage = D3D11_USAGE_DYNAMIC;
+        envBufferDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        envBufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+        HRESULT hr = device->CreateBuffer(&envBufferDesc, nullptr, &m_modelInfo.environmentBuffer);
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to create environment buffer");
+            return false;
+        }
+
+        // Create environment sampler state
+        D3D11_SAMPLER_DESC envSamplerDesc = {};
+        envSamplerDesc.Filter = D3D11_FILTER_ANISOTROPIC;
+        envSamplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
+        envSamplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
+        envSamplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+        envSamplerDesc.MaxAnisotropy = 16;
+        envSamplerDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+        envSamplerDesc.MinLOD = 0;
+        envSamplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
+
+        hr = device->CreateSamplerState(&envSamplerDesc, &m_modelInfo.environmentSamplerState);
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to create environment sampler state");
+            return false;
+        }
+
+        // Set up default environment settings
+        SetEnvironmentProperties(1.0f, XMFLOAT3(1.0f, 1.0f, 1.0f), 0.0f, 0.04f);
+    #endif // __USE_DIRECTX_11__ || __USE_DIRECTX_12__
+    return true;
+}
+
+bool Model::LoadEnvironmentMap(const std::wstring& filePath) {
+    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+    // IMPORTANT:
+    // Do NOT use ComPtr::Attach() with renderer-owned COM pointers.
+    // Attach() assumes ownership and will Release() on scope exit.
+    ID3D11Device* device = static_cast<ID3D11Device*>(renderer->GetDevice());
+    if (device == nullptr) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Invalid D3D11 device in LoadEnvironmentMap");
+            return false;
+        }
+
+        // Ensure file exists
+        if (!std::filesystem::exists(filePath)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Environment map file not found: " + filePath);
+            return false;
+        }
+
+        // Create DirectX Texture from DDS file (cube map)
+        ComPtr<ID3D11Resource> texResource;
+    /* 
+        HRESULT hr = DirectX::CreateDDSTextureFromFileEx(
+            device.Get(),
+            filePath.c_str(),
+            0,  // maxSize
+            D3D11_USAGE_DEFAULT,
+            D3D11_BIND_SHADER_RESOURCE,
+            0,  // cpuFlags
+            D3D11_RESOURCE_MISC_TEXTURECUBE,  // miscFlags - specify this is a cube map
+            false,  // forceSRGB
+            &texResource,
+            &m_modelInfo.environmentMapSRV
+        );
+
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to load environment cube map: " + filePath);
+            return false;
+        }
+    */
+        m_modelInfo.useEnvironmentMap = true;
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"Successfully loaded environment cube map: " + filePath);
+    #endif // __USE_DIRECTX_11__ || __USE_DIRECTX_12__
+    return true;
+}
+
+bool Model::LoadMetallicMap(const std::wstring& filePath) {
+    auto tex = std::make_shared<Texture>();
+    if (!tex->LoadFromFile(filePath)) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to load metallic map: " + filePath);
+        return false;
+    }
+
+    m_modelInfo.metallicMap = tex;
+    m_modelInfo.metallicMapSRV = tex->GetSRV();
+    m_modelInfo.useMetallicMap = true;
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"Successfully loaded metallic map: " + filePath);
+    return true;
+}
+
+bool Model::LoadRoughnessMap(const std::wstring& filePath) {
+    auto tex = std::make_shared<Texture>();
+    if (!tex->LoadFromFile(filePath)) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to load roughness map: " + filePath);
+        return false;
+    }
+
+    m_modelInfo.roughnessMap = tex;
+    m_modelInfo.roughnessMapSRV = tex->GetSRV();
+    m_modelInfo.useRoughnessMap = true;
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"Successfully loaded roughness map: " + filePath);
+    return true;
+}
+
+bool Model::LoadAOMap(const std::wstring& filePath) {
+    auto tex = std::make_shared<Texture>();
+    if (!tex->LoadFromFile(filePath)) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to load ambient occlusion map: " + filePath);
+        return false;
+    }
+
+    m_modelInfo.aoMap = tex;
+    m_modelInfo.aoMapSRV = tex->GetSRV();
+    m_modelInfo.useAOMap = true;
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"Successfully loaded ambient occlusion map: " + filePath);
+    return true;
+}
+
+void Model::UpdateEnvironmentBuffer() {
+    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+        // IMPORTANT:
+        // Do NOT use ComPtr::Attach() with renderer-owned COM pointers.
+        // Attach() assumes ownership and will Release() on scope exit.
+        ID3D11DeviceContext* context = static_cast<ID3D11DeviceContext*>(renderer->GetDeviceContext());
+        if (context == nullptr || !m_modelInfo.environmentBuffer) {
+            return;
+        }
+
+        // Update environment buffer
+        EnvBufferGPU envData = {};
+        envData.envIntensity = m_modelInfo.envIntensity;
+        envData.envTint = m_modelInfo.envTint;
+        envData.mipLODBias = m_modelInfo.mipLODBias;
+        envData.fresnel0 = m_modelInfo.fresnel0;
+
+        D3D11_MAPPED_SUBRESOURCE mappedResource;
+        HRESULT hr = context->Map(m_modelInfo.environmentBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
+        if (SUCCEEDED(hr)) {
+            memcpy(mappedResource.pData, &envData, sizeof(EnvBufferGPU));
+            context->Unmap(m_modelInfo.environmentBuffer.Get(), 0);
+
+            // Bind to Pixel Shader slot b5
+            context->PSSetConstantBuffers(SLOT_ENVIRONMENT_BUFFER, 1, m_modelInfo.environmentBuffer.GetAddressOf());
+        }
+    #endif // __USE_DIRECTX_11__ || __USE_DIRECTX_12__
+}
+
+void Model::SetPBRProperties(float metallic, float roughness, float reflectionStrength) {
+    m_modelInfo.metallic = metallic;
+    m_modelInfo.roughness = roughness;
+    m_modelInfo.reflectionStrength = reflectionStrength;
+
+    // Update material values in model materials if they exist
+    for (auto& [name, mat] : m_materials) {
+        mat.Metallic = metallic;
+        mat.Roughness = roughness;
+        mat.Reflection = reflectionStrength;
+    }
+}
+
+void Model::SetEnvironmentProperties(float intensity, XMFLOAT3 tint, float mipBias, float fresnel0) {
+    m_modelInfo.envIntensity = intensity;
+    m_modelInfo.envTint = tint;
+    m_modelInfo.mipLODBias = mipBias;
+    m_modelInfo.fresnel0 = fresnel0;
+}
+
+

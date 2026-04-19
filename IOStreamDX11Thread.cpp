@@ -1,0 +1,308 @@
+﻿/* ---------------------------------------------------------------- 
+   DO NOT INCLUDE THIS FILE!!! THE PROJECT ITSELF SCOPES THIS FILE!
+/* ---------------------------------------------------------------- 
+This is the placement code for DX11Renderer Loader Thread.
+
+This where you are to load & initialise all necessary resources 
+for the given scene.
+----------------------------------------------------------------- */
+#include "Includes.h"
+
+#if defined(__USE_DIRECTX_11__)
+
+#include "MathPrecalculation.h"
+#include "ExceptionHandler.h"
+#include "ThreadManager.h"
+#include "WinSystem.h"
+#include "ShaderManager.h"
+#include "Models.h"
+#include "Lights.h"
+#include "SoundManager.h"
+#include "SceneManager.h"
+#include "GUIManager.h"
+#include "DX_FXManager.h"
+#include "DX11Renderer.h"
+
+using namespace SoundSystem;
+
+// Other required external references.
+extern ExceptionHandler exceptionHandler;
+extern ThreadManager threadManager;
+extern SystemUtils sysUtils;
+extern SceneManager scene;
+extern ShaderManager shaderManager;
+extern SoundManager soundManager;
+extern GUIManager guiManager;
+extern FXManager fxManager;
+extern Model models[MAX_MODELS];
+extern LightsManager lightsManager;
+extern WindowMetrics winMetrics;
+extern bool bResizing;
+extern int textScrollerEffectID;
+extern bool Load_Music();													// Function in main.cpp to load music for the game
+
+std::mutex DX11Renderer::s_loaderMutex;
+
+/* -------------------------------------------------------------- */
+// Main Tasking Thread for our I/O Loader Tasking Service
+/* -------------------------------------------------------------- */
+void DX11Renderer::LoaderTaskThread()
+{
+	exceptionHandler.RecordFunctionCall("LoaderTaskThread");
+	std::lock_guard<std::mutex> lock(s_loaderMutex);
+
+    // Check the status of the Loader thread
+    ThreadStatus status = threadManager.GetThreadStatus(THREAD_LOADER);
+	// State that we have loading to do....
+	threadManager.threadVars.bLoaderTaskFinished.store(false);
+
+	while (((status == ThreadStatus::Running) || (status == ThreadStatus::Paused)) &&
+		  (status != ThreadStatus::Terminated) && (!threadManager.threadVars.bIsShuttingDown.load()) && (status != ThreadStatus::Stopped))
+    {
+		// Becareful here! ProcessMessages() will initiatate your message handler queue, 
+		// so make sure you don't do anything that could cause a crash and check all status flags carefully 
+		// before handling your messages within the message handler queue - !
+		sysUtils.ProcessMessages();
+		
+		// Check status of our loader thread!
+		status = threadManager.GetThreadStatus(THREAD_LOADER);
+		if (status == ThreadStatus::Paused)
+        {
+			// Pause and then recheck
+            Sleep(10);
+            continue;
+        }
+
+		// (Add I/O loading tasks here)
+		switch (scene.stSceneType)
+		{
+			case SceneType::SCENE_SPLASH:
+			{
+				threadManager.threadVars.b2DTexturesLoaded.store(false);
+				if (LoadAllKnownTextures())
+					// State that we have loade all our required 2D Textures.
+					threadManager.threadVars.b2DTexturesLoaded.store(true);
+
+				threadManager.PauseThread(THREAD_LOADER);
+				threadManager.threadVars.bLoaderTaskFinished.store(true);
+				break;
+			}
+
+			case SceneType::SCENE_INTRO:
+			{
+				threadManager.threadVars.b2DTexturesLoaded.store(false);
+				debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene Intro.");
+				if (LoadAllKnownTextures())
+					// State that we have loade all our required 2D Textures.
+					threadManager.threadVars.b2DTexturesLoaded.store(true);
+
+				// If we are NOT resizing our window, then ....
+				if (!wasResizing.load())
+				{
+                    Load_Music();
+
+					// Create Game Menu
+					myCamera.SetupDefaultCamera(static_cast<float>(iOrigWidth), static_cast<float>(iOrigHeight));
+					guiManager.CreateGameMenuWindow(L"");
+
+					// Create a starfield with 100 stars, a radius of 1000, and reset distance of 1000
+					fxManager.CreateStarfield(100, 1000.0f, 1000.0f);
+					fxManager.FadeToImage(1.0f, 0.08f);
+
+					std::wstring newsText = L"BREAKING NEWS: [16/06/2025] => This is a demonstration of the CPGE GLTF 2.0 Animation System in Action!";
+					XMFLOAT4 textColor(0.0f, 1.0f, 0.0f, 1.0f);                     // Green text color
+				
+					float fontSize = 16.0f;                                         // Font size for text
+					float regionX = -5.0f;                                          // X position of scroll region
+					float regionY = float(iOrigHeight) - 100.0f;                    // Y position of scroll region (top of screen)
+					float regionWidth = float(iOrigWidth) + 10.0f;                  // Width of scroll region (full screen width)
+					float regionHeight = 25.0f;                                     // Height of scroll region
+					float scrollSpeed = 60.0f;                                      // Pixels per second scroll speed
+					float duration = FLT_MAX;                                       // Infinite duration (continuous)
+
+					// Before calling CreateTextScrollerLTOR, get the next ID that will be assigned
+					textScrollerEffectID = static_cast<int>(fxManager.effects.size()) + 1;
+					fxManager.CreateTextScrollerConsistent(newsText, L"MayaCulpa", fontSize, textColor,
+						regionX, regionY, regionWidth, regionHeight,
+						scrollSpeed, duration);
+				}
+				else
+				{
+					// After a resize: reposition the GUI and recreate screen-size-dependent FX
+					// with updated dimensions (iOrigWidth/iOrigHeight already set by Resize()).
+					myCamera.SetupDefaultCamera(static_cast<float>(iOrigWidth), static_cast<float>(iOrigHeight));
+
+					guiManager.OnWindowResize(iOrigWidth, iOrigHeight);
+
+					fxManager.CreateStarfield(100, 1000.0f, 1000.0f);
+
+					std::wstring newsText = L"BREAKING NEWS: [16/06/2025] => This is a demonstration of the CPGE GLTF 2.0 Animation System in Action!";
+					XMFLOAT4 textColor(0.0f, 1.0f, 0.0f, 1.0f);
+					float fontSize = 16.0f;
+					float regionX = -5.0f;
+					float regionY = float(iOrigHeight) - 100.0f;
+					float regionWidth = float(iOrigWidth) + 10.0f;
+					float regionHeight = 25.0f;
+					float scrollSpeed = 60.0f;
+					float duration = FLT_MAX;
+
+					textScrollerEffectID = static_cast<int>(fxManager.effects.size()) + 1;
+					fxManager.CreateTextScrollerConsistent(newsText, L"MayaCulpa", fontSize, textColor,
+						regionX, regionY, regionWidth, regionHeight,
+						scrollSpeed, duration);
+				}
+
+				// This must go at the end, so critical rendering can start
+				threadManager.PauseThread(THREAD_LOADER);
+				threadManager.threadVars.bLoaderTaskFinished.store(true);
+				break;
+			}
+
+			case SceneType::SCENE_LOAD_MP3:
+			{
+				try {
+					#if defined(__USE_MP3PLAYER__)
+						CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);					// Must Initialize as STA (Single Threaded)
+						player.Initialize(hwnd);
+						auto fileName = AssetsDir / SingleMP3Filename;
+						if (player.loadFile(fileName)) {
+							debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: MP3 File Re-loaded successfully.");
+							player.play();
+							player.fadeIn(5000);
+						}
+						else {
+							debug.logLevelMessage(LogLevel::LOG_ERROR, L"[LOADER]: Failed to load file.");
+						}
+					#endif
+
+					// IMPORTANT: This must be called as the MediaPlayer will need 
+					// ========== to process messages before playing!
+					sysUtils.GetMessageAndProcess();
+				}
+				catch (const std::exception& e) {
+                    exceptionHandler.LogException(e, "[LOADER THREAD] SceneType::SCENE_LOAD_MP3");
+					debug.logLevelMessage(LogLevel::LOG_ERROR, L"[LOADER]: Exception: " + std::wstring(e.what(), e.what() + strlen(e.what())));
+				}
+
+				threadManager.PauseThread(THREAD_LOADER);
+				threadManager.threadVars.bLoaderTaskFinished.store(true);
+				// Make sure we release this regardless.
+				CoUninitialize();											// Uninitialize COM
+				break;
+			}
+
+			case SceneType::SCENE_GAMEPLAY:
+			{
+				debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene GAMEPLAY Initialising.");
+				threadManager.threadVars.b2DTexturesLoaded.store(false);
+
+				if (LoadAllKnownTextures())
+					// State that we have loade all our required 2D Textures.
+					threadManager.threadVars.b2DTexturesLoaded.store(true);
+
+				/*			// Load in our required 3D textures
+							for (int i = 0; i < MAX_TEXTURE_BUFFERS; i++)
+							{
+								auto fileName = AssetsDir / tex3DFilename[i];
+								// Load the texture
+								if (!LoadTexture(i, tex3DFilename[i], false))
+								{
+									std::wstring msg = L"[LOADER]: Failed to load 3D Texture: " + tex3DFilename[i];
+									debug.logLevelMessage(LogLevel::LOG_ERROR, msg);
+								}
+							}
+				*/
+
+				// On first load only: create lights, parse scene, load music.
+				// On resize: only 2D textures need reloading (models/lights survive resize).
+				if (!wasResizing.load())
+				{
+					// Create a default light
+					LightStruct sunLight;
+					SecureZeroMemory(&sunLight, sizeof(LightStruct));
+					sunLight.active = true;
+					sunLight.position = XMFLOAT3(3.0f, -3.0f, -100.0f);
+					sunLight.direction = XMFLOAT3(0.0f, -1.0f, 0.0f);
+					sunLight.color = XMFLOAT3(1.0f, 1.0f, 1.0f);
+					sunLight.ambient = XMFLOAT3(0.4f, 0.4f, 0.0f);
+					sunLight.intensity = 0.5f;
+					sunLight.baseIntensity = 0.8f;
+					sunLight.Shiningness = 0.2f;
+					sunLight.Reflection = 0.2f;
+					sunLight.lightFalloff = 0.0001f;
+					sunLight.innerCone = 30.0f;
+					sunLight.outerCone = 60.0f;
+					sunLight.range = 1000.0f;
+//					sunLight.type = int(LightType::POINT);
+					sunLight.type = int(LightType::DIRECTIONAL);
+
+					lightsManager.CreateLight(L"Sun", sunLight);
+
+					// -----------------------------------------------------------------------------
+					// === PRE-ALLOCATE ALL MODEL TEXTURE VECTORS BEFORE LOADING ===
+					// -----------------------------------------------------------------------------
+					ThreadLockHelper preAllocLock(threadManager, "SceneManager_PreAllocation", 2000);
+					if (preAllocLock.IsLocked())
+					{
+						scene.ParseGLTFScene(AssetsDir / L"test2.gltf");
+	//					scene.ParseGLBScene(AssetsDir / L"test1.glb");
+						if (!scene.bGltfCameraParsed)
+						{
+							scene.AutoFrameSceneToCamera();
+						}
+
+						int parentID = scene.FindParentModelID(ShipName1);
+						bool created = scene.gltfAnimator.CreateAnimationInstance(0, parentID);
+						if (created) {
+							scene.gltfAnimator.ForceAnimationReset(parentID);
+							scene.gltfAnimator.SetAnimationSpeed(parentID, 0.25f);
+							scene.gltfAnimator.SetAnimationLooping(parentID, true);
+							scene.gltfAnimator.StartAnimation(parentID, 0);
+						}
+					}
+
+//					scene.ParseGLTFScene(AssetsDir / L"scene1.gltf");
+
+					try
+					{
+						Load_Music();
+
+						// IMPORTANT: This must be called as the MediaPlayer will need
+						// ========== to process messages before starting playback!
+						sysUtils.ProcessMessages();
+					}
+					catch (const std::exception& e) {
+						exceptionHandler.LogException(e, "[LOADER THREAD] SceneType::GAMEPLAY");
+						threadManager.threadVars.bLoaderTaskFinished.store(true);
+						threadManager.PauseThread(THREAD_LOADER);
+						debug.logLevelMessage(LogLevel::LOG_ERROR, L"[LOADER]: Exception: " + std::wstring(e.what(), e.what() + strlen(e.what())));
+					}
+				} // End of first-load-only block
+
+				threadManager.threadVars.bLoaderTaskFinished.store(true);
+				threadManager.PauseThread(THREAD_LOADER);
+				break;
+			}
+
+			case SceneType::SCENE_GAMEOVER:
+			{
+				debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene Game Over.");
+				threadManager.threadVars.bLoaderTaskFinished.store(true);
+				break;
+			}
+
+			default:
+			{
+				threadManager.threadVars.bLoaderTaskFinished.store(true);
+				break;
+			}
+		} // End of switch (scene.stSceneType)
+    }
+
+	// Reset Resize State Flag
+	if (!threadManager.threadVars.bIsShuttingDown.load())
+	   wasResizing.store(false);
+
+	debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene Loading Complete - Pausing Thread");
+}
+#endif // __USE_DIRECTX11__

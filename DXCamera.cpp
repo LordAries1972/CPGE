@@ -1,0 +1,3874 @@
+﻿#include "Includes.h"
+
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+
+#include "Debug.h"
+#include "Configuration.h"
+#include "ExceptionHandler.h"
+#include "MathPrecalculation.h"
+#include "Configuration.h"
+#include "DXCamera.h"
+#include "Renderer.h"
+#include "WinSystem.h"
+
+// Warning Suppression for unused parameters
+#pragma warning(push)
+#pragma warning(disable: 4101)
+
+class Debug;
+class Configuration;
+
+extern Debug debug;
+extern Configuration config;
+//extern SystemUtils sysUtils;
+
+extern std::shared_ptr<Renderer> renderer;
+extern WindowMetrics winMetrics;
+
+using namespace DirectX;
+
+Camera::Camera() {
+    position = XMFLOAT3(0.0f, 0.0f, -5.0f);
+    target = XMFLOAT3(0.0f, 0.0f, 0.0f);
+    up = XMFLOAT3(0.0f, 1.0f, 0.0f);
+    
+    // Initialize jump animation variables
+    m_isJumping = false;
+    m_focusOnTarget = false;                                                // Initialize focus flag
+    m_isJumpingBackInHistory = false;                                       // Initialize history jumping flag
+    m_historyJumpStepsRemaining = 0;                                        // Initialize history steps counter
+    m_jumpStartPosition = XMFLOAT3(0.0f, 0.0f, 0.0f);
+    m_jumpTargetPosition = XMFLOAT3(0.0f, 0.0f, 0.0f);
+    m_originalTarget = XMFLOAT3(0.0f, 0.0f, 0.0f);                          // Initialize original target storage
+    m_jumpSpeed = 1;
+    m_currentPathIndex = 0;
+    m_jumpAnimationTimer = 0.0f;
+    m_totalJumpTime = 0.0f;
+    
+    // In Camera constructor initialization list, add:
+    m_screenWidth = fDEFAULT_WINDOW_WIDTH;                                  // Default screen width
+    m_screenHeight = fDEFAULT_WINDOW_HEIGHT;                                // Default screen height  
+    m_aspectRatio = fDEFAULT_WINDOW_WIDTH / fDEFAULT_WINDOW_HEIGHT;         // Default aspect ratio (4:3)
+//    m_fieldOfView = XMConvertToRadians(45.0f);                              // Default Config Settings for FOV
+    m_fieldOfView = XMConvertToRadians(config.myConfig.fov);                // Default Config Settings for FOV
+    m_nearPlane = config.myConfig.nearPlane;                                // Default near plane
+    m_farPlane = config.myConfig.farPlane;                                  // Default far plane
+
+    // Initialize continuous rotation variables
+    m_isRotatingAroundTarget = false;                                       // Initialize rotation flag
+    m_continuousRotation = false;                                           // Initialize continuous rotation flag
+    m_rotateAroundX = false;                                                // Initialize X-axis rotation flag
+    m_rotateAroundY = false;                                                // Initialize Y-axis rotation flag
+    m_rotateAroundZ = false;                                                // Initialize Z-axis rotation flag
+    m_rotationSpeedX = 60.0f;                                               // Default 60 degrees per second for X-axis
+    m_rotationSpeedY = 60.0f;                                               // Default 60 degrees per second for Y-axis
+    m_rotationSpeedZ = 60.0f;                                               // Default 60 degrees per second for Z-axis
+    m_currentRotationX = 0.0f;                                              // Initialize current X rotation
+    m_currentRotationY = 0.0f;                                              // Initialize current Y rotation
+    m_currentRotationZ = 0.0f;                                              // Initialize current Z rotation
+    m_targetRotationX = 360.0f;                                             // Target 360 degrees for full X rotation
+    m_targetRotationY = 360.0f;                                             // Target 360 degrees for full Y rotation
+    m_targetRotationZ = 360.0f;                                             // Target 360 degrees for full Z rotation
+    m_rotationStartPosition = XMFLOAT3(0.0f, 0.0f, 0.0f);                   // Initialize rotation start position
+    m_rotationTarget = XMFLOAT3(0.0f, 0.0f, 0.0f);                          // Initialize rotation target
+    m_rotationDistance = 0.0f;                                              // Initialize rotation distance
+    
+    // Reserve memory for jump history to avoid reallocations
+    m_jumpHistory.reserve(MAX_JUMP_HISTORY);
+    
+    SetupDefaultCamera(fDEFAULT_WINDOW_WIDTH, fDEFAULT_WINDOW_HEIGHT);      // Default window size
+    UpdateViewMatrix();
+
+    #if defined(_DEBUG_CAMERA_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"DX Camera created successfully with enhanced jump animation, history support, and continuous rotation");
+    #endif
+}
+
+Camera::~Camera() {
+    // Stop any active rotations before cleanup
+    if (m_isRotatingAroundTarget)
+    {
+        StopRotating();
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[Camera] Stopped rotation during destructor cleanup");
+        #endif
+    }
+    
+    // Clean up jump animation data
+    m_currentTravelPath.clear();
+    m_jumpHistory.clear();
+    
+    // Reset all rotation variables
+    m_isRotatingAroundTarget = false;
+    m_continuousRotation = false;
+    m_rotateAroundX = false;
+    m_rotateAroundY = false;
+    m_rotateAroundZ = false;
+    
+    #if defined(_DEBUG_CAMERA_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"DX Camera destroyed with complete jump animation, history, and rotation cleanup!");
+    #endif
+}
+
+// Function to save current camera state before resize operations
+void Camera::SaveCameraStateForResize() 
+{
+    #if defined(_DEBUG_WINSYSTEM_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[CAMERA] SaveCameraStateForResize() called");
+    #endif
+
+    try {
+        // Save camera position and orientation directly from class members
+        savedCameraState.position = position;
+        savedCameraState.target = target;
+        savedCameraState.up = up;
+        savedCameraState.yaw = m_yaw;
+        savedCameraState.pitch = m_pitch;
+        
+        // Save camera projection parameters with safe fallbacks
+        try {
+            // Get current field of view with validation
+            float currentFov = GetFieldOfView();
+            if (currentFov > 0.0f && currentFov < 180.0f) {
+                savedCameraState.fieldOfView = currentFov;
+            } else {
+                savedCameraState.fieldOfView = 45.0f; // Safe fallback
+                #if defined(_DEBUG_WINSYSTEM_)
+                    debug.logDebugMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid FOV detected (%.2f), using fallback: 45.0", currentFov);
+                #endif
+            }
+        }
+        catch (...) {
+            savedCameraState.fieldOfView = 45.0f; // Safe fallback on any exception
+            #if defined(_DEBUG_WINSYSTEM_)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[CAMERA] Exception getting FOV, using fallback: 45.0");
+            #endif
+        }
+
+        try {
+            // Get current near and far planes with validation
+            float currentNear = GetNearPlane();
+            float currentFar = GetFarPlane();
+            
+            if (currentNear > 0.0f && currentFar > currentNear) {
+                savedCameraState.nearPlane = currentNear;
+                savedCameraState.farPlane = currentFar;
+            } else {
+                savedCameraState.nearPlane = 0.1f;   // Safe fallback
+                savedCameraState.farPlane = 1000.0f; // Safe fallback
+                #if defined(_DEBUG_WINSYSTEM_)
+                    debug.logDebugMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid near/far planes (%.3f/%.3f), using fallbacks", currentNear, currentFar);
+                #endif
+            }
+        }
+        catch (...) {
+            savedCameraState.nearPlane = 0.1f;   // Safe fallback on any exception
+            savedCameraState.farPlane = 1000.0f; // Safe fallback on any exception
+            #if defined(_DEBUG_WINSYSTEM_)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[CAMERA] Exception getting near/far planes, using fallbacks");
+            #endif
+        }
+        
+        // Mark state as valid
+        savedCameraState.isValid = true;
+
+        #if defined(_DEBUG_WINSYSTEM_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[CAMERA] Camera state saved - Position: (%.2f, %.2f, %.2f), Yaw: %.2f, Pitch: %.2f, FOV: %.2f", 
+                savedCameraState.position.x, savedCameraState.position.y, savedCameraState.position.z,
+                savedCameraState.yaw, savedCameraState.pitch, savedCameraState.fieldOfView);
+        #endif
+    }
+    catch (const std::exception& e) {
+        #if defined(_DEBUG_WINSYSTEM_)
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[CAMERA] Exception saving camera state: %hs", e.what());
+        #endif
+        savedCameraState.isValid = false;
+    }
+    catch (...) {
+        #if defined(_DEBUG_WINSYSTEM_)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[CAMERA] Unknown exception saving camera state");
+        #endif
+        savedCameraState.isValid = false;
+    }
+}
+
+// Function to restore camera state after resize operations complete
+void Camera::RestoreCameraStateAfterResize() 
+{
+    #if defined(_DEBUG_WINSYSTEM_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[CAMERA] RestoreCameraStateAfterResize() called");
+    #endif
+
+    if (!savedCameraState.isValid) {
+        #if defined(_DEBUG_WINSYSTEM_)
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[CAMERA] Cannot restore camera state - no valid saved state");
+        #endif
+        return;
+    }
+
+    try {
+        // Use ThreadManager locking to ensure thread-safe camera restoration
+/*
+        ThreadLockHelper cameraRestoreLock(threadManager, "camera_restore_operation", 2000);
+        if (!cameraRestoreLock.IsLocked()) {
+            #if defined(_DEBUG_WINSYSTEM_)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[CAMERA] Failed to acquire camera restore lock");
+            #endif
+            return;
+        }
+*/
+        // Restore basic camera properties first (these are always safe)
+        position = savedCameraState.position;
+        target = savedCameraState.target;
+        up = savedCameraState.up;
+        m_yaw = savedCameraState.yaw;
+        m_pitch = savedCameraState.pitch;
+
+        #if defined(_DEBUG_WINSYSTEM_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[CAMERA] Basic camera properties restored: pos(%.2f, %.2f, %.2f), yaw: %.3f, pitch: %.3f", 
+                position.x, position.y, position.z, m_yaw, m_pitch);
+        #endif
+
+        // Calculate aspect ratio safely before setting field of view
+        float aspectRatio = 16.0f / 9.0f; // Default fallback aspect ratio
+        
+        // Try to get aspect ratio from window metrics first
+        if (winMetrics.width > 0 && winMetrics.height > 0) {
+            aspectRatio = static_cast<float>(winMetrics.width) / static_cast<float>(winMetrics.height);
+            #if defined(_DEBUG_WINSYSTEM_)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[CAMERA] Using window metrics aspect ratio: %.3f (%dx%d)", 
+                    aspectRatio, winMetrics.width, winMetrics.height);
+            #endif
+        }
+        // Fallback to config if window metrics are invalid
+        else if (config.myConfig.aspectRatio > 0.0f) {
+            aspectRatio = static_cast<float>(config.myConfig.aspectRatio);
+            #if defined(_DEBUG_WINSYSTEM_)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[CAMERA] Using config aspect ratio: %.3f", aspectRatio);
+            #endif
+        }
+        else {
+            #if defined(_DEBUG_WINSYSTEM_)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[CAMERA] Using fallback aspect ratio: 16:9");
+            #endif
+        }
+
+        // Ensure aspect ratio is within reasonable bounds
+        aspectRatio = std::clamp(aspectRatio, 0.5f, 4.0f);
+
+        // Restore camera projection parameters with safe validation
+        try {
+            // Validate and restore field of view
+            float fovToRestore = savedCameraState.fieldOfView;
+            if (fovToRestore <= 0.0f || fovToRestore >= 180.0f) {
+                fovToRestore = 45.0f; // Safe fallback
+                #if defined(_DEBUG_WINSYSTEM_)
+                    debug.logDebugMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid saved FOV (%.2f), using fallback: 45.0", savedCameraState.fieldOfView);
+                #endif
+            }
+
+            // Create projection matrix directly instead of using SetFieldOfView() to avoid config dependency
+            float fovRadians = XMConvertToRadians(fovToRestore);
+            float nearPlane = std::max(0.01f, savedCameraState.nearPlane);  // Ensure valid near plane
+            float farPlane = std::max(nearPlane + 1.0f, savedCameraState.farPlane); // Ensure valid far plane
+            
+            projectionMatrix = XMMatrixPerspectiveFovLH(fovRadians, aspectRatio, nearPlane, farPlane);
+
+            #if defined(_DEBUG_WINSYSTEM_)
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"[CAMERA] Projection matrix restored: FOV=%.2f°, aspect=%.3f, near=%.3f, far=%.3f", 
+                    fovToRestore, aspectRatio, nearPlane, farPlane);
+            #endif
+        }
+        catch (const std::exception& e) {
+            #if defined(_DEBUG_WINSYSTEM_)
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[CAMERA] Exception restoring projection: %hs, using defaults", e.what());
+            #endif
+            
+            // Create default projection matrix on failure
+            constexpr float defaultFov = XMConvertToRadians(45.0f);
+            projectionMatrix = XMMatrixPerspectiveFovLH(defaultFov, aspectRatio, 0.1f, 1000.0f);
+        }
+
+        // Force camera matrix update to ensure consistency
+        try {
+            // Update view matrix using the restored position and target
+            XMVECTOR eyePos = XMLoadFloat3(&position);
+            XMVECTOR targetPos = XMLoadFloat3(&target);
+            XMVECTOR upVector = XMLoadFloat3(&up);
+            
+            viewMatrix = XMMatrixLookAtLH(eyePos, targetPos, upVector);
+
+            // Update forward vector for consistency
+            XMVECTOR lookDirection = XMVector3Normalize(targetPos - eyePos);
+            XMStoreFloat3(&forward, lookDirection);
+
+            #if defined(_DEBUG_WINSYSTEM_)
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"[CAMERA] View matrix updated successfully");
+            #endif
+        }
+        catch (const std::exception& e) {
+            #if defined(_DEBUG_WINSYSTEM_)
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[CAMERA] Exception updating view matrix: %hs", e.what());
+            #endif
+        }
+
+        #if defined(_DEBUG_WINSYSTEM_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[CAMERA] Camera state restored successfully - Position: (%.2f, %.2f, %.2f), Yaw: %.2f, Pitch: %.2f", 
+                savedCameraState.position.x, savedCameraState.position.y, savedCameraState.position.z,
+                savedCameraState.yaw, savedCameraState.pitch);
+        #endif
+
+        // Mark state as used (prevent multiple restorations)
+        savedCameraState.isValid = false;
+    }
+    catch (const std::exception& e) {
+        #if defined(_DEBUG_WINSYSTEM_)
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[CAMERA] Exception restoring camera state: %hs", e.what());
+        #endif
+        savedCameraState.isValid = false;
+    }
+    catch (...) {
+        #if defined(_DEBUG_WINSYSTEM_)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[CAMERA] Unknown exception restoring camera state");
+        #endif
+        savedCameraState.isValid = false;
+    }
+}
+
+// === CAMERA JUMP FUNCTIONALITY ===
+
+void Camera::JumpTo(float new_x, float new_y, float new_z, int speed, bool FocusOnTarget)
+{
+    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_INFO,
+            L"[Camera] JumpTo called: target(%.2f, %.2f, %.2f), speed=%d, focusOnTarget=%s",
+            new_x, new_y, new_z, speed, FocusOnTarget ? L"true" : L"false");
+    #endif
+
+    try {
+        // Validate speed parameter (must be positive)
+        if (speed <= 0)
+        {
+            speed = 1; // Default to fastest speed
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_WARNING,
+                    L"[Camera] Invalid speed parameter, defaulting to speed=1");
+            #endif
+        }
+
+        // Store current position as starting point
+        m_jumpStartPosition = position;                                     // Save current camera position
+
+        // Set target position
+        m_jumpTargetPosition = XMFLOAT3(new_x, new_y, new_z);             // Set destination position
+
+        // Store focus behavior flag
+        m_focusOnTarget = FocusOnTarget;                                   // Store focus preference
+
+        // If FocusOnTarget is true, store the original target to maintain focus
+        if (m_focusOnTarget)
+        {
+            m_originalTarget = target;                                      // Store current target for focus maintenance
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                    L"[Camera] Maintaining focus on target: (%.2f, %.2f, %.2f)",
+                    m_originalTarget.x, m_originalTarget.y, m_originalTarget.z);
+            #endif
+        }
+        else
+        {
+            // For free-look mode, preserve current yaw and pitch orientation
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                    L"[Camera] Free-look mode: preserving current orientation - Yaw: %.3f, Pitch: %.3f",
+                    m_yaw, m_pitch);
+            #endif
+        }
+
+        // Check if we're already at the target position (within small tolerance)
+        float distance = FAST_MATH.FastDistance(XMFLOAT2(position.x, position.z),
+            XMFLOAT2(new_x, new_z)) +
+            abs(position.y - new_y);                                       // Calculate total distance to target
+
+        if (distance < 0.01f)
+        {
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_INFO,
+                    L"[Camera] Already at target position, jump completed immediately");
+            #endif
+            return; // Already at target, no need to jump
+        }
+
+        // Calculate number of path points based on distance and speed
+        // Increased base points and reduced speed divisor for faster movement
+        int pathPoints = static_cast<int>((distance * 15.0f) / (speed * 2.0f)) + 15; // Calculate path complexity
+        pathPoints = std::clamp(pathPoints, 15, 120); // Reduced maximum for faster animation
+
+        // Step 1: Calculate smooth travel path using MathPrecalculation Class
+        m_currentTravelPath = CalculateSmoothTravelPath(m_jumpStartPosition, m_jumpTargetPosition, pathPoints);
+
+        // Step 2: Set status flag that jumping is occurring
+        m_isJumping = true;                                             // Mark camera as jumping
+        m_jumpSpeed = speed;                                            // Store jump speed
+        m_currentPathIndex = 0;                                         // Reset path index
+        m_jumpAnimationTimer = 0.0f;                                    // Reset animation timer
+
+        // Calculate total time for this jump - significantly faster timing
+        // Base time is now much faster, with speed 1 being very fast
+        float baseTime = 0.8f;                                          // Adjust for much faster or slower (higher value) base speed
+        float speedMultiplier = 1.0f / (static_cast<float>(speed) * 1.5f); // Increased speed effect
+        m_totalJumpTime = baseTime * speedMultiplier * (1.0f + distance * 0.1f); // Distance factor
+        m_totalJumpTime = std::clamp(m_totalJumpTime, 0.2f, 3.0f);      // Much faster bounds
+
+        // Step 3: Add to jump history (record history for last 10 locations)
+        AddToJumpHistory(m_jumpStartPosition, m_jumpTargetPosition, m_currentTravelPath, speed, FocusOnTarget);
+
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_INFO,
+                L"[Camera] Jump initiated: distance=%.2f, pathPoints=%d, totalTime=%.2f, focus=%s, preserving yaw=%.3f, pitch=%.3f",
+                distance, pathPoints, m_totalJumpTime, FocusOnTarget ? L"maintained" : L"free", m_yaw, m_pitch);
+        #endif
+    }
+    catch (const std::exception& e) {
+        // Handle any exceptions that occur during jump initialization
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION,
+                L"[Camera] Exception in JumpTo: %hs", e.what());
+        #endif
+
+        // Reset jump state on exception to prevent stuck state
+        m_isJumping = false;                                            // Clear jumping flag
+        m_currentPathIndex = 0;                                         // Reset path index
+        m_jumpAnimationTimer = 0.0f;                                    // Reset timer
+
+        // Log the exception using ExceptionHandler (Rule #45)
+        exceptionHandler.LogException(e, "Camera::JumpTo");
+    }
+    catch (...) {
+        // Handle unknown exceptions
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_TERMINATION,
+                L"[Camera] Unknown exception in JumpTo. Resetting jump state");
+        #endif
+
+        // Reset jump state on unknown exception
+        m_isJumping = false;                                            // Clear jumping flag
+        m_currentPathIndex = 0;                                         // Reset path index
+        m_jumpAnimationTimer = 0.0f;                                    // Reset timer
+
+        // Log custom exception for unknown errors
+        exceptionHandler.LogCustomException("Unknown exception in Camera::JumpTo", "Camera jump initialization");
+    }
+}
+
+void Camera::JumpToWithYawPitch(float new_x, float new_y, float new_z, float newYaw, float newPitch, int speed, bool FocusOnTarget)
+{
+    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_INFO,
+            L"[Camera] JumpToWithYawPitch called: target(%.2f, %.2f, %.2f), newYaw=%.3f, newPitch=%.3f, speed=%d, focusOnTarget=%s",
+            new_x, new_y, new_z, newYaw, newPitch, speed, FocusOnTarget ? L"true" : L"false");
+    #endif
+
+    try {
+        // Validate speed parameter (must be positive)
+        if (speed <= 0)
+        {
+            speed = 1; // Default to fastest speed
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_WARNING,
+                    L"[Camera] Invalid speed parameter, defaulting to speed=1");
+            #endif
+        }
+
+        // Validate and normalize yaw parameter to prevent invalid angles
+        float normalizedYaw = newYaw;                                       // Copy yaw for normalization
+        while (normalizedYaw > XM_2PI) normalizedYaw -= XM_2PI;            // Wrap large positive angles
+        while (normalizedYaw < -XM_2PI) normalizedYaw += XM_2PI;           // Wrap large negative angles
+
+        // Validate and clamp pitch parameter to prevent gimbal lock
+        const float maxPitch = XM_PIDIV2 - 0.01f;                          // Just under 90 degrees to prevent gimbal lock
+        const float minPitch = -XM_PIDIV2 + 0.01f;                         // Just over -90 degrees to prevent gimbal lock
+        float clampedPitch = std::clamp(newPitch, minPitch, maxPitch);      // Clamp pitch to safe range
+
+        // Log angle adjustments if they were modified
+        if (abs(normalizedYaw - newYaw) > 0.001f || abs(clampedPitch - newPitch) > 0.001f) {
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_WARNING,
+                    L"[Camera] Angle adjustments - Original Yaw: %.3f -> %.3f, Original Pitch: %.3f -> %.3f",
+                    newYaw, normalizedYaw, newPitch, clampedPitch);
+            #endif
+        }
+
+        // Store current position as starting point for jump animation
+        m_jumpStartPosition = position;                                     // Save current camera position
+
+        // Set target position for jump destination
+        m_jumpTargetPosition = XMFLOAT3(new_x, new_y, new_z);             // Set destination position
+
+        // Store focus behavior flag for jump completion handling
+        m_focusOnTarget = FocusOnTarget;                                   // Store focus preference
+
+        // CRITICAL: Set new yaw and pitch values to camera's internal state (New State)
+        m_yaw = normalizedYaw;                                             // Set new yaw angle as internal state
+        m_pitch = clampedPitch;                                            // Set new pitch angle as internal state
+
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_INFO,
+                L"[Camera] Camera internal state updated - New Yaw: %.3f, New Pitch: %.3f",
+                m_yaw, m_pitch);
+        #endif
+
+        // Calculate new forward vector from new yaw and pitch angles
+        float cosPitch = FAST_COS(m_pitch);                                // Cosine of new pitch angle
+        float sinPitch = FAST_SIN(m_pitch);                                // Sine of new pitch angle
+        float cosYaw = FAST_COS(m_yaw);                                    // Cosine of new yaw angle
+        float sinYaw = FAST_SIN(m_yaw);                                    // Sine of new yaw angle
+
+        // Calculate new forward vector based on new orientation
+        XMVECTOR newForward = XMVectorSet(
+            cosPitch * sinYaw,                                             // X component from new angles
+            sinPitch,                                                      // Y component from new angles
+            cosPitch * cosYaw,                                             // Z component from new angles
+            0.0f                                                           // W component not used
+        );
+        newForward = XMVector3Normalize(newForward);                       // Normalize new forward vector
+
+        // Store new forward vector in camera state
+        XMStoreFloat3(&forward, newForward);                               // Update camera forward direction
+
+        // Calculate new target based on new orientation if not focusing on specific target
+        if (!m_focusOnTarget)
+        {
+            // For free-look mode, calculate target from new position and new forward direction
+            XMVECTOR newPos = XMLoadFloat3(&m_jumpTargetPosition);         // Load target position
+            XMVECTOR calculatedTarget = XMVectorAdd(newPos, newForward);   // Calculate new target from forward direction
+            XMStoreFloat3(&m_originalTarget, calculatedTarget);            // Store calculated target
+            
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                    L"[Camera] Free-look mode: calculated new target from orientation: (%.2f, %.2f, %.2f)",
+                    m_originalTarget.x, m_originalTarget.y, m_originalTarget.z);
+            #endif
+        }
+        else
+        {
+            // For focus mode, store the current target to maintain focus during jump
+            m_originalTarget = target;                                     // Store current target for focus maintenance
+            
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                    L"[Camera] Focus mode: maintaining focus on current target: (%.2f, %.2f, %.2f)",
+                    m_originalTarget.x, m_originalTarget.y, m_originalTarget.z);
+            #endif
+        }
+
+        // Check if we're already at the target position (within small tolerance)
+        float distance = FAST_MATH.FastDistance(XMFLOAT2(position.x, position.z),
+            XMFLOAT2(new_x, new_z)) +
+            abs(position.y - new_y);                                       // Calculate total distance to target
+
+        if (distance < 0.01f)
+        {
+            // Already at target position, immediately apply new orientation
+            position = m_jumpTargetPosition;                               // Set final position
+            
+            // Apply new orientation immediately
+            if (!m_focusOnTarget)
+            {
+                // For free-look mode, update target based on new orientation
+                XMVECTOR finalPos = XMLoadFloat3(&position);               // Load final position
+                XMVECTOR finalTarget = XMVectorAdd(finalPos, newForward);  // Calculate final target
+                XMStoreFloat3(&target, finalTarget);                       // Store final target
+            }
+            else
+            {
+                // For focus mode, keep original target
+                target = m_originalTarget;                                 // Restore original target
+            }
+
+            // Update view matrix with new orientation
+            XMVECTOR finalPos = XMLoadFloat3(&position);                   // Load final position
+            XMVECTOR finalTarget = XMLoadFloat3(&target);                  // Load final target
+            XMVECTOR upVec = XMLoadFloat3(&up);                            // Load up vector
+            viewMatrix = XMMatrixLookAtLH(finalPos, finalTarget, upVec);   // Update view matrix
+
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_INFO,
+                    L"[Camera] Already at target position, orientation applied immediately - Yaw: %.3f, Pitch: %.3f",
+                    m_yaw, m_pitch);
+            #endif
+            return; // Already at target, no need to jump
+        }
+
+        // Calculate number of path points based on distance and speed
+        int pathPoints = static_cast<int>((distance * 15.0f) / (speed * 2.0f)) + 15; // Calculate path complexity
+        pathPoints = std::clamp(pathPoints, 15, 120);                     // Clamp path points to reasonable range
+
+        // Calculate smooth travel path using MathPrecalculation Class
+        m_currentTravelPath = CalculateSmoothTravelPath(m_jumpStartPosition, m_jumpTargetPosition, pathPoints);
+
+        // Set jump animation state flags
+        m_isJumping = true;                                                // Mark camera as jumping
+        m_jumpSpeed = speed;                                               // Store jump speed
+        m_currentPathIndex = 0;                                            // Reset path index
+        m_jumpAnimationTimer = 0.0f;                                       // Reset animation timer
+
+        // Calculate total time for this jump animation
+        float baseTime = 0.8f;                                             // Base animation time
+        float speedMultiplier = 1.0f / (static_cast<float>(speed) * 1.5f); // Speed effect multiplier
+        m_totalJumpTime = baseTime * speedMultiplier * (1.0f + distance * 0.1f); // Calculate total time with distance factor
+        m_totalJumpTime = std::clamp(m_totalJumpTime, 0.2f, 3.0f);         // Clamp to reasonable time bounds
+
+        // Add to jump history for potential rollback functionality
+        AddToJumpHistory(m_jumpStartPosition, m_jumpTargetPosition, m_currentTravelPath, speed, FocusOnTarget);
+
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_INFO,
+                L"[Camera] JumpToWithYawPitch initiated: distance=%.2f, pathPoints=%d, totalTime=%.2f, focus=%s",
+                distance, pathPoints, m_totalJumpTime, FocusOnTarget ? L"maintained" : L"free");
+            debug.logDebugMessage(LogLevel::LOG_INFO,
+                L"[Camera] New camera state set - Yaw: %.3f, Pitch: %.3f, Forward: (%.3f, %.3f, %.3f)",
+                m_yaw, m_pitch, forward.x, forward.y, forward.z);
+        #endif
+    }
+    catch (const std::exception& e) {
+        // Handle any exceptions that occur during jump initialization
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION,
+                L"[Camera] Exception in JumpToWithYawPitch: %hs", e.what());
+        #endif
+
+        // Reset jump state on exception to prevent stuck state
+        m_isJumping = false;                                               // Clear jumping flag
+        m_currentPathIndex = 0;                                            // Reset path index
+        m_jumpAnimationTimer = 0.0f;                                       // Reset timer
+
+        // Note: Do not reset yaw/pitch on exception as they represent desired new state
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_WARNING,
+                L"[Camera] Preserving new yaw/pitch state despite exception - Yaw: %.3f, Pitch: %.3f",
+                m_yaw, m_pitch);
+        #endif
+
+        // Log the exception using ExceptionHandler (Rule #45)
+        exceptionHandler.LogException(e, "Camera::JumpToWithYawPitch");
+    }
+    catch (...) {
+        // Handle unknown exceptions
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_TERMINATION,
+                L"[Camera] Unknown exception in JumpToWithYawPitch. Preserving new orientation state");
+        #endif
+
+        // Reset jump state on unknown exception but preserve orientation
+        m_isJumping = false;                                               // Clear jumping flag
+        m_currentPathIndex = 0;                                            // Reset path index
+        m_jumpAnimationTimer = 0.0f;                                       // Reset timer
+
+        // Log custom exception for unknown errors
+        exceptionHandler.LogCustomException("Unknown exception in Camera::JumpToWithYawPitch", "Camera jump with orientation initialization");
+    }
+}
+
+void Camera::UpdateJumpAnimation()
+{
+    // CRITICAL: Update continuous rotation FIRST before jump processing
+    UpdateContinuousRotation();
+
+    // Only process jump animation if we're currently jumping
+    if (!m_isJumping)
+    {
+        return;
+    }
+
+    try {
+        // Increment animation timer based on frame time - increased speed
+        // Using faster time step for more responsive animation
+        float deltaTime = 1.0f / 60.0f; // Assuming 60 FPS
+        float speedBoost = 1.8f; // Increased from 1.0f for overall faster animation
+        m_jumpAnimationTimer += deltaTime * speedBoost;                 // Update animation progress
+
+        // Calculate current progress (0.0 to 1.0)
+        float progress = m_jumpAnimationTimer / m_totalJumpTime;         // Calculate completion percentage
+        progress = std::clamp(progress, 0.0f, 1.0f);                    // Ensure progress is within bounds
+
+        // Step 3: Animate movement using calculated travel path with speed variation
+        if (progress >= 1.0f)
+        {
+            // Step 4: Jump completed - set final position and clear jumping state
+            position = m_jumpTargetPosition;                             // Set final position
+            m_isJumping = false;                                         // Clear jumping flag
+            m_currentPathIndex = 0;                                      // Reset path index
+            m_jumpAnimationTimer = 0.0f;                                 // Reset timer
+            
+            // Check if this was a history jump that just completed
+            if (m_isJumpingBackInHistory)
+            {
+                // Calculate how many entries to remove from history
+                int entriesToRemove = m_historyJumpStepsRemaining;
+                int currentHistorySize = static_cast<int>(m_jumpHistory.size());
+                
+                // Remove forward history entries (entries after our target position)
+                if (entriesToRemove > 0 && entriesToRemove <= currentHistorySize)
+                {
+                    RemoveForwardHistoryEntries(currentHistorySize - entriesToRemove);
+                    
+                    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                        debug.logDebugMessage(LogLevel::LOG_INFO, 
+                            L"[Camera] History jump completed. Removed %d forward entries, %d entries remain", 
+                            entriesToRemove, static_cast<int>(m_jumpHistory.size()));
+                    #endif
+                }
+                
+                // Clear history jump state
+                m_isJumpingBackInHistory = false;                       // Clear history jump flag
+                m_historyJumpStepsRemaining = 0;                        // Reset steps counter
+            }
+            
+            // Handle completion based on focus behavior
+            if (m_focusOnTarget)
+            {
+                // Calculate the new forward direction from final position to original target
+                XMVECTOR finalPos = XMLoadFloat3(&position);             // Load final camera position
+                XMVECTOR originalTarget = XMLoadFloat3(&m_originalTarget); // Load original target
+                XMVECTOR newForwardDirection = XMVector3Normalize(originalTarget - finalPos); // Calculate look direction
+                
+                // Store the new forward direction
+                XMStoreFloat3(&forward, newForwardDirection);            // Update forward vector
+                
+                // Update target to match the maintained focus
+                XMStoreFloat3(&target, originalTarget);                  // Restore original target
+                
+                // CRITICAL: Calculate new yaw and pitch from the forward direction
+                // Extract yaw from the forward vector (rotation around Y-axis)
+                float newYaw = FAST_ATAN2(XMVectorGetX(newForwardDirection), XMVectorGetZ(newForwardDirection));
+                
+                // Extract pitch from the forward vector (rotation around X-axis)
+                float forwardLength = FAST_SQRT(XMVectorGetX(newForwardDirection) * XMVectorGetX(newForwardDirection) + 
+                                              XMVectorGetZ(newForwardDirection) * XMVectorGetZ(newForwardDirection));
+                float newPitch = FAST_ATAN2(XMVectorGetY(newForwardDirection), forwardLength);
+                
+                // Update the camera's internal yaw and pitch to match the new view direction
+                m_yaw = newYaw;                                          // Store new yaw angle
+                m_pitch = newPitch;                                      // Store new pitch angle
+                
+                // Ensure up vector is correct
+                up = XMFLOAT3(0.0f, 1.0f, 0.0f);                        // Reset up vector
+                
+                // Create the final view matrix with all properly calculated values
+                XMVECTOR upVec = XMLoadFloat3(&up);                      // Load up vector
+                viewMatrix = XMMatrixLookAtLH(finalPos, originalTarget, upVec); // Update view matrix
+                
+                #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                    debug.logDebugMessage(LogLevel::LOG_INFO, 
+                        L"[Camera] Jump completed with focus maintained: pos(%.2f, %.2f, %.2f), target(%.2f, %.2f, %.2f)", 
+                        position.x, position.y, position.z, target.x, target.y, target.z);
+                    debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                        L"[Camera] Updated orientation: yaw=%.3f, pitch=%.3f, forward(%.3f, %.3f, %.3f)", 
+                        m_yaw, m_pitch, forward.x, forward.y, forward.z);
+                #endif
+            }
+            else
+            {
+                // For free-look behavior, PRESERVE current yaw and pitch
+                // Calculate forward vector from preserved yaw and pitch
+                float cosPitch = FAST_COS(m_pitch);                      // Use preserved pitch
+                float sinPitch = FAST_SIN(m_pitch);                      // Use preserved pitch
+                float cosYaw = FAST_COS(m_yaw);                          // Use preserved yaw
+                float sinYaw = FAST_SIN(m_yaw);                          // Use preserved yaw
+
+                // Reconstruct forward vector from preserved angles
+                XMVECTOR preservedForward = XMVectorSet(
+                    cosPitch * sinYaw,                                   // X component from preserved angles
+                    sinPitch,                                            // Y component from preserved angles
+                    cosPitch * cosYaw,                                   // Z component from preserved angles
+                    0.0f
+                );
+                preservedForward = XMVector3Normalize(preservedForward); // Normalize forward vector
+
+                // Store preserved forward direction
+                XMStoreFloat3(&forward, preservedForward);               // Update forward with preserved direction
+
+                // Calculate new target from position and preserved forward direction
+                XMVECTOR newPos = XMLoadFloat3(&position);               // Load new position
+                XMVECTOR newTarget = XMVectorAdd(newPos, preservedForward); // Calculate target from preserved forward
+                XMStoreFloat3(&target, newTarget);                       // Store new target
+
+                // Update view matrix with preserved orientation
+                XMVECTOR upVec = XMLoadFloat3(&up);                      // Load up vector
+                viewMatrix = XMMatrixLookAtLH(newPos, newTarget, upVec); // Update view matrix
+                
+                #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                    debug.logDebugMessage(LogLevel::LOG_INFO, 
+                        L"[Camera] Jump completed with free-look: final position(%.2f, %.2f, %.2f), preserved yaw=%.3f, pitch=%.3f", 
+                        position.x, position.y, position.z, m_yaw, m_pitch);
+                #endif
+            }
+
+            return;
+        }
+
+        // Calculate current position along the travel path using enhanced smooth interpolation
+        float pathProgress = CalculateJumpAnimationSpeed(progress, m_jumpSpeed); // Apply easing curve
+        
+        // Find the appropriate point in the travel path
+        int totalPathPoints = static_cast<int>(m_currentTravelPath.size());
+        if (totalPathPoints > 1)
+        {
+            float exactIndex = pathProgress * (totalPathPoints - 1);        // Calculate exact path position
+            int currentIndex = static_cast<int>(exactIndex);                // Get current path index
+            int nextIndex = std::min(currentIndex + 1, totalPathPoints - 1); // Get next path index
+            float interpolationFactor = exactIndex - currentIndex;          // Calculate interpolation factor
+
+            // Interpolate between current and next path points using MathPrecalculation
+            const XMFLOAT3& currentPoint = m_currentTravelPath[currentIndex]; // Get current path point
+            const XMFLOAT3& nextPoint = m_currentTravelPath[nextIndex];      // Get next path point
+
+            // Smoothly interpolate position between path points
+            position.x = FAST_MATH.FastLerp(currentPoint.x, nextPoint.x, interpolationFactor); // Interpolate X
+            position.y = FAST_MATH.FastLerp(currentPoint.y, nextPoint.y, interpolationFactor); // Interpolate Y
+            position.z = FAST_MATH.FastLerp(currentPoint.z, nextPoint.z, interpolationFactor); // Interpolate Z
+
+            // Handle focus behavior during animation
+            if (m_focusOnTarget)
+            {
+                // Maintain focus on original target during movement
+                XMVECTOR currentPos = XMLoadFloat3(&position);           // Load current position
+                XMVECTOR originalTarget = XMLoadFloat3(&m_originalTarget); // Load original target
+                XMVECTOR upVec = XMLoadFloat3(&up);                      // Load up vector
+                
+                // Keep looking at the original target throughout the jump
+                viewMatrix = XMMatrixLookAtLH(currentPos, originalTarget, upVec); // Update view matrix
+                
+                // Update forward vector to match the maintained focus during animation
+                XMVECTOR focusDirection = XMVector3Normalize(originalTarget - currentPos); // Calculate focus direction
+                XMStoreFloat3(&forward, focusDirection);                 // Store focus direction
+                XMStoreFloat3(&target, originalTarget);                  // Store original target
+                
+                // Update yaw and pitch during animation to keep them synchronized
+                float animYaw = FAST_ATAN2(XMVectorGetX(focusDirection), XMVectorGetZ(focusDirection)); // Calculate yaw
+                float forwardLength = FAST_SQRT(XMVectorGetX(focusDirection) * XMVectorGetX(focusDirection) + 
+                                              XMVectorGetZ(focusDirection) * XMVectorGetZ(focusDirection)); // Calculate horizontal length
+                float animPitch = FAST_ATAN2(XMVectorGetY(focusDirection), forwardLength); // Calculate pitch
+                
+                // Smoothly interpolate yaw and pitch during animation for consistent behavior
+                m_yaw = animYaw;                                         // Update yaw for consistency
+                m_pitch = animPitch;                                     // Update pitch for consistency
+            }
+else
+            {
+                // For free-look behavior, use the stored yaw and pitch from JumpToWithYawPitch or preserve existing
+                // Calculate forward vector from stored yaw and pitch (works for both JumpTo and JumpToWithYawPitch)
+                float cosPitch = FAST_COS(m_pitch);                      // Use stored pitch (new or preserved)
+                float sinPitch = FAST_SIN(m_pitch);                      // Use stored pitch (new or preserved)
+                float cosYaw = FAST_COS(m_yaw);                          // Use stored yaw (new or preserved)
+                float sinYaw = FAST_SIN(m_yaw);                          // Use stored yaw (new or preserved)
+
+                // Reconstruct forward vector from stored angles
+                XMVECTOR storedForward = XMVectorSet(
+                    cosPitch * sinYaw,                                   // X component from stored angles
+                    sinPitch,                                            // Y component from stored angles
+                    cosPitch * cosYaw,                                   // Z component from stored angles
+                    0.0f
+                );
+                storedForward = XMVector3Normalize(storedForward);       // Normalize forward vector
+
+                // Store forward direction from stored angles
+                XMStoreFloat3(&forward, storedForward);                  // Update forward with stored direction
+
+                // Calculate new target from position and stored forward direction
+                XMVECTOR newPos = XMLoadFloat3(&position);               // Load new position
+                XMVECTOR newTarget = XMVectorAdd(newPos, storedForward); // Calculate target from stored forward
+                XMStoreFloat3(&target, newTarget);                       // Store new target
+
+                // Update view matrix with stored orientation
+                XMVECTOR upVec = XMLoadFloat3(&up);                      // Load up vector
+                viewMatrix = XMMatrixLookAtLH(newPos, newTarget, upVec); // Update view matrix
+                
+                #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                    debug.logDebugMessage(LogLevel::LOG_INFO, 
+                        L"[Camera] Jump completed with stored orientation: final position(%.2f, %.2f, %.2f), yaw=%.3f, pitch=%.3f", 
+                        position.x, position.y, position.z, m_yaw, m_pitch);
+                #endif
+            }
+
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                if (currentIndex != m_currentPathIndex) // Only log when we move to a new path point
+                {
+                    const wchar_t* jumpType = m_isJumpingBackInHistory ? L"history" : L"normal";
+                    debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                        L"[Camera] %ls jump progress: %.1f%%, position(%.2f, %.2f, %.2f), focus=%s, preserved yaw=%.2f, pitch=%.2f", 
+                        jumpType, progress * 100.0f, position.x, position.y, position.z,
+                        m_focusOnTarget ? L"maintained" : L"preserved", m_yaw, m_pitch);
+                    m_currentPathIndex = currentIndex;                   // Update path index for logging
+                }
+            #endif
+        }
+    }
+    catch (const std::exception& e) {
+        // Handle any exceptions that occur during jump animation
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION,
+                L"[Camera] Exception in UpdateJumpAnimation: %hs", e.what());
+        #endif
+
+        // Reset jump state on exception to prevent stuck state
+        m_isJumping = false;                                            // Clear jumping flag
+        m_currentPathIndex = 0;                                         // Reset path index
+        m_jumpAnimationTimer = 0.0f;                                    // Reset timer
+
+        // Log the exception using ExceptionHandler (Rule #45)
+        exceptionHandler.LogException(e, "Camera::UpdateJumpAnimation");
+    }
+    catch (...) {
+        // Handle unknown exceptions
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_TERMINATION,
+                L"[Camera] Unknown exception in UpdateJumpAnimation. Resetting jump state");
+        #endif
+
+        // Reset jump state on unknown exception
+        m_isJumping = false;                                            // Clear jumping flag
+        m_currentPathIndex = 0;                                         // Reset path index
+        m_jumpAnimationTimer = 0.0f;                                    // Reset timer
+
+        // Log custom exception for unknown errors
+        exceptionHandler.LogCustomException("Unknown exception in Camera::UpdateJumpAnimation", "Camera jump animation");
+    }
+}
+
+// === ROTATION FUNCTIONS ===
+
+void Camera::RotateX(float degrees, int speed, bool FocusOnTarget)
+{
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] RotateX called: degrees=%.2f, speed=%d, focusOnTarget=%s", 
+            degrees, speed, FocusOnTarget ? L"true" : L"false");
+    #endif
+
+    // Validate speed parameter
+    if (speed <= 0)
+    {
+        speed = 2; // Default to medium speed for rotations
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Invalid speed parameter for RotateX, defaulting to speed=2");
+        #endif
+    }
+
+    // Check if rotation angle is effectively zero
+    if (abs(degrees) < 0.001f)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, 
+                L"[Camera] RotateX: Angle is zero, no rotation needed");
+        #endif
+        return;
+    }
+
+    // Get current camera position and target for rotation calculations
+    XMVECTOR currentPos = XMLoadFloat3(&position);
+    XMVECTOR currentTarget = XMLoadFloat3(&target);
+    
+    // Determine pivot point and vector to rotate based on focus behavior
+    XMVECTOR pivotPoint;
+    XMVECTOR vectorToRotate;
+    XMFLOAT3 newPosition;
+    
+    if (FocusOnTarget)
+    {
+        // When focusing on target, rotate camera around the current target position
+        pivotPoint = currentTarget;
+        vectorToRotate = currentPos - pivotPoint;
+        
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] RotateX: Focusing on target, rotating camera around target (%.2f, %.2f, %.2f)", 
+                target.x, target.y, target.z);
+        #endif
+    }
+    else
+    {
+        // When not focusing, rotate target around camera position
+        pivotPoint = currentPos;
+        vectorToRotate = currentTarget - pivotPoint;
+        newPosition = position; // Camera stays in place for free-look
+        
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] RotateX: Free-look mode, rotating target around camera (%.2f, %.2f, %.2f)", 
+                position.x, position.y, position.z);
+        #endif
+    }
+    
+    // Calculate the distance for rotation consistency
+    float rotationDistance = XMVectorGetX(XMVector3Length(vectorToRotate));
+    
+    // If distance is too small, use a default distance to prevent issues
+    if (rotationDistance < 0.1f)
+    {
+        rotationDistance = 5.0f; // Default rotation distance
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] Using default rotation distance for RotateX: %.2f", rotationDistance);
+        #endif
+    }
+
+    // Convert degrees to radians for rotation calculation
+    float angleRadians = XMConvertToRadians(degrees);
+    
+    // Create rotation matrix for X-axis rotation
+    XMMATRIX rotationMatrix = XMMatrixRotationX(angleRadians);
+    
+    // Apply rotation to the vector
+    XMVECTOR rotatedVector = XMVector3Transform(vectorToRotate, rotationMatrix);
+    rotatedVector = XMVector3Normalize(rotatedVector) * rotationDistance;
+    
+    if (FocusOnTarget)
+    {
+        // Calculate new camera position after rotation around target
+        XMVECTOR newCameraPos = pivotPoint + rotatedVector;
+        XMStoreFloat3(&newPosition, newCameraPos);
+    }
+    else
+    {
+        // Update target position after rotation around camera
+        XMVECTOR newTargetPos = pivotPoint + rotatedVector;
+        XMStoreFloat3(&target, newTargetPos);
+        
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] RotateX (free-look): Updated target to (%.2f, %.2f, %.2f)", 
+                target.x, target.y, target.z);
+        #endif
+    }
+    
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+            L"[Camera] RotateX: old pos(%.2f, %.2f, %.2f) -> new pos(%.2f, %.2f, %.2f), focus=%s, angle=%.2f°", 
+            position.x, position.y, position.z, newPosition.x, newPosition.y, newPosition.z,
+            FocusOnTarget ? L"maintained" : L"free", degrees);
+    #endif
+    
+    // Use JumpTo() to smoothly move to the new position with specified focus behavior
+    JumpTo(newPosition.x, newPosition.y, newPosition.z, speed, FocusOnTarget);
+}
+
+void Camera::RotateY(float degrees, int speed, bool FocusOnTarget)
+{
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] RotateY called: degrees=%.2f, speed=%d, focusOnTarget=%s", 
+            degrees, speed, FocusOnTarget ? L"true" : L"false");
+    #endif
+
+    // Validate speed parameter
+    if (speed <= 0)
+    {
+        speed = 2; // Default to medium speed for rotations
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Invalid speed parameter for RotateY, defaulting to speed=2");
+        #endif
+    }
+
+    // Check if rotation angle is effectively zero
+    if (abs(degrees) < 0.001f)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, 
+                L"[Camera] RotateY: Angle is zero, no rotation needed");
+        #endif
+        return;
+    }
+
+    // Get current camera position and target for rotation calculations
+    XMVECTOR currentPos = XMLoadFloat3(&position);
+    XMVECTOR currentTarget = XMLoadFloat3(&target);
+    
+    // Determine pivot point and vector to rotate based on focus behavior
+    XMVECTOR pivotPoint;
+    XMVECTOR vectorToRotate;
+    XMFLOAT3 newPosition;
+    
+    if (FocusOnTarget)
+    {
+        // When focusing on target, rotate camera around the current target position
+        pivotPoint = currentTarget;
+        vectorToRotate = currentPos - pivotPoint;
+        
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] RotateY: Focusing on target, rotating camera around target (%.2f, %.2f, %.2f)", 
+                target.x, target.y, target.z);
+        #endif
+    }
+    else
+    {
+        // When not focusing, rotate target around camera position
+        pivotPoint = currentPos;
+        vectorToRotate = currentTarget - pivotPoint;
+        newPosition = position; // Camera stays in place for free-look
+        
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] RotateY: Free-look mode, rotating target around camera (%.2f, %.2f, %.2f)", 
+                position.x, position.y, position.z);
+        #endif
+    }
+    
+    // Calculate the distance for rotation consistency
+    float rotationDistance = XMVectorGetX(XMVector3Length(vectorToRotate));
+    
+    // If distance is too small, use a default distance to prevent issues
+    if (rotationDistance < 0.1f)
+    {
+        rotationDistance = 5.0f; // Default rotation distance
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] Using default rotation distance for RotateY: %.2f", rotationDistance);
+        #endif
+    }
+
+    // Convert degrees to radians for rotation calculation
+    float angleRadians = XMConvertToRadians(degrees);
+    
+    // Create rotation matrix for Y-axis rotation
+    XMMATRIX rotationMatrix = XMMatrixRotationY(angleRadians);
+    
+    // Apply rotation to the vector
+    XMVECTOR rotatedVector = XMVector3Transform(vectorToRotate, rotationMatrix);
+    rotatedVector = XMVector3Normalize(rotatedVector) * rotationDistance;
+    
+    if (FocusOnTarget)
+    {
+        // Calculate new camera position after rotation around target
+        XMVECTOR newCameraPos = pivotPoint + rotatedVector;
+        XMStoreFloat3(&newPosition, newCameraPos);
+    }
+    else
+    {
+        // Update target position after rotation around camera
+        XMVECTOR newTargetPos = pivotPoint + rotatedVector;
+        XMStoreFloat3(&target, newTargetPos);
+        
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] RotateY (free-look): Updated target to (%.2f, %.2f, %.2f)", 
+                target.x, target.y, target.z);
+        #endif
+    }
+    
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+            L"[Camera] RotateY: old pos(%.2f, %.2f, %.2f) -> new pos(%.2f, %.2f, %.2f), focus=%s, angle=%.2f°", 
+            position.x, position.y, position.z, newPosition.x, newPosition.y, newPosition.z,
+            FocusOnTarget ? L"maintained" : L"free", degrees);
+    #endif
+    
+    // Use JumpTo() to smoothly move to the new position with specified focus behavior
+    JumpTo(newPosition.x, newPosition.y, newPosition.z, speed, FocusOnTarget);
+}
+
+void Camera::RotateZ(float degrees, int speed, bool FocusOnTarget)
+{
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] RotateZ called: degrees=%.2f, speed=%d, focusOnTarget=%s", 
+            degrees, speed, FocusOnTarget ? L"true" : L"false");
+    #endif
+
+    // Validate speed parameter
+    if (speed <= 0)
+    {
+        speed = 2; // Default to medium speed for rotations
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Invalid speed parameter for RotateZ, defaulting to speed=2");
+        #endif
+    }
+
+    // Check if rotation angle is effectively zero
+    if (abs(degrees) < 0.001f)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, 
+                L"[Camera] RotateZ: Angle is zero, no rotation needed");
+        #endif
+        return;
+    }
+
+    // Get current camera position and target for rotation calculations
+    XMVECTOR currentPos = XMLoadFloat3(&position);
+    XMVECTOR currentTarget = XMLoadFloat3(&target);
+    
+    // Determine pivot point and vector to rotate based on focus behavior
+    XMVECTOR pivotPoint;
+    XMVECTOR vectorToRotate;
+    XMFLOAT3 newPosition;
+    
+    if (FocusOnTarget)
+    {
+        // When focusing on target, rotate camera around the current target position
+        pivotPoint = currentTarget;
+        vectorToRotate = currentPos - pivotPoint;
+        
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] RotateZ: Focusing on target, rotating camera around target (%.2f, %.2f, %.2f)", 
+                target.x, target.y, target.z);
+        #endif
+    }
+    else
+    {
+        // When not focusing, rotate target around camera position
+        pivotPoint = currentPos;
+        vectorToRotate = currentTarget - pivotPoint;
+        newPosition = position; // Camera stays in place for free-look
+        
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] RotateZ: Free-look mode, rotating target around camera (%.2f, %.2f, %.2f)", 
+                position.x, position.y, position.z);
+        #endif
+    }
+    
+    // Calculate the distance for rotation consistency
+    float rotationDistance = XMVectorGetX(XMVector3Length(vectorToRotate));
+    
+    // If distance is too small, use a default distance to prevent issues
+    if (rotationDistance < 0.1f)
+    {
+        rotationDistance = 5.0f; // Default rotation distance
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] Using default rotation distance for RotateZ: %.2f", rotationDistance);
+        #endif
+    }
+
+    // Convert degrees to radians for rotation calculation
+    float angleRadians = XMConvertToRadians(degrees);
+    
+    // Create rotation matrix for Z-axis rotation
+    XMMATRIX rotationMatrix = XMMatrixRotationZ(angleRadians);
+    
+    // Apply rotation to the vector
+    XMVECTOR rotatedVector = XMVector3Transform(vectorToRotate, rotationMatrix);
+    rotatedVector = XMVector3Normalize(rotatedVector) * rotationDistance;
+    
+    if (FocusOnTarget)
+    {
+        // Calculate new camera position after rotation around target
+        XMVECTOR newCameraPos = pivotPoint + rotatedVector;
+        XMStoreFloat3(&newPosition, newCameraPos);
+    }
+    else
+    {
+        // Update target position after rotation around camera
+        XMVECTOR newTargetPos = pivotPoint + rotatedVector;
+        XMStoreFloat3(&target, newTargetPos);
+        
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] RotateZ (free-look): Updated target to (%.2f, %.2f, %.2f)", 
+                target.x, target.y, target.z);
+        #endif
+    }
+    
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+            L"[Camera] RotateZ: old pos(%.2f, %.2f, %.2f) -> new pos(%.2f, %.2f, %.2f), focus=%s, angle=%.2f°", 
+            position.x, position.y, position.z, newPosition.x, newPosition.y, newPosition.z,
+            FocusOnTarget ? L"maintained" : L"free", degrees);
+    #endif
+    
+    // Use JumpTo() to smoothly move to the new position with specified focus behavior
+    JumpTo(newPosition.x, newPosition.y, newPosition.z, speed, FocusOnTarget);
+}
+
+void Camera::RotateXYZ(float xDegrees, float yDegrees, float zDegrees, int speed, bool FocusOnTarget)
+{
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO,
+            L"[Camera] RotateXYZ called: X=%.2f°, Y=%.2f°, Z=%.2f°, speed=%d, focusOnTarget=%s",
+            xDegrees, yDegrees, zDegrees, speed, FocusOnTarget ? L"true" : L"false");
+    #endif
+
+    // Validate speed parameter
+    if (speed <= 0)
+    {
+        speed = 2; // Default to medium speed for multi-axis rotations
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING,
+                L"[Camera] Invalid speed parameter for RotateXYZ, defaulting to speed=2");
+        #endif
+    }
+
+    // Check if all rotation angles are zero (no rotation needed)
+    if (abs(xDegrees) < 0.001f && abs(yDegrees) < 0.001f && abs(zDegrees) < 0.001f)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_INFO,
+                L"[Camera] RotateXYZ: All angles are zero, no rotation needed");
+        #endif
+        return;
+    }
+
+    // Get current camera position and target for rotation calculations
+    XMVECTOR currentPos = XMLoadFloat3(&position);
+    XMVECTOR currentTarget = XMLoadFloat3(&target);
+
+    // Determine the pivot point based on focus behavior
+    XMVECTOR pivotPoint;
+    if (FocusOnTarget)
+    {
+        // When focusing on target, rotate around the current target position
+        pivotPoint = currentTarget;
+
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                L"[Camera] RotateXYZ: Using target as pivot point (%.2f, %.2f, %.2f)",
+                target.x, target.y, target.z);
+        #endif
+    }
+    else
+    {
+        // When not focusing, rotate around the camera's current position
+        pivotPoint = currentPos;
+
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                L"[Camera] RotateXYZ: Using camera position as pivot point (%.2f, %.2f, %.2f)",
+                position.x, position.y, position.z);
+        #endif
+    }
+
+    // Calculate the vector from pivot to the position we want to rotate
+    XMVECTOR vectorToRotate;
+    if (FocusOnTarget)
+    {
+        // Rotate the camera position around the target
+        vectorToRotate = currentPos - pivotPoint;
+    }
+    else
+    {
+        // Rotate the target around the camera position
+        vectorToRotate = currentTarget - pivotPoint;
+    }
+
+    // Calculate the distance from pivot to the point being rotated
+    float rotationDistance = XMVectorGetX(XMVector3Length(vectorToRotate));
+
+    // If distance is too small, use a default distance to prevent issues
+    if (rotationDistance < 0.1f)
+    {
+        rotationDistance = 5.0f; // Default rotation distance
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                L"[Camera] Using default rotation distance for RotateXYZ: %.2f", rotationDistance);
+        #endif
+    }
+
+    // Convert degrees to radians for rotation calculation
+    float radX = XMConvertToRadians(xDegrees);
+    float radY = XMConvertToRadians(yDegrees);
+    float radZ = XMConvertToRadians(zDegrees);
+
+    // Create combined rotation matrix using MathPrecalculation for optimization
+    // The rotation order is X, then Y, then Z (can be adjusted if needed)
+    XMMATRIX rotationMatrixX = XMMatrixRotationX(radX);
+    XMMATRIX rotationMatrixY = XMMatrixRotationY(radY);
+    XMMATRIX rotationMatrixZ = XMMatrixRotationZ(radZ);
+
+    // Combine rotations in XYZ order
+    XMMATRIX combinedRotation = rotationMatrixX * rotationMatrixY * rotationMatrixZ;
+
+    // Apply rotation to the vector
+    XMVECTOR rotatedVector = XMVector3Transform(vectorToRotate, combinedRotation);
+    rotatedVector = XMVector3Normalize(rotatedVector) * rotationDistance;
+
+    // Calculate the new position based on focus behavior
+    XMFLOAT3 newPosition;
+    if (FocusOnTarget)
+    {
+        // Camera rotates around target, so calculate new camera position
+        XMVECTOR newCameraPos = pivotPoint + rotatedVector;
+        XMStoreFloat3(&newPosition, newCameraPos);
+    }
+    else
+    {
+        // Target rotates around camera, so camera position stays the same
+        newPosition = position;
+
+        // Update the target position
+        XMVECTOR newTargetPos = pivotPoint + rotatedVector;
+        XMStoreFloat3(&target, newTargetPos);
+
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                L"[Camera] RotateXYZ (free-look): New target position (%.2f, %.2f, %.2f)",
+                target.x, target.y, target.z);
+        #endif
+    }
+
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[Camera] RotateXYZ: old pos(%.2f, %.2f, %.2f) -> new pos(%.2f, %.2f, %.2f), focus=%s",
+            position.x, position.y, position.z,
+            newPosition.x, newPosition.y, newPosition.z,
+            FocusOnTarget ? L"maintained" : L"free");
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[Camera] RotateXYZ: Combined rotation - X:%.2f° Y:%.2f° Z:%.2f°, distance:%.2f",
+            xDegrees, yDegrees, zDegrees, rotationDistance);
+    #endif
+
+    // Use JumpTo() to smoothly move to the new position with specified focus behavior
+    JumpTo(newPosition.x, newPosition.y, newPosition.z, speed, FocusOnTarget);
+}
+
+void Camera::RotateToOppositeSide(int speed)
+{
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] RotateToOppositeSide (enhanced) called: speed=%d", speed);
+    #endif
+
+    // Validate speed parameter
+    if (speed <= 0)
+    {
+        speed = 2; // Default to medium speed for opposite side rotation
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Invalid speed parameter for RotateToOppositeSide, defaulting to speed=2");
+        #endif
+    }
+
+    // Check if we're currently jumping - cannot start rotation during active jump
+    if (m_isJumping)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Cannot rotate to opposite side while camera is currently jumping");
+        #endif
+        return;
+    }
+
+    // Get current camera position and target for analysis
+    XMVECTOR currentPos = XMLoadFloat3(&position);
+    XMVECTOR currentTarget = XMLoadFloat3(&target);
+    
+    // Calculate the look direction vector (from camera to target)
+    XMVECTOR lookDirection = XMVector3Normalize(currentTarget - currentPos);
+    
+    // Store look direction as XMFLOAT3 for analysis
+    XMFLOAT3 lookDir;
+    XMStoreFloat3(&lookDir, lookDirection);
+
+    // Calculate current pitch angle to help determine best rotation axis
+    float currentPitch = FAST_ASIN(lookDir.y);
+    float pitchDegrees = XMConvertToDegrees(currentPitch);
+    
+    // Calculate current yaw angle
+    float currentYaw = FAST_ATAN2(lookDir.x, lookDir.z);
+    float yawDegrees = XMConvertToDegrees(currentYaw);
+
+    // Determine which axis has the strongest component to decide rotation axis
+    char primaryAxis = DeterminePrimaryLookDirection();
+    
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+            L"[Camera] Current orientation: pitch=%.1f°, yaw=%.1f°, look=(%.3f, %.3f, %.3f), primary axis: %c", 
+            pitchDegrees, yawDegrees, lookDir.x, lookDir.y, lookDir.z, primaryAxis);
+    #endif
+
+    // Smart axis selection based on current camera orientation and look direction
+    float rotationAngle = 180.0f;
+    
+    // Check if camera is looking mostly up or down (high pitch angle)
+    if (abs(pitchDegrees) > 60.0f)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, 
+                L"[Camera] High pitch angle detected (%.1f°), rotating around Z-axis for opposite side", 
+                pitchDegrees);
+        #endif
+        
+        // For steep up/down views, Z-axis rotation provides the most natural opposite view
+        RotateZ(rotationAngle, speed, true);
+    }
+    // Check if camera is at moderate angles (most common scenario)
+    else if (abs(pitchDegrees) < 30.0f)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, 
+                L"[Camera] Moderate pitch angle (%.1f°), rotating around Y-axis for opposite side", 
+                pitchDegrees);
+        #endif
+        
+        // For moderate angles, Y-axis rotation is most natural (horizontal orbit)
+        RotateY(rotationAngle, speed, true);
+    }
+    else
+    {
+        // For medium pitch angles, use the primary axis determination
+        switch (primaryAxis)
+        {
+            case 'X': // Primary look direction is along X-axis (left/right)
+            {
+                #if defined(_DEBUG_CAMERA_)
+                    debug.logDebugMessage(LogLevel::LOG_INFO, 
+                        L"[Camera] X-dominant view with medium pitch, rotating around Y-axis");
+                #endif
+                RotateY(rotationAngle, speed, true);
+                break;
+            }
+            
+            case 'Y': // Primary look direction is along Y-axis (up/down)
+            {
+                #if defined(_DEBUG_CAMERA_)
+                    debug.logDebugMessage(LogLevel::LOG_INFO, 
+                        L"[Camera] Y-dominant view, rotating around X-axis for vertical flip");
+                #endif
+                RotateX(rotationAngle, speed, true);
+                break;
+            }
+            
+            case 'Z': // Primary look direction is along Z-axis (forward/backward)
+            {
+                #if defined(_DEBUG_CAMERA_)
+                    debug.logDebugMessage(LogLevel::LOG_INFO, 
+                        L"[Camera] Z-dominant view, rotating around Y-axis for front/back flip");
+                #endif
+                RotateY(rotationAngle, speed, true);
+                break;
+            }
+            
+            default: // Diagonal or unclear
+            {
+                #if defined(_DEBUG_CAMERA_)
+                    debug.logDebugMessage(LogLevel::LOG_INFO, 
+                        L"[Camera] Diagonal view, using Y-axis rotation as default");
+                #endif
+                RotateY(rotationAngle, speed, true);
+                break;
+            }
+        }
+    }
+
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] RotateToOppositeSide completed: 180° rotation initiated based on pitch=%.1f° and primary axis=%c", 
+            pitchDegrees, primaryAxis);
+    #endif
+}
+
+char Camera::DeterminePrimaryLookDirection() const
+{
+    // Get current camera position and target for direction analysis
+    XMVECTOR currentPos = XMLoadFloat3(&position);
+    XMVECTOR currentTarget = XMLoadFloat3(&target);
+    
+    // Calculate the look direction vector (from camera to target)
+    XMVECTOR lookDirection = XMVector3Normalize(currentTarget - currentPos);
+    
+    // Extract individual components and get their absolute values
+    float absX = abs(XMVectorGetX(lookDirection));
+    float absY = abs(XMVectorGetY(lookDirection));
+    float absZ = abs(XMVectorGetZ(lookDirection));
+    
+    // Define threshold for considering components as dominant or equal
+    const float dominanceThreshold = 0.1f; // 10% difference required for clear dominance
+    
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+            L"[Camera] Look direction components: |X|=%.3f, |Y|=%.3f, |Z|=%.3f", 
+            absX, absY, absZ);
+    #endif
+    
+    // Find the maximum component
+    float maxComponent = std::max({absX, absY, absZ});
+    
+    // Check for clear dominance (one component significantly larger than others)
+    if (absX >= maxComponent && absX > absY + dominanceThreshold && absX > absZ + dominanceThreshold)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] X-axis dominant: %.3f (Y:%.3f, Z:%.3f)", absX, absY, absZ);
+        #endif
+        return 'X'; // X-axis is dominant (looking primarily left/right)
+    }
+    else if (absY >= maxComponent && absY > absX + dominanceThreshold && absY > absZ + dominanceThreshold)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] Y-axis dominant: %.3f (X:%.3f, Z:%.3f)", absY, absX, absZ);
+        #endif
+        return 'Y'; // Y-axis is dominant (looking primarily up/down)
+    }
+    else if (absZ >= maxComponent && absZ > absX + dominanceThreshold && absZ > absY + dominanceThreshold)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] Z-axis dominant: %.3f (X:%.3f, Y:%.3f)", absZ, absX, absY);
+        #endif
+        return 'Z'; // Z-axis is dominant (looking primarily forward/backward)
+    }
+    else
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] No clear dominance - diagonal view detected (max:%.3f)", maxComponent);
+        #endif
+        return 'D'; // Diagonal or no clear dominance
+    }
+}
+
+XMFLOAT3 Camera::CalculateRotatedPosition(const XMFLOAT3& currentPos, const XMFLOAT3& pivot, float angleX, float angleY, float angleZ) const
+{
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[Camera] CalculateRotatedPosition called: pos(%.2f, %.2f, %.2f), pivot(%.2f, %.2f, %.2f), angles(X:%.2f°, Y:%.2f°, Z:%.2f°)",
+            currentPos.x, currentPos.y, currentPos.z,
+            pivot.x, pivot.y, pivot.z,
+            angleX, angleY, angleZ);
+    #endif
+
+    // Convert angles from degrees to radians for calculation
+    float radX = XMConvertToRadians(angleX);
+    float radY = XMConvertToRadians(angleY);
+    float radZ = XMConvertToRadians(angleZ);
+
+    // Calculate vector from pivot to current position (relative position)
+    XMVECTOR relativePosition = XMVectorSet(
+        currentPos.x - pivot.x,
+        currentPos.y - pivot.y,
+        currentPos.z - pivot.z,
+        0.0f
+    );
+
+    // Create individual rotation matrices for each axis
+    XMMATRIX rotationX = XMMatrixRotationX(radX);
+    XMMATRIX rotationY = XMMatrixRotationY(radY);
+    XMMATRIX rotationZ = XMMatrixRotationZ(radZ);
+
+    // Combine rotations in XYZ order (rotate around X first, then Y, then Z)
+    XMMATRIX combinedRotation = rotationX * rotationY * rotationZ;
+
+    // Apply combined rotation to the relative position vector
+    XMVECTOR rotatedRelativePosition = XMVector3Transform(relativePosition, combinedRotation);
+
+    // Convert rotated vector back to world coordinates by adding pivot position
+    XMVECTOR worldPosition = XMVectorAdd(rotatedRelativePosition, XMLoadFloat3(&pivot));
+
+    // Convert result back to XMFLOAT3 format
+    XMFLOAT3 result;
+    XMStoreFloat3(&result, worldPosition);
+
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[Camera] CalculateRotatedPosition result: (%.2f, %.2f, %.2f) -> (%.2f, %.2f, %.2f)",
+            currentPos.x, currentPos.y, currentPos.z,
+            result.x, result.y, result.z);
+    #endif
+
+    return result;
+}
+
+// === STATUS AND UTILITY FUNCTIONS ===
+
+bool Camera::IsJumping() const
+{
+    return m_isJumping;
+}
+
+float Camera::GetJumpProgress() const
+{
+    if (!m_isJumping || m_totalJumpTime <= 0.0f)
+    {
+        return 0.0f;
+    }
+
+    float progress = m_jumpAnimationTimer / m_totalJumpTime;
+    return std::clamp(progress, 0.0f, 1.0f);
+}
+
+void Camera::CancelJump()
+{
+    if (m_isJumping)
+    {
+        #if defined(_DEBUG_CAMERA_)
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"[Camera] Jump cancelled at progress %.1f%%",
+                    GetJumpProgress() * 100.0f);
+        #endif
+
+        m_isJumping = false;
+        m_currentPathIndex = 0;
+        m_jumpAnimationTimer = 0.0f;
+        m_currentTravelPath.clear();
+    }
+}
+
+const std::vector<CameraJumpHistoryEntry>& Camera::GetJumpHistory() const
+{
+    return m_jumpHistory;
+}
+
+void Camera::ClearJumpHistory()
+{
+    m_jumpHistory.clear();
+
+    #if defined(_DEBUG_CAMERA_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[Camera] Jump history cleared");
+    #endif
+}
+
+// === PRIVATE HELPER FUNCTIONS ===
+
+void Camera::UpdateYawPitchFromDirection(const XMFLOAT3& direction)
+{
+    // Calculate yaw (rotation around Y-axis) from direction vector
+    // Yaw is the angle between the forward direction projected onto the XZ plane
+    m_yaw = FAST_ATAN2(direction.x, direction.z);
+
+    // Calculate pitch (rotation around X-axis) from direction vector
+    // Pitch is the angle between the forward direction and the XZ plane
+    float horizontalLength = FAST_SQRT(direction.x * direction.x + direction.z * direction.z);
+    m_pitch = FAST_ATAN2(direction.y, horizontalLength);
+
+    // Clamp pitch to prevent gimbal lock issues
+    const float maxPitch = XM_PIDIV2 - 0.01f; // Just under 90 degrees
+    m_pitch = std::clamp(m_pitch, -maxPitch, maxPitch);
+
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[Camera] Updated yaw/pitch from direction(%.3f, %.3f, %.3f): yaw=%.3f, pitch=%.3f",
+            direction.x, direction.y, direction.z, m_yaw, m_pitch);
+    #endif
+}
+
+std::vector<XMFLOAT3> Camera::CalculateSmoothTravelPath(const XMFLOAT3& start, const XMFLOAT3& end, int pathPoints) const
+{
+    std::vector<XMFLOAT3> path;
+    path.reserve(pathPoints);
+
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[Camera] Calculating smooth path: start(%.2f,%.2f,%.2f) -> end(%.2f,%.2f,%.2f), points=%d",
+            start.x, start.y, start.z, end.x, end.y, end.z, pathPoints);
+    #endif
+
+    // Calculate control points for smooth Bezier-like curve
+    // Add slight arc to the path for more natural movement
+    XMFLOAT3 controlPoint1, controlPoint2;
+
+    // Calculate midpoint
+    XMFLOAT3 midpoint = {
+        (start.x + end.x) * 0.5f,
+        (start.y + end.y) * 0.5f,
+        (start.z + end.z) * 0.5f
+    };
+
+    // Add slight elevation to midpoint for arc effect
+    float distance = FAST_MATH.FastDistance(XMFLOAT2(start.x, start.z), XMFLOAT2(end.x, end.z));
+    float arcHeight = distance * 0.1f; // 10% of horizontal distance
+
+    controlPoint1 = {
+        start.x + (midpoint.x - start.x) * 0.3f,
+        start.y + (midpoint.y - start.y) * 0.3f + arcHeight,
+        start.z + (midpoint.z - start.z) * 0.3f
+    };
+
+    controlPoint2 = {
+        start.x + (midpoint.x - start.x) * 0.7f,
+        start.y + (midpoint.y - start.y) * 0.7f + arcHeight,
+        start.z + (midpoint.z - start.z) * 0.7f
+    };
+
+    // Generate smooth curve points using cubic Bezier interpolation
+    for (int i = 0; i < pathPoints; ++i)
+    {
+        float t = static_cast<float>(i) / static_cast<float>(pathPoints - 1);
+
+        // Use MathPrecalculation for smooth interpolation
+        float smoothT = FAST_MATH.FastSmoothStep(0.0f, 1.0f, t);
+
+        // Cubic Bezier interpolation: B(t) = (1-t)³P₀ + 3(1-t)²tP₁ + 3(1-t)t²P₂ + t³P₃
+        float invT = 1.0f - smoothT;
+        float invT2 = invT * invT;
+        float invT3 = invT2 * invT;
+        float t2 = smoothT * smoothT;
+        float t3 = t2 * smoothT;
+
+        XMFLOAT3 point;
+        point.x = invT3 * start.x + 3 * invT2 * smoothT * controlPoint1.x +
+            3 * invT * t2 * controlPoint2.x + t3 * end.x;
+        point.y = invT3 * start.y + 3 * invT2 * smoothT * controlPoint1.y +
+            3 * invT * t2 * controlPoint2.y + t3 * end.y;
+        point.z = invT3 * start.z + 3 * invT2 * smoothT * controlPoint1.z +
+            3 * invT * t2 * controlPoint2.z + t3 * end.z;
+
+        path.push_back(point);
+    }
+
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[Camera] Smooth path calculated with %d points, arc height=%.2f",
+            static_cast<int>(path.size()), arcHeight);
+    #endif
+
+    return path;
+}
+
+float Camera::CalculateJumpAnimationSpeed(float progress, int speed) const
+{
+    // Create enhanced ease-in-out animation curve for much faster movement
+    // Lower speed values now result in significantly faster movement
+    float speedMultiplier = 1.0f / (static_cast<float>(speed) * 0.3f); // Increased multiplier effect
+    speedMultiplier = std::clamp(speedMultiplier, 0.1f, 3.0f); // Allow for very fast speeds
+
+    // Apply enhanced ease-in-out curve using MathPrecalculation for smooth but fast animation
+    float easedProgress = FAST_MATH.FastEaseInOut(0.0f, 1.0f, progress);
+
+    // Apply speed multiplier with enhanced responsiveness
+    float baseSpeed = easedProgress * speedMultiplier;
+    float boostSpeed = progress * (2.0f - speedMultiplier); // Additional boost for higher speeds
+
+    return std::clamp(baseSpeed + boostSpeed, 0.0f, 1.0f);
+}
+
+void Camera::AddToJumpHistory(const XMFLOAT3& start, const XMFLOAT3& end, const std::vector<XMFLOAT3>& path, int speed, bool focusOnTarget)
+{
+    // Don't add history entries for history jumps to avoid recursive history
+    if (m_isJumpingBackInHistory)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                L"[Camera] Skipping history entry addition during history jump");
+        #endif
+        return;
+    }
+
+    // Create new history entry
+    CameraJumpHistoryEntry entry;
+    entry.startPosition = start;
+    entry.endPosition = end;
+    entry.travelPath = path; // Copy the entire path
+    entry.speed = speed;
+    entry.focusOnTarget = focusOnTarget; // Store focus behavior
+    entry.originalTarget = m_originalTarget; // Store the target that was focused on
+    entry.timestamp = std::chrono::system_clock::now();
+
+    // Calculate total distance for this jump
+    entry.totalDistance = FAST_MATH.FastDistance(XMFLOAT2(start.x, start.z), XMFLOAT2(end.x, end.z)) +
+        abs(start.y - end.y);
+
+    // Add to history
+    m_jumpHistory.push_back(entry);
+
+    // Maintain maximum history size (remove oldest entries)
+    while (m_jumpHistory.size() > MAX_JUMP_HISTORY)
+    {
+        m_jumpHistory.erase(m_jumpHistory.begin());
+    }
+
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[Camera] Added jump to history: distance=%.2f, focus=%s, target(%.2f, %.2f, %.2f), total entries=%d",
+            entry.totalDistance, focusOnTarget ? L"maintained" : L"free",
+            entry.originalTarget.x, entry.originalTarget.y, entry.originalTarget.z,
+            static_cast<int>(m_jumpHistory.size()));
+    #endif
+}
+
+void Camera::JumpBackHistory(int numOfJumps)
+{
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO,
+            L"[Camera] JumpBackHistory called: numOfJumps=%d, current history size=%d",
+            numOfJumps, static_cast<int>(m_jumpHistory.size()));
+    #endif
+
+    // Validate input parameters
+    if (numOfJumps <= 0)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING,
+                L"[Camera] Invalid numOfJumps parameter: %d. Must be positive.", numOfJumps);
+        #endif
+        return;
+    }
+
+    // Check if we're already jumping - cannot start history jump during active jump
+    if (m_isJumping)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING,
+                L"[Camera] Cannot jump back in history while camera is currently jumping");
+        #endif
+        return;
+    }
+
+    // Check if we have enough history entries
+    if (m_jumpHistory.empty())
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING,
+                L"[Camera] No jump history available to go back to");
+        #endif
+        return;
+    }
+
+    // Clamp numOfJumps to available history size
+    int maxJumps = static_cast<int>(m_jumpHistory.size());
+    int actualJumps = std::min(numOfJumps, maxJumps);
+
+    if (actualJumps != numOfJumps)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING,
+                L"[Camera] Requested %d jumps back, but only %d entries available. Using %d",
+                numOfJumps, maxJumps, actualJumps);
+        #endif
+    }
+
+    // Calculate the target history entry index (from the end, going backwards)
+    int targetHistoryIndex = maxJumps - actualJumps;
+    const CameraJumpHistoryEntry& targetEntry = m_jumpHistory[targetHistoryIndex];
+
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[Camera] Jumping back to history entry %d: pos(%.2f, %.2f, %.2f), focus=%s",
+            targetHistoryIndex,
+            targetEntry.startPosition.x, targetEntry.startPosition.y, targetEntry.startPosition.z,
+            targetEntry.focusOnTarget ? L"maintained" : L"free");
+    #endif
+
+    // Set up history jump tracking
+    m_isJumpingBackInHistory = true;
+    m_historyJumpStepsRemaining = actualJumps;
+
+    // Store the current position as a temporary history entry for potential future forward navigation
+    // This allows users to potentially implement a "forward" function later
+    XMFLOAT3 currentPos = position;
+    XMFLOAT3 currentTgt = target;
+
+    // Use the target entry's original settings for the jump back
+    // Jump to the START position of the target history entry (where we were before that jump)
+    bool useFocus = targetEntry.focusOnTarget;
+    int useSpeed = std::max(1, targetEntry.speed); // Ensure valid speed
+
+    // If the target entry had focus, restore the original target from that entry
+    if (useFocus && targetEntry.originalTarget.x != 0.0f || targetEntry.originalTarget.y != 0.0f || targetEntry.originalTarget.z != 0.0f)
+    {
+        // Set the target to what it was during that historical jump
+        target = targetEntry.originalTarget;
+        m_originalTarget = targetEntry.originalTarget;
+
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                L"[Camera] Restoring historical target: (%.2f, %.2f, %.2f)",
+                targetEntry.originalTarget.x, targetEntry.originalTarget.y, targetEntry.originalTarget.z);
+        #endif
+    }
+
+    // Initiate the jump back to the historical position
+    JumpTo(targetEntry.startPosition.x, targetEntry.startPosition.y, targetEntry.startPosition.z, useSpeed, useFocus);
+
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO,
+            L"[Camera] History jump initiated: going back %d steps, target entry timestamp: %lld",
+            actualJumps,
+            std::chrono::duration_cast<std::chrono::milliseconds>(targetEntry.timestamp.time_since_epoch()).count());
+    #endif
+}
+
+void Camera::RemoveForwardHistoryEntries(int fromIndex)
+{
+    // Validate the fromIndex parameter
+    if (fromIndex < 0 || fromIndex >= static_cast<int>(m_jumpHistory.size()))
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING,
+                L"[Camera] Invalid fromIndex for RemoveForwardHistoryEntries: %d (history size: %d)",
+                fromIndex, static_cast<int>(m_jumpHistory.size()));
+        #endif
+        return;
+    }
+
+    // Calculate how many entries to remove
+    int entriesToRemove = static_cast<int>(m_jumpHistory.size()) - fromIndex;
+
+    if (entriesToRemove > 0)
+    {
+        // Remove entries from fromIndex to the end
+        m_jumpHistory.erase(m_jumpHistory.begin() + fromIndex, m_jumpHistory.end());
+
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                L"[Camera] Removed %d forward history entries from index %d. Remaining entries: %d",
+                entriesToRemove, fromIndex, static_cast<int>(m_jumpHistory.size()));
+        #endif
+    }
+}
+
+int Camera::GetJumpHistoryCount() const
+{
+    return static_cast<int>(m_jumpHistory.size());
+}
+
+// === EXISTING CAMERA FUNCTIONS (MAINTAINED) ===
+
+void Camera::SetLookDirection(XMVECTOR newForward, XMVECTOR newUp)
+{
+    XMStoreFloat3(&forward, XMVector3Normalize(newForward));
+    XMStoreFloat3(&up, XMVector3Normalize(newUp));
+
+    XMVECTOR pos = XMLoadFloat3(&position);
+    XMVECTOR tgt = XMVectorAdd(pos, newForward);
+    XMStoreFloat3(&target, tgt);
+
+    viewMatrix = XMMatrixLookAtLH(pos, tgt, newUp);
+
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[CAMERA]: SetLookDirection() applied");
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"  Forward: (%.2f, %.2f, %.2f)  Up: (%.2f, %.2f, %.2f)  Target: (%.2f, %.2f, %.2f)",
+            forward.x, forward.y, forward.z,
+            up.x, up.y, up.z,
+            target.x, target.y, target.z);
+    #endif
+}
+
+void Camera::SetYawPitch(float newYaw, float newPitch)
+{
+    m_yaw = newYaw;
+    m_pitch = newPitch;
+
+    // Compute forward vector from yaw and pitch
+
+
+    XMVECTOR fwd = XMVectorSet(
+        FAST_COS(m_pitch) * FAST_SIN(m_yaw),
+        FAST_SIN(m_pitch),
+        FAST_COS(m_pitch) * FAST_COS(m_yaw),
+        0.0f
+    );
+    fwd = XMVector3Normalize(fwd);
+    XMStoreFloat3(&forward, fwd);
+
+    // World up
+    up = XMFLOAT3(0.0f, 1.0f, 0.0f);
+
+    // Compute target = position + forward
+    XMVECTOR pos = XMLoadFloat3(&position);
+    XMVECTOR tgt = XMVectorAdd(pos, fwd);
+    XMStoreFloat3(&target, tgt);
+
+    // Update view matrix
+    XMVECTOR upVec = XMLoadFloat3(&up);
+    viewMatrix = XMMatrixLookAtLH(pos, tgt, upVec);
+
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[CAMERA]: SetYawPitch() → Yaw: %.3f Pitch: %.3f", m_yaw, m_pitch);
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"  Eye: (%.2f, %.2f, %.2f)  Forward: (%.2f, %.2f, %.2f)  Target: (%.2f, %.2f, %.2f)",
+            position.x, position.y, position.z,
+            forward.x, forward.y, forward.z,
+            target.x, target.y, target.z);
+    #endif
+}
+
+void Camera::MoveUp(float distance) {
+    position.y += distance;
+    UpdateViewMatrix();
+}
+
+void Camera::MoveDown(float distance) {
+    position.y -= distance;
+    UpdateViewMatrix();
+}
+
+void Camera::MoveRight(float distance) {
+    position.x += distance;
+    UpdateViewMatrix();
+}
+
+void Camera::MoveLeft(float distance) {
+    position.x -= distance;
+    UpdateViewMatrix();
+}
+
+void Camera::MoveIn(float distance)
+{
+    XMVECTOR fwd = XMLoadFloat3(&forward);
+    XMVECTOR pos = XMLoadFloat3(&position);
+    pos = XMVectorAdd(pos, XMVectorScale(fwd, distance));
+
+    XMStoreFloat3(&position, pos);
+    target = { position.x + forward.x, position.y + forward.y, position.z + forward.z };
+    UpdateViewMatrix();
+}
+
+void Camera::MoveOut(float distance)
+{
+    XMVECTOR fwd = XMLoadFloat3(&forward);
+    XMVECTOR pos = XMLoadFloat3(&position);
+    pos = XMVectorSubtract(pos, XMVectorScale(fwd, distance));
+
+    XMStoreFloat3(&position, pos);
+    target = { position.x + forward.x, position.y + forward.y, position.z + forward.z };
+    UpdateViewMatrix();
+}
+
+void Camera::SetPosition(float x, float y, float z)
+{
+    position = XMFLOAT3(x, y, z);
+    UpdateViewMatrix();  // uses existing target + up
+}
+
+XMFLOAT3 Camera::GetPosition() const {
+    return position;
+}
+
+void Camera::SetTarget(const XMFLOAT3& newTarget)
+{
+    target = newTarget;
+
+    XMVECTOR eye = XMLoadFloat3(&position);
+    XMVECTOR tgt = XMLoadFloat3(&target);
+    XMVECTOR upVec = XMLoadFloat3(&up);
+
+    viewMatrix = XMMatrixLookAtLH(eye, tgt, upVec);
+
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO,
+            L"[CAMERA] SetTarget(): Eye(%.2f, %.2f, %.2f) → Target(%.2f, %.2f, %.2f)",
+            position.x, position.y, position.z, target.x, target.y, target.z);
+    #endif
+}
+
+// === FIELD OF VIEW, UP VECTOR, AND CLIPPING PLANE FUNCTIONS ===
+
+float Camera::GetFieldOfView() const
+{
+    // Extract field of view from the current projection matrix
+    // For perspective projection, FOV can be calculated from the projection matrix elements
+    XMFLOAT4X4 projMatrix;
+    XMStoreFloat4x4(&projMatrix, projectionMatrix);
+    
+    // For a perspective projection matrix, the FOV can be calculated from m22 element
+    // m22 = cot(fovY/2) where fovY is the vertical field of view in radians
+    float cotHalfFovY = projMatrix._22;
+    
+    // Calculate vertical FOV in radians: fovY = 2 * atan(1 / cotHalfFovY)
+    float fovYRadians = 2.0f * FAST_ATAN(1.0f / cotHalfFovY);
+    
+    // Convert from radians to degrees for return value
+    float fovYDegrees = XMConvertToDegrees(fovYRadians);
+    
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+            L"[Camera] GetFieldOfView() returning: %.2f degrees (%.4f radians)", 
+            fovYDegrees, fovYRadians);
+    #endif
+    
+    return fovYDegrees;
+}
+
+XMFLOAT3 Camera::GetUpVector() const
+{
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+            L"[Camera] GetUpVector() returning: (%.3f, %.3f, %.3f)", 
+            up.x, up.y, up.z);
+    #endif
+    
+    return up;
+}
+
+float Camera::GetFarPlane() const
+{
+    // Extract far plane distance from the current projection matrix
+    // For perspective projection, far plane can be calculated from matrix elements
+    XMFLOAT4X4 projMatrix;
+    XMStoreFloat4x4(&projMatrix, projectionMatrix);
+    
+    // For a perspective projection matrix: m33 = -(far + near) / (far - near)
+    // and m43 = -2 * far * near / (far - near)
+    // Solving for far: far = m43 / (m33 - 1)
+    float m33 = projMatrix._33;
+    float m43 = projMatrix._43;
+    
+    // Calculate far plane distance using the projection matrix elements
+    float farPlane = -m43 / (m33 + 1.0f);
+    
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+            L"[Camera] GetFarPlane() returning: %.3f (calculated from projection matrix)", 
+            farPlane);
+    #endif
+    
+    return farPlane;
+}
+
+float Camera::GetNearPlane() const
+{
+    // Extract near plane distance from the current projection matrix
+    // For perspective projection, near plane can be calculated from matrix elements
+    XMFLOAT4X4 projMatrix;
+    XMStoreFloat4x4(&projMatrix, projectionMatrix);
+    
+    // For a perspective projection matrix: m33 = -(far + near) / (far - near)
+    // and m43 = -2 * far * near / (far - near)
+    // Solving for near: near = m43 / (m33 - 1)
+    float m33 = projMatrix._33;
+    float m43 = projMatrix._43;
+    
+    // Calculate near plane distance using the projection matrix elements
+    float nearPlane = m43 / (m33 - 1.0f);
+    
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+            L"[Camera] GetNearPlane() returning: %.3f (calculated from projection matrix)", 
+            nearPlane);
+    #endif
+    
+    return nearPlane;
+}
+
+void Camera::SetFieldOfView(float fovDegrees)
+{
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] SetFieldOfView() called with: %.2f degrees", fovDegrees);
+    #endif
+    
+    // Validate field of view parameter (must be between 1 and 179 degrees)
+    if (fovDegrees <= 0.0f || fovDegrees >= 180.0f)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Invalid field of view: %.2f degrees. Clamping to valid range [1.0, 179.0]", 
+                fovDegrees);
+        #endif
+        
+        // Clamp to valid range for perspective projection
+        fovDegrees = std::clamp(fovDegrees, 1.0f, 179.0f);
+    }
+    
+    // Get current near and far planes to preserve them during FOV change
+    float currentNear = GetNearPlane();
+    float currentFar = GetFarPlane();
+    
+    // Calculate aspect ratio from current configuration or default values
+    float aspectRatio = static_cast<float>(config.myConfig.aspectRatio);
+    if (aspectRatio <= 0.0f)
+    {
+        // Fallback to common aspect ratio if configuration is invalid
+        aspectRatio = 16.0f / 9.0f;
+        
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Invalid aspect ratio in config, using fallback: %.3f", aspectRatio);
+        #endif
+    }
+    
+    // Convert field of view from degrees to radians for DirectX calculation
+    float fovRadians = XMConvertToRadians(fovDegrees);
+    
+    // Create new projection matrix with updated field of view
+    projectionMatrix = XMMatrixPerspectiveFovLH(fovRadians, aspectRatio, currentNear, currentFar);
+    
+    // Update configuration to reflect the new field of view setting
+    config.myConfig.fov = fovDegrees;
+    
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] Field of view updated: %.2f degrees (%.4f radians), aspect: %.3f, near: %.3f, far: %.3f", 
+            fovDegrees, fovRadians, aspectRatio, currentNear, currentFar);
+    #endif
+}
+
+void Camera::SetUpVector(const XMFLOAT3& newUp)
+{
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] SetUpVector() called with: (%.3f, %.3f, %.3f)", 
+            newUp.x, newUp.y, newUp.z);
+    #endif
+    
+    // Validate that the up vector is not a zero vector
+    XMVECTOR upVector = XMLoadFloat3(&newUp);
+    float upVectorLength = XMVectorGetX(XMVector3Length(upVector));
+    
+    if (upVectorLength < 0.001f)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Invalid up vector (too close to zero): length=%.6f. Using default Y-up vector", 
+                upVectorLength);
+        #endif
+        
+        // Use default Y-up vector when provided vector is invalid
+        up = XMFLOAT3(0.0f, 1.0f, 0.0f);
+    }
+    else
+    {
+        // Normalize the up vector to ensure it's a unit vector
+        XMVECTOR normalizedUp = XMVector3Normalize(upVector);
+        XMStoreFloat3(&up, normalizedUp);
+        
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] Up vector normalized from length %.6f to unit vector: (%.3f, %.3f, %.3f)", 
+                upVectorLength, up.x, up.y, up.z);
+        #endif
+    }
+    
+    // Update the view matrix to reflect the new up vector
+    UpdateViewMatrix();
+    
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] Up vector updated and view matrix recalculated");
+    #endif
+}
+
+void Camera::SetNearFarPlanes(float nearPlane, float farPlane)
+{
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] SetNearFarPlanes() called with: near=%.3f, far=%.3f", 
+            nearPlane, farPlane);
+    #endif
+    
+    // Validate near and far plane parameters
+    if (nearPlane <= 0.0f)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Invalid near plane: %.3f. Must be positive. Setting to 0.1f", nearPlane);
+        #endif
+        nearPlane = 0.1f; // Default minimum near plane distance
+    }
+    
+    if (farPlane <= nearPlane)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Invalid far plane: %.3f. Must be greater than near plane: %.3f. Setting to near + 1000.0f", 
+                farPlane, nearPlane);
+        #endif
+        farPlane = nearPlane + 1000.0f; // Set far plane to reasonable distance beyond near plane
+    }
+    
+    // Get current field of view to preserve it during plane change
+    float currentFov = GetFieldOfView();
+    
+    // Calculate aspect ratio from current configuration
+    float aspectRatio = static_cast<float>(config.myConfig.aspectRatio);
+    if (aspectRatio <= 0.0f)
+    {
+        // Fallback to common aspect ratio if configuration is invalid
+        aspectRatio = 16.0f / 9.0f;
+        
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Invalid aspect ratio in config, using fallback: %.3f", aspectRatio);
+        #endif
+    }
+    
+    // Convert field of view from degrees to radians for DirectX calculation
+    float fovRadians = XMConvertToRadians(currentFov);
+    
+    // Create new projection matrix with updated near and far planes
+    projectionMatrix = XMMatrixPerspectiveFovLH(fovRadians, aspectRatio, nearPlane, farPlane);
+    
+    // Update configuration to reflect the new clipping plane settings
+    config.myConfig.nearPlane = nearPlane;
+    config.myConfig.farPlane = farPlane;
+    
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] Clipping planes updated: near=%.3f, far=%.3f, FOV=%.2f degrees, aspect=%.3f", 
+            nearPlane, farPlane, currentFov, aspectRatio);
+    #endif
+}
+
+void Camera::UpdateCameraMatrices()
+{
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] UpdateCameraMatrices() called - refreshing view and projection matrices");
+    #endif
+    
+    // Update the view matrix using current position, target, and up vector
+    XMVECTOR eyePos = XMLoadFloat3(&position);
+    XMVECTOR targetPos = XMLoadFloat3(&target);
+    XMVECTOR upVector = XMLoadFloat3(&up);
+    
+    // Validate that position and target are different to avoid degenerate view matrix
+    XMVECTOR positionDifference = targetPos - eyePos;
+    float distanceToTarget = XMVectorGetX(XMVector3Length(positionDifference));
+    
+    if (distanceToTarget < 0.001f)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Position and target are too close (distance: %.6f). Adjusting target for valid view matrix", 
+                distanceToTarget);
+        #endif
+        
+        // Adjust target to be slightly in front of camera position for valid view matrix
+        XMVECTOR forwardVector = XMLoadFloat3(&forward);
+        targetPos = eyePos + (forwardVector * 1.0f); // Place target 1 unit in front
+        XMStoreFloat3(&target, targetPos);
+    }
+    
+    // Create updated view matrix
+    viewMatrix = XMMatrixLookAtLH(eyePos, targetPos, upVector);
+    
+    // Update the projection matrix using current settings
+    float currentFov = config.myConfig.fov;
+    float aspectRatio = static_cast<float>(config.myConfig.aspectRatio);
+    float nearPlane = config.myConfig.nearPlane;
+    float farPlane = config.myConfig.farPlane;
+    
+    // Validate configuration values and use defaults if invalid
+    if (currentFov <= 0.0f || currentFov >= 180.0f)
+    {
+        currentFov = 45.0f; // Default field of view
+        
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Invalid FOV in config, using default: %.2f degrees", currentFov);
+        #endif
+    }
+    
+    if (aspectRatio <= 0.0f)
+    {
+        aspectRatio = 16.0f / 9.0f; // Default aspect ratio
+        
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Invalid aspect ratio in config, using default: %.3f", aspectRatio);
+        #endif
+    }
+    
+    if (nearPlane <= 0.0f)
+    {
+        nearPlane = 0.1f; // Default near plane
+        
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Invalid near plane in config, using default: %.3f", nearPlane);
+        #endif
+    }
+    
+    if (farPlane <= nearPlane)
+    {
+        farPlane = nearPlane + 1000.0f; // Default far plane
+        
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Invalid far plane in config, using default: %.3f", farPlane);
+        #endif
+    }
+    
+    // Convert field of view from degrees to radians
+    float fovRadians = XMConvertToRadians(currentFov);
+    
+    // Create updated projection matrix
+    projectionMatrix = XMMatrixPerspectiveFovLH(fovRadians, aspectRatio, nearPlane, farPlane);
+    
+    // Update forward vector to maintain consistency
+    XMVECTOR lookDirection = XMVector3Normalize(targetPos - eyePos);
+    XMStoreFloat3(&forward, lookDirection);
+    
+    // Update yaw and pitch to match the new forward direction
+    UpdateYawPitchFromDirection(forward);
+    
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] Camera matrices updated successfully:");
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+            L"  Position: (%.3f, %.3f, %.3f), Target: (%.3f, %.3f, %.3f)", 
+            position.x, position.y, position.z, target.x, target.y, target.z);
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+            L"  FOV: %.2f°, Aspect: %.3f, Near: %.3f, Far: %.3f", 
+            currentFov, aspectRatio, nearPlane, farPlane);
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+            L"  Forward: (%.3f, %.3f, %.3f), Up: (%.3f, %.3f, %.3f)", 
+            forward.x, forward.y, forward.z, up.x, up.y, up.z);
+    #endif
+}
+
+void Camera::SetNearFar(float nearPlane, float farPlane)
+{
+    float aspect = static_cast<float>(config.myConfig.aspectRatio);
+    float fovY = 2.0f * atanf(FAST_TAN(static_cast<float>(config.myConfig.fov) * 0.5f * XM_PI / 180.0f) / aspect);
+
+    projectionMatrix = XMMatrixPerspectiveFovLH(fovY, aspect, nearPlane, farPlane);
+
+    config.myConfig.nearPlane = nearPlane;
+    config.myConfig.farPlane = farPlane;
+
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO,
+            L"[CAMERA] Projection updated with near=%.3f, far=%.3f, fovY=%.2f",
+            nearPlane, farPlane, fovY);
+    #endif
+}
+
+XMMATRIX Camera::GetViewMatrix() const {
+    return viewMatrix;
+}
+
+XMMATRIX Camera::GetProjectionMatrix() const {
+    return projectionMatrix;
+}
+
+void Camera::SetViewMatrix(const XMMATRIX& matrix)
+{
+    viewMatrix = matrix;
+
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[CAMERA]: SetViewMatrix() - Eye(%.2f, %.2f, %.2f), Forward(%.2f, %.2f, %.2f)",
+            position.x, position.y, position.z, forward.x, forward.y, forward.z);
+    #endif
+}
+
+//==============================================================================
+// Updated Camera View/Projection Setup to Center on Cube Cluster
+//==============================================================================
+void Camera::SetupDefaultCamera(float windowWidth, float windowHeight)
+{
+    // Center of cube cluster (cube1, cube2, cube3 placed along X-axis at 0, 4, 8)
+    XMVECTOR eye = XMVectorSet(4.0f, 0.0f, -15.0f, 0.0f);     // Back up from the cluster
+    XMVECTOR lookAt = XMVectorSet(0.0f, 0.01f, 0.0f, 0.0f);   // Look at center of cluster
+    XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+
+    XMMATRIX view = XMMatrixLookAtLH(eye, lookAt, up);
+    SetViewMatrix(view);
+
+    float fovX_deg = config.myConfig.fov;
+    float aspect = windowWidth / windowHeight;
+
+    // Convert FOV-X to radians
+    float fovX_rad = XMConvertToRadians(fovX_deg);
+
+    // Compute vertical FOV
+    float fovY_rad = 2.0f * atanf(tanf(fovX_rad / 2.0f) / aspect);
+
+    // Set the Projection Matrix
+    SetProjectionMatrix(XMMatrixPerspectiveFovLH(fovY_rad, aspect, config.myConfig.nearPlane, config.myConfig.farPlane));
+
+    XMFLOAT3 eyePos, lookPos;
+    XMStoreFloat3(&eyePos, eye);
+    XMStoreFloat3(&lookPos, lookAt);
+
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"Camera eye: (%.2f, %.2f, %.2f) → lookAt: (%.2f, %.2f, %.2f)",
+            eyePos.x, eyePos.y, eyePos.z,
+            lookPos.x, lookPos.y, lookPos.z);
+    #endif
+}
+
+void Camera::SetProjectionMatrix(const XMMATRIX& matrix) {
+    projectionMatrix = matrix;
+
+    #if defined(_DEBUG_CAMERA_)
+        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[CAMERA]: Projection matrix updated.");
+    #endif
+}
+
+void Camera::UpdateViewMatrix()
+{
+    // --- Calculate new forward from yaw and pitch ---
+    float cosPitch = FAST_COS(m_pitch);
+    float sinPitch = FAST_SIN(m_pitch);
+    float cosYaw = FAST_COS(m_yaw);
+    float sinYaw = FAST_SIN(m_yaw);
+
+    XMVECTOR fwd = XMVectorSet(
+        cosPitch * sinYaw,
+        sinPitch,
+        cosPitch * cosYaw,
+        0.0f
+    );
+
+    XMStoreFloat3(&forward, fwd);
+
+    // --- Update target from forward vector ---
+    XMVECTOR pos = XMLoadFloat3(&position);
+    XMVECTOR tgt = XMVectorAdd(pos, fwd);
+    XMStoreFloat3(&target, tgt);
+
+    // --- Compute view matrix from position/target/up
+    XMVECTOR upVec = XMLoadFloat3(&up);
+    viewMatrix = XMMatrixLookAtLH(pos, tgt, upVec);
+
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[Camera] View updated. Pos(%.2f, %.2f, %.2f), Fwd(%.2f, %.2f, %.2f), Yaw=%.2f, Pitch=%.2f",
+            position.x, position.y, position.z,
+            forward.x, forward.y, forward.z,
+            m_yaw, m_pitch);
+    #endif
+
+    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+    {
+        XMMATRIX view = viewMatrix;
+        XMVECTOR camPos = XMLoadFloat3(&position);
+
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[CAMERA] View Matrix Updated:");
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[VIEW] [%.2f %.2f %.2f %.2f]", view.r[0].m128_f32[0], view.r[0].m128_f32[1], view.r[0].m128_f32[2], view.r[0].m128_f32[3]);
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[VIEW] [%.2f %.2f %.2f %.2f]", view.r[1].m128_f32[0], view.r[1].m128_f32[1], view.r[1].m128_f32[2], view.r[1].m128_f32[3]);
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[VIEW] [%.2f %.2f %.2f %.2f]", view.r[2].m128_f32[0], view.r[2].m128_f32[1], view.r[2].m128_f32[2], view.r[2].m128_f32[3]);
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[VIEW] [%.2f %.2f %.2f %.2f]", view.r[3].m128_f32[0], view.r[3].m128_f32[1], view.r[3].m128_f32[2], view.r[3].m128_f32[3]);
+
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[CAMERA] Position: %.2f %.2f %.2f", camPos.m128_f32[0], camPos.m128_f32[1], camPos.m128_f32[2]);
+    }
+    #endif
+
+}
+
+void Camera::UpdateProjectionMatrix()
+{
+    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[CAMERA] UpdateProjectionMatrix() - FOV: %.2f°, Aspect: %.3f, Near: %.3f, Far: %.3f", 
+            XMConvertToDegrees(m_fieldOfView), m_aspectRatio, m_nearPlane, m_farPlane);
+    #endif
+
+    // Validate projection parameters before creating matrix
+    if (m_aspectRatio <= 0.0f || m_nearPlane <= 0.0f || m_nearPlane >= m_farPlane || m_fieldOfView <= 0.0f) {
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid projection parameters detected, using safe defaults");
+        #endif
+        
+        // Use safe defaults for invalid parameters
+        m_aspectRatio = (m_aspectRatio <= 0.0f) ? (16.0f / 9.0f) : m_aspectRatio;      // Default to 16:9 if invalid
+        m_nearPlane = (m_nearPlane <= 0.0f) ? 0.1f : m_nearPlane;                     // Default near plane
+        m_farPlane = (m_farPlane <= m_nearPlane) ? 1000.0f : m_farPlane;               // Default far plane
+        m_fieldOfView = (m_fieldOfView <= 0.0f) ? XMConvertToRadians(45.0f) : m_fieldOfView; // Default FOV
+    }
+
+    // Create perspective projection matrix
+    projectionMatrix = XMMatrixPerspectiveFovLH(m_fieldOfView, m_aspectRatio, m_nearPlane, m_farPlane);
+
+    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[CAMERA] Projection matrix updated successfully");
+    #endif
+}
+
+void Camera::SetYawPitchFromForward()
+{
+    XMVECTOR fwd = XMLoadFloat3(&forward);
+    m_pitch = asinf(fwd.m128_f32[1]);                   // y = sin(pitch)
+    m_yaw = atan2f(fwd.m128_f32[0], fwd.m128_f32[2]);   // x and z
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[CAMERA]: YawPitch initialized from forward vector → Yaw: %.3f, Pitch: %.3f",
+            m_yaw, m_pitch);
+    #endif
+}
+
+void Camera::MoveAroundTarget(bool x, bool y, bool z, bool continuous)
+{
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] MoveAroundTarget called: X=%s, Y=%s, Z=%s, continuous=%s", 
+            x ? L"true" : L"false", y ? L"true" : L"false", z ? L"true" : L"false", 
+            continuous ? L"true" : L"false");
+    #endif
+
+    // Check if at least one axis is selected for rotation
+    if (!x && !y && !z)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] MoveAroundTarget: No rotation axes selected (X, Y, Z all false)");
+        #endif
+        return;
+    }
+
+    // Check if we're currently jumping - cannot start rotation during active jump
+    if (m_isJumping)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Cannot start MoveAroundTarget while camera is currently jumping");
+        #endif
+        return;
+    }
+
+    // Stop any existing rotation before starting new one
+    if (m_isRotatingAroundTarget)
+    {
+        StopRotating();
+        
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, 
+                L"[Camera] Stopped existing rotation to start new MoveAroundTarget");
+        #endif
+    }
+
+    // Store current state for rotation calculations
+    m_rotationStartPosition = position;
+    m_rotationTarget = target;
+    
+    // Calculate distance from camera to target for maintaining orbit radius
+    XMVECTOR currentPos = XMLoadFloat3(&position);
+    XMVECTOR currentTarget = XMLoadFloat3(&target);
+    XMVECTOR distanceVector = currentPos - currentTarget;
+    m_rotationDistance = XMVectorGetX(XMVector3Length(distanceVector));
+    
+    // If distance is too small, use a default distance to prevent issues
+    if (m_rotationDistance < 0.1f)
+    {
+        m_rotationDistance = 5.0f; // Default orbit radius
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] Using default rotation distance: %.2f", m_rotationDistance);
+        #endif
+    }
+
+    // Set up rotation parameters
+    m_isRotatingAroundTarget = true;
+    m_continuousRotation = continuous;
+    m_rotateAroundX = x;
+    m_rotateAroundY = y;
+    m_rotateAroundZ = z;
+    
+    // Reset current rotation angles
+    m_currentRotationX = 0.0f;
+    m_currentRotationY = 0.0f;
+    m_currentRotationZ = 0.0f;
+    
+    // Set target rotations - 360 degrees for full rotation on each selected axis
+    m_targetRotationX = x ? 360.0f : 0.0f;
+    m_targetRotationY = y ? 360.0f : 0.0f;
+    m_targetRotationZ = z ? 360.0f : 0.0f;
+    
+    // Adjust rotation speeds based on number of active axes for balanced movement
+    int activeAxes = (x ? 1 : 0) + (y ? 1 : 0) + (z ? 1 : 0);
+    float baseSpeed = 60.0f; // Base speed in degrees per second
+    
+    // For multiple axes, reduce individual speeds to prevent overly fast combined rotation
+    float speedMultiplier = 1.0f;
+    if (activeAxes > 1)
+    {
+        speedMultiplier = 0.7f; // Reduce speed for multi-axis rotations
+    }
+    
+    m_rotationSpeedX = x ? baseSpeed * speedMultiplier : 0.0f;
+    m_rotationSpeedY = y ? baseSpeed * speedMultiplier : 0.0f;
+    m_rotationSpeedZ = z ? baseSpeed * speedMultiplier : 0.0f;
+
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] MoveAroundTarget started: distance=%.2f, active axes=%d, speeds(X:%.1f, Y:%.1f, Z:%.1f)", 
+            m_rotationDistance, activeAxes, m_rotationSpeedX, m_rotationSpeedY, m_rotationSpeedZ);
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+            L"[Camera] Rotation target: (%.2f, %.2f, %.2f), start position: (%.2f, %.2f, %.2f)", 
+            m_rotationTarget.x, m_rotationTarget.y, m_rotationTarget.z,
+            m_rotationStartPosition.x, m_rotationStartPosition.y, m_rotationStartPosition.z);
+    #endif
+}
+
+void Camera::MoveAroundTarget(bool x, bool y, bool z, float rotationSpeed, bool continuous)
+{
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] MoveAroundTarget (with speed) called: X=%s, Y=%s, Z=%s, speed=%.1f, continuous=%s", 
+            x ? L"true" : L"false", y ? L"true" : L"false", z ? L"true" : L"false", 
+            rotationSpeed, continuous ? L"true" : L"false");
+    #endif
+
+    // Validate rotation speed parameter
+    if (rotationSpeed <= 0.0f)
+    {
+        rotationSpeed = 60.0f; // Default speed in degrees per second
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Invalid rotation speed, defaulting to %.1f degrees/second", rotationSpeed);
+        #endif
+    }
+
+    // Check if at least one axis is selected for rotation
+    if (!x && !y && !z)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] MoveAroundTarget: No rotation axes selected (X, Y, Z all false)");
+        #endif
+        return;
+    }
+
+    // Check if we're currently jumping - cannot start rotation during active jump
+    if (m_isJumping)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Cannot start MoveAroundTarget while camera is currently jumping");
+        #endif
+        return;
+    }
+
+    // Stop any existing rotation before starting new one
+    if (m_isRotatingAroundTarget)
+    {
+        StopRotating();
+        
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, 
+                L"[Camera] Stopped existing rotation to start new MoveAroundTarget with custom speed");
+        #endif
+    }
+
+    // Store current state for rotation calculations
+    m_rotationStartPosition = position;
+    m_rotationTarget = target;
+    
+    // Calculate distance from camera to target for maintaining orbit radius
+    XMVECTOR currentPos = XMLoadFloat3(&position);
+    XMVECTOR currentTarget = XMLoadFloat3(&target);
+    XMVECTOR distanceVector = currentPos - currentTarget;
+    m_rotationDistance = XMVectorGetX(XMVector3Length(distanceVector));
+    
+    // If distance is too small, use a default distance to prevent issues
+    if (m_rotationDistance < 0.1f)
+    {
+        m_rotationDistance = 5.0f; // Default orbit radius
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] Using default rotation distance: %.2f", m_rotationDistance);
+        #endif
+    }
+
+    // Set up rotation parameters
+    m_isRotatingAroundTarget = true;
+    m_continuousRotation = continuous;
+    m_rotateAroundX = x;
+    m_rotateAroundY = y;
+    m_rotateAroundZ = z;
+    
+    // Reset current rotation angles
+    m_currentRotationX = 0.0f;
+    m_currentRotationY = 0.0f;
+    m_currentRotationZ = 0.0f;
+    
+    // Set target rotations - 360 degrees for full rotation on each selected axis
+    m_targetRotationX = x ? 360.0f : 0.0f;
+    m_targetRotationY = y ? 360.0f : 0.0f;
+    m_targetRotationZ = z ? 360.0f : 0.0f;
+    
+    // Set custom rotation speeds for each active axis
+    m_rotationSpeedX = x ? rotationSpeed : 0.0f;
+    m_rotationSpeedY = y ? rotationSpeed : 0.0f;
+    m_rotationSpeedZ = z ? rotationSpeed : 0.0f;
+
+    #if defined(_DEBUG_CAMERA_)
+        int activeAxes = (x ? 1 : 0) + (y ? 1 : 0) + (z ? 1 : 0);
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] MoveAroundTarget started with custom speed: distance=%.2f, active axes=%d, speed=%.1f°/s", 
+            m_rotationDistance, activeAxes, rotationSpeed);
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+            L"[Camera] Rotation target: (%.2f, %.2f, %.2f), start position: (%.2f, %.2f, %.2f)", 
+            m_rotationTarget.x, m_rotationTarget.y, m_rotationTarget.z,
+            m_rotationStartPosition.x, m_rotationStartPosition.y, m_rotationStartPosition.z);
+    #endif
+}
+
+void Camera::StopRotating()
+{
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] StopRotating called - current rotation state: %s", 
+            m_isRotatingAroundTarget ? L"active" : L"inactive");
+    #endif
+
+    // Check if we're actually rotating
+    if (!m_isRotatingAroundTarget)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, 
+                L"[Camera] StopRotating: No active rotation to stop");
+        #endif
+        return;
+    }
+
+    // Log current rotation progress before stopping
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] Stopping rotation - progress: X=%.1f°/%.1f°, Y=%.1f°/%.1f°, Z=%.1f°/%.1f°", 
+            m_currentRotationX, m_targetRotationX,
+            m_currentRotationY, m_targetRotationY,
+            m_currentRotationZ, m_targetRotationZ);
+    #endif
+
+    // Stop the rotation by clearing all rotation flags and variables
+    m_isRotatingAroundTarget = false;
+    m_continuousRotation = false;
+    m_rotateAroundX = false;
+    m_rotateAroundY = false;
+    m_rotateAroundZ = false;
+    
+    // Clear rotation speeds
+    m_rotationSpeedX = 0.0f;
+    m_rotationSpeedY = 0.0f;
+    m_rotationSpeedZ = 0.0f;
+    
+    // Clear current rotation progress
+    m_currentRotationX = 0.0f;
+    m_currentRotationY = 0.0f;
+    m_currentRotationZ = 0.0f;
+    
+    // Clear target rotations
+    m_targetRotationX = 0.0f;
+    m_targetRotationY = 0.0f;
+    m_targetRotationZ = 0.0f;
+    
+    // Update view matrix to ensure proper final positioning
+    UpdateViewMatrix();
+
+    #if defined(_DEBUG_CAMERA_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[Camera] Rotation stopped successfully");
+    #endif
+}
+
+bool Camera::IsRotatingAroundTarget() const
+{
+    return m_isRotatingAroundTarget;
+}
+
+float Camera::GetRotationProgress() const
+{
+    if (!m_isRotatingAroundTarget)
+    {
+        return 0.0f;
+    }
+
+    // Calculate overall progress based on active axes
+    float totalProgress = 0.0f;
+    int activeAxes = 0;
+
+    if (m_rotateAroundX && m_targetRotationX > 0.0f)
+    {
+        totalProgress += (m_currentRotationX / m_targetRotationX);
+        activeAxes++;
+    }
+
+    if (m_rotateAroundY && m_targetRotationY > 0.0f)
+    {
+        totalProgress += (m_currentRotationY / m_targetRotationY);
+        activeAxes++;
+    }
+
+    if (m_rotateAroundZ && m_targetRotationZ > 0.0f)
+    {
+        totalProgress += (m_currentRotationZ / m_targetRotationZ);
+        activeAxes++;
+    }
+
+    if (activeAxes > 0)
+    {
+        totalProgress /= activeAxes; // Average progress across active axes
+    }
+
+    return std::clamp(totalProgress, 0.0f, 1.0f);
+}
+
+XMFLOAT3 Camera::CalculateRotationPosition(float angleX, float angleY, float angleZ) const
+{
+    // Start with the original relative position (camera position relative to target)
+    XMVECTOR originalPos = XMLoadFloat3(&m_rotationStartPosition);
+    XMVECTOR targetPos = XMLoadFloat3(&m_rotationTarget);
+    XMVECTOR relativePosition = originalPos - targetPos;
+
+    // Normalize to the rotation distance to maintain consistent orbit radius
+    relativePosition = XMVector3Normalize(relativePosition) * m_rotationDistance;
+
+    // Convert angles to radians
+    float radX = XMConvertToRadians(angleX);
+    float radY = XMConvertToRadians(angleY);
+    float radZ = XMConvertToRadians(angleZ);
+
+    // Create rotation matrices for each axis
+    XMMATRIX rotationX = XMMatrixRotationX(radX);
+    XMMATRIX rotationY = XMMatrixRotationY(radY);
+    XMMATRIX rotationZ = XMMatrixRotationZ(radZ);
+
+    // Combine rotations in XYZ order
+    XMMATRIX combinedRotation = rotationX * rotationY * rotationZ;
+
+    // Apply rotation to the relative position
+    XMVECTOR rotatedPosition = XMVector3Transform(relativePosition, combinedRotation);
+
+    // Convert back to world coordinates by adding the target position
+    XMVECTOR worldPosition = rotatedPosition + targetPos;
+
+    // Convert result to XMFLOAT3
+    XMFLOAT3 result;
+    XMStoreFloat3(&result, worldPosition);
+
+    return result;
+}
+
+void Camera::UpdateContinuousRotation()
+{
+    // Only process if we're currently rotating around target
+    if (!m_isRotatingAroundTarget)
+    {
+        return;
+    }
+
+    // Calculate delta time - using fixed time step for now (should be replaced with actual delta time)
+    float deltaTime = 1.0f / 60.0f; // Assuming 60 FPS
+    
+    // Update rotation angles based on speed and delta time
+    bool rotationComplete = true;
+    
+    if (m_rotateAroundX)
+    {
+        m_currentRotationX += m_rotationSpeedX * deltaTime;
+        
+        // Check if X rotation is complete (for non-continuous rotation)
+        if (!m_continuousRotation && m_currentRotationX >= m_targetRotationX)
+        {
+            m_currentRotationX = m_targetRotationX; // Clamp to exact target
+        }
+        else if (m_continuousRotation)
+        {
+            // For continuous rotation, wrap around after 360 degrees
+            if (m_currentRotationX >= 360.0f)
+            {
+                m_currentRotationX -= 360.0f;
+            }
+            rotationComplete = false; // Continuous rotation never completes
+        }
+        else
+        {
+            rotationComplete = false; // Still rotating towards target
+        }
+    }
+    
+    if (m_rotateAroundY)
+    {
+        m_currentRotationY += m_rotationSpeedY * deltaTime;
+        
+        // Check if Y rotation is complete (for non-continuous rotation)
+        if (!m_continuousRotation && m_currentRotationY >= m_targetRotationY)
+        {
+            m_currentRotationY = m_targetRotationY; // Clamp to exact target
+        }
+        else if (m_continuousRotation)
+        {
+            // For continuous rotation, wrap around after 360 degrees
+            if (m_currentRotationY >= 360.0f)
+            {
+                m_currentRotationY -= 360.0f;
+            }
+            rotationComplete = false; // Continuous rotation never completes
+        }
+        else
+        {
+            rotationComplete = false; // Still rotating towards target
+        }
+    }
+    
+    if (m_rotateAroundZ)
+    {
+        m_currentRotationZ += m_rotationSpeedZ * deltaTime;
+        
+        // Check if Z rotation is complete (for non-continuous rotation)
+        if (!m_continuousRotation && m_currentRotationZ >= m_targetRotationZ)
+        {
+            m_currentRotationZ = m_targetRotationZ; // Clamp to exact target
+        }
+        else if (m_continuousRotation)
+        {
+            // For continuous rotation, wrap around after 360 degrees
+            if (m_currentRotationZ >= 360.0f)
+            {
+                m_currentRotationZ -= 360.0f;
+            }
+            rotationComplete = false; // Continuous rotation never completes
+        }
+        else
+        {
+            rotationComplete = false; // Still rotating towards target
+        }
+    }
+
+    // Calculate new camera position based on current rotation angles
+    XMFLOAT3 newPosition = CalculateRotationPosition(m_currentRotationX, m_currentRotationY, m_currentRotationZ);
+    
+    // Update camera position
+    position = newPosition;
+    
+    // Maintain focus on the target during rotation
+    XMVECTOR currentPos = XMLoadFloat3(&position);
+    XMVECTOR targetPos = XMLoadFloat3(&m_rotationTarget);
+    XMVECTOR upVec = XMLoadFloat3(&up);
+    
+    // Update view matrix to maintain focus on target
+    viewMatrix = XMMatrixLookAtLH(currentPos, targetPos, upVec);
+    
+    // Update forward direction for consistency
+    XMVECTOR focusDirection = XMVector3Normalize(targetPos - currentPos);
+    XMStoreFloat3(&forward, focusDirection);
+    
+    // Update yaw and pitch to match new orientation
+    float newYaw = FAST_ATAN2(XMVectorGetX(focusDirection), XMVectorGetZ(focusDirection));
+    float forwardLength = FAST_SQRT(XMVectorGetX(focusDirection) * XMVectorGetX(focusDirection) + 
+                                  XMVectorGetZ(focusDirection) * XMVectorGetZ(focusDirection));
+    float newPitch = FAST_ATAN2(XMVectorGetY(focusDirection), forwardLength);
+    
+    m_yaw = newYaw;
+    m_pitch = newPitch;
+
+    // Check if non-continuous rotation is complete
+    if (!m_continuousRotation && rotationComplete)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, 
+                L"[Camera] MoveAroundTarget completed: Final rotations X=%.1f°, Y=%.1f°, Z=%.1f°", 
+                m_currentRotationX, m_currentRotationY, m_currentRotationZ);
+        #endif
+        
+        // Stop rotation when complete
+        StopRotating();
+    }
+
+    #if defined(_DEBUG_CAMERA_)
+        // Log rotation progress every 60 degrees (1 second at 60 degrees/second)
+        static float lastLoggedRotationY = 0.0f;
+        if (m_rotateAroundY && (m_currentRotationY - lastLoggedRotationY) >= 60.0f)
+        {
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] Rotation progress: X=%.1f°, Y=%.1f°, Z=%.1f°, position(%.2f, %.2f, %.2f)", 
+                m_currentRotationX, m_currentRotationY, m_currentRotationZ,
+                position.x, position.y, position.z);
+            lastLoggedRotationY = m_currentRotationY;
+        }
+    #endif
+}
+
+void Camera::PauseRotation()
+{
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] PauseRotation called - current rotation state: %s", 
+            m_isRotatingAroundTarget ? L"active" : L"inactive");
+    #endif
+
+    if (!m_isRotatingAroundTarget)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, 
+                L"[Camera] PauseRotation: No active rotation to pause");
+        #endif
+        return;
+    }
+
+    // Temporarily store current speeds
+    static float pausedSpeedX = 0.0f;
+    static float pausedSpeedY = 0.0f;
+    static float pausedSpeedZ = 0.0f;
+    
+    // Store current speeds for later resume
+    pausedSpeedX = m_rotationSpeedX;
+    pausedSpeedY = m_rotationSpeedY;
+    pausedSpeedZ = m_rotationSpeedZ;
+    
+    // Set speeds to zero to pause rotation
+    m_rotationSpeedX = 0.0f;
+    m_rotationSpeedY = 0.0f;
+    m_rotationSpeedZ = 0.0f;
+
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] Rotation paused - stored speeds: X=%.1f, Y=%.1f, Z=%.1f", 
+            pausedSpeedX, pausedSpeedY, pausedSpeedZ);
+    #endif
+}
+
+void Camera::ResumeRotation()
+{
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] ResumeRotation called");
+    #endif
+
+    if (!m_isRotatingAroundTarget)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, 
+                L"[Camera] ResumeRotation: No rotation to resume");
+        #endif
+        return;
+    }
+
+    // Restore previously stored speeds
+    static float pausedSpeedX = 60.0f; // Default fallback values
+    static float pausedSpeedY = 60.0f;
+    static float pausedSpeedZ = 60.0f;
+    
+    // Restore rotation speeds for active axes
+    m_rotationSpeedX = m_rotateAroundX ? pausedSpeedX : 0.0f;
+    m_rotationSpeedY = m_rotateAroundY ? pausedSpeedY : 0.0f;
+    m_rotationSpeedZ = m_rotateAroundZ ? pausedSpeedZ : 0.0f;
+
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] Rotation resumed - restored speeds: X=%.1f, Y=%.1f, Z=%.1f", 
+            m_rotationSpeedX, m_rotationSpeedY, m_rotationSpeedZ);
+    #endif
+}
+
+void Camera::SetRotationSpeed(float degreesPerSecond)
+{
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] SetRotationSpeed called: %.1f degrees/second", degreesPerSecond);
+    #endif
+
+    // Validate speed parameter
+    if (degreesPerSecond < 0.0f)
+    {
+        degreesPerSecond = 0.0f; // Clamp to minimum zero
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Negative rotation speed clamped to 0.0");
+        #endif
+    }
+
+    if (!m_isRotatingAroundTarget)
+    {
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, 
+                L"[Camera] SetRotationSpeed: No active rotation, storing for future use");
+        #endif
+        return;
+    }
+
+    // Update rotation speeds for all active axes
+    if (m_rotateAroundX)
+    {
+        m_rotationSpeedX = degreesPerSecond;
+    }
+    
+    if (m_rotateAroundY)
+    {
+        m_rotationSpeedY = degreesPerSecond;
+    }
+    
+    if (m_rotateAroundZ)
+    {
+        m_rotationSpeedZ = degreesPerSecond;
+    }
+
+    #if defined(_DEBUG_CAMERA_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] Rotation speed updated - active speeds: X=%.1f, Y=%.1f, Z=%.1f", 
+            m_rotationSpeedX, m_rotationSpeedY, m_rotationSpeedZ);
+    #endif
+}
+
+XMFLOAT3 Camera::GetCurrentRotationAngles() const
+{
+    return XMFLOAT3(m_currentRotationX, m_currentRotationY, m_currentRotationZ);
+}
+
+XMFLOAT3 Camera::GetRotationSpeeds() const
+{
+    return XMFLOAT3(m_rotationSpeedX, m_rotationSpeedY, m_rotationSpeedZ);
+}
+
+bool Camera::IsRotationPaused() const
+{
+    return m_isRotatingAroundTarget &&
+        (m_rotationSpeedX == 0.0f && m_rotationSpeedY == 0.0f && m_rotationSpeedZ == 0.0f) &&
+        (m_rotateAroundX || m_rotateAroundY || m_rotateAroundZ);
+}
+
+float Camera::GetEstimatedTimeToComplete() const
+{
+    if (!m_isRotatingAroundTarget || m_continuousRotation)
+    {
+        return -1.0f; // Infinite or not rotating
+    }
+
+    float maxTime = 0.0f;
+
+    if (m_rotateAroundX && m_rotationSpeedX > 0.0f)
+    {
+        float remainingX = m_targetRotationX - m_currentRotationX;
+        float timeX = remainingX / m_rotationSpeedX;
+        maxTime = std::max(maxTime, timeX);
+    }
+
+    if (m_rotateAroundY && m_rotationSpeedY > 0.0f)
+    {
+        float remainingY = m_targetRotationY - m_currentRotationY;
+        float timeY = remainingY / m_rotationSpeedY;
+        maxTime = std::max(maxTime, timeY);
+    }
+
+    if (m_rotateAroundZ && m_rotationSpeedZ > 0.0f)
+    {
+        float remainingZ = m_targetRotationZ - m_currentRotationZ;
+        float timeZ = remainingZ / m_rotationSpeedZ;
+        maxTime = std::max(maxTime, timeZ);
+    }
+
+    return maxTime;
+}
+
+void Camera::UpdateResolution(uint32_t newWidth, uint32_t newHeight, float newAspectRatio)
+{
+    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[CAMERA] UpdateResolution() called - New dimensions: %dx%d, Aspect ratio: %.3f", 
+            newWidth, newHeight, newAspectRatio);
+    #endif
+
+    // Update internal resolution tracking
+    m_screenWidth = static_cast<float>(newWidth);                       // Store new screen width
+    m_screenHeight = static_cast<float>(newHeight);                     // Store new screen height
+    m_aspectRatio = newAspectRatio;                                     // Store new aspect ratio
+
+    // Validate aspect ratio is reasonable
+    if (m_aspectRatio <= 0.1f || m_aspectRatio >= 10.0f) {
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid aspect ratio %.3f, using fallback 16:9", m_aspectRatio);
+        #endif
+        m_aspectRatio = 16.0f / 9.0f;                                   // Use 16:9 as fallback
+    }
+
+    // Update near and far planes if they seem invalid
+    if (m_nearPlane <= 0.0f || m_nearPlane >= m_farPlane) {
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid near/far planes (%.3f/%.3f), resetting to defaults", 
+                m_nearPlane, m_farPlane);
+        #endif
+        m_nearPlane = 0.1f;                                             // Default near plane
+        m_farPlane = 1000.0f;                                           // Default far plane
+    }
+
+    // Validate and adjust field of view if necessary
+    if (m_fieldOfView <= 0.0f || m_fieldOfView >= XM_PI) {
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid FOV %.3f, resetting to default", m_fieldOfView);
+        #endif
+        m_fieldOfView = XMConvertToRadians(45.0f);                      // Default 45-degree FOV
+    }
+
+    // Recalculate projection matrix with new parameters
+    UpdateProjectionMatrix();                                           // Rebuild projection matrix
+
+    // Force view matrix update to ensure consistency
+    UpdateViewMatrix();                                                 // Rebuild view matrix
+
+    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[CAMERA] Resolution update completed - FOV: %.2f°, Near: %.3f, Far: %.3f, Aspect: %.3f", 
+            XMConvertToDegrees(m_fieldOfView), m_nearPlane, m_farPlane, m_aspectRatio);
+    #endif
+}
+
+void Camera::UpdateDirectionVectors(const XMVECTOR& forwardVector, const XMVECTOR& rightVector, const XMVECTOR& upVector)
+{
+    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[Camera] UpdateDirectionVectors() called - updating internal direction vectors");
+    #endif
+
+    try {
+        // Validate input vectors to ensure they are not zero vectors
+        float forwardLength = XMVectorGetX(XMVector3Length(forwardVector));   // Calculate forward vector length
+        float rightLength = XMVectorGetX(XMVector3Length(rightVector));       // Calculate right vector length  
+        float upLength = XMVectorGetX(XMVector3Length(upVector));             // Calculate up vector length
+
+        // Check for invalid (zero-length) vectors that would cause camera issues
+        if (forwardLength < 0.001f || rightLength < 0.001f || upLength < 0.001f)
+        {
+            #if defined(_DEBUG_CAMERA_MOUSE_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                    L"[Camera] Invalid direction vectors detected - lengths: forward=%.6f, right=%.6f, up=%.6f. Using fallback vectors", 
+                    forwardLength, rightLength, upLength);
+            #endif
+
+            // Use safe fallback vectors when invalid vectors are provided
+            XMVECTOR safeFwd = XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f);          // Default forward (positive Z)
+            XMVECTOR safeRight = XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);        // Default right (positive X)
+            XMVECTOR safeUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);           // Default up (positive Y)
+
+            // Store the safe fallback vectors
+            XMStoreFloat3(&forward, safeFwd);                                  // Store safe forward vector
+            XMStoreFloat3(&up, safeUp);                                        // Store safe up vector
+
+            // Calculate target from position and forward direction
+            XMVECTOR currentPos = XMLoadFloat3(&position);                     // Load current camera position
+            XMVECTOR newTarget = XMVectorAdd(currentPos, safeFwd);            // Calculate new target position
+            XMStoreFloat3(&target, newTarget);                                 // Store new target position
+
+            #if defined(_DEBUG_CAMERA_MOUSE_) && defined(_DEBUG)
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"[Camera] Applied safe fallback direction vectors");
+            #endif
+        }
+        else
+        {
+            // Normalize the vectors to ensure they are unit vectors for consistent behavior
+            XMVECTOR normalizedForward = XMVector3Normalize(forwardVector);    // Normalize forward vector to unit length
+            XMVECTOR normalizedRight = XMVector3Normalize(rightVector);        // Normalize right vector to unit length
+            XMVECTOR normalizedUp = XMVector3Normalize(upVector);              // Normalize up vector to unit length
+
+            // Store the normalized direction vectors in the camera's internal state
+            XMStoreFloat3(&forward, normalizedForward);                        // Update internal forward vector
+            XMStoreFloat3(&up, normalizedUp);                                  // Update internal up vector
+
+            // Calculate and update the new target position based on the updated forward direction
+            XMVECTOR currentPos = XMLoadFloat3(&position);                     // Load current camera position as vector
+            XMVECTOR newTarget = XMVectorAdd(currentPos, normalizedForward);   // Calculate new target = position + forward
+            XMStoreFloat3(&target, newTarget);                                 // Store the calculated target position
+
+            // Update yaw and pitch angles to match the new forward direction for consistency
+            UpdateYawPitchFromDirection(forward);                              // Synchronize yaw/pitch with new direction
+
+            #if defined(_DEBUG_CAMERA_MOUSE_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                    L"[Camera] Direction vectors updated - Forward: (%.3f, %.3f, %.3f), Up: (%.3f, %.3f, %.3f)", 
+                    forward.x, forward.y, forward.z, up.x, up.y, up.z);
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                    L"[Camera] Updated target: (%.3f, %.3f, %.3f), Yaw: %.3f, Pitch: %.3f", 
+                    target.x, target.y, target.z, m_yaw, m_pitch);
+            #endif
+        }
+
+        // Ensure view matrix is updated with the new direction vectors for immediate effect
+        UpdateViewMatrix();                                                    // Recalculate view matrix with new vectors
+
+        #if defined(_DEBUG_CAMERA_MOUSE_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[Camera] UpdateDirectionVectors() completed successfully");
+        #endif
+    }
+    catch (const std::exception& e)
+    {
+        // Handle any exceptions that occur during direction vector updates
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION, 
+                L"[Camera] Exception in UpdateDirectionVectors: %hs. Using safe fallback vectors", e.what());
+        #endif
+
+        // Apply safe fallback vectors in case of exception to prevent camera from breaking
+        XMVECTOR safeFwd = XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f);              // Safe forward direction
+        XMVECTOR safeUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);               // Safe up direction
+
+        // Store safe vectors and update camera state
+        XMStoreFloat3(&forward, safeFwd);                                      // Apply safe forward vector
+        XMStoreFloat3(&up, safeUp);                                            // Apply safe up vector
+
+        // Recalculate target with safe vectors
+        XMVECTOR currentPos = XMLoadFloat3(&position);                         // Get current position
+        XMVECTOR safeTarget = XMVectorAdd(currentPos, safeFwd);               // Calculate safe target
+        XMStoreFloat3(&target, safeTarget);                                    // Apply safe target
+
+        // Update view matrix with safe vectors
+        UpdateViewMatrix();                                                    // Update view matrix safely
+
+        // Log the exception using ExceptionHandler (Rule #45)
+        exceptionHandler.LogException(e, "Camera::UpdateDirectionVectors");   // Log exception for debugging
+    }
+    catch (...)
+    {
+        // Handle any unknown exceptions that might occur
+        #if defined(_DEBUG_CAMERA_MOUSE_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_TERMINATION, 
+                L"[Camera] Unknown exception in UpdateDirectionVectors. Applying emergency fallback vectors");
+        #endif
+
+        // Apply emergency fallback vectors for unknown exceptions
+        forward = XMFLOAT3(0.0f, 0.0f, 1.0f);                                 // Emergency forward vector
+        up = XMFLOAT3(0.0f, 1.0f, 0.0f);                                      // Emergency up vector
+        target = XMFLOAT3(position.x, position.y, position.z + 1.0f);         // Emergency target (1 unit forward)
+
+        // Update view matrix with emergency vectors
+        UpdateViewMatrix();                                                    // Emergency view matrix update
+
+        // Log custom exception for unknown errors
+        exceptionHandler.LogCustomException("Unknown exception in Camera::UpdateDirectionVectors", "Camera direction update");
+    }
+}
+
+void Camera::CalculateDirectionVectors(float yaw, float pitch, XMVECTOR& outForward, XMVECTOR& outRight, XMVECTOR& outUp) const
+{
+    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] CalculateDirectionVectors() called with yaw=%.3f, pitch=%.3f", yaw, pitch);
+    #endif
+
+    try {
+        // Validate input parameters to ensure they are within reasonable bounds
+        if (yaw < -XM_2PI || yaw > XM_2PI) {
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                    L"[Camera] Yaw angle %.3f is outside reasonable bounds [-2π, 2π], normalizing", yaw);
+            #endif
+            
+            // Normalize yaw to [-2π, 2π] range using fast math operations
+            while (yaw > XM_2PI) yaw -= XM_2PI;                            // Reduce large positive angles
+            while (yaw < -XM_2PI) yaw += XM_2PI;                           // Reduce large negative angles
+        }
+
+        // Clamp pitch to prevent gimbal lock (just under ±90 degrees)
+        const float maxPitch = XM_PIDIV2 - 0.01f;                          // Just under 90 degrees to prevent gimbal lock
+        if (pitch > maxPitch || pitch < -maxPitch) {
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                    L"[Camera] Pitch angle %.3f is outside safe bounds [%.3f, %.3f], clamping", 
+                    pitch, -maxPitch, maxPitch);
+            #endif
+            
+            pitch = std::clamp(pitch, -maxPitch, maxPitch);                 // Clamp pitch to safe range
+        }
+
+        // Calculate trigonometric values using MathPrecalculation for optimization
+        float cosPitch = FAST_COS(pitch);                                   // Cosine of pitch angle for vertical rotation
+        float sinPitch = FAST_SIN(pitch);                                   // Sine of pitch angle for vertical rotation
+        float cosYaw = FAST_COS(yaw);                                       // Cosine of yaw angle for horizontal rotation
+        float sinYaw = FAST_SIN(yaw);                                       // Sine of yaw angle for horizontal rotation
+
+        // Calculate forward vector (direction camera is looking)
+        // Forward vector components: X = cos(pitch) * sin(yaw), Y = sin(pitch), Z = cos(pitch) * cos(yaw)
+        outForward = XMVectorSet(
+            cosPitch * sinYaw,                                              // X component: horizontal forward direction
+            sinPitch,                                                       // Y component: vertical look direction
+            cosPitch * cosYaw,                                              // Z component: depth forward direction
+            0.0f                                                            // W component: not used for direction vectors
+        );
+        
+        // Normalize forward vector to ensure it's a unit vector
+        outForward = XMVector3Normalize(outForward);                        // Ensure forward vector is normalized
+
+        // Calculate right vector (perpendicular to forward, always horizontal)
+        // Right vector is perpendicular to forward and world up (0, 1, 0)
+        XMVECTOR worldUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);           // World up vector (positive Y axis)
+        outRight = XMVector3Cross(worldUp, outForward);                     // Cross product gives perpendicular right vector
+        outRight = XMVector3Normalize(outRight);                            // Normalize right vector to unit length
+
+        // Calculate up vector (perpendicular to both forward and right)
+        // Up vector is calculated as cross product of forward and right vectors
+        outUp = XMVector3Cross(outForward, outRight);                       // Cross product gives camera's local up vector
+        outUp = XMVector3Normalize(outUp);                                  // Normalize up vector to unit length
+
+        // Validate calculated vectors to ensure they are valid unit vectors
+        float forwardLength = XMVectorGetX(XMVector3Length(outForward));    // Check forward vector length
+        float rightLength = XMVectorGetX(XMVector3Length(outRight));        // Check right vector length
+        float upLength = XMVectorGetX(XMVector3Length(outUp));              // Check up vector length
+
+        // Verify all vectors are properly normalized (length should be ~1.0)
+        if (abs(forwardLength - 1.0f) > 0.01f || abs(rightLength - 1.0f) > 0.01f || abs(upLength - 1.0f) > 0.01f) {
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                    L"[Camera] Direction vectors not properly normalized - Forward: %.3f, Right: %.3f, Up: %.3f", 
+                    forwardLength, rightLength, upLength);
+            #endif
+            
+            // Force re-normalization if vectors are not unit length
+            outForward = XMVector3Normalize(outForward);                    // Re-normalize forward vector
+            outRight = XMVector3Normalize(outRight);                        // Re-normalize right vector
+            outUp = XMVector3Normalize(outUp);                              // Re-normalize up vector
+        }
+
+        // Verify vectors are orthogonal to each other (dot products should be ~0)
+        float forwardRightDot = XMVectorGetX(XMVector3Dot(outForward, outRight));     // Should be near 0
+        float forwardUpDot = XMVectorGetX(XMVector3Dot(outForward, outUp));           // Should be near 0
+        float rightUpDot = XMVectorGetX(XMVector3Dot(outRight, outUp));               // Should be near 0
+
+        if (abs(forwardRightDot) > 0.01f || abs(forwardUpDot) > 0.01f || abs(rightUpDot) > 0.01f) {
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                    L"[Camera] Direction vectors not orthogonal - F·R: %.3f, F·U: %.3f, R·U: %.3f", 
+                    forwardRightDot, forwardUpDot, rightUpDot);
+            #endif
+        }
+
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            // Extract vector components for detailed logging
+            XMFLOAT3 fwd, right, up;                                       // Temporary storage for vector components
+            XMStoreFloat3(&fwd, outForward);                                // Store forward vector components
+            XMStoreFloat3(&right, outRight);                                // Store right vector components
+            XMStoreFloat3(&up, outUp);                                      // Store up vector components
+            
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] Calculated direction vectors:");
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"  Forward: (%.3f, %.3f, %.3f), Right: (%.3f, %.3f, %.3f), Up: (%.3f, %.3f, %.3f)", 
+                fwd.x, fwd.y, fwd.z, right.x, right.y, right.z, up.x, up.y, up.z);
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] Vector lengths - Forward: %.3f, Right: %.3f, Up: %.3f", 
+                forwardLength, rightLength, upLength);
+        #endif
+    }
+    catch (const std::exception& e) {
+        // Handle any exceptions that occur during direction vector calculation
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION, 
+                L"[Camera] Exception in CalculateDirectionVectors: %hs. Using safe fallback vectors", e.what());
+        #endif
+
+        // Apply safe fallback vectors in case of exception to prevent camera from breaking
+        outForward = XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f);                 // Safe forward direction (positive Z)
+        outRight = XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);                   // Safe right direction (positive X)
+        outUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);                      // Safe up direction (positive Y)
+
+        // Log the exception using ExceptionHandler (Rule #45)
+        exceptionHandler.LogException(e, "Camera::CalculateDirectionVectors"); // Log exception for debugging
+    }
+    catch (...) {
+        // Handle any unknown exceptions that might occur
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_TERMINATION, 
+                L"[Camera] Unknown exception in CalculateDirectionVectors. Applying emergency fallback vectors");
+        #endif
+
+        // Apply emergency fallback vectors for unknown exceptions
+        outForward = XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f);                 // Emergency forward vector
+        outRight = XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);                   // Emergency right vector
+        outUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);                      // Emergency up vector
+
+        // Log custom exception for unknown errors
+        exceptionHandler.LogCustomException("Unknown exception in Camera::CalculateDirectionVectors", "Camera direction calculation");
+    }
+}
+
+void Camera::UpdateCameraDirectionFromAngles(float yaw, float pitch)
+{
+    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] UpdateCameraDirectionFromAngles() called with yaw=%.3f, pitch=%.3f", yaw, pitch);
+    #endif
+
+    try {
+        // Declare vectors to store calculated direction vectors
+        XMVECTOR forwardVector, rightVector, upVector;                      // Direction vectors to be calculated
+
+        // Calculate direction vectors from yaw and pitch angles
+        CalculateDirectionVectors(yaw, pitch, forwardVector, rightVector, upVector); // Calculate all three direction vectors
+
+        // Update camera's internal direction vectors using the calculated vectors
+        UpdateDirectionVectors(forwardVector, rightVector, upVector);       // Apply calculated vectors to camera
+
+        // Store the yaw and pitch values in camera for consistency
+        m_yaw = yaw;                                                        // Store yaw angle for future reference
+        m_pitch = pitch;                                                    // Store pitch angle for future reference
+
+        UpdateViewMatrix();                                                 // Update the View Matrix to reflect new direction vectors
+
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, 
+                L"[Camera] Camera direction updated successfully from yaw/pitch angles");
+        #endif
+    }
+    catch (const std::exception& e) {
+        // Handle exceptions during camera direction update
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION, 
+                L"[Camera] Exception in UpdateCameraDirectionFromAngles: %hs", e.what());
+        #endif
+
+        // Log the exception using ExceptionHandler (Rule #45)
+        exceptionHandler.LogException(e, "Camera::UpdateCameraDirectionFromAngles");
+    }
+}
+
+void Camera::CalculateDirectionVectorsFromMouseDelta(float mouseDeltaX, float mouseDeltaY, float sensitivity, 
+                                                     XMVECTOR& outForward, XMVECTOR& outRight, XMVECTOR& outUp)
+{
+    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] CalculateDirectionVectorsFromMouseDelta() called with deltaX=%.3f, deltaY=%.3f, sensitivity=%.3f", 
+            mouseDeltaX, mouseDeltaY, sensitivity);
+    #endif
+
+    try {
+        // Get current yaw and pitch from camera state (preserve existing view)
+        float currentYaw = m_yaw;                                           // Current horizontal rotation
+        float currentPitch = m_pitch;                                       // Current vertical rotation
+
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] Current camera state - Yaw: %.3f, Pitch: %.3f", currentYaw, currentPitch);
+        #endif
+
+        // Calculate new yaw and pitch by adding mouse delta (incremental changes)
+        float newYaw = currentYaw + (mouseDeltaX * sensitivity);            // Add horizontal mouse movement
+        float newPitch = currentPitch + (mouseDeltaY * sensitivity);        // Add vertical mouse movement
+
+        // Clamp pitch to prevent camera flipping (gimbal lock prevention)
+        const float maxPitch = XM_PIDIV2 - 0.01f;                          // Just under 90 degrees
+        const float minPitch = -XM_PIDIV2 + 0.01f;                         // Just over -90 degrees
+        newPitch = std::clamp(newPitch, minPitch, maxPitch);                // Clamp pitch to safe range
+
+        // Normalize yaw to keep it within reasonable bounds (-2π to 2π)
+        while (newYaw > XM_2PI) newYaw -= XM_2PI;                          // Wrap large positive angles
+        while (newYaw < -XM_2PI) newYaw += XM_2PI;                         // Wrap large negative angles
+
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] New calculated angles - Yaw: %.3f, Pitch: %.3f", newYaw, newPitch);
+        #endif
+
+        // Calculate trigonometric values using MathPrecalculation for optimization
+        float cosPitch = FAST_COS(newPitch);                                // Cosine of new pitch angle
+        float sinPitch = FAST_SIN(newPitch);                                // Sine of new pitch angle
+        float cosYaw = FAST_COS(newYaw);                                    // Cosine of new yaw angle
+        float sinYaw = FAST_SIN(newYaw);                                    // Sine of new yaw angle
+
+        // Calculate new forward vector based on updated angles
+        outForward = XMVectorSet(
+            cosPitch * sinYaw,                                              // X component: horizontal forward direction
+            sinPitch,                                                       // Y component: vertical look direction (pitch)
+            cosPitch * cosYaw,                                              // Z component: depth forward direction
+            0.0f                                                            // W component: not used for direction vectors
+        );
+        
+        // Normalize forward vector to ensure it's a unit vector
+        outForward = XMVector3Normalize(outForward);                        // Ensure forward vector is normalized
+
+        // Calculate right vector (perpendicular to forward, always horizontal)
+        XMVECTOR worldUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);           // World up vector (positive Y axis)
+        outRight = XMVector3Cross(worldUp, outForward);                     // Cross product gives perpendicular right vector
+        outRight = XMVector3Normalize(outRight);                            // Normalize right vector to unit length
+
+        // Calculate up vector (perpendicular to both forward and right)
+        outUp = XMVector3Cross(outForward, outRight);                       // Cross product gives camera's local up vector
+        outUp = XMVector3Normalize(outUp);                                  // Normalize up vector to unit length
+
+        // Update internal yaw and pitch values to maintain state consistency
+        m_yaw = newYaw;                                                     // Store new yaw for next frame
+        m_pitch = newPitch;                                                 // Store new pitch for next frame
+
+        // Validate calculated vectors to ensure they are valid unit vectors
+        float forwardLength = XMVectorGetX(XMVector3Length(outForward));    // Check forward vector length
+        float rightLength = XMVectorGetX(XMVector3Length(outRight));        // Check right vector length
+        float upLength = XMVectorGetX(XMVector3Length(outUp));              // Check up vector length
+
+        // Verify all vectors are properly normalized (length should be ~1.0)
+        if (abs(forwardLength - 1.0f) > 0.01f || abs(rightLength - 1.0f) > 0.01f || abs(upLength - 1.0f) > 0.01f) {
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_WARNING, 
+                    L"[Camera] Direction vectors not properly normalized - Forward: %.3f, Right: %.3f, Up: %.3f", 
+                    forwardLength, rightLength, upLength);
+            #endif
+            
+            // Force re-normalization if vectors are not unit length
+            outForward = XMVector3Normalize(outForward);                    // Re-normalize forward vector
+            outRight = XMVector3Normalize(outRight);                        // Re-normalize right vector
+            outUp = XMVector3Normalize(outUp);                              // Re-normalize up vector
+        }
+
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            // Extract vector components for detailed logging
+            XMFLOAT3 fwd, right, up;                                       // Temporary storage for vector components
+            XMStoreFloat3(&fwd, outForward);                                // Store forward vector components
+            XMStoreFloat3(&right, outRight);                                // Store right vector components
+            XMStoreFloat3(&up, outUp);                                      // Store up vector components
+            
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"[Camera] Updated direction vectors from mouse delta:");
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                L"  Forward: (%.3f, %.3f, %.3f), Right: (%.3f, %.3f, %.3f), Up: (%.3f, %.3f, %.3f)", 
+                fwd.x, fwd.y, fwd.z, right.x, right.y, right.z, up.x, up.y, up.z);
+        #endif
+    }
+    catch (const std::exception& e) {
+        // Handle any exceptions that occur during direction vector calculation
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION, 
+                L"[Camera] Exception in CalculateDirectionVectorsFromMouseDelta: %hs. Preserving current vectors", e.what());
+        #endif
+
+        // Preserve current direction vectors instead of using fallback
+        XMVECTOR currentForward = XMLoadFloat3(&forward);                   // Load current forward vector
+        XMVECTOR currentUp = XMLoadFloat3(&up);                             // Load current up vector
+        XMVECTOR currentRight = XMVector3Cross(currentUp, currentForward);  // Calculate current right vector
+        
+        outForward = XMVector3Normalize(currentForward);                    // Preserve normalized forward
+        outRight = XMVector3Normalize(currentRight);                       // Preserve normalized right
+        outUp = XMVector3Normalize(currentUp);                             // Preserve normalized up
+
+        // Log the exception using ExceptionHandler (Rule #45)
+        exceptionHandler.LogException(e, "Camera::CalculateDirectionVectorsFromMouseDelta");
+    }
+    catch (...) {
+        // Handle any unknown exceptions that might occur
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_TERMINATION, 
+                L"[Camera] Unknown exception in CalculateDirectionVectorsFromMouseDelta. Preserving current state");
+        #endif
+
+        // Preserve current direction vectors for unknown exceptions
+        XMVECTOR currentForward = XMLoadFloat3(&forward);                   // Load current forward vector
+        XMVECTOR currentUp = XMLoadFloat3(&up);                             // Load current up vector
+        XMVECTOR currentRight = XMVector3Cross(currentUp, currentForward);  // Calculate current right vector
+        
+        outForward = XMVector3Normalize(currentForward);                    // Preserve normalized forward
+        outRight = XMVector3Normalize(currentRight);                       // Preserve normalized right
+        outUp = XMVector3Normalize(currentUp);                             // Preserve normalized up
+
+        // Log custom exception for unknown errors
+        exceptionHandler.LogCustomException("Unknown exception in Camera::CalculateDirectionVectorsFromMouseDelta", "Camera mouse delta calculation");
+    }
+}
+
+void Camera::UpdateCameraFromMouseMovement(float mouseDeltaX, float mouseDeltaY, float sensitivity)
+{
+    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_INFO, 
+            L"[Camera] UpdateCameraFromMouseMovement() called with deltaX=%.3f, deltaY=%.3f, sensitivity=%.3f", 
+            mouseDeltaX, mouseDeltaY, sensitivity);
+    #endif
+
+    try {
+        // Only update if there is actual mouse movement to avoid unnecessary calculations
+        if (abs(mouseDeltaX) < 0.001f && abs(mouseDeltaY) < 0.001f) {
+            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, 
+                    L"[Camera] No significant mouse movement detected, skipping update");
+            #endif
+            return;                                                         
+        }
+
+        // Declare vectors to store calculated direction vectors
+        XMVECTOR forwardVector, rightVector, upVector;                      // Direction vectors to be calculated
+
+        // Calculate direction vectors from mouse delta while preserving current view
+        CalculateDirectionVectorsFromMouseDelta(mouseDeltaX, mouseDeltaY, sensitivity, 
+                                               forwardVector, rightVector, upVector);
+
+        // Update camera's internal direction vectors using the calculated vectors
+        UpdateDirectionVectors(forwardVector, rightVector, upVector);       // Apply calculated vectors to camera
+
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_INFO, 
+                L"[Camera] Camera updated successfully from mouse movement - New Yaw: %.3f, Pitch: %.3f", 
+                m_yaw, m_pitch);
+        #endif
+    }
+    catch (const std::exception& e) {
+        // Handle exceptions during camera update from mouse movement
+        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION, 
+                L"[Camera] Exception in UpdateCameraFromMouseMovement: %hs", e.what());
+        #endif
+
+        // Log the exception using ExceptionHandler (Rule #45)
+        exceptionHandler.LogException(e, "Camera::UpdateCameraFromMouseMovement");
+    }
+}
+
+// Restore previous warning state
+#pragma warning(pop) 
+
+#endif // End of #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)

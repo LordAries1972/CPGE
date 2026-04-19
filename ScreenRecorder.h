@@ -1,0 +1,172 @@
+// ScreenRecorder.h
+// ================
+// Real-time screen + audio capture to MP4 (H.264 video, AAC audio).
+//
+// MicMode::Mixed    — AudioCaptureThread polls both loopback and mic inline.
+//                     Mic is blended into game audio before encoding. One track.
+// MicMode::Separate — dedicated mic thread writes a second AAC stream.
+//                     Two tracks in the MP4 for post-production mixing.
+//
+// Usage:
+//   StartRecording(w, h, RecordFPS::FPS_60, path);
+//   StartRecording(w, h, RecordFPS::FPS_60, path, MicMode::Mixed);
+//   StartRecording(w, h, RecordFPS::FPS_60, path, MicMode::Separate, AudioBitrate::Kbps_256);
+//   CaptureFrame(device, context, swapChain);  // once per frame, before Present
+//   StopRecording();
+//
+// All audio streams (game + mic) are timestamp-locked to the video FPS clock.
+// AudioBitrate applies to every AAC stream written to the MP4.
+// ------------------------------------------------------------------------------------
+#pragma once
+
+#include "Includes.h"
+#include <mfapi.h>
+#include <mfidl.h>
+#include <mfreadwrite.h>
+#include <mmdeviceapi.h>
+#include <audioclient.h>
+#include <atomic>
+#include <mutex>
+#include <thread>
+#include <string>
+#include <vector>
+
+#pragma comment(lib, "mf.lib")
+#pragma comment(lib, "mfplat.lib")
+#pragma comment(lib, "mfreadwrite.lib")
+#pragma comment(lib, "mfuuid.lib")
+#pragma comment(lib, "ole32.lib")
+
+enum class RecordFPS : UINT32
+{
+    FPS_15  = 15,
+    FPS_30  = 30,
+    FPS_60  = 60,
+    FPS_90  = 90,
+    FPS_120 = 120
+};
+
+
+// AAC audio bitrate — applied to every audio stream (game + mic).
+// All streams are timestamp-locked to the video FPS clock regardless of bitrate.
+enum class AudioBitrate : UINT32
+{
+    Kbps_64  =  64'000,
+    Kbps_96  =  96'000,
+    Kbps_128 = 128'000,
+    Kbps_192 = 192'000,   // default
+    Kbps_256 = 256'000,
+    Kbps_320 = 320'000
+};
+
+enum class MicMode : int
+{
+    Off      = 0,   // no microphone
+    Mixed    = 1,   // mic blended into game audio track (single track)
+    Separate = 2    // mic as separate AAC track (two tracks, use editor to balance)
+};
+
+class ScreenRecorder
+{
+public:
+    ScreenRecorder();
+    ~ScreenRecorder();
+
+    bool StartRecording(UINT width, UINT height, RecordFPS fps,
+                        const std::wstring& outputPath,
+                        MicMode     micMode     = MicMode::Off,
+                        AudioBitrate audioBitrate = AudioBitrate::Kbps_192);
+
+    void StopRecording();
+
+    void CaptureFrame(ID3D11Device*        device,
+                      ID3D11DeviceContext* context,
+                      IDXGISwapChain1*     swapChain);
+
+    bool      IsRecording()  const { return m_isRecording.load(); }
+    RecordFPS GetTargetFPS() const { return m_targetFPS; }
+
+    // Mic gain controls — safe to call while recording.
+    // Monitor gain: how loud you hear yourself (0.0 = silent, 1.0 = unity, 2.0 = double).
+    // Record  gain: how loud the mic is in the recording when not monitoring
+    //               (monitoring active = loopback captures mic, this has no effect).
+    void  SetMicMonitorGain(float g) { m_micMonitorGain = g < 0.f ? 0.f : (g > 4.f ? 4.f : g); }
+    float GetMicMonitorGain() const  { return m_micMonitorGain; }
+    void  SetMicRecordGain (float g) { m_micRecordGain  = g < 0.f ? 0.f : (g > 4.f ? 4.f : g); }
+    float GetMicRecordGain () const  { return m_micRecordGain;  }
+
+private:
+    void WriteVideoFrame(const BYTE* pData, UINT rowPitch, LONGLONG ts);
+
+    bool InitAudioCapture();
+    void AudioCaptureThread();   // handles loopback + inline mic poll (Mixed mode)
+    void CleanupAudio();
+
+    bool InitMicCapture();
+    void MicCaptureThread();     // Separate mode only
+    void CleanupMic();
+
+    bool InitMonitor();
+    void WriteMonitorSamples(const BYTE* pMicData, UINT32 micFrames);
+    void CleanupMonitor();
+
+    // Inline mic mix — called from AudioCaptureThread only (no mutex needed)
+    void MixMicInline(BYTE* pDst, UINT32 gameFrames);
+
+    // ---- MF Sink Writer ----
+    IMFSinkWriter*          m_pSinkWriter;
+    DWORD                   m_videoStreamIndex;
+    DWORD                   m_audioStreamIndex;
+
+    // ---- D3D11 staging texture ----
+    ComPtr<ID3D11Texture2D> m_stagingTexture;
+
+    // ---- capture dimensions ----
+    UINT                    m_width;
+    UINT                    m_height;
+
+    // ---- frame-rate / timestamp state ----
+    RecordFPS               m_targetFPS;
+    AudioBitrate            m_audioBitrate;
+    LONGLONG                m_framePeriod;
+    std::atomic<LONGLONG>   m_videoFrameIndex;
+    LONGLONG                m_framePeriodSnapshot;
+
+    LARGE_INTEGER           m_qpcRecordingStart;
+    LARGE_INTEGER           m_qpcFreq;
+
+    // ---- game audio ----
+    LONGLONG                m_audioTimestamp;
+    IAudioClient*           m_pAudioClient;
+    IAudioCaptureClient*    m_pCaptureClient;
+    WAVEFORMATEX*           m_pWaveFormat;
+    std::thread             m_audioThread;
+
+    // ---- microphone ----
+    MicMode                 m_micMode;
+    IAudioClient*           m_pMicAudioClient;
+    IAudioCaptureClient*    m_pMicCaptureClient;
+    WAVEFORMATEX*           m_pMicWaveFormat;
+    std::thread             m_micThread;           // Separate mode only
+
+    // Mixed mode: mic accumulator owned exclusively by AudioCaptureThread — no mutex
+    std::vector<BYTE>       m_micAccum;
+    size_t                  m_micAccumRead;        // read offset — avoids O(n) erase
+    bool                    m_micDataLogged;       // one-shot "first data flowing" diagnostic
+
+    // Separate mode: mic AAC stream state
+    DWORD                   m_micStreamIndex;
+    LONGLONG                m_micAudioTimestamp;
+
+    // ---- mic monitoring (render mic to speakers in real-time) ----
+    IAudioClient*           m_pMonitorAudioClient;
+    IAudioRenderClient*     m_pMonitorRenderClient;
+    WAVEFORMATEX*           m_pMonitorFormat;
+    UINT32                  m_monitorBufferFrames;
+    std::atomic<float>      m_micMonitorGain;     // monitor output volume
+    std::atomic<float>      m_micRecordGain;      // recording blend volume (no-monitor path only)
+
+    // ---- state ----
+    std::atomic<bool>       m_isRecording;
+    std::mutex              m_mutex;
+};

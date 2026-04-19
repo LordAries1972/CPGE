@@ -1,0 +1,22 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/.vs/CrossPlatformGameEngine
+/.vs
+/x64/Release
+*.bak
+*.exe
+*.tlog
+/CrossPla.2bd3f178/x64/Debug
+/CrossPla.2bd3f178/x64/Release
+*.pdb
+*.map
+/x64/Debug
+/Docs/Doc-Helper.txt
+*.dmp
+/CrossPlatformGameEngine-report.txt
+/DebugLog.txt
+/Docs/chatgpt-instructions.txt
+/Docs/AI-Project-Rules.txt
+*.mp4
