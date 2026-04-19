@@ -9,7 +9,7 @@
    This project uses a unified rendering interface called "Renderer" to abstract
    multiple rendering backends (DirectX 11, DirectX 12, OpenGL, Vulkan, etc).
 
-   MAIN POINTS:
+   MAIN POINTS:-
 
    - Renderer.h defines the pure virtual interface: class Renderer
    - DX11Renderer, DX12Renderer, etc., are subclasses that implement it
