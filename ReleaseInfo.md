@@ -355,6 +355,7 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - Fixed Render Bug in GUIManager.cpp
 - Fixed compile errors for Releasse version.
 - Optimisation of code.
+- Clean Exit (0) {8-)
 
 ---
 
