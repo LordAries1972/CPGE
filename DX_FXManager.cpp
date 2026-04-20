@@ -25,6 +25,7 @@ extern ThreadManager threadManager;
 
 #pragma warning(push)
 #pragma warning(disable: 4101)
+#pragma warning(disable: 4267)                  // Suppress size_t conversion warnings
 
 // UPDATED: FXManager constructor with bIsRendering initialization
 FXManager::FXManager() : originalBlendState(nullptr), fadeBlendState(nullptr), originalRenderTarget(nullptr),

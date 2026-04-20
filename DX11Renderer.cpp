@@ -154,8 +154,21 @@ void DX11Renderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
     }
 #endif
 
+    // Create persistent dynamic quad vertex buffers so DrawTexture/DrawRectangle
+    // don't call CreateBuffer every frame — we Map/Unmap these instead.
+    {
+        D3D11_BUFFER_DESC qvb = {};
+        qvb.Usage          = D3D11_USAGE_DYNAMIC;
+        qvb.BindFlags      = D3D11_BIND_VERTEX_BUFFER;
+        qvb.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        qvb.ByteWidth      = 80;   // sizeof({XMFLOAT3,XMFLOAT2}) * 4
+        m_d3dDevice->CreateBuffer(&qvb, nullptr, m_quadTexVB.GetAddressOf());
+        qvb.ByteWidth      = 112;  // sizeof({XMFLOAT3,XMFLOAT4}) * 4
+        m_d3dDevice->CreateBuffer(&qvb, nullptr, m_quadRectVB.GetAddressOf());
+    }
+
     sysUtils.DisableMouseCursor();
-	
+
     bIsInitialized.store(true);
     if (threadManager.threadVars.bIsResizing.load())
     {
@@ -196,41 +209,46 @@ ComPtr<ID3D11DeviceContext> DX11Renderer::GetImmediateContext() const {
     return m_d3dContext;
 }
 
+IDWriteTextFormat* DX11Renderer::GetOrCreateTextFormat(const wchar_t* fontName, float fontSize)
+{
+    if (!m_dwriteFactory) return nullptr;
+    TextFormatKey key{ fontName, fontSize };
+    auto it = m_textFormatCache.find(key);
+    if (it != m_textFormatCache.end()) return it->second.Get();
+
+    ComPtr<IDWriteTextFormat> fmt;
+    HRESULT hr = m_dwriteFactory->CreateTextFormat(
+        fontName, nullptr, DWRITE_FONT_WEIGHT_NORMAL,
+        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+        fontSize, L"en-us", &fmt);
+    if (FAILED(hr)) return nullptr;
+
+    IDWriteTextFormat* raw = fmt.Get();
+    m_textFormatCache.emplace(std::move(key), std::move(fmt));
+    return raw;
+}
+
+void DX11Renderer::InvalidateTextFormatCache()
+{
+    m_textFormatCache.clear();
+}
+
 void DX11Renderer::Clear2DBlitQueue()
 {
-    for (int iX = 0; iX < MAX_2D_IMG_QUEUE_OBJS; iX++)
-    {
-        SecureZeroMemory(&My2DBlitQueue[iX], sizeof(GFXObjQueue));
-    }
+    SecureZeroMemory(My2DBlitQueue, sizeof(My2DBlitQueue));
+    m_blitActiveIDs.clear();
 }
 
 bool DX11Renderer::Place2DBlitObjectToQueue(BlitObj2DIndexType iIndex, BlitPhaseLevel BlitPhaseLvl, BlitObj2DType objType, BlitObj2DDetails objDetails, CanBlitType BlitType)
 {
-    //////////////////////////////////////////////////
-    // Check if the object is already in the queue
-    //////////////////////////////////////////////////
-    for (int iX = 0; iX < MAX_2D_IMG_QUEUE_OBJS; iX++)
+    // O(1) duplicate check via hash set (replaces the old O(N) linear scan)
+    if (BlitType == CanBlitType::CAN_BLIT_SINGLE)
     {
-        // We need to find single objects only and check if already in the queue.
-        switch (BlitType)
-        {
-            // Is the Queue Object of the following:-
-        case CanBlitType::CAN_BLIT_SINGLE:
-            if (My2DBlitQueue[iX].bInUse)
-            {
-                if (My2DBlitQueue[iX].BlitObjDetails.iBlitID == iIndex)
-                {
-                    return FALSE;
-                }
-            }
+        if (m_blitActiveIDs.count(int(iIndex)))
+            return FALSE;
+    }
 
-            break;
-        } // End of switch (BlitType)
-    } // End of for (int iX = 0; iX < MAX_2D_IMG_QUEUE_OBJS; iX++)
-
-    //////////////////////////////////////////////////
     // Find an empty slot in the queue
-    //////////////////////////////////////////////////
     for (int iX = 0; iX < MAX_2D_IMG_QUEUE_OBJS; iX++)
     {
         if (!My2DBlitQueue[iX].bInUse)
@@ -240,6 +258,7 @@ bool DX11Renderer::Place2DBlitObjectToQueue(BlitObj2DIndexType iIndex, BlitPhase
             My2DBlitQueue[iX].BlitObjType = objType;
             My2DBlitQueue[iX].BlitObjDetails = objDetails;
             My2DBlitQueue[iX].BlitObjDetails.iBlitID = iIndex;
+            m_blitActiveIDs.insert(int(iIndex));
             return TRUE;
         }
     }
@@ -583,6 +602,11 @@ void DX11Renderer::Cleanup() {
 
         // Release Direct2D and related resources.
         m_pixelBrush.Reset();
+        m_videoBitmap.Reset();
+        m_videoStagingTex.Reset(); m_videoStagingW = 0; m_videoStagingH = 0;
+        m_quadTexVB.Reset();
+        m_quadRectVB.Reset();
+        InvalidateTextFormatCache();
         m_d2dDevice.Reset();
         m_d2dContext.Reset();
         m_d2dRenderTarget.Reset();
@@ -790,79 +814,29 @@ XMFLOAT4 DX11Renderer::ConvertColor(uint8_t r, uint8_t g, uint8_t b, uint8_t a) 
 }
 
 float DX11Renderer::GetCharacterWidth(wchar_t character, float FontSize) {
-    if (!m_dwriteFactory) {
-        ThrowError("DirectWrite factory is not initialized.");
-        return 0.0f;
-    }
+    if (!m_dwriteFactory) { ThrowError("DirectWrite factory is not initialized."); return 0.0f; }
 
-    ComPtr<IDWriteTextFormat> m_txtFormat;
-    m_dwriteFactory->CreateTextFormat(FontName, nullptr, DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        FontSize, L"en-us", &m_txtFormat);
+    IDWriteTextFormat* fmt = GetOrCreateTextFormat(FontName, FontSize);
+    if (!fmt) { ThrowError("Failed to get text format for character width."); return 0.0f; }
 
-    // Create a text layout for the character
     ComPtr<IDWriteTextLayout> textLayout;
-    HRESULT hr = m_dwriteFactory->CreateTextLayout(
-        &character,                                         // The character to measure
-        1,                                                  // Length of the character
-        m_txtFormat.Get(),                                  // Current text format
-        1000.0f,                                            // Maximum width (arbitrary large value)
-        1000.0f,                                            // Maximum height (arbitrary large value)
-        &textLayout                                         // Output text layout
-    );
+    HRESULT hr = m_dwriteFactory->CreateTextLayout(&character, 1, fmt, 1000.0f, 1000.0f, &textLayout);
+    if (FAILED(hr)) { ThrowError("Failed to create text layout for character width."); return 0.0f; }
 
-    if (FAILED(hr)) {
-        ThrowError("Failed to create text layout for character width calculation.");
-        return 0.0f;
-    }
-
-    // Get the metrics of the text layout
     DWRITE_TEXT_METRICS textMetrics;
-    hr = textLayout->GetMetrics(&textMetrics);
-    if (FAILED(hr)) {
-        ThrowError("Failed to get text metrics for character width calculation.");
-        return 0.0f;
-    }
-
-    // Return the width of the character
+    if (FAILED(textLayout->GetMetrics(&textMetrics))) { ThrowError("Failed to get text metrics."); return 0.0f; }
     return textMetrics.width;
 }
 
 float DX11Renderer::GetCharacterWidth(wchar_t character, float FontSize, const std::wstring& fontName) {
-    // Early exit checks for invalid parameters
-    if (!m_dwriteFactory) {
-        ThrowError("DirectWrite factory is not initialized.");
-        return 0.0f;
-    }
+    if (!m_dwriteFactory) { ThrowError("DirectWrite factory is not initialized."); return 0.0f; }
 
-    // Create text format with specified font name
-    ComPtr<IDWriteTextFormat> m_txtFormat;
-    HRESULT hr = m_dwriteFactory->CreateTextFormat(
-        fontName.c_str(),                                   // Use specified font name instead of default
-        nullptr,                                            // No font collection (use system fonts)
-        DWRITE_FONT_WEIGHT_NORMAL,                          // Normal font weight
-        DWRITE_FONT_STYLE_NORMAL,                           // Normal font style
-        DWRITE_FONT_STRETCH_NORMAL,                         // Normal font stretch
-        FontSize,                                           // Font size parameter
-        L"en-us",                                           // Locale identifier
-        &m_txtFormat                                        // Output text format
-    );
+    IDWriteTextFormat* fmt = GetOrCreateTextFormat(fontName.c_str(), FontSize);
+    if (!fmt) { ThrowError("Failed to get text format for character width with custom font."); return 0.0f; }
 
-    // Check if text format creation was successful
-    if (FAILED(hr)) {
-        ThrowError("Failed to create text format for character width calculation with custom font.");
-        return 0.0f;
-    }
-
-    // Create a text layout for the character
     ComPtr<IDWriteTextLayout> textLayout;
-    hr = m_dwriteFactory->CreateTextLayout(
-        &character,                                         // The character to measure
-        1,                                                  // Length of the character
-        m_txtFormat.Get(),                                  // Current text format with custom font
-        1000.0f,                                            // Maximum width (arbitrary large value)
-        1000.0f,                                            // Maximum height (arbitrary large value)
-        &textLayout                                         // Output text layout
+    HRESULT hr = m_dwriteFactory->CreateTextLayout(
+        &character, 1, fmt, 1000.0f, 1000.0f, &textLayout
     );
 
     // Check if text layout creation was successful
@@ -883,106 +857,39 @@ float DX11Renderer::GetCharacterWidth(wchar_t character, float FontSize, const s
     return textMetrics.width;
 }
 
-// This function calculates the X position to center text within a container
 float DX11Renderer::CalculateTextWidth(const std::wstring& text, float FontSize, float containerWidth)
 {
-    // Check if DirectWrite factory is initialized
-    if (!m_dwriteFactory) {
-        // Log error and return 0 if factory is not available
-        ThrowError("DirectWrite factory is not initialized.");
-        return 0.0f;
-    }
+    if (!m_dwriteFactory) { ThrowError("DirectWrite factory is not initialized."); return 0.0f; }
 
-    // Create a text format with the specified font size
-    ComPtr<IDWriteTextFormat> m_txtFormat;
-    HRESULT hr = m_dwriteFactory->CreateTextFormat(
-        FontName,                                               // Use the font name from class member
-        nullptr,                                                // No font collection (use system fonts)
-        DWRITE_FONT_WEIGHT_NORMAL,                              // Normal font weight
-        DWRITE_FONT_STYLE_NORMAL,                               // Normal font style
-        DWRITE_FONT_STRETCH_NORMAL,                             // Normal font stretch
-        FontSize,                                               // Font size parameter
-        L"en-us",                                               // Locale identifier
-        &m_txtFormat                                            // Output text format
-    );
+    IDWriteTextFormat* fmt = GetOrCreateTextFormat(FontName, FontSize);
+    if (!fmt) { ThrowError("Failed to get text format for width calculation."); return 0.0f; }
 
-    // Check if text format creation was successful
-    if (FAILED(hr)) {
-        ThrowError("Failed to create text format for center position calculation.");
-        return 0.0f;
-    }
-
-    // Create a text layout for measuring the text dimensions
     ComPtr<IDWriteTextLayout> textLayout;
-    hr = m_dwriteFactory->CreateTextLayout(
-        text.c_str(),                                           // The text to measure
-        static_cast<UINT32>(text.length()),                     // Length of the text (explicitly cast to UINT32)
-        m_txtFormat.Get(),                                      // Text format to use
-        containerWidth,                                         // Maximum width (use container width)
-        1000.0f,                                                // Maximum height (arbitrary large value)
-        &textLayout                                             // Output text layout
-    );
+    HRESULT hr = m_dwriteFactory->CreateTextLayout(
+        text.c_str(), static_cast<UINT32>(text.length()), fmt, containerWidth, 1000.0f, &textLayout);
+    if (FAILED(hr)) { ThrowError("Failed to create text layout for width calculation."); return 0.0f; }
 
-    // Check if text layout creation was successful
-    if (FAILED(hr)) {
-        ThrowError("Failed to create text layout for center position calculation.");
-        return 0.0f;
-    }
-
-    // Get the metrics of the text layout
     DWRITE_TEXT_METRICS textMetrics;
-    hr = textLayout->GetMetrics(&textMetrics);
+    if (FAILED(textLayout->GetMetrics(&textMetrics))) { ThrowError("Failed to get text metrics."); return 0.0f; }
 
-    // Check if metrics retrieval was successful
-    if (FAILED(hr)) {
-        ThrowError("Failed to get text metrics for center position calculation.");
-        return 0.0f;
-    }
-
-    // Calculate the X position that would center the text in the container
-    // For perfect centering, we take half of the container width and subtract half of the text width
     float centerX = (containerWidth - textMetrics.width) / 2.0f;
-
-    // Ensure we don't return a negative position (minimum 0)
     return (centerX < 0.0f) ? 0.0f : centerX;
 }
 
 float DX11Renderer::CalculateTextHeight(const std::wstring& text, float FontSize, float containerHeight) {
-    if (!m_dwriteFactory) {
-        ThrowError("DirectWrite factory or text format is not initialized.");
-        return 0.0f;
-    }
+    if (!m_dwriteFactory) { ThrowError("DirectWrite factory is not initialized."); return 0.0f; }
 
-    ComPtr<IDWriteTextFormat> m_txtFormat;
-    m_dwriteFactory->CreateTextFormat(FontName, nullptr, DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        FontSize, L"en-us", &m_txtFormat);
+    IDWriteTextFormat* fmt = GetOrCreateTextFormat(FontName, FontSize);
+    if (!fmt) { ThrowError("Failed to get text format for height calculation."); return 0.0f; }
 
-    // Create a text layout for the text string
     ComPtr<IDWriteTextLayout> textLayout;
     HRESULT hr = m_dwriteFactory->CreateTextLayout(
-        text.c_str(),                                                       // The text to measure
-        text.length(),                                                      // Length of the text
-        m_txtFormat.Get(),                                                  // Current text format
-        1000.0f,                                                            // Maximum width (arbitrary large value)
-        1000.0f,                                                            // Maximum height (arbitrary large value)
-        &textLayout                                                         // Output text layout
-    );
+        text.c_str(), static_cast<UINT32>(text.length()), fmt, 1000.0f, 1000.0f, &textLayout);
+    if (FAILED(hr)) { ThrowError("Failed to create text layout for height calculation."); return 0.0f; }
 
-    if (FAILED(hr)) {
-        ThrowError("Failed to create text layout for text height calculation.");
-        return 0.0f;
-    }
-
-    // Get the metrics of the text layout
     DWRITE_TEXT_METRICS textMetrics;
-    hr = textLayout->GetMetrics(&textMetrics);
-    if (FAILED(hr)) {
-        ThrowError("Failed to get text metrics for text height calculation.");
-        return 0.0f;
-    }
+    if (FAILED(textLayout->GetMetrics(&textMetrics))) { ThrowError("Failed to get text metrics."); return 0.0f; }
 
-    // Return the height of the text
     return textMetrics.height;
 }
 
@@ -991,239 +898,138 @@ void DX11Renderer::DrawRectangle(const Vector2& position, const Vector2& size, c
     std::lock_guard<std::mutex> lock(s_renderMutex);
 #endif
     if (is2D) {
-        // Direct2D implementation
         if (!m_d2dRenderTarget) return;
-
-        ComPtr<ID2D1SolidColorBrush> brush;
-        DirectX::XMFLOAT4 convColor = ConvertColor(color.r, color.g, color.b, color.a);
-        m_d2dRenderTarget->CreateSolidColorBrush(D2D1::ColorF(convColor.x, convColor.y, convColor.z, convColor.w), &brush);
-        m_d2dRenderTarget->FillRectangle(D2D1::RectF(position.x, position.y, position.x + size.x, position.y + size.y), brush.Get());
+        DirectX::XMFLOAT4 c = ConvertColor(color.r, color.g, color.b, color.a);
+        if (!m_pixelBrush)
+            m_d2dRenderTarget->CreateSolidColorBrush(D2D1::ColorF(c.x, c.y, c.z, c.w), &m_pixelBrush);
+        else
+            m_pixelBrush->SetColor(D2D1::ColorF(c.x, c.y, c.z, c.w));
+        m_d2dRenderTarget->FillRectangle(
+            D2D1::RectF(position.x, position.y, position.x + size.x, position.y + size.y),
+            m_pixelBrush.Get());
     }
     else {
-        // Direct3D implementation
+        if (!m_quadRectVB) return;
         struct Vertex { DirectX::XMFLOAT3 pos; DirectX::XMFLOAT4 color; };
-        DirectX::XMFLOAT4 convColor = ConvertColor(color.r, color.g, color.b, color.a);
+        DirectX::XMFLOAT4 c = ConvertColor(color.r, color.g, color.b, color.a);
         Vertex vertices[] = {
-            { { position.x, position.y, 0.0f }, { convColor.x, convColor.y, convColor.z, convColor.w } },
-            { { position.x + size.x, position.y, 0.0f }, { convColor.x, convColor.y, convColor.z, convColor.w } },
-            { { position.x + size.x, position.y + size.y, 0.0f }, { convColor.x, convColor.y, convColor.z, convColor.w } },
-            { { position.x, position.y + size.y, 0.0f }, { convColor.x, convColor.y, convColor.z, convColor.w } }
+            { { position.x,          position.y,          0.0f }, c },
+            { { position.x + size.x, position.y,          0.0f }, c },
+            { { position.x + size.x, position.y + size.y, 0.0f }, c },
+            { { position.x,          position.y + size.y, 0.0f }, c }
         };
 
-        ComPtr<ID3D11Buffer> vertexBuffer;
-        D3D11_BUFFER_DESC desc = { sizeof(vertices), D3D11_USAGE_DYNAMIC, D3D11_BIND_VERTEX_BUFFER, D3D11_CPU_ACCESS_WRITE };
-        D3D11_SUBRESOURCE_DATA data = { vertices };
-        m_d3dDevice->CreateBuffer(&desc, &data, &vertexBuffer);
+        D3D11_MAPPED_SUBRESOURCE ms = {};
+        if (FAILED(m_d3dContext->Map(m_quadRectVB.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &ms))) return;
+        memcpy(ms.pData, vertices, sizeof(vertices));
+        m_d3dContext->Unmap(m_quadRectVB.Get(), 0);
 
         UINT stride = sizeof(Vertex), offset = 0;
-        m_d3dContext->IASetVertexBuffers(0, 1, vertexBuffer.GetAddressOf(), &stride, &offset);
+        m_d3dContext->IASetVertexBuffers(0, 1, m_quadRectVB.GetAddressOf(), &stride, &offset);
         m_d3dContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         m_d3dContext->Draw(4, 0);
     }
 }
 
 void DX11Renderer::DrawMyTextCentered(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize, float controlWidth, float controlHeight) {
-    if (!m_d2dRenderTarget || !m_dwriteFactory) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Direct2D render target or DirectWrite factory is not initialized.");
-        return;
-    }
+    if (!m_d2dRenderTarget || !m_dwriteFactory) return;
+    if (text.empty() || FontSize <= 0.0f) return;
 
-    // Create text format
+    // This format is modified (alignment), so it cannot safely be shared with the cache.
     ComPtr<IDWriteTextFormat> textFormat;
     HRESULT hr = m_dwriteFactory->CreateTextFormat(
         FontName, nullptr, DWRITE_FONT_WEIGHT_NORMAL,
         DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        FontSize, L"en-us", &textFormat
-    );
+        FontSize, L"en-us", &textFormat);
+    if (FAILED(hr)) return;
 
-    if (FAILED(hr)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to create text format.");
-        return;
-    }
+    textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
-    // Measure text size
     ComPtr<IDWriteTextLayout> textLayout;
     hr = m_dwriteFactory->CreateTextLayout(
         text.c_str(), static_cast<UINT32>(text.size()),
-        textFormat.Get(),  // Use current text format
-        1000.0f, 1000.0f,  // Arbitrary large width & height for measuring
-        &textLayout
-    );
+        textFormat.Get(), 1000.0f, 1000.0f, &textLayout);
+    if (FAILED(hr)) return;
 
-    if (FAILED(hr)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to create text layout.");
-        return;
-    }
-
-    // Calculate centered position
-    // Set text alignment to centered
-    textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-
-    // Set paragraph alignment to centered vertically
-    textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-
-    // Get text size
     DWRITE_TEXT_METRICS textMetrics;
     textLayout->GetMetrics(&textMetrics);
 
-    float centeredX = position.x + (controlWidth / 2.0f) - (textMetrics.width / 2.0f);
+    float centeredX = position.x + (controlWidth  / 2.0f) - (textMetrics.width  / 2.0f);
     float centeredY = position.y + (controlHeight / 2.0f) - (textMetrics.height / 2.0f);
 
-    // Create solid color brush
-    ComPtr<ID2D1SolidColorBrush> brush;
-    m_d2dRenderTarget->CreateSolidColorBrush(D2D1::ColorF(color.r, color.g, color.b, color.a), &brush);
+    float r = color.r / 255.0f, g = color.g / 255.0f, b = color.b / 255.0f, a = color.a / 255.0f;
+    if (!m_pixelBrush)
+        m_d2dRenderTarget->CreateSolidColorBrush(D2D1::ColorF(r, g, b, a), &m_pixelBrush);
+    else
+        m_pixelBrush->SetColor(D2D1::ColorF(r, g, b, a));
 
-    // Draw text centered within the button's bounds
     m_d2dRenderTarget->DrawText(
-        text.c_str(),
-        static_cast<UINT32>(text.size()),
-        textFormat.Get(),
+        text.c_str(), static_cast<UINT32>(text.size()), textFormat.Get(),
         D2D1::RectF(centeredX, centeredY, centeredX + textMetrics.width, centeredY + textMetrics.height),
-        brush.Get()
+        m_pixelBrush.Get()
     );
 }
 
 void DX11Renderer::DrawMyText(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize) {
-    // Early exit checks
     if (!m_d2dRenderTarget || !m_dwriteFactory) return;
     if (text.empty() || FontSize <= 0.0f) return;
 
-    // Create text format - keep it simple
-    ComPtr<IDWriteTextFormat> textFormat;
-    HRESULT hr = m_dwriteFactory->CreateTextFormat(
-        FontName, nullptr, DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        FontSize, L"en-us", &textFormat
-    );
+    IDWriteTextFormat* textFormat = GetOrCreateTextFormat(FontName, FontSize);
+    if (!textFormat) return;
 
-    if (FAILED(hr)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"DrawMyText: Failed to create text format");
-        return;
-    }
+    float r = color.r / 255.0f, g = color.g / 255.0f, b = color.b / 255.0f, a = color.a / 255.0f;
+    if (!m_pixelBrush)
+        m_d2dRenderTarget->CreateSolidColorBrush(D2D1::ColorF(r, g, b, a), &m_pixelBrush);
+    else
+        m_pixelBrush->SetColor(D2D1::ColorF(r, g, b, a));
 
-    // CORRECTED: Convert MyColor uint8_t (0-255) to float (0.0-1.0) for Direct2D
-    float r = static_cast<float>(color.r) / 255.0f;                            // Convert red from 0-255 to 0.0-1.0
-    float g = static_cast<float>(color.g) / 255.0f;                            // Convert green from 0-255 to 0.0-1.0
-    float b = static_cast<float>(color.b) / 255.0f;                            // Convert blue from 0-255 to 0.0-1.0
-    float a = static_cast<float>(color.a) / 255.0f;                            // Convert alpha from 0-255 to 0.0-1.0
-
-    // Create brush with the correct normalized values
-    ComPtr<ID2D1SolidColorBrush> brush;
-    hr = m_d2dRenderTarget->CreateSolidColorBrush(D2D1::ColorF(r, g, b, a), &brush);
-    if (FAILED(hr)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"DrawMyText: Failed to create brush");
-        return;
-    }
-
-    // Simple destination rectangle
-    D2D1_RECT_F destRect = D2D1::RectF(
-        position.x,
-        position.y,
-        position.x + 1000.0f,
-        position.y + 200.0f
-    );
-
-    // Render the text with transparency support
     m_d2dRenderTarget->DrawText(
-        text.c_str(),
-        static_cast<UINT32>(text.size()),
-        textFormat.Get(),
-        destRect,
-        brush.Get()
+        text.c_str(), static_cast<UINT32>(text.size()), textFormat,
+        D2D1::RectF(position.x, position.y, position.x + 1000.0f, position.y + 200.0f),
+        m_pixelBrush.Get()
     );
-
-/*
-#if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-    // Debug transparency values
-    debug.logDebugMessage(LogLevel::LOG_DEBUG,
-        L"DrawMyText: MyColor(%d,%d,%d,%d) -> Float(%.3f,%.3f,%.3f,%.3f) Text='%s'",
-        color.r, color.g, color.b, color.a, r, g, b, a, text.substr(0, 20).c_str());
-#endif
-*/
 }
 
 void DX11Renderer::DrawMyText(const std::wstring& text, const Vector2& position, const Vector2& size, const MyColor& color, const float FontSize) {
     if (!m_d2dRenderTarget || !m_dwriteFactory) return;
+    if (text.empty() || FontSize <= 0.0f) return;
 
-    // Create text format if missing
-    ComPtr<IDWriteTextFormat> m_txtFormat;
-    m_dwriteFactory->CreateTextFormat(FontName, nullptr, DWRITE_FONT_WEIGHT_NORMAL,
-                                      DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-                                      FontSize, L"en-us", &m_txtFormat);
+    IDWriteTextFormat* fmt = GetOrCreateTextFormat(FontName, FontSize);
+    if (!fmt) return;
 
-    ComPtr<ID2D1SolidColorBrush> brush;
-    m_d2dRenderTarget->CreateSolidColorBrush(D2D1::ColorF(color.r, color.g, color.b, color.a), &brush);
+    float r = color.r / 255.0f, g = color.g / 255.0f, b = color.b / 255.0f, a = color.a / 255.0f;
+    if (!m_pixelBrush)
+        m_d2dRenderTarget->CreateSolidColorBrush(D2D1::ColorF(r, g, b, a), &m_pixelBrush);
+    else
+        m_pixelBrush->SetColor(D2D1::ColorF(r, g, b, a));
 
-    std::wstring wtext(text.begin(), text.end());
     m_d2dRenderTarget->DrawText(
-        wtext.c_str(),
-        static_cast<UINT32>(wtext.size()),
-        m_txtFormat.Get(),
-        D2D1::RectF(position.x, position.y, position.x + size.x, position.y + size.y), brush.Get()
+        text.c_str(), static_cast<UINT32>(text.size()), fmt,
+        D2D1::RectF(position.x, position.y, position.x + size.x, position.y + size.y),
+        m_pixelBrush.Get()
     );
 }
 
 void DX11Renderer::DrawMyTextWithFont(const std::wstring& text, const Vector2& position, const MyColor& color,
     const float FontSize, const std::wstring& fontName) {
-    // Early exit checks
     if (!m_d2dRenderTarget || !m_dwriteFactory) return;
     if (text.empty() || FontSize <= 0.0f) return;
 
-    // Create text format with specified font name - keep it simple
-    ComPtr<IDWriteTextFormat> textFormat;
-    HRESULT hr = m_dwriteFactory->CreateTextFormat(
-        fontName.c_str(),                                                       // Use specified font name
-        nullptr,                                                                // No font collection
-        DWRITE_FONT_WEIGHT_NORMAL,                                              // Normal font weight
-        DWRITE_FONT_STYLE_NORMAL,                                               // Normal font style
-        DWRITE_FONT_STRETCH_NORMAL,                                             // Normal font stretch
-        FontSize,                                                               // Font size parameter
-        L"en-us",                                                               // Locale identifier
-        &textFormat                                                             // Output text format
-    );
+    IDWriteTextFormat* textFormat = GetOrCreateTextFormat(fontName.c_str(), FontSize);
+    if (!textFormat) return;
 
-    if (FAILED(hr)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"DrawMyTextWithFont: Failed to create text format with font: " + fontName);
-        return;
-    }
+    float r = color.r / 255.0f, g = color.g / 255.0f, b = color.b / 255.0f, a = color.a / 255.0f;
+    if (!m_pixelBrush)
+        m_d2dRenderTarget->CreateSolidColorBrush(D2D1::ColorF(r, g, b, a), &m_pixelBrush);
+    else
+        m_pixelBrush->SetColor(D2D1::ColorF(r, g, b, a));
 
-    // CORRECTED: Convert MyColor uint8_t (0-255) to float (0.0-1.0) for Direct2D
-    float r = static_cast<float>(color.r) / 255.0f;                            // Convert red from 0-255 to 0.0-1.0
-    float g = static_cast<float>(color.g) / 255.0f;                            // Convert green from 0-255 to 0.0-1.0
-    float b = static_cast<float>(color.b) / 255.0f;                            // Convert blue from 0-255 to 0.0-1.0
-    float a = static_cast<float>(color.a) / 255.0f;                            // Convert alpha from 0-255 to 0.0-1.0
-
-    // Create brush with the correct normalized values
-    ComPtr<ID2D1SolidColorBrush> brush;
-    hr = m_d2dRenderTarget->CreateSolidColorBrush(D2D1::ColorF(r, g, b, a), &brush);
-    if (FAILED(hr)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"DrawMyTextWithFont: Failed to create brush");
-        return;
-    }
-
-    // Simple destination rectangle
-    D2D1_RECT_F destRect = D2D1::RectF(
-        position.x,
-        position.y,
-        position.x + 1000.0f,
-        position.y + 200.0f
-    );
-
-    // Render the text with transparency support using specified font
     m_d2dRenderTarget->DrawText(
-        text.c_str(),
-        static_cast<UINT32>(text.size()),
-        textFormat.Get(),                                                       // Use custom text format with specified font
-        destRect,
-        brush.Get()
+        text.c_str(), static_cast<UINT32>(text.size()), textFormat,
+        D2D1::RectF(position.x, position.y, position.x + 1000.0f, position.y + 200.0f),
+        m_pixelBrush.Get()
     );
-
-#if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-    // Debug font and transparency values
-    debug.logDebugMessage(LogLevel::LOG_DEBUG,
-        L"DrawMyTextWithFont: Font='%s' MyColor(%d,%d,%d,%d) -> Float(%.3f,%.3f,%.3f,%.3f) Text='%s'",
-        fontName.c_str(), color.r, color.g, color.b, color.a, r, g, b, a, text.substr(0, 20).c_str());
-#endif
 }
 
 void DX11Renderer::DrawTexture(int textureIndex, const Vector2& position, const Vector2& size, const MyColor& tintColor, bool is2D) {
@@ -1234,46 +1040,34 @@ void DX11Renderer::DrawTexture(int textureIndex, const Vector2& position, const 
     if (is2D) {
         if (textureIndex < 0 || textureIndex >= MAX_TEXTURE_BUFFERS || !m_d2dTextures[textureIndex]) return;
 
-        // Convert tintColor to D2D1_COLOR_F
-        D2D1_COLOR_F d2dTintColor = D2D1::ColorF(
-            tintColor.r,
-            tintColor.g,
-            tintColor.b,
-            tintColor.a
-        );
-
-        // Create a color brush for tinting if needed
-        ComPtr<ID2D1SolidColorBrush> tintBrush;
-        m_d2dRenderTarget->CreateSolidColorBrush(d2dTintColor, &tintBrush);
-
-        // The correct Direct2D DrawBitmap signature for DX11:
         m_d2dRenderTarget->DrawBitmap(
             m_d2dTextures[textureIndex].Get(),
             D2D1::RectF(position.x, position.y, position.x + size.x, position.y + size.y),
-            tintColor.a,  // opacity
+            tintColor.a,
             D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,
-            nullptr  // source rectangle (nullptr means entire bitmap)
+            nullptr
         );
     }
     else {
         if (textureIndex < 0 || textureIndex >= MAX_TEXTURE_BUFFERS_3D || !m_d3dTextures[textureIndex]) return;
+        if (!m_quadTexVB) return;
 
         struct Vertex { DirectX::XMFLOAT3 pos; DirectX::XMFLOAT2 uv; };
         Vertex vertices[] = {
-            { { position.x, position.y, 0.0f }, { 0.0f, 0.0f } },
-            { { position.x + size.x, position.y, 0.0f }, { 1.0f, 0.0f } },
+            { { position.x,          position.y,          0.0f }, { 0.0f, 0.0f } },
+            { { position.x + size.x, position.y,          0.0f }, { 1.0f, 0.0f } },
             { { position.x + size.x, position.y + size.y, 0.0f }, { 1.0f, 1.0f } },
-            { { position.x, position.y + size.y, 0.0f }, { 0.0f, 1.0f } }
+            { { position.x,          position.y + size.y, 0.0f }, { 0.0f, 1.0f } }
         };
 
-        ComPtr<ID3D11Buffer> vertexBuffer;
-        D3D11_BUFFER_DESC desc = { sizeof(vertices), D3D11_USAGE_DYNAMIC, D3D11_BIND_VERTEX_BUFFER, D3D11_CPU_ACCESS_WRITE };
-        D3D11_SUBRESOURCE_DATA data = { vertices };
-        m_d3dDevice->CreateBuffer(&desc, &data, &vertexBuffer);
+        D3D11_MAPPED_SUBRESOURCE ms = {};
+        if (FAILED(m_d3dContext->Map(m_quadTexVB.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &ms))) return;
+        memcpy(ms.pData, vertices, sizeof(vertices));
+        m_d3dContext->Unmap(m_quadTexVB.Get(), 0);
 
         m_d3dContext->PSSetShaderResources(0, 1, m_d3dTextures[textureIndex].GetAddressOf());
         UINT stride = sizeof(Vertex), offset = 0;
-        m_d3dContext->IASetVertexBuffers(0, 1, vertexBuffer.GetAddressOf(), &stride, &offset);
+        m_d3dContext->IASetVertexBuffers(0, 1, m_quadTexVB.GetAddressOf(), &stride, &offset);
         m_d3dContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         m_d3dContext->Draw(4, 0);
     }
@@ -1297,84 +1091,60 @@ void DX11Renderer::DrawVideoFrame(const Vector2& position, const Vector2& size, 
     // No need to acquire it again to avoid deadlocks
 
     try {
-        // Get the texture description to determine dimensions
         D3D11_TEXTURE2D_DESC textureDesc = {};
         videoTexture->GetDesc(&textureDesc);
 
-        // Create a staging texture for CPU access if needed
-        ComPtr<ID3D11Texture2D> stagingTexture;
-        D3D11_TEXTURE2D_DESC stagingDesc = textureDesc;
-        stagingDesc.Usage = D3D11_USAGE_STAGING;
-        stagingDesc.BindFlags = 0;
-        stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-        stagingDesc.MiscFlags = 0;
-
-        HRESULT hr = m_d3dDevice->CreateTexture2D(&stagingDesc, nullptr, &stagingTexture);
-        if (FAILED(hr))
+        // Recreate staging texture only when dimensions change (not every frame)
+        if (!m_videoStagingTex || m_videoStagingW != textureDesc.Width || m_videoStagingH != textureDesc.Height)
         {
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to create staging texture");
-            return;
+            m_videoStagingTex.Reset();
+            m_videoBitmap.Reset();
+            D3D11_TEXTURE2D_DESC stagingDesc = textureDesc;
+            stagingDesc.Usage          = D3D11_USAGE_STAGING;
+            stagingDesc.BindFlags      = 0;
+            stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            stagingDesc.MiscFlags      = 0;
+            HRESULT hr = m_d3dDevice->CreateTexture2D(&stagingDesc, nullptr, &m_videoStagingTex);
+            if (FAILED(hr)) { debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to create staging texture"); return; }
+            m_videoStagingW = textureDesc.Width;
+            m_videoStagingH = textureDesc.Height;
         }
 
-        // Copy the video texture to the staging texture
-        m_d3dContext->CopyResource(stagingTexture.Get(), videoTexture.Get());
+        m_d3dContext->CopyResource(m_videoStagingTex.Get(), videoTexture.Get());
 
-        // Map the staging texture to get pixel data
-        D3D11_MAPPED_SUBRESOURCE mappedResource;
-        hr = m_d3dContext->Map(stagingTexture.Get(), 0, D3D11_MAP_READ, 0, &mappedResource);
-        if (FAILED(hr))
-        {
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to map staging texture");
-            return;
-        }
+        D3D11_MAPPED_SUBRESOURCE mapped = {};
+        HRESULT hr = m_d3dContext->Map(m_videoStagingTex.Get(), 0, D3D11_MAP_READ, 0, &mapped);
+        if (FAILED(hr)) { debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to map staging texture"); return; }
 
-        // Check if Direct2D is currently being used for rendering
-        // Try to acquire the D2D draw lock
         ThreadLockHelper d2dLock(threadManager, "d2d_draw_lock", 1000);
         if (!d2dLock.IsLocked()) {
-            // If we can't get the lock, unmap and return
-            m_d3dContext->Unmap(stagingTexture.Get(), 0);
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Could not acquire D2D draw lock - skipping video frame");
+            m_d3dContext->Unmap(m_videoStagingTex.Get(), 0);
             return;
         }
 
-        // Create D2D bitmap from the pixel data
-        D2D1_SIZE_U bitmapSize = D2D1::SizeU(textureDesc.Width, textureDesc.Height);
-        D2D1_BITMAP_PROPERTIES bitmapProps = D2D1::BitmapProperties(
-            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)
-        );
-
-        ComPtr<ID2D1Bitmap> d2dBitmap;
-        hr = m_d2dRenderTarget->CreateBitmap(
-            bitmapSize,
-            mappedResource.pData,
-            mappedResource.RowPitch,
-            bitmapProps,
-            &d2dBitmap
-        );
-
-        // Unmap the staging texture
-        m_d3dContext->Unmap(stagingTexture.Get(), 0);
-
-        if (FAILED(hr))
+        // Reuse the D2D bitmap across frames — update pixels via CopyFromMemory instead of recreating
+        if (!m_videoBitmap)
         {
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to create D2D bitmap");
-            return;
+            D2D1_BITMAP_PROPERTIES props = D2D1::BitmapProperties(
+                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+            hr = m_d2dRenderTarget->CreateBitmap(
+                D2D1::SizeU(textureDesc.Width, textureDesc.Height),
+                mapped.pData, mapped.RowPitch, props, &m_videoBitmap);
+        }
+        else
+        {
+            D2D1_RECT_U updateRect = D2D1::RectU(0, 0, textureDesc.Width, textureDesc.Height);
+            hr = m_videoBitmap->CopyFromMemory(&updateRect, mapped.pData, mapped.RowPitch);
         }
 
-        // Now draw the bitmap with Direct2D
-        D2D1_RECT_F destRect = D2D1::RectF(
-            position.x,
-            position.y,
-            position.x + size.x,
-            position.y + size.y
-        );
+        m_d3dContext->Unmap(m_videoStagingTex.Get(), 0);
 
-        // Draw the bitmap
+        if (FAILED(hr)) { debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to update video bitmap"); return; }
+
         m_d2dRenderTarget->DrawBitmap(
-            d2dBitmap.Get(),
-            destRect,
-            tintColor.a,  // opacity
+            m_videoBitmap.Get(),
+            D2D1::RectF(position.x, position.y, position.x + size.x, position.y + size.y),
+            tintColor.a,
             D2D1_BITMAP_INTERPOLATION_MODE_LINEAR
         );
     }
@@ -1470,6 +1240,7 @@ bool DX11Renderer::Resize(uint32_t width, uint32_t height)
         #endif
         Clean2DTextures();
         m_pixelBrush.Reset();
+        m_videoBitmap.Reset();  // tied to m_d2dRenderTarget — must release before it
 
         // Now release the render target (no derived resources alive → ref count reaches 0
         // immediately, releasing the internal IDXGISurface ref on the swap chain back buffer).

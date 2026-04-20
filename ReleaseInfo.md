@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.942*
+*Current Build Version: v0.0.946*
 
 ---
 
@@ -354,6 +354,7 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - Fixed Screen Resizing Issues.
 - Fixed Render Bug in GUIManager.cpp
 - Fixed compile errors for Releasse version.
+- Optimisation of code.
 
 ---
 

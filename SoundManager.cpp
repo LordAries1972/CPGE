@@ -64,6 +64,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
 #include "SoundManager.h"
 #include "Debug.h"
 
+#pragma warning(push)
+#pragma warning(disable: 4267)                  // Suppress size_t conversion warnings
+
 #pragma comment(lib, "dsound.lib")
 #pragma comment(lib, "dxguid.lib")
 #pragma comment(lib, "winmm.lib")
@@ -115,9 +118,9 @@ bool SoundManager::Initialize(HWND hwnd) {
     }
 
     m_initialized = true;
-#if defined(_DEBUG_SOUNDMANAGER_)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"SoundManager initialized using DirectSound");
-#endif
+    #if defined(_DEBUG_SOUNDMANAGER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"SoundManager initialized using DirectSound");
+    #endif
     return true;
 }
 
@@ -126,14 +129,14 @@ void SoundManager::LoadAllSFX() {
         LoadedSFX sfx;
         if (LoadSFXFile(entry.second, sfx)) {
             fileList[entry.first] = sfx;
-#if defined(_DEBUG_SOUNDMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_INFO, L"Preloaded: " + entry.second);
-#endif
+            #if defined(_DEBUG_SOUNDMANAGER_)
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"Preloaded: " + entry.second);
+            #endif
         }
         else {
-#if defined(_DEBUG_SOUNDMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to preload: " + entry.second);
-#endif
+            #if defined(_DEBUG_SOUNDMANAGER_)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to preload: " + entry.second);
+            #endif
         }
     }
 }
@@ -145,9 +148,9 @@ void SoundManager::AddToQueue(SFX_ID id, float volume, StereoBalance balance, Pl
 void SoundManager::AddToQueue(SFX_ID id, float volume, StereoBalance balance, PlaybackType type, float timeout, SFX_PRIORITY priority, bool useFadeIn) {
     auto it = fileList.find(id);
     if (it == fileList.end()) {
-#if defined(_DEBUG_SOUNDMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"AddToQueue failed: SFX_ID not found");
-#endif
+        #if defined(_DEBUG_SOUNDMANAGER_)
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"AddToQueue failed: SFX_ID not found");
+        #endif
         return;
     }
 
@@ -158,9 +161,9 @@ void SoundManager::AddToQueue(SFX_ID id, float volume, StereoBalance balance, Pl
         float elapsed = std::chrono::duration<float>(now - lastIt->second).count();
         auto cooldownIt = m_sfxCooldown.find(id);
         if (cooldownIt != m_sfxCooldown.end() && elapsed < cooldownIt->second) {
-#if defined(_DEBUG_SOUNDMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Cooldown active - Skipping ID: " + std::to_wstring(static_cast<int>(id)));
-#endif
+            #if defined(_DEBUG_SOUNDMANAGER_)
+                debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Cooldown active - Skipping ID: " + std::to_wstring(static_cast<int>(id)));
+            #endif
             return;
         }
     }
@@ -214,32 +217,32 @@ void SoundManager::AddToQueue(SFX_ID id, float volume, StereoBalance balance, Pl
         m_lastPlayedTime[id] = now;
     }
 
-#if defined(_DEBUG_SOUNDMANAGER_)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"Added sound to queue - ID: " + std::to_wstring(static_cast<int>(id)) +
-        L", priority: " + std::to_wstring(static_cast<int>(priority)));
-#endif
+    #if defined(_DEBUG_SOUNDMANAGER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"Added sound to queue - ID: " + std::to_wstring(static_cast<int>(id)) +
+            L", priority: " + std::to_wstring(static_cast<int>(priority)));
+    #endif
 }
 
 void SoundManager::SetGlobalVolume(float volume) {
     m_globalVolume = std::clamp(volume, 0.0f, 1.0f);
-#if defined(_DEBUG_SOUNDMANAGER_)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"Global volume set to: " + std::to_wstring(m_globalVolume));
-#endif
+    #if defined(_DEBUG_SOUNDMANAGER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"Global volume set to: " + std::to_wstring(m_globalVolume));
+    #endif
 }
 
 void SoundManager::SetCooldown(SFX_ID id, float seconds) {
     m_sfxCooldown[id] = seconds;
-#if defined(_DEBUG_SOUNDMANAGER_)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"Cooldown set - ID: " + std::to_wstring(static_cast<int>(id)) + L", seconds: " + std::to_wstring(seconds));
-#endif
+    #if defined(_DEBUG_SOUNDMANAGER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"Cooldown set - ID: " + std::to_wstring(static_cast<int>(id)) + L", seconds: " + std::to_wstring(seconds));
+    #endif
 }
 
 void SoundManager::ClearCooldown(SFX_ID id) {
     m_sfxCooldown.erase(id);
     m_lastPlayedTime.erase(id);
-#if defined(_DEBUG_SOUNDMANAGER_)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"Cooldown cleared - ID: " + std::to_wstring(static_cast<int>(id)));
-#endif
+    #if defined(_DEBUG_SOUNDMANAGER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"Cooldown cleared - ID: " + std::to_wstring(static_cast<int>(id)));
+    #endif
 }
 
 bool SoundManager::ParseWaveFile(const BYTE* data, size_t size, LoadedSFX& result) {
@@ -285,13 +288,13 @@ bool SoundManager::ParseWaveFile(const BYTE* data, size_t size, LoadedSFX& resul
 
     result.audioData.assign(dataChunk, dataChunk + dataSize);
 
-#if defined(_DEBUG_SOUNDMANAGER_)
-    debug.logLevelMessage(LogLevel::LOG_DEBUG,
-        L"Loaded WAV Format: tag=" + std::to_wstring(result.waveFormat.wFormatTag) +
-        L", channels=" + std::to_wstring(result.waveFormat.nChannels) +
-        L", rate=" + std::to_wstring(result.waveFormat.nSamplesPerSec) +
-        L", bits=" + std::to_wstring(result.waveFormat.wBitsPerSample));
-#endif
+    #if defined(_DEBUG_SOUNDMANAGER_)
+        debug.logLevelMessage(LogLevel::LOG_DEBUG,
+            L"Loaded WAV Format: tag=" + std::to_wstring(result.waveFormat.wFormatTag) +
+            L", channels=" + std::to_wstring(result.waveFormat.nChannels) +
+            L", rate=" + std::to_wstring(result.waveFormat.nSamplesPerSec) +
+            L", bits=" + std::to_wstring(result.waveFormat.wBitsPerSample));
+    #endif
     return true;
 }
 
@@ -316,9 +319,9 @@ bool SoundManager::LoadSFXFile(const std::wstring& filename, LoadedSFX& outSfx) 
         return false;
     }
 
-#if defined(_DEBUG_SOUNDMANAGER_)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"Successfully loaded SFX file: " + filename);
-#endif
+    #if defined(_DEBUG_SOUNDMANAGER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"Successfully loaded SFX file: " + filename);
+    #endif
     return true;
 }
 
@@ -362,9 +365,9 @@ void SoundManager::PlayImmediateSFX(SFX_ID id) {
     tempBuffer->SetVolume(DSBVOLUME_MAX);
     tempBuffer->Play(0, 0, 0);
 
-#if defined(_DEBUG_SOUNDMANAGER_)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"DirectSound: Immediate SFX played");
-#endif
+    #if defined(_DEBUG_SOUNDMANAGER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"DirectSound: Immediate SFX played");
+    #endif
 }
 
 void SoundManager::UpdateFadeInVolumes() {
@@ -391,10 +394,10 @@ void SoundManager::UpdateFadeInVolumes() {
         // In real implementation, we'd track the DirectSound buffer pointer in item or elsewhere.
         if (item.buffer) item.buffer->SetVolume(volumeDb);
 
-#if defined(_DEBUG_SOUNDMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Fade-in update - ID: " + std::to_wstring(static_cast<int>(item.id)) +
-            L" fadeRatio: " + std::to_wstring(fadeRatio) + L" db: " + std::to_wstring(volumeDb));
-#endif
+            #if defined(_DEBUG_SOUNDMANAGER_)
+                debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Fade-in update - ID: " + std::to_wstring(static_cast<int>(item.id)) +
+                    L" fadeRatio: " + std::to_wstring(fadeRatio) + L" db: " + std::to_wstring(volumeDb));
+            #endif
     }
 }
 
@@ -418,9 +421,9 @@ void SoundManager::PlayQueueList() {
         if (expired || timeout) {
             item.buffer->Stop();
             item.buffer->Release();
-#if defined(_DEBUG_SOUNDMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[PlayQueueList] Sound expired and removed - ID: " + std::to_wstring(static_cast<int>(item.id)));
-#endif
+            #if defined(_DEBUG_SOUNDMANAGER_)
+                debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[PlayQueueList] Sound expired and removed - ID: " + std::to_wstring(static_cast<int>(item.id)));
+            #endif
             return true;
         }
 
@@ -443,18 +446,18 @@ void SoundManager::PlayQueueList() {
 
         LPDIRECTSOUNDBUFFER buffer = nullptr;
         if (FAILED(m_directSound->CreateSoundBuffer(&desc, &buffer, nullptr))) {
-#if defined(_DEBUG_SOUNDMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"PlayQueueList: CreateSoundBuffer failed");
-#endif
+            #if defined(_DEBUG_SOUNDMANAGER_)
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"PlayQueueList: CreateSoundBuffer failed");
+            #endif
             continue;
         }
 
         void* ptr = nullptr;
         DWORD size = 0;
         if (FAILED(buffer->Lock(0, item.audioData.size(), &ptr, &size, nullptr, nullptr, 0))) {
-#if defined(_DEBUG_SOUNDMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"PlayQueueList: Lock failed");
-#endif
+            #if defined(_DEBUG_SOUNDMANAGER_)
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"PlayQueueList: Lock failed");
+            #endif
             buffer->Release();
             continue;
         }
@@ -479,9 +482,9 @@ void SoundManager::PlayQueueList() {
         item.playTime = now;
         item.isPlaying = true;
 
-#if defined(_DEBUG_SOUNDMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_INFO, L"PlayQueueList: Playing SFX - ID: " + std::to_wstring(static_cast<int>(item.id)));
-#endif
+        #if defined(_DEBUG_SOUNDMANAGER_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"PlayQueueList: Playing SFX - ID: " + std::to_wstring(static_cast<int>(item.id)));
+        #endif
     }
 }
 
@@ -498,34 +501,36 @@ void SoundManager::CleanUp() {
         m_directSound = nullptr;
     }
 
-#if defined(_DEBUG_SOUNDMANAGER_)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"SoundManager cleanup completed");
-#endif
+    #if defined(_DEBUG_SOUNDMANAGER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"SoundManager cleanup completed");
+    #endif
 }
 
 void SoundManager::StartPlaybackThread() {
     m_terminationFlag = false;
     m_workerThread = std::thread([this]() {
-#if defined(_DEBUG_SOUNDMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_INFO, L"[SoundThread] Playback thread started");
-#endif
+        #if defined(_DEBUG_SOUNDMANAGER_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[SoundThread] Playback thread started");
+        #endif
         while (!m_terminationFlag) {
             PlayQueueList();
             UpdateFadeInVolumes();
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
-#if defined(_DEBUG_SOUNDMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_INFO, L"[SoundThread] Playback thread terminating");
-#endif
-        });
+        #if defined(_DEBUG_SOUNDMANAGER_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[SoundThread] Playback thread terminating");
+        #endif
+    });
 }
 
 void SoundManager::StopPlaybackThread() {
     m_terminationFlag = true;
     if (m_workerThread.joinable()) {
         m_workerThread.join();
-#if defined(_DEBUG_SOUNDMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_INFO, L"[SoundThread] Playback thread stopped");
-#endif
+        #if defined(_DEBUG_SOUNDMANAGER_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[SoundThread] Playback thread stopped");
+        #endif
     }
 }
+
+#pragma warning(pop)

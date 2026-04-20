@@ -205,6 +205,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 #include <cfloat>                                       // for FLT_MAX
 #include <vector>                                       // For std::vector
 #include <unordered_map>                                // For std::unordered_map
+#include <unordered_set>                                // For std::unordered_set
 #include <map>				                            // Used for mapping spec indices to object hierarchy
 
 //------------------------------------------

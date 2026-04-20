@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(powershell.exe -Command \"dir 'C:\\\\Program Files \\(x86\\)\\\\Microsoft Visual Studio' | select Name\")",
+      "Bash(powershell.exe -Command \"vswhere.exe -latest -requires Microsoft.Component.MSBuild -find MSBuild\\\\**\\\\Bin\\\\MSBuild.exe 2>&1\")"
+    ]
+  }
+}

@@ -369,6 +369,38 @@ private:
 
     // Mutexes for thread safety
     static std::mutex s_loaderMutex;
+
+    // --- Perf: Text format cache (avoids CreateTextFormat every draw call) ---
+    struct TextFormatKey {
+        std::wstring fontName;
+        float        fontSize;
+        bool operator==(const TextFormatKey& o) const noexcept {
+            return fontSize == o.fontSize && fontName == o.fontName;
+        }
+    };
+    struct TextFormatKeyHash {
+        size_t operator()(const TextFormatKey& k) const noexcept {
+            size_t h = std::hash<std::wstring>()(k.fontName);
+            h ^= std::hash<float>()(k.fontSize) + 0x9e3779b9u + (h << 6) + (h >> 2);
+            return h;
+        }
+    };
+    std::unordered_map<TextFormatKey, ComPtr<IDWriteTextFormat>, TextFormatKeyHash> m_textFormatCache;
+    IDWriteTextFormat* GetOrCreateTextFormat(const wchar_t* fontName, float fontSize);
+    void               InvalidateTextFormatCache();
+
+    // --- Perf: Video staging texture + D2D bitmap cache (avoids per-frame GPU alloc) ---
+    ComPtr<ID3D11Texture2D> m_videoStagingTex;
+    ComPtr<ID2D1Bitmap>     m_videoBitmap;
+    UINT m_videoStagingW = 0;
+    UINT m_videoStagingH = 0;
+
+    // --- Perf: Persistent dynamic quad vertex buffers (avoids per-call CreateBuffer) ---
+    ComPtr<ID3D11Buffer> m_quadTexVB;   // DrawTexture  3D: {XMFLOAT3 pos, XMFLOAT2 uv}  x4 = 80 B
+    ComPtr<ID3D11Buffer> m_quadRectVB;  // DrawRectangle 3D: {XMFLOAT3 pos, XMFLOAT4 col} x4 = 112 B
+
+    // --- Perf: O(1) blit-queue duplicate check ---
+    std::unordered_set<int> m_blitActiveIDs;
 };
 
 // We must do this so that our renderers know of our global reference
