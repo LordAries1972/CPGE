@@ -1305,6 +1305,17 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     // Wait for RenderFrame() & GPU to complete, then to safely pause renderer thread
                     renderer->WaitToFinishThenPauseThread();
 
+                    // Pause the loader thread and wait for it to stop before resize
+                    threadManager.PauseThread(THREAD_LOADER);
+                    {
+                        int loaderWait = 0;
+                        while (threadManager.GetThreadStatus(THREAD_LOADER) == ThreadStatus::Running && loaderWait < 200)
+                        {
+                            Sleep(10);
+                            ++loaderWait;
+                        }
+                    }
+
                     // Free all resources required for DirectX resize process
                     #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
                         debug.logLevelMessage(LogLevel::LOG_INFO, L"[WM_SIZE] Step 3: Freeing DirectX resources for resize");

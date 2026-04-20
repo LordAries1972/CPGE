@@ -1481,6 +1481,11 @@ bool DX11Renderer::Resize(uint32_t width, uint32_t height)
         m_d2dDevice.Reset();
         dxgiSurface.Reset();
 
+        // Flush GPU again now that all D2D objects (which wrap the DXGI surface) are released,
+        // ensuring the driver processes the releases before we unbind the D3D pipeline.
+        m_d3dContext->Flush();
+        WaitForGPUToFinish();
+
         // Unbind everything from the pipeline so no outstanding references remain
         #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
             debug.logLevelMessage(LogLevel::LOG_INFO, L"[RESIZE] Step 4: Clearing D3D pipeline bindings");
@@ -1764,9 +1769,11 @@ void DX11Renderer::WaitToFinishThenPauseThread() {
 
 void DX11Renderer::ResumeLoader(bool isResizing)
 {
-    // If we are resuming due to a resize operation then remember that state for loader logic.
+    // Track whether this resume is for a resize-only reload (textures only) or a full scene reload.
     if (isResizing) {
         wasResizing.store(true);
+    } else {
+        wasResizing.store(false);
     }
 
     // Ensure we clear any transient Direct2D busy state so the loader can proceed.
@@ -2420,6 +2427,18 @@ bool DX11Renderer::SetFullScreen(void)
         m_d2dContext.Reset();                                                   // Release D2D context
         dxgiSurface.Reset();                                                    // Release DXGI surface
         Clean2DTextures();                                                      // Clean up 2D textures
+
+        // Clear D3D11 pipeline bindings so the context releases its RTV/DSV references
+        // before we reset the views — without this, ResizeBuffers sees outstanding refs.
+        if (m_d3dContext) {
+            m_d3dContext->OMSetRenderTargets(0, nullptr, nullptr);
+            ID3D11ShaderResourceView* nullSRV[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = { nullptr };
+            m_d3dContext->PSSetShaderResources(0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT, nullSRV);
+            m_d3dContext->ClearState();
+            m_d3dContext->Flush();
+        }
+        WaitForGPUToFinish();
+
         m_renderTargetView.Reset();                                             // Release 3D render target
         m_depthStencilView.Reset();                                             // Release depth stencil view
         m_depthStencilBuffer.Reset();                                           // Release depth stencil buffer
@@ -2665,6 +2684,18 @@ bool DX11Renderer::SetFullExclusive(uint32_t width, uint32_t height)
         m_d2dContext.Reset();           // Release Direct2D context
         dxgiSurface.Reset();            // Release DXGI surface
         Clean2DTextures();              // Clean up 2D textures
+
+        // Clear D3D11 pipeline bindings so the context releases its RTV/DSV references
+        // before we reset the views — without this, ResizeBuffers sees outstanding refs.
+        if (m_d3dContext) {
+            m_d3dContext->OMSetRenderTargets(0, nullptr, nullptr);
+            ID3D11ShaderResourceView* nullSRV[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = { nullptr };
+            m_d3dContext->PSSetShaderResources(0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT, nullSRV);
+            m_d3dContext->ClearState();
+            m_d3dContext->Flush();
+        }
+        WaitForGPUToFinish();
+
         m_renderTargetView.Reset();     // Release 3D render target
         m_depthStencilView.Reset();     // Release depth stencil view
         m_depthStencilBuffer.Reset();   // Release depth stencil buffer
@@ -2872,6 +2903,18 @@ bool DX11Renderer::SetWindowedScreen(void)
         m_d2dContext.Reset();                                                   // Release D2D context
         dxgiSurface.Reset();                                                    // Release DXGI surface
         Clean2DTextures();                                                      // Clean up 2D textures
+
+        // Clear D3D11 pipeline bindings so the context releases its RTV/DSV references
+        // before we reset the views — without this, ResizeBuffers sees outstanding refs.
+        if (m_d3dContext) {
+            m_d3dContext->OMSetRenderTargets(0, nullptr, nullptr);
+            ID3D11ShaderResourceView* nullSRV[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = { nullptr };
+            m_d3dContext->PSSetShaderResources(0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT, nullSRV);
+            m_d3dContext->ClearState();
+            m_d3dContext->Flush();
+        }
+        WaitForGPUToFinish();
+
         m_renderTargetView.Reset();                                             // Release 3D render target
         m_depthStencilView.Reset();                                             // Release depth stencil view
         m_depthStencilBuffer.Reset();                                           // Release depth stencil buffer

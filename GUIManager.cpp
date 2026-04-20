@@ -40,7 +40,7 @@ extern ThreadManager threadManager;
 GUIWindow::GUIWindow(const std::string& name, GUIWindowType type, const Vector2& position,
     const Vector2& size, const MyColor& backgroundColor, int backgroundTextureId, Renderer* renderer)
     : name(name), type(type), position(position), size(size), backgroundColor(backgroundColor),
-    backgroundTextureId(backgroundTextureId), myRenderer(myRenderer)
+    backgroundTextureId(backgroundTextureId), myRenderer(renderer)
 {
     // Ensure proper initialization of all required properties
     controls.clear(); // Ensure controls list is empty initially
@@ -92,13 +92,13 @@ void GUIManager::RemoveWindow(const std::string& name) {
     debug.logDebugMessage(LogLevel::LOG_INFO, L"GUIManager::RemoveWindow - Attempting to remove window: %s",
         std::wstring(localWindowName.begin(), localWindowName.end()).c_str());
 
-    // Enforce thread safety with proper timeout handling
-    std::unique_lock<std::mutex> lock(mutex, std::try_to_lock);
+    // Use a timed lock so RemoveWindow doesn't silently no-op if the renderer
+    // briefly holds the mutex during its snapshot phase.
+    std::unique_lock<std::timed_mutex> lock(mutex, std::chrono::milliseconds(16));
     if (!lock.owns_lock()) {
-        // Use debug output for mutex acquisition failure with safe string handling
         debug.logDebugMessage(LogLevel::LOG_WARNING, L"GUIManager::RemoveWindow - Could not acquire mutex for window removal: %s",
             std::wstring(localWindowName.begin(), localWindowName.end()).c_str());
-        return; // Exit early if we cannot acquire the lock
+        return;
     }
 
     // Find the window with proper bounds checking using local copy
@@ -178,22 +178,39 @@ void GUIManager::OnWindowResize(int newWidth, int newHeight)
 }
 
 void GUIManager::Render() {
-    if (!myRenderer) return; // Ensure the renderer is valid
+    if (!myRenderer) return;
 
-    for (const auto& [name, window] : windows) {
-        if (window->isVisible) {
-            window->Render(); // No need to pass the renderer
+    // Build an owned-snapshot under the mutex so no concurrent RemoveWindow()
+    // can free a window while we render it.  The lock is blocking (not try),
+    // so the renderer thread waits the tiny fraction of a millisecond that
+    // HandleAllInput or RemoveWindow may hold it — this eliminates the
+    // starvation that try_to_lock caused when the renderer ran faster than
+    // the message loop could win a single-shot race.
+    std::vector<std::shared_ptr<GUIWindow>> snapshot;
+    {
+        std::lock_guard<std::timed_mutex> lock(mutex);
+        snapshot.reserve(windows.size());
+        for (const auto& [name, window] : windows) {
+            if (window && !window->bWindowDestroy && window->isVisible)
+                snapshot.push_back(window);
         }
+    }  // mutex released before any rendering
+
+    for (const auto& window : snapshot) {
+        if (!window->bWindowDestroy && window->isVisible)
+            window->Render();
     }
 }
 
 void GUIManager::HandleAllInput(const Vector2& mousePosition, bool& isLeftClick) {
-    // Use timeout-based lock acquisition to prevent hanging
-    std::unique_lock<std::mutex> lock(mutex, std::try_to_lock);
+    // Use a timed lock: wait up to 8 ms for the mutex.  A plain try_to_lock
+    // loses to the renderer thread (which holds this mutex briefly every frame)
+    // causing permanent input starvation.  8 ms is short enough to keep
+    // WndProc responsive but long enough to survive normal renderer contention.
+    std::unique_lock<std::timed_mutex> lock(mutex, std::chrono::milliseconds(8));
     if (!lock.owns_lock()) {
-        // Use debug output for mutex acquisition failure
         debug.logDebugMessage(LogLevel::LOG_WARNING, L"GUIManager::HandleAllInput - Could not acquire mutex, skipping input handling");
-        return; // Skip input handling if we cannot acquire the lock immediately
+        return;
     }
 
     // Create a snapshot of valid windows to avoid iterator invalidation

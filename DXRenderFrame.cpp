@@ -106,10 +106,6 @@ void DX11Renderer::RenderFrame()
         HRESULT hr = S_OK;                                              // DirectX operation result
         HWND hWnd = hwnd;                                               // Window handle for client area calculations
 
-        // Save the current Direct3D state for restoration
-        ComPtr<ID3D11RenderTargetView> previousRenderTargetView;        // Previous render target backup
-        ComPtr<ID3D11DepthStencilView> previousDepthStencilView;        // Previous depth stencil backup
-        
         // MODEL SAFETY CHECK!
         #if defined(_DEBUG)
             FLOAT clearColor[4] = { 0.2f, 0.2f, 0.2f, 1.0f };               // Use Dark Grey clear color with full alpha to ensure all models are rendering properly.
@@ -117,8 +113,6 @@ void DX11Renderer::RenderFrame()
             FLOAT clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };               // Black clear color with full alpha
         #endif
 
-        D3D11_VIEWPORT previousViewport;                                // Previous viewport backup
-        UINT numViewports = 1;                                          // Number of viewports to retrieve
         D3D11_VIEWPORT viewport = {};                                   // Current viewport configuration
         RECT rc;                                                        // Client rectangle for viewport calculation
 
@@ -197,20 +191,7 @@ void DX11Renderer::RenderFrame()
                 }
             }
 
-            // STEP 1: Save current DirectX state for proper restoration
-            try {
-                m_d3dContext->OMGetRenderTargets(1, previousRenderTargetView.GetAddressOf(), previousDepthStencilView.GetAddressOf());
-                m_d3dContext->RSGetViewports(&numViewports, &previousViewport);
-            }
-            catch (const std::exception& e) {
-                #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                    debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Failed to save DirectX state: %hs", e.what());
-                #endif
-                threadManager.threadVars.bIsRendering.store(false);     // Clear rendering flag on error
-                return;                                                 // Exit on state save failure
-            }
-
-            // STEP 2: Calculate viewport dimensions based on fullscreen/windowed mode
+            // STEP 1: Calculate viewport dimensions based on fullscreen/windowed mode
             if (!winMetrics.isFullScreen)
             {
                 GetClientRect(hWnd, &rc);                               // Get windowed client area

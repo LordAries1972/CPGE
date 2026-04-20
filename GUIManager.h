@@ -113,7 +113,7 @@ public:
     friend class GUIManager;                                                // Allow GUIManager access to internals
 
 private:
-    std::mutex mutex;                                                       // Mutex for thread safety
+    std::timed_mutex mutex;                                                       // Mutex for thread safety
 };
 
 class GUIManager {
@@ -144,6 +144,6 @@ private:
 
     Renderer* myRenderer = nullptr;                                           // Store the renderer
 
-    std::mutex mutex;                                                         // Mutex for thread safety
+    std::timed_mutex mutex;                                                         // Mutex for thread safety
 };
 

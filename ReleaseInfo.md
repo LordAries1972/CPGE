@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.923*
+*Current Build Version: v0.0.938*
 
 ---
 
@@ -347,6 +347,12 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - Added the Ability to record Microphone and volume settings using the num_keypad + and - keys for volume adjustment.
 - Added an OSD when the microphone volume settings have changed and is displayed for 10 seconds after change.
 - All sounds are NOW properly in sync regardless of what fps we are recording at.
+- Movie Playback now supports Sound Output and can be played at said given base Frame Rate.
+
+**April 20, 2026** - Fixed DX11 Screen Resizing Issues:
+
+- Fixed Screen Resizing Issues.
+- Fixed Render Bug in GUIManager.cpp
 
 ---
 
