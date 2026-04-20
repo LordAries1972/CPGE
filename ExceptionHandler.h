@@ -6,11 +6,11 @@
 // Platform-specific includes for exception handling
 #if defined(_WIN32) || defined(_WIN64)
     // Windows-specific exception handling
-#ifdef _DEBUG
+//#ifdef _DEBUG
 #pragma comment(lib, "dbghelp.lib")
 #include <dbghelp.h>
 #include <psapi.h>
-#endif
+//#endif
 #include <eh.h>
 #include <signal.h>
 #elif defined(__linux__)

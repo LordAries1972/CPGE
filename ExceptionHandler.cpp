@@ -213,23 +213,23 @@ void ExceptionHandler::Cleanup() {
     if (m_previousFilter) {
         SetUnhandledExceptionFilter(m_previousFilter);
         m_previousFilter = nullptr;
-#if defined(_DEBUG_EXCEPTIONHANDLER_)
-        debug.logLevelMessage(LogLevel::LOG_INFO, L"[ExceptionHandler] Previous exception filter restored");
-#endif
+        #if defined(_DEBUG_EXCEPTIONHANDLER_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[ExceptionHandler] Previous exception filter restored");
+        #endif
     }
     else {
         SetUnhandledExceptionFilter(nullptr);
-#if defined(_DEBUG_EXCEPTIONHANDLER_)
-        debug.logLevelMessage(LogLevel::LOG_INFO, L"[ExceptionHandler] Exception filter removed");
-#endif
+        #if defined(_DEBUG_EXCEPTIONHANDLER_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[ExceptionHandler] Exception filter removed");
+        #endif
     }
 
 #ifdef _DEBUG
     if (m_symbolsInitialized && m_processHandle) {
         if (SymCleanup(m_processHandle)) {
-#if defined(_DEBUG_EXCEPTIONHANDLER_)
-            debug.logLevelMessage(LogLevel::LOG_INFO, L"[ExceptionHandler] Symbol handler cleaned up successfully");
-#endif
+            #if defined(_DEBUG_EXCEPTIONHANDLER_)
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"[ExceptionHandler] Symbol handler cleaned up successfully");
+            #endif
         }
         else {
             debug.logDebugMessage(LogLevel::LOG_WARNING, L"[ExceptionHandler] SymCleanup failed. Error: %d", GetLastError());
@@ -239,7 +239,9 @@ void ExceptionHandler::Cleanup() {
 #endif
 
     m_processHandle = nullptr;
-    m_moduleBase = 0;
+    #ifdef _DEBUG
+        m_moduleBase = 0;
+    #endif
 #else
     // Unix-like systems cleanup
     sigaction(SIGSEGV, &m_oldSigSegv, nullptr);
@@ -248,9 +250,9 @@ void ExceptionHandler::Cleanup() {
     sigaction(SIGILL, &m_oldSigIll, nullptr);
     sigaction(SIGBUS, &m_oldSigBus, nullptr);
 
-#if defined(_DEBUG_EXCEPTIONHANDLER_)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"[ExceptionHandler] Signal handlers restored");
-#endif
+    #if defined(_DEBUG_EXCEPTIONHANDLER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[ExceptionHandler] Signal handlers restored");
+    #endif
 #endif
 
     // Reset all member variables to safe defaults

@@ -109,7 +109,7 @@ void DX11Renderer::RenderFrame()
         // MODEL SAFETY CHECK!
         #if defined(_DEBUG)
             FLOAT clearColor[4] = { 0.2f, 0.2f, 0.2f, 1.0f };               // Use Dark Grey clear color with full alpha to ensure all models are rendering properly.
-        #elif 
+        #else 
             FLOAT clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };               // Black clear color with full alpha
         #endif
 

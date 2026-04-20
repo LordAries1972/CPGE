@@ -2609,14 +2609,14 @@ void FXManager::RenderTextScroller(FXItem& fxItem)
                 renderer->DrawMyTextWithFont(std::wstring(1, character), position, color,
                     fxItem.textScrollData.fontSize, fxItem.textScrollData.fontName);
 
-#if defined(_DEBUG_FXMANAGER_) && defined(_DEBUG)
-                // Debug output for character transparency (only for first few characters to avoid spam)
-                if (i < 5) {
-                    debug.logDebugMessage(LogLevel::LOG_DEBUG,
-                        L"[FXID=%d] Char='%c' Pos=%.1f CenterX=%.1f Trans=%.3f Width=%.1f",
-                        fxItem.fxID, character, currentCharX, charCenterX, transparency, charWidth);
-                }
-#endif
+                #if defined(_DEBUG_FXMANAGER_) && defined(_DEBUG)
+                    // Debug output for character transparency (only for first few characters to avoid spam)
+                    if (i < 5) {
+                        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                            L"[FXID=%d] Char='%c' Pos=%.1f CenterX=%.1f Trans=%.3f Width=%.1f",
+                            fxItem.fxID, character, currentCharX, charCenterX, transparency, charWidth);
+                    }
+                #endif
             }
 
             // FIXED: Advance to next character position with proper spacing
