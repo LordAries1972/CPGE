@@ -1,15 +1,19 @@
 /* -------------------------------------------------------------- */
 // Main Tasking Thread for our renderer
 //
-// This function is the main (optional thread) function that will 
-// be used to render the scene. It will be responsible for rendering 
-// the scene, updating the scene, and handling any other rendering 
+// This function is the main (optional thread) function that will
+// be used to render the scene. It will be responsible for rendering
+// the scene, updating the scene, and handling any other rendering
 // tasks.
 //
-// --- Begin 3D Rendering ---
-// --- Begin 2D Rendering ---
-// --- Post-process FX ---
-// --- Present to screen ---
+// Pipeline order:
+// 1) Initialize render, safety guards, acquire exclusive lock
+// 2) Clear render targets, calculate delta time
+// 3) RenderBackgroundImage() - D2D background before any 3D (scene-guarded)
+// 4) OMSetRenderTargets + 3D Models, Animations, Lighting (RenderGamePlay)
+// 5) FX rendering (D3D post-process and D2D effects via fxManager)
+// 6) Text and Window rendering (D2D: GUI, FPS, cursor, REC indicator)
+// 7) Present frame
 
 /* ----------------------------------------------------------------
    DO NOT INCLUDE THIS FILE!!! THE PROJECT ITSELF SCOPES THIS FILE!
@@ -285,7 +289,7 @@ void DX11Renderer::RenderFrame()
             deltaTime = std::clamp(deltaTime, 0.001f, 0.1f);                              // Min 0.001s (1000 FPS), Max 0.1s (10 FPS)
 
             // Update frame time for next frame
-            lastFrameTime = now;                                                           
+            lastFrameTime = now;
 
             #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
                 // Debug output for delta time analysis every 60 frames
@@ -298,23 +302,49 @@ void DX11Renderer::RenderFrame()
                 }
             #endif
 
-            // Set render targets for 3D rendering
+            // STEP 2: Render D2D background images before any 3D content.
+            // D2D EndDraw (inside) releases the back-buffer binding; OMSetRenderTargets
+            // below re-establishes it for D3D so no explicit rebind is needed here.
+            RenderBackgroundImage();
+
+            // STEP 3: Re-bind render targets for 3D rendering (also restores after D2D EndDraw)
             m_d3dContext->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
 
             // Scene-specific 3D rendering
             switch (scene.stSceneType)
             {
-                case SceneType::SCENE_SPLASH:
+                case SceneType::SCENE_INTRO:
                 {
                     // Splash screen - minimal 3D rendering, primarily 2D
                     #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
                         debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Rendering splash scene");
                     #endif
+
+                    break;
+                }
+
+                case SceneType::SCENE_GAMETITLE:
+                {
+                    // Update all model animations
+                    if (threadManager.threadVars.bLoaderTaskFinished.load())
+                    {
+                        int iModelID = scene.FindParentModelID(SplashShipName);
+                        if (scene.gltfAnimator.IsAnimationPlaying(iModelID))
+                            scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS);
+                    }
+
+                    RenderGamePlay(deltaTime);
+
                     break;
                 }
 
                 case SceneType::SCENE_GAMEPLAY:
                 {
+                    // Update all model animations
+                    int iModelID = scene.FindParentModelID(ShipName1);
+                    if (scene.gltfAnimator.IsAnimationPlaying(iModelID))
+                        scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS);
+
                     RenderGamePlay(deltaTime);
                     break;
                 }
@@ -356,7 +386,7 @@ void DX11Renderer::RenderFrame()
                         // Scene-specific 2D rendering
                         switch (scene.stSceneType)
                         {
-                            case SceneType::SCENE_SPLASH:
+                            case SceneType::SCENE_INTRO:
                             {
                                // Splash screen 2D
                                #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
@@ -375,7 +405,7 @@ void DX11Renderer::RenderFrame()
                                break;
                            }
 
-                           case SceneType::SCENE_INTRO:
+                           case SceneType::SCENE_GAMETITLE:
                            {
                                #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
                                    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Rendering game intro 2D elements");
@@ -385,17 +415,7 @@ void DX11Renderer::RenderFrame()
                                if (threadManager.threadVars.bLoaderTaskFinished.load())
                                {
                                    // Set camera for intro scene background
-                                   myCamera.SetYawPitch(0.285f, -0.22f);
-                                   
-                                   // Draw background image first
-                                   if (m_d2dTextures[int(BlitObj2DIndexType::IMG_GAMEINTRO1)]) {
-                                       Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
-                                   }
-                                   
-                                   // Draw company logo overlay
-                                   if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]) {
-                                       Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - 47);
-                                   }
+                                   //myCamera.SetYawPitch(0.285f, -0.22f);
                                    
                                    // Render 3D starfield effect if available
                                    if (fxManager.starfieldID > 0) {
@@ -692,11 +712,6 @@ inline void DX11Renderer::RenderGamePlay(float deltaTime)
                 }
             #endif
 
-            // Update all model animations
-            int iModelID = scene.FindParentModelID(ShipName1);
-            if (scene.gltfAnimator.IsAnimationPlaying(iModelID))
-                scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS);
-
             // Render all loaded scene models
             for (int i = 0; i < MAX_SCENE_MODELS; ++i)
             {
@@ -794,6 +809,72 @@ inline void DX11Renderer::RenderIntroMovie()
         }
     }
 }
+
+void DX11Renderer::RenderBackgroundImage()
+{
+    if (!m_d2dRenderTarget)
+        return;
+
+    // Guard: skip if system is in a state that makes rendering unsafe
+    if (threadManager.threadVars.bIsShuttingDown.load() ||
+        bIsMinimized.load()                             ||
+        threadManager.threadVars.bIsResizing.load()     ||
+        !bIsInitialized.load())
+        return;
+
+    // Acquire D2D lock — same lock used by the main 2D rendering block
+    ThreadLockHelper d2dBgLock(threadManager, D2DLockName, 100);
+    if (!d2dBgLock.IsLocked())
+    {
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[RenderBackgroundImage] Could not acquire D2D lock - skipping background");
+        #endif
+        return;
+    }
+
+    m_d2dRenderTarget->BeginDraw();
+
+    switch (scene.stSceneType)
+    {
+        case SceneType::SCENE_GAMETITLE:
+        {
+            // Background image for game title screen
+            if (m_d2dTextures[int(BlitObj2DIndexType::IMG_GAMEINTRO1)]) {
+                Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
+            }
+
+            // Company logo overlay
+            if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]) {
+                Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - 47);
+            }
+            break;
+        }
+
+        case SceneType::SCENE_GAMEPLAY:
+            // Gameplay background handled elsewhere; nothing to pre-render here
+            break;
+
+        default:
+            break;
+    }
+
+    try
+    {
+        HRESULT hr = m_d2dRenderTarget->EndDraw();
+        if (FAILED(hr))
+        {
+            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RenderBackgroundImage] EndDraw failed (0x%08X)", hr);
+            #endif
+        }
+    }
+    catch (const std::exception& e)
+    {
+        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RenderBackgroundImage] EndDraw exception: %hs", e.what());
+        #endif
+    }
+} // End of RenderBackgroundImage()
 
 #pragma warning(pop)
 

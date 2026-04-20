@@ -76,7 +76,7 @@ void DX11Renderer::LoaderTaskThread()
 		// (Add I/O loading tasks here)
 		switch (scene.stSceneType)
 		{
-			case SceneType::SCENE_SPLASH:
+			case SceneType::SCENE_INTRO:
 			{
 				threadManager.threadVars.b2DTexturesLoaded.store(false);
 				if (LoadAllKnownTextures())
@@ -88,7 +88,7 @@ void DX11Renderer::LoaderTaskThread()
 				break;
 			}
 
-			case SceneType::SCENE_INTRO:
+			case SceneType::SCENE_GAMETITLE:
 			{
 				threadManager.threadVars.b2DTexturesLoaded.store(false);
 				debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene Intro.");
@@ -99,6 +99,50 @@ void DX11Renderer::LoaderTaskThread()
 				// If we are NOT resizing our window, then ....
 				if (!wasResizing.load())
 				{
+					// Create a default light
+					LightStruct sunLight;
+					SecureZeroMemory(&sunLight, sizeof(LightStruct));
+					sunLight.active = true;
+					sunLight.position = XMFLOAT3(3.0f, -3.0f, -100.0f);
+					sunLight.direction = XMFLOAT3(0.0f, -1.0f, 0.0f);
+					sunLight.color = XMFLOAT3(1.0f, 1.0f, 1.0f);
+					sunLight.ambient = XMFLOAT3(0.4f, 0.4f, 0.0f);
+					sunLight.intensity = 0.5f;
+					sunLight.baseIntensity = 0.8f;
+					sunLight.Shiningness = 0.2f;
+					sunLight.Reflection = 0.2f;
+					sunLight.lightFalloff = 0.0001f;
+					sunLight.innerCone = 30.0f;
+					sunLight.outerCone = 60.0f;
+					sunLight.range = 1000.0f;
+					//					sunLight.type = int(LightType::POINT);
+					sunLight.type = int(LightType::DIRECTIONAL);
+
+					lightsManager.CreateLight(L"Sun", sunLight);
+
+					// -----------------------------------------------------------------------------
+					// === PRE-ALLOCATE ALL MODEL TEXTURE VECTORS BEFORE LOADING ===
+					// -----------------------------------------------------------------------------
+					ThreadLockHelper preAllocLock(threadManager, "SceneManager_PreAllocation", 2000);
+					if (preAllocLock.IsLocked())
+					{
+						scene.ParseGLTFScene(AssetsDir / L"splash-hover1.gltf");
+						//					scene.ParseGLBScene(AssetsDir / L"test1.glb");
+						if (!scene.bGltfCameraParsed)
+						{
+							scene.AutoFrameSceneToCamera();
+						}
+
+						int parentID = scene.FindParentModelID(SplashShipName);
+						bool created = scene.gltfAnimator.CreateAnimationInstance(0, parentID);
+						if (created) {
+							scene.gltfAnimator.ForceAnimationReset(parentID);
+							scene.gltfAnimator.SetAnimationSpeed(parentID, 0.75f);
+							scene.gltfAnimator.SetAnimationLooping(parentID, true);
+							scene.gltfAnimator.StartAnimation(parentID, 0);
+						}
+					}
+
                     Load_Music();
 
 					// Create Game Menu
@@ -109,7 +153,7 @@ void DX11Renderer::LoaderTaskThread()
 					fxManager.CreateStarfield(100, 1000.0f, 1000.0f);
 					fxManager.FadeToImage(1.0f, 0.08f);
 
-					std::wstring newsText = L"BREAKING NEWS: [16/06/2025] => This is a demonstration of the CPGE GLTF 2.0 Animation System in Action!";
+					std::wstring newsText = L"BREAKING NEWS: [21/04/2026] => Blender 5.1 support now working with our system - Yes! I need to make some adjustments, but man, big step for Blender and this gaming engine!!!! Cheers everyone!!";
 					XMFLOAT4 textColor(0.0f, 1.0f, 0.0f, 1.0f);                     // Green text color
 				
 					float fontSize = 16.0f;                                         // Font size for text
@@ -130,13 +174,14 @@ void DX11Renderer::LoaderTaskThread()
 				{
 					// After a resize: reposition the GUI and recreate screen-size-dependent FX
 					// with updated dimensions (iOrigWidth/iOrigHeight already set by Resize()).
+
 					myCamera.SetupDefaultCamera(static_cast<float>(iOrigWidth), static_cast<float>(iOrigHeight));
 
 					guiManager.OnWindowResize(iOrigWidth, iOrigHeight);
 
 					fxManager.CreateStarfield(100, 1000.0f, 1000.0f);
 
-					std::wstring newsText = L"BREAKING NEWS: [16/06/2025] => This is a demonstration of the CPGE GLTF 2.0 Animation System in Action!";
+					std::wstring newsText = L"BREAKING NEWS: [21/04/2026] => Blender 5.1 support now working with our system - Yes! I need to make some adjustments, but man, big step for Blender and this gaming engine!!!! Cheers everyone!!";
 					XMFLOAT4 textColor(0.0f, 1.0f, 0.0f, 1.0f);
 					float fontSize = 16.0f;
 					float regionX = -5.0f;
@@ -158,6 +203,24 @@ void DX11Renderer::LoaderTaskThread()
 				break;
 			}
 
+			/* This is used when you are using the MP3 Music Player!
+			   Ideally, this is for those who use DPM for music creation
+			   and to simplify the less hard work for them in understanding music
+			   intergration.  But NOTE THIS!  MP3's can be quite expensive in memory
+			   consumption and of course, has its own goods and bads with the given
+			   operating system that you may be developing for.
+
+			   Just remember, using XM Trackers (I will promise to add other formats later)
+			   that using module style programming is far less memory conservative and
+			   warrants much more functionality in what you can or could do with ya music
+			   tracker file.  For example, I could write 5 songs into one tracker module
+			   file and when I use them in my scene switching, I position the tracker
+			   index before intiating placback.  Along that and been said, you can fade in or
+			   fade out your music before switching tracks, so your switch can be nicely done 
+			   with volume controls etc.
+
+			   This is more a last resort for those who do not fully understand music integration systems.
+			*/
 			case SceneType::SCENE_LOAD_MP3:
 			{
 				try {
@@ -191,6 +254,16 @@ void DX11Renderer::LoaderTaskThread()
 				break;
 			}
 
+			/* Gameplay Scene is the level loaded for the current game progress where you are
+			   This is basic atm, but the idea here is you load in all your assets and initialise
+			   as according, that is by setting your initial starting flags, the loading of your
+			   3D or 2D scene data and most of all, ensuring everything is done safely before
+			   presenting to the user to ensure things do not crash on you!  You can switch
+			   this around all you like, hence the wonderful thing of this project for you
+			   as a game developer / show caser! Since this is a thread loading system, locks
+			   and proper code order placements within the render system are here to ensure a
+			   proper render pipeline and safe-guard fail safes!
+			*/
 			case SceneType::SCENE_GAMEPLAY:
 			{
 				debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene GAMEPLAY Initialising.");

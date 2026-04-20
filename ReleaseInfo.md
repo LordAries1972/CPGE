@@ -357,6 +357,22 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - Optimisation of code.
 - Clean Exit (0) {8-)
 
+**April 21, 2026** - More updates and fixes:
+
+- More Screen Resizing Issues found and fixed (Out to kill this mofo of a bug!) - so some very thorough testing going on over here!
+- Added Pre Background (1st) Image before rendering for 3D and post 2D Images to the render pipeline - See RenderBackgroundImage().
+- Music Module Restarts correctly from the beginning on Scene Switching.
+- Scene Data correcly cleared up scene switching!
+
+- Web site has been established, demos will come very soon and please visit https://ultimanium.com/ yeah for a check out view on things you can do!  
+  Recordings as can now been done internally also with microphone, check our you-tube out and find all our releases there.  Remember, you know the
+  drill right, give us a subscribe and a like yeah and lets get this gaming engine off the ground peeps please!  This is not just about me anymore,
+  its about you too and what you can offer the world with your inspirations.  What I please ask, please share some of your coding ideas to us by
+  contributing to our github project.  Please message the manager at my website and request for a pull request and please explain to me how
+  you can contribute.  All Contributions will be recorded and posted daily on my website to ensure recognision is given to those who do.  More importantly,
+  thank you everybody who does as this is an FOSS project and your support is always welcomed! right!
+  
+
 ---
 
 ## Future Development

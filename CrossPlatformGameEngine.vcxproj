@@ -151,6 +151,7 @@
     <ClCompile Include="Lights.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="MathPrecalculation.cpp" />
+    <ClCompile Include="BlenderImports.cpp" />
     <ClCompile Include="Models.cpp" />
     <ClCompile Include="MoviePlayer.cpp" />
     <ClCompile Include="MyRandomizer.cpp" />
@@ -171,6 +172,7 @@
     <ClCompile Include="XMMODPlayer.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="BlenderImports.h" />
     <ClInclude Include="Color.h" />
     <ClInclude Include="Configuration.h" />
     <ClInclude Include="ConstantBuffer.h" />
@@ -192,6 +194,7 @@
     <ClInclude Include="KeyboardHandler.h" />
     <ClInclude Include="Lights.h" />
     <ClInclude Include="MathPrecalculation.h" />
+    <ClInclude Include="BlenderImports.h" />
     <ClInclude Include="Models.h" />
     <ClInclude Include="MoviePlayer.h" />
     <ClInclude Include="MyRandomizer.h" />

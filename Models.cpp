@@ -1581,37 +1581,39 @@ void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
 
             if (mat)
             {
-                // Copy classic material terms.
                 matGPU->Ka = mat->Ka;
                 matGPU->Kd = mat->Kd;
                 matGPU->Ks = mat->Ks;
                 matGPU->Ns = mat->Ns;
-
-                // Copy PBR terms (fallback to ModelInfo defaults if material leaves them at defaults).
-                matGPU->Metallic = mat->Metallic;
-                matGPU->Roughness = mat->Roughness;
+                matGPU->Metallic          = mat->Metallic;
+                matGPU->Roughness         = mat->Roughness;
                 matGPU->ReflectionStrength = mat->Reflection;
+                matGPU->EmissiveFactor    = mat->emissiveFactor;
+                matGPU->EmissiveStrength  = mat->emissiveStrength;
+                matGPU->NormalScale       = mat->normalScale;
             }
             else
             {
-                // Fallback material if no materials are defined.
                 matGPU->Ka = XMFLOAT3(0.1f, 0.1f, 0.1f);
                 matGPU->Kd = XMFLOAT3(0.8f, 0.8f, 0.8f);
                 matGPU->Ks = XMFLOAT3(1.0f, 1.0f, 1.0f);
                 matGPU->Ns = 16.0f;
-
-                // Fallback PBR scalars.
-                matGPU->Metallic = m_modelInfo.metallic;
-                matGPU->Roughness = m_modelInfo.roughness;
+                matGPU->Metallic          = m_modelInfo.metallic;
+                matGPU->Roughness         = m_modelInfo.roughness;
                 matGPU->ReflectionStrength = m_modelInfo.reflectionStrength;
+                matGPU->EmissiveFactor    = XMFLOAT3(0.0f, 0.0f, 0.0f);
+                matGPU->EmissiveStrength  = 1.0f;
+                matGPU->NormalScale       = 1.0f;
             }
 
-            
-            // Ensure we have a non-zero ambient term. If Ka is left as (0,0,0) by importer/material setup,
-            // the shader ambient path becomes black, and if direct lighting is low this can appear as a solid black model.
+            // Derive ambient from base colour so each material keeps its own hue.
+            // GLTF has no Ka concept — using a fraction of Kd is PBR-correct and
+            // prevents every material from reading as flat grey.
             if ((matGPU->Ka.x <= 0.0001f) && (matGPU->Ka.y <= 0.0001f) && (matGPU->Ka.z <= 0.0001f))
             {
-                matGPU->Ka = XMFLOAT3(0.35f, 0.35f, 0.35f);
+                matGPU->Ka = XMFLOAT3(matGPU->Kd.x * 0.15f,
+                                       matGPU->Kd.y * 0.15f,
+                                       matGPU->Kd.z * 0.15f);
             }
 // Determine texture map usage flags based on SRV presence.
             matGPU->useMetallicMap = (m_modelInfo.metallicMapSRV != nullptr) ? 1.0f : 0.0f;

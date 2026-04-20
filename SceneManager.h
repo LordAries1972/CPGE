@@ -3,6 +3,7 @@
 #include "Includes.h"
 #include "DX11Renderer.h"
 #include "GLTFAnimator.h"
+#include "BlenderImports.h"
 
 #include <nlohmann/json.hpp>
 
@@ -28,7 +29,7 @@ enum SceneType
 {
 	SCENE_NONE = 0,
 	SCENE_INITIALISE,
-	SCENE_SPLASH,
+	SCENE_GAMETITLE,
 	SCENE_INTRO,
 	SCENE_INTRO_MOVIE,
 	SCENE_GAMEPLAY,
@@ -96,10 +97,12 @@ private:
 	bool isSketchfab = false;
 	SceneType stOurGotoScene = SCENE_NONE;
 
-	std::wstring m_lastDetectedExporter = L"Unknown";
+	std::wstring               m_lastDetectedExporter = L"Unknown";
+	BlenderImports::ImportConfig m_blenderConfig;                  // Built once per GLTF/GLB load
 
 	void DetectGLTFExporter(const nlohmann::json& doc);
-	XMMATRIX GetNodeWorldMatrix(const json& node);
+	XMMATRIX GetNodeWorldMatrix(const json& node,
+	                             const BlenderImports::ImportConfig& cfg);
 	bool ParseMaterialsFromGLTF(const json& doc);
 	void BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo& info, Model& model, const json& doc);
 	void ParseGLTFCamera(const nlohmann::json& gltf, Camera& camera, float windowWidth, float windowHeight);

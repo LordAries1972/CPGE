@@ -11,6 +11,7 @@
 const int MAX_MODELS = 2048;                                                        // Maximum number of unique models in the scene    
 const int MAX_MODEL_LIGHTS = MAX_LIGHTS;                                            // Maximum number of lights per model
 const std::wstring ShipName = L"Ship1";
+const std::wstring SplashShipName = L"SplashShip1";
 //==============================================================================
 // namespaces
 //==============================================================================
@@ -197,6 +198,28 @@ struct Material {
 	float Roughness = 0.5f;                                                         // Roughness factor (0.0 = smooth, 1.0 = rough)
 	float Transmission = 0.0f;                                                      // Transmission coefficient (for transparent materials)
 	float AlphaCutoff = 0.5f;                                                       // Alpha cutoff value for transparency
+    XMFLOAT3 emissiveFactor = { 0.0f, 0.0f, 0.0f };                                // Emissive color (KHR_materials_emissive_strength base)
+    float emissiveStrength = 1.0f;                                                  // KHR_materials_emissive_strength multiplier
+
+    // ---- GLTF 2.0 / Blender import properties ----
+    bool        doubleSided        = false;             // GLTF doubleSided flag
+    std::string alphaMode          = "OPAQUE";          // OPAQUE | MASK | BLEND
+    float       normalScale        = 1.0f;              // normalTexture.scale
+
+    // KHR_materials_clearcoat  (Blender 3.0+)
+    float       clearcoatFactor    = 0.0f;
+    float       clearcoatRoughness = 0.0f;
+
+    // KHR_materials_ior  (Blender 4.0+)
+    float       ior                = 1.5f;
+
+    // KHR_materials_specular  (Blender 4.1+)
+    float       specularFactor     = 1.0f;
+    XMFLOAT3    specularColorFactor = { 1.0f, 1.0f, 1.0f };
+
+    // KHR_materials_sheen  (Blender 4.2+)
+    XMFLOAT3    sheenColorFactor   = { 0.0f, 0.0f, 0.0f };
+    float       sheenRoughness     = 0.0f;
 };
 
 //==============================================================================

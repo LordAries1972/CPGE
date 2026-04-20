@@ -2,7 +2,24 @@
   "permissions": {
     "allow": [
       "Bash(powershell.exe -Command \"dir 'C:\\\\Program Files \\(x86\\)\\\\Microsoft Visual Studio' | select Name\")",
-      "Bash(powershell.exe -Command \"vswhere.exe -latest -requires Microsoft.Component.MSBuild -find MSBuild\\\\**\\\\Bin\\\\MSBuild.exe 2>&1\")"
+      "Bash(powershell.exe -Command \"vswhere.exe -latest -requires Microsoft.Component.MSBuild -find MSBuild\\\\**\\\\Bin\\\\MSBuild.exe 2>&1\")",
+      "Bash(msbuild CrossPlatformGameEngine.vcxproj /p:Configuration=Debug /p:Platform=x64 /m /nologo)",
+      "Bash(cmd.exe /c \"cd /d f:\\\\Projects\\\\C++\\\\CPGE2026 && \\\\\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\\\\\" CrossPlatformGameEngine.vcxproj /p:Configuration=Debug /p:Platform=x64 /m /nologo /v:minimal 2>&1\")",
+      "Bash(cmd.exe /c \"\\\\\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\\\\\" \\\\\"f:\\\\Projects\\\\C++\\\\CPGE2026\\\\CrossPlatformGameEngine.vcxproj\\\\\" /p:Configuration=Debug /p:Platform=x64 /m /nologo /v:minimal 2>&1\")",
+      "Bash(where.exe msbuild *)",
+      "Bash(dir \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\\" /b 2>&1)",
+      "Bash(cmd /c where msbuild)",
+      "Bash(cmd /c \"call \\\\\"C:\\\\\\\\Program Files\\\\\\\\Microsoft Visual Studio\\\\\\\\2022\\\\\\\\Community\\\\\\\\VC\\\\\\\\Auxiliary\\\\\\\\Build\\\\\\\\vcvarsall.bat\\\\\" x64 >nul 2>&1 && msbuild \\\\\"f:\\\\\\\\Projects\\\\\\\\C++\\\\\\\\CPGE2026\\\\\\\\CrossPlatformGameEngine.vcxproj\\\\\" /p:Configuration=Debug /p:Platform=x64 /m /nologo /v:minimal > f:\\\\\\\\Projects\\\\\\\\CPGE_build.txt 2>&1\")",
+      "Bash(cmd /c \"dir /b \\\\\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\\"\")",
+      "Bash(cmd /c dir \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\")",
+      "Bash(powershell -Command \"Get-Process msbuild -ErrorAction SilentlyContinue | Select-Object -First 1\")",
+      "Bash(taskkill /F /IM devenv.exe)",
+      "Bash(git status *)",
+      "Bash(ls *.sln)",
+      "Bash(del \"f:\\\\Projects\\\\C++\\\\CPGE2026\\\\.vs\\\\CrossPlatformGameEngine\\\\v17\\\\.suo\")"
+    ],
+    "additionalDirectories": [
+      "f:\\Projects\\C++\\CPGE2026\\.vs\\CrossPlatformGameEngine\\v17"
     ]
   }
 }

@@ -179,7 +179,9 @@ std::atomic<int>  micVolumeAdjustRequest{ 0 };                          // Accum
 
 static std::chrono::steady_clock::time_point lastResizeTime;            // Debounce resize messages
 static std::chrono::steady_clock::time_point micOSDLastShown;           // When mic volume OSD was last refreshed
+static std::chrono::steady_clock::time_point lastScenePhaseChangeTime;  // Suppress WM_SIZE after scene transitions
 static const int RESIZE_DEBOUNCE_MS = 100;                              // Minimum time between resize operations
+static const int SCENE_PHASE_RESIZE_IGNORE_MS = 15000;                  // Ignore WM_SIZE for 15s after a phase change
 
 int textScrollerEffectID = 0;
 char errorMsg[512];
@@ -458,8 +460,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 //            scene.stSceneType = SceneType::SCENE_GAMEPLAY;
 //            scene.SetGotoScene(SceneType::SCENE_NONE);
 //        #else
-            scene.stSceneType = SceneType::SCENE_SPLASH;
-            scene.SetGotoScene(SceneType::SCENE_INTRO);
+            scene.stSceneType = SceneType::SCENE_INTRO;
+            scene.SetGotoScene(SceneType::SCENE_INTRO_MOVIE);
+            lastScenePhaseChangeTime = std::chrono::steady_clock::now();
 //        #endif
 
         #if defined(_DEBUG)
@@ -547,7 +550,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                 switch (scene.stSceneType)
                 {
                     // Our Starting / CPGE Splash Screen (Need to create a linking library for this section.
-                    case SceneType::SCENE_SPLASH:
+                    case SceneType::SCENE_INTRO:
                     {
                         try {
                             // Check if splash screen duration has elapsed and we haven't started scene switching yet
@@ -659,7 +662,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                             }
                         }
                         catch (const std::exception& e) {
-                            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SCENE] Exception in SCENE_SPLASH: " +
+                            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SCENE] Exception in SCENE_GAMETITLE: " +
                                 std::wstring(e.what(), e.what() + strlen(e.what())));
 
                             // Force scene transition to prevent hanging
@@ -1208,8 +1211,37 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             // Step 1: Early exit conditions and debouncing
             if (!isSystemInitialized || bResizeInProgress.load()) {
                 #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
-                    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[WM_SIZE] Skipping resize - system not ready or already resizing. Init: %d, InProgress: %d", 
+                    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[WM_SIZE] Skipping resize - system not ready or already resizing. Init: %d, InProgress: %d",
                         isSystemInitialized, bResizeInProgress.load());
+                #endif
+                return 0;
+            }
+
+            // Suppress spurious WM_SIZE fired during/after scene phase transitions (initial loads, scene switches).
+            {
+                auto msSincePhaseChange = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - lastScenePhaseChangeTime).count();
+                if (msSincePhaseChange < SCENE_PHASE_RESIZE_IGNORE_MS) {
+                    #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
+                        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[WM_SIZE] Ignoring resize - only %lldms since last scene phase change (suppressing for %dms)",
+                            msSincePhaseChange, SCENE_PHASE_RESIZE_IGNORE_MS);
+                    #endif
+                    return 0;
+                }
+            }
+
+            // Block resize while a scene switch is actively in progress.
+            if (scene.bSceneSwitching) {
+                #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
+                    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[WM_SIZE] Ignoring resize - scene switch in progress");
+                #endif
+                return 0;
+            }
+
+            // Block resize until the loader thread has finished its current scene load.
+            if (!threadManager.threadVars.bLoaderTaskFinished.load()) {
+                #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
+                    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[WM_SIZE] Ignoring resize - loader task not yet finished");
                 #endif
                 return 0;
             }
@@ -1332,7 +1364,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     {
                         case SceneType::SCENE_INTRO:
                         case SceneType::SCENE_GAMEPLAY:
-                        case SceneType::SCENE_SPLASH:
+                        case SceneType::SCENE_GAMETITLE:
                         case SceneType::SCENE_INTRO_MOVIE:
                         {
                             #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
@@ -1540,16 +1572,18 @@ void SwitchToGamePlay()
         }
     }
 
+    scene.CleanUp();
     scene.SetGotoScene(SCENE_GAMEPLAY);
     scene.InitiateScene();
     scene.SetGotoScene(SCENE_NONE);
+    lastScenePhaseChangeTime = std::chrono::steady_clock::now();
     // Reset Camera to default position.
     renderer->myCamera.SetYawPitch(0.0f, 0.0f);
 
     // Restart the Loader Thread to load in required assets.
     renderer->ResumeLoader();
     // Resume the Renderer Thread
-    threadManager.ResumeThread(THREAD_RENDERER); 
+    threadManager.ResumeThread(THREAD_RENDERER);
 }
 
 void OpenMovieAndPlay()
@@ -1582,6 +1616,7 @@ void SwitchToMovieIntro()
     scene.SetGotoScene(SCENE_INTRO_MOVIE);
     scene.InitiateScene();
     scene.SetGotoScene(SCENE_NONE);
+    lastScenePhaseChangeTime = std::chrono::steady_clock::now();
     fxManager.FadeToImage(3.0f, 0.06f);
     OpenMovieAndPlay();
     // Restart the Loader Thread to load in required assets.
@@ -1600,13 +1635,15 @@ void SwitchToGameIntro()
         if (ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR) {
             ttsManager.SetSpeakerChannel(TTSSpeakerChannel::CHANNEL_BOTH);
             ttsManager.SetVoiceVolume(config.myConfig.TTSVolume);
-            ttsManager.PlayAsync(L"Welcome to the CPGE Gaming Engine Game Intro Screen");
+            ttsManager.PlayAsync(L"Welcome to the CPGE Gaming Engine Game Title Screen");
         }
     }
 
-    scene.SetGotoScene(SCENE_INTRO);
+    scene.CleanUp();
+    scene.SetGotoScene(SCENE_GAMETITLE);
     scene.InitiateScene();
     scene.SetGotoScene(SCENE_NONE);
+    lastScenePhaseChangeTime = std::chrono::steady_clock::now();
     // Restart the Loader Thread to load in required assets.
     renderer->ResumeLoader();
     // Resume the Renderer Thread
@@ -1647,25 +1684,10 @@ bool Load_Music()
         // Attempt to load in our XM Music Module for playback.
         switch (scene.stSceneType)
         {
-            case SceneType::SCENE_INTRO:
-            {
-                // Load the Intro Music Module
-                std::wstring XMFilename = L"thevoid.xm";
-                auto fileName = AssetsDir / XMFilename;
-                xmPlayer.Initialize(fileName);
-                if (!xmPlayer.Play(fileName))
-                {
-                    threadManager.threadVars.bLoaderTaskFinished.store(true);
-                    debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[LOADER]: Failed to Play the requested Module file.");
-                    return false;
-                }
-                break;
-            }
-
             case SceneType::SCENE_INTRO_MOVIE:
                 break;
 
-            case SceneType::SCENE_SPLASH:
+            case SceneType::SCENE_GAMETITLE:
             {
                 // Load the Intro Music Module
                 std::wstring XMFilename = L"thevoid.xm";

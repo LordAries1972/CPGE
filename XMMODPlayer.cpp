@@ -66,6 +66,8 @@ bool XMMODPlayer::Initialize(const std::wstring& filename) {
         return false;
     }
 
+    sequencePosition = 0;
+    restartSequencePosition.store(0);
     currentPatternIndex = 0;
     currentRow = 0;
     tick = 0;

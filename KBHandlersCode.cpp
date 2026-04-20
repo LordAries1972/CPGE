@@ -78,7 +78,7 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
                         break;
                     }
                     
-                    case SceneType::SCENE_INTRO:
+                    case SceneType::SCENE_GAMETITLE:
                     {
                         fxManager.FadeToBlack(1.0f, 0.03f);
                         soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);

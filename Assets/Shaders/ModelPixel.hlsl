@@ -115,7 +115,7 @@ cbuffer MaterialBuffer : register(b4)
 {
     float3 Ka;                                      // Ambient color
     float pad1;
-    float3 Kd;                                      // Diffuse color
+    float3 Kd;                                      // Diffuse color  (baseColorFactor RGB, linear)
     float pad2;
     float3 Ks;                                      // Specular color
     float pad3;
@@ -127,6 +127,12 @@ cbuffer MaterialBuffer : register(b4)
     float useRoughnessMap;                          // Flag for using roughness map
     float useAOMap;                                 // Flag for using ambient occlusion map
     float useEnvMap;                                // Flag for using environment map
+    float3 EmissiveFactor;                          // Emissive colour (RGB)
+    float EmissiveStrength;                         // KHR_materials_emissive_strength multiplier
+    float NormalScale;                              // normalTexture.scale  (1.0 = default)
+    float _padMat4;
+    float _padMat5;
+    float _padMat6;
 };
 
 // -----------------------------------------------------------
@@ -282,25 +288,29 @@ float3 ProcessLight(LightStruct light, float3 N, float3 V, float3 worldPos, floa
 // -----------------------------------------------------------
 float4 main(PS_INPUT input) : SV_TARGET
 {
-    // === Sample the diffuse (albedo) texture
+    // === Sample the diffuse (albedo) texture and apply baseColorFactor (Kd)
+    // Kd is the GLTF baseColorFactor — always a multiplier in PBR (white = no tint)
     float4 albedoColor = diffuseTexture.Sample(samplerState, input.texCoord);
-    
+    albedoColor.rgb *= Kd;
+
     // === TextureOnly Debug Mode
     if (debugMode == 2)
         return albedoColor;
 
     // === Sample material maps
-    float metallicValue = useMetallicMap > 0.5f ? metallicMap.Sample(samplerState, input.texCoord).r : Metallic;
-    float roughnessValue = useRoughnessMap > 0.5f ? roughnessMap.Sample(samplerState, input.texCoord).r : Roughness;
+    // GLTF 2.0 ORM texture packs: G = roughness, B = metallic (R = unused/AO)
+    float metallicValue  = useMetallicMap  > 0.5f ? metallicMap.Sample(samplerState,  input.texCoord).b : Metallic;
+    float roughnessValue = useRoughnessMap > 0.5f ? roughnessMap.Sample(samplerState, input.texCoord).g : Roughness;
     float aoValue = useAOMap > 0.5f ? aoMap.Sample(samplerState, input.texCoord).r : 1.0f;
     
     // === MetallicOnly Debug Mode
     if (debugMode == 9)
         return float4(metallicValue, metallicValue, metallicValue, 1.0f);
         
-    // === Sample the normal map
+    // === Sample the normal map and apply NormalScale (GLTF normalTexture.scale)
     float3 normalTS = normalMap.Sample(samplerState, input.texCoord).xyz;
-    normalTS = normalTS * 2.0f - 1.0f; // Transform from [0,1] to [-1,1]
+    normalTS = normalTS * 2.0f - 1.0f;            // [0,1] → [-1,1]
+    normalTS.xy *= NormalScale;                    // Scale XY by normalScale; Z stays for reconstruction
 
     // === Construct TBN Matrix
     float3 N = normalize(input.normal);
@@ -414,6 +424,9 @@ float4 main(PS_INPUT input) : SV_TARGET
     {
         return float4(0.0f, 0.0f, 0.0f, 1.0f);
     }
+
+    // === Emissive contribution (always additive, independent of lighting)
+    finalColor += EmissiveFactor * EmissiveStrength;
 
     // === Final output color with alpha from albedo
     return float4(finalColor, albedoColor.a);

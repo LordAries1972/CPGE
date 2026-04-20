@@ -1,6 +1,7 @@
 ﻿// SceneManager.cpp (continued)
 #include "Includes.h"
 #include "SceneManager.h"
+#include "BlenderImports.h"
 #include "ThreadLockHelper.h"
 #include "Renderer.h"
 #include "DX11Renderer.h"
@@ -28,10 +29,10 @@ extern std::shared_ptr<Renderer> renderer;
 // --------------------------------------------------------------------------------------------------
 SceneManager::SceneManager()
 {
-    stSceneType = SCENE_SPLASH;
+    stSceneType = SCENE_INTRO;
 
     #if defined(_DEBUG_SCENEMANAGER_)
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Constructor called. Scene type set to SCENE_SPLASH.");
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Constructor called. Scene type set to SCENE_INTRO.");
     #endif
 }
 
@@ -430,6 +431,15 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
         debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] GLB Exporter Detected: %ls", m_lastDetectedExporter.c_str());
     #endif
 
+    // Build Blender import configuration (coordinate flip, winding, version caps).
+    {
+        std::string generator;
+        if (doc.contains("asset") && doc["asset"].contains("generator") &&
+            doc["asset"]["generator"].is_string())
+            generator = doc["asset"]["generator"].get<std::string>();
+        m_blenderConfig = BlenderImports::BuildConfig(generator, doc);
+    }
+
     // Parse camera, lights, and materials using existing GLTF parsing functions
     // NOTE: The embedded binary data in gltfBinaryData is now available for these functions
     ParseGLTFCamera(doc, myRenderer->myCamera, myRenderer->iOrigWidth, myRenderer->iOrigHeight);
@@ -536,7 +546,7 @@ void SceneManager::ParseGLBNodeRecursive(const json& node, int nodeIndex, const 
     int currentParentID = parentModelID;
 
     // Load and decompose the node's local transformation matrix
-    XMMATRIX nodeTransform = GetNodeWorldMatrix(node);
+    XMMATRIX nodeTransform = GetNodeWorldMatrix(node, m_blenderConfig);
 
     // Decompose transformation matrix to extract scale for potential geometry baking
     XMVECTOR outScale, outRot, outTrans;
@@ -904,6 +914,15 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
         debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] GLTF Exporter Detected: %ls", m_lastDetectedExporter.c_str());
     #endif
 
+    // Build Blender import configuration (coordinate flip, winding, version caps).
+    {
+        std::string generator;
+        if (doc.contains("asset") && doc["asset"].contains("generator") &&
+            doc["asset"]["generator"].is_string())
+            generator = doc["asset"]["generator"].get<std::string>();
+        m_blenderConfig = BlenderImports::BuildConfig(generator, doc);
+    }
+
     // Load binary .bin file if referenced in buffers array
     if (doc.contains("buffers") && doc["buffers"].is_array() && !doc["buffers"].empty()) {
         const auto& buffers = doc["buffers"];
@@ -1067,7 +1086,7 @@ void SceneManager::ParseGLTFNodeRecursive(const json& node, int nodeIndex, const
     int currentParentID = parentModelID;
 
     // Load and decompose the node's local transformation matrix
-    XMMATRIX nodeTransform = GetNodeWorldMatrix(node);
+    XMMATRIX nodeTransform = GetNodeWorldMatrix(node, m_blenderConfig);
 
     // Decompose transformation matrix to extract scale for potential geometry baking
     XMVECTOR outScale, outRot, outTrans;
@@ -1550,15 +1569,18 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
 
         std::vector<Vertex> rawVertices((size_t)vertexCount); // Allocate vertex container for this primitive.
 
-        // Decode float3 positions.
+        // Decode float3 positions and apply GLTF→DX coordinate conversion.
         for (int vi = 0; vi < vertexCount; ++vi)
         {
-            const size_t base = posOffset + (size_t)vi * (size_t)12; // Base byte offset for this vertex.
-            rawVertices[(size_t)vi].position.x = *reinterpret_cast<const float*>(&gltfBinaryData[base + 0]);
-            rawVertices[(size_t)vi].position.y = *reinterpret_cast<const float*>(&gltfBinaryData[base + 4]);
-            rawVertices[(size_t)vi].position.z = *reinterpret_cast<const float*>(&gltfBinaryData[base + 8]);
-            rawVertices[(size_t)vi].normal = XMFLOAT3(0, 1, 0);       // Default normal if none provided.
-            rawVertices[(size_t)vi].texCoord = XMFLOAT2(0, 0);        // Default UV if none provided.
+            const size_t base = posOffset + (size_t)vi * (size_t)12;
+            XMFLOAT3 rawPos = {
+                *reinterpret_cast<const float*>(&gltfBinaryData[base + 0]),
+                *reinterpret_cast<const float*>(&gltfBinaryData[base + 4]),
+                *reinterpret_cast<const float*>(&gltfBinaryData[base + 8])
+            };
+            rawVertices[(size_t)vi].position = BlenderImports::ConvertPosition(rawPos, m_blenderConfig.flipAxes);
+            rawVertices[(size_t)vi].normal   = XMFLOAT3(0, 1, 0);    // Default normal if none provided.
+            rawVertices[(size_t)vi].texCoord = XMFLOAT2(0, 0);       // Default UV if none provided.
         }
 
         #if defined(_DEBUG_SCENEMANAGER_)
@@ -1596,10 +1618,14 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
 
                         for (int vi = 0; vi < vertexCount; ++vi)
                         {
-                            const size_t base = normOffset + (size_t)vi * (size_t)12; // Normal base offset.
-                            rawVertices[(size_t)vi].normal.x = *reinterpret_cast<const float*>(&gltfBinaryData[base + 0]);
-                            rawVertices[(size_t)vi].normal.y = *reinterpret_cast<const float*>(&gltfBinaryData[base + 4]);
-                            rawVertices[(size_t)vi].normal.z = *reinterpret_cast<const float*>(&gltfBinaryData[base + 8]);
+                            const size_t base = normOffset + (size_t)vi * (size_t)12;
+                            XMFLOAT3 rawNorm = {
+                                *reinterpret_cast<const float*>(&gltfBinaryData[base + 0]),
+                                *reinterpret_cast<const float*>(&gltfBinaryData[base + 4]),
+                                *reinterpret_cast<const float*>(&gltfBinaryData[base + 8])
+                            };
+                            rawVertices[(size_t)vi].normal =
+                                BlenderImports::ConvertNormal(rawNorm, m_blenderConfig.flipAxes);
                         }
                     }
                     else
@@ -1987,6 +2013,11 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
                 static_cast<int>(model.m_modelInfo.indices.size()));
         #endif
 
+        // Reverse winding order when the GLTF→DX coordinate flip changes handedness.
+        // (Odd number of axis flips reverses triangle winding.)
+        if (m_blenderConfig.fixWinding && BlenderImports::NeedsWindingFlip(m_blenderConfig.flipAxes))
+            BlenderImports::FixWindingOrder(model.m_modelInfo.indices);
+
         // -----------------------------
         // Generate Tangents (requires triangle list)
         // -----------------------------
@@ -2056,14 +2087,15 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
 
 
 // --------------------------------------------------------------------------------------------------
-XMMATRIX SceneManager::GetNodeWorldMatrix(const json& node)
+XMMATRIX SceneManager::GetNodeWorldMatrix(const json& node,
+                                           const BlenderImports::ImportConfig& cfg)
 {
     bool hasValidTransform = false;
     XMMATRIX S = XMMatrixIdentity();
     XMMATRIX R = XMMatrixIdentity();
     XMMATRIX T = XMMatrixIdentity();
 
-    // === Full Matrix override
+    // === Full Matrix override (GLTF column-major → DX row-major = transpose on load)
     if (node.contains("matrix") && node["matrix"].is_array() && node["matrix"].size() == 16)
     {
         XMFLOAT4X4 mtx{};
@@ -2071,13 +2103,14 @@ XMMATRIX SceneManager::GetNodeWorldMatrix(const json& node)
         {
             if (!node["matrix"][i].is_number())
                 return XMMatrixIdentity();
-
             ((float*)&mtx)[i] = node["matrix"][i].get<float>();
         }
-        return XMLoadFloat4x4(&mtx);
+        XMMATRIX loaded = XMLoadFloat4x4(&mtx);
+        // Apply GLTF→DX coordinate conversion: F * M * F
+        return BlenderImports::ConvertNodeMatrix(loaded, cfg.flipAxes);
     }
 
-    // === Scale
+    // === Scale (unchanged by reflection)
     if (node.contains("scale") && node["scale"].is_array()) {
         const auto& s = node["scale"];
         if (s.size() == 3 && s[0].is_number() && s[1].is_number() && s[2].is_number()) {
@@ -2089,33 +2122,32 @@ XMMATRIX SceneManager::GetNodeWorldMatrix(const json& node)
         }
     }
 
-    // === Rotation
+    // === Rotation — convert quaternion for GLTF→DX handedness
     if (node.contains("rotation") && node["rotation"].is_array()) {
         const auto& r = node["rotation"];
         if (r.size() == 4 && r[0].is_number() && r[1].is_number() && r[2].is_number() && r[3].is_number()) {
-            float qx = r[0].get<float>();
-            float qy = r[1].get<float>();
-            float qz = r[2].get<float>();
-            float qw = r[3].get<float>();
-            XMVECTOR quat = XMVectorSet(qx, qy, qz, qw);
+            XMFLOAT4 rawQ = { r[0].get<float>(), r[1].get<float>(),
+                              r[2].get<float>(), r[3].get<float>() };
+            XMFLOAT4 dxQ  = BlenderImports::ConvertQuat(rawQ, cfg.flipAxes);
+            XMVECTOR quat  = XMVectorSet(dxQ.x, dxQ.y, dxQ.z, dxQ.w);
             R = XMMatrixRotationQuaternion(quat);
             hasValidTransform = true;
         }
     }
 
-    // === Translation
+    // === Translation — negate Z (or other flagged axes) for GLTF→DX
     if (node.contains("translation") && node["translation"].is_array()) {
         const auto& t = node["translation"];
         if (t.size() == 3 && t[0].is_number() && t[1].is_number() && t[2].is_number()) {
-            float tx = t[0].get<float>();
-            float ty = t[1].get<float>();
-            float tz = t[2].get<float>();
-            T = XMMatrixTranslation(tx, ty, tz);
+            XMFLOAT3 rawT = { t[0].get<float>(), t[1].get<float>(), t[2].get<float>() };
+            XMFLOAT3 dxT  = BlenderImports::ConvertTranslation(rawT, cfg.flipAxes);
+            T = XMMatrixTranslation(dxT.x, dxT.y, dxT.z);
             hasValidTransform = true;
 
 #if defined(_DEBUG_SCENEMANAGER_)
             debug.logDebugMessage(LogLevel::LOG_DEBUG,
-                L"[SceneManager] Translation Parsed = (%.3f, %.3f, %.3f)", tx, ty, tz);
+                L"[SceneManager] Translation GLTF=(%.3f,%.3f,%.3f) → DX=(%.3f,%.3f,%.3f)",
+                rawT.x, rawT.y, rawT.z, dxT.x, dxT.y, dxT.z);
 #endif
         }
     }
@@ -2128,14 +2160,16 @@ XMMATRIX SceneManager::GetNodeWorldMatrix(const json& node)
     }
 
     XMMATRIX finalMatrix = T * R * S;
-    XMFLOAT4X4 dbgMatrix;
-    XMStoreFloat4x4(&dbgMatrix, finalMatrix);
 
     #if defined(_DEBUG_SCENEMANAGER_)
-    debug.logDebugMessage(LogLevel::LOG_DEBUG,
-        L"[SceneManager] Node TRS -> Translation=(%.3f, %.3f, %.3f), Scale=(%.3f, %.3f, %.3f)",
-        dbgMatrix._41, dbgMatrix._42, dbgMatrix._43,
-        dbgMatrix._11, dbgMatrix._22, dbgMatrix._33);
+    {
+        XMFLOAT4X4 dbgMatrix;
+        XMStoreFloat4x4(&dbgMatrix, finalMatrix);
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[SceneManager] Node TRS(DX) -> Translation=(%.3f, %.3f, %.3f), Scale=(%.3f, %.3f, %.3f)",
+            dbgMatrix._41, dbgMatrix._42, dbgMatrix._43,
+            dbgMatrix._11, dbgMatrix._22, dbgMatrix._33);
+    }
     #endif
 
     return finalMatrix;
@@ -2250,11 +2284,16 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
     Material newMat;
     newMat.name = mat.contains("name") ? mat["name"].get<std::string>() : "Material" + std::to_string(materialIndex);
 
+    // Apply all GLTF 2.0 PBR properties via BlenderImports (handles Blender 3.x–5.x).
+    BlenderImports::ApplyPBRMaterial(newMat, mat, m_blenderConfig);
+
     bool hasDiffuseTexture = false;
 
     if (mat.contains("pbrMetallicRoughness"))
     {
         const auto& pbr = mat["pbrMetallicRoughness"];
+
+        // === Base Colour Texture (albedo / t0) ===
         if (pbr.contains("baseColorTexture"))
         {
             int texIndex = pbr["baseColorTexture"].value("index", -1);
@@ -2274,11 +2313,8 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
                     #endif
 
                     // -----------------------------------------------------------------
-                    // Heuristic safety:
-                    // Some Blender exports (or mis-assigned materials) can end up with a
-                    // normal map referenced as the baseColorTexture. If we detect this
-                    // pattern and the material has no explicit normalTexture, we treat
-                    // this as a normal map, and fall back to a default white albedo.
+                    // Heuristic safety: some Blender exports mis-assign a normal map as
+                    // baseColorTexture. Detect by name and re-route to the normal slot.
                     // -----------------------------------------------------------------
                     std::string uriLower = uri;
                     std::transform(uriLower.begin(), uriLower.end(), uriLower.begin(),
@@ -2288,19 +2324,17 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
                     bool hasExplicitNormal = mat.contains("normalTexture");
 
                     auto tex = std::make_shared<Texture>();
-if (tex->LoadFromFile(fullTexPath))
-{
-    #if defined(_DEBUG_TEXTURE_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_INFO,
-            L"[SceneManager][Texture] -> Loaded OK: %ls",
-            fullTexPath.c_str());
-    #endif
+                    if (tex->LoadFromFile(fullTexPath))
+                    {
+                        #if defined(_DEBUG_TEXTURE_) && defined(_DEBUG)
+                            debug.logDebugMessage(LogLevel::LOG_INFO,
+                                L"[SceneManager][Texture] -> Loaded OK: %ls", fullTexPath.c_str());
+                        #endif
 
                         info.textures.push_back(tex);
 
                         if (looksLikeNormal && !hasExplicitNormal)
                         {
-                            // Bind as normal map (t1) and force white albedo fallback.
                             info.normalMapSRVs.push_back(tex->GetSRV());
                             newMat.normalMap = tex;
                             newMat.normalMapPath = uri;
@@ -2314,7 +2348,6 @@ if (tex->LoadFromFile(fullTexPath))
                         }
                         else
                         {
-                            // Normal path: bind as diffuse/albedo (t0).
                             info.textureSRVs.push_back(tex->GetSRV());
                             newMat.diffuseTexture = tex;
                             newMat.diffuseMapPath = uri;
@@ -2326,6 +2359,43 @@ if (tex->LoadFromFile(fullTexPath))
                                     info.ID, materialIndex, fullTexPath.c_str());
                             #endif
                         }
+                    }
+                }
+            }
+        }
+
+        // === Metallic-Roughness Texture (GLTF 2.0 ORM: G=roughness, B=metallic) ===
+        if (pbr.contains("metallicRoughnessTexture"))
+        {
+            int texIndex = pbr["metallicRoughnessTexture"].value("index", -1);
+            if (texIndex >= 0 && texIndex < (int)textures.size())
+            {
+                int imgIndex = textures[texIndex].value("source", -1);
+                if (imgIndex >= 0 && imgIndex < (int)images.size())
+                {
+                    std::string uri = images[imgIndex].value("uri", "");
+                    std::wstring wuri = sysUtils.StripQuotes(sysUtils.ToWString(uri));
+                    std::filesystem::path fullTexPath = AssetsDir / wuri;
+
+                    auto tex = std::make_shared<Texture>();
+                    if (tex->LoadFromFile(fullTexPath))
+                    {
+                        info.textures.push_back(tex);
+                        // Both slots share the same texture; shader samples G for roughness, B for metallic
+                        info.metallicMap  = tex;
+                        info.roughnessMap = tex;
+                        info.metallicMapSRV  = tex->GetSRV();
+                        info.roughnessMapSRV = tex->GetSRV();
+                        info.useMetallicMap  = true;
+                        info.useRoughnessMap = true;
+                        newMat.metallicMap  = tex;
+                        newMat.roughnessMap = tex;
+
+                        #if defined(_DEBUG_SCENEMANAGER_)
+                            debug.logDebugMessage(LogLevel::LOG_INFO,
+                                L"[SceneManager] Model[%d] material[%d] -> MetallicRoughness map (ORM): %ls",
+                                info.ID, materialIndex, fullTexPath.c_str());
+                        #endif
                     }
                 }
             }
@@ -2392,6 +2462,41 @@ if (tex->LoadFromFile(fullTexPath))
             }
         }
     }
+
+    // === Ambient Occlusion Texture (optional, t4) ===
+    if (mat.contains("occlusionTexture"))
+    {
+        int texIndex = mat["occlusionTexture"].value("index", -1);
+        if (texIndex >= 0 && texIndex < (int)textures.size())
+        {
+            int imgIndex = textures[texIndex].value("source", -1);
+            if (imgIndex >= 0 && imgIndex < (int)images.size())
+            {
+                std::string uri = images[imgIndex].value("uri", "");
+                std::wstring wuri = sysUtils.StripQuotes(sysUtils.ToWString(uri));
+                std::filesystem::path fullTexPath = AssetsDir / wuri;
+
+                auto tex = std::make_shared<Texture>();
+                if (tex->LoadFromFile(fullTexPath))
+                {
+                    info.textures.push_back(tex);
+                    info.aoMap    = tex;
+                    info.aoMapSRV = tex->GetSRV();
+                    info.useAOMap = true;
+                    newMat.aoMap  = tex;
+
+                    #if defined(_DEBUG_SCENEMANAGER_)
+                        debug.logDebugMessage(LogLevel::LOG_INFO,
+                            L"[SceneManager] Model[%d] material[%d] -> AO map: %ls",
+                            info.ID, materialIndex, fullTexPath.c_str());
+                    #endif
+                }
+            }
+        }
+    }
+
+    // PBR scalars (Kd, Metallic, Roughness, emissive, alpha, extensions) were
+    // already applied by BlenderImports::ApplyPBRMaterial() above the texture block.
 
     info.materials.push_back(newMat.name);
     model.m_materials[newMat.name] = newMat;
@@ -2623,7 +2728,7 @@ bool SceneManager::ParseGLTFLights(const json& doc)
         LightStruct lref = parsedLights[lightIndex];
 
         // --- Set position from node transform ---
-        XMMATRIX nodeMatrix = GetNodeWorldMatrix(node);
+        XMMATRIX nodeMatrix = GetNodeWorldMatrix(node, m_blenderConfig);
         XMFLOAT4X4 xf;
         XMStoreFloat4x4(&xf, nodeMatrix);
 

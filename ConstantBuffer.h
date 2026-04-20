@@ -55,6 +55,12 @@ struct alignas(16) MaterialGPU
     float useRoughnessMap;                        // 1.0 = use roughness map.
     float useAOMap;                               // 1.0 = use ambient occlusion map.
     float useEnvMap;                              // 1.0 = use environment map.
+    XMFLOAT3 EmissiveFactor;                      // Emissive colour (RGB)
+    float EmissiveStrength;                       // KHR_materials_emissive_strength multiplier
+    float NormalScale;                            // normalTexture.scale (1.0 = default)
+    float pad4;                                   // Padding
+    float pad5;                                   // Padding
+    float pad6;                                   // Padding — keeps struct at 112 bytes (multiple of 16)
 };
 
 // -------------------------------------------------------------

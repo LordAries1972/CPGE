@@ -123,7 +123,7 @@ private:
 
     void CreateScenePrograms(SceneType sceneType) {
         switch (sceneType) {
-            case SCENE_SPLASH:
+            case SCENE_INTRO:
                 break;
 
             case SCENE_GAMEPLAY:

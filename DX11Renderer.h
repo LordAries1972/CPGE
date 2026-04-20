@@ -266,6 +266,7 @@ public:
     bool Resize(uint32_t width, uint32_t height) override;
     void WaitForGPUToFinish() override;
     void UnloadTexture(int textureId, bool is2D);
+    void RenderBackgroundImage();
     void Blit2DObject(BlitObj2DIndexType iIndex, int iX, int iY);
     void Blit2DObjectToSize(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight);
     void Blit2DObjectAtOffset(BlitObj2DIndexType iIndex, int iBlitX, int iBlitY, int iXOffset, int iYOffset, int iTileSizeX, int iTileSizeY);
