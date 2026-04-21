@@ -16,7 +16,8 @@
       "Bash(taskkill /F /IM devenv.exe)",
       "Bash(git status *)",
       "Bash(ls *.sln)",
-      "Bash(del \"f:\\\\Projects\\\\C++\\\\CPGE2026\\\\.vs\\\\CrossPlatformGameEngine\\\\v17\\\\.suo\")"
+      "Bash(del \"f:\\\\Projects\\\\C++\\\\CPGE2026\\\\.vs\\\\CrossPlatformGameEngine\\\\v17\\\\.suo\")",
+      "Bash(python -c \"import json; d=json.load\\(open\\('Assets/splash-hover1.gltf'\\)\\); print\\('textures:', json.dumps\\(d.get\\('textures', []\\)[:5], indent=2\\)\\)\")"
     ],
     "additionalDirectories": [
       "f:\\Projects\\C++\\CPGE2026\\.vs\\CrossPlatformGameEngine\\v17"

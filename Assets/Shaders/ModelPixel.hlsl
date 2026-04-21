@@ -352,9 +352,11 @@ float4 main(PS_INPUT input) : SV_TARGET
         return float4(envReflection, 1.0f);
     
     // === Ambient lighting with occlusion
+    // Ka provides the material's base ambient; light.ambient provides scene-level ambient
+    // so surfaces with no direct lighting still show their colour.
     float3 ambient = Ka * albedoColor.rgb * aoValue;
     float3 finalColor = ambient;
-    
+
     // === Early exit: NoLighting Debug Mode
     if ((numLights == 0 && globalLightCount == 0) || debugMode == 5)
     {
@@ -367,34 +369,37 @@ float4 main(PS_INPUT input) : SV_TARGET
     // ================================
     // Calculate all lights
     // ================================
-    float3 diffuseAccum = float3(0, 0, 0);
+    float3 diffuseAccum  = float3(0, 0, 0);
     float3 specularAccum = float3(0, 0, 0);
     float3 directLighting = float3(0, 0, 0);
-    
-    // Process local lights
+    float3 lightAmbient   = float3(0, 0, 0);
+
+    // Process local lights (b1) — also accumulate per-light ambient.
+    // light.ambient was set in the CPU but was never applied in the shader;
+    // without it, surfaces not facing the light appear completely black.
     for (int i = 0; i < numLights; ++i)
     {
-        float3 lightContribution = ProcessLight(
+        if (lights[i].active)
+            lightAmbient += lights[i].ambient;
+
+        directLighting += ProcessLight(
             lights[i], normalWS, V, input.worldPosition,
             roughnessValue, metallicValue, albedoColor.rgb, F0
         );
-        
-        directLighting += lightContribution;
     }
-    
-    // Process global lights
+
+    // Process global lights (b3) — direct only; ambient already accumulated above
+    // (b1 and b3 currently share the same buffer, so avoid double-counting ambient).
     for (int gi = 0; gi < globalLightCount; ++gi)
     {
-        float3 lightContribution = ProcessLight(
+        directLighting += ProcessLight(
             globalLights[gi], normalWS, V, input.worldPosition,
             roughnessValue, metallicValue, albedoColor.rgb, F0
         );
-        
-        directLighting += lightContribution;
     }
-    
-    // Add direct lighting to final color
-    finalColor += directLighting;
+
+    // Combine: material ambient + per-light ambient (modulated by albedo) + direct
+    finalColor += lightAmbient * albedoColor.rgb * aoValue + directLighting;
     
     // Add environment reflection if enabled
     if (useEnvMap > 0.5f && debugMode != 3 && debugMode != 4)

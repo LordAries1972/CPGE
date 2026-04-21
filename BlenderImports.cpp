@@ -47,8 +47,9 @@ BlenderImports::Version BlenderImports::ParseVersion(const std::string& generato
     if (!IsBlenderFile(generator))
         return v;
 
-    // Match "Blender X.Y.Z" — handles "Blender 4.2.1", "Blender 5.1", "Blender 3.6.0 UPBGE", etc.
-    static const std::regex re(R"([Bb]lender\s+(\d+)\.(\d+)(?:\.(\d+))?)");
+    // Match version after "Blender" with optional intervening words and an optional "v" prefix.
+    // Handles: "Blender 4.2.1", "Blender I/O v5.1.18", "Blender 3.6.0 UPBGE", etc.
+    static const std::regex re(R"([Bb]lender\b.*?\bv?(\d+)\.(\d+)(?:\.(\d+))?)");
     std::smatch m;
     if (std::regex_search(generator, m, re))
     {
@@ -223,13 +224,17 @@ void BlenderImports::ApplyPBRMaterial(Material& mat, const json& gltfMat,
 
     // ---- Derive ambient from diffuse (PBR convention) ----
     // Only override if Ka is still at its default (0.1,0.1,0.1) grey.
+    // A minimum floor (kFloor) ensures very dark materials stay faintly visible
+    // when no direct light hits them — without it, Kd=0.038 gives Ka≈0.006 (black).
     const float kaLen = sqrtf(mat.Ka.x*mat.Ka.x + mat.Ka.y*mat.Ka.y + mat.Ka.z*mat.Ka.z);
     const float kdLen = sqrtf(mat.Kd.x*mat.Kd.x + mat.Kd.y*mat.Kd.y + mat.Kd.z*mat.Kd.z);
     if (kaLen < 0.2f && kdLen > 0.01f)
     {
-        mat.Ka.x = mat.Kd.x * 0.15f;
-        mat.Ka.y = mat.Kd.y * 0.15f;
-        mat.Ka.z = mat.Kd.z * 0.15f;
+        const float kAmbient = 0.15f;
+        const float kFloor   = 0.06f;
+        mat.Ka.x = std::max(mat.Kd.x * kAmbient, kFloor);
+        mat.Ka.y = std::max(mat.Kd.y * kAmbient, kFloor);
+        mat.Ka.z = std::max(mat.Kd.z * kAmbient, kFloor);
     }
 
     // ---- normalTexture.scale ----

@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.970*
+*Current Build Version: v0.0.972*
 
 ---
 
@@ -370,7 +370,7 @@ Once the base DirectX 11 implementation is complete, the project will be release
   its about you too and what you can offer the world with your inspirations.  What I please ask, please share some of your coding ideas to us by
   contributing to our github project.  Please message the manager at my website and request for a pull request and please explain to me how
   you can contribute.  All Contributions will be recorded and posted daily on my website to ensure recognision is given to those who do.  More importantly,
-  thank you everybody who does as this is an FOSS project and your support is always welcomed! right!
+  thank you everybody who does as this is an FOSS project and your support is always welcomed!
   
 
 ---
