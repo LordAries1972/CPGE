@@ -11,7 +11,7 @@
 
 **GitHub**: [https://github.com/LordAries1972/CPGE](https://github.com/LordAries1972/CPGE)
 
-**Contact**: [cpgeengine@gmail.com](mailto:cpgeengine@gmail.com)
+**Contact**: [Ultimanium.com](https://ultimanium.com/index.php?action=contact-development)
 
 ---
 
