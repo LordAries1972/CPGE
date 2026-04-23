@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.972*
+*Current Build Version: v0.0.975*
 
 ---
 
@@ -372,6 +372,11 @@ Once the base DirectX 11 implementation is complete, the project will be release
   you can contribute.  All Contributions will be recorded and posted daily on my website to ensure recognision is given to those who do.  More importantly,
   thank you everybody who does as this is an FOSS project and your support is always welcomed!
   
+**April 22, 2026** - More updates and fixes:
+
+- Joystick/Gamepad reads configuration sensitivity settings and is maintained.
+- Version stamping to the configuration file is now stamped and maintained.
+- 
 
 ---
 

@@ -44,7 +44,6 @@ bool Configuration::loadConfig() {
         myConfig.masterVolume = j["masterVolume"];
         myConfig.ambientVolume = j["ambientVolume"];
         myConfig.dialogVolume = j["dialogVolume"];
-        myConfig.buildVersion = j["buildVersion"];
         myConfig.enableVSync = j["enableVSync"];
         myConfig.msaaEnabled = j["msaaEnabled"];
         myConfig.antiAliasingEnabled = j["antiAliasingEnabled"];
@@ -61,7 +60,9 @@ bool Configuration::loadConfig() {
         myConfig.aspectRatio = j.value("aspectRatio", 16.0 / 9.0);
         myConfig.zoomSensitivity = j["zoomSensitivity"];
         myConfig.moveSensitivity = j["moveSensitivity"];
-        myConfig.joystickSensitivity = j["joystickSensitivity"];
+        myConfig.joystickSensitivity = j.value("joystickSensitivity", 0.01);
+        myConfig.joystickRotationSensitivity = j.value("joystickRotationSensitivity", 0.001);
+        myConfig.microphoneVolume = j.value("microphoneVolume", 2.5);
         myConfig.TTSVolume = j["TTSVolume"];
         myConfig.UseTTS = j["UseTTS"];
         myConfig.chksum = j["chksum"];
@@ -91,6 +92,11 @@ bool Configuration::loadConfig() {
             #endif
         }
     }
+
+    // Always stamp the current build identity so the next saveConfig() records it.
+    myConfig.buildVersion    = CURRENT_BUILD_VERSION;
+    myConfig.buildSubVersion = CURRENT_BUILD_SUBVERSION;
+    myConfig.build           = CURRENT_BUILD;
 
     #if defined(_DEBUG)
         debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Configuration file loaded successfully.");
@@ -131,6 +137,8 @@ bool Configuration::saveConfig() {
         j["zoomSensitivity"] = myConfig.zoomSensitivity;
         j["moveSensitivity"] = myConfig.moveSensitivity;
         j["joystickSensitivity"] = myConfig.joystickSensitivity;
+        j["joystickRotationSensitivity"] = myConfig.joystickRotationSensitivity;
+        j["microphoneVolume"] = myConfig.microphoneVolume;
         j["nearPlane"] = myConfig.nearPlane;
 		j["farPlane"] = myConfig.farPlane;
         j["aspectRatio"] = myConfig.aspectRatio;
@@ -180,6 +188,8 @@ long double Configuration::calculateChecksum(const MyConfig& cfg) const
         << cfg.zoomSensitivity
         << cfg.moveSensitivity
         << cfg.joystickSensitivity
+        << cfg.joystickRotationSensitivity
+        << cfg.microphoneVolume
         << cfg.nearPlane
 		<< cfg.farPlane
         << cfg.aspectRatio

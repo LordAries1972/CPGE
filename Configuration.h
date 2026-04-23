@@ -1,5 +1,6 @@
 #pragma once
 
+#include "BuildInfo.h"
 #include "Debug.h"
 
 #include <nlohmann/json.hpp>
@@ -25,9 +26,9 @@ struct MyConfig {
     int masterVolume = 64;
     int ambientVolume = 64;
     int dialogVolume = 64;
-    int buildVersion = 1;
-    int buildSubVersion = 0;
-    int build = 1;
+    int buildVersion    = CURRENT_BUILD_VERSION;
+    int buildSubVersion = CURRENT_BUILD_SUBVERSION;
+    int build           = CURRENT_BUILD;
 
     bool playMusic = true;
     bool enableVSync = true;
@@ -39,12 +40,15 @@ struct MyConfig {
     long double fov = 60.0f;
     long double zoomSensitivity = 0.005f;
     long double moveSensitivity = 0.0005f;
-    long double joystickSensitivity = 0.00005f;
+    long double joystickSensitivity = 0.01f;
+    long double joystickRotationSensitivity = 0.001f;
     long double nearPlane = 0.1f;
     long double farPlane = 1000.0f;
     long double aspectRatio = 16.0 / 9.0;                                       // Default widescreen
     long double maxPitch = 89.0f;                                               // Degrees
     long double minPitch = -89.0f;                                              // Degrees
+
+    long double microphoneVolume = 2.5f;
 
     // Add more configuration parameters as needed
     bool UseTTS = true;

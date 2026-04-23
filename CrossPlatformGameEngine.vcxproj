@@ -172,6 +172,7 @@
     <ClCompile Include="XMMODPlayer.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="BuildInfo.h" />
     <ClInclude Include="Color.h" />
     <ClInclude Include="Configuration.h" />
     <ClInclude Include="ConstantBuffer.h" />

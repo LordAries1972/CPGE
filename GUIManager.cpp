@@ -523,19 +523,22 @@ std::wstring GUIWindow::WrapText(const std::wstring& text, float maxWidth, float
 }
 
 void GUIWindow::Render() {
-    if ((!isVisible) || (!myRenderer)) return;
-    if ((!renderer->bIsInitialized.load() ||
+    // Snapshot myRenderer into a local so a concurrent RemoveWindow() nulling
+    // the member cannot cause a null-ptr crash mid-frame.
+    Renderer* r = myRenderer;
+    if (!isVisible || !r || bWindowDestroy) return;
+    if (!r->bIsInitialized.load() ||
         threadManager.threadVars.bIsShuttingDown.load() ||
         threadManager.threadVars.bSettingFullScreen.load() ||
-        threadManager.threadVars.bIsResizing.load())) return;
+        threadManager.threadVars.bIsResizing.load()) return;
 
     // Render the background texture if it exists
     if (backgroundTextureId != -1) {
-        myRenderer->DrawTexture(backgroundTextureId, position, size, MyColor(1.0f, 1.0f, 1.0f, 1.0f), true);
+        r->DrawTexture(backgroundTextureId, position, size, MyColor(1.0f, 1.0f, 1.0f, 1.0f), true);
     }
     else {
         // Render the window background texture
-        myRenderer->DrawRectangle(position, size, backgroundColor, true);
+        r->DrawRectangle(position, size, backgroundColor, true);
     }
 
     // Render each control
@@ -549,16 +552,16 @@ void GUIWindow::Render() {
                 if (control.bgTextureId != -1)
                 {
                     if (control.isHovered) {
-                        myRenderer->DrawTexture(control.bgTextureHoverId, control.position, control.size, MyColor(255, 255, 255, 255), true);
+                        r->DrawTexture(control.bgTextureHoverId, control.position, control.size, MyColor(255, 255, 255, 255), true);
                     }
                     else
                     {
-                        myRenderer->DrawTexture(control.bgTextureId, control.position, control.size, MyColor(128, 128, 128, 128), true);
+                        r->DrawTexture(control.bgTextureId, control.position, control.size, MyColor(128, 128, 128, 128), true);
                     }
 
                     // Calculate text position to center it both horizontally and vertically
-                    float textWidth = myRenderer->CalculateTextWidth(control.label, control.lblFontSize, float(control.size.x));
-                    float textHeight = myRenderer->CalculateTextHeight(control.label, control.lblFontSize, float(control.size.y));
+                    float textWidth = r->CalculateTextWidth(control.label, control.lblFontSize, float(control.size.x));
+                    float textHeight = r->CalculateTextHeight(control.label, control.lblFontSize, float(control.size.y));
 
                     // Calculate the center position for the text
                     float textX = (control.position.x + (control.size.x - textWidth) / control.lblFontSize) - textWidth / 2;
@@ -567,21 +570,21 @@ void GUIWindow::Render() {
                     if (control.useShadowedText)
                     {
                         // Draw the button shadow text
-                        myRenderer->DrawMyTextCentered(control.label, Vector2(textX + 2.0f, textY + 2.0f), control.shadowedTxtColor, control.lblFontSize, control.size.x, control.size.y);
+                        r->DrawMyTextCentered(control.label, Vector2(textX + 2.0f, textY + 2.0f), control.shadowedTxtColor, control.lblFontSize, control.size.x, control.size.y);
                     }
 
                     // Draw the main button text
-                    myRenderer->DrawMyTextCentered(control.label, Vector2(textX, textY), control.txtColor, control.lblFontSize, control.size.x, control.size.y);
+                    r->DrawMyTextCentered(control.label, Vector2(textX, textY), control.txtColor, control.lblFontSize, control.size.x, control.size.y);
                     break;
                 }
                 else
                 {
                     // Draw the button background
-                    myRenderer->DrawRectangle(control.position, control.size, bgColor, true);
+                    r->DrawRectangle(control.position, control.size, bgColor, true);
 
                     // Calculate text position to center it both horizontally and vertically
-                    float textWidth = myRenderer->CalculateTextWidth(control.label, control.lblFontSize, control.size.x);
-                    float textHeight = myRenderer->CalculateTextHeight(control.label, control.lblFontSize, control.size.y);
+                    float textWidth = r->CalculateTextWidth(control.label, control.lblFontSize, control.size.x);
+                    float textHeight = r->CalculateTextHeight(control.label, control.lblFontSize, control.size.y);
 
                     // Calculate the center position for the text
                     float textX = control.position.x + (control.size.x - textWidth) / 2.0f;
@@ -590,11 +593,11 @@ void GUIWindow::Render() {
                     if (control.useShadowedText)
                     {
                         // Draw the button shadow text
-                        myRenderer->DrawMyTextCentered(control.label, Vector2(textX + 2.0f, textY + 2.0f), control.shadowedTxtColor, control.lblFontSize, control.size.x, control.size.y);
+                        r->DrawMyTextCentered(control.label, Vector2(textX + 2.0f, textY + 2.0f), control.shadowedTxtColor, control.lblFontSize, control.size.x, control.size.y);
                     }
 
                     // Draw the button text
-                    myRenderer->DrawMyTextCentered(control.label, Vector2(textX, textY), control.txtColor, control.lblFontSize, control.size.x, control.size.y);
+                    r->DrawMyTextCentered(control.label, Vector2(textX, textY), control.txtColor, control.lblFontSize, control.size.x, control.size.y);
                 }
                 break;
             }
@@ -603,17 +606,17 @@ void GUIWindow::Render() {
                 if (control.bgTextureId != -1)
                 {
                     if (control.isHovered) {
-                        myRenderer->DrawTexture(control.bgTextureHoverId, control.position, control.size, MyColor(255, 255, 255, 255), true);
+                        r->DrawTexture(control.bgTextureHoverId, control.position, control.size, MyColor(255, 255, 255, 255), true);
                     }
                     else
                     {
-                        myRenderer->DrawTexture(control.bgTextureId, control.position, control.size, MyColor(128, 128, 128, 255), true);
+                        r->DrawTexture(control.bgTextureId, control.position, control.size, MyColor(128, 128, 128, 255), true);
                     }
                 }
                 else
                 {
                     // Draw the text area background using the control's color
-                    myRenderer->DrawRectangle(control.position, control.size, bgColor, true);
+                    r->DrawRectangle(control.position, control.size, bgColor, true);
 
                 }
 
@@ -625,7 +628,7 @@ void GUIWindow::Render() {
                 resize.x -= 12.0f;
                 resize.y -= 6.0f;
                 // Draw the text content with the specified text color
-                myRenderer->DrawMyText(control.label, resizedPos, resize, control.txtColor, control.lblFontSize);
+                r->DrawMyText(control.label, resizedPos, resize, control.txtColor, control.lblFontSize);
 
                 break;
             }
@@ -634,37 +637,37 @@ void GUIWindow::Render() {
                 if (control.bgTextureId != -1)
                 {
                     if (control.isHovered) {
-                        myRenderer->DrawTexture(control.bgTextureHoverId, control.position, control.size, MyColor(255, 255, 255, 255), true);
+                        r->DrawTexture(control.bgTextureHoverId, control.position, control.size, MyColor(255, 255, 255, 255), true);
                     }
                     else
                     {
-                        myRenderer->DrawTexture(control.bgTextureId, control.position, control.size, MyColor(64, 64, 64, 255), true);
+                        r->DrawTexture(control.bgTextureId, control.position, control.size, MyColor(64, 64, 64, 255), true);
                     }
 
                     // Calculate text position to center it both horizontally and vertically
-                    float textWidth = myRenderer->CalculateTextWidth(control.label, control.lblFontSize, control.size.x);
-                    float textHeight = myRenderer->CalculateTextHeight(control.label, control.lblFontSize, control.size.y);
+                    float textWidth = r->CalculateTextWidth(control.label, control.lblFontSize, control.size.x);
+                    float textHeight = r->CalculateTextHeight(control.label, control.lblFontSize, control.size.y);
 
                     // Calculate the center position for the text
                     float textX = control.position.x;
                     float textY = (control.position.y + (control.size.y - textHeight) / 2.0f ) + 2;
                     Vector2 recalcedPos = Vector2(textX, textY);
                     // Draw the text content with the specified text color
-                    myRenderer->DrawMyText(control.label, recalcedPos, control.size, control.txtColor, control.lblFontSize);
+                    r->DrawMyText(control.label, recalcedPos, control.size, control.txtColor, control.lblFontSize);
                 }
                 else
                 {
                     // Draw the text area background using the control's color
-                    myRenderer->DrawRectangle(control.position, control.size, bgColor, true);
+                    r->DrawRectangle(control.position, control.size, bgColor, true);
 
                     // Draw the text content with the specified text color
-                    myRenderer->DrawMyText(control.label, control.position, control.size, control.txtColor, control.lblFontSize);
+                    r->DrawMyText(control.label, control.position, control.size, control.txtColor, control.lblFontSize);
                 }
                 break;
             }
             case GUIControlType::Scrollbar: {
                 // Draw the scrollbar background
-                myRenderer->DrawRectangle(control.position, control.size, bgColor, true);
+                r->DrawRectangle(control.position, control.size, bgColor, true);
                 break;
             }
         }

@@ -507,6 +507,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         // Configure for 3D usage (Like for FPS, TPS, 3D flight etc)
         js.ConfigureFor3DMovement();
 
+        // Apply saved microphone monitor volume from configuration
+        screenRecorder.SetMicMonitorGain(static_cast<float>(config.myConfig.microphoneVolume));
+
         // Start Required Renderer Threads
         #if !defined(_DEBUG)
             if (!renderer->StartRendererThreads())
@@ -855,6 +858,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                         float gain = screenRecorder.GetMicMonitorGain() + adj * 0.1f;
                         gain = gain < 0.0f ? 0.0f : (gain > 4.0f ? 4.0f : gain);
                         screenRecorder.SetMicMonitorGain(gain);
+                        config.myConfig.microphoneVolume = gain;
 
                         if (!guiManager.GetWindow(MIC_OSD))
                         {
