@@ -45,6 +45,11 @@
 #include "Includes.h"
 #include <memory>
 
+#if defined(PLATFORM_WINDOWS)
+    #include <endpointvolume.h>
+    #include <mmdeviceapi.h>
+#endif
+
 // --------------------------------------------
 // Engine Subsystems
 // --------------------------------------------
@@ -177,10 +182,14 @@ std::atomic<bool> bFullScreenTransition{ false };                       // Preve
 std::atomic<bool> bRecordingToggleRequested{ false };                   // Set by keyboard hook; consumed by main loop
 std::atomic<int>  micVolumeAdjustRequest{ 0 };                          // Accumulated NUMPAD+/- steps; consumed by main loop
 std::atomic<int>  musicVolumeAdjustRequest{ 0 };                        // Accumulated ALT+NUMPAD+/- steps; consumed by main loop
+std::atomic<int>  sfxVolumeAdjustRequest{ 0 };                          // Accumulated CTRL+NUMPAD+/- steps; consumed by main loop
+std::atomic<int>  masterVolumeAdjustRequest{ 0 };                       // Accumulated CTRL+SHIFT+NUMPAD+/- steps; consumed by main loop
 
 static std::chrono::steady_clock::time_point lastResizeTime;            // Debounce resize messages
 static std::chrono::steady_clock::time_point micOSDLastShown;           // When mic volume OSD was last refreshed
 static std::chrono::steady_clock::time_point musicOSDLastShown;         // When music volume OSD was last refreshed
+static std::chrono::steady_clock::time_point sfxOSDLastShown;           // When SFX volume OSD was last refreshed
+static std::chrono::steady_clock::time_point masterOSDLastShown;        // When master volume OSD was last refreshed
 static std::chrono::steady_clock::time_point lastScenePhaseChangeTime;  // Suppress WM_SIZE after scene transitions
 static const int RESIZE_DEBOUNCE_MS = 100;                              // Minimum time between resize operations
 static const int SCENE_PHASE_RESIZE_IGNORE_MS = 15000;                  // Ignore WM_SIZE for 15s after a phase change
@@ -212,6 +221,36 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard);
 #pragma warning(disable: 4996)  // Suppress deprecated function warnings
 #pragma warning(disable: 4267)  // Suppress size_t conversion warnings
 #pragma warning(disable: 4101)  // Suppress warning C4101: 'e': unreferenced local variable
+
+// *----------------------------------------------------------------------------------------------
+// Helpers
+// *----------------------------------------------------------------------------------------------
+#if defined(PLATFORM_WINDOWS)
+// Sets the Windows default audio endpoint master volume. vol64 is 0-64 mapped to 0.0-1.0.
+static void ApplySystemMasterVolume(int vol64)
+{
+    float scalar = static_cast<float>(std::clamp(vol64, 0, 64)) / 64.0f;
+
+    IMMDeviceEnumerator* pEnum = nullptr;
+    if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr,
+                                CLSCTX_ALL, IID_PPV_ARGS(&pEnum)))) return;
+
+    IMMDevice* pDevice = nullptr;
+    HRESULT hr = pEnum->GetDefaultAudioEndpoint(eRender, eConsole, &pDevice);
+    pEnum->Release();
+    if (FAILED(hr)) return;
+
+    IAudioEndpointVolume* pVol = nullptr;
+    if (SUCCEEDED(pDevice->Activate(__uuidof(IAudioEndpointVolume),
+                                    CLSCTX_ALL, nullptr,
+                                    reinterpret_cast<void**>(&pVol))))
+    {
+        pVol->SetMasterVolumeLevelScalar(scalar, nullptr);
+        pVol->Release();
+    }
+    pDevice->Release();
+}
+#endif
 
 // *----------------------------------------------------------------------------------------------
 // Program Start!
@@ -325,6 +364,12 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             return EXIT_FAILURE;
         }
         soundManager.LoadAllSFX();
+
+        // Restore audio levels that were saved in the config
+        soundManager.SetGlobalVolume(static_cast<float>(config.myConfig.dialogVolume) / 64.0f);
+        #if defined(PLATFORM_WINDOWS)
+            ApplySystemMasterVolume(config.myConfig.masterVolume);
+        #endif
 
         if (!FAST_MATH.Initialize())
         {
@@ -993,6 +1038,146 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                             std::chrono::steady_clock::now() - musicOSDLastShown).count();
                         if (elapsed >= 10)
                             guiManager.RemoveWindow(MUSIC_OSD);
+                    }
+                }
+
+                // SFX volume — CTRL+NUMPAD+ raises, CTRL+NUMPAD- lowers. Range: 0-64.
+                // Maps to soundManager.SetGlobalVolume(); OSD auto-removed after 10 seconds.
+                {
+                    const std::string SFX_OSD     = "sfx_vol_osd";
+                    const float       OSD_W        = 380.0f;
+                    const float       OSD_H        = 80.0f;
+                    const float       OSD_MARGIN_B = 30.0f;
+
+                    int adj = sfxVolumeAdjustRequest.exchange(0);
+                    if (adj != 0)
+                    {
+                        int vol = config.myConfig.dialogVolume + adj;
+                        vol = vol < 0 ? 0 : (vol > 64 ? 64 : vol);
+                        config.myConfig.dialogVolume = vol;
+                        soundManager.SetGlobalVolume(static_cast<float>(vol) / 64.0f);
+
+                        if (!guiManager.GetWindow(SFX_OSD))
+                        {
+                            float posX = (winMetrics.width  - OSD_W) * 0.5f;
+                            float posY =  winMetrics.height - OSD_H - OSD_MARGIN_B;
+
+                            guiManager.CreateMyWindow(SFX_OSD, GUIWindowType::Standard,
+                                Vector2(posX, posY), Vector2(OSD_W, OSD_H),
+                                MyColor(15, 15, 15, 220), -1);
+
+                            if (auto w = guiManager.GetWindow(SFX_OSD))
+                            {
+                                GUIControl title;
+                                title.id          = "sfx_vol_title";
+                                title.type        = GUIControlType::TextArea;
+                                title.position    = Vector2(posX + 12.0f, posY + 8.0f);
+                                title.size        = Vector2(OSD_W - 24.0f, 24.0f);
+                                title.lblFontSize = 11.0f;
+                                title.txtColor    = MyColor(255, 200, 60, 255);
+                                title.bgColor     = MyColor(0, 0, 0, 0);
+                                title.label       = L"  ▶  SFX Volume";
+                                w->AddControl(title);
+
+                                GUIControl value;
+                                value.id          = "sfx_vol_value";
+                                value.type        = GUIControlType::TextArea;
+                                value.position    = Vector2(posX + 12.0f, posY + 40.0f);
+                                value.size        = Vector2(OSD_W - 24.0f, 28.0f);
+                                value.lblFontSize = 14.0f;
+                                value.txtColor    = MyColor(255, 255, 255, 255);
+                                value.bgColor     = MyColor(0, 0, 0, 0);
+                                w->AddControl(value);
+                            }
+                        }
+
+                        if (auto w = guiManager.GetWindow(SFX_OSD); w && w->controls.size() >= 2)
+                        {
+                            w->controls[1].label =
+                                L"  Volume:  " + std::to_wstring(config.myConfig.dialogVolume) + L" / 64"
+                                + (config.myConfig.dialogVolume == 0  ? L"  (muted)" :
+                                   config.myConfig.dialogVolume == 64 ? L"  (max)"   : L"");
+                        }
+                        sfxOSDLastShown = std::chrono::steady_clock::now();
+                    }
+
+                    if (guiManager.GetWindow(SFX_OSD))
+                    {
+                        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                            std::chrono::steady_clock::now() - sfxOSDLastShown).count();
+                        if (elapsed >= 10)
+                            guiManager.RemoveWindow(SFX_OSD);
+                    }
+                }
+
+                // Master volume — CTRL+SHIFT+NUMPAD+ raises, CTRL+SHIFT+NUMPAD- lowers. Range: 0-64.
+                // Applies to the Windows default audio endpoint; OSD auto-removed after 10 seconds.
+                {
+                    const std::string MASTER_OSD  = "master_vol_osd";
+                    const float       OSD_W        = 380.0f;
+                    const float       OSD_H        = 80.0f;
+                    const float       OSD_MARGIN_B = 30.0f;
+
+                    int adj = masterVolumeAdjustRequest.exchange(0);
+                    if (adj != 0)
+                    {
+                        int vol = config.myConfig.masterVolume + adj;
+                        vol = vol < 0 ? 0 : (vol > 64 ? 64 : vol);
+                        config.myConfig.masterVolume = vol;
+                        #if defined(PLATFORM_WINDOWS)
+                            ApplySystemMasterVolume(vol);
+                        #endif
+
+                        if (!guiManager.GetWindow(MASTER_OSD))
+                        {
+                            float posX = (winMetrics.width  - OSD_W) * 0.5f;
+                            float posY =  winMetrics.height - OSD_H - OSD_MARGIN_B;
+
+                            guiManager.CreateMyWindow(MASTER_OSD, GUIWindowType::Standard,
+                                Vector2(posX, posY), Vector2(OSD_W, OSD_H),
+                                MyColor(15, 15, 15, 220), -1);
+
+                            if (auto w = guiManager.GetWindow(MASTER_OSD))
+                            {
+                                GUIControl title;
+                                title.id          = "master_vol_title";
+                                title.type        = GUIControlType::TextArea;
+                                title.position    = Vector2(posX + 12.0f, posY + 8.0f);
+                                title.size        = Vector2(OSD_W - 24.0f, 24.0f);
+                                title.lblFontSize = 11.0f;
+                                title.txtColor    = MyColor(255, 200, 60, 255);
+                                title.bgColor     = MyColor(0, 0, 0, 0);
+                                title.label       = L"  ■  Master Volume (System)";
+                                w->AddControl(title);
+
+                                GUIControl value;
+                                value.id          = "master_vol_value";
+                                value.type        = GUIControlType::TextArea;
+                                value.position    = Vector2(posX + 12.0f, posY + 40.0f);
+                                value.size        = Vector2(OSD_W - 24.0f, 28.0f);
+                                value.lblFontSize = 14.0f;
+                                value.txtColor    = MyColor(255, 255, 255, 255);
+                                value.bgColor     = MyColor(0, 0, 0, 0);
+                                w->AddControl(value);
+                            }
+                        }
+
+                        if (auto w = guiManager.GetWindow(MASTER_OSD); w && w->controls.size() >= 2)
+                        {
+                            w->controls[1].label =
+                                L"  Volume:  " + std::to_wstring(config.myConfig.masterVolume) + L" / 64"
+                                + (config.myConfig.masterVolume == 0  ? L"  (muted)" :
+                                   config.myConfig.masterVolume == 64 ? L"  (max)"   : L"");
+                        }
+                        masterOSDLastShown = std::chrono::steady_clock::now();
+                    }
+
+                    if (guiManager.GetWindow(MASTER_OSD))
+                    {
+                        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                            std::chrono::steady_clock::now() - masterOSDLastShown).count();
+                        if (elapsed >= 10)
+                            guiManager.RemoveWindow(MASTER_OSD);
                     }
                 }
 

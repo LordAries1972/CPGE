@@ -362,7 +362,8 @@ void SoundManager::PlayImmediateSFX(SFX_ID id) {
     tempBuffer->Unlock(pBuffer, bufferSize, NULL, 0);
 
     tempBuffer->SetCurrentPosition(0);
-    tempBuffer->SetVolume(DSBVOLUME_MAX);
+    LONG dsVol = static_cast<LONG>(DSBVOLUME_MIN + static_cast<float>(DSBVOLUME_MAX - DSBVOLUME_MIN) * m_globalVolume);
+    tempBuffer->SetVolume(dsVol);
     tempBuffer->Play(0, 0, 0);
 
     #if defined(_DEBUG_SOUNDMANAGER_)
@@ -473,7 +474,8 @@ void SoundManager::PlayQueueList() {
         default: buffer->SetPan(DSBPAN_CENTER); break;
         }
 
-        LONG volumeDb = (item.fadeIn) ? DSBVOLUME_MIN : static_cast<LONG>(DSBVOLUME_MAX * item.volume);
+        LONG volumeDb = (item.fadeIn) ? DSBVOLUME_MIN
+                      : static_cast<LONG>(DSBVOLUME_MIN + static_cast<float>(DSBVOLUME_MAX - DSBVOLUME_MIN) * item.volume);
         buffer->SetVolume(volumeDb);
 
         buffer->Play(0, 0, (item.playbackType == PlaybackType::pbtSFX_Loop) ? DSBPLAY_LOOPING : 0);

@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.977*
+*Current Build Version: v0.0.980*
 
 ---
 
@@ -20,6 +20,8 @@
 - [April 2026](#april-2026---bug-fixes-and-updates)
 
 #### 2025
+- July 2025 -> Took time here to work on some of my Blender Add-ons so the 3D work can start.
+
 - [June 2025](#june-2025---ai-and-data-systems)
 - [May 2025](#may-2025---advanced-features)
 - [April 2025](#april-2025---3d-rendering-breakthrough)
@@ -377,6 +379,8 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - Joystick/Gamepad reads configuration sensitivity settings and is maintained.
 - Version stamping to the configuration file is now stamped and maintained.
 - Music Volume Adjustments are now implemented, use ALT + NUM_KEPAD_PLUS or ALT + NUM_KEPAD_MINUS
+- SFX Volume Adjustments are now implemented, use CTRL + NUM_KEPAD_PLUS or CTRL + NUM_KEPAD_MINUS
+- Global Volume Adjustments are now implemented, use CTRL + SHIFT + NUM_KEPAD_PLUS or CTRL + SHIFT + NUM_KEPAD_MINUS
 
 ---
 
