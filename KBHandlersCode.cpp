@@ -52,6 +52,7 @@ extern std::atomic<int>  micVolumeAdjustRequest;
 extern std::atomic<int>  musicVolumeAdjustRequest;
 extern std::atomic<int>  sfxVolumeAdjustRequest;
 extern std::atomic<int>  masterVolumeAdjustRequest;
+extern std::atomic<int>  ttsVolumeAdjustRequest;
 extern ScreenRecorder    screenRecorder;
 
 void SetMyKeyUpHandler(KeyboardHandler& keyboard)
@@ -217,13 +218,16 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
                     break;
                 }
                 // NUMPAD+/- volume dispatch (checked most-specific modifier first):
+                //   CTRL+ALT   → TTS volume (Windows only)
                 //   CTRL+SHIFT → master (system) volume
                 //   CTRL       → SFX (dialog) volume
                 //   ALT        → music volume
                 //   plain      → mic monitor (only while recording)
                 case KeyCode::KEY_NUMPAD_ADD:
                 {
-                    if ((modifierFlags & 0x03) == 0x03)
+                    if ((modifierFlags & 0x05) == 0x05)
+                        ttsVolumeAdjustRequest.fetch_add(1);
+                    else if ((modifierFlags & 0x03) == 0x03)
                         masterVolumeAdjustRequest.fetch_add(1);
                     else if (modifierFlags & 0x01)
                         sfxVolumeAdjustRequest.fetch_add(1);
@@ -236,7 +240,9 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
 
                 case KeyCode::KEY_NUMPAD_SUBTRACT:
                 {
-                    if ((modifierFlags & 0x03) == 0x03)
+                    if ((modifierFlags & 0x05) == 0x05)
+                        ttsVolumeAdjustRequest.fetch_add(-1);
+                    else if ((modifierFlags & 0x03) == 0x03)
                         masterVolumeAdjustRequest.fetch_add(-1);
                     else if (modifierFlags & 0x01)
                         sfxVolumeAdjustRequest.fetch_add(-1);

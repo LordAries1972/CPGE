@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.980*
+*Current Build Version: v0.0.981*
 
 ---
 
@@ -366,12 +366,15 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - Music Module Restarts correctly from the beginning on Scene Switching.
 - Scene Data correcly cleared up scene switching!
 
-- Web site has been established, demos will come very soon and please visit https://ultimanium.com/ yeah for a check out view on things you can do!  
-  Recordings as can now been done internally also with microphone, check our you-tube out and find all our releases there.  Remember, you know the
-  drill right, give us a subscribe and a like yeah and lets get this gaming engine off the ground peeps please!  This is not just about me anymore,
+- Web site has been established, demos will come very soon and please visit https://ultimanium.com/ for a check out on things you can do with this engine!  
+  
+  Recordings can now been done internally also with microphone, check our you-tube out and find all our releases there.  Remember, you know the
+  drill right, give us a subscribe and a like and lets get this gaming engine off the ground peeps please!  This is not just about me anymore,
   its about you too and what you can offer the world with your inspirations.  What I please ask, please share some of your coding ideas to us by
   contributing to our github project.  Please message the manager at my website and request for a pull request and please explain to me how
-  you can contribute.  All Contributions will be recorded and posted daily on my website to ensure recognision is given to those who do.  More importantly,
+  you can contribute (You can also leave me a message on Discord in our respective CPGE Server).  
+  
+  All Contributions will be recorded and posted daily on my website to ensure recognision is given to those who do.  More importantly,
   thank you everybody who does as this is an FOSS project and your support is always welcomed!
   
 **April 22, 2026** - More updates and fixes:
@@ -381,6 +384,7 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - Music Volume Adjustments are now implemented, use ALT + NUM_KEPAD_PLUS or ALT + NUM_KEPAD_MINUS
 - SFX Volume Adjustments are now implemented, use CTRL + NUM_KEPAD_PLUS or CTRL + NUM_KEPAD_MINUS
 - Global Volume Adjustments are now implemented, use CTRL + SHIFT + NUM_KEPAD_PLUS or CTRL + SHIFT + NUM_KEPAD_MINUS
+- TTS Volume Adjustments are now implemented, use CTRL + ALT + NUM_KEPAD_PLUS or CTRL + ALT + NUM_KEPAD_MINUS
 
 ---
 

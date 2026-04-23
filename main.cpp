@@ -184,12 +184,14 @@ std::atomic<int>  micVolumeAdjustRequest{ 0 };                          // Accum
 std::atomic<int>  musicVolumeAdjustRequest{ 0 };                        // Accumulated ALT+NUMPAD+/- steps; consumed by main loop
 std::atomic<int>  sfxVolumeAdjustRequest{ 0 };                          // Accumulated CTRL+NUMPAD+/- steps; consumed by main loop
 std::atomic<int>  masterVolumeAdjustRequest{ 0 };                       // Accumulated CTRL+SHIFT+NUMPAD+/- steps; consumed by main loop
+std::atomic<int>  ttsVolumeAdjustRequest{ 0 };                          // Accumulated CTRL+ALT+NUMPAD+/- steps; consumed by main loop
 
 static std::chrono::steady_clock::time_point lastResizeTime;            // Debounce resize messages
 static std::chrono::steady_clock::time_point micOSDLastShown;           // When mic volume OSD was last refreshed
 static std::chrono::steady_clock::time_point musicOSDLastShown;         // When music volume OSD was last refreshed
 static std::chrono::steady_clock::time_point sfxOSDLastShown;           // When SFX volume OSD was last refreshed
 static std::chrono::steady_clock::time_point masterOSDLastShown;        // When master volume OSD was last refreshed
+static std::chrono::steady_clock::time_point ttsOSDLastShown;           // When TTS volume OSD was last refreshed
 static std::chrono::steady_clock::time_point lastScenePhaseChangeTime;  // Suppress WM_SIZE after scene transitions
 static const int RESIZE_DEBOUNCE_MS = 100;                              // Minimum time between resize operations
 static const int SCENE_PHASE_RESIZE_IGNORE_MS = 15000;                  // Ignore WM_SIZE for 15s after a phase change
@@ -1180,6 +1182,78 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                             guiManager.RemoveWindow(MASTER_OSD);
                     }
                 }
+
+                #if defined(PLATFORM_WINDOWS)
+                // TTS volume — CTRL+ALT+NUMPAD+ raises, CTRL+ALT+NUMPAD- lowers. Range: 0.0-1.0 (step 0.05).
+                // Applied immediately to ttsManager and persisted in config; OSD auto-removed after 10 seconds.
+                {
+                    const std::string TTS_OSD     = "tts_vol_osd";
+                    const float       OSD_W        = 380.0f;
+                    const float       OSD_H        = 80.0f;
+                    const float       OSD_MARGIN_B = 30.0f;
+
+                    int adj = ttsVolumeAdjustRequest.exchange(0);
+                    if (adj != 0)
+                    {
+                        long double vol = config.myConfig.TTSVolume + adj * 0.05;
+                        vol = vol < 0.0 ? 0.0 : (vol > 1.0 ? 1.0 : vol);
+                        config.myConfig.TTSVolume = vol;
+                        ttsManager.SetVoiceVolume(static_cast<float>(vol));
+
+                        if (!guiManager.GetWindow(TTS_OSD))
+                        {
+                            float posX = (winMetrics.width  - OSD_W) * 0.5f;
+                            float posY =  winMetrics.height - OSD_H - OSD_MARGIN_B;
+
+                            guiManager.CreateMyWindow(TTS_OSD, GUIWindowType::Standard,
+                                Vector2(posX, posY), Vector2(OSD_W, OSD_H),
+                                MyColor(15, 15, 15, 220), -1);
+
+                            if (auto w = guiManager.GetWindow(TTS_OSD))
+                            {
+                                GUIControl title;
+                                title.id          = "tts_vol_title";
+                                title.type        = GUIControlType::TextArea;
+                                title.position    = Vector2(posX + 12.0f, posY + 8.0f);
+                                title.size        = Vector2(OSD_W - 24.0f, 24.0f);
+                                title.lblFontSize = 11.0f;
+                                title.txtColor    = MyColor(255, 200, 60, 255);
+                                title.bgColor     = MyColor(0, 0, 0, 0);
+                                title.label       = L"  ☺  TTS Volume";
+                                w->AddControl(title);
+
+                                GUIControl value;
+                                value.id          = "tts_vol_value";
+                                value.type        = GUIControlType::TextArea;
+                                value.position    = Vector2(posX + 12.0f, posY + 40.0f);
+                                value.size        = Vector2(OSD_W - 24.0f, 28.0f);
+                                value.lblFontSize = 14.0f;
+                                value.txtColor    = MyColor(255, 255, 255, 255);
+                                value.bgColor     = MyColor(0, 0, 0, 0);
+                                w->AddControl(value);
+                            }
+                        }
+
+                        if (auto w = guiManager.GetWindow(TTS_OSD); w && w->controls.size() >= 2)
+                        {
+                            int pct = static_cast<int>(config.myConfig.TTSVolume * 100.0 + 0.5);
+                            w->controls[1].label =
+                                L"  Volume:  " + std::to_wstring(pct) + L"%"
+                                + (pct == 0   ? L"  (muted)" :
+                                   pct == 100 ? L"  (max)"   : L"");
+                        }
+                        ttsOSDLastShown = std::chrono::steady_clock::now();
+                    }
+
+                    if (guiManager.GetWindow(TTS_OSD))
+                    {
+                        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                            std::chrono::steady_clock::now() - ttsOSDLastShown).count();
+                        if (elapsed >= 10)
+                            guiManager.RemoveWindow(TTS_OSD);
+                    }
+                }
+                #endif // PLATFORM_WINDOWS
 
 				// --- Direct X 11 Rendering inline safety calls NON Threaded ---
                 #if !defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)
