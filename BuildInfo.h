@@ -5,4 +5,4 @@
 // Current: v0.0.972
 constexpr int CURRENT_BUILD_VERSION    = 0;
 constexpr int CURRENT_BUILD_SUBVERSION = 0;
-constexpr int CURRENT_BUILD            = 976;
+constexpr int CURRENT_BUILD            = 977;

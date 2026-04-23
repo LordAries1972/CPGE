@@ -49,6 +49,7 @@ extern void SwitchToGameIntro();
 extern void StopMusicPlayback();
 extern std::atomic<bool> bRecordingToggleRequested;
 extern std::atomic<int>  micVolumeAdjustRequest;
+extern std::atomic<int>  musicVolumeAdjustRequest;
 extern ScreenRecorder    screenRecorder;
 
 void SetMyKeyUpHandler(KeyboardHandler& keyboard)
@@ -213,18 +214,21 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
                     }
                     break;
                 }
-                // Mic monitor volume — only effective while recording.
-                // Accumulate steps so rapid presses aren't lost; main loop consumes them.
+                // ALT+NUMPAD+/- adjusts music volume (0-64); plain NUMPAD+/- adjusts mic monitor (recording only).
                 case KeyCode::KEY_NUMPAD_ADD:
                 {
-                    if (screenRecorder.IsRecording())
+                    if (modifierFlags & 0x04)
+                        musicVolumeAdjustRequest.fetch_add(1);
+                    else if (screenRecorder.IsRecording())
                         micVolumeAdjustRequest.fetch_add(1);
                     break;
                 }
 
                 case KeyCode::KEY_NUMPAD_SUBTRACT:
                 {
-                    if (screenRecorder.IsRecording())
+                    if (modifierFlags & 0x04)
+                        musicVolumeAdjustRequest.fetch_add(-1);
+                    else if (screenRecorder.IsRecording())
                         micVolumeAdjustRequest.fetch_add(-1);
                     break;
                 }

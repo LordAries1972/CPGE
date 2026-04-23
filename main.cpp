@@ -176,9 +176,11 @@ std::atomic<bool> bResizeInProgress{ false };                           // Preve
 std::atomic<bool> bFullScreenTransition{ false };                       // Prevents handling during fullscreen transitions
 std::atomic<bool> bRecordingToggleRequested{ false };                   // Set by keyboard hook; consumed by main loop
 std::atomic<int>  micVolumeAdjustRequest{ 0 };                          // Accumulated NUMPAD+/- steps; consumed by main loop
+std::atomic<int>  musicVolumeAdjustRequest{ 0 };                        // Accumulated ALT+NUMPAD+/- steps; consumed by main loop
 
 static std::chrono::steady_clock::time_point lastResizeTime;            // Debounce resize messages
 static std::chrono::steady_clock::time_point micOSDLastShown;           // When mic volume OSD was last refreshed
+static std::chrono::steady_clock::time_point musicOSDLastShown;         // When music volume OSD was last refreshed
 static std::chrono::steady_clock::time_point lastScenePhaseChangeTime;  // Suppress WM_SIZE after scene transitions
 static const int RESIZE_DEBOUNCE_MS = 100;                              // Minimum time between resize operations
 static const int SCENE_PHASE_RESIZE_IGNORE_MS = 15000;                  // Ignore WM_SIZE for 15s after a phase change
@@ -917,6 +919,80 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                             std::chrono::steady_clock::now() - micOSDLastShown).count();
                         if (elapsed >= 10)
                             guiManager.RemoveWindow(MIC_OSD);
+                    }
+                }
+
+                // Music volume — ALT+NUMPAD+ raises, ALT+NUMPAD- lowers. Range: 0-64.
+                // OSD sits bottom-centre and is removed automatically after 10 seconds.
+                {
+                    const std::string MUSIC_OSD    = "music_vol_osd";
+                    const float       OSD_W        = 380.0f;
+                    const float       OSD_H        = 80.0f;
+                    const float       OSD_MARGIN_B = 30.0f;
+
+                    int adj = musicVolumeAdjustRequest.exchange(0);
+                    if (adj != 0)
+                    {
+                        int vol = config.myConfig.musicVolume + adj;
+                        vol = vol < 0 ? 0 : (vol > 64 ? 64 : vol);
+                        config.myConfig.musicVolume = vol;
+
+                        #if defined(__USE_XMPLAYER__)
+                            xmPlayer.SetVolume(static_cast<uint8_t>(vol));
+                        #elif defined(__USE_MP3PLAYER__)
+                            player.setVolume(static_cast<float>(vol) / 64.0f);
+                        #endif
+
+                        if (!guiManager.GetWindow(MUSIC_OSD))
+                        {
+                            float posX = (winMetrics.width  - OSD_W) * 0.5f;
+                            float posY =  winMetrics.height - OSD_H - OSD_MARGIN_B;
+
+                            guiManager.CreateMyWindow(MUSIC_OSD, GUIWindowType::Standard,
+                                Vector2(posX, posY), Vector2(OSD_W, OSD_H),
+                                MyColor(15, 15, 15, 220), -1);
+
+                            if (auto w = guiManager.GetWindow(MUSIC_OSD))
+                            {
+                                GUIControl title;
+                                title.id          = "music_vol_title";
+                                title.type        = GUIControlType::TextArea;
+                                title.position    = Vector2(posX + 12.0f, posY + 8.0f);
+                                title.size        = Vector2(OSD_W - 24.0f, 24.0f);
+                                title.lblFontSize = 11.0f;
+                                title.txtColor    = MyColor(255, 200, 60, 255);
+                                title.bgColor     = MyColor(0, 0, 0, 0);
+                                title.label       = L"  ♪  Music Volume";
+                                w->AddControl(title);
+
+                                GUIControl value;
+                                value.id          = "music_vol_value";
+                                value.type        = GUIControlType::TextArea;
+                                value.position    = Vector2(posX + 12.0f, posY + 40.0f);
+                                value.size        = Vector2(OSD_W - 24.0f, 28.0f);
+                                value.lblFontSize = 14.0f;
+                                value.txtColor    = MyColor(255, 255, 255, 255);
+                                value.bgColor     = MyColor(0, 0, 0, 0);
+                                w->AddControl(value);
+                            }
+                        }
+
+                        if (auto w = guiManager.GetWindow(MUSIC_OSD); w && w->controls.size() >= 2)
+                        {
+                            w->controls[1].label =
+                                L"  Volume:  " + std::to_wstring(config.myConfig.musicVolume) + L" / 64"
+                                + (config.myConfig.musicVolume == 0  ? L"  (muted)" :
+                                   config.myConfig.musicVolume == 64 ? L"  (max)"   : L"");
+                        }
+                        musicOSDLastShown = std::chrono::steady_clock::now();
+                    }
+
+                    if (guiManager.GetWindow(MUSIC_OSD))
+                    {
+                        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                            std::chrono::steady_clock::now() - musicOSDLastShown).count();
+                        if (elapsed >= 10)
+                            guiManager.RemoveWindow(MUSIC_OSD);
                     }
                 }
 

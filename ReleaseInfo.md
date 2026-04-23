@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.975*
+*Current Build Version: v0.0.977*
 
 ---
 
@@ -376,7 +376,7 @@ Once the base DirectX 11 implementation is complete, the project will be release
 
 - Joystick/Gamepad reads configuration sensitivity settings and is maintained.
 - Version stamping to the configuration file is now stamped and maintained.
-- 
+- Music Volume Adjustments are now implemented, use ALT + NUM_KEPAD_PLUS or ALT + NUM_KEPAD_MINUS
 
 ---
 
