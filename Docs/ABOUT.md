@@ -9,7 +9,7 @@
 
 **Project**: Original Founder and Current Maintainer of the Cross Platform Gaming Engine (CPGE) Project. 
 
-**GitHub**: [https://github.com/LordAries1972](https://github.com/LordAries1972)
+**GitHub**: [https://github.com/LordAries1972/CPGE](https://github.com/LordAries1972/CPGE)
 
 **Contact**: [cpgeengine@gmail.com](mailto:cpgeengine@gmail.com)
 
