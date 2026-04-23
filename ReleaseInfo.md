@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.981*
+*Current Build Version: v0.0.984*
 
 ---
 
@@ -365,17 +365,24 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - Added Pre Background (1st) Image before rendering for 3D and post 2D Images to the render pipeline - See RenderBackgroundImage().
 - Music Module Restarts correctly from the beginning on Scene Switching.
 - Scene Data correcly cleared up scene switching!
-
+- Added individual import module for Blender and used on detection (BlenderImports.h/.cpp) as other systems can use GLTF/GLB as well.
 - Web site has been established, demos will come very soon and please visit https://ultimanium.com/ for a check out on things you can do with this engine!  
   
-  Recordings can now been done internally also with microphone, check our you-tube out and find all our releases there.  Remember, you know the
-  drill right, give us a subscribe and a like and lets get this gaming engine off the ground peeps please!  This is not just about me anymore,
-  its about you too and what you can offer the world with your inspirations.  What I please ask, please share some of your coding ideas to us by
+  Recordings can now been done internally also with microphone, check our you-tube or our website out and find all our releases there.  
+  
+  Remember, you know the drill right, give us a subscribe and a like and lets get this gaming engine off the ground peeps please!  
+  
+  This is not just about me anymore guys and girls!
+  
+  It is also about you too now and what you can offer the world with your inspirations.  
+  
+  What I please ask, please share some of your coding ideas to us by
   contributing to our github project.  Please message the manager at my website and request for a pull request and please explain to me how
   you can contribute (You can also leave me a message on Discord in our respective CPGE Server).  
   
   All Contributions will be recorded and posted daily on my website to ensure recognision is given to those who do.  More importantly,
-  thank you everybody who does as this is an FOSS project and your support is always welcomed!
+  thank you everybody who does as this is an FOSS project and your support is always welcomed!  How about you get onboard yeah and turn this
+  to magic and have your name be recognised within the community!
   
 **April 22, 2026** - More updates and fixes:
 
@@ -385,6 +392,8 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - SFX Volume Adjustments are now implemented, use CTRL + NUM_KEPAD_PLUS or CTRL + NUM_KEPAD_MINUS
 - Global Volume Adjustments are now implemented, use CTRL + SHIFT + NUM_KEPAD_PLUS or CTRL + SHIFT + NUM_KEPAD_MINUS
 - TTS Volume Adjustments are now implemented, use CTRL + ALT + NUM_KEPAD_PLUS or CTRL + ALT + NUM_KEPAD_MINUS
+- CMAKE Support and now can compile with it, Linux support will be added soon for compiling, but cmake can be used on linux right!?.
+    Use "cmake-build.bat debug" or "cmake-build.bat release"
 
 ---
 
@@ -403,7 +412,7 @@ The DirectX 11 system is nearing **GAMING PRODUCTION READINESS** for Windows 10 
 ### **Developer Guidelines**
 
 - **Testing Protocol**: Always test the complete GitHub base with full clone/pull before starting projects
-- **Issue Reporting**: Email `development@ultimanium.com` with subject "CPGE Problem - [Brief Description]"
+- **Issue Reporting**: Email `https://ultimanium.com/index.php?action=contact-development` with subject "CPGE Problem - [Brief Description]"
 - **Debug Information**: Include compile/runtime logs from DEBUG builds
 - **License**: Perpetual MIT License with lifetime updates
 

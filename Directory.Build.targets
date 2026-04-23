@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- VisualD's dcompile.targets requires ComputeLinkImportLibraryOutputsForClean
+       which only exists in managed (.NET) projects. This no-op stub prevents
+       MSB4057 errors in pure C++ projects (including CMake compiler-detection builds). -->
+  <Target Name="ComputeLinkImportLibraryOutputsForClean" />
+</Project>

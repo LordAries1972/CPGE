@@ -80,14 +80,34 @@
 #endif
 
 #include "Renderer.h"
-#if defined(__USE_DIRECTX_11__)
-#include "DX11Renderer.h"
-#elif define(__USE_DIRECTX_12__)
-#include "DX12Renderer.h"
-#elif defined(__USE_VULKAN__)
-#include "VulkanRenderer.h"
-#elif defined(__USE_OPENGL__)
-#include "OpenGLRenderer.h"
+#if defined(PLATFORM_WINDOWS)
+    #if defined(__USE_DIRECTX_11__)
+        #include "DX11Renderer.h"
+    #elif defined(__USE_DIRECTX_12__)
+        #include "DX12Renderer.h"
+    #elif defined(__USE_VULKAN__)
+        #include "VulkanRenderer.h"
+    #elif defined(__USE_OPENGL__)
+        #include "OpenGLRenderer.h"
+    #else
+        #error No rendering backend defined for Windows platform!
+    #endif
+#else
+    #if defined(PLATFORM_LINUX || PLATFORM_ANDROID)
+        #if defined(__USE_VULKAN__)
+            #include "VulkanRenderer.h" // Vulkan is the primary choice for Linux
+        #elif defined(__USE_OPENGL__)
+            #include "OpenGLRenderer.h" // OpenGL as a fallback for Linux
+        #else
+            #error No rendering backend defined for Linux platform!
+        #endif
+    #else
+        #if defined(PLATFORM_MACOS || PLATFORM_IOS)
+            #include "OpenGLRenderer.h" // OpenGL as a fallback for Linux
+        #else
+            #error Unsupported Rendering platform!
+        #endif
+    #endif
 #endif
 
 // --------------------------------------------

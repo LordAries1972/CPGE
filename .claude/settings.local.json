@@ -17,10 +17,23 @@
       "Bash(git status *)",
       "Bash(ls *.sln)",
       "Bash(del \"f:\\\\Projects\\\\C++\\\\CPGE2026\\\\.vs\\\\CrossPlatformGameEngine\\\\v17\\\\.suo\")",
-      "Bash(python -c \"import json; d=json.load\\(open\\('Assets/splash-hover1.gltf'\\)\\); print\\('textures:', json.dumps\\(d.get\\('textures', []\\)[:5], indent=2\\)\\)\")"
+      "Bash(python -c \"import json; d=json.load\\(open\\('Assets/splash-hover1.gltf'\\)\\); print\\('textures:', json.dumps\\(d.get\\('textures', []\\)[:5], indent=2\\)\\)\")",
+      "Read(//d//**)",
+      "Read(//d/Program Files/**)",
+      "Read(//d/Programs/**)",
+      "Read(//d/GCC/**)",
+      "Bash(winget --version)",
+      "WebFetch(domain:api.github.com)",
+      "PowerShell(head -20)",
+      "Read(//c/Program Files/Microsoft Visual Studio/**)",
+      "Read(//c/Program Files \\(x86\\)/Microsoft Visual Studio/**)",
+      "PowerShell(& \"C:\\\\Program Files \\(x86\\)\\\\Microsoft Visual Studio\\\\Installer\\\\vswhere.exe\" -all -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -format json 2>&1)",
+      "PowerShell($cmake = \"D:\\\\Programs\\\\CMake\\\\bin\\\\cmake.exe\")",
+      "Read(//d/Users/hobso/**)"
     ],
     "additionalDirectories": [
-      "f:\\Projects\\C++\\CPGE2026\\.vs\\CrossPlatformGameEngine\\v17"
+      "f:\\Projects\\C++\\CPGE2026\\.vs\\CrossPlatformGameEngine\\v17",
+      "D:\\Users\\hobso\\AppData\\Roaming"
     ]
   }
 }
