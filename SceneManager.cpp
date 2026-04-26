@@ -518,6 +518,28 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
         }
     }
 
+    // Auto-initialise all animations discovered during loading.
+    // Each animation's channel node indices are matched against loaded scene models to
+    // resolve the root parent, removing the need for hardcoded per-scene animation startup.
+    if (bAnimationsLoaded && gltfAnimator.GetAnimationCount() > 0)
+    {
+        for (int animIdx = 0; animIdx < gltfAnimator.GetAnimationCount(); ++animIdx)
+        {
+            int parentID = FindParentModelIDForAnimation(animIdx);
+            if (parentID < 0)
+                continue;
+
+            bool created = gltfAnimator.CreateAnimationInstance(animIdx, parentID);
+            if (created)
+            {
+                gltfAnimator.ForceAnimationReset(parentID);
+                gltfAnimator.SetAnimationSpeed(parentID, 0.75f);
+                gltfAnimator.SetAnimationLooping(parentID, true);
+                gltfAnimator.StartAnimation(parentID, animIdx);
+            }
+        }
+    }
+
     #if defined(_DEBUG_SCENEMANAGER_)
         debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] GLB parsing completed. Total Instances: %d", instanceIndex);
     #endif
@@ -1025,6 +1047,28 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
         const json& rootNode = nodes[nodeIndex];
         // Parse this root node as a parent (parentModelID = -1)
         ParseGLTFNodeRecursive(rootNode, nodeIndex, XMMatrixIdentity(), doc, nodes, instanceIndex, -1);
+    }
+
+    // Auto-initialise all animations discovered during loading.
+    // Each animation's channel node indices are matched against loaded scene models to
+    // resolve the root parent, removing the need for hardcoded per-scene animation startup.
+    if (bAnimationsLoaded && gltfAnimator.GetAnimationCount() > 0)
+    {
+        for (int animIdx = 0; animIdx < gltfAnimator.GetAnimationCount(); ++animIdx)
+        {
+            int parentID = FindParentModelIDForAnimation(animIdx);
+            if (parentID < 0)
+                continue;
+
+            bool created = gltfAnimator.CreateAnimationInstance(animIdx, parentID);
+            if (created)
+            {
+                gltfAnimator.ForceAnimationReset(parentID);
+                gltfAnimator.SetAnimationSpeed(parentID, 0.75f);
+                gltfAnimator.SetAnimationLooping(parentID, true);
+                gltfAnimator.StartAnimation(parentID, animIdx);
+            }
+        }
     }
 
     #if defined(_DEBUG_SCENEMANAGER_)
@@ -3091,6 +3135,56 @@ void SceneManager::UpdateSceneAnimations(float deltaTime)
         // Update all animations using the scene models array
         gltfAnimator.UpdateAnimations(deltaTime, scene_models, MAX_SCENE_MODELS);
     }
+}
+
+// --------------------------------------------------------------------------------------------------
+// SceneManager::FindParentModelIDForAnimation()
+// Primary: matches the animation's name (set in Blender) against root model names via
+// FindParentModelID — the user names the animation to match its owning model or armature.
+// Fallback: for armature animations whose channels target bone child-nodes rather than the
+// armature root, scans channel targetNodeIndex against each model's gltfNodeIndex and walks
+// up the parent chain to reach the root. Returns root model array index, or -1 if not found.
+// --------------------------------------------------------------------------------------------------
+int SceneManager::FindParentModelIDForAnimation(int animationIndex)
+{
+    const GLTFAnimation* anim = gltfAnimator.GetAnimation(animationIndex);
+    if (!anim || anim->channels.empty())
+        return -1;
+
+    // Primary: use the animation name the user set in Blender to find the owning root model
+    if (!anim->name.empty())
+    {
+        int parentID = FindParentModelID(anim->name);
+        if (parentID >= 0)
+            return parentID;
+    }
+
+    // Fallback: armature animations target bone nodes — scan channel node indices and walk
+    // up the parent chain to the root (armature or mesh root)
+    for (const auto& channel : anim->channels)
+    {
+        if (channel.targetNodeIndex < 0)
+            continue;
+
+        for (int i = 0; i < MAX_SCENE_MODELS; ++i)
+        {
+            if (!scene_models[i].m_isLoaded)
+                continue;
+            if (scene_models[i].m_modelInfo.gltfNodeIndex != channel.targetNodeIndex)
+                continue;
+
+            int modelIdx = i;
+            while (scene_models[modelIdx].m_modelInfo.iParentModelID != -1)
+            {
+                int pid = scene_models[modelIdx].m_modelInfo.iParentModelID;
+                if (pid < 0 || pid >= MAX_SCENE_MODELS || !scene_models[pid].m_isLoaded)
+                    break;
+                modelIdx = pid;
+            }
+            return modelIdx;
+        }
+    }
+    return -1;
 }
 
 // --------------------------------------------------------------------------------------------------

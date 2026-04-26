@@ -282,9 +282,9 @@ const int MAX_PLAYERS = 1;
 inline const std::wstring texFilename[] = {
     L"cursor1.png", L"bg1.jpg", L"loadingring.png", L"window1.png", L"rectbutton1up.png",
     L"winclosebut1up.png", L"bevel1.png", L"titlebar1a.png", L"titlebar1.png",
-    L"scrollbg1.png", L"scrollbg2.png", L"scrollbg3.png", L"splash1.png", L"gameintro1.png",
+    L"splash1.png", L"gameintro1.png",
     L"titlebar2.png", L"winbody2.png", L"button2up.png", L"button2down.png", L"logo.png",
-    L"tab2red.png", L"tab1gmg.png"
+    L"tab2red.png", L"tab1gmg.png", L"loading.png"
 };
 
 // 3D Textures

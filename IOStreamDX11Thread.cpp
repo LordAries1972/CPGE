@@ -103,15 +103,15 @@ void DX11Renderer::LoaderTaskThread()
 					LightStruct sunLight;
 					SecureZeroMemory(&sunLight, sizeof(LightStruct));
 					sunLight.active = true;
-					sunLight.position = XMFLOAT3(10.0f, -13.0f, -100.0f);
-					sunLight.direction = XMFLOAT3(0.0f, 0.0f, 0.0f);
+					sunLight.position = XMFLOAT3(-10.0f, 3.0f, -100.0f);
+					sunLight.direction = XMFLOAT3(0.0f, 0.0f, 1.0f);
 					sunLight.color = XMFLOAT3(1.0f, 1.0f, 1.0f);
 					sunLight.ambient = XMFLOAT3(0.2f, 0.2f, 0.2f);
-					sunLight.intensity = 0.5f;
-					sunLight.baseIntensity = 0.8f;
-					sunLight.Shiningness = 0.2f;
-					sunLight.Reflection = 0.2f;
-					sunLight.lightFalloff = 0.01f;
+					sunLight.intensity = 0.4f;
+					sunLight.baseIntensity = 0.2f;
+					sunLight.Shiningness = 0.0f;
+					sunLight.Reflection = 0.0f;
+					sunLight.lightFalloff = 0.1f;
 					sunLight.innerCone = 30.0f;
 					sunLight.outerCone = 60.0f;
 					sunLight.range = 1000.0f;
@@ -131,15 +131,6 @@ void DX11Renderer::LoaderTaskThread()
 						if (!scene.bGltfCameraParsed)
 						{
 							scene.AutoFrameSceneToCamera();
-						}
-
-						int parentID = scene.FindParentModelID(SplashShipName);
-						bool created = scene.gltfAnimator.CreateAnimationInstance(0, parentID);
-						if (created) {
-							scene.gltfAnimator.ForceAnimationReset(parentID);
-							scene.gltfAnimator.SetAnimationSpeed(parentID, 0.75f);
-							scene.gltfAnimator.SetAnimationLooping(parentID, true);
-							scene.gltfAnimator.StartAnimation(parentID, 0);
 						}
 					}
 
@@ -294,15 +285,15 @@ void DX11Renderer::LoaderTaskThread()
 					LightStruct sunLight;
 					SecureZeroMemory(&sunLight, sizeof(LightStruct));
 					sunLight.active = true;
-					sunLight.position = XMFLOAT3(3.0f, -3.0f, -100.0f);
-					sunLight.direction = XMFLOAT3(0.0f, -1.0f, 0.0f);
+					sunLight.position = XMFLOAT3(10.0f, -3.0f, -100.0f);
+					sunLight.direction = XMFLOAT3(0.0f, 1.0f, 0.0f);
 					sunLight.color = XMFLOAT3(1.0f, 1.0f, 1.0f);
-					sunLight.ambient = XMFLOAT3(0.4f, 0.4f, 0.0f);
+					sunLight.ambient = XMFLOAT3(0.2f, 0.2f, 0.2f);
 					sunLight.intensity = 0.5f;
-					sunLight.baseIntensity = 0.8f;
-					sunLight.Shiningness = 0.2f;
-					sunLight.Reflection = 0.2f;
-					sunLight.lightFalloff = 0.0001f;
+					sunLight.baseIntensity = 0.1f;
+					sunLight.Shiningness = 0.0f;
+					sunLight.Reflection = 0.0f;
+					sunLight.lightFalloff = 0.1f;
 					sunLight.innerCone = 30.0f;
 					sunLight.outerCone = 60.0f;
 					sunLight.range = 1000.0f;
@@ -322,15 +313,6 @@ void DX11Renderer::LoaderTaskThread()
 						if (!scene.bGltfCameraParsed)
 						{
 							scene.AutoFrameSceneToCamera();
-						}
-
-						int parentID = scene.FindParentModelID(ShipName1);
-						bool created = scene.gltfAnimator.CreateAnimationInstance(0, parentID);
-						if (created) {
-							scene.gltfAnimator.ForceAnimationReset(parentID);
-							scene.gltfAnimator.SetAnimationSpeed(parentID, 0.25f);
-							scene.gltfAnimator.SetAnimationLooping(parentID, true);
-							scene.gltfAnimator.StartAnimation(parentID, 0);
 						}
 					}
 

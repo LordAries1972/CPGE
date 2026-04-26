@@ -257,9 +257,9 @@ void FXManager::StopAllFXForResize()
             try {
                 StopTextScroller(textScrollerID);                               // Stop the specific text scroller
                 savedFXState.textScrollerIDs.push_back(textScrollerID);         // SAFE: Vector has reserved capacity
-#if defined(_DEBUG_FXMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[FXManager] Text scroller ID " + std::to_wstring(textScrollerID) + L" stopped");
-#endif
+                #if defined(_DEBUG_FXMANAGER_)
+                    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[FXManager] Text scroller ID " + std::to_wstring(textScrollerID) + L" stopped");
+                #endif
             }
             catch (const std::exception& e) {
                 debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Exception stopping text scroller ID " +
@@ -270,18 +270,18 @@ void FXManager::StopAllFXForResize()
         // Check if we had active text scrollers
         if (!savedFXState.textScrollerIDs.empty()) {
             savedFXState.textScrollerActive = true;                             // Mark that text scrollers were active
-#if defined(_DEBUG_FXMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] " +
-                std::to_wstring(savedFXState.textScrollerIDs.size()) + L" text scroller effects stopped");
-#endif
+            #if defined(_DEBUG_FXMANAGER_)
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] " +
+                    std::to_wstring(savedFXState.textScrollerIDs.size()) + L" text scroller effects stopped");
+            #endif
         }
 
         // FIXED: Stop scroll effects using iterator-safe approach
         // Define scroll textures to check
         const std::vector<BlitObj2DIndexType> scrollTexturesToCheck = {
-            BlitObj2DIndexType::IMG_SCROLLBG1,
-            BlitObj2DIndexType::IMG_SCROLLBG2,
-            BlitObj2DIndexType::IMG_SCROLLBG3
+//            BlitObj2DIndexType::IMG_SCROLLBG1,
+//            BlitObj2DIndexType::IMG_SCROLLBG2,
+//            BlitObj2DIndexType::IMG_SCROLLBG3
         };
 
         // Collect active scroll effects first, then stop them
@@ -309,10 +309,10 @@ void FXManager::StopAllFXForResize()
             try {
                 StopScrollEffect(textureIndex);                                 // Stop scroll effect for this texture
                 savedFXState.activeScrollTextures.push_back(textureIndex);      // SAFE: Vector has reserved capacity
-#if defined(_DEBUG_FXMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[FXManager] Scroll effect stopped for texture " +
-                    std::to_wstring(static_cast<int>(textureIndex)));
-#endif
+                #if defined(_DEBUG_FXMANAGER_)
+                    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[FXManager] Scroll effect stopped for texture " +
+                        std::to_wstring(static_cast<int>(textureIndex)));
+                #endif
             }
             catch (const std::exception& e) {
                 debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Exception stopping scroll effect for texture " +
@@ -324,10 +324,10 @@ void FXManager::StopAllFXForResize()
         // Check if we had active scroll effects
         if (!savedFXState.activeScrollTextures.empty()) {
             savedFXState.scrollEffectsActive = true;                            // Mark that scroll effects were active
-#if defined(_DEBUG_FXMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] " +
-                std::to_wstring(savedFXState.activeScrollTextures.size()) + L" scroll effects stopped");
-#endif
+            #if defined(_DEBUG_FXMANAGER_)
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] " +
+                    std::to_wstring(savedFXState.activeScrollTextures.size()) + L" scroll effects stopped");
+            #endif
         }
 
         // Check for active fade effects without modifying the effects vector
@@ -341,9 +341,9 @@ void FXManager::StopAllFXForResize()
 
         if (fadeActive) {
             savedFXState.fadeEffectActive = true;                               // Mark that fade was active
-#if defined(_DEBUG_FXMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Fade effect was active during resize");
-#endif
+            #if defined(_DEBUG_FXMANAGER_)
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Fade effect was active during resize");
+            #endif
         }
 
         // FIXED: Clear all effects using safe approach that doesn't invalidate iterators
@@ -351,9 +351,9 @@ void FXManager::StopAllFXForResize()
         tempEffects.swap(effects);                                              // Swap contents instead of clearing
         // tempEffects destructor will clean up the old effects safely
 
-#if defined(_DEBUG_FXMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] All FX effects successfully stopped for resize");
-#endif
+        #if defined(_DEBUG_FXMANAGER_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] All FX effects successfully stopped for resize");
+        #endif
     }
     catch (const std::exception& e) {
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Exception stopping FX effects for resize: " +
@@ -373,9 +373,9 @@ void FXManager::StopAllFXForResize()
 // -------------------------------------------------------------------------------------------------------------
 void FXManager::RestartFXAfterResize()
 {
-#if defined(_DEBUG_FXMANAGER_)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Restarting FX effects after resize operation");
-#endif
+    #if defined(_DEBUG_FXMANAGER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Restarting FX effects after resize operation");
+    #endif
 
     try {
         // Wait a brief moment to ensure DirectX resources are fully recreated

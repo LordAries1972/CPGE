@@ -2049,7 +2049,7 @@ bool Load_Music()
             case SceneType::SCENE_GAMETITLE:
             {
                 // Load the Intro Music Module
-                std::wstring XMFilename = L"thevoid.xm";
+                std::wstring XMFilename = L"electro3.xm";
                 auto fileName = AssetsDir / XMFilename;
                 xmPlayer.Initialize(fileName);
                 if (!xmPlayer.Play(fileName))

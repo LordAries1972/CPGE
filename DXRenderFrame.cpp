@@ -839,19 +839,36 @@ void DX11Renderer::RenderBackgroundImage()
         case SceneType::SCENE_GAMETITLE:
         {
             // Background image for game title screen
-            if (m_d2dTextures[int(BlitObj2DIndexType::IMG_GAMEINTRO1)]) {
-                Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
+            if (threadManager.threadVars.bLoaderTaskFinished)
+            {
+                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_GAMEINTRO1)]) {
+                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
+                }
+
+                // Company logo overlay
+                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]) {
+                    Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - 47);
+                }
+            }
+            else
+            {
+                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_LOADING)]) {
+                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
+                }
             }
 
-            // Company logo overlay
-            if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]) {
-                Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - 47);
-            }
             break;
         }
 
         case SceneType::SCENE_GAMEPLAY:
             // Gameplay background handled elsewhere; nothing to pre-render here
+            if (!threadManager.threadVars.bLoaderTaskFinished)
+            {
+                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_LOADING)]) {
+                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
+                }
+            }
+
             break;
 
         default:

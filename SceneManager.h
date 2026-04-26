@@ -109,6 +109,7 @@ private:
 	bool ParseGLTFLights(const json& doc);
 	void ParseGLTFNodeRecursive(const json& node, int nodeIndex, const XMMATRIX& parentTransform, const json& doc, const json& allNodes, int& instanceIndex, int parentModelID);
 	void ParseGLBNodeRecursive(const json& node, int nodeIndex, const XMMATRIX& parentTransform, const json& doc, const json& allNodes, int& instanceIndex, int parentModelID);
+	int  FindParentModelIDForAnimation(int animationIndex);                          // Resolves root parent model ID from animation channel node targets
 	void LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model& model);
 
 	DX11Renderer* myRenderer = nullptr;												 // Pointer to the DX11 renderer

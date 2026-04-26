@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.987*
+*Current Build Version: v0.0.991*
 
 ---
 
@@ -394,6 +394,11 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - TTS Volume Adjustments are now implemented, use CTRL + ALT + NUM_KEPAD_PLUS or CTRL + ALT + NUM_KEPAD_MINUS
 - CMAKE Support and now can compile with it, Linux support will be added soon for compiling, but cmake can be used on linux right!?.
     Use "cmake-build.bat debug" or "cmake-build.bat release"
+
+**April 26, 2026** - More updates and fixes:
+
+- Added a loading screen during loading phase so its clear to users that data is been loaded in.
+
 
 ---
 
