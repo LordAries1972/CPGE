@@ -285,34 +285,107 @@ fxManager.CreateParticleExplosion(
 
 ## Starfield Effects
 
-### Basic Starfield
+### Signature
+
 ```cpp
-// Create 3D starfield effect
-fxManager.CreateStarfield(
-    200,     // Number of stars
-    50.0f,   // Circular radius for distribution
-    100.0f   // Reset depth position
+void CreateStarfield(
+    int       numStars,      // Number of stars in the field
+    float     circularRadius,// Spread radius of the star distribution
+    float     resetDepthPos, // Maximum z-depth before a star resets
+    XMFLOAT3  startPos,      // Center/target position (default: {0, 0, 0})
+    bool      reverse        // If true, stars travel TO startPos instead of past camera (default: false)
 );
 ```
 
-### Starfield Features
-- **3D positioning** - Stars exist in 3D space
-- **Perspective projection** - Proper 3D to 2D conversion
-- **Size scaling** - Stars get larger as they approach camera
-- **Depth-based transparency** - Stars fade based on distance
-- **Continuous generation** - Stars regenerate when they pass camera
-- **Performance optimized** - Culling for off-screen stars
+`startPos` and `reverse` are optional — existing calls without them continue to work unchanged.
 
-### Managing Starfield
+### Parameter Reference
+
+| Parameter | Description |
+|---|---|
+| `numStars` | Total number of stars rendered simultaneously |
+| `circularRadius` | Radius of the cylindrical distribution around the centre axis |
+| `resetDepthPos` | z-depth at which stars are spawned (default) or recycled (reverse) |
+| `startPos.x/y` | World-space offset for the centre of the distribution |
+| `startPos.z` | z-offset added to the far spawn point (default mode) |
+| `reverse` | `false` = stars fly past camera; `true` = stars converge toward `startPos` |
+
+---
+
+### Default Mode — Stars Fly Past Camera
+
+Stars spawn far away (at `startPos.z + resetDepthPos`) distributed in a cylinder around (`startPos.x`, `startPos.y`) and travel toward z = 0 (the camera). Each star resets to the far end when it passes the near plane.
+
 ```cpp
-// Check if starfield is active
+// Centred on world origin — classic hyperspace/warp effect
+fxManager.CreateStarfield(100, 800.0f, 1000.0f);
+
+// Same effect but offset 200 units right and 100 units up
+fxManager.CreateStarfield(
+    100,
+    800.0f,
+    1000.0f,
+    XMFLOAT3(200.0f, 100.0f, 0.0f)
+);
+
+// Denser, tighter field offset in all three axes
+fxManager.CreateStarfield(
+    200,
+    400.0f,
+    1500.0f,
+    XMFLOAT3(0.0f, 0.0f, 200.0f)   // Stars start 200 units further back
+);
+```
+
+---
+
+### Reverse Mode — Stars Converge Toward a Target
+
+When `reverse = true` the motion is inverted. Stars spawn spread across `circularRadius` near the camera and travel away from it. As z increases toward `resetDepthPos` their x/y positions smoothly converge to `startPos.x/y`, creating a "flying into a vanishing point" or deceleration-from-warp look. Stars fade out as they recede and reset near the camera to repeat.
+
+```cpp
+// Stars converge to world origin — deceleration/arrival effect
+fxManager.CreateStarfield(
+    100,
+    800.0f,
+    1000.0f,
+    XMFLOAT3(0.0f, 0.0f, 0.0f),
+    true    // reverse
+);
+
+// Stars converge to an off-centre target (e.g. a wormhole at the right edge)
+fxManager.CreateStarfield(
+    150,
+    600.0f,
+    1200.0f,
+    XMFLOAT3(300.0f, -80.0f, 500.0f),
+    true
+);
+```
+
+---
+
+### Managing the Starfield
+
+```cpp
+// Check whether a starfield is currently active
 if (fxManager.starfieldID > 0) {
     // Starfield is running
 }
 
-// Stop starfield
+// Stop the starfield and free its particles
 fxManager.StopStarfield();
 ```
+
+### Starfield Features
+
+- **3D positioning** — Stars live in world space with full perspective projection
+- **Perspective scaling** — Stars grow larger as they approach the camera
+- **Depth-based fade** — Alpha driven by distance; stars fade smoothly in/out
+- **Continuous recycling** — Stars reset automatically; the effect runs until `StopStarfield()` is called
+- **Origin offset** — `startPos` shifts the entire distribution without changing any other behaviour
+- **Reverse mode** — Spatial convergence creates a distinct visual separate from the default fly-through
+- **Off-screen culling** — Stars outside normalised device coordinates are skipped each frame
 
 ---
 
@@ -658,6 +731,48 @@ void SetupNewsTicker() {
         screenWidth, 25.0f,                 // Full width, 25px high
         40.0f,                              // Moderate speed
         FLT_MAX                             // Run forever
+    );
+}
+```
+
+### Starfield Warp Sequence
+
+A two-phase sequence: warp in (default, stars fly past) transitions to arrival (reverse, stars converge to the destination point) via a fade.
+
+```cpp
+void BeginWarpSequence(XMFLOAT3 destinationPos) {
+    // Phase 1: Engage warp — classic fly-through centred on world origin
+    fxManager.CreateStarfield(
+        120,
+        900.0f,
+        1200.0f,
+        XMFLOAT3(0.0f, 0.0f, 0.0f)
+        // reverse defaults to false
+    );
+}
+
+void EndWarpSequence(XMFLOAT3 destinationPos) {
+    // Stop the fly-through field
+    fxManager.StopStarfield();
+
+    // Phase 2: Deceleration — stars converge toward the destination
+    fxManager.CreateStarfield(
+        120,
+        900.0f,
+        1200.0f,
+        destinationPos,
+        true    // reverse: stars travel TO destinationPos
+    );
+
+    // Fade to scene once the arrival animation completes
+    fxManager.FadeOutThenCallback(
+        XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f),
+        1.5f,
+        2.5f,   // Delay — let the convergence play for 2.5 s first
+        [this]() {
+            fxManager.StopStarfield();
+            sceneManager.LoadNextScene();
+        }
     );
 }
 ```
