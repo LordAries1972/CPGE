@@ -1,0 +1,13 @@
+DXRenderFrame.cpp - Changes 28-04-2026
+=======================================
+
+Both IMG_COMPANYLOGO blit calls (intro movie scene ~line 803, game title
+background ~line 856) changed from Blit2DObject to Blit2DObjectToSize.
+
+The bitmap's native size is queried via GetSize() at render time, then
+halved for both width and height. Y position is set to iOrigHeight - halfH
+so the bottom edge of the half-size logo stays flush with the bottom of
+the screen, placing it in the bottom-left corner.
+
+Old: Blit2DObject(..., 0, iOrigHeight - 136)          [native size, hardcoded Y offset]
+New: Blit2DObjectToSize(..., 0, iOrigHeight - halfH, halfW, halfH)  [half size, dynamic Y]

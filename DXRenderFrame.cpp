@@ -799,9 +799,12 @@ inline void DX11Renderer::RenderIntroMovie()
         // Render the movie to fill the entire screen
         moviePlayer.Render(Vector2(0, 0), Vector2(iOrigWidth, iOrigHeight));
 
-        // Draw company logo overlay
+        // Draw company logo overlay at half size, bottom-left corner
         if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]) {
-            Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - 136);
+            D2D1_SIZE_F logoSz = m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]->GetSize();
+            int halfW = static_cast<int>(logoSz.width  * 0.5f);
+            int halfH = static_cast<int>(logoSz.height * 0.5f);
+            Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - halfH, halfW, halfH);
         }
 
         // Check for spacebar input to skip movie
@@ -852,9 +855,12 @@ void DX11Renderer::RenderBackgroundImage()
                     Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
                 }
 
-                // Company logo overlay
+                // Company logo overlay at half size, bottom-left corner
                 if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]) {
-                    Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - 136);
+                    D2D1_SIZE_F logoSz = m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]->GetSize();
+                    int halfW = static_cast<int>(logoSz.width  * 0.5f);
+                    int halfH = static_cast<int>(logoSz.height * 0.5f);
+                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - halfH, halfW, halfH);
                 }
 
                 // Render 3D starfield effect if available
