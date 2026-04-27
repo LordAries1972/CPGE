@@ -12,8 +12,8 @@ Before we start, if you need some catching up, now that we have our website avai
 please visit https://ultimanium.com/index.php?action=cpge for current details! (NOTE: Please do not use Proxy deferrer or VPN!)
 
 We will be having our linkable demos on this page, so please stay tuned as many will be released soon to demonstrate
-the engines full power!  I am planning to make the CPGE engine a flight engine upon our new gaming coming soon called,
-The Shadows of Orion.  This game will demonstrate to people that:-
+the engines full power!  I am planning to make the CPGE engine a flight engine upon our new game coming soon called,
+"The Shadows of Orion".  This game will demonstrate to people that:-
 
 1) This Gaming Engine will cut it and give you the needs to build a fantastic game across multiple platforms for both 2D and 3D environments!
 2) The Engine does what it states it does at current release (Unless I am not aware of a bug)!
@@ -27,10 +27,11 @@ The Shadows of Orion.  This game will demonstrate to people that:-
 5) Tools will be coming, its part of the plan to help and assist your gaming development.
 6) Scripting Support will be coming also real soon! - As of 27th April, 2026 (A favourite development of mine!)
 7) Why are you paying people like UNREAL engine? your adding cost to your game, which means you must ask the higher price, why? - Time to stop this BS right!
-8) Even thou the system is not as advanced as UNREAL and the others out there, why help them to only elevate your costs right!
+8) Even thou the system is not currently as advanced as UNREAL and the others out there, why help them to only elevate your costs right!
 9) Time to jump on board, making a game is what we do, and contribute your recommendations here so we can all 
    benefit from the expertise of others and yet, keep our costs down for our players so we all can make a buck right!
-   
+10) We will NEVER EVER charge anyone for the privilege of using our gaming engine!
+
 To me, its only common sense, join now our community, request a PULL Request from management on our website as given above, so you too can help the community
 build a real gaming platform on Multiple-Platform Systems and yet, keep our gaming prices low so that users can afford to play!
 
