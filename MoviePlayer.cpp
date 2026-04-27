@@ -42,6 +42,7 @@ MoviePlayer::MoviePlayer() :
     m_enableAudio(false),
     m_targetFPS(30.0f),
     m_audioReadPosition(0),
+    m_audioStartSamples(0),
     m_pXAudio2(nullptr),
     m_pMasterVoice(nullptr),
     m_pSourceVoice(nullptr),
@@ -1674,6 +1675,20 @@ bool MoviePlayer::Play()
     m_playStartMediaTime = -1;
     m_lastFrameTime = m_playStartWallTime;
 
+    // Restart the XAudio2 source voice (may have been stopped by a prior Stop() call).
+    // Start() resets SamplesPlayed to 0, giving us a clean audio-master sync baseline.
+    if (m_enableAudio && m_pSourceVoice)
+    {
+        m_pSourceVoice->Start();
+        XAUDIO2_VOICE_STATE st;
+        m_pSourceVoice->GetState(&st);
+        m_audioStartSamples = st.SamplesPlayed;
+    }
+    else
+    {
+        m_audioStartSamples = 0;
+    }
+
 #if defined(_DEBUG_MOVIEPLAYER_)
     debug.logDebugMessage(LogLevel::LOG_INFO, L"MoviePlayer: Playback started - Duration: %.2f seconds, Dimensions: %dx%d, Playing: %s",
         ConvertMFTimeToSeconds(m_videoDuration), m_videoWidth, m_videoHeight, m_isPlaying.load() ? L"TRUE" : L"FALSE");
@@ -2262,12 +2277,11 @@ void MoviePlayer::ProcessVideoSample(IMFSample* pSample)
     buffer->Unlock();
 }
 
-// NEW METHOD: UpdateFrame - to be called directly from renderer each game tick.
+// UpdateFrame - called from the renderer each game tick.
 //
-// Sync strategy: wall-clock time elapsed since Play() == media time elapsed since the
-// first video frame's PTS.  We cache the "next" video sample and only upload it to the
-// texture when its PTS has been reached.  Audio is fed to XAudio2 on every call so it
-// never starves regardless of whether the video frame is due.
+// Sync strategy (audio-master): XAudio2 SamplesPlayed gives the true hardware audio
+// position.  Each video frame is held until that position reaches the frame's PTS.
+// Audio queue is kept full independently so it never starves.
 bool MoviePlayer::UpdateFrame()
 {
     if (!m_isPlaying.load() || m_isPaused.load() || !m_pSourceReader)
@@ -2277,20 +2291,13 @@ bool MoviePlayer::UpdateFrame()
     if (!updateLock.owns_lock())
         return false;
 
-    // ---- Feed audio every tick, gated to stay within 1.5 frame-durations of video ----
-    // m_llCurrentPosition holds the PTS of the currently-pending (or last-shown) video frame.
-    // Allowing audio to run more than one frame ahead causes audible racing.
+    // ---- Feed audio: keep XAudio2 queue full so it never starves ----
+    // Audio plays at hardware sample rate; video syncs to audio via SamplesPlayed below.
     if (m_enableAudio && m_pSourceVoice)
     {
-        // 1.5 frame-durations in MF 100ns units
-        const LONGLONG maxAudioLead =
-            static_cast<LONGLONG>(1.5 / static_cast<double>(m_targetFPS) * 10000000.0);
-        const LONGLONG videoNow = m_llCurrentPosition.load();
-
         XAUDIO2_VOICE_STATE audioState;
         m_pSourceVoice->GetState(&audioState);
-        while (audioState.BuffersQueued < AUDIO_MAX_QUEUED_BUFFERS &&
-               (m_audioReadPosition - videoNow) < maxAudioLead)
+        while (audioState.BuffersQueued < AUDIO_MAX_QUEUED_BUFFERS)
         {
             if (!ReadAudioSample()) break;
             m_pSourceVoice->GetState(&audioState);
@@ -2304,16 +2311,38 @@ bool MoviePlayer::UpdateFrame()
             return false;
     }
 
-    // ---- PTS gate: hold the frame until wall-clock time has caught up ----
+    // ---- PTS gate: audio-master sync ----
+    // Video waits until the XAudio2 hardware has actually played audio up to this
+    // frame's PTS.  SamplesPlayed is reset to 0 each time the voice is Start()-ed,
+    // so (SamplesPlayed - m_audioStartSamples) gives elapsed audio time since Play().
+    // Fall back to wall-clock only when audio is unavailable.
     if (m_playStartMediaTime >= 0)
     {
-        double elapsedSecs = std::chrono::duration<double>(
-            std::chrono::steady_clock::now() - m_playStartWallTime).count();
-        double frameRelativeSecs = ConvertMFTimeToSeconds(
+        const double frameMediaSecs = ConvertMFTimeToSeconds(
             m_llCurrentPosition.load() - m_playStartMediaTime);
 
-        if (elapsedSecs < frameRelativeSecs)
-            return false; // Too early — keep the sample cached, try again next tick
+        if (m_enableAudio && m_pSourceVoice && m_audioFormat.nSamplesPerSec > 0)
+        {
+            XAUDIO2_VOICE_STATE voiceState;
+            m_pSourceVoice->GetState(&voiceState);
+            const double audioPlayedSecs =
+                static_cast<double>(voiceState.SamplesPlayed - m_audioStartSamples) /
+                static_cast<double>(m_audioFormat.nSamplesPerSec);
+
+            // Allow video up to half a frame ahead of audio to absorb minor jitter;
+            // drop frames silently if video falls more than one full frame behind.
+            const double halfFrame = 0.5 / static_cast<double>(m_targetFPS);
+            if (frameMediaSecs > audioPlayedSecs + halfFrame)
+                return false; // audio hasn't reached this frame yet — hold
+        }
+        else
+        {
+            // No audio path: wall-clock fallback
+            const double elapsedSecs = std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - m_playStartWallTime).count();
+            if (elapsedSecs < frameMediaSecs)
+                return false;
+        }
     }
 
     // ---- Time to present: upload to texture and release the sample ----

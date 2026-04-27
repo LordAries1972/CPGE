@@ -85,6 +85,7 @@
 #include "Vectors.h"
 #include "Color.h"
 #include "Debug.h"
+#include <chrono>
 #include <memory>
 
 #include "DXCamera.h"
@@ -256,6 +257,11 @@ public:
     // Default toggle flag for displaying models in Wireframe mode.
     // In Runtime, use the F2 key to toggle status.
     bool bWireframeMode = false;
+
+    // F12 runtime toggle: show/hide debug overlay (FPS, camera coords, etc.)
+    // Persisted in GameConfig.cfg as "showDebugInfo".
+    bool bDebugOSDActive = false;
+    std::chrono::steady_clock::time_point debugOSDStartTime;
     // These are used when we resize our window
     int iOrigWidth = DEFAULT_WINDOW_WIDTH;
     int iOrigHeight = DEFAULT_WINDOW_HEIGHT;

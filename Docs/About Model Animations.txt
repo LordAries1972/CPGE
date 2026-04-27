@@ -3,7 +3,8 @@
 
 // READ BELOW :-
 
-In Blender — name your action/animation to match the model or armature it belongs to (e.g. action named "Ship1" on the Ship1 mesh, or "Armature" on the armature root). That name is embedded in the GLTF/GLB file.
+In Blender — name your action/animation to match the model or armature it belongs to (e.g. action named "Ship1" on the Ship1 mesh, or "Armature" on the armature root). 
+That name is embedded in the GLTF/GLB file.
 
 At load time — after all nodes are parsed, for every animation found:
 
@@ -14,7 +15,8 @@ If the animation name matches a root model name in scene_models, it's found imme
 Works for both mesh animations and armatures, as long as the armature node is a root in the scene hierarchy.
 
 Node-index walk (fallback) — if the name doesn't match anything (e.g. a bone animation where channels target child bone nodes rather than the armature root directly), 
-it scans each channel's targetNodeIndex against gltfNodeIndex on every loaded model and walks up the parent chain to the root. This catches armature animations automatically without requiring a name match.
+it scans each channel's targetNodeIndex against gltfNodeIndex on every loaded model and walks up the parent chain to the root. This catches armature animations 
+automatically without requiring a name match.
 
 Once the parent is found either way, CreateAnimationInstance → ForceAnimationReset → SetAnimationSpeed(0.75f) → SetAnimationLooping(true) → StartAnimation fires, 
 so animations are live the moment the scene is ready.

@@ -1,0 +1,25 @@
+History — ScreenRecorder.cpp
+=============================
+
+[27/04/2026]
+  Fixed audio/video synchronisation drift.
+
+  Root cause: video timestamps were derived from frameIndex × framePeriod
+  (a virtual frame-counter clock), while audio timestamps were derived by
+  accumulating WASAPI packet durations (an independent clock). The two clocks
+  drift apart indefinitely — increasingly bad sync the longer the recording.
+
+  Changes made:
+
+  1. CaptureFrame() — video timestamp now computed from QPC elapsed since
+     recording start (same origin clock as audio).
+       Before: ts = m_videoFrameIndex.load() * m_framePeriod
+       After:  ts = (now.QuadPart - m_qpcRecordingStart.QuadPart) * 10'000'000LL / m_qpcFreq.QuadPart
+
+  2. AudioCaptureThread() — removed video-relative gap-fill block. GetBuffer()
+     now captures qpcPos (UINT64). Each packet's timestamp is derived from
+     qpcPos relative to m_qpcRecordingStart (same clock as video). Silence is
+     inserted only for real gaps detected by comparing consecutive QPC values.
+
+  3. MicCaptureThread() — identical fix to AudioCaptureThread() applied to the
+     separate mic audio stream (m_micAudioTimestamp / m_pMicCaptureClient).

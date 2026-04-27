@@ -49,6 +49,7 @@ bool Configuration::loadConfig() {
         myConfig.antiAliasingEnabled = j["antiAliasingEnabled"];
         myConfig.MipMapping = j["MipMapping"];
         myConfig.BackCulling = j["BackCulling"];
+        myConfig.showDebugInfo = j.value("showDebugInfo", true);
         myConfig.buildVersion = j["buildVersion"];
         myConfig.buildSubVersion = j["buildSubVersion"];
         myConfig.build = j["build"];
@@ -131,6 +132,7 @@ bool Configuration::saveConfig() {
         j["antiAliasingEnabled"] = myConfig.antiAliasingEnabled;
         j["MipMapping"] = myConfig.MipMapping;
         j["BackCulling"] = myConfig.BackCulling;
+        j["showDebugInfo"] = myConfig.showDebugInfo;
         j["fov"] = myConfig.fov;
         j["maxPitch"] = myConfig.maxPitch;
         j["minPitch"] = myConfig.minPitch;
@@ -174,6 +176,7 @@ long double Configuration::calculateChecksum(const MyConfig& cfg) const
         << static_cast<int>(cfg.antiAliasingEnabled)
         << static_cast<int>(cfg.MipMapping)
         << static_cast<int>(cfg.BackCulling)
+        << static_cast<int>(cfg.showDebugInfo)
         << static_cast<int>(cfg.UseTTS)
         << cfg.musicVolume
         << cfg.masterVolume

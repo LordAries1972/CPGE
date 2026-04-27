@@ -171,8 +171,9 @@ private:
 
     // Audio playback
     bool m_enableAudio;
-    float m_targetFPS;          // target playback fps; controls how far audio reads ahead
+    float m_targetFPS;
     LONGLONG m_audioReadPosition; // MF timestamp of the last audio sample submitted to XAudio2
+    UINT64 m_audioStartSamples;   // XAudio2 SamplesPlayed value captured at Play() start; used for audio-master A/V sync
     IXAudio2* m_pXAudio2;
     IXAudio2MasteringVoice* m_pMasterVoice;
     IXAudio2SourceVoice* m_pSourceVoice;

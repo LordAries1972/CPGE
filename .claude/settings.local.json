@@ -31,7 +31,8 @@
       "PowerShell($cmake = \"D:\\\\Programs\\\\CMake\\\\bin\\\\cmake.exe\")",
       "Read(//d/Users/hobso/**)",
       "Bash(git stash *)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(xargs grep *)"
     ],
     "additionalDirectories": [
       "f:\\Projects\\C++\\CPGE2026\\.vs\\CrossPlatformGameEngine\\v17",

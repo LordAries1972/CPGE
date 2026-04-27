@@ -286,41 +286,34 @@ void DX11Renderer::Blit2DObjectToSize(BlitObj2DIndexType iIndex, int iX, int iY,
         exit(EXIT_FAILURE);
     }
 
-    if ((m_d2dTextures[int(iIndex)]) && (m_d2dRenderTarget))
+    // Snapshot ComPtrs to hold ref counts — prevents dangling pointer if resize
+    // thread calls Clean2DTextures() concurrently between the null check and DrawBitmap.
+    ComPtr<ID2D1Bitmap>       bitmap = m_d2dTextures[int(iIndex)];
+    ComPtr<ID2D1RenderTarget> rt     = m_d2dRenderTarget;
+
+    if (!bitmap || !rt)
     {
-        // Get the size of the bitmap
-        D2D1_SIZE_F bitmapSize = m_d2dTextures[int(iIndex)]->GetSize();
-
-        // Define the destination rectangle where the bitmap will be drawn
-        D2D1_RECT_F destRect = D2D1::RectF(
-            static_cast<float>(iX),
-            static_cast<float>(iY),
-            static_cast<float>(iX) + iOrigWidth,
-            static_cast<float>(iY) + iOrigHeight
-        );
-
-        // Define the source rectangle (entire bitmap)
-        D2D1_RECT_F srcRect = D2D1::RectF(
-            0.0f,
-            0.0f,
-            bitmapSize.width,
-            bitmapSize.height
-        );
-
-        // Draw the bitmap to the render target
-        m_d2dRenderTarget->DrawBitmap(
-            m_d2dTextures[int(iIndex)].Get(),                                                       // The bitmap to draw
-            destRect,                                                                               // Destination rectangle
-            1.0f,                                                                                   // Opacity
-            D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,                                                  // Interpolation mode
-            srcRect                                                                                 // Source rectangle
-        );
-    }
-    else
-    {
-        // Handle the error case where the texture or render target is not valid
         debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Invalid texture or render target in Blit2DObject()");
+        return;
     }
+
+    D2D1_SIZE_F bitmapSize = bitmap->GetSize();
+
+    D2D1_RECT_F destRect = D2D1::RectF(
+        static_cast<float>(iX),
+        static_cast<float>(iY),
+        static_cast<float>(iX + iWidth),
+        static_cast<float>(iY + iHeight)
+    );
+
+    D2D1_RECT_F srcRect = D2D1::RectF(
+        0.0f,
+        0.0f,
+        bitmapSize.width,
+        bitmapSize.height
+    );
+
+    rt->DrawBitmap(bitmap.Get(), destRect, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, srcRect);
 }
 
 void DX11Renderer::Blit2DObject(BlitObj2DIndexType iIndex, int iX, int iY)
@@ -333,41 +326,27 @@ void DX11Renderer::Blit2DObject(BlitObj2DIndexType iIndex, int iX, int iY)
 		exit (EXIT_FAILURE);
 	}
 
-    if ((m_d2dTextures[int(iIndex)]) && (m_d2dRenderTarget))
+    ComPtr<ID2D1Bitmap>       bitmap = m_d2dTextures[int(iIndex)];
+    ComPtr<ID2D1RenderTarget> rt     = m_d2dRenderTarget;
+
+    if (!bitmap || !rt)
     {
-        // Get the size of the bitmap
-        D2D1_SIZE_F bitmapSize = m_d2dTextures[int(iIndex)]->GetSize();
-
-        // Define the destination rectangle where the bitmap will be drawn
-        D2D1_RECT_F destRect = D2D1::RectF(
-            static_cast<float>(iX),
-            static_cast<float>(iY),
-            static_cast<float>(iX) + bitmapSize.width,
-            static_cast<float>(iY) + bitmapSize.height
-        );
-
-        // Define the source rectangle (entire bitmap)
-        D2D1_RECT_F srcRect = D2D1::RectF(
-            0.0f,
-            0.0f,
-            bitmapSize.width,
-            bitmapSize.height
-        );
-
-        // Draw the bitmap to the render target
-        m_d2dRenderTarget->DrawBitmap(
-            m_d2dTextures[int(iIndex)].Get(),                                                       // The bitmap to draw
-            destRect,                                                                               // Destination rectangle
-            1.0f,                                                                                   // Opacity
-            D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,                                                  // Interpolation mode
-            srcRect                                                                                 // Source rectangle
-        );
+        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Invalid texture or render target in Blit2DObject()");
+        return;
     }
-    else
-    {
-        // Handle the error case where the texture or render target is not valid
-		debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Invalid texture or render target in Blit2DObject()");
-    }
+
+    D2D1_SIZE_F bitmapSize = bitmap->GetSize();
+
+    D2D1_RECT_F destRect = D2D1::RectF(
+        static_cast<float>(iX),
+        static_cast<float>(iY),
+        static_cast<float>(iX) + bitmapSize.width,
+        static_cast<float>(iY) + bitmapSize.height
+    );
+
+    D2D1_RECT_F srcRect = D2D1::RectF(0.0f, 0.0f, bitmapSize.width, bitmapSize.height);
+
+    rt->DrawBitmap(bitmap.Get(), destRect, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, srcRect);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -403,43 +382,34 @@ void DX11Renderer::Blit2DObjectAtOffset(BlitObj2DIndexType iIndex, int iBlitX, i
         exit(EXIT_FAILURE);
     }
 
-    if ((m_d2dTextures[int(iIndex)]) && (m_d2dRenderTarget))
+    ComPtr<ID2D1Bitmap>       bitmap = m_d2dTextures[int(iIndex)];
+    ComPtr<ID2D1RenderTarget> rt     = m_d2dRenderTarget;
+
+    if (!bitmap || !rt)
     {
-        // Get the size of the bitmap
-        D2D1_SIZE_F bitmapSize = m_d2dTextures[int(iIndex)]->GetSize();
-
-        // Define the destination rectangle where the bitmap will be drawn
-        D2D1_RECT_F destRect = D2D1::RectF(
-            static_cast<float>(iBlitX),
-            static_cast<float>(iBlitY),
-            static_cast<float>(iBlitX + iTileSizeX),
-            static_cast<float>(iBlitY + iTileSizeY)
-        );
-
-        // Define the source rectangle (entire bitmap)
-        float fXOffset = float(iXOffset);
-        float fYOffset = float(iYOffset);
-        D2D1_RECT_F srcRect = D2D1::RectF(
-            fXOffset,
-            fYOffset,
-            static_cast<float>(fXOffset + iTileSizeX),
-            static_cast<float>(fYOffset + iTileSizeY)
-        );
-
-        // Draw the bitmap to the render target
-        m_d2dRenderTarget->DrawBitmap(
-            m_d2dTextures[int(iIndex)].Get(),       // The bitmap to draw
-            destRect,                               // Destination rectangle
-            1.0f,                                   // Opacity
-            D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,  // Interpolation mode
-            srcRect                                 // Source rectangle
-        );
-    }
-    else
-    {
-        // Handle the error case where the texture or render target is not valid
         debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Invalid texture or render target in Blit2DObject()");
+        return;
     }
+
+    D2D1_SIZE_F bitmapSize = bitmap->GetSize();
+
+    D2D1_RECT_F destRect = D2D1::RectF(
+        static_cast<float>(iBlitX),
+        static_cast<float>(iBlitY),
+        static_cast<float>(iBlitX + iTileSizeX),
+        static_cast<float>(iBlitY + iTileSizeY)
+    );
+
+    float fXOffset = float(iXOffset);
+    float fYOffset = float(iYOffset);
+    D2D1_RECT_F srcRect = D2D1::RectF(
+        fXOffset,
+        fYOffset,
+        static_cast<float>(fXOffset + iTileSizeX),
+        static_cast<float>(fYOffset + iTileSizeY)
+    );
+
+    rt->DrawBitmap(bitmap.Get(), destRect, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, srcRect);
 }
 
 // This call is handy for tiled image scrolling.
@@ -453,9 +423,11 @@ void DX11Renderer::Blit2DWrappedObjectAtOffset(
     int iTileSizeY)
 {
     if (int(iIndex) < 0 || int(iIndex) >= MAX_TEXTURE_BUFFERS) return;
-    if (!m_d2dTextures[int(iIndex)] || !m_d2dRenderTarget) return;
 
-    ID2D1Bitmap* bitmap = m_d2dTextures[int(iIndex)].Get();
+    ComPtr<ID2D1Bitmap>       bitmap = m_d2dTextures[int(iIndex)];
+    ComPtr<ID2D1RenderTarget> rt     = m_d2dRenderTarget;
+    if (!bitmap || !rt) return;
+
     D2D1_SIZE_F bmpSize = bitmap->GetSize();
     int bmpW = static_cast<int>(bmpSize.width);
     int bmpH = static_cast<int>(bmpSize.height);
@@ -481,7 +453,7 @@ void DX11Renderer::Blit2DWrappedObjectAtOffset(
     // Part 1: Bottom-right (main part)
     D2D1_RECT_F src1 = D2D1::RectF((float)iXOffset, (float)iYOffset, (float)bmpW, (float)bmpH);
     D2D1_RECT_F dest1 = D2D1::RectF((float)iBlitX, (float)iBlitY, (float)(iBlitX + destW1), (float)(iBlitY + destH1));
-    m_d2dRenderTarget->DrawBitmap(bitmap, dest1, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, src1);
+    rt->DrawBitmap(bitmap.Get(), dest1, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, src1);
 
     // Part 2: Bottom-left (wrap X)
     if (destW1 < iTileSizeX)
@@ -489,7 +461,7 @@ void DX11Renderer::Blit2DWrappedObjectAtOffset(
         int wrapW = iTileSizeX - destW1;
         D2D1_RECT_F src2 = D2D1::RectF(0, (float)iYOffset, (float)(bmpW - srcW1), (float)bmpH);
         D2D1_RECT_F dest2 = D2D1::RectF((float)(iBlitX + destW1), (float)iBlitY, (float)(iBlitX + iTileSizeX), (float)(iBlitY + destH1));
-        m_d2dRenderTarget->DrawBitmap(bitmap, dest2, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, src2);
+        rt->DrawBitmap(bitmap.Get(), dest2, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, src2);
     }
 
     // Part 3: Top-right (wrap Y)
@@ -498,7 +470,7 @@ void DX11Renderer::Blit2DWrappedObjectAtOffset(
         int wrapH = iTileSizeY - destH1;
         D2D1_RECT_F src3 = D2D1::RectF((float)iXOffset, 0, (float)bmpW, (float)(bmpH - srcH1));
         D2D1_RECT_F dest3 = D2D1::RectF((float)iBlitX, (float)(iBlitY + destH1), (float)(iBlitX + destW1), (float)(iBlitY + iTileSizeY));
-        m_d2dRenderTarget->DrawBitmap(bitmap, dest3, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, src3);
+        rt->DrawBitmap(bitmap.Get(), dest3, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, src3);
     }
 
     // Part 4: Top-left corner (wrap X and Y)
@@ -506,7 +478,7 @@ void DX11Renderer::Blit2DWrappedObjectAtOffset(
     {
         D2D1_RECT_F src4 = D2D1::RectF(0, 0, (float)(bmpW - srcW1), (float)(bmpH - srcH1));
         D2D1_RECT_F dest4 = D2D1::RectF((float)(iBlitX + destW1), (float)(iBlitY + destH1), (float)(iBlitX + iTileSizeX), (float)(iBlitY + iTileSizeY));
-        m_d2dRenderTarget->DrawBitmap(bitmap, dest4, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, src4);
+        rt->DrawBitmap(bitmap.Get(), dest4, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, src4);
     }
 }
 
@@ -1047,10 +1019,13 @@ void DX11Renderer::DrawTexture(int textureIndex, const Vector2& position, const 
 #endif
 
     if (is2D) {
-        if (textureIndex < 0 || textureIndex >= MAX_TEXTURE_BUFFERS || !m_d2dTextures[textureIndex]) return;
+        if (textureIndex < 0 || textureIndex >= MAX_TEXTURE_BUFFERS) return;
+        ComPtr<ID2D1Bitmap>       bitmap = m_d2dTextures[textureIndex];
+        ComPtr<ID2D1RenderTarget> rt     = m_d2dRenderTarget;
+        if (!bitmap || !rt) return;
 
-        m_d2dRenderTarget->DrawBitmap(
-            m_d2dTextures[textureIndex].Get(),
+        rt->DrawBitmap(
+            bitmap.Get(),
             D2D1::RectF(position.x, position.y, position.x + size.x, position.y + size.y),
             tintColor.a,
             D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,

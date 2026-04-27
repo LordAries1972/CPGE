@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1014*
+*Current Build Version: v0.0.1024*
 
 ---
 
@@ -18,7 +18,8 @@ The Shadows of Orion.  This game will demonstrate to people that:-
 1) This Gaming Engine will cut it and give you the needs to build a fantastic game across multiple platforms for both 2D and 3D environments!
 2) The Engine does what it states it does at current release (Unless I am not aware of a bug)!
 3) FOSS (Free and Open Source Software) which means, you can use this system under MIT license without worries, 
-   just only to give due credit where needed in your game!  Thats it!
+   just only to give due credit where needed on our use of system in your game - Come on, give credit where credit is due 
+   and support us!  Thats it!
 
 4) Versatile and complex systems integrated to get ya feet off the ground in regards to those designated 
    areas!  (ie, that be Effects, Renderer, Sounds, Music, Networking etc).
@@ -36,8 +37,8 @@ build a real gaming platform on Multiple-Platform Systems and yet, keep our gami
 To me, economically and the logic, only seems right! - So please get on board and thank you for taking the time to
 visit this page today!
 
-I thank personally, everyone who is willing and sacrifices time and contributes, to show us support - respect to you all and 
-lets me make this Engine great!
+I thank personally, everyone who is willing and sacrifices time and contributes, to show me support - respect to you all and 
+lets make this Engine great!
 
 ## Table of Contents
 
@@ -434,7 +435,7 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - Fixed Material System (Some issues) WIP to resolve and fix.
 - GLTF/GLB Model Animator will check all models on import and assign parent / child relationship.
 - fxManager.CreateStarfield() now supports a default x,y,z starting position with a Reverse travel flag.
-
+- MSBuild and Cmake will now increment all versions across all files, documents (such as this file) to ensure proper versioning!
 
 ---
 

@@ -61,6 +61,7 @@ ScreenRecorder::ScreenRecorder()
 {
     m_qpcRecordingStart.QuadPart = 0;
     m_qpcFreq.QuadPart           = 0;
+    m_lastVideoQpc.QuadPart      = 0;
 }
 
 ScreenRecorder::~ScreenRecorder()
@@ -187,6 +188,7 @@ bool ScreenRecorder::StartRecording(UINT width, UINT height,
 
     QueryPerformanceFrequency(&m_qpcFreq);
     QueryPerformanceCounter(&m_qpcRecordingStart);
+    m_lastVideoQpc = m_qpcRecordingStart;
     m_isRecording.store(true);
 
     if (hasAudio)
@@ -258,7 +260,18 @@ void ScreenRecorder::CaptureFrame(ID3D11Device*        device,
     std::lock_guard<std::mutex> lock(m_mutex);
     if (!m_isRecording.load()) return;
 
-    const LONGLONG ts = m_videoFrameIndex.load() * m_framePeriod;
+    // Throttle to target FPS; use the same QPC value for the video timestamp so
+    // video and audio share one clock.
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    {
+        const LONGLONG elapsed100ns =
+            (now.QuadPart - m_lastVideoQpc.QuadPart) * 10000000LL / m_qpcFreq.QuadPart;
+        if (elapsed100ns < m_framePeriod) return;
+        m_lastVideoQpc.QuadPart += m_qpcFreq.QuadPart * m_framePeriod / 10000000LL;
+    }
+
+    const LONGLONG ts = (now.QuadPart - m_qpcRecordingStart.QuadPart) * 10'000'000LL / m_qpcFreq.QuadPart;
 
     ComPtr<ID3D11Texture2D> backBuffer;
     if (FAILED(swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer)))) return;
@@ -522,33 +535,31 @@ void ScreenRecorder::AudioCaptureThread()
     {
         Sleep(10);
 
-        // Gap fill
-        {
-            const LONGLONG videoTS = m_videoFrameIndex.load() * m_framePeriodSnapshot;
-            if (videoTS > m_audioTimestamp)
-            {
-                const LONGLONG gap    = videoTS - m_audioTimestamp;
-                const UINT32   frames = static_cast<UINT32>(gap * m_pWaveFormat->nSamplesPerSec / 10'000'000LL);
-                if (frames > 0)
-                {
-                    WriteAudioSilence(m_pSinkWriter, m_audioStreamIndex, m_pWaveFormat, frames, m_audioTimestamp);
-                    m_audioTimestamp += static_cast<LONGLONG>(frames) * 10'000'000LL / m_pWaveFormat->nSamplesPerSec;
-                }
-            }
-        }
-
         UINT32 packetFrames = 0;
         if (FAILED(m_pCaptureClient->GetNextPacketSize(&packetFrames))) break;
 
         while (packetFrames > 0)
         {
-            BYTE* pData = nullptr; UINT32 numFrames = 0; DWORD flags = 0;
-            if (FAILED(m_pCaptureClient->GetBuffer(&pData, &numFrames, &flags, nullptr, nullptr))) break;
+            BYTE* pData = nullptr; UINT32 numFrames = 0; DWORD flags = 0; UINT64 qpcPos = 0;
+            if (FAILED(m_pCaptureClient->GetBuffer(&pData, &numFrames, &flags, nullptr, &qpcPos))) break;
 
-            const LONGLONG dur    = static_cast<LONGLONG>(numFrames) * 10'000'000LL / m_pWaveFormat->nSamplesPerSec;
-            const LONGLONG audioTS = m_audioTimestamp;
-            m_audioTimestamp      += dur;
-            const DWORD bytes      = numFrames * m_pWaveFormat->nBlockAlign;
+            const LONGLONG dur = static_cast<LONGLONG>(numFrames) * 10'000'000LL / m_pWaveFormat->nSamplesPerSec;
+
+            // Anchor to QPC — same clock as video; clamp pre-start packets to 0
+            const LONGLONG qpcDiff = static_cast<LONGLONG>(qpcPos) - m_qpcRecordingStart.QuadPart;
+            const LONGLONG audioTS = qpcDiff > 0LL ? qpcDiff * 10'000'000LL / m_qpcFreq.QuadPart : 0LL;
+
+            // Fill any real gap (WASAPI glitch / startup lag) with silence
+            if (audioTS > m_audioTimestamp)
+            {
+                const UINT32 gapFrames = static_cast<UINT32>(
+                    (audioTS - m_audioTimestamp) * m_pWaveFormat->nSamplesPerSec / 10'000'000LL);
+                if (gapFrames > 0)
+                    WriteAudioSilence(m_pSinkWriter, m_audioStreamIndex, m_pWaveFormat, gapFrames, m_audioTimestamp);
+            }
+            m_audioTimestamp = audioTS + dur;
+
+            const DWORD bytes = numFrames * m_pWaveFormat->nBlockAlign;
 
             IMFMediaBuffer* pBuf = nullptr;
             if (SUCCEEDED(MFCreateMemoryBuffer(bytes, &pBuf)))
@@ -821,32 +832,29 @@ void ScreenRecorder::MicCaptureThread()
     {
         Sleep(10);
 
-        // Gap fill
-        {
-            const LONGLONG videoTS = m_videoFrameIndex.load() * m_framePeriodSnapshot;
-            if (videoTS > m_micAudioTimestamp)
-            {
-                const LONGLONG gap    = videoTS - m_micAudioTimestamp;
-                const UINT32   frames = static_cast<UINT32>(gap * m_pMicWaveFormat->nSamplesPerSec / 10'000'000LL);
-                if (frames > 0)
-                {
-                    WriteAudioSilence(m_pSinkWriter, m_micStreamIndex, m_pMicWaveFormat, frames, m_micAudioTimestamp);
-                    m_micAudioTimestamp += static_cast<LONGLONG>(frames) * 10'000'000LL / m_pMicWaveFormat->nSamplesPerSec;
-                }
-            }
-        }
-
         UINT32 packetFrames = 0;
         if (FAILED(m_pMicCaptureClient->GetNextPacketSize(&packetFrames))) break;
 
         while (packetFrames > 0)
         {
-            BYTE* pData = nullptr; UINT32 numFrames = 0; DWORD flags = 0;
-            if (FAILED(m_pMicCaptureClient->GetBuffer(&pData, &numFrames, &flags, nullptr, nullptr))) break;
+            BYTE* pData = nullptr; UINT32 numFrames = 0; DWORD flags = 0; UINT64 qpcPos = 0;
+            if (FAILED(m_pMicCaptureClient->GetBuffer(&pData, &numFrames, &flags, nullptr, &qpcPos))) break;
 
-            const LONGLONG dur   = static_cast<LONGLONG>(numFrames) * 10'000'000LL / m_pMicWaveFormat->nSamplesPerSec;
-            const LONGLONG micTS = m_micAudioTimestamp;
-            m_micAudioTimestamp += dur;
+            const LONGLONG dur = static_cast<LONGLONG>(numFrames) * 10'000'000LL / m_pMicWaveFormat->nSamplesPerSec;
+
+            // Anchor to QPC — same clock as video; clamp pre-start packets to 0
+            const LONGLONG qpcDiff = static_cast<LONGLONG>(qpcPos) - m_qpcRecordingStart.QuadPart;
+            const LONGLONG micTS = qpcDiff > 0LL ? qpcDiff * 10'000'000LL / m_qpcFreq.QuadPart : 0LL;
+
+            // Fill any real gap with silence
+            if (micTS > m_micAudioTimestamp)
+            {
+                const UINT32 gapFrames = static_cast<UINT32>(
+                    (micTS - m_micAudioTimestamp) * m_pMicWaveFormat->nSamplesPerSec / 10'000'000LL);
+                if (gapFrames > 0)
+                    WriteAudioSilence(m_pSinkWriter, m_micStreamIndex, m_pMicWaveFormat, gapFrames, m_micAudioTimestamp);
+            }
+            m_micAudioTimestamp = micTS + dur;
             const DWORD bytes = numFrames * m_pMicWaveFormat->nBlockAlign;
 
             IMFMediaBuffer* pBuf = nullptr;

@@ -260,6 +260,20 @@
     </PropertyGroup>
     <!-- Write updated version to file -->
     <WriteLinesToFile File="$(VersionFilePath)" Lines="$(VersionFileContent)" Overwrite="true" Encoding="UTF-8" />
+    <!-- Update BuildInfo.h with new version numbers (pure MSBuild, no external process) -->
+    <ItemGroup>
+      <_BuildInfoLines Include="#pragma once" />
+      <_BuildInfoLines Include="// Authoritative build identity - update these on every release." />
+      <_BuildInfoLines Include="constexpr int CURRENT_BUILD_VERSION    = $(MasterVersion)%3B" />
+      <_BuildInfoLines Include="constexpr int CURRENT_BUILD_SUBVERSION = $(SubReleaseVersion)%3B" />
+      <_BuildInfoLines Include="constexpr int CURRENT_BUILD            = $(NewBuildNumber)%3B" />
+    </ItemGroup>
+    <WriteLinesToFile File="$(ProjectDir)BuildInfo.h" Lines="@(_BuildInfoLines)" Overwrite="true" Encoding="UTF-8" />
+    <!-- Update version badge in ReleaseInfo.md via inline PowerShell -->
+    <PropertyGroup>
+      <_ProjDirClean>$(ProjectDir.TrimEnd('\'))</_ProjDirClean>
+    </PropertyGroup>
+    <Exec Command="powershell -NoProfile -Command &quot;$f='$(_ProjDirClean)\ReleaseInfo.md'; $c=[IO.File]::ReadAllText($f); [IO.File]::WriteAllText($f, ($c -replace '\*Current Build Version: v[\d.]+\*', '*Current Build Version: $(NewVersionString)*'))&quot;" />
     <!-- Display message in build output -->
     <Message Text="════════════════════════════════════════" Importance="high" />
     <Message Text="VERSION UPDATE: $(NewVersionString)" Importance="high" />

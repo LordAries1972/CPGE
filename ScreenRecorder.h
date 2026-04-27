@@ -134,6 +134,7 @@ private:
 
     LARGE_INTEGER           m_qpcRecordingStart;
     LARGE_INTEGER           m_qpcFreq;
+    LARGE_INTEGER           m_lastVideoQpc;    // QPC value of the last written video frame; used to throttle CaptureFrame to target FPS
 
     // ---- game audio ----
     LONGLONG                m_audioTimestamp;

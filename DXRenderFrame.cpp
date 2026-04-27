@@ -432,7 +432,7 @@ void DX11Renderer::RenderFrame()
                    }
 
                    // Render FPS display and debug information (if enabled)
-                   if (USE_FPS_DISPLAY)
+                   if (USE_FPS_DISPLAY && config.myConfig.showDebugInfo)
                    {
                        // Calculate FPS using frame timing
                        static auto lastFrameTime = std::chrono::steady_clock::now();                            // Last frame timestamp
@@ -466,6 +466,22 @@ void DX11Renderer::RenderFrame()
 
                        // Render debug text in top-left corner
                        DrawMyText(fpsText, Vector2(0, 0), MyColor(255, 255, 255, 255), 10.0f);
+                   }
+
+                   // 5-second OSD notification after F12 debug toggle
+                   if (bDebugOSDActive)
+                   {
+                       float osdElapsed = std::chrono::duration<float>(
+                           std::chrono::steady_clock::now() - debugOSDStartTime).count();
+                       if (osdElapsed < 5.0f)
+                       {
+                           std::wstring osdMsg = config.myConfig.showDebugInfo
+                               ? L"► Debug Info: ENABLED"
+                               : L"► Debug Info: DISABLED";
+                           DrawMyText(osdMsg, Vector2(10.0f, 80.0f), MyColor(255, 220, 0, 255), 14.0f);
+                       }
+                       else
+                           bDebugOSDActive = false;
                    }
 
                    // Render loading indicator if assets are still loading
@@ -521,7 +537,7 @@ void DX11Renderer::RenderFrame()
                        if (recBlinkCounter < 30) // visible for first half of the 60-frame cycle
                        {
                            DrawMyText(L"\u25CF REC",
-                               Vector2(12.0f, 12.0f),
+                               Vector2(width - 75.0f, 12.0f),
                                MyColor::Red(),
                                18.0f);
                        }

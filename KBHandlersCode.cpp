@@ -8,6 +8,7 @@
 // ---------------------------------------------------------------------------------------
 #include "Includes.h"
 
+#include "Configuration.h"
 #include "Debug.h"
 #include "ExceptionHandler.h"
 #include "SoundManager.h"
@@ -124,6 +125,21 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
                     {
                         case SceneType::SCENE_GAMEPLAY:
                             renderer->myCamera.RotateToOppositeSide(2);                                 // Rotate camera to opposite side
+                    }
+
+                    break;
+                }
+
+                // Toggle debug info overlay with F12 key (persisted to config)
+                case KeyCode::KEY_F12:
+                {
+                    switch (scene.stSceneType)
+                    {
+                        case SceneType::SCENE_GAMEPLAY:
+                            config.myConfig.showDebugInfo = !config.myConfig.showDebugInfo;
+                            config.saveConfig();
+                            renderer->bDebugOSDActive    = true;
+                            renderer->debugOSDStartTime  = std::chrono::steady_clock::now();
                     }
 
                     break;
