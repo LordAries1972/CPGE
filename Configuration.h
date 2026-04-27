@@ -36,7 +36,7 @@ struct MyConfig {
     bool antiAliasingEnabled = true;
     bool MipMapping = true;
     bool BackCulling = true;
-    bool showDebugInfo = true;
+    bool showDebugInfo = false;
 
     long double fov = 60.0f;
     long double zoomSensitivity = 0.005f;

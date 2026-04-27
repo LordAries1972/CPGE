@@ -1,0 +1,15 @@
+KBHandlersCode.cpp - Changes 27-04-2026
+=======================================
+
+F2 / F12 key bindings swapped:
+
+- F2 now toggles config.myConfig.showDebugInfo, calls config.saveConfig(),
+  activates the 5-second OSD notification (bDebugOSDActive + debugOSDStartTime),
+  sets bDismissAllSettingOSDs = true so main.cpp closes any open volume OSDs,
+  and is active in ALL scenes (no scene restriction).
+  Previously: wireframe toggle, SCENE_GAMEPLAY only.
+
+- F12 now toggles renderer->bWireframeMode (wireframe rendering).
+  Previously: debug info toggle with config save and OSD.
+
+Added extern std::atomic<bool> bDismissAllSettingOSDs declaration.

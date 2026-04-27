@@ -48,6 +48,7 @@ extern std::shared_ptr<Renderer> renderer;
 
 extern void SwitchToGameIntro();
 extern void StopMusicPlayback();
+extern std::atomic<bool> bDismissAllSettingOSDs;
 extern std::atomic<bool> bRecordingToggleRequested;
 extern std::atomic<int>  micVolumeAdjustRequest;
 extern std::atomic<int>  musicVolumeAdjustRequest;
@@ -104,15 +105,14 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
 
                 break;
 
-                // Toggle wireframe mode with F2 key
+                // Toggle debug info overlay with F2 key (persisted to config, active in all scenes)
                 case KeyCode::KEY_F2:
                 {
-                    switch (scene.stSceneType)
-                    {
-                        case SceneType::SCENE_GAMEPLAY:
-                            // Toggle wireframe state
-                            renderer->bWireframeMode = !renderer->bWireframeMode; 
-                    }
+                    config.myConfig.showDebugInfo = !config.myConfig.showDebugInfo;
+                    config.saveConfig();
+                    renderer->bDebugOSDActive   = true;
+                    renderer->debugOSDStartTime = std::chrono::steady_clock::now();
+                    bDismissAllSettingOSDs      = true;
 
                     break;
                 }
@@ -130,16 +130,13 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
                     break;
                 }
 
-                // Toggle debug info overlay with F12 key (persisted to config)
+                // Toggle wireframe mode with F12 key
                 case KeyCode::KEY_F12:
                 {
                     switch (scene.stSceneType)
                     {
                         case SceneType::SCENE_GAMEPLAY:
-                            config.myConfig.showDebugInfo = !config.myConfig.showDebugInfo;
-                            config.saveConfig();
-                            renderer->bDebugOSDActive    = true;
-                            renderer->debugOSDStartTime  = std::chrono::steady_clock::now();
+                            renderer->bWireframeMode = !renderer->bWireframeMode;
                     }
 
                     break;

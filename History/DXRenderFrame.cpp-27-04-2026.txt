@@ -1,0 +1,5 @@
+DXRenderFrame.cpp - Changes 27-04-2026
+=======================================
+
+Line ~471: Updated comment from "F12 debug toggle" to "F2 debug toggle"
+to reflect the key binding change made in KBHandlersCode.cpp.

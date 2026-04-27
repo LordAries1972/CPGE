@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1024*
+*Current Build Version: v0.0.1028*
 
 ---
 
@@ -436,6 +436,10 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - GLTF/GLB Model Animator will check all models on import and assign parent / child relationship.
 - fxManager.CreateStarfield() now supports a default x,y,z starting position with a Reverse travel flag.
 - MSBuild and Cmake will now increment all versions across all files, documents (such as this file) to ensure proper versioning!
+- OSD setting changes with current OSD on screen display, will close and show new one instead!
+- Added History folder, to show changes on each file to what has been exactly been changed in the 
+  current updates to the repository! (Please note! Redundant information will be truncated as time passes on!)
+  See here now for live updates on exactly whats been changed! - But this file will always be the basis of updates!
 
 ---
 

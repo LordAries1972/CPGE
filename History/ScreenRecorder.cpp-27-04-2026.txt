@@ -23,3 +23,27 @@ History — ScreenRecorder.cpp
 
   3. MicCaptureThread() — identical fix to AudioCaptureThread() applied to the
      separate mic audio stream (m_micAudioTimestamp / m_pMicCaptureClient).
+
+[27/04/2026 — second edit]
+  Reverted broken qpcPos approach; correct fix applied.
+
+  Root cause of broken first fix: WASAPI loopback streams can return qpcPos=0
+  from GetBuffer() when the device does not support position tracking (documented
+  MSDN behaviour). This stamped every audio packet at t=0, making audio play
+  entirely at the start of the recording — completely out of sync.
+
+  To revert to working state, restore changes 2 & 3 above back to accumulated
+  sample durations and remove qpcPos. Change 1 (QPC video timestamps) is CORRECT
+  and must be kept.
+
+  Changes made in this edit:
+
+  1. CaptureFrame() — QPC video timestamp RETAINED (correct from first edit).
+
+  2. AudioCaptureThread() — reverted GetBuffer() to (nullptr, nullptr); no qpcPos.
+     Audio timestamps use accumulated sample durations from t=0 (reliable, exact).
+     Gap detection now uses AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY: when WASAPI
+     signals a real gap, audio clock is resynced to QPC wall clock and silence is
+     inserted for the missing duration. Removed video-frame-counter gap-fill.
+
+  3. MicCaptureThread() — same revert and discontinuity handling as above.

@@ -205,6 +205,7 @@ std::atomic<int>  musicVolumeAdjustRequest{ 0 };                        // Accum
 std::atomic<int>  sfxVolumeAdjustRequest{ 0 };                          // Accumulated CTRL+NUMPAD+/- steps; consumed by main loop
 std::atomic<int>  masterVolumeAdjustRequest{ 0 };                       // Accumulated CTRL+SHIFT+NUMPAD+/- steps; consumed by main loop
 std::atomic<int>  ttsVolumeAdjustRequest{ 0 };                          // Accumulated CTRL+ALT+NUMPAD+/- steps; consumed by main loop
+std::atomic<bool> bDismissAllSettingOSDs{ false };                      // Set by F2 key handler; consumed by main loop to close all volume OSDs
 
 static std::chrono::steady_clock::time_point lastResizeTime;            // Debounce resize messages
 static std::chrono::steady_clock::time_point micOSDLastShown;           // When mic volume OSD was last refreshed
@@ -913,6 +914,21 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                     }
                 }
 
+                // Close every volume OSD window (used when F2 debug OSD takes over)
+                auto dismissAllVolOSDs = [&]() {
+                    for (const char* id : {"mic_vol_osd", "music_vol_osd", "sfx_vol_osd", "master_vol_osd", "tts_vol_osd"})
+                        if (guiManager.GetWindow(id)) guiManager.RemoveWindow(id);
+                };
+                // Close every OTHER volume OSD and the debug OSD (used when a volume OSD takes over)
+                auto dismissOtherVolOSDs = [&](const std::string& keepID) {
+                    renderer->bDebugOSDActive = false;
+                    for (const char* id : {"mic_vol_osd", "music_vol_osd", "sfx_vol_osd", "master_vol_osd", "tts_vol_osd"})
+                        if (std::string(id) != keepID && guiManager.GetWindow(id)) guiManager.RemoveWindow(id);
+                };
+                // Consume the F2 signal — close any open volume OSDs before the debug OSD appears
+                if (bDismissAllSettingOSDs.exchange(false))
+                    dismissAllVolOSDs();
+
                 // Mic monitor volume — NUMPAD+ raises, NUMPAD- lowers, only while recording.
                 // OSD sits bottom-centre and is removed automatically after 10 seconds.
                 {
@@ -924,6 +940,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                     int adj = micVolumeAdjustRequest.exchange(0);
                     if (adj != 0 && screenRecorder.IsRecording())
                     {
+                        dismissOtherVolOSDs(MIC_OSD);
                         float gain = screenRecorder.GetMicMonitorGain() + adj * 0.1f;
                         gain = gain < 0.0f ? 0.0f : (gain > 4.0f ? 4.0f : gain);
                         screenRecorder.SetMicMonitorGain(gain);
@@ -1000,6 +1017,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                     int adj = musicVolumeAdjustRequest.exchange(0);
                     if (adj != 0)
                     {
+                        dismissOtherVolOSDs(MUSIC_OSD);
                         int vol = config.myConfig.musicVolume + adj;
                         vol = vol < 0 ? 0 : (vol > 64 ? 64 : vol);
                         config.myConfig.musicVolume = vol;
@@ -1074,6 +1092,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                     int adj = sfxVolumeAdjustRequest.exchange(0);
                     if (adj != 0)
                     {
+                        dismissOtherVolOSDs(SFX_OSD);
                         int vol = config.myConfig.dialogVolume + adj;
                         vol = vol < 0 ? 0 : (vol > 64 ? 64 : vol);
                         config.myConfig.dialogVolume = vol;
@@ -1143,6 +1162,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                     int adj = masterVolumeAdjustRequest.exchange(0);
                     if (adj != 0)
                     {
+                        dismissOtherVolOSDs(MASTER_OSD);
                         int vol = config.myConfig.masterVolume + adj;
                         vol = vol < 0 ? 0 : (vol > 64 ? 64 : vol);
                         config.myConfig.masterVolume = vol;
@@ -1215,6 +1235,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                     int adj = ttsVolumeAdjustRequest.exchange(0);
                     if (adj != 0)
                     {
+                        dismissOtherVolOSDs(TTS_OSD);
                         long double vol = config.myConfig.TTSVolume + adj * 0.05;
                         vol = vol < 0.0 ? 0.0 : (vol > 1.0 ? 1.0 : vol);
                         config.myConfig.TTSVolume = vol;

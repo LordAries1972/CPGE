@@ -1,0 +1,6 @@
+DX12Renderer.cpp - Changes 27-04-2026
+======================================
+
+Line ~6229: DX12 debug FPS block now also checks config.myConfig.showDebugInfo,
+matching the DX11 (DXRenderFrame.cpp) behaviour.
+Previously only guarded by USE_FPS_DISPLAY.

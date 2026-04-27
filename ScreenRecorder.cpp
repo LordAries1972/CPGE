@@ -540,24 +540,29 @@ void ScreenRecorder::AudioCaptureThread()
 
         while (packetFrames > 0)
         {
-            BYTE* pData = nullptr; UINT32 numFrames = 0; DWORD flags = 0; UINT64 qpcPos = 0;
-            if (FAILED(m_pCaptureClient->GetBuffer(&pData, &numFrames, &flags, nullptr, &qpcPos))) break;
+            BYTE* pData = nullptr; UINT32 numFrames = 0; DWORD flags = 0;
+            if (FAILED(m_pCaptureClient->GetBuffer(&pData, &numFrames, &flags, nullptr, nullptr))) break;
 
-            const LONGLONG dur = static_cast<LONGLONG>(numFrames) * 10'000'000LL / m_pWaveFormat->nSamplesPerSec;
-
-            // Anchor to QPC — same clock as video; clamp pre-start packets to 0
-            const LONGLONG qpcDiff = static_cast<LONGLONG>(qpcPos) - m_qpcRecordingStart.QuadPart;
-            const LONGLONG audioTS = qpcDiff > 0LL ? qpcDiff * 10'000'000LL / m_qpcFreq.QuadPart : 0LL;
-
-            // Fill any real gap (WASAPI glitch / startup lag) with silence
-            if (audioTS > m_audioTimestamp)
+            // If WASAPI signals a gap, resync audio clock to wall clock so it
+            // stays locked to the QPC-based video timestamps after a glitch.
+            if (flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY)
             {
-                const UINT32 gapFrames = static_cast<UINT32>(
-                    (audioTS - m_audioTimestamp) * m_pWaveFormat->nSamplesPerSec / 10'000'000LL);
-                if (gapFrames > 0)
-                    WriteAudioSilence(m_pSinkWriter, m_audioStreamIndex, m_pWaveFormat, gapFrames, m_audioTimestamp);
+                LARGE_INTEGER now;
+                QueryPerformanceCounter(&now);
+                const LONGLONG wallTS = (now.QuadPart - m_qpcRecordingStart.QuadPart) * 10'000'000LL / m_qpcFreq.QuadPart;
+                if (wallTS > m_audioTimestamp)
+                {
+                    const UINT32 gapFrames = static_cast<UINT32>(
+                        (wallTS - m_audioTimestamp) * m_pWaveFormat->nSamplesPerSec / 10'000'000LL);
+                    if (gapFrames > 0)
+                        WriteAudioSilence(m_pSinkWriter, m_audioStreamIndex, m_pWaveFormat, gapFrames, m_audioTimestamp);
+                    m_audioTimestamp = wallTS;
+                }
             }
-            m_audioTimestamp = audioTS + dur;
+
+            const LONGLONG dur    = static_cast<LONGLONG>(numFrames) * 10'000'000LL / m_pWaveFormat->nSamplesPerSec;
+            const LONGLONG audioTS = m_audioTimestamp;
+            m_audioTimestamp      += dur;
 
             const DWORD bytes = numFrames * m_pWaveFormat->nBlockAlign;
 
@@ -837,24 +842,27 @@ void ScreenRecorder::MicCaptureThread()
 
         while (packetFrames > 0)
         {
-            BYTE* pData = nullptr; UINT32 numFrames = 0; DWORD flags = 0; UINT64 qpcPos = 0;
-            if (FAILED(m_pMicCaptureClient->GetBuffer(&pData, &numFrames, &flags, nullptr, &qpcPos))) break;
+            BYTE* pData = nullptr; UINT32 numFrames = 0; DWORD flags = 0;
+            if (FAILED(m_pMicCaptureClient->GetBuffer(&pData, &numFrames, &flags, nullptr, nullptr))) break;
 
-            const LONGLONG dur = static_cast<LONGLONG>(numFrames) * 10'000'000LL / m_pMicWaveFormat->nSamplesPerSec;
-
-            // Anchor to QPC — same clock as video; clamp pre-start packets to 0
-            const LONGLONG qpcDiff = static_cast<LONGLONG>(qpcPos) - m_qpcRecordingStart.QuadPart;
-            const LONGLONG micTS = qpcDiff > 0LL ? qpcDiff * 10'000'000LL / m_qpcFreq.QuadPart : 0LL;
-
-            // Fill any real gap with silence
-            if (micTS > m_micAudioTimestamp)
+            if (flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY)
             {
-                const UINT32 gapFrames = static_cast<UINT32>(
-                    (micTS - m_micAudioTimestamp) * m_pMicWaveFormat->nSamplesPerSec / 10'000'000LL);
-                if (gapFrames > 0)
-                    WriteAudioSilence(m_pSinkWriter, m_micStreamIndex, m_pMicWaveFormat, gapFrames, m_micAudioTimestamp);
+                LARGE_INTEGER now;
+                QueryPerformanceCounter(&now);
+                const LONGLONG wallTS = (now.QuadPart - m_qpcRecordingStart.QuadPart) * 10'000'000LL / m_qpcFreq.QuadPart;
+                if (wallTS > m_micAudioTimestamp)
+                {
+                    const UINT32 gapFrames = static_cast<UINT32>(
+                        (wallTS - m_micAudioTimestamp) * m_pMicWaveFormat->nSamplesPerSec / 10'000'000LL);
+                    if (gapFrames > 0)
+                        WriteAudioSilence(m_pSinkWriter, m_micStreamIndex, m_pMicWaveFormat, gapFrames, m_micAudioTimestamp);
+                    m_micAudioTimestamp = wallTS;
+                }
             }
-            m_micAudioTimestamp = micTS + dur;
+
+            const LONGLONG dur  = static_cast<LONGLONG>(numFrames) * 10'000'000LL / m_pMicWaveFormat->nSamplesPerSec;
+            const LONGLONG micTS = m_micAudioTimestamp;
+            m_micAudioTimestamp += dur;
             const DWORD bytes = numFrames * m_pMicWaveFormat->nBlockAlign;
 
             IMFMediaBuffer* pBuf = nullptr;

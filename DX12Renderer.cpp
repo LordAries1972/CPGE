@@ -6226,7 +6226,7 @@ void DX12Renderer::RenderFrame()
                     }
 
                     // FPS Display for debugging and performance monitoring
-                    if (USE_FPS_DISPLAY)
+                    if (USE_FPS_DISPLAY && config.myConfig.showDebugInfo)
                     {
                         static auto lastFrameTime = std::chrono::steady_clock::now();
                         static auto lastFPSTime = lastFrameTime;

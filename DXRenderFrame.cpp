@@ -468,7 +468,7 @@ void DX11Renderer::RenderFrame()
                        DrawMyText(fpsText, Vector2(0, 0), MyColor(255, 255, 255, 255), 10.0f);
                    }
 
-                   // 5-second OSD notification after F12 debug toggle
+                   // 5-second OSD notification after F2 debug toggle
                    if (bDebugOSDActive)
                    {
                        float osdElapsed = std::chrono::duration<float>(

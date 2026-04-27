@@ -1,0 +1,19 @@
+main.cpp - Changes 27-04-2026
+==============================
+
+Added OSD mutual-exclusion logic:
+
+1. New atomic flag bDismissAllSettingOSDs (near line 207) — set by the F2
+   key handler in KBHandlersCode.cpp; consumed once per frame in the OSD
+   processing section.
+
+2. Two lambdas defined just before the MIC volume OSD block:
+   - dismissAllVolOSDs()       — removes all five volume OSD windows.
+     Called when bDismissAllSettingOSDs fires (F2 pressed).
+   - dismissOtherVolOSDs(id)   — closes every OTHER volume OSD window AND
+     clears renderer->bDebugOSDActive. Called at the top of each volume
+     OSD activation block so a new setting OSD always replaces the old one.
+
+3. Each of the five volume OSD blocks (MIC, MUSIC, SFX, MASTER, TTS) now
+   calls dismissOtherVolOSDs(CURRENT_OSD_ID) as its first action when
+   adj != 0, before creating or updating its own window.
