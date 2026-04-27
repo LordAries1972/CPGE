@@ -588,202 +588,184 @@ void SceneManager::ParseGLBNodeRecursive(const json& node, int nodeIndex, const 
     // Check if the node has non-identity scale that needs to be baked into geometry
     bool hasNonIdentityScale = (fabs(scale.x - 1.0f) > 0.0001f || fabs(scale.y - 1.0f) > 0.0001f || fabs(scale.z - 1.0f) > 0.0001f);
 
-    // Process mesh if present in this node
+    // Process mesh if present in this node.
+    // Each GLB mesh primitive is created as its own scene_models entry so that
+    // every sub-mesh gets its own material, textures and draw call.
     if (hasMesh)
     {
         // Extract mesh index from the node definition
         int meshIndex = node["mesh"];
-        
+
         // Validate that meshes array exists in the GLTF document
         if (!doc.contains("meshes") || !doc["meshes"].is_array()) return;
 
         const auto& meshes = doc["meshes"];
-        
+
         // Validate mesh index is within valid range
         if (meshIndex < 0 || meshIndex >= (int)meshes.size()) return;
 
-        // Extract proper model name from GLB node FIRST, only use default if none exists**
+        // Determine base name for this node
         std::wstring modelName;
         if (node.contains("name") && node["name"].is_string())
         {
-            // Use the actual node name from GLB file
             std::string nodeName = node["name"];
             modelName = sysUtils.ToWString(nodeName);
-//            modelName = std::wstring(nodeName.begin(), nodeName.end());
-            scene_models[instanceIndex].m_modelInfo.name = modelName;
-            
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Using node name from GLB: \"%ls\"", scene_models[instanceIndex].m_modelInfo.name.c_str());
-            #endif
         }
         else
         {
-            // No name provided in GLB node - generate default name and log this situation
             modelName = L"GLBNode_" + std::to_wstring(instanceIndex) + L"_Mesh_" + std::to_wstring(meshIndex);
-            scene_models[instanceIndex].m_modelInfo.name = modelName;
-            
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] No name found in GLB node - using default name: \"%ls\"", scene_models[instanceIndex].m_modelInfo.name.c_str());
-            #endif
-        }
-        
-        int modelSlot = -1;
-
-        // Search for existing model with the same name in global models array
-        for (int m = 0; m < MAX_MODELS; ++m)
-        {
-            if (models[m].m_modelInfo.name == modelName)
-            {
-                modelSlot = m;                                                      // Found existing model, reuse it
-                break;
-            }
         }
 
-        // If model not found, create new model in first available slot
-        if (modelSlot == -1)
+        // Determine number of primitives so we can loop over them
+        const auto& primsMesh = meshes[meshIndex];
+        int numPrimitives = 1;
+        if (primsMesh.contains("primitives") && primsMesh["primitives"].is_array())
+            numPrimitives = static_cast<int>(primsMesh["primitives"].size());
+
+        // Pre-compute world transform once for all primitives of this node.
+        // Scale is baked per-primitive into geometry; adjust the matrix accordingly.
+        XMMATRIX effectiveNodeTransform = nodeTransform;
+        if (hasNonIdentityScale)
+            effectiveNodeTransform *= XMMatrixScaling(1.0f / scale.x, 1.0f / scale.y, 1.0f / scale.z);
+        XMMATRIX worldTransform = parentTransform * effectiveNodeTransform;
+
+        XMFLOAT4X4 f4x4;
+        XMStoreFloat4x4(&f4x4, worldTransform);
+
+        // Track the first primitive's instanceIndex so child nodes can parent to it.
+        int firstPrimInstanceIndex = instanceIndex;
+
+        for (int primIdx = 0; primIdx < numPrimitives && instanceIndex < MAX_SCENE_MODELS; ++primIdx)
         {
+            // Primitive 0 keeps the base node name for backward-compatible animation lookups.
+            // Subsequent primitives get a "_pN" suffix so they have unique cache keys.
+            std::wstring primName = (primIdx == 0)
+                ? modelName
+                : (modelName + L"_p" + std::to_wstring(primIdx));
+
+            // --- Find or create per-primitive entry in the global model cache ---
+            int modelSlot = -1;
             for (int m = 0; m < MAX_MODELS; ++m)
             {
-                if (models[m].m_modelInfo.name.empty())
+                if (models[m].m_modelInfo.name == primName)
                 {
-                    modelSlot = m;                                                  // Found empty slot for new model
-                    models[m].m_modelInfo.name = modelName;                        // Assign the model name
-                    models[m].m_modelInfo.ID = m;                                  // Set the model ID
-                    models[m].m_modelInfo.vertices.clear();                       // Clear any existing vertex data
-                    models[m].m_modelInfo.indices.clear();                        // Clear any existing index data
-
-                    // Load mesh geometry data using existing GLTF primitive loader
-                    LoadGLTFMeshPrimitives(meshIndex, doc, models[m]);
+                    modelSlot = m;
                     break;
                 }
             }
-        }
 
-        // If no available model slot found, skip this mesh
-        if (modelSlot == -1) return;
-
-        // Bake scale into vertex geometry if the node has non-identity scale
-        if (hasNonIdentityScale)
-        {
-            for (auto& v : models[modelSlot].m_modelInfo.vertices)
+            if (modelSlot == -1)
             {
-                // Apply scale transformation to vertex positions
-                v.position.x *= scale.x;
-                v.position.y *= scale.y;
-                v.position.z *= scale.z;
-            }
-
-            // Remove scale from transformation matrix since it's now baked into geometry
-            nodeTransform *= XMMatrixScaling(1.0f / scale.x, 1.0f / scale.y, 1.0f / scale.z);
-        }
-
-        // Compute the final world transformation matrix by combining parent and node transforms
-        XMMATRIX worldTransform = parentTransform * nodeTransform;
-
-        // Copy model data from global models array to scene-specific model instance
-        scene_models[instanceIndex].CopyFrom(models[modelSlot]);
-        scene_models[instanceIndex].m_modelInfo.worldMatrix = worldTransform;
-
-        scene_models[instanceIndex].m_modelInfo.textures = models[modelSlot].m_modelInfo.textures;
-        scene_models[instanceIndex].m_modelInfo.textureSRVs = models[modelSlot].m_modelInfo.textureSRVs;
-        scene_models[instanceIndex].m_modelInfo.normalMapSRVs = models[modelSlot].m_modelInfo.normalMapSRVs;
-
-        // === CRITICAL FIX: Pre-allocate texture vectors AFTER copy to prevent reallocation ===
-        // Vector assignment copies SIZE not CAPACITY, so we must re-reserve on the scene_model
-        // Calculate based on number of primitives in the source mesh
-        if (doc.contains("meshes") && doc["meshes"].is_array())
-        {
-            const auto& meshes = doc["meshes"];
-            if (meshIndex >= 0 && meshIndex < (int)meshes.size())
-            {
-                const auto& mesh = meshes[meshIndex];
-                if (mesh.contains("primitives") && mesh["primitives"].is_array())
+                for (int m = 0; m < MAX_MODELS; ++m)
                 {
-                    size_t numPrimitives = mesh["primitives"].size();
-                    size_t maxTexturesNeeded = numPrimitives * 3;  // 3 textures per primitive max
-                    
-                    // Reserve capacity on the SCENE model's vectors (not the global model)
-                    scene_models[instanceIndex].m_modelInfo.textures.reserve(maxTexturesNeeded);
-                    scene_models[instanceIndex].m_modelInfo.textureSRVs.reserve(maxTexturesNeeded);
-                    scene_models[instanceIndex].m_modelInfo.normalMapSRVs.reserve(maxTexturesNeeded);
-                    
-                    #if defined(_DEBUG_SCENEMANAGER_)
-                        debug.logDebugMessage(LogLevel::LOG_INFO, 
-                            L"[SceneManager] Pre-allocated %d texture slots for scene_models[%d] (%d primitives)", 
-                            static_cast<int>(maxTexturesNeeded), instanceIndex, static_cast<int>(numPrimitives));
-                    #endif
+                    if (models[m].m_modelInfo.name.empty())
+                    {
+                        modelSlot = m;
+                        models[m].m_modelInfo.name = primName;
+                        models[m].m_modelInfo.ID = m;
+                        models[m].m_modelInfo.vertices.clear();
+                        models[m].m_modelInfo.indices.clear();
+                        models[m].m_modelInfo.textures.clear();
+                        models[m].m_modelInfo.textureSRVs.clear();
+                        models[m].m_modelInfo.normalMapSRVs.clear();
+
+                        // Load only this primitive's geometry and material
+                        LoadGLTFMeshPrimitives(meshIndex, doc, models[m], primIdx);
+
+                        // Bake scale into vertex geometry for this primitive
+                        if (hasNonIdentityScale)
+                        {
+                            for (auto& v : models[m].m_modelInfo.vertices)
+                            {
+                                v.position.x *= scale.x;
+                                v.position.y *= scale.y;
+                                v.position.z *= scale.z;
+                            }
+                        }
+                        break;
+                    }
                 }
             }
-        }
 
-        // Set parent-child relationship: -1 for parent models, parent's instanceIndex for children
-        scene_models[instanceIndex].m_modelInfo.iParentModelID = parentModelID;
-        scene_models[instanceIndex].m_modelInfo.gltfNodeIndex = nodeIndex;                          // Store GLB node index for animation mapping.
+            if (modelSlot == -1)
+            {
+                #if defined(_DEBUG_SCENEMANAGER_)
+                    debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] No free model cache slot for primitive %d of '%ls' - skipping", primIdx, modelName.c_str());
+                #endif
+                continue;
+            }
 
-        // Store base local TRS for GLTF animation playback (LOCAL space).
-        scene_models[instanceIndex].m_modelInfo.baseLocalTranslation = baseLocalTranslation;
-        scene_models[instanceIndex].m_modelInfo.baseLocalRotationQuat = baseLocalRotationQuat;
-        scene_models[instanceIndex].m_modelInfo.baseLocalScale = baseLocalScale;
-        scene_models[instanceIndex].m_modelInfo.animLocalTranslation = baseLocalTranslation;
-        scene_models[instanceIndex].m_modelInfo.animLocalRotationQuat = baseLocalRotationQuat;
-        scene_models[instanceIndex].m_modelInfo.animLocalScale = baseLocalScale;
-        scene_models[instanceIndex].m_modelInfo.bHasBaseLocalTRS = true;
+            // Skip empty primitives (can happen when a primitive has no valid geometry)
+            if (models[modelSlot].m_modelInfo.vertices.empty() || models[modelSlot].m_modelInfo.indices.empty())
+            {
+                // Release the slot so it can be reused
+                models[modelSlot].m_modelInfo.name.clear();
+                continue;
+            }
 
-        // Extract position from the world transformation matrix for positioning
-        XMFLOAT4X4 f4x4;
-        XMStoreFloat4x4(&f4x4, worldTransform);
-        scene_models[instanceIndex].m_modelInfo.position = XMFLOAT3(f4x4._41, f4x4._42, f4x4._43);
-        
-        // Reset scale to identity since it's been baked into geometry
-        XMStoreFloat3(&scene_models[instanceIndex].m_modelInfo.scale, XMVectorSet(1.0f, 1.0f, 1.0f, 0));
-        
-        // Assign unique instance ID and descriptive name
-        scene_models[instanceIndex].m_modelInfo.ID = instanceIndex;
-        scene_models[instanceIndex].m_modelInfo.name = modelName;
+            // --- Populate scene_models[instanceIndex] ---
+            scene_models[instanceIndex].CopyFrom(models[modelSlot]);
+            scene_models[instanceIndex].m_modelInfo.worldMatrix = worldTransform;
 
-        // Setup model for rendering and apply default lighting
-        scene_models[instanceIndex].SetupModelForRendering(scene_models[instanceIndex].m_modelInfo.ID);
-        scene_models[instanceIndex].ApplyDefaultLightingFromManager(lightsManager);
-        
-        scene_models[instanceIndex].m_isLoaded = true;
+            // Primitives 1..N of the same GLTF node are siblings of prim 0.
+            // They parent to prim 0 with identity local TRS so that when the
+            // animator recomposes world matrices, all siblings inherit the same
+            // world transform as prim 0 without double-applying the node TRS.
+            // gltfNodeIndex = -1 prevents the animator from writing a separate
+            // animated TRS directly to these entries.
+            if (primIdx == 0)
+            {
+                scene_models[instanceIndex].m_modelInfo.iParentModelID       = parentModelID;
+                scene_models[instanceIndex].m_modelInfo.gltfNodeIndex        = nodeIndex;
+                scene_models[instanceIndex].m_modelInfo.baseLocalTranslation = baseLocalTranslation;
+                scene_models[instanceIndex].m_modelInfo.baseLocalRotationQuat = baseLocalRotationQuat;
+                scene_models[instanceIndex].m_modelInfo.baseLocalScale       = baseLocalScale;
+                scene_models[instanceIndex].m_modelInfo.animLocalTranslation = baseLocalTranslation;
+                scene_models[instanceIndex].m_modelInfo.animLocalRotationQuat = baseLocalRotationQuat;
+                scene_models[instanceIndex].m_modelInfo.animLocalScale       = baseLocalScale;
+            }
+            else
+            {
+                static const XMFLOAT3 identT = { 0.0f, 0.0f, 0.0f };
+                static const XMFLOAT4 identR = { 0.0f, 0.0f, 0.0f, 1.0f };
+                static const XMFLOAT3 identS = { 1.0f, 1.0f, 1.0f };
+                scene_models[instanceIndex].m_modelInfo.iParentModelID       = firstPrimInstanceIndex;
+                scene_models[instanceIndex].m_modelInfo.gltfNodeIndex        = -1;
+                scene_models[instanceIndex].m_modelInfo.baseLocalTranslation = identT;
+                scene_models[instanceIndex].m_modelInfo.baseLocalRotationQuat = identR;
+                scene_models[instanceIndex].m_modelInfo.baseLocalScale       = identS;
+                scene_models[instanceIndex].m_modelInfo.animLocalTranslation = identT;
+                scene_models[instanceIndex].m_modelInfo.animLocalRotationQuat = identR;
+                scene_models[instanceIndex].m_modelInfo.animLocalScale       = identS;
+            }
+            scene_models[instanceIndex].m_modelInfo.bHasBaseLocalTRS = true;
 
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_INFO,
-                L"[SceneManager] scene_models[%d] lighting: %d local lights applied.",
-                instanceIndex, static_cast<int>(scene_models[instanceIndex].m_modelInfo.localLights.size()));
-        #endif
+            scene_models[instanceIndex].m_modelInfo.position = XMFLOAT3(f4x4._41, f4x4._42, f4x4._43);
+            XMStoreFloat3(&scene_models[instanceIndex].m_modelInfo.scale, XMVectorSet(1.0f, 1.0f, 1.0f, 0));
 
-        // Apply exporter-specific patches for compatibility if needed
-        const std::wstring& exp = GetLastDetectedExporter();
-        if (exp == L"Sketchfab")
-        {
-            // Apply Sketchfab-specific transformations or corrections if needed
+            scene_models[instanceIndex].m_modelInfo.ID   = instanceIndex;
+            scene_models[instanceIndex].m_modelInfo.name = primName;
+
+            scene_models[instanceIndex].SetupModelForRendering(instanceIndex);
+            scene_models[instanceIndex].ApplyDefaultLightingFromManager(lightsManager);
+            scene_models[instanceIndex].m_isLoaded = true;
+
             #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_INFO, L"[SceneManager] Sketchfab GLB scene loaded. Patch applied.");
+                const std::wstring& exp = GetLastDetectedExporter();
+                if (exp == L"Sketchfab")
+                    debug.logLevelMessage(LogLevel::LOG_INFO, L"[SceneManager] Sketchfab GLB scene loaded. Patch applied.");
+
+                debug.logDebugMessage(LogLevel::LOG_INFO,
+                    L"[SceneManager] scene_models[%d] prim[%d/%d] \"%ls\" | ParentID:%d | Pos(%.2f,%.2f,%.2f)",
+                    instanceIndex, primIdx, numPrimitives - 1, primName.c_str(),
+                    scene_models[instanceIndex].m_modelInfo.iParentModelID, f4x4._41, f4x4._42, f4x4._43);
             #endif
-        }
-        else if (exp == L"Blender")
-        {
-            // Apply Blender-specific transformations or corrections if needed
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_INFO, L"[SceneManager] Blender GLB scene loaded. No patch applied.");
-            #endif
+
+            ++instanceIndex;
         }
 
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_INFO,
-                L"[SceneManager] scene_models[%d] created: \"%ls\" | ParentID: %d | Pos(%.2f, %.2f, %.2f) | Scale baked",
-                instanceIndex,
-                scene_models[instanceIndex].m_modelInfo.name.c_str(),
-                scene_models[instanceIndex].m_modelInfo.iParentModelID,
-                f4x4._41, f4x4._42, f4x4._43);
-        #endif
-
-        // Update current parent ID for child nodes (if this node becomes a parent)
-        currentParentID = instanceIndex;
-        
-        // Increment instance counter for next model
-        ++instanceIndex;
+        // Children of this node parent to the first primitive's slot
+        currentParentID = firstPrimInstanceIndex;
     }
 
     // =====================================================================
@@ -1150,7 +1132,9 @@ void SceneManager::ParseGLTFNodeRecursive(const json& node, int nodeIndex, const
     // Check if the node has non-identity scale that needs to be baked into geometry
     bool hasNonIdentityScale = (fabs(scale.x - 1.0f) > 0.0001f || fabs(scale.y - 1.0f) > 0.0001f || fabs(scale.z - 1.0f) > 0.0001f);
 
-    // Process mesh if present in this node
+    // Process mesh if present in this node.
+    // Each GLTF mesh primitive is created as its own scene_models entry so that
+    // every sub-mesh gets its own material, textures and draw call.
     if (hasMesh)
     {
         // Extract mesh index from the node definition
@@ -1164,184 +1148,157 @@ void SceneManager::ParseGLTFNodeRecursive(const json& node, int nodeIndex, const
         // Validate mesh index is within valid range
         if (meshIndex < 0 || meshIndex >= (int)meshes.size()) return;
 
-        // Extract proper model name from GLTF node FIRST, only use default if none exists**
+        // Determine base name for this node
         std::wstring modelName;
         if (node.contains("name") && node["name"].is_string())
-        {
-            // Use the actual node name from GLTF file
-            std::string nodeName = node["name"];
-            modelName = sysUtils.ToWString(nodeName);
-            scene_models[instanceIndex].m_modelInfo.name = modelName;
-
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Using node name from GLTF: \"%ls\"", scene_models[instanceIndex].m_modelInfo.name.c_str());
-            #endif
-        }
+            modelName = sysUtils.ToWString(node["name"].get<std::string>());
         else
-        {
-            // No name provided in GLTF node - generate default name and log this situation
             modelName = L"Node_" + std::to_wstring(instanceIndex) + L"_Mesh_" + std::to_wstring(meshIndex);
-            scene_models[instanceIndex].m_modelInfo.name = modelName;
 
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] No name found in GLTF node - using default name: \"%ls\"", scene_models[instanceIndex].m_modelInfo.name.c_str());
-            #endif
-        }
+        // Determine number of primitives so we can loop over them
+        const auto& primsMesh = meshes[meshIndex];
+        int numPrimitives = 1;
+        if (primsMesh.contains("primitives") && primsMesh["primitives"].is_array())
+            numPrimitives = static_cast<int>(primsMesh["primitives"].size());
 
-        int modelSlot = -1;
+        // Pre-compute world transform once for all primitives of this node.
+        // Scale is baked per-primitive into geometry; adjust the matrix accordingly.
+        XMMATRIX effectiveNodeTransform = nodeTransform;
+        if (hasNonIdentityScale)
+            effectiveNodeTransform *= XMMatrixScaling(1.0f / scale.x, 1.0f / scale.y, 1.0f / scale.z);
+        XMMATRIX worldTransform = parentTransform * effectiveNodeTransform;
 
-        // Search for existing model with the same name in global models array
-        for (int m = 0; m < MAX_MODELS; ++m)
+        XMFLOAT4X4 f4x4;
+        XMStoreFloat4x4(&f4x4, worldTransform);
+
+        // Track the first primitive's instanceIndex so child nodes can parent to it.
+        int firstPrimInstanceIndex = instanceIndex;
+
+        for (int primIdx = 0; primIdx < numPrimitives && instanceIndex < MAX_SCENE_MODELS; ++primIdx)
         {
-            if (models[m].m_modelInfo.name == modelName)
-            {
-                modelSlot = m;                                                      // Found existing model, reuse it
-                break;
-            }
-        }
+            // Primitive 0 keeps the base node name for backward-compatible animation lookups.
+            // Subsequent primitives get a "_pN" suffix so they have unique cache keys.
+            std::wstring primName = (primIdx == 0)
+                ? modelName
+                : (modelName + L"_p" + std::to_wstring(primIdx));
 
-        // If model not found, create new model in first available slot
-        if (modelSlot == -1)
-        {
+            // --- Find or create per-primitive entry in the global model cache ---
+            int modelSlot = -1;
             for (int m = 0; m < MAX_MODELS; ++m)
             {
-                if (models[m].m_modelInfo.name.empty())
+                if (models[m].m_modelInfo.name == primName)
                 {
-                    modelSlot = m;                                                  // Found empty slot for new model
-                    models[m].m_modelInfo.name = modelName;                         // Assign the model name
-                    models[m].m_modelInfo.ID = m;                                   // Set the model ID
-                    models[m].m_modelInfo.vertices.clear();
-                    models[m].m_modelInfo.indices.clear();
-                    models[m].m_modelInfo.textures.clear();                         // Clear texture vectors too
-                    models[m].m_modelInfo.textureSRVs.clear();
-                    models[m].m_modelInfo.normalMapSRVs.clear();
-
-                    // Load mesh geometry data using existing GLTF primitive loader
-                    LoadGLTFMeshPrimitives(meshIndex, doc, models[m]);
+                    modelSlot = m;
                     break;
                 }
             }
-        }
 
-        // If no available model slot found, skip this mesh
-        if (modelSlot == -1) return;
-
-        // Bake scale into vertex geometry if the node has non-identity scale
-        if (hasNonIdentityScale)
-        {
-            for (auto& v : models[modelSlot].m_modelInfo.vertices)
+            if (modelSlot == -1)
             {
-                // Apply scale transformation to vertex positions
-                v.position.x *= scale.x;
-                v.position.y *= scale.y;
-                v.position.z *= scale.z;
-            }
-
-            // Remove scale from transformation matrix since it's now baked into geometry
-            nodeTransform *= XMMatrixScaling(1.0f / scale.x, 1.0f / scale.y, 1.0f / scale.z);
-        }
-
-        // Compute the final world transformation matrix by combining parent and node transforms
-        XMMATRIX worldTransform = parentTransform * nodeTransform;
-
-        // Copy model data from global models array to scene-specific model instance
-        scene_models[instanceIndex].CopyFrom(models[modelSlot]);
-        scene_models[instanceIndex].m_modelInfo.worldMatrix = worldTransform;
-
-        // === CRITICAL FIX: Pre-allocate texture vectors AFTER copy to prevent reallocation ===
-        // Vector assignment copies SIZE not CAPACITY, so we must re-reserve on the scene_model
-        // Calculate based on number of primitives in the source mesh
-        if (doc.contains("meshes") && doc["meshes"].is_array())
-        {
-            const auto& meshes = doc["meshes"];
-            if (meshIndex >= 0 && meshIndex < (int)meshes.size())
-            {
-                const auto& mesh = meshes[meshIndex];
-                if (mesh.contains("primitives") && mesh["primitives"].is_array())
+                for (int m = 0; m < MAX_MODELS; ++m)
                 {
-                    size_t numPrimitives = mesh["primitives"].size();
-                    size_t maxTexturesNeeded = numPrimitives * 3;  // 3 textures per primitive max
+                    if (models[m].m_modelInfo.name.empty())
+                    {
+                        modelSlot = m;
+                        models[m].m_modelInfo.name = primName;
+                        models[m].m_modelInfo.ID = m;
+                        models[m].m_modelInfo.vertices.clear();
+                        models[m].m_modelInfo.indices.clear();
+                        models[m].m_modelInfo.textures.clear();
+                        models[m].m_modelInfo.textureSRVs.clear();
+                        models[m].m_modelInfo.normalMapSRVs.clear();
 
-                    // Reserve capacity on the SCENE model's vectors (not the global model)
-                    scene_models[instanceIndex].m_modelInfo.textures.reserve(maxTexturesNeeded);
-                    scene_models[instanceIndex].m_modelInfo.textureSRVs.reserve(maxTexturesNeeded);
-                    scene_models[instanceIndex].m_modelInfo.normalMapSRVs.reserve(maxTexturesNeeded);
+                        // Load only this primitive's geometry and material
+                        LoadGLTFMeshPrimitives(meshIndex, doc, models[m], primIdx);
 
-                    #if defined(_DEBUG_SCENEMANAGER_)
-                        debug.logDebugMessage(LogLevel::LOG_INFO,
-                            L"[SceneManager] Pre-allocated %d texture slots for scene_models[%d] (%d primitives)",
-                            static_cast<int>(maxTexturesNeeded), instanceIndex, static_cast<int>(numPrimitives));
-                    #endif
+                        // Bake scale into vertex geometry for this primitive
+                        if (hasNonIdentityScale)
+                        {
+                            for (auto& v : models[m].m_modelInfo.vertices)
+                            {
+                                v.position.x *= scale.x;
+                                v.position.y *= scale.y;
+                                v.position.z *= scale.z;
+                            }
+                        }
+                        break;
+                    }
                 }
             }
-        }
 
-        // Set parent-child relationship: -1 for parent models, parent's instanceIndex for children
-        scene_models[instanceIndex].m_modelInfo.iParentModelID = parentModelID;
-        scene_models[instanceIndex].m_modelInfo.gltfNodeIndex = nodeIndex;                          // Store GLTF node index for animation mapping.
+            if (modelSlot == -1)
+            {
+                #if defined(_DEBUG_SCENEMANAGER_)
+                    debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] No free model cache slot for primitive %d of '%ls' - skipping", primIdx, modelName.c_str());
+                #endif
+                continue;
+            }
 
-        // Store base local TRS for GLTF animation playback (LOCAL space).
-        scene_models[instanceIndex].m_modelInfo.baseLocalTranslation = baseLocalTranslation;
-        scene_models[instanceIndex].m_modelInfo.baseLocalRotationQuat = baseLocalRotationQuat;
-        scene_models[instanceIndex].m_modelInfo.baseLocalScale = baseLocalScale;
-        scene_models[instanceIndex].m_modelInfo.animLocalTranslation = baseLocalTranslation;
-        scene_models[instanceIndex].m_modelInfo.animLocalRotationQuat = baseLocalRotationQuat;
-        scene_models[instanceIndex].m_modelInfo.animLocalScale = baseLocalScale;
-        scene_models[instanceIndex].m_modelInfo.bHasBaseLocalTRS = true;
+            // Skip empty primitives (can happen when a primitive has no valid geometry)
+            if (models[modelSlot].m_modelInfo.vertices.empty() || models[modelSlot].m_modelInfo.indices.empty())
+            {
+                // Release the slot so it can be reused
+                models[modelSlot].m_modelInfo.name.clear();
+                continue;
+            }
 
-        // Extract position from the world transformation matrix for positioning
-        XMFLOAT4X4 f4x4;
-        XMStoreFloat4x4(&f4x4, worldTransform);
-        scene_models[instanceIndex].m_modelInfo.position = XMFLOAT3(f4x4._41, f4x4._42, f4x4._43);
+            // --- Populate scene_models[instanceIndex] ---
+            scene_models[instanceIndex].CopyFrom(models[modelSlot]);
+            scene_models[instanceIndex].m_modelInfo.worldMatrix = worldTransform;
 
-        // Reset scale to identity since it's been baked into geometry
-        XMStoreFloat3(&scene_models[instanceIndex].m_modelInfo.scale, XMVectorSet(1.0f, 1.0f, 1.0f, 0));
+            // Primitives 1..N of the same GLTF node parent to prim 0 with identity
+            // local TRS so the animator propagates the same world matrix to all
+            // siblings without double-applying the node transform. gltfNodeIndex = -1
+            // prevents direct animated TRS writes to these sibling entries.
+            if (primIdx == 0)
+            {
+                scene_models[instanceIndex].m_modelInfo.iParentModelID       = parentModelID;
+                scene_models[instanceIndex].m_modelInfo.gltfNodeIndex        = nodeIndex;
+                scene_models[instanceIndex].m_modelInfo.baseLocalTranslation = baseLocalTranslation;
+                scene_models[instanceIndex].m_modelInfo.baseLocalRotationQuat = baseLocalRotationQuat;
+                scene_models[instanceIndex].m_modelInfo.baseLocalScale       = baseLocalScale;
+                scene_models[instanceIndex].m_modelInfo.animLocalTranslation = baseLocalTranslation;
+                scene_models[instanceIndex].m_modelInfo.animLocalRotationQuat = baseLocalRotationQuat;
+                scene_models[instanceIndex].m_modelInfo.animLocalScale       = baseLocalScale;
+            }
+            else
+            {
+                static const XMFLOAT3 identT = { 0.0f, 0.0f, 0.0f };
+                static const XMFLOAT4 identR = { 0.0f, 0.0f, 0.0f, 1.0f };
+                static const XMFLOAT3 identS = { 1.0f, 1.0f, 1.0f };
+                scene_models[instanceIndex].m_modelInfo.iParentModelID       = firstPrimInstanceIndex;
+                scene_models[instanceIndex].m_modelInfo.gltfNodeIndex        = -1;
+                scene_models[instanceIndex].m_modelInfo.baseLocalTranslation = identT;
+                scene_models[instanceIndex].m_modelInfo.baseLocalRotationQuat = identR;
+                scene_models[instanceIndex].m_modelInfo.baseLocalScale       = identS;
+                scene_models[instanceIndex].m_modelInfo.animLocalTranslation = identT;
+                scene_models[instanceIndex].m_modelInfo.animLocalRotationQuat = identR;
+                scene_models[instanceIndex].m_modelInfo.animLocalScale       = identS;
+            }
+            scene_models[instanceIndex].m_modelInfo.bHasBaseLocalTRS = true;
 
-        // Assign unique instance ID and descriptive name
-        scene_models[instanceIndex].m_modelInfo.ID = instanceIndex;
-        scene_models[instanceIndex].m_modelInfo.name = modelName;
+            scene_models[instanceIndex].m_modelInfo.position = XMFLOAT3(f4x4._41, f4x4._42, f4x4._43);
+            XMStoreFloat3(&scene_models[instanceIndex].m_modelInfo.scale, XMVectorSet(1.0f, 1.0f, 1.0f, 0));
 
-        // Setup model for rendering and apply default lighting
-        scene_models[instanceIndex].SetupModelForRendering(scene_models[instanceIndex].m_modelInfo.ID);
-        scene_models[instanceIndex].ApplyDefaultLightingFromManager(lightsManager);
+            scene_models[instanceIndex].m_modelInfo.ID   = instanceIndex;
+            scene_models[instanceIndex].m_modelInfo.name = primName;
 
-        scene_models[instanceIndex].m_isLoaded = true;
+            scene_models[instanceIndex].SetupModelForRendering(instanceIndex);
+            scene_models[instanceIndex].ApplyDefaultLightingFromManager(lightsManager);
+            scene_models[instanceIndex].m_isLoaded = true;
 
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_INFO,
-                L"[SceneManager] scene_models[%d] lighting: %d local lights applied.",
-                instanceIndex, static_cast<int>(scene_models[instanceIndex].m_modelInfo.localLights.size()));
-        #endif
-
-        // Apply exporter-specific patches for compatibility if needed
-        const std::wstring& exp = GetLastDetectedExporter();
-        if (exp == L"Sketchfab")
-        {
             #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_INFO, L"[SceneManager] Sketchfab GLTF scene loaded. Patch applied.");
+                debug.logDebugMessage(LogLevel::LOG_INFO,
+                    L"[SceneManager] scene_models[%d] prim[%d/%d] \"%ls\" | ParentID:%d | Pos(%.2f,%.2f,%.2f)",
+                    instanceIndex, primIdx, numPrimitives - 1, primName.c_str(),
+                    scene_models[instanceIndex].m_modelInfo.iParentModelID, f4x4._41, f4x4._42, f4x4._43);
             #endif
-        }
-        else if (exp == L"Blender")
-        {
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_INFO, L"[SceneManager] Blender GLTF scene loaded. No patch applied.");
-            #endif
+
+            ++instanceIndex;
         }
 
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_INFO,
-                L"[SceneManager] scene_models[%d] created: \"%ls\" | ParentID: %d | Pos(%.2f, %.2f, %.2f) | Scale baked",
-                instanceIndex,
-                scene_models[instanceIndex].m_modelInfo.name.c_str(),
-                scene_models[instanceIndex].m_modelInfo.iParentModelID,
-                f4x4._41, f4x4._42, f4x4._43);
-        #endif
-
-        // Update current parent ID for child nodes (if this node becomes a parent)
-        currentParentID = instanceIndex;
-
-        // Increment instance counter for next model
-        ++instanceIndex;
+        // Children of this node parent to the first primitive's slot
+        currentParentID = firstPrimInstanceIndex;
     }
 
     // =====================================================================
@@ -1422,7 +1379,7 @@ void SceneManager::ParseGLTFNodeRecursive(const json& node, int nodeIndex, const
 
 // Enhanced LoadGLTFMeshPrimitives with comprehensive debug output
 // Replace the existing LoadGLTFMeshPrimitives function with this version
-void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model& model)
+void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model& model, int primitiveFilter)
 {
     #if defined(_DEBUG_SCENEMANAGER_)
         debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] LoadGLTFMeshPrimitives() - meshIndex: %d", meshIndex);
@@ -1521,8 +1478,14 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
             static_cast<int>(numPrimitives));
     #endif
 
+    int primLoopIdx = -1;
     for (const auto& prim : mesh["primitives"])
     {
+        ++primLoopIdx;
+        // When a specific primitive is requested, skip all others.
+        if (primitiveFilter >= 0 && primLoopIdx != primitiveFilter)
+            continue;
+
         // Ensure primitive has attributes. (Required for POSITION and others.)
         if (!prim.contains("attributes"))
         {
@@ -2299,14 +2262,76 @@ bool SceneManager::ParseMaterialsFromGLTF(const json& doc)
 }
 
 // --------------------------------------------------------------------------------------------------
+// Loads a GLTF image entry as a Texture: tries URI (external file) first, then falls back to the
+// embedded GLB binary buffer via bufferView.  Returns nullptr if both paths fail.
+// --------------------------------------------------------------------------------------------------
+std::shared_ptr<Texture> SceneManager::LoadGLTFImage(const json& imageEntry, const json& doc)
+{
+    std::string uri = imageEntry.value("uri", "");
+    if (!uri.empty())
+    {
+        std::wstring wuri = sysUtils.StripQuotes(sysUtils.ToWString(uri));
+        std::filesystem::path fullTexPath = AssetsDir / wuri;
+        auto tex = std::make_shared<Texture>();
+        if (tex->LoadFromFile(fullTexPath))
+            return tex;
+        return nullptr;
+    }
+
+    // Embedded GLB buffer: resolve bufferView → byte range → decode in-memory
+    if (!imageEntry.contains("bufferView") || gltfBinaryData.empty())
+        return nullptr;
+    if (!doc.contains("bufferViews"))
+        return nullptr;
+
+    int bvIdx = imageEntry.value("bufferView", -1);
+    const auto& bufferViews = doc["bufferViews"];
+    if (bvIdx < 0 || bvIdx >= (int)bufferViews.size())
+        return nullptr;
+
+    const auto& bv   = bufferViews[bvIdx];
+    size_t byteOffset = static_cast<size_t>(bv.value("byteOffset", 0));
+    size_t byteLength = static_cast<size_t>(bv.value("byteLength", 0));
+
+    if (byteLength == 0 || byteOffset + byteLength > gltfBinaryData.size())
+    {
+        #if defined(_DEBUG_SCENEMANAGER_)
+            debug.logDebugMessage(LogLevel::LOG_ERROR,
+                L"[SceneManager] LoadGLTFImage: bufferView %d out of range (offset=%zu len=%zu bufSize=%zu)",
+                bvIdx, byteOffset, byteLength, gltfBinaryData.size());
+        #endif
+        return nullptr;
+    }
+
+    auto tex = std::make_shared<Texture>();
+    if (tex->LoadFromMemory(gltfBinaryData.data() + byteOffset, byteLength))
+    {
+        #if defined(_DEBUG_SCENEMANAGER_)
+            debug.logDebugMessage(LogLevel::LOG_INFO,
+                L"[SceneManager] LoadGLTFImage: loaded embedded image from bufferView %d (%zu bytes)", bvIdx, byteLength);
+        #endif
+        return tex;
+    }
+
+    debug.logDebugMessage(LogLevel::LOG_WARNING,
+        L"[SceneManager] LoadGLTFImage: failed to decode embedded image from bufferView %d", bvIdx);
+    return nullptr;
+}
+
+// --------------------------------------------------------------------------------------------------
 void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo& info, Model& model, const json& doc)
 {
-    if (!doc.contains("materials") || !doc.contains("textures") || !doc.contains("images"))
+    // "materials" is required; "textures" and "images" are optional — materials may use
+    // only baseColorFactor with no image textures, in which case the solid-colour fallback
+    // at the end of this function still needs to run.
+    if (!doc.contains("materials"))
         return;
 
-    const auto& materials = doc["materials"];
-    const auto& textures = doc["textures"];
-    const auto& images = doc["images"];
+    const auto& materials  = doc["materials"];
+    const bool hasTextures = doc.contains("textures") && doc["textures"].is_array();
+    const bool hasImages   = doc.contains("images")   && doc["images"].is_array();
+    const auto& textures   = hasTextures ? doc["textures"] : json::array();
+    const auto& images     = hasImages   ? doc["images"]   : json::array();
 
     if (materialIndex < 0 || materialIndex >= (int)materials.size())
         return;
@@ -2346,61 +2371,46 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
                 int imgIndex = textures[texIndex].value("source", -1);
                 if (imgIndex >= 0 && imgIndex < (int)images.size())
                 {
-                    std::string uri = images[imgIndex].value("uri", "");
-                    std::wstring wuri = sysUtils.StripQuotes(sysUtils.ToWString(uri));
-                    std::filesystem::path fullTexPath = AssetsDir / wuri;
+                    const auto& imgEntry = images[imgIndex];
+                    std::string uri = imgEntry.value("uri", "");
 
-                    #if defined(_DEBUG_TEXTURE_) && defined(_DEBUG)
-                        debug.logDebugMessage(LogLevel::LOG_INFO,
-                            L"[SceneManager][Texture] Model[%d] material[%d] -> Resolving texture uri='%ls' fullpath='%ls'",
-                            info.ID, materialIndex, wuri.c_str(), fullTexPath.c_str());
-                    #endif
-
-                    // -----------------------------------------------------------------
-                    // Heuristic safety: some Blender exports mis-assign a normal map as
-                    // baseColorTexture. Detect by name and re-route to the normal slot.
-                    // -----------------------------------------------------------------
+                    // Heuristic: some Blender exports mis-assign a normal map as baseColorTexture;
+                    // only applicable when a URI name is available (embedded images are never mis-named).
                     std::string uriLower = uri;
                     std::transform(uriLower.begin(), uriLower.end(), uriLower.begin(),
                         [](unsigned char c) { return static_cast<char>(::tolower(c)); });
-
-                    bool looksLikeNormal = (uriLower.find("normal") != std::string::npos);
+                    bool looksLikeNormal  = uriLower.find("normal") != std::string::npos;
                     bool hasExplicitNormal = mat.contains("normalTexture");
 
-                    auto tex = std::make_shared<Texture>();
-                    if (tex->LoadFromFile(fullTexPath))
+                    auto tex = LoadGLTFImage(imgEntry, doc);
+                    if (tex)
                     {
-                        #if defined(_DEBUG_TEXTURE_) && defined(_DEBUG)
-                            debug.logDebugMessage(LogLevel::LOG_INFO,
-                                L"[SceneManager][Texture] -> Loaded OK: %ls", fullTexPath.c_str());
-                        #endif
-
                         info.textures.push_back(tex);
 
                         if (looksLikeNormal && !hasExplicitNormal)
                         {
                             info.normalMapSRVs.push_back(tex->GetSRV());
-                            newMat.normalMap = tex;
+                            newMat.normalMap     = tex;
                             newMat.normalMapPath = uri;
-                            hasDiffuseTexture = false;
+                            hasDiffuseTexture    = false;
 
                             #if defined(_DEBUG_SCENEMANAGER_)
                                 debug.logDebugMessage(LogLevel::LOG_WARNING,
-                                    L"[SceneManager][Texture] Model[%d] material[%d] baseColorTexture looks like a NORMAL map. Bound as NormalMap: %ls",
-                                    info.ID, materialIndex, fullTexPath.c_str());
+                                    L"[SceneManager] Model[%d] material[%d] baseColorTexture re-routed as NormalMap (name heuristic)",
+                                    info.ID, materialIndex);
                             #endif
                         }
                         else
                         {
                             info.textureSRVs.push_back(tex->GetSRV());
                             newMat.diffuseTexture = tex;
-                            newMat.diffuseMapPath = uri;
-                            hasDiffuseTexture = true;
+                            newMat.diffuseMapPath = uri.empty() ? "(embedded)" : uri;
+                            hasDiffuseTexture     = true;
 
                             #if defined(_DEBUG_SCENEMANAGER_)
                                 debug.logDebugMessage(LogLevel::LOG_INFO,
-                                    L"[SceneManager] Model[%d] material[%d] -> Albedo: %ls",
-                                    info.ID, materialIndex, fullTexPath.c_str());
+                                    L"[SceneManager] Model[%d] material[%d] -> Albedo (%hs)",
+                                    info.ID, materialIndex, uri.empty() ? "embedded" : uri.c_str());
                             #endif
                         }
                     }
@@ -2417,28 +2427,25 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
                 int imgIndex = textures[texIndex].value("source", -1);
                 if (imgIndex >= 0 && imgIndex < (int)images.size())
                 {
-                    std::string uri = images[imgIndex].value("uri", "");
-                    std::wstring wuri = sysUtils.StripQuotes(sysUtils.ToWString(uri));
-                    std::filesystem::path fullTexPath = AssetsDir / wuri;
-
-                    auto tex = std::make_shared<Texture>();
-                    if (tex->LoadFromFile(fullTexPath))
+                    auto tex = LoadGLTFImage(images[imgIndex], doc);
+                    if (tex)
                     {
                         info.textures.push_back(tex);
                         // Both slots share the same texture; shader samples G for roughness, B for metallic
-                        info.metallicMap  = tex;
-                        info.roughnessMap = tex;
+                        info.metallicMap     = tex;
+                        info.roughnessMap    = tex;
                         info.metallicMapSRV  = tex->GetSRV();
                         info.roughnessMapSRV = tex->GetSRV();
                         info.useMetallicMap  = true;
                         info.useRoughnessMap = true;
-                        newMat.metallicMap  = tex;
-                        newMat.roughnessMap = tex;
+                        newMat.metallicMap   = tex;
+                        newMat.roughnessMap  = tex;
 
                         #if defined(_DEBUG_SCENEMANAGER_)
+                            std::string uri2 = images[imgIndex].value("uri", "");
                             debug.logDebugMessage(LogLevel::LOG_INFO,
-                                L"[SceneManager] Model[%d] material[%d] -> MetallicRoughness map (ORM): %ls",
-                                info.ID, materialIndex, fullTexPath.c_str());
+                                L"[SceneManager] Model[%d] material[%d] -> MetallicRoughness (%hs)",
+                                info.ID, materialIndex, uri2.empty() ? "embedded" : uri2.c_str());
                         #endif
                     }
                 }
@@ -2446,21 +2453,39 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
         }
     }
 
-    // === Fallback: Assign Default White Texture if Diffuse Not Found ===
+    // === Fallback: Create a solid-colour 1x1 texture from the material's baseColorFactor.
+    // ApplyPBRMaterial() already loaded baseColorFactor into newMat.Kd / newMat.dissolve,
+    // so materials with no texture (plain Blender colours) render with the correct colour.
     if (!hasDiffuseTexture)
     {
+        float alpha = newMat.dissolve;
+        XMFLOAT3 Kd = newMat.Kd;
+
+        // Frosted-glass treatment: BLEND materials that are nearly invisible get a
+        // minimum opacity and a slight white tint so they read as tinted glass rather
+        // than vanishing entirely.  Threshold 0.65 keeps intentionally opaque surfaces
+        // (dissolve >= 0.65) unchanged.
+        if (newMat.alphaMode == "BLEND" && alpha < 0.65f)
+        {
+            alpha = std::max(alpha, 0.50f);         // never more than 50% transparent
+            const float frost = 0.35f;              // mix 35% white into the colour
+            Kd.x = Kd.x * (1.0f - frost) + frost;
+            Kd.y = Kd.y * (1.0f - frost) + frost;
+            Kd.z = Kd.z * (1.0f - frost) + frost;
+        }
+
         auto fallbackTex = std::make_shared<Texture>();
-        fallbackTex->CreateSolidColorTexture(1, 1, XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f)); // 1x1 pure white texture
+        fallbackTex->CreateSolidColorTexture(1, 1, XMFLOAT4(Kd.x, Kd.y, Kd.z, alpha));
 
         info.textures.push_back(fallbackTex);
         info.textureSRVs.push_back(fallbackTex->GetSRV());
         newMat.diffuseTexture = fallbackTex;
-        newMat.diffuseMapPath = "DEFAULT_WHITE";
+        newMat.diffuseMapPath = "SOLID_COLOR";
 
         #if defined(_DEBUG_SCENEMANAGER_)
             debug.logDebugMessage(LogLevel::LOG_WARNING,
-                L"[SceneManager] Model[%d] material[%d] -> Assigned Default White Diffuse Texture.",
-                info.ID, materialIndex);
+                L"[SceneManager] Model[%d] material[%d] -> Solid colour fallback (%.2f, %.2f, %.2f, a=%.2f) alphaMode=%hs.",
+                info.ID, materialIndex, Kd.x, Kd.y, Kd.z, alpha, newMat.alphaMode.c_str());
         #endif
     }
 
@@ -2473,34 +2498,19 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
             int imgIndex = textures[texIndex].value("source", -1);
             if (imgIndex >= 0 && imgIndex < (int)images.size())
             {
-                std::string uri = images[imgIndex].value("uri", "");
-                std::wstring wuri = sysUtils.StripQuotes(sysUtils.ToWString(uri));
-                std::filesystem::path fullTexPath = AssetsDir / wuri;
-
-                    #if defined(_DEBUG_TEXTURE_) && defined(_DEBUG)
-                        debug.logDebugMessage(LogLevel::LOG_INFO,
-                            L"[SceneManager][Texture] Model[%d] material[%d] -> Resolving texture uri='%ls' fullpath='%ls'",
-                            info.ID, materialIndex, wuri.c_str(), fullTexPath.c_str());
-                    #endif
-
-                auto tex = std::make_shared<Texture>();
-if (tex->LoadFromFile(fullTexPath))
-{
-    #if defined(_DEBUG_TEXTURE_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_INFO,
-            L"[SceneManager][Texture] -> Loaded OK: %ls",
-            fullTexPath.c_str());
-    #endif
-
+                auto tex = LoadGLTFImage(images[imgIndex], doc);
+                if (tex)
+                {
+                    std::string uri = images[imgIndex].value("uri", "");
                     info.textures.push_back(tex);
                     info.normalMapSRVs.push_back(tex->GetSRV());
-                    newMat.normalMap = tex;
-                    newMat.normalMapPath = uri;
+                    newMat.normalMap     = tex;
+                    newMat.normalMapPath = uri.empty() ? "(embedded)" : uri;
 
                     #if defined(_DEBUG_SCENEMANAGER_)
                         debug.logDebugMessage(LogLevel::LOG_INFO,
-                            L"[SceneManager] Model[%d] material[%d] -> Normal Map: %ls",
-                            info.ID, materialIndex, fullTexPath.c_str());
+                            L"[SceneManager] Model[%d] material[%d] -> Normal Map (%hs)",
+                            info.ID, materialIndex, uri.empty() ? "embedded" : uri.c_str());
                     #endif
                 }
             }
@@ -2516,13 +2526,10 @@ if (tex->LoadFromFile(fullTexPath))
             int imgIndex = textures[texIndex].value("source", -1);
             if (imgIndex >= 0 && imgIndex < (int)images.size())
             {
-                std::string uri = images[imgIndex].value("uri", "");
-                std::wstring wuri = sysUtils.StripQuotes(sysUtils.ToWString(uri));
-                std::filesystem::path fullTexPath = AssetsDir / wuri;
-
-                auto tex = std::make_shared<Texture>();
-                if (tex->LoadFromFile(fullTexPath))
+                auto tex = LoadGLTFImage(images[imgIndex], doc);
+                if (tex)
                 {
+                    std::string uri = images[imgIndex].value("uri", "");
                     info.textures.push_back(tex);
                     info.aoMap    = tex;
                     info.aoMapSRV = tex->GetSRV();
@@ -2531,8 +2538,8 @@ if (tex->LoadFromFile(fullTexPath))
 
                     #if defined(_DEBUG_SCENEMANAGER_)
                         debug.logDebugMessage(LogLevel::LOG_INFO,
-                            L"[SceneManager] Model[%d] material[%d] -> AO map: %ls",
-                            info.ID, materialIndex, fullTexPath.c_str());
+                            L"[SceneManager] Model[%d] material[%d] -> AO map (%hs)",
+                            info.ID, materialIndex, uri.empty() ? "embedded" : uri.c_str());
                     #endif
                 }
             }

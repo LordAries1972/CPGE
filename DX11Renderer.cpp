@@ -125,9 +125,18 @@ void DX11Renderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
         myCamera.SetupDefaultCamera(iOrigWidth, iOrigHeight);
     }
 
-    // Create Global Light Buffer
+    // Create Global Light Buffer.
+    // The runtime-compiled ModelPixel shader requires at least 1728 bytes for b3
+    // (same constraint as the per-model b1 buffer).  sizeof(GlobalLightBuffer) is
+    // only 1296 bytes, which triggers DEVICE_DRAW_CONSTANT_BUFFER_TOO_SMALL and
+    // causes the shader to read zeros for all light data → grey ship.
+    static const UINT kGlobalLightCBMinBytes = 1728;
+    const UINT globalLightCBBytes = sizeof(GlobalLightBuffer) > kGlobalLightCBMinBytes
+        ? ((static_cast<UINT>(sizeof(GlobalLightBuffer)) + 15u) & ~15u)
+        : kGlobalLightCBMinBytes;
+
     D3D11_BUFFER_DESC lightCBDesc = {};
-    lightCBDesc.ByteWidth = sizeof(GlobalLightBuffer);                                              // structure defined in ConstantBuffer.h
+    lightCBDesc.ByteWidth = globalLightCBBytes;
     lightCBDesc.Usage = D3D11_USAGE_DYNAMIC;
     lightCBDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     lightCBDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;

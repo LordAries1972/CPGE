@@ -58,7 +58,7 @@ VS_OUTPUT main(VS_INPUT input)
 
     float3 N = normalize(mul(input.normal, normalMatrix));
     float3 T = normalize(mul(input.tangent, normalMatrix));
-    float3 B = normalize(cross(N, T)); // Bitangent
+    float3 B = normalize(cross(T, N)); // Bitangent (corrected for GLTF Z-flip handedness)
 
     output.normal = N;
     output.tangent = T;

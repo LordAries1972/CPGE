@@ -1337,19 +1337,27 @@ void GLTFAnimator::ApplyAnimationToNode(const AnimationChannel& channel, const s
 {
     try
     {
-        // Find all models that belong to this parent model ID
+        // Find all models that belong to this parent model ID (full hierarchy walk).
         for (int i = 0; i < maxModels; ++i)
         {
             // Skip unloaded models
             if (!sceneModels[i].m_isLoaded)
                 continue;
 
-            // Check if this model belongs to the specified parent or is the parent itself
+            // Walk the parent chain from this model to the root.
+            // A model is a target if it IS the root or is a descendant of it.
             bool isTargetModel = false;
-            if (sceneModels[i].m_modelInfo.iParentModelID == parentModelID ||
-                (sceneModels[i].m_modelInfo.iParentModelID == -1 && sceneModels[i].m_modelInfo.ID == parentModelID))
+            int cur = i;
+            while (cur >= 0 && cur < maxModels)
             {
-                isTargetModel = true;
+                if (cur == parentModelID)
+                {
+                    isTargetModel = true;
+                    break;
+                }
+                int pid = sceneModels[cur].m_modelInfo.iParentModelID;
+                if (pid < 0) break;
+                cur = pid;
             }
 
             if (!isTargetModel)
@@ -1372,10 +1380,12 @@ void GLTFAnimator::ApplyAnimationToNode(const AnimationChannel& channel, const s
                 {
                     if (values.size() >= 3)
                     {
-                        // Update the model's LOCAL translation with animated values
-                        sceneModels[i].m_modelInfo.animLocalTranslation.x = values[0];
-                        sceneModels[i].m_modelInfo.animLocalTranslation.y = values[1];
-                        sceneModels[i].m_modelInfo.animLocalTranslation.z = values[2];
+                        // Apply GLTF→DX coordinate conversion (FLIP_Z: negate Z).
+                        // Static node transforms do this via ConvertTranslation() in GetNodeWorldMatrix;
+                        // animation keyframes must receive the same treatment here.
+                        sceneModels[i].m_modelInfo.animLocalTranslation.x =  values[0];
+                        sceneModels[i].m_modelInfo.animLocalTranslation.y =  values[1];
+                        sceneModels[i].m_modelInfo.animLocalTranslation.z = -values[2];
 
                         #if defined(_DEBUG_GLTFANIMATOR_)
                             debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GLTFAnimator] Applied translation to model %d: (%.2f, %.2f, %.2f)",
@@ -1389,8 +1399,11 @@ void GLTFAnimator::ApplyAnimationToNode(const AnimationChannel& channel, const s
                 {
                     if (values.size() >= 4)
                     {
-                        // Animation provides quaternion rotation (x, y, z, w)
-                        XMFLOAT4 animRotation(values[0], values[1], values[2], values[3]);
+                        // Apply GLTF→DX coordinate conversion before normalisation.
+                        // FLIP_Z negates qx and qy — the same transform ConvertQuat() applies to
+                        // static node rotations in GetNodeWorldMatrix(). Without this the animated
+                        // quaternion stays in GLTF right-handed space and the whole ship Z-flips.
+                        XMFLOAT4 animRotation(-values[0], -values[1], values[2], values[3]);
 
                         // Normalize the quaternion to ensure it's valid
                         XMVECTOR quatVec = XMLoadFloat4(&animRotation);

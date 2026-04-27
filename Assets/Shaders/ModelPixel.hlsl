@@ -308,14 +308,21 @@ float4 main(PS_INPUT input) : SV_TARGET
         return float4(metallicValue, metallicValue, metallicValue, 1.0f);
         
     // === Sample the normal map and apply NormalScale (GLTF normalTexture.scale)
+    // GLTF requires OpenGL-convention normal maps (G = +Y = up in tangent space).
+    // Blender may export DirectX-convention maps (G inverted). Flip Y here so both
+    // conventions produce correct lighting regardless of which format is on disk.
     float3 normalTS = normalMap.Sample(samplerState, input.texCoord).xyz;
     normalTS = normalTS * 2.0f - 1.0f;            // [0,1] → [-1,1]
+    normalTS.y = -normalTS.y;                      // DirectX→OpenGL G-channel correction
     normalTS.xy *= NormalScale;                    // Scale XY by normalScale; Z stays for reconstruction
 
     // === Construct TBN Matrix
+    // Use the interpolated bitangent from the vertex shader (already Z-flip corrected).
+    // Do NOT recompute cross(N,T) here — that would undo the handedness fix and discard
+    // the smooth per-fragment interpolation the vertex shader provides.
     float3 N = normalize(input.normal);
     float3 T = normalize(input.tangent);
-    float3 B = normalize(cross(N, T));
+    float3 B = normalize(input.bitangent);
     float3x3 TBN = float3x3(T, B, N);
 
     // === Transform normal into world space

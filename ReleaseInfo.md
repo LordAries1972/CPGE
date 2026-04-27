@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.991*
+*Current Build Version: v0.0.1011*
 
 ---
 
@@ -395,9 +395,13 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - CMAKE Support and now can compile with it, Linux support will be added soon for compiling, but cmake can be used on linux right!?.
     Use "cmake-build.bat debug" or "cmake-build.bat release"
 
-**April 26, 2026** - More updates and fixes:
+**April 26-27, 2026** - More updates and fixes:
 
 - Added a loading screen during loading phase so its clear to users that data is been loaded in.
+- Fixed Lighting Ordering.
+- Fixed Material System (Some issues) WIP to resolve and fix.
+- GLTF/GLB Model Animator will check all models on import and assign parent / child relationship.
+- fxManager.CreateStarfield() now supports a default x,y,z starting position with a Reverse travel flag.
 
 
 ---

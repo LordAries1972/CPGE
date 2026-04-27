@@ -105,12 +105,14 @@ private:
 	                             const BlenderImports::ImportConfig& cfg);
 	bool ParseMaterialsFromGLTF(const json& doc);
 	void BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo& info, Model& model, const json& doc);
+	std::shared_ptr<Texture> LoadGLTFImage(const json& imageEntry, const json& doc);  // URI file or embedded GLB bufferView → Texture
 	void ParseGLTFCamera(const nlohmann::json& gltf, Camera& camera, float windowWidth, float windowHeight);
 	bool ParseGLTFLights(const json& doc);
 	void ParseGLTFNodeRecursive(const json& node, int nodeIndex, const XMMATRIX& parentTransform, const json& doc, const json& allNodes, int& instanceIndex, int parentModelID);
 	void ParseGLBNodeRecursive(const json& node, int nodeIndex, const XMMATRIX& parentTransform, const json& doc, const json& allNodes, int& instanceIndex, int parentModelID);
 	int  FindParentModelIDForAnimation(int animationIndex);                          // Resolves root parent model ID from animation channel node targets
-	void LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model& model);
+	// primitiveFilter: -1 = all primitives into one model (legacy), >= 0 = only that primitive index
+	void LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model& model, int primitiveFilter = -1);
 
 	DX11Renderer* myRenderer = nullptr;												 // Pointer to the DX11 renderer
 };

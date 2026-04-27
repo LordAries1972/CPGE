@@ -30,7 +30,8 @@
       "PowerShell(& \"C:\\\\Program Files \\(x86\\)\\\\Microsoft Visual Studio\\\\Installer\\\\vswhere.exe\" -all -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -format json 2>&1)",
       "PowerShell($cmake = \"D:\\\\Programs\\\\CMake\\\\bin\\\\cmake.exe\")",
       "Read(//d/Users/hobso/**)",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "Bash(python3 -c ' *)"
     ],
     "additionalDirectories": [
       "f:\\Projects\\C++\\CPGE2026\\.vs\\CrossPlatformGameEngine\\v17",

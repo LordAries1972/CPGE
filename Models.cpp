@@ -226,6 +226,144 @@ bool Texture::LoadFromFile(const std::wstring& path)
 
 
 // ==========================================================================================
+// LoadFromMemory
+// Decodes a PNG/JPEG/etc. image stored in a raw byte buffer (e.g. an embedded GLB bufferView)
+// and uploads it as an immutable DX11 shader-resource texture.
+// ==========================================================================================
+bool Texture::LoadFromMemory(const uint8_t* data, size_t size)
+{
+    if (!data || size == 0)
+        return false;
+
+#ifdef __USE_DIRECTX_11__
+    ID3D11Device* device = static_cast<ID3D11Device*>(renderer->GetDevice());
+    if (!device)
+    {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[Texture] DX11: No device available for LoadFromMemory");
+        return false;
+    }
+
+    if (textureSRV)
+    {
+        textureSRV->Release();
+        textureSRV = nullptr;
+    }
+
+    IWICImagingFactory*   wicFactory = nullptr;
+    IWICStream*           stream     = nullptr;
+    IWICBitmapDecoder*    decoder    = nullptr;
+    IWICBitmapFrameDecode* frame     = nullptr;
+    IWICFormatConverter*  converter  = nullptr;
+
+    HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wicFactory));
+    if (FAILED(hr) || !wicFactory)
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] LoadFromMemory: CoCreateInstance(WICImagingFactory) failed 0x%08X", hr);
+        return false;
+    }
+
+    hr = wicFactory->CreateStream(&stream);
+    if (FAILED(hr) || !stream)
+    {
+        wicFactory->Release();
+        return false;
+    }
+
+    // IWICStream::InitializeFromMemory casts away const internally; the data is only read.
+    hr = stream->InitializeFromMemory(const_cast<BYTE*>(data), static_cast<DWORD>(size));
+    if (FAILED(hr))
+    {
+        stream->Release(); wicFactory->Release();
+        return false;
+    }
+
+    hr = wicFactory->CreateDecoderFromStream(stream, nullptr, WICDecodeMetadataCacheOnLoad, &decoder);
+    if (FAILED(hr) || !decoder)
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] LoadFromMemory: CreateDecoderFromStream failed 0x%08X", hr);
+        stream->Release(); wicFactory->Release();
+        return false;
+    }
+
+    hr = decoder->GetFrame(0, &frame);
+    if (FAILED(hr) || !frame)
+    {
+        decoder->Release(); stream->Release(); wicFactory->Release();
+        return false;
+    }
+
+    hr = wicFactory->CreateFormatConverter(&converter);
+    if (FAILED(hr) || !converter)
+    {
+        frame->Release(); decoder->Release(); stream->Release(); wicFactory->Release();
+        return false;
+    }
+
+    hr = converter->Initialize(frame, GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom);
+    if (FAILED(hr))
+    {
+        converter->Release(); frame->Release(); decoder->Release(); stream->Release(); wicFactory->Release();
+        return false;
+    }
+
+    UINT width = 0, height = 0;
+    converter->GetSize(&width, &height);
+    if (width == 0 || height == 0)
+    {
+        converter->Release(); frame->Release(); decoder->Release(); stream->Release(); wicFactory->Release();
+        return false;
+    }
+
+    std::vector<BYTE> pixels((size_t)width * height * 4);
+    hr = converter->CopyPixels(nullptr, width * 4, static_cast<UINT>(pixels.size()), pixels.data());
+    if (FAILED(hr))
+    {
+        converter->Release(); frame->Release(); decoder->Release(); stream->Release(); wicFactory->Release();
+        return false;
+    }
+
+    D3D11_TEXTURE2D_DESC desc = {};
+    desc.Width            = width;
+    desc.Height           = height;
+    desc.MipLevels        = 1;
+    desc.ArraySize        = 1;
+    desc.Format           = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.Usage            = D3D11_USAGE_IMMUTABLE;
+    desc.BindFlags        = D3D11_BIND_SHADER_RESOURCE;
+
+    D3D11_SUBRESOURCE_DATA initData = {};
+    initData.pSysMem      = pixels.data();
+    initData.SysMemPitch  = width * 4;
+
+    ID3D11Texture2D* tex = nullptr;
+    hr = device->CreateTexture2D(&desc, &initData, &tex);
+
+    converter->Release(); frame->Release(); decoder->Release(); stream->Release(); wicFactory->Release();
+
+    if (FAILED(hr) || !tex)
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] LoadFromMemory: CreateTexture2D failed 0x%08X", hr);
+        return false;
+    }
+
+    hr = device->CreateShaderResourceView(tex, nullptr, &textureSRV);
+    tex->Release();
+
+    if (FAILED(hr) || !textureSRV)
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Texture] LoadFromMemory: CreateShaderResourceView failed 0x%08X", hr);
+        return false;
+    }
+
+    return true;
+#else
+    return false;
+#endif
+}
+
+
+// ==========================================================================================
 // CreateSolidColorTexture
 // Creates a 2D texture filled with a constant color.
 // ==========================================================================================
@@ -1468,10 +1606,12 @@ memset(mappedLight.pData, 0, finalLightCBSizeBytes);
 // Copy our CPU light data into the start of the constant buffer.
 memcpy(mappedLight.pData, &buffer, sizeof(LightBuffer));
 
-// Unmap and bind to both the model light slot (b1) and the global light slot (b3).
+// Unmap and bind to the model-local light slot (b1) only.
+// b3 (global light buffer) is owned by RenderGamePlay and must NOT be
+// overwritten here — doing so clobbers the scene sun light just before
+// each DrawIndexed, causing the "all grey" no-lighting appearance.
 context->Unmap(m_modelInfo.lightConstantBuffer.Get(), 0);
 context->PSSetConstantBuffers(SLOT_LIGHT_BUFFER, 1, m_modelInfo.lightConstantBuffer.GetAddressOf());
-context->PSSetConstantBuffers(SLOT_GLOBAL_LIGHT_BUFFER, 1, m_modelInfo.lightConstantBuffer.GetAddressOf());
 #if defined(_DEBUG_MODEL_)
                 debug.logDebugMessage(LogLevel::LOG_INFO, L"[Model] Lighting updated (%d lights)", buffer.numLights);
             #endif

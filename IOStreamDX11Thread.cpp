@@ -99,23 +99,37 @@ void DX11Renderer::LoaderTaskThread()
 				// If we are NOT resizing our window, then ....
 				if (!wasResizing.load())
 				{
-					// Create a default light
+					// Title-screen back light: positioned deep in the background behind
+					// the ship, angled slightly downward toward the viewer.  This creates
+					// a dramatic rim/halo on the ship silhouette while the raised ambient
+					// keeps all material colours visible on the camera-facing surfaces.
+					//
+					// Direction convention: the vector is the direction the light TRAVELS.
+					// Shader computes L = -direction, so (0, -0.25, -1) normalised means
+					// light travels slightly down and INTO the screen; L points upward and
+					// toward the camera — illuminating the ship's front-upper geometry and
+					// creating bright specular highlights on any metallic parts.
 					LightStruct sunLight;
 					SecureZeroMemory(&sunLight, sizeof(LightStruct));
 					sunLight.active = true;
-					sunLight.position = XMFLOAT3(-10.0f, 3.0f, -100.0f);
-					sunLight.direction = XMFLOAT3(0.0f, 0.0f, 1.0f);
-					sunLight.color = XMFLOAT3(1.0f, 1.0f, 1.0f);
-					sunLight.ambient = XMFLOAT3(0.2f, 0.2f, 0.2f);
-					sunLight.intensity = 0.4f;
-					sunLight.baseIntensity = 0.2f;
-					sunLight.Shiningness = 0.0f;
-					sunLight.Reflection = 0.0f;
+					sunLight.position  = XMFLOAT3(0.0f, 5.0f, -150.0f);   // deep background, slightly above centre
+
+					// Normalise direction manually: (0, -0.25, -1) / length = (0, -0.2425, -0.9701)
+					sunLight.direction = XMFLOAT3(0.0f, -0.2425f, -0.9701f);
+
+					sunLight.color        = XMFLOAT3(1.0f, 0.95f, 0.85f); // warm white — sun-like
+					// Raised ambient gives camera-facing surfaces a visible base colour even
+					// before direct light reaches them.  Slight cool-blue tint reads as
+					// outer-space fill light and prevents the dark side going pure black.
+					sunLight.ambient      = XMFLOAT3(0.32f, 0.32f, 0.38f);
+					sunLight.intensity    = 1.1f;
+					sunLight.baseIntensity = 0.4f;
+					sunLight.Shiningness  = 0.0f;
+					sunLight.Reflection   = 0.0f;
 					sunLight.lightFalloff = 0.1f;
-					sunLight.innerCone = 30.0f;
-					sunLight.outerCone = 60.0f;
-					sunLight.range = 1000.0f;
-					//					sunLight.type = int(LightType::POINT);
+					sunLight.innerCone    = 30.0f;
+					sunLight.outerCone    = 60.0f;
+					sunLight.range        = 2000.0f;
 					sunLight.type = int(LightType::DIRECTIONAL);
 
 					lightsManager.CreateLight(L"Sun", sunLight);
@@ -138,12 +152,16 @@ void DX11Renderer::LoaderTaskThread()
 
 					// Create Game Menu
 					myCamera.SetupDefaultCamera(static_cast<float>(iOrigWidth), static_cast<float>(iOrigHeight));
-					guiManager.CreateGameMenuWindow(L"");
+					guiManager.CreateGameMenuWindow(L"winGameMenu");
 
+					// Reverse — stars start spread near camera and converge toward {0, 0, 0}
+					fxManager.CreateStarfield(100, 800.0f, 1000.0f, XMFLOAT3(-180.0f, 0.0f, 0.0f), true);
 					// Create a starfield with 100 stars, a radius of 1000, and reset distance of 1000
-					fxManager.CreateStarfield(100, 1000.0f, 1000.0f);
+					// fxManager.CreateStarfield(100, 800.0f, 1000.0f);
+
 					fxManager.FadeToImage(1.0f, 0.08f);
 
+					/* Text Scroller setup
 					std::wstring newsText = L"BREAKING NEWS: [21/04/2026] => Blender 5.1 support now working with our system - Yes! I need to make some adjustments, but man, big step for Blender and this gaming engine!!!! Cheers everyone!!";
 					XMFLOAT4 textColor(0.0f, 1.0f, 0.0f, 1.0f);                     // Green text color
 				
@@ -160,6 +178,7 @@ void DX11Renderer::LoaderTaskThread()
 					fxManager.CreateTextScrollerConsistent(newsText, L"MayaCulpa", fontSize, textColor,
 						regionX, regionY, regionWidth, regionHeight,
 						scrollSpeed, duration);
+					*/
 				}
 				else
 				{
@@ -170,8 +189,11 @@ void DX11Renderer::LoaderTaskThread()
 
 					guiManager.OnWindowResize(iOrigWidth, iOrigHeight);
 
-					fxManager.CreateStarfield(100, 1000.0f, 1000.0f);
+					// Reverse — stars start spread near camera and converge toward {0, 0, 0}
+					fxManager.CreateStarfield(100, 800.0f, 1000.0f, XMFLOAT3(-180.0f, 0.0f, 0.0f), true);
+					//fxManager.CreateStarfield(100, 1000.0f, 1000.0f);
 
+					/* Text Scroller setup
 					std::wstring newsText = L"BREAKING NEWS: [21/04/2026] => Blender 5.1 support now working with our system - Yes! I need to make some adjustments, but man, big step for Blender and this gaming engine!!!! Cheers everyone!!";
 					XMFLOAT4 textColor(0.0f, 1.0f, 0.0f, 1.0f);
 					float fontSize = 16.0f;
@@ -186,6 +208,8 @@ void DX11Renderer::LoaderTaskThread()
 					fxManager.CreateTextScrollerConsistent(newsText, L"MayaCulpa", fontSize, textColor,
 						regionX, regionY, regionWidth, regionHeight,
 						scrollSpeed, duration);
+					*/
+
 				}
 
 				// This must go at the end, so critical rendering can start

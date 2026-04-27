@@ -66,6 +66,9 @@ struct Particle
     float radius;
     float maxRadius;
 
+    float vx = 0.0f;      // spread direction X (used by reverse starfield)
+    float vy = 0.0f;      // spread direction Y (used by reverse starfield)
+
     int delayBase = 0;     // number of frames to wait
     int delayCount = 0;    // how many frames passed
 
@@ -150,6 +153,10 @@ struct FXItem {
 
     int originX, originY;                                           // Explosion center
     std::vector<Particle> particles;                                // All particles for the effect
+
+    // Starfield parameters
+    XMFLOAT3 starfieldOrigin = { 0.0f, 0.0f, 0.0f };              // Center/target position for starfield
+    bool starfieldReverse = false;                                  // If true, stars travel toward starfieldOrigin
 
     // NEW: Text Scroller support
     TextScrollData textScrollData;                                  // Text scrolling data for text scroller effects
@@ -354,7 +361,7 @@ public:
 
     // Starfield Utility Calls
     int starfieldID = 0;
-    void CreateStarfield(int numStars, float circularRadius, float resetDepthPos);
+    void CreateStarfield(int numStars, float circularRadius, float resetDepthPos, XMFLOAT3 startPos = { 0.0f, 0.0f, 0.0f }, bool reverse = false);
     void StopStarfield();
     void UpdateStarfield(float deltaTime);
     void RenderStarfield(FXItem& fxItem, ID3D11DeviceContext* context, const XMMATRIX& viewMatrix);

@@ -149,6 +149,7 @@ public:
     ~Texture();                                                                     // Destructor
 
     bool LoadFromFile(const std::wstring& path);                                    // Load texture from file
+    bool LoadFromMemory(const uint8_t* data, size_t size);                          // Load texture from embedded GLB buffer
     ID3D11ShaderResourceView* GetSRV() const { return textureSRV; }
 
     const std::wstring& GetPath() const { return texturePath; }

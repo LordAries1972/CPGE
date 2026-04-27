@@ -1792,127 +1792,163 @@ void FXManager::RenderFX(int effectID, ID3D11DeviceContext* context, const XMMAT
 }
 
 // --------------------------------------------------------------------------------------------------------
-void FXManager::CreateStarfield(int numStars, float circularRadius, float resetDepthPos)
+void FXManager::CreateStarfield(int numStars, float circularRadius, float resetDepthPos, XMFLOAT3 startPos, bool reverse)
 {
 #if defined(_DEBUG_FXMANAGER_)
     debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] CreateStarfield() invoked with " +
         std::to_wstring(numStars) + L" stars, radius " + std::to_wstring(circularRadius));
 #endif
 
-    std::lock_guard<std::mutex> lock(m_effectsMutex); // Add lock for thread safety
+    std::lock_guard<std::mutex> lock(m_effectsMutex);
 
-    // Create a new starfield FXItem
     FXItem newFX;
     newFX.type = FXType::Starfield;
     newFX.fxID = static_cast<int>(effects.size()) + 1;
     starfieldID = newFX.fxID;
-    newFX.duration = FLT_MAX;  // Run indefinitely until stopped
+    newFX.duration = FLT_MAX;
     newFX.timeout = FLT_MAX;
     newFX.progress = 0.0f;
+    newFX.depthMultiplier = resetDepthPos;
+    newFX.starfieldOrigin = startPos;
+    newFX.starfieldReverse = reverse;
 
-    // Store the parameters
-    newFX.depthMultiplier = resetDepthPos; // Reuse this field to store the reset depth
-
-    // Generate random stars
     for (int i = 0; i < numStars; ++i)
     {
         Particle p;
 
-        // Generate a random position in 3D space
-        // Use a cylindrical distribution for better visual effect
         float angle = static_cast<float>(rand()) / RAND_MAX * XM_2PI;
-        float dist = (0.1f + (static_cast<float>(rand()) / RAND_MAX) * 0.9f) * circularRadius;
+        float dist  = (0.1f + (static_cast<float>(rand()) / RAND_MAX) * 0.9f) * circularRadius;
+        float spreadX = cosf(angle) * dist;
+        float spreadY = sinf(angle) * dist;
 
-        // Set initial position
-        p.x = cosf(angle) * dist;  // x position
-        p.y = sinf(angle) * dist;  // y position
-        p.angle = resetDepthPos * (0.1f + 0.9f * static_cast<float>(rand()) / RAND_MAX); // Use angle to store z position
+        if (!reverse)
+        {
+            // Default: stars spawn far and fly toward/past camera
+            p.x     = startPos.x + spreadX;
+            p.y     = startPos.y + spreadY;
+            p.angle = startPos.z + resetDepthPos * (0.1f + 0.9f * static_cast<float>(rand()) / RAND_MAX);
+            p.vx    = 0.0f;
+            p.vy    = 0.0f;
+        }
+        else
+        {
+            // Reverse: stars start spread near camera and converge toward startPos as z increases
+            float startZ  = 5.0f + static_cast<float>(rand()) / RAND_MAX * (resetDepthPos * 0.1f);
+            float fraction = 1.0f - (startZ / resetDepthPos); // ~1.0 near camera
+            p.vx    = spreadX;  // full spread offset from startPos at camera-near position
+            p.vy    = spreadY;
+            p.angle = startZ;
+            p.x     = startPos.x + p.vx * fraction;
+            p.y     = startPos.y + p.vy * fraction;
+        }
 
-        // Set star properties
-        p.speed = 20.0f + static_cast<float>(rand()) / RAND_MAX * 40.0f; // Speed factor
-        p.radius = 1.0f + static_cast<float>(rand()) / RAND_MAX * 2.0f;  // Star size
-        p.maxRadius = resetDepthPos; // Store reset depth for reference
+        p.speed    = 20.0f + static_cast<float>(rand()) / RAND_MAX * 40.0f;
+        p.radius   = 1.0f  + static_cast<float>(rand()) / RAND_MAX * 2.0f;
+        p.maxRadius = resetDepthPos;
 
-        // Set color (mostly white with slight variations)
         float brightness = 0.7f + static_cast<float>(rand()) / RAND_MAX * 0.3f;
         p.r = brightness;
         p.g = brightness * (0.85f + static_cast<float>(rand()) / RAND_MAX * 0.15f);
-        p.b = brightness * (0.9f + static_cast<float>(rand()) / RAND_MAX * 0.1f);
+        p.b = brightness * (0.9f  + static_cast<float>(rand()) / RAND_MAX * 0.1f);
         p.a = 1.0f;
 
-        p.completed = false;
+        p.completed          = false;
         p.hasLoggedCompletion = false;
-
-        // Store deltas for smoother movement
-        p.delayCount = 0;
-        p.delayBase = static_cast<int>(p.angle); // Store the original z position
+        p.delayCount         = 0;
+        p.delayBase          = static_cast<int>(p.angle);
 
         newFX.particles.push_back(p);
     }
 
-    // Set start time and last update time
     newFX.startTime = std::chrono::steady_clock::now();
     newFX.lastUpdate = newFX.startTime;
 
     effects.push_back(newFX);
 
-#if defined(_DEBUG_FXMANAGER_)
-    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[FXManager] Starfield created: Stars=%d, Radius=%.2f, ResetDepth=%.2f, FXID=%d",
-        numStars, circularRadius, resetDepthPos, newFX.fxID);
-#endif
+    #if defined(_DEBUG_FXMANAGER_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[FXManager] Starfield created: Stars=%d, Radius=%.2f, ResetDepth=%.2f, Reverse=%s, FXID=%d",
+            numStars, circularRadius, resetDepthPos, reverse ? L"true" : L"false", newFX.fxID);
+    #endif
 }
 
 void FXManager::UpdateStarfield(float deltaTime)
 {
-    // Starfield update - no need for mutex here as this is called from within a locked context
-
     for (auto& fx : effects)
     {
         if (fx.type != FXType::Starfield)
             continue;
 
-        float resetDepth = fx.depthMultiplier; // This holds our reset depth value
+        float    resetDepth = fx.depthMultiplier;
+        bool     reverse    = fx.starfieldReverse;
+        XMFLOAT3 origin     = fx.starfieldOrigin;
 
         for (auto& p : fx.particles)
         {
             if (p.completed)
                 continue;
 
-            // Calculate stable movement based on deltaTime
-            // Clamp deltaTime to avoid huge jumps if frame rate drops
             float clampedDelta = std::min(deltaTime, 0.1f);
-
-            // Update z position (stored in angle field)
             float zPos = p.angle;
-            zPos -= p.speed * clampedDelta; // Move toward camera
 
-            // Adjust alpha based on distance from camera
-            float distRatio = zPos / resetDepth;
-            p.a = std::max(0.0f, std::min(1.0f, distRatio * 1.2f)); // Fade out as approaches
-
-            // Check if star needs to be reset
-            if (zPos <= 5.0f) // Reset when very close to camera
+            if (!reverse)
             {
-                // Generate new random position
-                float angle = static_cast<float>(rand()) / RAND_MAX * XM_2PI;
-                float dist = (0.1f + (static_cast<float>(rand()) / RAND_MAX) * 0.9f) *
-                    (resetDepth * 0.1f); // Smaller radius at distance
+                // Default: stars fly toward camera (z decreases)
+                zPos -= p.speed * clampedDelta;
 
-                float outCos, outSin;
-                FAST_MATH.FastSinCos(angle, outSin, outCos);
-                p.x = outCos * dist;
-                p.y = outSin * dist;
-                p.angle = resetDepth * (0.9f + 0.1f * static_cast<float>(rand()) / RAND_MAX);
+                float distRatio = zPos / resetDepth;
+                p.a = std::max(0.0f, std::min(1.0f, distRatio * 1.2f));
 
-                // Randomize properties slightly
-                p.speed = 20.0f + static_cast<float>(rand()) / RAND_MAX * 40.0f;
-                p.radius = 1.0f + static_cast<float>(rand()) / RAND_MAX * 1.2f;
-                p.a = 1.0f;
+                if (zPos <= 5.0f)
+                {
+                    float angle = static_cast<float>(rand()) / RAND_MAX * XM_2PI;
+                    float dist  = (0.1f + (static_cast<float>(rand()) / RAND_MAX) * 0.9f) * (resetDepth * 0.1f);
+
+                    float outCos, outSin;
+                    FAST_MATH.FastSinCos(angle, outSin, outCos);
+                    p.x     = origin.x + outCos * dist;
+                    p.y     = origin.y + outSin * dist;
+                    p.angle = origin.z + resetDepth * (0.9f + 0.1f * static_cast<float>(rand()) / RAND_MAX);
+                    p.speed  = 20.0f + static_cast<float>(rand()) / RAND_MAX * 40.0f;
+                    p.radius = 1.0f  + static_cast<float>(rand()) / RAND_MAX * 1.2f;
+                    p.a      = 1.0f;
+                }
+                else
+                {
+                    p.angle = zPos;
+                }
             }
             else
             {
-                // Update position
-                p.angle = zPos;
+                // Reverse: stars travel away from camera, converging toward starfieldOrigin
+                zPos += p.speed * clampedDelta;
+
+                if (zPos >= resetDepth)
+                {
+                    // Reset: spawn spread near camera again
+                    float angle = static_cast<float>(rand()) / RAND_MAX * XM_2PI;
+                    float dist  = (0.1f + (static_cast<float>(rand()) / RAND_MAX) * 0.9f) * p.maxRadius;
+                    p.vx    = cosf(angle) * dist;
+                    p.vy    = sinf(angle) * dist;
+                    p.angle = 5.0f + static_cast<float>(rand()) / RAND_MAX * (resetDepth * 0.1f);
+
+                    float fraction = 1.0f - (p.angle / resetDepth);
+                    p.x     = origin.x + p.vx * fraction;
+                    p.y     = origin.y + p.vy * fraction;
+                    p.speed  = 20.0f + static_cast<float>(rand()) / RAND_MAX * 40.0f;
+                    p.radius = 1.0f  + static_cast<float>(rand()) / RAND_MAX * 1.2f;
+                    p.a      = 1.0f;
+                }
+                else
+                {
+                    // Converge x,y toward origin as z increases
+                    float fraction = 1.0f - (zPos / resetDepth);
+                    p.x     = origin.x + p.vx * fraction;
+                    p.y     = origin.y + p.vy * fraction;
+                    p.angle = zPos;
+
+                    // Fade out as stars recede
+                    p.a = std::max(0.0f, std::min(1.0f, fraction * 1.2f));
+                }
             }
         }
     }

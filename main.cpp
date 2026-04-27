@@ -2064,7 +2064,7 @@ bool Load_Music()
             case SceneType::SCENE_GAMEPLAY:
             {
                 // Load the Gameplay Music Module
-                std::wstring XMFilename = L"todie4.xm";
+                std::wstring XMFilename = L"thevoid.xm";
                 auto fileName = AssetsDir / XMFilename;
                 xmPlayer.Initialize(fileName);
                 if (!xmPlayer.Play(fileName))

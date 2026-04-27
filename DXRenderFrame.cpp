@@ -415,12 +415,7 @@ void DX11Renderer::RenderFrame()
                                if (threadManager.threadVars.bLoaderTaskFinished.load())
                                {
                                    // Set camera for intro scene background
-                                   //myCamera.SetYawPitch(0.285f, -0.22f);
-                                   
-                                   // Render 3D starfield effect if available
-                                   if (fxManager.starfieldID > 0) {
-                                       fxManager.RenderFX(fxManager.starfieldID, m_d3dContext.Get(), myCamera.GetViewMatrix());
-                                   }
+                                   myCamera.SetYawPitch(0.250f, -0.22f);
                                }
                                break;
                            }
@@ -698,6 +693,46 @@ inline void DX11Renderer::RenderGamePlay(float deltaTime)
             if (GetAsyncKeyState('9') & 0x8000) SetDebugMode(8); // Metallic only mode
         #endif
 
+        // Upload global light buffer BEFORE model draw calls so that every
+        // DrawIndexed in the loop below sees the correct scene lights in b3.
+        // Previously this block sat after the loop — causing all models to be
+        // drawn with stale/zero light data on every frame.
+        {
+            std::vector<LightStruct> globalLights = lightsManager.GetAllLights();
+
+            GlobalLightBuffer glb = {};
+            glb.numLights = static_cast<int>(globalLights.size());
+            if (glb.numLights > MAX_GLOBAL_LIGHTS)
+                glb.numLights = MAX_GLOBAL_LIGHTS;
+
+            for (int i = 0; i < glb.numLights; ++i)
+            {
+                memcpy(&glb.lights[i], &globalLights[i], sizeof(LightStruct));
+
+                #if defined(_DEBUG_RENDERER_) && defined(_DEBUG_LIGHTING_)
+                    debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                        L"[RENDERFRAME] Light[%d] active=%d intensity=%.2f color=(%.2f %.2f %.2f) range=%.2f type=%d pos=(%.2f, %.2f, %.2f)",
+                        i, glb.lights[i].active, glb.lights[i].intensity,
+                        glb.lights[i].color.x, glb.lights[i].color.y, glb.lights[i].color.z,
+                        glb.lights[i].range, glb.lights[i].type,
+                        glb.lights[i].position.x, glb.lights[i].position.y, glb.lights[i].position.z);
+                #endif
+            }
+
+            D3D11_MAPPED_SUBRESOURCE mapped;
+            HRESULT hrLight = m_d3dContext->Map(m_globalLightBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+            if (SUCCEEDED(hrLight))
+            {
+                // Zero the full allocated GPU region (1728 bytes) before copying the
+                // CPU struct (1296 bytes) so the shader never reads stale data.
+                static const UINT kGlobalLightCBMinBytes = 1728;
+                memset(mapped.pData, 0, kGlobalLightCBMinBytes);
+                memcpy(mapped.pData, &glb, sizeof(GlobalLightBuffer));
+                m_d3dContext->Unmap(m_globalLightBuffer.Get(), 0);
+                m_d3dContext->PSSetConstantBuffers(SLOT_GLOBAL_LIGHT_BUFFER, 1, m_globalLightBuffer.GetAddressOf());
+            }
+        }
+
         // Render 3D models if loading is complete
         if (threadManager.threadVars.bLoaderTaskFinished.load())
         {
@@ -727,50 +762,6 @@ inline void DX11Renderer::RenderGamePlay(float deltaTime)
                     scene.scene_models[i].Render(m_d3dContext.Get(), deltaTime);
                 }
             }
-        }
-
-        // Update global lighting system
-        std::vector<LightStruct> globalLights = lightsManager.GetAllLights(); // Get all global lights
-
-        // Global light buffer for GPU
-        GlobalLightBuffer glb = {};
-
-        // Set number of lights
-        glb.numLights = static_cast<int>(globalLights.size());
-
-        // Clamp to maximum supported lights
-        if (glb.numLights > MAX_GLOBAL_LIGHTS)
-            glb.numLights = MAX_GLOBAL_LIGHTS;
-
-        // Copy light data to GPU buffer
-        for (int i = 0; i < glb.numLights; ++i)
-        {
-            // Copy light structure
-            memcpy(&glb.lights[i], &globalLights[i], sizeof(LightStruct));
-
-            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG_LIGHTING_)
-                // Debug logging for light information
-                debug.logDebugMessage(LogLevel::LOG_DEBUG,
-                    L"[RENDERFRAME] Light[%d] active=%d intensity=%.2f color=(%.2f %.2f %.2f) range=%.2f type=%d pos=(%.2f, %.2f, %.2f)",
-                    i, glb.lights[i].active, glb.lights[i].intensity,
-                    glb.lights[i].color.x, glb.lights[i].color.y, glb.lights[i].color.z,
-                    glb.lights[i].range, glb.lights[i].type,
-                    glb.lights[i].position.x, glb.lights[i].position.y, glb.lights[i].position.z);
-            #endif
-        }
-
-        // Upload global light buffer to GPU
-        D3D11_MAPPED_SUBRESOURCE mapped;
-        hr = m_d3dContext->Map(m_globalLightBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
-        if (SUCCEEDED(hr)) {
-            // Copy light data to GPU
-            memcpy(mapped.pData, &glb, sizeof(GlobalLightBuffer));
-
-            // Unmap the buffer
-            m_d3dContext->Unmap(m_globalLightBuffer.Get(), 0);
-
-            // Bind global light buffer to pixel shader slot 3
-            m_d3dContext->PSSetConstantBuffers(SLOT_GLOBAL_LIGHT_BUFFER, 1, m_globalLightBuffer.GetAddressOf());
         }
     }
 }
@@ -839,7 +830,7 @@ void DX11Renderer::RenderBackgroundImage()
         case SceneType::SCENE_GAMETITLE:
         {
             // Background image for game title screen
-            if (threadManager.threadVars.bLoaderTaskFinished)
+            if (threadManager.threadVars.bLoaderTaskFinished.load())
             {
                 if (m_d2dTextures[int(BlitObj2DIndexType::IMG_GAMEINTRO1)]) {
                     Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
@@ -848,6 +839,11 @@ void DX11Renderer::RenderBackgroundImage()
                 // Company logo overlay
                 if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]) {
                     Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - 47);
+                }
+
+                // Render 3D starfield effect if available
+                if (fxManager.starfieldID > 0) {
+                    fxManager.RenderFX(fxManager.starfieldID, m_d3dContext.Get(), myCamera.GetViewMatrix());
                 }
             }
             else
@@ -862,7 +858,7 @@ void DX11Renderer::RenderBackgroundImage()
 
         case SceneType::SCENE_GAMEPLAY:
             // Gameplay background handled elsewhere; nothing to pre-render here
-            if (!threadManager.threadVars.bLoaderTaskFinished)
+            if (!threadManager.threadVars.bLoaderTaskFinished.load())
             {
                 if (m_d2dTextures[int(BlitObj2DIndexType::IMG_LOADING)]) {
                     Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
