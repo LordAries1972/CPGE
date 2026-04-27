@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1028*
+*Current Build Version: v0.0.1030*
 
 ---
 
@@ -439,7 +439,12 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - OSD setting changes with current OSD on screen display, will close and show new one instead!
 - Added History folder, to show changes on each file to what has been exactly been changed in the 
   current updates to the repository! (Please note! Redundant information will be truncated as time passes on!)
-  See here now for live updates on exactly whats been changed! - But this file will always be the basis of updates!
+- System for both MSBuild and CMAKE will include this file, version.id and BuildInfo.h to reflect proper
+  versions in your builds (DONE FN changing this manually all the gawd damn time!!!).
+
+`  See here now for live updates on exactly whats been changed! - But this file will always be the basis of updates
+   Please see the "History" folder for actual file updates, old and redundant files will be removed! - Saves me updating
+   this file all time when I do not have too; especially versioning!
 
 ---
 

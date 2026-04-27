@@ -1,0 +1,6 @@
+GameConfig.cfg - Changes 28-04-2026
+=====================================
+
+showDebugInfo set to false (was true — debug overlay was visible on every startup).
+Checksum recalculated via FNV-1a to match: 1.318833705400145e+16 (was 2.862642847270005e+15).
+All other settings preserved unchanged.

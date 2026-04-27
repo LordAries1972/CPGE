@@ -49,7 +49,7 @@ bool Configuration::loadConfig() {
         myConfig.antiAliasingEnabled = j["antiAliasingEnabled"];
         myConfig.MipMapping = j["MipMapping"];
         myConfig.BackCulling = j["BackCulling"];
-        myConfig.showDebugInfo = j.value("showDebugInfo", true);
+        myConfig.showDebugInfo = j.value("showDebugInfo", false);
         myConfig.buildVersion = j["buildVersion"];
         myConfig.buildSubVersion = j["buildSubVersion"];
         myConfig.build = j["build"];

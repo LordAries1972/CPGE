@@ -2015,7 +2015,7 @@ void SwitchToGameIntro()
         if (ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR) {
             ttsManager.SetSpeakerChannel(TTSSpeakerChannel::CHANNEL_BOTH);
             ttsManager.SetVoiceVolume(config.myConfig.TTSVolume);
-            ttsManager.PlayAsync(L"Welcome to the CPGE Gaming Engine Game Title Screen");
+            ttsManager.PlayAsync(L"Loading Game Assets into Memory!");
         }
     }
 

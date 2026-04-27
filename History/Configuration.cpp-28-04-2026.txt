@@ -1,0 +1,5 @@
+Configuration.cpp - Changes 28-04-2026
+=======================================
+
+loadConfig(): changed j.value("showDebugInfo", true) default to false.
+If the key is absent from the config file, debug info is now OFF by default.
