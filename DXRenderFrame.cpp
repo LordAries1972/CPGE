@@ -785,7 +785,7 @@ inline void DX11Renderer::RenderIntroMovie()
 
         // Draw company logo overlay
         if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]) {
-            Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - 47);
+            Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - 136);
         }
 
         // Check for spacebar input to skip movie
@@ -838,7 +838,7 @@ void DX11Renderer::RenderBackgroundImage()
 
                 // Company logo overlay
                 if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]) {
-                    Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - 47);
+                    Blit2DObject(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - 136);
                 }
 
                 // Render 3D starfield effect if available

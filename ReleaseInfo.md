@@ -3,9 +3,41 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1011*
+*Current Build Version: v0.0.1014*
 
 ---
+
+Before we start, if you need some catching up, now that we have our website available, 
+
+please visit https://ultimanium.com/index.php?action=cpge for current details! (NOTE: Please do not use Proxy deferrer or VPN!)
+
+We will be having our linkable demos on this page, so please stay tuned as many will be released soon to demonstrate
+the engines full power!  I am planning to make the CPGE engine a flight engine upon our new gaming coming soon called,
+The Shadows of Orion.  This game will demonstrate to people that:-
+
+1) This Gaming Engine will cut it and give you the needs to build a fantastic game across multiple platforms for both 2D and 3D environments!
+2) The Engine does what it states it does at current release (Unless I am not aware of a bug)!
+3) FOSS (Free and Open Source Software) which means, you can use this system under MIT license without worries, 
+   just only to give due credit where needed in your game!  Thats it!
+
+4) Versatile and complex systems integrated to get ya feet off the ground in regards to those designated 
+   areas!  (ie, that be Effects, Renderer, Sounds, Music, Networking etc).
+   
+5) Tools will be coming, its part of the plan to help and assist your gaming development.
+6) Scripting Support will be coming also real soon! - As of 27th April, 2026 (A favourite development of mine!)
+7) Why are you paying people like UNREAL engine? your adding cost to your game, which means you must ask the higher price, why? - Time to stop this BS right!
+8) Even thou the system is not as advanced as UNREAL and the others out there, why help them to only elevate your costs right!
+9) Time to jump on board, making a game is what we do, and contribute your recommendations here so we can all 
+   benefit from the expertise of others and yet, keep our costs down for our players so we all can make a buck right!
+   
+To me, its only common sense, join now our community, request a PULL Request from management on our website as given above, so you too can help the community
+build a real gaming platform on Multiple-Platform Systems and yet, keep our gaming prices low so that users can afford to play!
+
+To me, economically and the logic, only seems right! - So please get on board and thank you for taking the time to
+visit this page today!
+
+I thank personally, everyone who is willing and sacrifices time and contributes, to show us support - respect to you all and 
+lets me make this Engine great!
 
 ## Table of Contents
 
