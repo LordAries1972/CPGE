@@ -1,6 +1,0 @@
-Configuration.h - Changes 27-04-2026
-=====================================
-
-MyConfig::showDebugInfo default changed from true to false.
-Debug overlay is now OFF on a fresh install / missing config file.
-The player/developer enables it explicitly via F2 and the state is persisted.

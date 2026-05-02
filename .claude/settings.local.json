@@ -32,7 +32,9 @@
       "Read(//d/Users/hobso/**)",
       "Bash(git stash *)",
       "Bash(python3 -c ' *)",
-      "Bash(xargs grep *)"
+      "Bash(xargs grep *)",
+      "Bash(dir \"f:\\\\Projects\\\\C++\\\\CPGE2026\" /S /B *.cso)",
+      "PowerShell(Get-ChildItem -Path \"f:\\\\Projects\\\\C++\\\\CPGE2026\\\\Assets\\\\Shaders\" -ErrorAction SilentlyContinue | ForEach-Object {$_.FullName})"
     ],
     "additionalDirectories": [
       "f:\\Projects\\C++\\CPGE2026\\.vs\\CrossPlatformGameEngine\\v17",

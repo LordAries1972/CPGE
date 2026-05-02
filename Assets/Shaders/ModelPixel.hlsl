@@ -210,7 +210,7 @@ float3 ProcessLight(LightStruct light, float3 N, float3 V, float3 worldPos, floa
     if (light.active == 0)
         return float3(0, 0, 0);
         
-    float3 L;
+    float3 L = (float3)0;
     float attenuation = 1.0f;
 
     // Calculate light direction and attenuation based on light type

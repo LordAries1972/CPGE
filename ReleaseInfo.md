@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1043*
+*Current Build Version: v0.0.1058*
 
 ---
 
@@ -51,6 +51,7 @@ lets make this Engine great!
 
 #### 2026
 
+- [May 2026](#may-2026---more-major-updates-and-fixes)
 - [April 2026](#april-2026---bug-fixes-and-updates)
 
 #### 2025
@@ -447,8 +448,19 @@ Once the base DirectX 11 implementation is complete, the project will be release
    Please see the "History" folder for actual file updates, old and redundant files will be removed! - Saves me updating
    this file all time when I do not have too; especially versioning!
 
-**April 30, 2026** - More updates and fixes:
+**May 02, 2026** - More major updates and fixes:
 
+- Real Time in runtime configuration management system (GUIConfigWindow.cpp) - This is your panel for 
+  Game configuruation and must reflect with your Configuration.h/cpp file, bring to life now the real 
+  updates of the system during runtime.
+  
+- Update to GFX and controls in the GUIManager.h/cpp system - added, horizontal scrollers and proper event controlling in a threaded based system.
+- Moved FOV option in configuration window to Video TAB area.
+- Added Loading Screen (We could animate this, but for now, Keeping It Simple Stupid (KISS).
+- CMAKE now supports proper shader builds on Windows Platform.
+- Various Bugs Resolved, ie.. Restart on demand, not correctly instantiating proper closer of current app, before executing a restart of app.
+- No more highlighting of text in the config panel, do not what I was thinking, lot of copying and paste in the errors - 
+  Just goes to show, shortcuts never pay off!
 
 ---
 

@@ -182,6 +182,9 @@ CrossPlatformGameEngine_IS_TOP_LEVEL:STATIC=ON
 //Value Computed by CMake
 CrossPlatformGameEngine_SOURCE_DIR:STATIC=F:/Projects/C++/CPGE2026
 
+//HLSL shader compiler
+FXC_EXE:FILEPATH=D:/Windows Kits/10/bin/10.0.22621.0/x64/fxc.exe
+
 
 ########################
 # INTERNAL cache entries

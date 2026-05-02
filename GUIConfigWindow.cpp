@@ -73,7 +73,7 @@ static std::vector<int> RatesFor(const std::vector<DispMode>& modes, int w, int 
 
 // Display mode name strings — file scope so lambdas need no capture
 static const wchar_t* const DISP_MODE_NAMES[3] = {
-    L"Windowed", L"Borderless Window", L"Full Screen"
+    L"Windowed", L"Borderless", L"Full Screen"
 };
 
 // ---------------------------------------------------------------------------
@@ -104,8 +104,7 @@ static std::wstring CfgFmtInt(int val) { return std::to_wstring(val); }
 //     unless the user clicks "Cancel Restart".
 //
 // Layout (screen pixels, window anchored at 25, 51):
-//   TitleBar      : (25,  51)  700 x 28
-//   Close-X btn   : (701, 57)  16  x 16
+//   TitleBar      : (25,  51)  700 x 28  (full width — no close-X)
 //   Tab buttons   : (25,  79)  140 x 26 each, 5 tabs
 //   Bevel content : (25, 105)  700 x 370
 //   Bottom buttons: (35, 483)
@@ -131,7 +130,7 @@ void GUIManager::CreateConfigWindow()
     }
 
     const float WX = 25.0f, WY = 51.0f;
-    const float WW = 700.0f, WH = 530.0f;
+    const float WW = 700.0f, WH = 505.0f;
 
     CreateMyWindow(WIN_NAME, GUIWindowType::Dialog,
         Vector2(WX, WY), Vector2(WW, WH),
@@ -202,24 +201,25 @@ void GUIManager::CreateConfigWindow()
     // -----------------------------------------------------------------------
     // Control-builder lambdas
     // -----------------------------------------------------------------------
-    const float LBL_W = 245.0f;
-    const float VAL_W = 90.0f;
-    const float BTN_W = 28.0f;
-    const float ROW_H = 26.0f;
-    const float CX     = WX + 10.0f;
-    const float CONT_Y = WY + TITLEBAR_HEIGHT + 26.0f;   // 105
-    const float CY     = CONT_Y + 10.0f;                 // 115
-    const float ROW    = 32.0f;
+    // All row types share one label column width so every second column
+    // (readout / toggle / info value) is left-aligned across ALL tabs.
+    //
+    // Column map (screen coords, window at x=25):
+    //   Col 0  label    :  35 .. 235   (LBL_W  = 200)
+    //   Col 1  readout  : 240 .. 325   (SLR_VAL_W = 85)
+    //   Col 2  track    : 330 .. 715   (SLR_W  = 385)
+    const float LBL_W     = 200.0f;   // label column — same for ALL row types
+    const float SLR_VAL_W = 85.0f;    // readout column
+    const float ROW_H     = 26.0f;
+    const float CX        = WX + 10.0f;
+    const float CONT_Y    = WY + TITLEBAR_HEIGHT + 26.0f;
+    const float CY        = CONT_Y + 10.0f;
+    const float ROW       = 32.0f;
 
-    auto VAL_X = [&]{ return CX + LBL_W + 5.0f; };
-    auto MIN_X = [&]{ return VAL_X() + VAL_W + 4.0f; };
-    auto PLS_X = [&]{ return MIN_X() + BTN_W + 4.0f; };
+    const float SLR_X = CX + LBL_W + 5.0f + SLR_VAL_W + 5.0f;  // 330
+    const float SLR_W = (WX + WW - 10.0f) - SLR_X;              // 385
 
-    // Tab guard: wraps a callback so it only fires when actTab matches tabIdx.
-    // Prevents controls from hidden tabs triggering when they share screen coordinates.
-    auto g = [actTab](int tab, std::function<void()> fn) -> std::function<void()> {
-        return [actTab, tab, fn]() { if (*actTab == tab) fn(); };
-    };
+    auto VAL_X = [&]{ return CX + LBL_W + 5.0f; };  // 240
 
     auto addLabel = [&](const std::string& id, float x, float y, float w, float h,
                         const std::wstring& text, float fs = 13.0f, bool vis = true) {
@@ -227,6 +227,7 @@ void GUIManager::CreateConfigWindow()
         c.type = GUIControlType::TextArea; c.id = id;
         c.position = Vector2(x, y);  c.size = Vector2(w, h);
         c.bgColor = MyColor(0, 0, 0, 0);
+        c.hoverColor = MyColor(0, 0, 0, 0);
         c.bgTextureId = c.bgTextureHoverId = int(BlitObj2DIndexType::NONE);
         c.txtColor = MyColor(210, 210, 210, 255);
         c.label = text;  c.lblFontSize = fs;  c.isVisible = vis;
@@ -248,39 +249,36 @@ void GUIManager::CreateConfigWindow()
         configWindow->AddControl(c);
     };
 
-    // label | value | [-] | [+]
-    auto addVolRow = [&](const std::string& pfx, float y, const std::wstring& name,
-                         const std::wstring& initVal, bool vis, int tabIdx,
-                         std::function<void()> onMinus, std::function<void()> onPlus) {
-        addLabel (pfx + "_lbl", CX,      y, LBL_W, ROW_H, name,     13.0f, vis);
-        addLabel (pfx + "_val", VAL_X(), y, VAL_W, ROW_H, initVal,  13.0f, vis);
-        addButton(pfx + "_min", MIN_X(), y, BTN_W, ROW_H, L"-",     15.0f, vis, g(tabIdx, onMinus));
-        addButton(pfx + "_pls", PLS_X(), y, BTN_W, ROW_H, L"+",     15.0f, vis, g(tabIdx, onPlus));
-    };
-
-    // label | value | [<] | [>]  (for cycle-selectors)
-    auto addSelRow = [&](const std::string& pfx, float y, const std::wstring& name,
-                         const std::wstring& initVal, bool vis, int tabIdx,
-                         std::function<void()> onPrev, std::function<void()> onNext) {
-        addLabel (pfx + "_lbl", CX,      y, LBL_W, ROW_H, name,     13.0f, vis);
-        addLabel (pfx + "_val", VAL_X(), y, VAL_W + 60.0f, ROW_H, initVal, 13.0f, vis);
-        addButton(pfx + "_prv", MIN_X(), y, BTN_W, ROW_H, L"<",     13.0f, vis, g(tabIdx, onPrev));
-        addButton(pfx + "_nxt", PLS_X(), y, BTN_W, ROW_H, L">",     13.0f, vis, g(tabIdx, onNext));
-    };
-
-    // label | [ON]/[OFF]
-    auto addTogRow = [&](const std::string& pfx, float y, const std::wstring& name,
-                         bool initState, bool vis, int tabIdx, std::function<void()> onToggle) {
-        addLabel (pfx + "_lbl", CX,      y, LBL_W, ROW_H, name, 13.0f, vis);
-        addButton(pfx + "_tog", VAL_X(), y, 80.0f, ROW_H,
-                  initState ? L"[ ON ]" : L"[ OFF ]", 12.0f, vis, g(tabIdx, onToggle));
+    // label | [==O== ON/OFF toggle slider]
+    auto addTogSlider = [&](const std::string& pfx, float y, const std::wstring& name,
+                            bool initState, bool vis, int tabIdx,
+                            std::function<void(bool)> onChange) {
+        addLabel(pfx + "_lbl", CX, y, LBL_W, ROW_H, name, 13.0f, vis);
+        GUIControl tc;
+        tc.type             = GUIControlType::ToggleSlider;
+        tc.id               = pfx + "_tog";
+        tc.position         = Vector2(VAL_X(), y);
+        tc.size             = Vector2(90.0f, ROW_H);
+        tc.isVisible        = vis;
+        tc.bgColor          = MyColor(0, 0, 0, 0);
+        tc.hoverColor       = MyColor(0, 0, 0, 0);
+        tc.bgTextureId      = int(BlitObj2DIndexType::NONE);
+        tc.bgTextureHoverId = int(BlitObj2DIndexType::NONE);
+        tc.sliderMin        = 0.0f;
+        tc.sliderMax        = 1.0f;
+        tc.sliderValue      = initState ? 1.0f : 0.0f;
+        tc.onSliderChanged  = [actTab, tabIdx, onChange](float v) {
+            if (*actTab != tabIdx) return;
+            onChange(v >= 0.5f);
+        };
+        configWindow->AddControl(tc);
     };
 
     // label | read-only value
     auto addInfoRow = [&](const std::string& pfx, float y, const std::wstring& name,
                           const std::wstring& val, bool vis) {
-        addLabel(pfx + "_lbl", CX,      y, LBL_W,          ROW_H, name, 13.0f, vis);
-        addLabel(pfx + "_val", VAL_X(), y, VAL_W + 80.0f, ROW_H, val,  13.0f, vis);
+        addLabel(pfx + "_lbl", CX,      y, LBL_W,                          ROW_H, name, 13.0f, vis);
+        addLabel(pfx + "_val", VAL_X(), y, (WX + WW - 10.0f) - VAL_X(),    ROW_H, val,  13.0f, vis);
     };
 
     // Helper to update a label control in the window
@@ -290,6 +288,36 @@ void GUIManager::CreateConfigWindow()
                 if (c.id == id) { c.label = txt; break; }
     };
 
+    // label | readout | [==O==] horizontal slider
+    // fmtFn formats the raw float value for display; onChange applies it to config.
+    auto addSliderRow = [&](const std::string& pfx, float y, const std::wstring& name,
+                            bool vis, int tabIdx,
+                            float sMin, float sMax, float sVal,
+                            std::function<std::wstring(float)> fmtFn,
+                            std::function<void(float)> onChange) {
+        addLabel(pfx + "_lbl", CX,        y, LBL_W,     ROW_H, name,        13.0f, vis);
+        addLabel(pfx + "_val", VAL_X(),   y, SLR_VAL_W, ROW_H, fmtFn(sVal), 13.0f, vis);
+        GUIControl sc;
+        sc.type             = GUIControlType::HSlider;
+        sc.id               = pfx + "_sldr";
+        sc.position         = Vector2(SLR_X, y + 2.0f);
+        sc.size             = Vector2(SLR_W, ROW_H - 4.0f);
+        sc.isVisible        = vis;
+        sc.bgColor          = MyColor(0, 0, 0, 0);
+        sc.hoverColor       = MyColor(0, 0, 0, 0);
+        sc.bgTextureId      = int(BlitObj2DIndexType::NONE);
+        sc.bgTextureHoverId = int(BlitObj2DIndexType::NONE);
+        sc.sliderMin        = sMin;
+        sc.sliderMax        = sMax;
+        sc.sliderValue      = sVal;
+        sc.onSliderChanged  = [actTab, tabIdx, pfx, updLabel, fmtFn, onChange](float v) {
+            if (*actTab != tabIdx) return;
+            updLabel(pfx + "_val", fmtFn(v));
+            onChange(v);
+        };
+        configWindow->AddControl(sc);
+    };
+
     // -----------------------------------------------------------------------
     // TITLEBAR
     // -----------------------------------------------------------------------
@@ -297,7 +325,7 @@ void GUIManager::CreateConfigWindow()
         GUIControl tb;
         tb.type = GUIControlType::TitleBar;  tb.id = "titlebar";
         tb.position = Vector2(WX, WY);
-        tb.size     = Vector2(WW - (CLOSEWINBUTTON_SIZE + 6.0f), TITLEBAR_HEIGHT);
+        tb.size     = Vector2(WW, TITLEBAR_HEIGHT);
         tb.bgColor  = MyColor(0, 0, 0, 255);
         tb.txtColor = MyColor(255, 220, 80, 255);
         tb.bgTextureId = tb.bgTextureHoverId = int(BlitObj2DIndexType::IMG_TITLEBAR1);
@@ -307,25 +335,6 @@ void GUIManager::CreateConfigWindow()
         tb.onMouseBtnDown = [weakWin]() { if (auto w = weakWin.lock()) w->isDragging = true; };
         tb.onMouseBtnUp   = [weakWin]() { if (auto w = weakWin.lock()) w->isDragging = false; };
         configWindow->AddControl(tb);
-    }
-
-    // CLOSE-X (cancel — reverts all changes)
-    {
-        GUIControl c;
-        c.type = GUIControlType::Button;  c.id = "closeX";
-        c.position = Vector2(WX + WW - (CLOSEWINBUTTON_SIZE + 4.0f), WY + 6.0f);
-        c.size     = Vector2(CLOSEWINBUTTON_SIZE, CLOSEWINBUTTON_SIZE);
-        c.bgColor  = MyColor(120, 0, 0, 255);
-        c.bgTextureId = c.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BTNCLOSEUP1);
-        c.txtColor = MyColor(255, 255, 255, 255);
-        c.label = L"";  c.lblFontSize = 8.0f;  c.isVisible = true;
-        c.onMouseBtnDown = [this, WIN_NAME, revertCfg]() {
-            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
-            config.myConfig = *revertCfg;   // undo all changes
-            config.applyLive();             // revert live audio
-            RemoveWindow(WIN_NAME);
-        };
-        configWindow->AddControl(c);
     }
 
     // -----------------------------------------------------------------------
@@ -384,67 +393,35 @@ void GUIManager::CreateConfigWindow()
     {
         float y = CY;
 
-        addVolRow("t0_fov", y, L"Field of View:",
-            CfgFmtFloat(config.myConfig.fov, 1), true, 0,
-            [weakWin, updLabel]() {
-                if (config.myConfig.fov > 20.0L) config.myConfig.fov -= 1.0L;
-                config.applyLive();
-                updLabel("t0_fov_val", CfgFmtFloat(config.myConfig.fov, 1));
-            },
-            [weakWin, updLabel]() {
-                if (config.myConfig.fov < 120.0L) config.myConfig.fov += 1.0L;
-                config.applyLive();
-                updLabel("t0_fov_val", CfgFmtFloat(config.myConfig.fov, 1));
+        addSliderRow("t0_zoom", y, L"Zoom Sensitivity:", true, 0,
+            0.001f, 0.050f, (float)config.myConfig.zoomSensitivity,
+            [](float v) { return CfgFmtFloat((long double)v, 4); },
+            [](float v) { config.myConfig.zoomSensitivity = (long double)v; });
+        y += ROW;
+
+        addSliderRow("t0_move", y, L"Move Sensitivity:", true, 0,
+            0.0001f, 0.0050f, (float)config.myConfig.moveSensitivity,
+            [](float v) { return CfgFmtFloat((long double)v, 5); },
+            [](float v) { config.myConfig.moveSensitivity = (long double)v; });
+        y += ROW;
+
+        addSliderRow("t0_maxp", y, L"Max Pitch (deg):", true, 0,
+            1.0f, 89.0f, (float)config.myConfig.maxPitch,
+            [](float v) { return CfgFmtFloat((long double)std::round(v), 1); },
+            [](float v) {
+                float s = std::round(v);
+                if (s > (float)config.myConfig.minPitch + 1.0f)
+                    config.myConfig.maxPitch = (long double)s;
             });
         y += ROW;
 
-        addVolRow("t0_zoom", y, L"Zoom Sensitivity:",
-            CfgFmtFloat(config.myConfig.zoomSensitivity, 4), true, 0,
-            [updLabel]() {
-                if (config.myConfig.zoomSensitivity > 0.001L) config.myConfig.zoomSensitivity -= 0.001L;
-                updLabel("t0_zoom_val", CfgFmtFloat(config.myConfig.zoomSensitivity, 4));
-            },
-            [updLabel]() {
-                config.myConfig.zoomSensitivity += 0.001L;
-                updLabel("t0_zoom_val", CfgFmtFloat(config.myConfig.zoomSensitivity, 4));
-            });
-        y += ROW;
-
-        addVolRow("t0_move", y, L"Move Sensitivity:",
-            CfgFmtFloat(config.myConfig.moveSensitivity, 5), true, 0,
-            [updLabel]() {
-                if (config.myConfig.moveSensitivity > 0.0001L) config.myConfig.moveSensitivity -= 0.0001L;
-                updLabel("t0_move_val", CfgFmtFloat(config.myConfig.moveSensitivity, 5));
-            },
-            [updLabel]() {
-                config.myConfig.moveSensitivity += 0.0001L;
-                updLabel("t0_move_val", CfgFmtFloat(config.myConfig.moveSensitivity, 5));
-            });
-        y += ROW;
-
-        addVolRow("t0_maxp", y, L"Max Pitch (deg):",
-            CfgFmtFloat(config.myConfig.maxPitch, 1), true, 0,
-            [updLabel]() {
-                if (config.myConfig.maxPitch > config.myConfig.minPitch + 1.0L)
-                    config.myConfig.maxPitch -= 1.0L;
-                updLabel("t0_maxp_val", CfgFmtFloat(config.myConfig.maxPitch, 1));
-            },
-            [updLabel]() {
-                if (config.myConfig.maxPitch < 89.0L) config.myConfig.maxPitch += 1.0L;
-                updLabel("t0_maxp_val", CfgFmtFloat(config.myConfig.maxPitch, 1));
-            });
-        y += ROW;
-
-        addVolRow("t0_minp", y, L"Min Pitch (deg):",
-            CfgFmtFloat(config.myConfig.minPitch, 1), true, 0,
-            [updLabel]() {
-                if (config.myConfig.minPitch > -89.0L) config.myConfig.minPitch -= 1.0L;
-                updLabel("t0_minp_val", CfgFmtFloat(config.myConfig.minPitch, 1));
-            },
-            [updLabel]() {
-                if (config.myConfig.minPitch < config.myConfig.maxPitch - 1.0L)
-                    config.myConfig.minPitch += 1.0L;
-                updLabel("t0_minp_val", CfgFmtFloat(config.myConfig.minPitch, 1));
+        addSliderRow("t0_minp", y, L"Min Pitch (deg):", true, 0,
+            -89.0f, 88.0f, (float)config.myConfig.minPitch,
+            [](float v) { return CfgFmtFloat((long double)std::round(v), 1); },
+            [](float v) {
+                float s = std::round(v);
+                if (s < (float)config.myConfig.maxPitch - 1.0f)
+                    config.myConfig.minPitch = (long double)s;
             });
         y += ROW;
 
@@ -453,113 +430,83 @@ void GUIManager::CreateConfigWindow()
         addInfoRow("t0_far",  y, L"Far Plane:",  CfgFmtFloat(config.myConfig.farPlane, 1), true);
         y += ROW;
 
-        addTogRow("t0_dbg", y, L"Show Debug Info:", config.myConfig.showDebugInfo, true, 0,
-            [updLabel]() {
-                config.myConfig.showDebugInfo = !config.myConfig.showDebugInfo;
-                updLabel("t0_dbg_tog", config.myConfig.showDebugInfo ? L"[ ON ]" : L"[ OFF ]");
-            });
+        addTogSlider("t0_dbg", y, L"Show Debug Info:", config.myConfig.showDebugInfo, true, 0,
+            [](bool on) { config.myConfig.showDebugInfo = on; });
     }
 
     // ===================================================================
     // TAB 1: AUDIO
-    // Every button modifies config.myConfig AND calls config.applyLive()
-    // so the live system (soundManager, xmPlayer, ttsManager etc.) updates
-    // immediately.  Volumes capped at 0-64 to match the keyboard-shortcut
-    // OSD and the SoundManager / XMPlayer APIs.
+    // Sliders modify config.myConfig and call config.applyLive() immediately.
+    // Volumes 0-64 match the OSD / SoundManager / XMPlayer APIs.
     // ===================================================================
     {
         float y = CY;
 
-        addVolRow("t1_mvol", y, L"Master Volume:", CfgFmtInt(config.myConfig.masterVolume), false, 1,
-            [updLabel]() {
-                config.myConfig.masterVolume = std::max(0, config.myConfig.masterVolume - 4);
+        addSliderRow("t1_mvol", y, L"Master Volume:", false, 1,
+            0.0f, 64.0f, (float)config.myConfig.masterVolume,
+            [](float v) { return CfgFmtInt(std::clamp((int)std::round(v), 0, 64)); },
+            [](float v) {
+                config.myConfig.masterVolume = std::clamp((int)std::round(v), 0, 64);
                 config.applyLive();
-                updLabel("t1_mvol_val", CfgFmtInt(config.myConfig.masterVolume));
-            },
-            [updLabel]() {
-                config.myConfig.masterVolume = std::min(64, config.myConfig.masterVolume + 4);
-                config.applyLive();
-                updLabel("t1_mvol_val", CfgFmtInt(config.myConfig.masterVolume));
             });
         y += ROW;
 
-        addVolRow("t1_muvol", y, L"Music Volume:", CfgFmtInt(config.myConfig.musicVolume), false, 1,
-            [updLabel]() {
-                config.myConfig.musicVolume = std::max(0, config.myConfig.musicVolume - 4);
+        addSliderRow("t1_muvol", y, L"Music Volume:", false, 1,
+            0.0f, 64.0f, (float)config.myConfig.musicVolume,
+            [](float v) { return CfgFmtInt(std::clamp((int)std::round(v), 0, 64)); },
+            [](float v) {
+                config.myConfig.musicVolume = std::clamp((int)std::round(v), 0, 64);
                 config.applyLive();
-                updLabel("t1_muvol_val", CfgFmtInt(config.myConfig.musicVolume));
-            },
-            [updLabel]() {
-                config.myConfig.musicVolume = std::min(64, config.myConfig.musicVolume + 4);
-                config.applyLive();
-                updLabel("t1_muvol_val", CfgFmtInt(config.myConfig.musicVolume));
             });
         y += ROW;
 
-        addVolRow("t1_avol", y, L"Ambient Volume:", CfgFmtInt(config.myConfig.ambientVolume), false, 1,
-            [updLabel]() {
-                config.myConfig.ambientVolume = std::max(0, config.myConfig.ambientVolume - 4);
+        addSliderRow("t1_avol", y, L"Ambient Volume:", false, 1,
+            0.0f, 64.0f, (float)config.myConfig.ambientVolume,
+            [](float v) { return CfgFmtInt(std::clamp((int)std::round(v), 0, 64)); },
+            [](float v) {
+                config.myConfig.ambientVolume = std::clamp((int)std::round(v), 0, 64);
                 config.applyLive();
-                updLabel("t1_avol_val", CfgFmtInt(config.myConfig.ambientVolume));
-            },
-            [updLabel]() {
-                config.myConfig.ambientVolume = std::min(64, config.myConfig.ambientVolume + 4);
-                config.applyLive();
-                updLabel("t1_avol_val", CfgFmtInt(config.myConfig.ambientVolume));
             });
         y += ROW;
 
-        addVolRow("t1_dvol", y, L"Dialog Volume:", CfgFmtInt(config.myConfig.dialogVolume), false, 1,
-            [updLabel]() {
-                config.myConfig.dialogVolume = std::max(0, config.myConfig.dialogVolume - 4);
+        addSliderRow("t1_dvol", y, L"Dialog Volume:", false, 1,
+            0.0f, 64.0f, (float)config.myConfig.dialogVolume,
+            [](float v) { return CfgFmtInt(std::clamp((int)std::round(v), 0, 64)); },
+            [](float v) {
+                config.myConfig.dialogVolume = std::clamp((int)std::round(v), 0, 64);
                 config.applyLive();
-                updLabel("t1_dvol_val", CfgFmtInt(config.myConfig.dialogVolume));
-            },
-            [updLabel]() {
-                config.myConfig.dialogVolume = std::min(64, config.myConfig.dialogVolume + 4);
-                config.applyLive();
-                updLabel("t1_dvol_val", CfgFmtInt(config.myConfig.dialogVolume));
             });
         y += ROW;
 
-        addTogRow("t1_pmus", y, L"Play Music:", config.myConfig.playMusic, false, 1,
-            [updLabel]() {
-                config.myConfig.playMusic = !config.myConfig.playMusic;
-                updLabel("t1_pmus_tog", config.myConfig.playMusic ? L"[ ON ]" : L"[ OFF ]");
+        addTogSlider("t1_pmus", y, L"Play Music:", config.myConfig.playMusic, false, 1,
+            [](bool on) {
+                config.myConfig.playMusic = on;
+                config.applyLive();
             });
         y += ROW;
 
-        addTogRow("t1_tts", y, L"Text-to-Speech:", config.myConfig.UseTTS, false, 1,
-            [updLabel]() {
-                config.myConfig.UseTTS = !config.myConfig.UseTTS;
+        addTogSlider("t1_tts", y, L"Text-to-Speech:", config.myConfig.UseTTS, false, 1,
+            [](bool on) {
+                config.myConfig.UseTTS = on;
                 config.applyLive();
-                updLabel("t1_tts_tog", config.myConfig.UseTTS ? L"[ ON ]" : L"[ OFF ]");
             });
         y += ROW;
 
-        addVolRow("t1_ttsvol", y, L"TTS Volume:", CfgFmtFloat(config.myConfig.TTSVolume, 2), false, 1,
-            [updLabel]() {
-                config.myConfig.TTSVolume = std::max(0.0L, config.myConfig.TTSVolume - 0.1L);
+        addSliderRow("t1_ttsvol", y, L"TTS Volume:", false, 1,
+            0.0f, 5.0f, (float)config.myConfig.TTSVolume,
+            [](float v) { return CfgFmtFloat((long double)v, 2); },
+            [](float v) {
+                config.myConfig.TTSVolume = (long double)std::clamp(v, 0.0f, 5.0f);
                 config.applyLive();
-                updLabel("t1_ttsvol_val", CfgFmtFloat(config.myConfig.TTSVolume, 2));
-            },
-            [updLabel]() {
-                if (config.myConfig.TTSVolume < 5.0L) config.myConfig.TTSVolume += 0.1L;
-                config.applyLive();
-                updLabel("t1_ttsvol_val", CfgFmtFloat(config.myConfig.TTSVolume, 2));
             });
         y += ROW;
 
-        addVolRow("t1_micvol", y, L"Microphone Volume:", CfgFmtFloat(config.myConfig.microphoneVolume, 2), false, 1,
-            [updLabel]() {
-                config.myConfig.microphoneVolume = std::max(0.0L, config.myConfig.microphoneVolume - 0.1L);
+        addSliderRow("t1_micvol", y, L"Microphone Volume:", false, 1,
+            0.0f, 10.0f, (float)config.myConfig.microphoneVolume,
+            [](float v) { return CfgFmtFloat((long double)v, 2); },
+            [](float v) {
+                config.myConfig.microphoneVolume = (long double)std::clamp(v, 0.0f, 10.0f);
                 config.applyLive();
-                updLabel("t1_micvol_val", CfgFmtFloat(config.myConfig.microphoneVolume, 2));
-            },
-            [updLabel]() {
-                if (config.myConfig.microphoneVolume < 10.0L) config.myConfig.microphoneVolume += 0.1L;
-                config.applyLive();
-                updLabel("t1_micvol_val", CfgFmtFloat(config.myConfig.microphoneVolume, 2));
             });
     }
 
@@ -572,133 +519,134 @@ void GUIManager::CreateConfigWindow()
     {
         float y = CY;
 
-        // --- Display Mode (Windowed / Borderless Window / Full Screen) ---
-        auto dispMode = std::make_shared<int>(
-            std::clamp(config.myConfig.displayMode, 0, 2));
-
-        addSelRow("t2_disp", y, L"Screen Display:",
-            DISP_MODE_NAMES[*dispMode], false, 2,
-            [updLabel, dispMode, needsVideoRestart]() {
-                *dispMode = (*dispMode > 0) ? *dispMode - 1 : 2;
-                config.myConfig.displayMode = *dispMode;
-                *needsVideoRestart = true;
-                updLabel("t2_disp_val", DISP_MODE_NAMES[*dispMode]);
-            },
-            [updLabel, dispMode, needsVideoRestart]() {
-                *dispMode = (*dispMode < 2) ? *dispMode + 1 : 0;
-                config.myConfig.displayMode = *dispMode;
-                *needsVideoRestart = true;
-                updLabel("t2_disp_val", DISP_MODE_NAMES[*dispMode]);
+        // --- Field of View (applies live; no restart needed) ---
+        addSliderRow("t2_fov", y, L"Field of View:", false, 2,
+            20.0f, 120.0f, (float)config.myConfig.fov,
+            [](float v) { return CfgFmtFloat((long double)std::round(v), 1); },
+            [](float v) {
+                config.myConfig.fov = (long double)std::clamp(std::round(v), 20.0f, 120.0f);
+                config.applyLive();
             });
         y += ROW;
 
-        // --- Resolution ---
-        auto resLabel = [&]() -> std::wstring {
-            if (uniqueRes->empty()) return L"N/A";
-            auto& r = (*uniqueRes)[*resIdx];
-            return std::to_wstring(r.first) + L"x" + std::to_wstring(r.second);
-        };
-
-        addSelRow("t2_res", y, L"Resolution:", resLabel(), false, 2,
-            [updLabel, allModes, uniqueRes, resIdx, rateVec, rateIdx, needsVideoRestart]() {
-                if (uniqueRes->empty()) return;
-                *resIdx = (*resIdx > 0) ? *resIdx - 1 : (int)uniqueRes->size() - 1;
-                auto& r = (*uniqueRes)[*resIdx];
-                config.myConfig.resolutionWidth  = r.first;
-                config.myConfig.resolutionHeight = r.second;
-                *rateVec = RatesFor(*allModes, r.first, r.second);
-                *rateIdx = 0;
-                if (!rateVec->empty()) config.myConfig.refreshRate = (*rateVec)[0];
-                config.applyLive();
-                *needsVideoRestart = true;
-                updLabel("t2_res_val",
-                    std::to_wstring(r.first) + L"x" + std::to_wstring(r.second));
-                updLabel("t2_hz_val",
-                    rateVec->empty() ? L"N/A"
-                    : std::to_wstring((*rateVec)[0]) + L" Hz");
+        // --- Display Mode (0=Windowed / 1=Borderless / 2=Full Screen) ---
+        addSliderRow("t2_disp", y, L"Screen Display:",
+            false, 2,
+            0.0f, 2.0f, (float)std::clamp(config.myConfig.displayMode, 0, 2),
+            [](float v) -> std::wstring {
+                return DISP_MODE_NAMES[std::clamp((int)std::round(v), 0, 2)];
             },
-            [updLabel, allModes, uniqueRes, resIdx, rateVec, rateIdx, needsVideoRestart]() {
-                if (uniqueRes->empty()) return;
-                *resIdx = (*resIdx < (int)uniqueRes->size() - 1) ? *resIdx + 1 : 0;
-                auto& r = (*uniqueRes)[*resIdx];
-                config.myConfig.resolutionWidth  = r.first;
-                config.myConfig.resolutionHeight = r.second;
-                *rateVec = RatesFor(*allModes, r.first, r.second);
-                *rateIdx = 0;
-                if (!rateVec->empty()) config.myConfig.refreshRate = (*rateVec)[0];
-                config.applyLive();
+            [needsVideoRestart](float v) {
+                config.myConfig.displayMode = std::clamp((int)std::round(v), 0, 2);
                 *needsVideoRestart = true;
-                updLabel("t2_res_val",
-                    std::to_wstring(r.first) + L"x" + std::to_wstring(r.second));
-                updLabel("t2_hz_val",
-                    rateVec->empty() ? L"N/A"
-                    : std::to_wstring((*rateVec)[0]) + L" Hz");
             });
         y += ROW;
 
-        // --- Refresh Rate ---
-        auto rateLabel = [&]() -> std::wstring {
-            if (rateVec->empty()) return L"N/A";
-            return std::to_wstring((*rateVec)[*rateIdx]) + L" Hz";
-        };
+        // --- Resolution (slider left = lowest res, right = highest res) ---
+        // uniqueRes is sorted largest-first, so invert: realIdx = (size-1) - sliderPos
+        {
+            int  resCount  = (int)uniqueRes->size();
+            float resMax   = resCount > 0 ? (float)(resCount - 1) : 0.0f;
+            float resStart = resCount > 0 ? (float)(resCount - 1 - startResIdx) : 0.0f;
 
-        addSelRow("t2_hz", y, L"Refresh Rate:", rateLabel(), false, 2,
-            [updLabel, rateVec, rateIdx, needsVideoRestart]() {
-                if (rateVec->empty()) return;
-                *rateIdx = (*rateIdx > 0) ? *rateIdx - 1 : (int)rateVec->size() - 1;
-                config.myConfig.refreshRate = (*rateVec)[*rateIdx];
-                config.applyLive();
-                *needsVideoRestart = true;
-                updLabel("t2_hz_val", std::to_wstring((*rateVec)[*rateIdx]) + L" Hz");
-            },
-            [updLabel, rateVec, rateIdx, needsVideoRestart]() {
-                if (rateVec->empty()) return;
-                *rateIdx = (*rateIdx < (int)rateVec->size() - 1) ? *rateIdx + 1 : 0;
-                config.myConfig.refreshRate = (*rateVec)[*rateIdx];
-                config.applyLive();
-                *needsVideoRestart = true;
-                updLabel("t2_hz_val", std::to_wstring((*rateVec)[*rateIdx]) + L" Hz");
-            });
-        y += ROW;
+            addSliderRow("t2_res", y, L"Resolution:",
+                false, 2,
+                0.0f, resMax, resStart,
+                [uniqueRes](float v) -> std::wstring {
+                    if (uniqueRes->empty()) return L"N/A";
+                    int sz = (int)uniqueRes->size();
+                    int i  = sz - 1 - std::clamp((int)std::round(v), 0, sz - 1);
+                    auto& r = (*uniqueRes)[i];
+                    return std::to_wstring(r.first) + L"x" + std::to_wstring(r.second);
+                },
+                [allModes, uniqueRes, resIdx, rateVec, rateIdx, needsVideoRestart,
+                 weakWin, updLabel](float v) {
+                    if (uniqueRes->empty()) return;
+                    int sz = (int)uniqueRes->size();
+                    int i  = sz - 1 - std::clamp((int)std::round(v), 0, sz - 1);
+                    *resIdx = i;
+                    auto& r = (*uniqueRes)[i];
+                    config.myConfig.resolutionWidth  = r.first;
+                    config.myConfig.resolutionHeight = r.second;
+                    *rateVec = RatesFor(*allModes, r.first, r.second);
+                    *rateIdx = 0;
+                    if (!rateVec->empty()) config.myConfig.refreshRate = (*rateVec)[0];
+                    *needsVideoRestart = true;
+                    // Rebuild rate slider; default to highest rate = rightmost position
+                    float newMax = rateVec->empty() ? 0.0f : (float)((int)rateVec->size() - 1);
+                    if (auto w = weakWin.lock())
+                        for (auto& c : w->controls)
+                            if (c.id == "t2_hz_sldr") {
+                                c.sliderMin = 0.0f; c.sliderMax = newMax; c.sliderValue = newMax;
+                                break;
+                            }
+                    updLabel("t2_hz_val",
+                        rateVec->empty() ? L"N/A"
+                        : std::to_wstring((*rateVec)[0]) + L" Hz");
+                });
+            y += ROW;
+        }
+
+        // --- Refresh Rate (slider left = lowest Hz, right = highest Hz) ---
+        // rateVec is sorted highest-first, so invert: realIdx = (size-1) - sliderPos
+        {
+            int   rateCount = (int)startRates.size();
+            float rateMax   = rateCount > 0 ? (float)(rateCount - 1) : 0.0f;
+            float rateStart = rateCount > 0 ? (float)(rateCount - 1 - startRateIdx) : 0.0f;
+
+            addSliderRow("t2_hz", y, L"Refresh Rate:",
+                false, 2,
+                0.0f, rateMax, rateStart,
+                [rateVec](float v) -> std::wstring {
+                    if (rateVec->empty()) return L"N/A";
+                    int sz = (int)rateVec->size();
+                    int i  = sz - 1 - std::clamp((int)std::round(v), 0, sz - 1);
+                    return std::to_wstring((*rateVec)[i]) + L" Hz";
+                },
+                [rateVec, rateIdx, needsVideoRestart](float v) {
+                    if (rateVec->empty()) return;
+                    int sz = (int)rateVec->size();
+                    int i  = sz - 1 - std::clamp((int)std::round(v), 0, sz - 1);
+                    *rateIdx = i;
+                    config.myConfig.refreshRate = (*rateVec)[i];
+                    *needsVideoRestart = true;
+                });
+            y += ROW;
+        }
 
         // --- Toggles (all require restart) ---
-        addTogRow("t2_vsync", y, L"Vertical Sync:", config.myConfig.enableVSync, false, 2,
-            [updLabel, needsVideoRestart]() {
-                config.myConfig.enableVSync = !config.myConfig.enableVSync;
+        addTogSlider("t2_vsync", y, L"Vertical Sync:", config.myConfig.enableVSync, false, 2,
+            [needsVideoRestart](bool on) {
+                config.myConfig.enableVSync = on;
                 *needsVideoRestart = true;
-                updLabel("t2_vsync_tog", config.myConfig.enableVSync ? L"[ ON ]" : L"[ OFF ]");
             });
         y += ROW;
 
-        addTogRow("t2_aa", y, L"Anti-Aliasing:", config.myConfig.antiAliasingEnabled, false, 2,
-            [updLabel, needsVideoRestart]() {
-                config.myConfig.antiAliasingEnabled = !config.myConfig.antiAliasingEnabled;
+        addTogSlider("t2_aa", y, L"Anti-Aliasing:", config.myConfig.antiAliasingEnabled, false, 2,
+            [needsVideoRestart](bool on) {
+                config.myConfig.antiAliasingEnabled = on;
                 *needsVideoRestart = true;
-                updLabel("t2_aa_tog", config.myConfig.antiAliasingEnabled ? L"[ ON ]" : L"[ OFF ]");
             });
         y += ROW;
 
-        addTogRow("t2_msaa", y, L"MSAA:", config.myConfig.msaaEnabled, false, 2,
-            [updLabel, needsVideoRestart]() {
-                config.myConfig.msaaEnabled = !config.myConfig.msaaEnabled;
+        addTogSlider("t2_msaa", y, L"MSAA:", config.myConfig.msaaEnabled, false, 2,
+            [needsVideoRestart](bool on) {
+                config.myConfig.msaaEnabled = on;
                 *needsVideoRestart = true;
-                updLabel("t2_msaa_tog", config.myConfig.msaaEnabled ? L"[ ON ]" : L"[ OFF ]");
             });
         y += ROW;
 
-        addTogRow("t2_mip", y, L"Mip Mapping:", config.myConfig.MipMapping, false, 2,
-            [updLabel, needsVideoRestart]() {
-                config.myConfig.MipMapping = !config.myConfig.MipMapping;
+        addTogSlider("t2_mip", y, L"Mip Mapping:", config.myConfig.MipMapping, false, 2,
+            [needsVideoRestart](bool on) {
+                config.myConfig.MipMapping = on;
                 *needsVideoRestart = true;
-                updLabel("t2_mip_tog", config.myConfig.MipMapping ? L"[ ON ]" : L"[ OFF ]");
             });
         y += ROW;
 
-        addTogRow("t2_cull", y, L"Back Face Culling:", config.myConfig.BackCulling, false, 2,
-            [updLabel, needsVideoRestart]() {
-                config.myConfig.BackCulling = !config.myConfig.BackCulling;
+        addTogSlider("t2_cull", y, L"Back Face Culling:", config.myConfig.BackCulling, false, 2,
+            [needsVideoRestart](bool on) {
+                config.myConfig.BackCulling = on;
                 *needsVideoRestart = true;
-                updLabel("t2_cull_tog", config.myConfig.BackCulling ? L"[ ON ]" : L"[ OFF ]");
             });
         y += ROW;
 
@@ -711,30 +659,16 @@ void GUIManager::CreateConfigWindow()
     {
         float y = CY;
 
-        addVolRow("t3_jsens", y, L"Joystick Sensitivity:",
-            CfgFmtFloat(config.myConfig.joystickSensitivity, 4), false, 3,
-            [updLabel]() {
-                if (config.myConfig.joystickSensitivity > 0.001L)
-                    config.myConfig.joystickSensitivity -= 0.001L;
-                updLabel("t3_jsens_val", CfgFmtFloat(config.myConfig.joystickSensitivity, 4));
-            },
-            [updLabel]() {
-                config.myConfig.joystickSensitivity += 0.001L;
-                updLabel("t3_jsens_val", CfgFmtFloat(config.myConfig.joystickSensitivity, 4));
-            });
+        addSliderRow("t3_jsens", y, L"Joystick Sensitivity:", false, 3,
+            0.001f, 0.100f, (float)config.myConfig.joystickSensitivity,
+            [](float v) { return CfgFmtFloat((long double)v, 4); },
+            [](float v) { config.myConfig.joystickSensitivity = (long double)v; });
         y += ROW;
 
-        addVolRow("t3_jrot", y, L"Joystick Rotation:",
-            CfgFmtFloat(config.myConfig.joystickRotationSensitivity, 5), false, 3,
-            [updLabel]() {
-                if (config.myConfig.joystickRotationSensitivity > 0.0001L)
-                    config.myConfig.joystickRotationSensitivity -= 0.0001L;
-                updLabel("t3_jrot_val", CfgFmtFloat(config.myConfig.joystickRotationSensitivity, 5));
-            },
-            [updLabel]() {
-                config.myConfig.joystickRotationSensitivity += 0.0001L;
-                updLabel("t3_jrot_val", CfgFmtFloat(config.myConfig.joystickRotationSensitivity, 5));
-            });
+        addSliderRow("t3_jrot", y, L"Joystick Rotation:", false, 3,
+            0.0001f, 0.0100f, (float)config.myConfig.joystickRotationSensitivity,
+            [](float v) { return CfgFmtFloat((long double)v, 5); },
+            [](float v) { config.myConfig.joystickRotationSensitivity = (long double)v; });
     }
 
     // ===================================================================
@@ -752,7 +686,7 @@ void GUIManager::CreateConfigWindow()
     const float BTM_Y = CONT_Y + CONT_H + 8.0f;
 
     // CLOSE — discard all changes, revert live audio
-    addButton("btn_close", WX + 10.0f, BTM_Y, 140.0f, 34.0f, L"Close", 14.0f, true,
+    addButton("btn_close", WX + 10.0f, BTM_Y, 140.0f, 34.0f, L"     Close", 14.0f, true,
         [this, WIN_NAME, revertCfg]() {
             soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
             config.myConfig = *revertCfg;
@@ -762,7 +696,7 @@ void GUIManager::CreateConfigWindow()
 
     // SAVE — write config to disk, revert live audio to reverted state only
     // if video settings changed, show the 10-second restart notification.
-    addButton("btn_save", WX + 165.0f, BTM_Y, 140.0f, 34.0f, L"Save", 14.0f, true,
+    addButton("btn_save", WX + 165.0f, BTM_Y, 140.0f, 34.0f, L"      Save", 14.0f, true,
         [this, WIN_NAME, needsVideoRestart]() {
             soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
             config.saveConfig();
@@ -815,6 +749,7 @@ void GUIManager::CreateConfigWindow()
                 c.position = Vector2(NX + 12.0f, NY + TITLEBAR_HEIGHT + 14.0f);
                 c.size     = Vector2(NW - 24.0f, 26.0f);
                 c.bgColor  = MyColor(0, 0, 0, 0);
+                c.hoverColor = MyColor(0, 0, 0, 0);
                 c.bgTextureId = c.bgTextureHoverId = int(BlitObj2DIndexType::NONE);
                 c.txtColor = MyColor(200, 200, 200, 255);
                 c.label = L"Video settings saved. A restart is required to apply them.";
@@ -828,6 +763,7 @@ void GUIManager::CreateConfigWindow()
                 c.position = Vector2(NX + 12.0f, NY + TITLEBAR_HEIGHT + 46.0f);
                 c.size     = Vector2(NW - 24.0f, 26.0f);
                 c.bgColor  = MyColor(0, 0, 0, 0);
+                c.hoverColor = MyColor(0, 0, 0, 0);
                 c.bgTextureId = c.bgTextureHoverId = int(BlitObj2DIndexType::NONE);
                 c.txtColor = MyColor(255, 220, 80, 255);
                 c.label = L"Restarting automatically in 10 seconds...";
@@ -852,13 +788,13 @@ void GUIManager::CreateConfigWindow()
                     if (restartDone->exchange(true)) return;
                     soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
                     self->RemoveWindow(NOTIFY_WIN);
+                    threadManager.threadVars.bIsShuttingDown.store(true);
+                    PostQuitMessage(0);
                     wchar_t ep[MAX_PATH]={}, ed[MAX_PATH]={};
                     GetModuleFileNameW(NULL, ep, MAX_PATH);
                     wcscpy_s(ed, ep);
                     if (wchar_t* s = wcsrchr(ed, L'\\')) *s = L'\0';
                     ShellExecuteW(NULL, L"open", ep, NULL, ed, SW_SHOWNORMAL);
-                    threadManager.threadVars.bIsShuttingDown.store(true);
-                    PostQuitMessage(0);
                 };
                 nw->AddControl(c);
             }
@@ -902,29 +838,29 @@ void GUIManager::CreateConfigWindow()
                 }
                 if (restartDone->exchange(true)) return;
                 self->RemoveWindow(NOTIFY_WIN);
+                threadManager.threadVars.bIsShuttingDown.store(true);
+                std::this_thread::sleep_for(std::chrono::milliseconds(300));
                 wchar_t ep[MAX_PATH]={}, ed[MAX_PATH]={};
                 GetModuleFileNameW(NULL, ep, MAX_PATH);
                 wcscpy_s(ed, ep);
                 if (wchar_t* s2 = wcsrchr(ed, L'\\')) *s2 = L'\0';
                 ShellExecuteW(NULL, L"open", ep, NULL, ed, SW_SHOWNORMAL);
-                threadManager.threadVars.bIsShuttingDown.store(true);
-                PostQuitMessage(0);
             }).detach();
         });
 
     // RESTART GAME — saves and immediately restarts (no notification needed)
-    addButton("btn_restart", WX + 320.0f, BTM_Y, 170.0f, 34.0f, L"Restart Game", 13.0f, true,
+    addButton("btn_restart", WX + 320.0f, BTM_Y, 170.0f, 34.0f, L"    Restart Game", 13.0f, true,
         [this, WIN_NAME]() {
             soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
             config.saveConfig();
+            RemoveWindow(WIN_NAME);
+            threadManager.threadVars.bIsShuttingDown.store(true);
+            PostQuitMessage(0);
             wchar_t ep[MAX_PATH]={}, ed[MAX_PATH]={};
             GetModuleFileNameW(NULL, ep, MAX_PATH);
             wcscpy_s(ed, ep);
             if (wchar_t* s = wcsrchr(ed, L'\\')) *s = L'\0';
             ShellExecuteW(NULL, L"open", ep, NULL, ed, SW_SHOWNORMAL);
-            RemoveWindow(WIN_NAME);
-            threadManager.threadVars.bIsShuttingDown.store(true);
-            PostQuitMessage(0);
         });
 
     // ===================================================================

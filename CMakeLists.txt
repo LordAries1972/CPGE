@@ -109,6 +109,123 @@ if(MSVC)
     )
 endif()
 
+# ── Shader pre-compilation ───────────────────────────────────────────────────
+# Compiles all HLSL shaders to .cso files as the first PRE_BUILD step.
+# Works with VS 2022, VS Build Tools, or a standalone Windows SDK install.
+# .cso files land next to the executable for each configuration.
+if(WIN32)
+    set(_FXC_HINTS "")
+
+    # Priority 1 — VS / Build Tools developer environment variables.
+    # Set by vcvars64.bat; always point to the exact SDK version in use.
+    if(DEFINED ENV{WindowsSdkBinPath})
+        string(REGEX REPLACE "[\\/]+$" "" _B "$ENV{WindowsSdkBinPath}")
+        list(APPEND _FXC_HINTS "${_B}/x64")
+    endif()
+    if(DEFINED ENV{WindowsSdkDir} AND DEFINED ENV{WindowsSDKVersion})
+        string(REGEX REPLACE "[\\/]+$" "" _D "$ENV{WindowsSdkDir}")
+        string(REGEX REPLACE "[\\/]+$" "" _V "$ENV{WindowsSDKVersion}")
+        list(APPEND _FXC_HINTS "${_D}/bin/${_V}/x64")
+    endif()
+
+    # Priority 2 — CMake VS-generator detected version, both PF locations.
+    if(CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION)
+        foreach(_PF "$ENV{ProgramFiles\(x86\)}" "C:/Program Files (x86)"
+                    "$ENV{ProgramW6432}"         "C:/Program Files")
+            list(APPEND _FXC_HINTS
+                "${_PF}/Windows Kits/10/bin/${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}/x64")
+        endforeach()
+    endif()
+
+    # Priority 3 — Windows registry KitsRoot10 key.
+    # Present on any machine with the standalone SDK installed, even without VS.
+    get_filename_component(_SDK_REG
+        "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots;KitsRoot10]"
+        ABSOLUTE)
+    if(_SDK_REG AND IS_DIRECTORY "${_SDK_REG}")
+        file(GLOB _SDK_REG_VERS LIST_DIRECTORIES true "${_SDK_REG}/bin/10.*")
+        foreach(_D IN LISTS _SDK_REG_VERS)
+            list(APPEND _FXC_HINTS "${_D}/x64")
+        endforeach()
+    endif()
+
+    # Priority 4 — broad glob across both Program Files roots (catches any version).
+    foreach(_PF_BIN
+            "$ENV{ProgramFiles\(x86\)}/Windows Kits/10/bin"
+            "C:/Program Files (x86)/Windows Kits/10/bin"
+            "$ENV{ProgramW6432}/Windows Kits/10/bin"
+            "C:/Program Files/Windows Kits/10/bin")
+        file(GLOB _G LIST_DIRECTORIES true "${_PF_BIN}/10.*")
+        foreach(_D IN LISTS _G)
+            list(APPEND _FXC_HINTS "${_D}/x64")
+        endforeach()
+    endforeach()
+
+    find_program(FXC_EXE NAMES fxc HINTS ${_FXC_HINTS} DOC "HLSL shader compiler")
+
+    if(NOT FXC_EXE)
+        message(FATAL_ERROR
+            "\n"
+            "  ======================================================================\n"
+            "  CANNOT Compile Resources - Please Install MSSDK\n"
+            "  ======================================================================\n"
+            "\n"
+            "  fxc.exe (DirectX HLSL shader compiler) was not found on this system.\n"
+            "  It is required to pre-compile HLSL shaders (.hlsl -> .cso) and is\n"
+            "  included with the Microsoft Windows 10/11 SDK.\n"
+            "\n"
+            "  -- OPTION 1: Install via Visual Studio Installer (recommended) --------\n"
+            "    1. Open the Visual Studio Installer\n"
+            "       (search 'Visual Studio Installer' in the Start menu)\n"
+            "    2. Click 'Modify' on your Visual Studio or Build Tools installation\n"
+            "    3. Select the 'Individual Components' tab\n"
+            "    4. Search for 'Windows SDK' and tick the latest entry, e.g.:\n"
+            "         'Windows 11 SDK (10.0.26100.0)'\n"
+            "    5. Click 'Modify' and wait for the installation to complete\n"
+            "    6. Re-run cmake-build.bat\n"
+            "\n"
+            "  -- OPTION 2: Standalone Windows SDK Installer -------------------------\n"
+            "    Download from:\n"
+            "      https://developer.microsoft.com/en-us/windows/downloads/windows-sdk/\n"
+            "    During installation select at minimum:\n"
+            "      - Windows SDK Signing Tools for Desktop Apps\n"
+            "      - Windows SDK for Desktop C++ x86 Apps\n"
+            "      - Windows SDK for Desktop C++ amd64 Apps\n"
+            "    After install, re-run cmake-build.bat\n"
+            "\n"
+            "  -- NOTES --------------------------------------------------------------\n"
+            "    fxc.exe will be installed to:\n"
+            "      C:\\Program Files (x86)\\Windows Kits\\10\\bin\\<version>\\x64\\fxc.exe\n"
+            "    This project targets Windows 10 / Windows 11 (x64).\n"
+            "    A minimum SDK version of 10.0.19041.0 is required.\n"
+            "  ======================================================================\n"
+        )
+    endif()
+
+    message(STATUS "Shader compiler: ${FXC_EXE}")
+    set(_SD "${CMAKE_CURRENT_SOURCE_DIR}/Assets/Shaders")
+
+    # Compile one HLSL to .cso alongside the executable
+    macro(add_hlsl_shader HLSL_FILE PROFILE OUT_CSO)
+        add_custom_command(TARGET CrossPlatformGameEngine PRE_BUILD
+            COMMAND "${FXC_EXE}"
+                /nologo
+                /T ${PROFILE}
+                /E main
+                $<IF:$<CONFIG:Debug>,/Od,/O1>
+                /Fo "$<TARGET_FILE_DIR:CrossPlatformGameEngine>/${OUT_CSO}"
+                "${_SD}/${HLSL_FILE}"
+            COMMENT "FXC: ${HLSL_FILE} -> ${OUT_CSO}"
+            VERBATIM
+        )
+    endmacro()
+
+    add_hlsl_shader(DefaultVertex.hlsl  vs_5_0  VertexShader.cso)
+    add_hlsl_shader(DefaultPixel.hlsl   ps_5_0  PixelShader.cso)
+    add_hlsl_shader(ModelVertex.hlsl    vs_5_0  ModelVShader.cso)
+    add_hlsl_shader(ModelPixel.hlsl     ps_5_0  ModelPShader.cso)
+endif()
+
 # ── Version auto-increment (mirrors UpdateVersionFile MSBuild target) ─────────
 set(VERSION_FILE "${CMAKE_CURRENT_SOURCE_DIR}/Version.id")
 add_custom_command(TARGET CrossPlatformGameEngine PRE_BUILD

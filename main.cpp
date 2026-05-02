@@ -178,6 +178,7 @@ MyRandomizer myRandomizer;
     MediaPlayer player;
 #elif defined(__USE_XMPLAYER__)
     XMMODPlayer xmPlayer;
+    static std::wstring g_currentMusicFile;  // last-loaded module path; used for pattern-0 restart
 #endif
 
 // Our Base Models Buffer, Resources & Data (Storage Only / Read Only!).
@@ -587,8 +588,24 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                 ApplySystemMasterVolume(cfg.masterVolume);
             #endif
             #if defined(__USE_XMPLAYER__)
-                if (xmPlayer.IsPlaying())
-                    xmPlayer.SetVolume(static_cast<uint8_t>(std::clamp(cfg.musicVolume, 0, 64)));
+                if (cfg.playMusic) {
+                    if (xmPlayer.IsPaused()) {
+                        // Restart from pattern 0 with correct volume.
+                        // Stop()+Play() is blocking so run it off the main thread.
+                        uint8_t vol = static_cast<uint8_t>(std::clamp(cfg.musicVolume, 0, 64));
+                        std::wstring musicFile = g_currentMusicFile;
+                        std::thread([vol, musicFile]() {
+                            xmPlayer.Stop();
+                            if (!musicFile.empty() && xmPlayer.Play(musicFile))
+                                xmPlayer.SetVolume(vol);
+                        }).detach();
+                    } else if (xmPlayer.IsPlaying()) {
+                        xmPlayer.SetVolume(static_cast<uint8_t>(std::clamp(cfg.musicVolume, 0, 64)));
+                    }
+                } else {
+                    if (xmPlayer.IsPlaying() && !xmPlayer.IsPaused())
+                        xmPlayer.Pause();
+                }
             #endif
             screenRecorder.SetMicMonitorGain(static_cast<float>(cfg.microphoneVolume));
             #if defined(_WIN64) || defined(_WIN32)
@@ -2095,7 +2112,6 @@ bool Load_Music()
 
             case SceneType::SCENE_GAMETITLE:
             {
-                // Load the Intro Music Module
                 std::wstring XMFilename = L"electro3.xm";
                 auto fileName = AssetsDir / XMFilename;
                 xmPlayer.Initialize(fileName);
@@ -2105,12 +2121,14 @@ bool Load_Music()
                     debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[LOADER]: Failed to Play the requested Module file.");
                     return false;
                 }
+                g_currentMusicFile = fileName.wstring();
+                if (!config.myConfig.playMusic)
+                    xmPlayer.Pause();
                 break;
             }
 
             case SceneType::SCENE_GAMEPLAY:
             {
-                // Load the Gameplay Music Module
                 std::wstring XMFilename = L"thevoid.xm";
                 auto fileName = AssetsDir / XMFilename;
                 xmPlayer.Initialize(fileName);
@@ -2120,6 +2138,9 @@ bool Load_Music()
                     debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[LOADER]: Failed to Play the requested Module file.");
                     return false;
                 }
+                g_currentMusicFile = fileName.wstring();
+                if (!config.myConfig.playMusic)
+                    xmPlayer.Pause();
                 break;
             }
             default:

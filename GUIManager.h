@@ -36,6 +36,8 @@ enum class GUIControlType {
     None,
     Button,
     Scrollbar,
+    HSlider,
+    ToggleSlider,
     TitleBar,
     TextArea
 };
@@ -68,8 +70,13 @@ struct GUIControl {
     std::function<void()> onMouseOver;
     std::function<void()> onMouseMove;                  // Used for TitleBar Control
     std::function<void(int)> onScroll;                  // For scrollbar events
+    std::function<void(float)> onSliderChanged;         // For HSlider: fires with normalised [min..max] value
+    float sliderMin   = 0.0f;
+    float sliderMax   = 1.0f;
+    float sliderValue = 0.0f;
     bool isHovered = false;
     bool isPressed = false;
+    bool isActive  = false;                             // HSlider: true on the last-touched knob (flashes)
     GUIControlType type = GUIControlType::None;         // New field to specify control type
 };
 

@@ -137,11 +137,12 @@ void GUIManager::RemoveWindow(const std::string& name) {
     // Clear all lambda function pointers to break circular references
     for (auto& control : controlsCopy) {
         // Safely clear all function pointers to prevent dangling references
-        control.onMouseBtnDown = nullptr;
-        control.onMouseBtnUp = nullptr;
-        control.onMouseOver = nullptr;
-        control.onMouseMove = nullptr;
-        control.onScroll = nullptr;
+        control.onMouseBtnDown  = nullptr;
+        control.onMouseBtnUp    = nullptr;
+        control.onMouseOver     = nullptr;
+        control.onMouseMove     = nullptr;
+        control.onScroll        = nullptr;
+        control.onSliderChanged = nullptr;
     }
 
     // Clear the original controls vector completely
@@ -345,6 +346,25 @@ void GUIWindow::HandleMouseMove(const Vector2& mousePosition, const std::unorder
                 break;
             }
 
+            case GUIControlType::HSlider:
+            {
+                if (control.isVisible && control.isPressed) {
+                    const float knobW  = 14.0f;
+                    float usableW = control.size.x - knobW;
+                    if (usableW > 0.0f) {
+                        float t = std::clamp(
+                            (mousePosition.x - control.position.x - knobW * 0.5f) / usableW,
+                            0.0f, 1.0f);
+                        control.sliderValue = control.sliderMin + t * (control.sliderMax - control.sliderMin);
+                        if (control.onSliderChanged) control.onSliderChanged(control.sliderValue);
+                    }
+                }
+                break;
+            }
+
+            case GUIControlType::ToggleSlider:
+                break;  // click-only control, no drag logic
+
             default:
                 break;
         }
@@ -412,6 +432,50 @@ void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick
             }
             int newPosition = mousePosition.y - control.position.y;
             UpdateScrollbar(newPosition);
+            break;
+        }
+
+        case GUIControlType::HSlider:
+        {
+            if (!control.isVisible) break;
+            if (isMouseOver && isLeftClick) {
+                if (!control.isPressed) {
+                    control.isPressed = true;
+                    control.isActive  = true;
+                    // Deactivate every other slider on this window
+                    for (auto& other : controls)
+                        if (&other != &control && other.type == GUIControlType::HSlider)
+                            other.isActive = false;
+                }
+                const float knobW  = 14.0f;
+                float usableW = control.size.x - knobW;
+                if (usableW > 0.0f) {
+                    float t = std::clamp(
+                        (mousePosition.x - control.position.x - knobW * 0.5f) / usableW,
+                        0.0f, 1.0f);
+                    control.sliderValue = control.sliderMin + t * (control.sliderMax - control.sliderMin);
+                    if (control.onSliderChanged) control.onSliderChanged(control.sliderValue);
+                }
+            }
+            else if (!isLeftClick) {
+                control.isPressed = false;
+            }
+            break;
+        }
+
+        case GUIControlType::ToggleSlider:
+        {
+            if (!control.isVisible) break;
+            if (isMouseOver && isLeftClick) {
+                if (!control.isPressed) {
+                    control.isPressed   = true;
+                    control.sliderValue = (control.sliderValue >= 0.5f) ? 0.0f : 1.0f;
+                    if (control.onSliderChanged) control.onSliderChanged(control.sliderValue);
+                }
+            }
+            else if (!isLeftClick) {
+                control.isPressed = false;
+            }
             break;
         }
 
@@ -692,6 +756,150 @@ void GUIWindow::Render() {
             case GUIControlType::Scrollbar: {
                 // Draw the scrollbar background
                 r->DrawRectangle(control.position, control.size, bgColor, true);
+                break;
+            }
+
+            case GUIControlType::ToggleSlider: {
+                const bool  on    = (control.sliderValue >= 0.5f);
+                const float knobW = 28.0f;
+                const float knobH = control.size.y - 6.0f;
+                const float knobY = control.position.y + 3.0f;
+
+                // Track background — green when ON, red-dark when OFF
+                MyColor trackBg;
+                if (on)
+                    trackBg = control.isHovered
+                        ? MyColor(24, 88, 32, 245) : MyColor(16, 64, 22, 228);
+                else
+                    trackBg = control.isHovered
+                        ? MyColor(78, 26, 20, 245) : MyColor(58, 18, 14, 222);
+                r->DrawRectangle(control.position, control.size, trackBg, true);
+
+                // 1px inset border (top highlight, bottom shadow)
+                r->DrawRectangle(
+                    Vector2(control.position.x, control.position.y),
+                    Vector2(control.size.x, 1.0f),
+                    MyColor(200, 200, 200, 40), true);
+                r->DrawRectangle(
+                    Vector2(control.position.x, control.position.y + control.size.y - 1.0f),
+                    Vector2(control.size.x, 1.0f),
+                    MyColor(0, 0, 0, 60), true);
+
+                // Knob x position (left = OFF, right = ON)
+                float knobX = on
+                    ? control.position.x + control.size.x - knobW - 2.0f
+                    : control.position.x + 2.0f;
+
+                // State text on the non-knob side
+                const std::wstring stateText = on ? L"ON" : L"OFF";
+                MyColor textCol = on
+                    ? MyColor(115, 255, 130, 210) : MyColor(195, 105, 100, 200);
+                float textX = on
+                    ? control.position.x + 4.0f
+                    : control.position.x + knobW + 6.0f;
+                float textH    = r->CalculateTextHeight(stateText, 11.0f, control.size.y);
+                float centredY = control.position.y + (control.size.y - textH) / 2.0f;
+                r->DrawMyText(stateText,
+                    Vector2(textX, centredY),
+                    Vector2(control.size.x - knobW - 8.0f, control.size.y),
+                    textCol, 11.0f);
+
+                // Knob drop-shadow
+                r->DrawRectangle(
+                    Vector2(knobX + 1.0f, knobY + 1.0f),
+                    Vector2(knobW, knobH),
+                    MyColor(0, 0, 0, 85), true);
+
+                // Knob body
+                MyColor knobCol = on
+                    ? MyColor(55, 215, 80, 255) : MyColor(188, 58, 48, 255);
+                r->DrawRectangle(
+                    Vector2(knobX, knobY),
+                    Vector2(knobW, knobH),
+                    knobCol, true);
+
+                // Knob shine strip (top highlight)
+                r->DrawRectangle(
+                    Vector2(knobX + 3.0f, knobY + 1.0f),
+                    Vector2(knobW - 6.0f, 3.0f),
+                    MyColor(255, 255, 255, 70), true);
+
+                // Knob centre groove
+                r->DrawRectangle(
+                    Vector2(knobX + knobW * 0.5f - 1.0f, knobY + 4.0f),
+                    Vector2(2.0f, knobH - 8.0f),
+                    MyColor(0, 0, 0, 65), true);
+
+                break;
+            }
+
+            case GUIControlType::HSlider: {
+                const float knobW  = 14.0f;
+                const float trackH = 6.0f;
+
+                // Sunken panel behind the whole slider area
+                r->DrawRectangle(control.position, control.size,
+                    MyColor(10, 10, 18, 200), true);
+
+                // Track groove (dark channel)
+                float trackY = control.position.y + (control.size.y - trackH) * 0.5f;
+                float trackStartX = control.position.x + knobW * 0.5f;
+                float trackUsableW = control.size.x - knobW;
+                r->DrawRectangle(
+                    Vector2(trackStartX, trackY),
+                    Vector2(trackUsableW, trackH),
+                    MyColor(25, 25, 40, 255), true);
+
+                // Filled portion (progress left of knob centre)
+                float t = (control.sliderMax > control.sliderMin)
+                    ? std::clamp((control.sliderValue - control.sliderMin)
+                                 / (control.sliderMax - control.sliderMin), 0.0f, 1.0f)
+                    : 0.0f;
+                float knobCentreX = trackStartX + t * trackUsableW;
+                float fillW = knobCentreX - trackStartX;
+                if (fillW > 0.5f)
+                    r->DrawRectangle(
+                        Vector2(trackStartX, trackY),
+                        Vector2(fillW, trackH),
+                        MyColor(50, 110, 210, 200), true);
+
+                // Track border highlight (top edge of groove, 1px)
+                r->DrawRectangle(
+                    Vector2(trackStartX, trackY),
+                    Vector2(trackUsableW, 1.0f),
+                    MyColor(60, 60, 90, 180), true);
+
+                // Knob colour — flash gold when active, else steel blue / hover
+                bool flashOn = (GetTickCount64() / 1000) % 2 == 0;
+                MyColor knobCol;
+                if (control.isActive)
+                    knobCol = flashOn ? MyColor(255, 195, 35, 255) : MyColor(130, 95, 15, 255);
+                else if (control.isHovered)
+                    knobCol = MyColor(120, 130, 200, 255);
+                else
+                    knobCol = MyColor(65, 70, 115, 255);
+
+                float knobX = knobCentreX - knobW * 0.5f;
+                // Knob shadow (1px offset dark rectangle)
+                r->DrawRectangle(
+                    Vector2(knobX + 1.0f, control.position.y + 1.0f),
+                    Vector2(knobW, control.size.y),
+                    MyColor(0, 0, 0, 100), true);
+                // Knob body
+                r->DrawRectangle(
+                    Vector2(knobX, control.position.y),
+                    Vector2(knobW, control.size.y),
+                    knobCol, true);
+                // Knob shine strip (top highlight)
+                r->DrawRectangle(
+                    Vector2(knobX + 2.0f, control.position.y + 1.0f),
+                    Vector2(knobW - 4.0f, 3.0f),
+                    MyColor(255, 255, 255, 55), true);
+                // Knob centre groove (vertical notch)
+                r->DrawRectangle(
+                    Vector2(knobCentreX - 1.0f, control.position.y + 3.0f),
+                    Vector2(2.0f, control.size.y - 6.0f),
+                    MyColor(0, 0, 0, 80), true);
                 break;
             }
         }
