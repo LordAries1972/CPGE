@@ -10,7 +10,7 @@
 // Music Player Configuration
 /* -------------------------------------------------------- */
 // Ensure only ONE Music player type is defined only
-#if (defined(__USE_XMPLAYER__) + defined(__USE_MP3PLAYER__)) > 1 
+#if (defined(__USE_XMPLAYER__) + defined(__USE_MP3PLAYER__)) > 1
 #error "Multiple Music Players are Defined for use. Please define only one if you are wanting Music Playback."
 #endif
 
@@ -55,12 +55,6 @@ struct MyConfig {
     // Add more configuration parameters as needed
     bool UseTTS = true;
     long double TTSVolume = 1.0f;
-
-    // Display / window settings
-    int displayMode      = 2;     // 0=Windowed  1=Borderless  2=Full Screen
-    int resolutionWidth  = 1920;
-    int resolutionHeight = 1080;
-    int refreshRate      = 60;
 };
 
 class Configuration {

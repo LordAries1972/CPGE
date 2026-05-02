@@ -141,6 +141,7 @@
     <ClCompile Include="GamePlayer.cpp" />
     <ClCompile Include="GamingAI.cpp" />
     <ClCompile Include="GLTFAnimator.cpp" />
+    <ClCompile Include="GUIConfigWindow.cpp" />
     <ClCompile Include="GUIManager.cpp" />
     <ClCompile Include="GUIWindows.cpp" />
     <ClCompile Include="IOStreamDX11Thread.cpp" />

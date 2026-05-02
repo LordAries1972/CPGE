@@ -250,7 +250,7 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard);
 // *----------------------------------------------------------------------------------------------
 #if defined(PLATFORM_WINDOWS)
 // Sets the Windows default audio endpoint master volume. vol64 is 0-64 mapped to 0.0-1.0.
-void ApplySystemMasterVolume(int vol64)
+static void ApplySystemMasterVolume(int vol64)
 {
     float scalar = static_cast<float>(std::clamp(vol64, 0, 64)) / 64.0f;
 

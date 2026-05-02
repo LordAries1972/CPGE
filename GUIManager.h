@@ -91,6 +91,7 @@ public:
     bool isDragging = false;                            // true while dragging a window
     bool wasDragging = false;
     bool bWindowDestroy = false;                        // Safety Flag to state when window is closing.
+    bool isModal = false;                               // When true, all other windows are blocked from receiving input.
     std::vector<GUIControl> controls;                   // Our Controls list pertaining to this window.
     int scrollPosition = 0;                             // Current scroll position
     int maxScrollPosition = 0;                          // Maximum scroll position
@@ -124,6 +125,7 @@ public:
     void Initialize(Renderer* renderer);                                    // Updated to accept Renderer
     void CreateAlertWindow(const std::wstring& message);                    // No longer needs Renderer parameter
     void CreateGameMenuWindow(const std::wstring& message);
+    void CreateConfigWindow();
     void CreateMyWindow(const std::string& name, GUIWindowType type,
         const Vector2& position, const Vector2& size,
         const MyColor& backgroundColor,

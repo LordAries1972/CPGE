@@ -112,41 +112,41 @@ void DX11Renderer::RenderFrame()
 
         // MODEL SAFETY CHECK!
         #if defined(_DEBUG)
-            FLOAT clearColor[4] = { 0.2f, 0.2f, 0.2f, 1.0f };               // Use Dark Grey clear color with full alpha to ensure all models are rendering properly.
+            FLOAT clearColor[4] = { 0.01f, 0.01f, 0.01f, 1.0f };        // Use Very Dark Grey clear color with full alpha to ensure all models are rendering properly.
         #else 
-            FLOAT clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };               // Black clear color with full alpha
+            FLOAT clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };           // Black clear color with full alpha
         #endif
 
         D3D11_VIEWPORT viewport = {};                                   // Current viewport configuration
         RECT rc;                                                        // Client rectangle for viewport calculation
 
-#ifdef RENDERER_IS_THREAD
-        // Thread-based rendering loop - check thread status continuously
-        ThreadStatus status = threadManager.GetThreadStatus(THREAD_RENDERER);
-        while (((status == ThreadStatus::Running) || (status == ThreadStatus::Paused)) && 
-               (!threadManager.threadVars.bIsShuttingDown.load()))
-        {
-            // Update thread status for current iteration
-            status = threadManager.GetThreadStatus(THREAD_RENDERER);
-            
-            // Handle paused state - yield CPU and continue loop
-            if (status == ThreadStatus::Paused)
+        #ifdef RENDERER_IS_THREAD
+            // Thread-based rendering loop - check thread status continuously
+            ThreadStatus status = threadManager.GetThreadStatus(THREAD_RENDERER);
+            while (((status == ThreadStatus::Running) || (status == ThreadStatus::Paused)) && 
+                   (!threadManager.threadVars.bIsShuttingDown.load()))
             {
-                threadManager.threadVars.bIsRendering.store(false);     // Clear rendering flag during pause
-                std::this_thread::sleep_for(std::chrono::milliseconds(1)); // Brief yield to prevent CPU spinning
-                continue;                                               // Skip to next iteration
-            }
+                // Update thread status for current iteration
+                status = threadManager.GetThreadStatus(THREAD_RENDERER);
+            
+                // Handle paused state - yield CPU and continue loop
+                if (status == ThreadStatus::Paused)
+                {
+                    threadManager.threadVars.bIsRendering.store(false);     // Clear rendering flag during pause
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1)); // Brief yield to prevent CPU spinning
+                    continue;                                               // Skip to next iteration
+                }
 
-            // Verify we can still render after status check
-            if (threadManager.threadVars.bIsResizing.load() || bIsMinimized.load()) {
-                threadManager.threadVars.bIsRendering.store(false);     // Clear rendering flag
-                std::this_thread::sleep_for(std::chrono::milliseconds(10)); // Longer yield during resize/minimize
-                continue;                                               // Skip to next iteration
-            }
+                // Verify we can still render after status check
+                if (threadManager.threadVars.bIsResizing.load() || bIsMinimized.load()) {
+                    threadManager.threadVars.bIsRendering.store(false);     // Clear rendering flag
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10)); // Longer yield during resize/minimize
+                    continue;                                               // Skip to next iteration
+                }
 
-            // Confirm rendering state is active
-            threadManager.threadVars.bIsRendering.store(true);
-#endif
+                // Confirm rendering state is active
+                threadManager.threadVars.bIsRendering.store(true);
+        #endif
 
             // CRITICAL: Check device state and handle device removal
             if (m_d3dDevice)

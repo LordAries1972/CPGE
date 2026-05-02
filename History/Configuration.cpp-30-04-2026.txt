@@ -66,10 +66,6 @@ bool Configuration::loadConfig() {
         myConfig.microphoneVolume = j.value("microphoneVolume", 2.5);
         myConfig.TTSVolume = j["TTSVolume"];
         myConfig.UseTTS = j["UseTTS"];
-        myConfig.displayMode      = j.value("displayMode",      2);
-        myConfig.resolutionWidth  = j.value("resolutionWidth",  1920);
-        myConfig.resolutionHeight = j.value("resolutionHeight", 1080);
-        myConfig.refreshRate      = j.value("refreshRate",      60);
         myConfig.chksum = j["chksum"];
     }
     catch (const std::exception& e) {
@@ -79,7 +75,7 @@ bool Configuration::loadConfig() {
     }
 
     // Validate checksum, if fails, reset to defaults and force save
-    if (!validateChecksum(myConfig)) 
+    if (!validateChecksum(myConfig))
     {
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"Checksum validation failed / Tamper Proof Protection detected - RESETTING!!!!");
 
@@ -150,17 +146,13 @@ bool Configuration::saveConfig() {
         j["aspectRatio"] = myConfig.aspectRatio;
         j["UseTTS"] = myConfig.UseTTS;
         j["TTSVolume"] = myConfig.TTSVolume;
-        j["displayMode"]      = myConfig.displayMode;
-        j["resolutionWidth"]  = myConfig.resolutionWidth;
-        j["resolutionHeight"] = myConfig.resolutionHeight;
-        j["refreshRate"]      = myConfig.refreshRate;
         j["chksum"] = calculateChecksum(myConfig);
 
         configStream << j.dump(4);  // Pretty print the JSON with 4 spaces
     }
     catch (const std::exception& e) {
 		std::wstring msg = L"Error saving configuration: " + sysUtils.widen(e.what());
-        debug.logLevelMessage(LogLevel::LOG_ERROR, msg);        
+        debug.logLevelMessage(LogLevel::LOG_ERROR, msg);
         return false;
     }
 
@@ -184,7 +176,7 @@ void Configuration::applyLive() const {
 // Calculate checksum for the configuration
 long double Configuration::calculateChecksum(const MyConfig& cfg) const
 {
-    // Create a single string that contains the important values, 
+    // Create a single string that contains the important values,
     // that is everything, but the cksum field.
     std::ostringstream ss;
     ss << static_cast<int>(cfg.playMusic)

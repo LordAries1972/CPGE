@@ -79,7 +79,7 @@ bool Configuration::loadConfig() {
     }
 
     // Validate checksum, if fails, reset to defaults and force save
-    if (!validateChecksum(myConfig)) 
+    if (!validateChecksum(myConfig))
     {
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"Checksum validation failed / Tamper Proof Protection detected - RESETTING!!!!");
 
@@ -160,7 +160,7 @@ bool Configuration::saveConfig() {
     }
     catch (const std::exception& e) {
 		std::wstring msg = L"Error saving configuration: " + sysUtils.widen(e.what());
-        debug.logLevelMessage(LogLevel::LOG_ERROR, msg);        
+        debug.logLevelMessage(LogLevel::LOG_ERROR, msg);
         return false;
     }
 
@@ -184,7 +184,7 @@ void Configuration::applyLive() const {
 // Calculate checksum for the configuration
 long double Configuration::calculateChecksum(const MyConfig& cfg) const
 {
-    // Create a single string that contains the important values, 
+    // Create a single string that contains the important values,
     // that is everything, but the cksum field.
     std::ostringstream ss;
     ss << static_cast<int>(cfg.playMusic)
@@ -215,6 +215,10 @@ long double Configuration::calculateChecksum(const MyConfig& cfg) const
         << cfg.aspectRatio
         << cfg.level
         << cfg.TTSVolume
+        << cfg.displayMode
+        << cfg.resolutionWidth
+        << cfg.resolutionHeight
+        << cfg.refreshRate
         << std::fixed << std::setprecision(4) << cfg.current_money;
 
     std::string combined = ss.str();
