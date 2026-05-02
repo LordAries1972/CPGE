@@ -34,7 +34,11 @@
       "Bash(python3 -c ' *)",
       "Bash(xargs grep *)",
       "Bash(dir \"f:\\\\Projects\\\\C++\\\\CPGE2026\" /S /B *.cso)",
-      "PowerShell(Get-ChildItem -Path \"f:\\\\Projects\\\\C++\\\\CPGE2026\\\\Assets\\\\Shaders\" -ErrorAction SilentlyContinue | ForEach-Object {$_.FullName})"
+      "PowerShell(Get-ChildItem -Path \"f:\\\\Projects\\\\C++\\\\CPGE2026\\\\Assets\\\\Shaders\" -ErrorAction SilentlyContinue | ForEach-Object {$_.FullName})",
+      "Bash(where git-filter-repo *)",
+      "Bash(python -m git_filter_repo --version)",
+      "Bash(pip show *)",
+      "Bash(pip3 show *)"
     ],
     "additionalDirectories": [
       "f:\\Projects\\C++\\CPGE2026\\.vs\\CrossPlatformGameEngine\\v17",
