@@ -1,0 +1,499 @@
+/* ---------------------------------------------------------------------------------------------------------
+Description: GUIManager.cpp
+
+This file contains the implementation of the GUIManager class, which manages GUI windows, events and controls.
+
+It includes methods for creating, removing, and rendering GUI windows, as well as handling input events.
+
+Dependencies: Includes.h, Renderer.h, DX11Renderer.h, DX12Renderer.h, VulkanRenderer.h, OpenGLRenderer.h,
+              GUIManager.h, SoundManager.h, Debug.h
+
+*/
+#pragma once
+
+#define NOMINMAN
+
+#include "Includes.h"
+#include "Renderer.h"
+
+#if defined(_WIN32) || defined(_WIN64)
+    #if defined(__USE_DIRECTX_11__)
+    #include "DX11Renderer.h"
+    #elif defined(__USE_DIRECTX_12__)
+    #include "DX12Renderer.h"
+    #elif defined(__USE_VULKAN__)
+    #include "VulkanRenderer.h"
+    #elif defined(__USE_OPENGL__)
+    #include "OpenGLRenderer.h"
+    #endif
+#endif  // End of #if defined(_WIN32) || defined(_WIN64)
+
+#include "GUIManager.h"
+#include "SoundManager.h"
+#include "Debug.h"
+
+extern SoundManager soundManager;
+extern HWND hwnd;
+extern Debug debug;
+extern ThreadManager threadManager;
+
+GUIWindow::GUIWindow(const std::string& name, GUIWindowType type, const Vector2& position,
+    const Vector2& size, const MyColor& backgroundColor, int backgroundTextureId, Renderer* renderer)
+    : name(name), type(type), position(position), size(size), backgroundColor(backgroundColor),
+    backgroundTextureId(backgroundTextureId), myRenderer(renderer)
+{
+    // Ensure proper initialization of all required properties
+    controls.clear(); // Ensure controls list is empty initially
+    isVisible = true; // Default visibility
+}
+
+void GUIWindow::AddControl(const GUIControl& control)
+{
+    controls.push_back(control);
+}
+
+// GUIManager Implementation
+GUIManager::GUIManager()
+{
+    //SecureZeroMemory(&buffer, sizeof(buffer));
+}
+
+GUIManager::~GUIManager()
+{
+    if (bHasCleanedUp) { return; }
+    windows.clear();
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"GUIManager cleaned up.\n");
+    bHasCleanedUp = true;
+}
+
+void GUIManager::Initialize(Renderer* renderer) {
+    this->myRenderer = renderer;
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"Initializing GUIManager...\n");
+}
+
+bool GUIManager::IsClickCoolingDown() const {
+    return std::chrono::steady_clock::now() < m_clickLockExpiry;
+}
+
+void GUIManager::AcquireClickLock() {
+    m_clickLockExpiry = std::chrono::steady_clock::now() + kClickCooldown;
+}
+
+void GUIManager::CreateMyWindow(const std::string& name, GUIWindowType type, const Vector2& position, const Vector2& size,
+    const MyColor& backgroundColor, int backgroundTextureId) {
+    if (windows.find(name) != windows.end()) {
+        debug.LogError("Window with name '" + name + "' already exists.\n");
+        return;
+    }
+
+    // Create the window and pass the stored renderer
+    std::shared_ptr<GUIWindow> window = std::make_shared<GUIWindow>(name, type, position, size, backgroundColor, backgroundTextureId, this->myRenderer);
+    windows[name] = window;
+    window->myRenderer = this->myRenderer;
+}
+
+void GUIManager::RemoveWindow(const std::string& name) {
+    // Make a local copy of the name to prevent iterator invalidation
+    std::string localWindowName = name;
+
+    // Use debug output with proper string handling to prevent iterator issues
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"GUIManager::RemoveWindow - Attempting to remove window: %s",
+        std::wstring(localWindowName.begin(), localWindowName.end()).c_str());
+
+    // Use a timed lock so RemoveWindow doesn't silently no-op if the renderer
+    // briefly holds the mutex during its snapshot phase.
+    std::unique_lock<std::timed_mutex> lock(mutex, std::chrono::milliseconds(16));
+    if (!lock.owns_lock()) {
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"GUIManager::RemoveWindow - Could not acquire mutex for window removal: %s",
+            std::wstring(localWindowName.begin(), localWindowName.end()).c_str());
+        return;
+    }
+
+    // Find the window with proper bounds checking using local copy
+    auto it = windows.find(localWindowName);
+    if (it == windows.end()) {
+        // Log error for non-existent window with safe string handling
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"GUIManager::RemoveWindow - Window '%s' does not exist",
+            std::wstring(localWindowName.begin(), localWindowName.end()).c_str());
+        return;
+    }
+
+    // Verify window pointer is valid before accessing properties
+    if (!it->second) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"GUIManager::RemoveWindow - Window '%s' has null pointer",
+            std::wstring(localWindowName.begin(), localWindowName.end()).c_str());
+        windows.erase(it); // Remove the invalid entry
+        return;
+    }
+
+    // Check if window is already marked for destruction to prevent double-destruction
+    if (it->second->bWindowDestroy) {
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"GUIManager::RemoveWindow - Window '%s' already marked for destruction",
+            std::wstring(localWindowName.begin(), localWindowName.end()).c_str());
+        return;
+    }
+
+    // Mark window for destruction first to prevent race conditions
+    it->second->bWindowDestroy = true;
+
+    // Store window reference to prevent premature destruction
+    std::shared_ptr<GUIWindow> windowToDestroy = it->second;
+
+    // Clear all controls safely by creating a copy first to avoid iterator invalidation
+    std::vector<GUIControl> controlsCopy = windowToDestroy->controls;
+
+    // Clear all lambda function pointers to break circular references
+    for (auto& control : controlsCopy) {
+        // Safely clear all function pointers to prevent dangling references
+        control.onMouseBtnDown  = nullptr;
+        control.onMouseBtnUp    = nullptr;
+        control.onMouseOver     = nullptr;
+        control.onMouseMove     = nullptr;
+        control.onScroll        = nullptr;
+        control.onSliderChanged = nullptr;
+    }
+
+    // Clear the original controls vector completely
+    windowToDestroy->controls.clear();
+
+    // Remove the renderer reference to prevent dangling pointer
+    windowToDestroy->myRenderer = nullptr;
+
+    // Clear the content text to free memory
+    windowToDestroy->contentText.clear();
+
+    // Finally remove the window from the map using the iterator
+    windows.erase(it);
+
+    // Log successful removal with safe string handling
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"GUIManager::RemoveWindow - Window '%s' successfully removed",
+        std::wstring(localWindowName.begin(), localWindowName.end()).c_str());
+
+    // Explicitly reset the shared_ptr to ensure immediate cleanup
+    windowToDestroy.reset();
+}
+
+void GUIManager::OnWindowResize(int newWidth, int newHeight)
+{
+    auto menu = GetWindow("GameMenuWindow");
+    if (!menu || menu->bWindowDestroy) return;
+
+    // Move to correct right-edge position; MoveWindow applies the delta to all controls.
+    float newX = static_cast<float>(newWidth - 305);
+    menu->MoveWindow(Vector2(newX, 0.0f), windows);
+
+    // Update full-height panel to match new client height.
+    menu->size.y = static_cast<float>(newHeight);
+}
+
+void GUIManager::Render() {
+    if (!myRenderer) return;
+
+    std::vector<std::shared_ptr<GUIWindow>> snapshot;
+    {
+        std::lock_guard<std::timed_mutex> lock(mutex);
+        snapshot.reserve(windows.size());
+        for (const auto& [name, window] : windows) {
+            if (window && !window->bWindowDestroy && window->isVisible)
+                snapshot.push_back(window);
+        }
+    }  // mutex released before any rendering
+
+    for (const auto& window : snapshot) {
+        if (!window->bWindowDestroy && window->isVisible)
+            window->Render();
+    }
+}
+
+void GUIManager::HandleAllInput(const Vector2& mousePosition, bool& isLeftClick) {
+    std::unique_lock<std::timed_mutex> lock(mutex, std::chrono::milliseconds(8));
+    if (!lock.owns_lock()) {
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"GUIManager::HandleAllInput - Could not acquire mutex, skipping input handling");
+        return;
+    }
+
+    // Create a snapshot of valid windows to avoid iterator invalidation
+    std::vector<std::pair<std::string, std::shared_ptr<GUIWindow>>> validWindows;
+    validWindows.reserve(windows.size()); // Pre-allocate for performance
+
+    // Determine whether any modal window is currently active.
+    // If so, only that window may receive input — all others are blocked.
+    bool anyModal = false;
+    for (const auto& windowPair : windows) {
+        if (windowPair.second && !windowPair.second->bWindowDestroy &&
+            windowPair.second->isVisible && windowPair.second->isModal) {
+            anyModal = true;
+            break;
+        }
+    }
+
+    for (const auto& windowPair : windows) {
+        // Perform null pointer check before accessing window properties
+        if (!windowPair.second) {
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"GUIManager::HandleAllInput - Null window pointer found for: %s",
+                std::wstring(windowPair.first.begin(), windowPair.first.end()).c_str());
+            continue;
+        }
+
+        // Skip windows marked for destruction
+        if (windowPair.second->bWindowDestroy) {
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"GUIManager::HandleAllInput - Skipping destroyed window: %s",
+                std::wstring(windowPair.first.begin(), windowPair.first.end()).c_str());
+            continue;
+        }
+
+        // Skip invisible windows
+        if (!windowPair.second->isVisible) {
+            continue;
+        }
+
+        // When a modal window is active, non-modal windows are blocked from input.
+        if (anyModal && !windowPair.second->isModal) {
+            continue;
+        }
+
+        // Add to valid windows for processing
+        validWindows.emplace_back(windowPair.first, windowPair.second);
+    }
+
+    // Release the main mutex early to prevent holding it during event processing
+    lock.unlock();
+
+    // clickConsumed is shared across all windows in this pass so that once any
+    // button fires its down event, subsequent windows cannot also claim the click.
+    bool clickConsumed = false;
+
+    // Process input for valid windows without holding the main mutex
+    for (const auto& windowPair : validWindows) {
+        try {
+            // Verify window is still valid before processing
+            if (windowPair.second && !windowPair.second->bWindowDestroy) {
+                windowPair.second->HandleMouseClick(mousePosition, isLeftClick, this, clickConsumed);
+                windowPair.second->HandleMouseMove(mousePosition, windows);
+            }
+        }
+        catch (const std::exception& e) {
+            // Log any exceptions during input handling to prevent crashes
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"GUIManager::HandleAllInput - Exception processing window '%s': %s",
+                std::wstring(windowPair.first.begin(), windowPair.first.end()).c_str(),
+                std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
+        }
+    }
+}
+
+void GUIManager::HandleInput(const std::string& windowName, const Vector2& mousePosition, bool& isLeftClick) {
+    std::shared_ptr<GUIWindow> window = GetWindow(windowName);
+    if (!window || !window->isVisible || window->bWindowDestroy) return;
+
+    bool clickConsumed = false;
+    window->HandleMouseClick(mousePosition, isLeftClick, this, clickConsumed);
+    window->HandleMouseMove(mousePosition, windows);
+}
+
+void GUIManager::SetWindowVisibility(const std::string& name, bool isVisible) {
+    std::shared_ptr<GUIWindow> window = GetWindow(name);
+    if (window) {
+        window->isVisible = isVisible;
+
+        std::snprintf(buffer, sizeof(buffer), "Window '%s' visibility set to %d.\n", name.c_str(), isVisible);
+        debug.Log(buffer);
+    }
+    else {
+        std::snprintf(buffer, sizeof(buffer), "Window '%s' does not exist!\n", name.c_str());
+        debug.Log(buffer);
+    }
+}
+
+std::shared_ptr<GUIWindow> GUIManager::GetWindow(const std::string& name) {
+    auto it = windows.find(name);
+    if (it != windows.end()) {
+        return it->second;
+    }
+    std::snprintf(buffer, sizeof(buffer), "Window '%s' not found.\n", name.c_str());
+    return std::shared_ptr<GUIWindow>();
+}
+
+void GUIWindow::HandleMouseMove(const Vector2& mousePosition, const std::unordered_map<std::string, std::shared_ptr<GUIWindow>>& allWindows) {
+    if (bWindowDestroy || !isVisible) return;
+
+    for (auto& control : controls) {
+        bool isMouseOver =
+            mousePosition.x >= control.position.x &&
+            mousePosition.x <= control.position.x + control.size.x &&
+            mousePosition.y >= control.position.y &&
+            mousePosition.y <= control.position.y + control.size.y;
+
+        control.isHovered = isMouseOver;
+
+        switch (control.type)
+        {
+            case GUIControlType::TitleBar:
+            {
+                if ((isDragging) && (this->type != GUIWindowType::Dialog))
+                {
+                    Vector2 delta = mousePosition - dragStartMousePosition;
+                    Vector2 newPos = dragStartPosition + delta;
+                    MoveWindow(newPos, allWindows);
+                }
+
+                break;
+            }
+
+            case GUIControlType::Button:
+            {
+                if (isMouseOver)
+                {
+                   if (control.onMouseOver) control.onMouseOver();
+                }
+
+                break;
+            }
+
+            case GUIControlType::HSlider:
+            {
+                if (control.isVisible && control.isPressed) {
+                    const float knobW  = 14.0f;
+                    float usableW = control.size.x - knobW;
+                    if (usableW > 0.0f) {
+                        float t = std::clamp(
+                            (mousePosition.x - control.position.x - knobW * 0.5f) / usableW,
+                            0.0f, 1.0f);
+                        control.sliderValue = control.sliderMin + t * (control.sliderMax - control.sliderMin);
+                        if (control.onSliderChanged) control.onSliderChanged(control.sliderValue);
+                    }
+                }
+                break;
+            }
+
+            case GUIControlType::ToggleSlider:
+                break;  // click-only control, no drag logic
+
+            default:
+                break;
+        }
+    }
+}
+
+void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick, GUIManager* guiMgr, bool& clickConsumed) {
+    if (bWindowDestroy) return;
+
+    for (auto& control : controls) {
+        bool isMouseOver =
+            mousePosition.x >= control.position.x &&
+            mousePosition.x <= control.position.x + control.size.x &&
+            mousePosition.y >= control.position.y &&
+            mousePosition.y <= control.position.y + control.size.y;
+
+        control.isHovered = isMouseOver;
+
+        switch (control.type) {
+        case GUIControlType::TitleBar:
+        {
+            if (isMouseOver && isLeftClick && !isDragging) {
+                // Start dragging
+                isDragging = true;
+                dragStartMousePosition = mousePosition;
+                dragStartPosition = position;
+                control.isPressed = true;
+                SetCapture(hwnd); // capture the mouse
+            }
+            else if (!isLeftClick && isDragging) {
+                // Stop dragging
+                isDragging = false;
+                control.isPressed = false;
+                ReleaseCapture(); // release mouse capture
+            }
+            break;
+        }
+
+        case GUIControlType::Button:
+        {
+            if (isMouseOver && isLeftClick) {
+                if (!control.isPressed) {
+                    // Guard: skip if another control already claimed this click this frame,
+                    // or if the 1-second cross-frame cooldown is still active.
+                    if (!clickConsumed && (!guiMgr || !guiMgr->IsClickCoolingDown())) {
+                        control.isPressed = true;
+                        clickConsumed = true;
+                        if (guiMgr) guiMgr->AcquireClickLock();
+                        if (control.onMouseBtnDown) control.onMouseBtnDown();
+                    }
+                }
+            }
+            else if (isMouseOver && !isLeftClick && control.isPressed) {
+                // Button released while still over the control — completed click.
+                // Up always fires for the control that owns isPressed; also marks consumed
+                // so other windows cannot simultaneously claim the release.
+                control.isPressed = false;
+                clickConsumed = true;
+                if (control.onMouseBtnUp) control.onMouseBtnUp();
+            }
+            else if (!isLeftClick) {
+                // Released outside the control — cancel press without firing
+                control.isPressed = false;
+            }
+            break;
+        }
+
+        case GUIControlType::Scrollbar:
+        {
+            if (control.onMouseBtnDown && !clickConsumed && (!guiMgr || !guiMgr->IsClickCoolingDown())) {
+                control.onMouseBtnDown();
+                control.isPressed = true;
+                clickConsumed = true;
+                if (guiMgr) guiMgr->AcquireClickLock();
+            }
+            int newPosition = mousePosition.y - control.position.y;
+            UpdateScrollbar(newPosition);
+            break;
+        }
+
+        case GUIControlType::HSlider:
+        {
+            if (!control.isVisible) break;
+            if (isMouseOver && isLeftClick) {
+                if (!control.isPressed) {
+                    control.isPressed = true;
+                    control.isActive  = true;
+                    // Deactivate every other slider on this window
+                    for (auto& other : controls)
+                        if (&other != &control && other.type == GUIControlType::HSlider)
+                            other.isActive = false;
+                }
+                const float knobW  = 14.0f;
+                float usableW = control.size.x - knobW;
+                if (usableW > 0.0f) {
+                    float t = std::clamp(
+                        (mousePosition.x - control.position.x - knobW * 0.5f) / usableW,
+                        0.0f, 1.0f);
+                    control.sliderValue = control.sliderMin + t * (control.sliderMax - control.sliderMin);
+                    if (control.onSliderChanged) control.onSliderChanged(control.sliderValue);
+                }
+            }
+            else if (!isLeftClick) {
+                control.isPressed = false;
+            }
+            break;
+        }
+
+        case GUIControlType::ToggleSlider:
+        {
+            if (!control.isVisible) break;
+            if (isMouseOver && isLeftClick) {
+                if (!control.isPressed) {
+                    control.isPressed   = true;
+                    control.sliderValue = (control.sliderValue >= 0.5f) ? 0.0f : 1.0f;
+                    if (control.onSliderChanged) control.onSliderChanged(control.sliderValue);
+                }
+            }
+            else if (!isLeftClick) {
+                control.isPressed = false;
+            }
+            break;
+        }
+
+        default:
+            break;
+        }
+    }
+}

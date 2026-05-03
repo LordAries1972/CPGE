@@ -67,8 +67,16 @@ GUIManager::~GUIManager()
 }
 
 void GUIManager::Initialize(Renderer* renderer) {
-    this->myRenderer = renderer; // Store the renderer
+    this->myRenderer = renderer;
     debug.logLevelMessage(LogLevel::LOG_INFO, L"Initializing GUIManager...\n");
+}
+
+bool GUIManager::IsClickCoolingDown() const {
+    return std::chrono::steady_clock::now() < m_clickLockExpiry;
+}
+
+void GUIManager::AcquireClickLock() {
+    m_clickLockExpiry = std::chrono::steady_clock::now() + kClickCooldown;
 }
 
 void GUIManager::CreateMyWindow(const std::string& name, GUIWindowType type, const Vector2& position, const Vector2& size,
@@ -261,12 +269,16 @@ void GUIManager::HandleAllInput(const Vector2& mousePosition, bool& isLeftClick)
     // Release the main mutex early to prevent holding it during event processing
     lock.unlock();
 
+    // clickConsumed is shared across all windows in this pass so that once any
+    // button fires its down event, subsequent windows cannot also claim the click.
+    bool clickConsumed = false;
+
     // Process input for valid windows without holding the main mutex
     for (const auto& windowPair : validWindows) {
         try {
             // Verify window is still valid before processing
             if (windowPair.second && !windowPair.second->bWindowDestroy) {
-                windowPair.second->HandleMouseClick(mousePosition, isLeftClick);
+                windowPair.second->HandleMouseClick(mousePosition, isLeftClick, this, clickConsumed);
                 windowPair.second->HandleMouseMove(mousePosition, windows);
             }
         }
@@ -283,7 +295,8 @@ void GUIManager::HandleInput(const std::string& windowName, const Vector2& mouse
     std::shared_ptr<GUIWindow> window = GetWindow(windowName);
     if (!window || !window->isVisible || window->bWindowDestroy) return;
 
-    window->HandleMouseClick(mousePosition, isLeftClick);
+    bool clickConsumed = false;
+    window->HandleMouseClick(mousePosition, isLeftClick, this, clickConsumed);
     window->HandleMouseMove(mousePosition, windows);
 }
 
@@ -371,7 +384,7 @@ void GUIWindow::HandleMouseMove(const Vector2& mousePosition, const std::unorder
     }
 }
 
-void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick) {
+void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick, GUIManager* guiMgr, bool& clickConsumed) {
     if (bWindowDestroy) return;
 
     for (auto& control : controls) {
@@ -407,14 +420,22 @@ void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick
         {
             if (isMouseOver && isLeftClick) {
                 if (!control.isPressed) {
-                    // First frame of press — fire down handler once
-                    control.isPressed = true;
-                    if (control.onMouseBtnDown) control.onMouseBtnDown();
+                    // Guard: skip if another control already claimed this click this frame,
+                    // or if the 1-second cross-frame cooldown is still active.
+                    if (!clickConsumed && (!guiMgr || !guiMgr->IsClickCoolingDown())) {
+                        control.isPressed = true;
+                        clickConsumed = true;
+                        if (guiMgr) guiMgr->AcquireClickLock();
+                        if (control.onMouseBtnDown) control.onMouseBtnDown();
+                    }
                 }
             }
             else if (isMouseOver && !isLeftClick && control.isPressed) {
-                // Button released while still over the control — completed click
+                // Button released while still over the control — completed click.
+                // Up always fires for the control that owns isPressed; also marks consumed
+                // so other windows cannot simultaneously claim the release.
                 control.isPressed = false;
+                clickConsumed = true;
                 if (control.onMouseBtnUp) control.onMouseBtnUp();
             }
             else if (!isLeftClick) {
@@ -426,9 +447,11 @@ void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick
 
         case GUIControlType::Scrollbar:
         {
-            if (control.onMouseBtnDown) {
+            if (control.onMouseBtnDown && !clickConsumed && (!guiMgr || !guiMgr->IsClickCoolingDown())) {
                 control.onMouseBtnDown();
                 control.isPressed = true;
+                clickConsumed = true;
+                if (guiMgr) guiMgr->AcquireClickLock();
             }
             int newPosition = mousePosition.y - control.position.y;
             UpdateScrollbar(newPosition);

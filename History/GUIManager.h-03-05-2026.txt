@@ -51,7 +51,7 @@ const float TITLEBAR_HEIGHT = 28;
 struct GUIControl {
     std::string id;
     std::wstring label;
-    bool isClickHandled = true;                         // Safety state flag to ensure clicking of mouse is handle correctly.  
+    bool isClickHandled = true;                         // Safety state flag to ensure clicking of mouse is handle correctly.
     bool isVisible = true;                              // State if the window is visible and should be rendered.
     bool useShadowedText = false;                       // State if we are to use text shadowing.
     Vector2 position;
@@ -90,7 +90,7 @@ public:
     Vector2 position;                                   // Starting Position for our Window
     Vector2 dragStartPosition;                          // Start Position from when dragging began.
     Vector2 dragStartMousePosition;                     // where the mouse was clicked initially
-    Vector2 size;                                       // Size of our Window.    
+    Vector2 size;                                       // Size of our Window.
     MyColor backgroundColor;                            // Background Colour.
     int backgroundTextureId;                            // Optional background texture
     bool isVisible = true;                              // State of Window Visibility
@@ -117,7 +117,7 @@ public:
     void CalculateScrollbarRange(float FontSize);
     std::wstring WrapText(const std::wstring& text, float maxWidth, float FontSize);
     void MoveWindow(const Vector2& newPosition, const std::unordered_map<std::string, std::shared_ptr<GUIWindow>>& allWindows);
-    
+
     friend class GUIManager;                                                // Allow GUIManager access to internals
 
 private:
@@ -164,4 +164,3 @@ private:
 
     friend class GUIWindow;
 };
-

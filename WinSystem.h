@@ -15,6 +15,7 @@ struct WindowMetrics {
     // Window handle
     HWND hWnd;
     bool isFullScreen;
+    bool isBorderless;
 
     // Window position and size (screen coordinates)
     int x;
@@ -53,7 +54,7 @@ struct WindowMetrics {
 
     // Constructor - initialize with default values
     WindowMetrics() :
-        hWnd(NULL), isFullScreen(false),
+        hWnd(NULL), isFullScreen(false), isBorderless(false),
         x(0), y(0), width(0), height(0),
         clientWidth(0), clientHeight(0),
         borderWidth(0), titleBarHeight(0),

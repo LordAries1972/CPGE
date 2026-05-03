@@ -571,6 +571,8 @@ void GUIManager::CreateConfigWindow()
                     *rateVec = RatesFor(*allModes, r.first, r.second);
                     *rateIdx = 0;
                     if (!rateVec->empty()) config.myConfig.refreshRate = (*rateVec)[0];
+                    config.myConfig.aspectRatio = LookupAspectRatio(r.first, r.second);
+                    updLabel("t2_asp", CfgFmtFloat(config.myConfig.aspectRatio, 4));
                     *needsVideoRestart = true;
                     // Rebuild rate slider; default to highest rate = rightmost position
                     float newMax = rateVec->empty() ? 0.0f : (float)((int)rateVec->size() - 1);
@@ -650,7 +652,7 @@ void GUIManager::CreateConfigWindow()
             });
         y += ROW;
 
-        addInfoRow("t2_asp", y, L"Aspect Ratio:", CfgFmtFloat(config.myConfig.aspectRatio, 4), false);
+        addInfoRow("t2_asp", y, L"Aspect Ratio:", CfgFmtFloat(config.myConfig.aspectRatio, 4), true);
     }
 
     // ===================================================================

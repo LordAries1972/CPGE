@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1058*
+*Current Build Version: v0.0.1069*
 
 ---
 
@@ -448,6 +448,8 @@ Once the base DirectX 11 implementation is complete, the project will be release
    Please see the "History" folder for actual file updates, old and redundant files will be removed! - Saves me updating
    this file all time when I do not have too; especially versioning!
 
+### May 2026 - More major updates and fixes
+
 **May 02, 2026** - More major updates and fixes:
 
 - Real Time in runtime configuration management system (GUIConfigWindow.cpp) - This is your panel for 
@@ -461,6 +463,17 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - Various Bugs Resolved, ie.. Restart on demand, not correctly instantiating proper closer of current app, before executing a restart of app.
 - No more highlighting of text in the config panel, do not what I was thinking, lot of copying and paste in the errors - 
   Just goes to show, shortcuts never pay off!
+
+**May 03, 2026** - Display mode and mouse cursor system now fully config-driven:
+
+- Startup display mode now reads `displayMode` from the configuration file (0=Windowed, 1=Borderless, 2=Full Screen) rather than being hard-coded by debug/release build type.
+- **Windowed mode**: Windows cursor is visible on the title bar and resize borders so the user can drag and resize the window; hidden inside the client area where the engine renders its own cursor.
+- **Borderless mode**: Window style set to WS_POPUP covering the full primary monitor; Windows cursor is hidden inside the client area and automatically visible outside the window so the user can operate the OS normally.
+- **Full Screen exclusive**: Windows cursor fully suppressed via ShowCursor — the engine owns the entire display.
+- Added `WM_SETCURSOR` handler to `WindowProc` to enforce client-area cursor hiding for Windowed and Borderless modes without affecting non-client area behaviour.
+- Added `isBorderless` flag to `WindowMetrics` struct so runtime code can distinguish borderless from windowed.
+- `StartRendererThreads()` is now called immediately after the display mode switch so the loader ring is visible throughout the entire remaining init sequence (sound, movie, joystick, callbacks) for all modes.
+- **Fix — loader ring invisible after display mode change:** `SetWindowPos` calls for Windowed and Borderless modes were firing `WM_SIZE` synchronously before `StartRendererThreads()`, which triggered `Resize()` → `Clean2DTextures()` → `m_d2dRenderTarget.Reset()` and wiped all D2D texture state before the loader thread could load `BG_LOADER_CIRCLE`. Fix: flag-setting and `SetWindowLong` (borderless style) remain in the startup switch; all `SetWindowPos` geometry calls are now deferred until immediately after `StartRendererThreads()` returns, so any subsequent `WM_SIZE` executes through the designed resize path with the loader already active.
 
 ---
 

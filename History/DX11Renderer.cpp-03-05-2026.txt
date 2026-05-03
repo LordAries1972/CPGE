@@ -1,0 +1,18 @@
+DX11Renderer.cpp - 03-05-2026
+==============================
+Fix 1: Loader ring not visible during loading.
+Root cause: LoadAllKnownTextures() is called from inside the loader thread,
+so BG_LOADER_CIRCLE (loadingring.png) and BLIT_ALWAYS_CURSOR (cursor1.png)
+are null when DXRenderFrame.cpp tries to draw them on the first frame.
+Fix: StartRendererThreads() pre-loads cursor (index 0) and loader ring (index 2)
+using LoadTexture() BEFORE SetThread/StartThread for the loader.
+m_d2dRenderTarget is confirmed ready at that point (bIsInitialized is true).
+
+Fix 2: Aspect ratio not updated on resize.
+Root cause: Camera::UpdateResolution() existed but was never called from
+DX11Renderer::Resize(). m_aspectRatio in the camera was stale after resize.
+Fix: After iOrigWidth/iOrigHeight are updated in Resize(), call:
+    float newAR = LookupAspectRatio(width, height);
+    config.myConfig.aspectRatio = newAR;
+    myCamera.UpdateResolution(width, height, newAR);
+This also keeps the config value in sync for the config window display.

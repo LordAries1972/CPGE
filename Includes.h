@@ -301,5 +301,37 @@ const int MAX_TEXTURE_BUFFERS = ARRAYSIZE(texFilename);
 const int MAX_TEXTURE_BUFFERS_3D = ARRAYSIZE(tex3DFilename);
 const int MAX_MODEL_FILES = ARRAYSIZE(modelFilePath);
 
+// Returns the canonical aspect ratio for a given resolution.
+// Matches against the standard display-mode table; falls back to w/h.
+inline float LookupAspectRatio(int w, int h)
+{
+    struct Entry { int w, h; float ar; };
+    static constexpr Entry kTable[] = {
+        // 16:9
+        { 1280,  720, 16.f/9.f }, { 1366,  768, 16.f/9.f }, { 1600,  900, 16.f/9.f },
+        { 1920, 1080, 16.f/9.f }, { 2560, 1440, 16.f/9.f }, { 3840, 2160, 16.f/9.f },
+        { 7680, 4320, 16.f/9.f },
+        // 16:10
+        { 1280,  800, 16.f/10.f }, { 1680, 1050, 16.f/10.f },
+        { 1920, 1200, 16.f/10.f }, { 2560, 1600, 16.f/10.f },
+        // 21:9 ultrawide
+        { 2560, 1080, 21.f/9.f }, { 3440, 1440, 21.f/9.f }, { 5120, 2160, 21.f/9.f },
+        // 32:9 super-ultrawide
+        { 3840, 1080, 32.f/9.f }, { 5120, 1440, 32.f/9.f },
+        // 4:3
+        {  640,  480, 4.f/3.f }, {  800,  600, 4.f/3.f }, { 1024,  768, 4.f/3.f },
+        { 1600, 1200, 4.f/3.f }, { 2048, 1536, 4.f/3.f },
+        // 3:2
+        {  480,  320, 3.f/2.f }, { 1152,  768, 3.f/2.f }, { 1440,  960, 3.f/2.f },
+        // 5:4
+        { 1280, 1024, 5.f/4.f }, { 2560, 2048, 5.f/4.f },
+        // 17:9 DCI cinema
+        { 2048, 1080, 17.f/9.f }, { 4096, 2160, 17.f/9.f },
+    };
+    for (const auto& e : kTable)
+        if (e.w == w && e.h == h) return e.ar;
+    return (h > 0) ? static_cast<float>(w) / static_cast<float>(h) : 16.f/9.f;
+}
+
 // Model Names
 const std::wstring ShipName1 = L"Ship1";

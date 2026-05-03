@@ -536,25 +536,70 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             lastScenePhaseChangeTime = std::chrono::steady_clock::now();
 //        #endif
 
-        #if defined(_DEBUG)
-            winMetrics.isFullScreen = false;
-            sysUtils.DisableMouseCursor();
-            if (!renderer->StartRendererThreads())
-            {
-                MessageBox(nullptr, L"Problem Starting Renderer Thread!!!", L"Error", MB_OK | MB_ICONERROR);
-                UnregisterClass(lpDEFAULT_NAME, hInstance);
-                return EXIT_FAILURE;
-            }
-        #else
-            // Enable/disable crash dump generation
+        // Crash dumps only in release builds
+        #if !defined(_DEBUG)
             exceptionHandler.SetCrashDumpEnabled(true);
-            // Disable mouse cursor for cleaner full screen experience
-            sysUtils.DisableMouseCursor();
-            // Set Full Screen Exclusive Mode
-            renderer->SetFullExclusive(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT);
-            // State we are in Full Screen Mode
-            winMetrics.isFullScreen = true;
         #endif
+
+        // Apply the display mode selected in the configuration file.
+        // Cursor policy:
+        //   Windowed    — Windows cursor visible on title bar / borders, hidden inside client area
+        //   Borderless  — Windows cursor hidden inside client area, visible outside the window
+        //   Full Screen — Windows cursor fully suppressed; engine owns the entire display
+        // WM_SETCURSOR in WindowProc enforces the client-area hide for Windowed and Borderless.
+        switch (config.myConfig.displayMode)
+        {
+            case 0:  // Windowed — set flags only; geometry applied after threads start
+            {
+                winMetrics.isFullScreen = false;
+                winMetrics.isBorderless = false;
+                break;
+            }
+            case 1:  // Borderless windowed — strip title bar now; resize applied after threads start
+            {
+                winMetrics.isFullScreen = false;
+                winMetrics.isBorderless = true;
+                SetWindowLong(hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+                break;
+            }
+            default:  // 2 = Full Screen exclusive (and any unrecognised value)
+            {
+                winMetrics.isFullScreen = true;
+                winMetrics.isBorderless = false;
+                sysUtils.DisableMouseCursor();
+                renderer->SetFullExclusive(config.myConfig.resolutionWidth, config.myConfig.resolutionHeight);
+                break;
+            }
+        }
+
+        // Start renderer and loader threads BEFORE any SetWindowPos call.
+        // SetWindowPos with a size change fires WM_SIZE synchronously, which triggers
+        // Resize() -> Clean2DTextures() -> m_d2dRenderTarget.Reset() and wipes D2D state
+        // before the loader thread has a chance to load the ring texture.  Starting threads
+        // first means any subsequent WM_SIZE executes through the designed resize path with
+        // the loader already active.
+        if (!renderer->StartRendererThreads())
+        {
+            MessageBox(nullptr, L"Problem Starting Renderer Threads!!!", L"Error", MB_OK | MB_ICONERROR);
+            PostQuitMessage(0);
+            return EXIT_FAILURE;
+        }
+
+        // Apply window geometry now that threads are running.
+        if (winMetrics.isBorderless)
+        {
+            int monW = GetSystemMetrics(SM_CXSCREEN);
+            int monH = GetSystemMetrics(SM_CYSCREEN);
+            SetWindowPos(hwnd, HWND_TOP, 0, 0, monW, monH, SWP_FRAMECHANGED);
+        }
+        else if (!winMetrics.isFullScreen)
+        {
+            RECT rc = { 0, 0, config.myConfig.resolutionWidth, config.myConfig.resolutionHeight };
+            AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
+            SetWindowPos(hwnd, nullptr, 0, 0, rc.right - rc.left, rc.bottom - rc.top,
+                         SWP_NOMOVE | SWP_NOZORDER | SWP_FRAMECHANGED);
+            sysUtils.CenterSystemWindow(hwnd);
+        }
 
         std::wstring alert = L"This is an alert status message.\n\n"
         L"Congratulations if you're seeing this window!\n"
@@ -613,16 +658,6 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                     ttsManager.SetVoiceVolume(static_cast<float>(cfg.TTSVolume));
             #endif
         });
-
-        // Start Required Renderer Threads
-        #if !defined(_DEBUG)
-            if (!renderer->StartRendererThreads())
-            {
-                MessageBox(nullptr, L"Problem Starting Renderer Threads!!!", L"Error", MB_OK | MB_ICONERROR);
-                PostQuitMessage(0);
-                return EXIT_FAILURE;
-            }
-        #endif
 
         // Add TTS announcement for Startup Splash Screen
         if (config.myConfig.UseTTS)
@@ -1514,6 +1549,21 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     switch (uMsg)
     {
+        case WM_SETCURSOR:
+        {
+            // Hide the Windows cursor whenever it is inside our client area so the engine
+            // can draw its own.  For windowed mode the non-client area (title bar, resize
+            // borders) is left to Windows so the user can still drag / resize the window.
+            // For borderless there is no non-client area, so this always fires for HTCLIENT.
+            // For fullscreen the cursor was suppressed globally via ShowCursor(FALSE) so this
+            // message is irrelevant, but we guard it anyway for correctness.
+            if (!winMetrics.isFullScreen && LOWORD(lParam) == HTCLIENT) {
+                SetCursor(nullptr);
+                return TRUE;
+            }
+            return DefWindowProc(hwnd, uMsg, wParam, lParam);
+        }
+
         case WM_MOUSEMOVE:
         {
             // Check if we are in fullscreen transition or resize - ignore mouse messages

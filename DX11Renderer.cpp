@@ -197,6 +197,13 @@ bool DX11Renderer::StartRendererThreads()
     bool result = true;
     try
     {
+        // Pre-load cursor and loader-ring before the loader thread runs so
+        // the ring is visible immediately during the first load.
+        const int cursorIdx = int(BlitObj2DIndexType::BLIT_ALWAYS_CURSOR);
+        const int ringIdx   = int(BlitObj2DIndexType::BG_LOADER_CIRCLE);
+        LoadTexture(cursorIdx, AssetsDir / texFilename[cursorIdx], true);
+        LoadTexture(ringIdx,   AssetsDir / texFilename[ringIdx],   true);
+
         // Initialise and Start the Loader Thread
         threadManager.SetThread(THREAD_LOADER, [this]() { LoaderTaskThread(); }, true);
         threadManager.StartThread(THREAD_LOADER);
@@ -1367,6 +1374,13 @@ bool DX11Renderer::Resize(uint32_t width, uint32_t height)
         // Update internal dimension tracking
         iOrigWidth = width;
         iOrigHeight = height;
+
+        // Update camera and config with the correct canonical aspect ratio
+        {
+            float newAR = LookupAspectRatio(static_cast<int>(width), static_cast<int>(height));
+            config.myConfig.aspectRatio = newAR;
+            myCamera.UpdateResolution(width, height, newAR);
+        }
 
         #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
             debug.logDebugMessage(LogLevel::LOG_INFO, L"[RESIZE] Resize completed successfully - Old: %dx%d, New: %dx%d",
