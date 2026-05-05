@@ -80,7 +80,7 @@ void DX11Renderer::LoaderTaskThread()
 			{
 				threadManager.threadVars.b2DTexturesLoaded.store(false);
 				if (LoadAllKnownTextures())
-					// State that we have loade all our required 2D Textures.
+					// State that we have loaded all our required 2D Textures.
 					threadManager.threadVars.b2DTexturesLoaded.store(true);
 
 				threadManager.PauseThread(THREAD_LOADER);

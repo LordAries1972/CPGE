@@ -501,7 +501,7 @@ void DX11Renderer::RenderFrame()
                        {
                            iPosX = loadIndex << 5;                            // Calculate X offset for animation frame
                            // Draw loading circle in bottom-right corner
-                           Blit2DObjectAtOffset(BlitObj2DIndexType::BG_LOADER_CIRCLE, width - 32, height - 32, iPosX, 0, 32, 32);
+                           Blit2DObjectAtOffset(BlitObj2DIndexType::BG_LOADER_CIRCLE, iOrigWidth - 34, iOrigHeight - 34, iPosX, 0, 32, 32);
                        }
                    }
 

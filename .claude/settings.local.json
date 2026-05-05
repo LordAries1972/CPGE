@@ -43,7 +43,8 @@
       "Bash(bash --version)",
       "PowerShell($env:PATH -split ';' | Where-Object { $_ -match 'git' -or $_ -match 'bash' } | ForEach-Object { \"$_\" })",
       "PowerShell(Add-Type -AssemblyName System.Drawing; $img = [System.Drawing.Image]::FromFile\\(\"f:\\\\Projects\\\\C++\\\\CPGE2026\\\\Assets\\\\loadingring.png\"\\); \"Width: $\\($img.Width\\), Height: $\\($img.Height\\)\"; $img.Dispose\\(\\))",
-      "Bash(grep -v \"//.*BG_LOADER_CIRCLE\")"
+      "Bash(grep -v \"//.*BG_LOADER_CIRCLE\")",
+      "Bash(git checkout *)"
     ],
     "additionalDirectories": [
       "f:\\Projects\\C++\\CPGE2026\\.vs\\CrossPlatformGameEngine\\v17",

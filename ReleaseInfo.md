@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1069*
+*Current Build Version: v0.0.1088*
 
 ---
 
@@ -464,7 +464,7 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - No more highlighting of text in the config panel, do not what I was thinking, lot of copying and paste in the errors - 
   Just goes to show, shortcuts never pay off!
 
-**May 03, 2026** - Display mode and mouse cursor system now fully config-driven:
+**May 03-04, 2026** - Display mode and mouse cursor system now fully config-driven:
 
 - Startup display mode now reads `displayMode` from the configuration file (0=Windowed, 1=Borderless, 2=Full Screen) rather than being hard-coded by debug/release build type.
 - **Windowed mode**: Windows cursor is visible on the title bar and resize borders so the user can drag and resize the window; hidden inside the client area where the engine renders its own cursor.

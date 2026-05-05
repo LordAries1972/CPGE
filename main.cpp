@@ -594,7 +594,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         }
         else if (!winMetrics.isFullScreen)
         {
-            RECT rc = { 0, 0, config.myConfig.resolutionWidth, config.myConfig.resolutionHeight };
+             RECT rc = { 0, 0, config.myConfig.resolutionWidth, config.myConfig.resolutionHeight };
             AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
             SetWindowPos(hwnd, nullptr, 0, 0, rc.right - rc.left, rc.bottom - rc.top,
                          SWP_NOMOVE | SWP_NOZORDER | SWP_FRAMECHANGED);
