@@ -1,0 +1,10 @@
+MoviePlayer.h - 06-05-2026
+A/V sync fix: audio advancing ahead of video
+
+Changes:
+- Added m_samplesPlayedOffset (UINT64): accumulates SamplesPlayed across pause/resume cycles
+  because XAudio2 resets SamplesPlayed to 0 on every Start() of a stopped voice.
+- Added m_firstAudioSamplePTS (LONGLONG, -1 = not anchored): stores the MF file PTS of
+  the first audio buffer submitted to XAudio2, so the SamplesPlayed counter can be mapped
+  to the file's actual PTS timeline rather than "time since Play() was called."
+- Updated comment on m_audioReadPosition to reflect its new role as the read-ahead gate.

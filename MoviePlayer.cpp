@@ -43,6 +43,8 @@ MoviePlayer::MoviePlayer() :
     m_targetFPS(30.0f),
     m_audioReadPosition(0),
     m_audioStartSamples(0),
+    m_samplesPlayedOffset(0),
+    m_firstAudioSamplePTS(-1),
     m_pXAudio2(nullptr),
     m_pMasterVoice(nullptr),
     m_pSourceVoice(nullptr),
@@ -1660,7 +1662,14 @@ bool MoviePlayer::Play()
         }
 
         if (m_enableAudio && m_pSourceVoice)
+        {
             m_pSourceVoice->Start();
+            // XAudio2 resets SamplesPlayed to 0 each time Start() is called on a
+            // stopped voice.  Reset our per-cycle baseline so the accumulated-
+            // samples formula (m_samplesPlayedOffset + SamplesPlayed - m_audioStartSamples)
+            // continues counting from where it paused rather than jumping back.
+            m_audioStartSamples = 0;
+        }
 
 #if defined(_DEBUG_MOVIEPLAYER_)
         debug.logLevelMessage(LogLevel::LOG_INFO, L"MoviePlayer: Playback resumed");
@@ -1675,19 +1684,17 @@ bool MoviePlayer::Play()
     m_playStartMediaTime = -1;
     m_lastFrameTime = m_playStartWallTime;
 
-    // Restart the XAudio2 source voice (may have been stopped by a prior Stop() call).
-    // Start() resets SamplesPlayed to 0, giving us a clean audio-master sync baseline.
+    // Reset all audio-clock state for a clean fresh start.
+    // m_firstAudioSamplePTS is anchored in ReadAudioSample() the first time a buffer
+    // is actually submitted, so we clear it here so it gets re-anchored correctly.
+    m_firstAudioSamplePTS    = -1;
+    m_audioStartSamples      = 0;
+    m_samplesPlayedOffset    = 0;
+
+    // Restart the XAudio2 source voice.  Start() resets SamplesPlayed to 0 on a
+    // previously-stopped voice, which matches our m_audioStartSamples = 0 above.
     if (m_enableAudio && m_pSourceVoice)
-    {
         m_pSourceVoice->Start();
-        XAUDIO2_VOICE_STATE st;
-        m_pSourceVoice->GetState(&st);
-        m_audioStartSamples = st.SamplesPlayed;
-    }
-    else
-    {
-        m_audioStartSamples = 0;
-    }
 
 #if defined(_DEBUG_MOVIEPLAYER_)
     debug.logDebugMessage(LogLevel::LOG_INFO, L"MoviePlayer: Playback started - Duration: %.2f seconds, Dimensions: %dx%d, Playing: %s",
@@ -1708,7 +1715,15 @@ bool MoviePlayer::Pause()
     m_isPaused.store(true);
 
     if (m_enableAudio && m_pSourceVoice)
+    {
+        // Snapshot how many samples were played in this voice cycle BEFORE stopping.
+        // When resumed, Start() will reset SamplesPlayed to 0 on the voice, so we
+        // accumulate here so the audio clock can continue correctly after resume.
+        XAUDIO2_VOICE_STATE st;
+        m_pSourceVoice->GetState(&st);
+        m_samplesPlayedOffset += (st.SamplesPlayed - m_audioStartSamples);
         m_pSourceVoice->Stop();
+    }
 
     debug.logLevelMessage(LogLevel::LOG_INFO, L"MoviePlayer: Playback paused");
     return true;
@@ -2291,14 +2306,25 @@ bool MoviePlayer::UpdateFrame()
     if (!updateLock.owns_lock())
         return false;
 
-    // ---- Feed audio: keep XAudio2 queue full so it never starves ----
-    // Audio plays at hardware sample rate; video syncs to audio via SamplesPlayed below.
+    // ---- Feed audio: keep XAudio2 queue fed, but don't read more than ~500 ms
+    //      ahead of the current video PTS to prevent audio content from drifting
+    //      far ahead of the corresponding video frames. ----
     if (m_enableAudio && m_pSourceVoice)
     {
         XAUDIO2_VOICE_STATE audioState;
         m_pSourceVoice->GetState(&audioState);
+
+        // 500 ms look-ahead limit expressed in MF 100-ns units
+        static constexpr LONGLONG kMaxAudioAheadMF = 5000000LL;
+        const LONGLONG videoPTSNow = m_llCurrentPosition.load();
+
         while (audioState.BuffersQueued < AUDIO_MAX_QUEUED_BUFFERS)
         {
+            // Stop pre-filling if audio has been read far enough ahead of video
+            if (m_audioReadPosition > 0 && videoPTSNow > 0 &&
+                m_audioReadPosition > videoPTSNow + kMaxAudioAheadMF)
+                break;
+
             if (!ReadAudioSample()) break;
             m_pSourceVoice->GetState(&audioState);
         }
@@ -2312,32 +2338,48 @@ bool MoviePlayer::UpdateFrame()
     }
 
     // ---- PTS gate: audio-master sync ----
-    // Video waits until the XAudio2 hardware has actually played audio up to this
-    // frame's PTS.  SamplesPlayed is reset to 0 each time the voice is Start()-ed,
-    // so (SamplesPlayed - m_audioStartSamples) gives elapsed audio time since Play().
-    // Fall back to wall-clock only when audio is unavailable.
+    // Present a video frame only when the audio output has reached that frame's file PTS.
+    //
+    // Clock formula (audio path):
+    //   currentAudioPTS = m_firstAudioSamplePTS
+    //                   + (m_samplesPlayedOffset + SamplesPlayed - m_audioStartSamples)
+    //                     / nSamplesPerSec  * 10 000 000
+    //
+    // m_firstAudioSamplePTS anchors SamplesPlayed to actual file PTS so the
+    // comparison is valid even when audio and video don't both start at PTS 0.
+    // m_samplesPlayedOffset carries over accumulated samples across pause/resume
+    // cycles because XAudio2 resets SamplesPlayed to 0 on every Start().
+    //
+    // If audio is not yet anchored (first buffer not submitted yet) or absent,
+    // fall back to wall-clock gating against the first video frame's PTS.
     if (m_playStartMediaTime >= 0)
     {
-        const double frameMediaSecs = ConvertMFTimeToSeconds(
-            m_llCurrentPosition.load() - m_playStartMediaTime);
+        const LONGLONG videoPTS  = m_llCurrentPosition.load();
+        const LONGLONG halfFrameMF = static_cast<LONGLONG>(10000000.0 * 0.5 / m_targetFPS);
 
-        if (m_enableAudio && m_pSourceVoice && m_audioFormat.nSamplesPerSec > 0)
+        if (m_enableAudio && m_pSourceVoice &&
+            m_audioFormat.nSamplesPerSec > 0 && m_firstAudioSamplePTS >= 0)
         {
             XAUDIO2_VOICE_STATE voiceState;
             m_pSourceVoice->GetState(&voiceState);
-            const double audioPlayedSecs =
-                static_cast<double>(voiceState.SamplesPlayed - m_audioStartSamples) /
-                static_cast<double>(m_audioFormat.nSamplesPerSec);
 
-            // Allow video up to half a frame ahead of audio to absorb minor jitter;
-            // drop frames silently if video falls more than one full frame behind.
-            const double halfFrame = 0.5 / static_cast<double>(m_targetFPS);
-            if (frameMediaSecs > audioPlayedSecs + halfFrame)
+            // Total samples played, spanning all voice start/stop cycles
+            const UINT64 totalSamples =
+                m_samplesPlayedOffset + (voiceState.SamplesPlayed - m_audioStartSamples);
+
+            // Map sample count to file PTS (100-ns MF units)
+            const LONGLONG audioNowPTS = m_firstAudioSamplePTS +
+                static_cast<LONGLONG>(
+                    static_cast<double>(totalSamples) /
+                    static_cast<double>(m_audioFormat.nSamplesPerSec) * 10000000.0);
+
+            if (videoPTS > audioNowPTS + halfFrameMF)
                 return false; // audio hasn't reached this frame yet — hold
         }
         else
         {
-            // No audio path: wall-clock fallback
+            // Wall-clock fallback: used when audio is disabled or not yet anchored
+            const double frameMediaSecs = ConvertMFTimeToSeconds(videoPTS - m_playStartMediaTime);
             const double elapsedSecs = std::chrono::duration<double>(
                 std::chrono::steady_clock::now() - m_playStartWallTime).count();
             if (elapsedSecs < frameMediaSecs)
@@ -2535,7 +2577,13 @@ bool MoviePlayer::ReadAudioSample()
 
     if (FAILED(hr) || !pSample) return false;
 
-    // Track how far ahead in the stream we have read so UpdateFrame() can gate this
+    // Anchor the audio clock to the file PTS of the first buffer ever submitted.
+    // This maps XAudio2's SamplesPlayed counter onto the file's PTS timeline so
+    // the sync gate in UpdateFrame() works regardless of where in the file playback starts.
+    if (m_firstAudioSamplePTS < 0)
+        m_firstAudioSamplePTS = timestamp; // may be 0 for files that start at PTS 0
+
+    // Track how far ahead in the stream we have read (used in UpdateFrame() to gate read-ahead)
     if (timestamp > 0)
         m_audioReadPosition = timestamp;
 

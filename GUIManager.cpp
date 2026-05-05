@@ -81,6 +81,7 @@ void GUIManager::AcquireClickLock() {
 
 void GUIManager::CreateMyWindow(const std::string& name, GUIWindowType type, const Vector2& position, const Vector2& size,
     const MyColor& backgroundColor, int backgroundTextureId) {
+    std::lock_guard<std::timed_mutex> lock(mutex);
     if (windows.find(name) != windows.end()) {
         debug.LogError("Window with name '" + name + "' already exists.\n");
         return;

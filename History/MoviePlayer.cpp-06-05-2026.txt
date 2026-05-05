@@ -1,0 +1,38 @@
+MoviePlayer.cpp - 06-05-2026
+A/V sync fix: audio advancing ahead of video
+
+Root causes fixed:
+
+1. Sync clock miscalibration
+   Old formula: (videoPTS - firstVideoPTS) vs (SamplesPlayed / sampleRate)
+   This assumed the first audio buffer's file PTS == the first video frame's file PTS.
+   For any file where they differ (encoder delay, PTS offset, etc.) the clocks were
+   systematically misaligned and audio sounded ahead.
+
+   New formula uses absolute PTS for both sides:
+     audioNowPTS = m_firstAudioSamplePTS
+                 + (totalSamples / nSamplesPerSec) * 10_000_000
+     gate: videoPTS > audioNowPTS + halfFrame => hold
+
+2. Pause/resume broke the audio clock
+   XAudio2 resets SamplesPlayed to 0 on every Start() of a stopped voice.
+   After a resume, (SamplesPlayed - m_audioStartSamples) started from 0 again while
+   videoPTS was mid-stream, so all queued video frames immediately passed the gate
+   and video raced ahead while audio was perceived as "ahead."
+
+   Fix:
+   - Pause() snapshots (SamplesPlayed - m_audioStartSamples) into m_samplesPlayedOffset
+     before calling Stop().
+   - Play() resume sets m_audioStartSamples = 0 after Start() so that
+     (m_samplesPlayedOffset + SamplesPlayed - 0) correctly continues the clock.
+
+3. Audio read-ahead gate was tracked but never enforced
+   m_audioReadPosition stored the last audio PTS read from MF but was unused.
+   Added a 500 ms cap: if m_audioReadPosition > videoPTS + 5_000_000 (MF units),
+   stop pre-filling the XAudio2 queue until video catches up.
+
+Other:
+- Fresh Play() now resets m_firstAudioSamplePTS = -1, m_audioStartSamples = 0,
+  m_samplesPlayedOffset = 0 for a clean baseline.
+- ReadAudioSample() anchors m_firstAudioSamplePTS on the very first submitted buffer.
+- Wall-clock fallback (no audio, or audio not yet anchored) unchanged.

@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1088*
+*Current Build Version: v0.0.1092*
 
 ---
 
@@ -474,6 +474,30 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - Added `isBorderless` flag to `WindowMetrics` struct so runtime code can distinguish borderless from windowed.
 - `StartRendererThreads()` is now called immediately after the display mode switch so the loader ring is visible throughout the entire remaining init sequence (sound, movie, joystick, callbacks) for all modes.
 - **Fix — loader ring invisible after display mode change:** `SetWindowPos` calls for Windowed and Borderless modes were firing `WM_SIZE` synchronously before `StartRendererThreads()`, which triggered `Resize()` → `Clean2DTextures()` → `m_d2dRenderTarget.Reset()` and wiped all D2D texture state before the loader thread could load `BG_LOADER_CIRCLE`. Fix: flag-setting and `SetWindowLong` (borderless style) remain in the startup switch; all `SetWindowPos` geometry calls are now deferred until immediately after `StartRendererThreads()` returns, so any subsequent `WM_SIZE` executes through the designed resize path with the loader already active.
+
+**May 06, 2026** - MoviePlayer A/V sync overhaul — audio no longer advances ahead of video:
+
+- Fixed sync clock miscalibration: old formula compared `(videoPTS − firstVideoPTS)` against
+  `SamplesPlayed / sampleRate`, which only held when both streams shared the same file start PTS.
+  New formula uses absolute file PTS on both sides:
+  `audioNowPTS = firstAudioSamplePTS + (totalSamples / sampleRate) × 10 000 000`.
+- Fixed pause/resume audio clock reset: XAudio2 resets `SamplesPlayed` to 0 on every `Start()` 
+  of a stopped voice. After a resume, the old code restarted the clock from zero, causing all 
+  queued video frames to pass the sync gate simultaneously (video race, audio perceived ahead).
+  `Pause()` now snapshots elapsed samples into `m_samplesPlayedOffset`; `Play()` resume resets
+  `m_audioStartSamples = 0` so the clock continues unbroken across stop/start cycles.
+- Activated the audio read-ahead gate: `m_audioReadPosition` was being tracked but never
+  enforced. The XAudio2 feed loop now stops pre-filling if decoded audio is more than 500 ms
+  ahead of the current video PTS, bounding memory usage and capping initial offset.
+- *See: [`MoviePlayer.h/.cpp`](MoviePlayer.h)*
+
+- Fixed SCENE_GAMETITLE configuration window crash on open: `GUIManager::CreateMyWindow` was
+  inserting into the `windows` unordered_map without holding the GUIManager mutex. `Render()`
+  iterates `windows` under that same mutex from the render thread, creating a data race that
+  manifested as a heap corruption crash when the config button was clicked. Fixed by acquiring
+  a `lock_guard<timed_mutex>` at the top of `CreateMyWindow`, consistent with how `RemoveWindow`
+  and `Render()` already protect map access.
+- *See: [`GUIManager.cpp`](GUIManager.cpp)*
 
 ---
 

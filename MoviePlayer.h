@@ -172,8 +172,10 @@ private:
     // Audio playback
     bool m_enableAudio;
     float m_targetFPS;
-    LONGLONG m_audioReadPosition; // MF timestamp of the last audio sample submitted to XAudio2
-    UINT64 m_audioStartSamples;   // XAudio2 SamplesPlayed value captured at Play() start; used for audio-master A/V sync
+    LONGLONG m_audioReadPosition;   // MF PTS of the last audio sample submitted to XAudio2 (used to gate read-ahead)
+    UINT64   m_audioStartSamples;   // SamplesPlayed at the start of the current XAudio2 voice cycle (reset each Start())
+    UINT64   m_samplesPlayedOffset; // Accumulated samples from completed voice cycles (pause/resume carry-over)
+    LONGLONG m_firstAudioSamplePTS; // MF PTS of the first audio buffer ever submitted; -1 = not yet anchored
     IXAudio2* m_pXAudio2;
     IXAudio2MasteringVoice* m_pMasterVoice;
     IXAudio2SourceVoice* m_pSourceVoice;

@@ -1,0 +1,25 @@
+GUIManager.cpp - 06-05-2026
+Fix: SCENE_GAMETITLE configuration window crash on open
+
+Root cause:
+
+CreateMyWindow() inserted into the `windows` unordered_map WITHOUT holding the
+GUIManager mutex.  Render() iterates `windows` under that same mutex from the
+render thread.  When HandleAllInput() released the mutex (line ~270) and then
+dispatched the config-button click, the callback chain
+
+    onMouseBtnUp -> CreateConfigWindow() -> CreateMyWindow()
+
+wrote to `windows` concurrently with the render thread reading it — undefined
+behaviour on std::unordered_map that manifested as a crash.
+
+Fix:
+
+Added std::lock_guard<std::timed_mutex> lock(mutex) at the top of
+CreateMyWindow(), before the duplicate-name check and before the map insertion.
+This is the same pattern already used by RemoveWindow() and Render(), making all
+three paths consistent.
+
+No deadlock risk: Render() releases the mutex before calling window->Render();
+HandleAllInput() releases the mutex before dispatching click events; so no call
+path holds the mutex when it could re-enter CreateMyWindow().
