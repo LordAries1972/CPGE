@@ -3,9 +3,9 @@
 ## Daniel J. Hobson  
 **Location**: Melbourne, Australia
 
-**Title**: Systems Analyst · Engine Architect · Software Developer.
+**Title**: Systems Analyst · Engine Architect · Software Developer · Business Systems Analyst.
 
-**Experience**: 35+ Years in Systems Engineering and Software/Systems Designs & Development.
+**Experience**: 35+ Years in Systems Engineering, Analysis and Software/Systems Designs & Development.
 
 **Project**: Original Founder and Current Maintainer of the Cross Platform Gaming Engine (CPGE) Project. 
 
