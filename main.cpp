@@ -86,7 +86,7 @@
     #elif defined(__USE_DIRECTX_12__)
         #include "DX12Renderer.h"
     #elif defined(__USE_VULKAN__)
-        #include "VulkanRenderer.h"
+        #include "VULKAN_Renderer.h"
     #elif defined(__USE_OPENGL__)
         #include "OpenGLRenderer.h"
     #else
@@ -689,6 +689,18 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                 // Update key states for edge detection (call once per frame)
                 keyboard.UpdateKeyStates();
 
+                // Poll for joystick connect/disconnect every 2 seconds.
+                // joyGetPosEx is inexpensive but scanning all slots on every frame
+                // is wasteful, so we throttle to once per 2000 ms.
+                {
+                    static ULONGLONG jsLastPollMs = 0;
+                    ULONGLONG nowMs = GetTickCount64();
+                    if (nowMs - jsLastPollMs >= 2000ULL) {
+                        js.PollControllers();
+                        jsLastPollMs = nowMs;
+                    }
+                }
+
                 switch (scene.stSceneType)
                 {
                     // Our Starting / CPGE Splash Screen (Need to create a linking library for this section.
@@ -928,30 +940,34 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                             }
                         }
 
-                        // Handle events for all our Windows. 
+                        // Handle events for all our Windows.
                         guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
-                        // Process joystick input for buttons
-                        js.processJoystickInput();
 
-                        // Process joystick movement (for the first joystick)
-                        // This will update the camera in 3D mode or update internal 2D 
-                        // position in 2D mode
-                        js.processJoystickMovement(PLAYER_1);
+                        // Process joystick input only when at least one controller is active.
+                        if (js.HasActiveControllers()) {
+                            // Process joystick input for buttons
+                            js.processJoystickInput();
 
-                        // If in 2D mode, get the current position (Joystick/Game pad example)
-                        if (!js.is3DMode) {
-                            float posX = js.getLastX();
-                            float posY = js.getLastY();
+                            // Process joystick movement (for the first joystick)
+                            // This will update the camera in 3D mode or update internal 2D
+                            // position in 2D mode
+                            js.processJoystickMovement(PLAYER_1);
 
-                            // Use the 2D position to update game objects if using
-                            // 2D Gaming preference....
+                            // If in 2D mode, get the current position (Joystick/Game pad example)
+                            if (!js.is3DMode) {
+                                float posX = js.getLastX();
+                                float posY = js.getLastY();
+
+                                // Use the 2D position to update game objects if using
+                                // 2D Gaming preference....
 
 
-                            #if defined(_DEBUG)
-                                debug.logLevelMessage(LogLevel::LOG_DEBUG,
-                                    L"2D Position: X=" + std::to_wstring(posX) +
-                                    L" Y=" + std::to_wstring(posY));
-                            #endif
+                                #if defined(_DEBUG)
+                                    debug.logLevelMessage(LogLevel::LOG_DEBUG,
+                                        L"2D Position: X=" + std::to_wstring(posX) +
+                                        L" Y=" + std::to_wstring(posY));
+                                #endif
+                            }
                         }
 
                         break;
@@ -2101,6 +2117,9 @@ void SwitchToMovieIntro()
 void SwitchToGameIntro()
 {
     threadManager.PauseThread(THREAD_RENDERER); // Pause the Renderer Thread
+    // State that the game is to reset!
+    threadManager.threadVars.bHasReset.store(true);
+    // Stop Music Playback!
     StopMusicPlayback();
     // Add TTS announcement for movie intro
     if (config.myConfig.UseTTS)
@@ -2112,13 +2131,19 @@ void SwitchToGameIntro()
         }
     }
 
+    // Cleanup the current old scene!
     scene.CleanUp();
+    // Select our New Scene!
     scene.SetGotoScene(SCENE_GAMETITLE);
+    // Set Initialisation for our new Scene
     scene.InitiateScene();
+    // No GOTO Scene - User now choses the SCENE of action before deciding!
     scene.SetGotoScene(SCENE_NONE);
     lastScenePhaseChangeTime = std::chrono::steady_clock::now();
     // Restart the Loader Thread to load in required assets.
     renderer->ResumeLoader();
+    // Resume Game State
+    threadManager.threadVars.bHasReset.store(false);
     // Resume the Renderer Thread
     threadManager.ResumeThread(THREAD_RENDERER);
 }

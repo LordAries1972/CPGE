@@ -49,6 +49,7 @@ public:
     Camera* m_camera = nullptr;
 
     void detectJoysticks();
+    size_t PollControllers();                                                        // Re-detect controllers and return active count; call periodically from main loop
     bool readJoystickState(int joystickID, JoystickState& state);
     bool loadMapping(const std::string& filename = JoystickMapFilename);
     bool saveMapping(const std::string& filename = JoystickMapFilename);
@@ -58,6 +59,7 @@ public:
     void ConfigureFor3DMovement();
 
     size_t NumOfJoysticks() const { return activeJoysticks.size(); };
+    bool HasActiveControllers() const { return !activeJoysticks.empty(); };
 
     // New joystick movement functions
     void setMovementMode(MovementMode mode) { m_movementMode = mode; }

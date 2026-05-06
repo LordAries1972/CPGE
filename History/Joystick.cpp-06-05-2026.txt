@@ -1,0 +1,2 @@
+// Joystick.cpp - 06-05-2026
+// Added: PollControllers() implementation - re-runs detectJoysticks(), logs connect/disconnect changes, returns active count

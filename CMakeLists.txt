@@ -33,8 +33,12 @@ set(SOURCES
     Models.cpp
     MoviePlayer.cpp
     MyRandomizer.cpp
-NetworkManager.cpp
+    NetworkManager.cpp
     OpenGLRenderer.cpp
+    VULKAN_Renderer.cpp
+    VULKAN_RenderFrame.cpp
+    VULKAN_FXManager.cpp
+    VULKAN_IOStreamThread.cpp
     Physics.cpp
     PUNPack.cpp
     RendererFactory.cpp

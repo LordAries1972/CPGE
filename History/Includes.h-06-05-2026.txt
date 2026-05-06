@@ -1,0 +1,27 @@
+Includes.h - 06-05-2026
+========================
+MODIFIED
+
+Added Vulkan includes block inside the PLATFORM_WINDOWS section (after OpenGL block):
+
+    #if defined(__USE_VULKAN__)
+        #define VK_USE_PLATFORM_WIN32_KHR
+        #include <vulkan/vulkan.h>
+        #include <vulkan/vulkan_win32.h>
+        #include <DirectXMath.h>
+        #include <DirectXColors.h>
+        #include <d2d1_1.h>          // D2D overlay for Vulkan 2D rendering
+        #include <d2d1_1helper.h>
+        #include <dwrite.h>
+        #if __has_include(<shaderc/shaderc.hpp>)
+            #include <shaderc/shaderc.hpp>
+        #endif
+        #pragma comment(lib, "vulkan-1.lib")
+        #pragma comment(lib, "d2d1.lib")
+        #pragma comment(lib, "dwrite.lib")
+        #pragma comment(lib, "dxguid.lib")
+        #pragma comment(lib, "winmm.lib")
+        using namespace DirectX;
+    #endif
+
+Linux/Android Vulkan includes remain in VULKAN_Renderer.h (uses GLM + xcb/android headers).

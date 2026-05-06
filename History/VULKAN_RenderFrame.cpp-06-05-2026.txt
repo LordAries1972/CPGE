@@ -1,0 +1,20 @@
+VULKAN_RenderFrame.cpp - 06-05-2026
+=====================================
+NEW FILE
+
+Vulkan render frame loop — equivalent of DXRenderFrame.cpp.
+
+Key additions:
+- RenderFrame() with RENDERER_IS_THREAD loop guard and atomic re-entrancy protection
+- Per-frame: acquire swapchain image, fence wait, begin command buffer
+- Windows: D2D BeginDraw/EndDraw for 2D overlay content (splash, loading ring, FPS,
+  REC indicator, scene-specific UI)
+- UploadOverlayToVulkan(cmd) call to upload D2D bitmap to Vulkan staging -> device image
+- Begin render pass with dynamic viewport/scissor
+- RenderGamePlay(): DirectXMath (Windows) / GLM (Linux/Android) view+proj matrices,
+  per-model m.DrawVulkan() calls, light push constants
+- RenderIntroMovie() inline
+- fxManager.Render() / fxManager.Render2D() calls
+- 2D overlay composite: descriptor set allocation for overlay texture, push constants,
+  fullscreen quad draw, vkFreeDescriptorSets
+- Submit + Present with VK_ERROR_OUT_OF_DATE_KHR swap chain recreation

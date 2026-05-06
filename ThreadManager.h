@@ -45,6 +45,8 @@ public:
     std::atomic<bool> bIsRendering;
     std::atomic<bool> bIsShuttingDown;
 	std::atomic<bool> bIsResizing;
+    std::atomic<bool> bHasGameReset;
+    std::atomic<bool> bHasReset;
     std::atomic<bool> b2DTexturesLoaded;
     std::atomic<bool> bSettingFullScreen;
 
@@ -61,6 +63,7 @@ private:
         bIsRendering(false),
         bIsShuttingDown(false),
         bIsResizing(false),
+        bHasGameReset(false),
         b2DTexturesLoaded(false),
         bSettingFullScreen(false)
     { }

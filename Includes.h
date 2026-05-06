@@ -139,6 +139,29 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
             #pragma comment(lib, "gdi32.lib")
             #pragma comment(lib, "shell32.lib")
         #endif
+
+        #if defined(__USE_VULKAN__)
+            #define VK_USE_PLATFORM_WIN32_KHR
+            #include <vulkan/vulkan.h>
+            #include <vulkan/vulkan_win32.h>
+            #include <DirectXMath.h>
+            #include <DirectXColors.h>
+            #include <d2d1_1.h>
+            #include <d2d1_1helper.h>
+            #include <dwrite.h>
+
+            #if __has_include(<shaderc/shaderc.hpp>)
+                #include <shaderc/shaderc.hpp>
+            #endif
+
+            #pragma comment(lib, "vulkan-1.lib")
+            #pragma comment(lib, "d2d1.lib")
+            #pragma comment(lib, "dwrite.lib")
+            #pragma comment(lib, "dxguid.lib")
+            #pragma comment(lib, "winmm.lib")
+
+            using namespace DirectX;
+        #endif
     #endif // !PLATFORM_WINDOWS
 #elif defined(__linux__)
     #ifndef PLATFORM_LINUX

@@ -415,7 +415,7 @@ void DX11Renderer::RenderFrame()
                                if (threadManager.threadVars.bLoaderTaskFinished.load())
                                {
                                    // Set camera for intro scene background
-                                   myCamera.SetYawPitch(0.250f, -0.22f);
+                                   myCamera.SetYawPitch(0.240f, -0.28f);
                                }
                                break;
                            }

@@ -1,0 +1,21 @@
+VULKAN_FXManager.h - 06-05-2026
+=================================
+NEW FILE
+
+VKFXManager class declaration — Vulkan equivalent of DX_FXManager.h.
+
+Key additions:
+- Platform guards: DirectXMath on PLATFORM_WINDOWS; GLM type aliases
+  (XMFLOAT3=glm::vec3, XMFLOAT4=glm::vec4, XMMATRIX=glm::mat4) on Linux/Android
+- Same FXType/FXSubType enums as DX_FXManager (shared by engine)
+- Vulkan-equivalent structs: VKParticle, VKStar, VKTextScrollData, VKFXItem,
+  VKScrollTween, VKActiveFXState, VKCallbackEntry (with atomic copy/move semantics)
+- VKFXItem embeds std::vector<VKParticle> particles (used by both starfield and explosions)
+  and std::vector<VKStar> stars
+- VKFXManager class: same public API as FXManager but:
+    RenderFX(int effectID, VkCommandBuffer cmd, const XMMATRIX& worldMatrix)
+    RenderStarfield(VKFXItem&, VkCommandBuffer, const XMMATRIX&)
+    RenderFadeFullScreenQuad(VkCommandBuffer, const XMFLOAT4&)
+- Private: m_fadePipeline / m_fadePipelineLayout (VkPipeline replaces D3D11 blend states)
+- Private members renamed with m_ prefix: m_isRendering, m_effectsMutex,
+  m_pendingCallbacks, m_activeTweens, m_savedFXState

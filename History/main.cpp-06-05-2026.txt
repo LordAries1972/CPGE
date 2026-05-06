@@ -1,0 +1,3 @@
+// main.cpp - 06-05-2026
+// Added: periodic joystick poll in main loop every 2 seconds via GetTickCount64() / PollControllers()
+// Added: HasActiveControllers() guard around gameplay joystick input and movement processing

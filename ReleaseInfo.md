@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1092*
+*Current Build Version: v0.0.1094*
 
 ---
 
@@ -499,6 +499,40 @@ Once the base DirectX 11 implementation is complete, the project will be release
   and `Render()` already protect map access.
 - *See: [`GUIManager.cpp`](GUIManager.cpp)*
 
+- Joystick hot-plug monitoring added to the main loop — controllers can now be connected or
+  disconnected at any time and the engine responds correctly:
+  - `PollControllers()` re-scans all joystick slots every 2 seconds via `GetTickCount64()`
+    and logs a message whenever the active controller count changes.
+  - `HasActiveControllers()` inline added so joystick input and movement processing in
+    `SCENE_GAMEPLAY` is skipped entirely when no controller is present (no wasted reads).
+- *See: [`Joystick.h`](Joystick.h), [`Joystick.cpp`](Joystick.cpp), [`main.cpp`](main.cpp)*
+
+- Full Vulkan renderer implementation added — all seven files written as a complete
+  cross-platform port of the DirectX 11 renderer:
+  - **`VULKAN_Renderer.h/.cpp`** — `VulkanRenderer : public Renderer` with Vulkan 1.2
+    instance/device/swapchain/renderpass/pipeline management; Windows = D2D overlay + WIC
+    textures + DirectXMath; Linux/Android = XCB/ANativeWindow + GLM; runtime GLSL→SPIR-V
+    via shaderc; 2 frames-in-flight pattern; manual Vulkan memory (no VMA).
+  - **`VULKAN_RenderFrame.cpp`** — Scene render loop: acquire→fence→D2D overlay→begin
+    renderpass→3D scene→FX→2D overlay composite→submit→present; swap chain recreation on
+    `VK_ERROR_OUT_OF_DATE_KHR`.
+  - **`VULKAN_FXManager.h/.cpp`** — `VKFXManager` with Vulkan pipeline for fullscreen fade
+    quad (inline GLSL, push constant color, gl_VertexIndex fullscreen triangle); all DX11
+    FX ported: ColorFader, Starfield, ParticleExplosion, Scroller, TextScroller (LTOR/RTOL/
+    Consistent/Movie); scroll tweens; pending callbacks; `VkCommandBuffer` in place of
+    `ID3D11DeviceContext*`.
+  - **`VULKAN_IOStreamThread.h/.cpp`** — `VulkanRenderer::LoaderTaskThread()` with full
+    scene-switch structure; `SecureZeroMemory` guarded to Windows only; `sysUtils` and
+    `CoInitialize` calls platform-gated.
+  - **`Includes.h`** — Added `#if defined(__USE_VULKAN__)` block in the Windows section
+    with `vulkan.h`, `vulkan_win32.h`, D2D/DWrite headers, optional shaderc, and
+    `#pragma comment` link directives for `vulkan-1.lib`, `d2d1.lib`, `dwrite.lib`.
+  - All 7 new files added to `CrossPlatformGameEngine.vcxproj` and `CMakeLists.txt`.
+- *See: [`VULKAN_Renderer.h`](VULKAN_Renderer.h), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp),
+  [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`VULKAN_FXManager.h`](VULKAN_FXManager.h),
+  [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp), [`VULKAN_IOStreamThread.h`](VULKAN_IOStreamThread.h),
+  [`VULKAN_IOStreamThread.cpp`](VULKAN_IOStreamThread.cpp), [`Includes.h`](Includes.h)*
+
 ---
 
 ## Future Development
@@ -547,11 +581,11 @@ Since this is early-stage days of development (WIP), major reconstruction may oc
 
 ## Technical Requirements
 
-- **Operating System**: Windows 10 SP1+ (64-bit)
-- **Development Environment**: Visual Studio 2019/2022
+- **Operating System**: Windows 10 SP1+ (64-bit), Linux, Android, iOS or MacOS (will fill this in more when I know more on certainty!)
+- **Development Environment**: Visual Studio 2019/2022 / CMAKE / VSCode
 - **Language Standard**: C++17 Compliant
 - **Graphics APIs**: DirectX 11/12, OpenGL, Vulkan with a minimum or equivilant NVIDIA GTX-960M card.
-- **Architecture**: Win x64, Linux, Android, iOS and MacOS only!
+- **Architecture**: Win x64, Linux, Android, iOS and MacOS only for now!
 
 ---
 

@@ -40,6 +40,20 @@ void Joystick::detectJoysticks() {
     #endif
 }
 
+size_t Joystick::PollControllers() {
+    size_t prevCount = activeJoysticks.size();
+    detectJoysticks();
+    size_t newCount = activeJoysticks.size();
+
+    if (newCount != prevCount) {
+        debug.logLevelMessage(LogLevel::LOG_INFO,
+            L"[Joystick] Active controllers changed: " +
+            std::to_wstring(prevCount) + L" -> " + std::to_wstring(newCount));
+    }
+
+    return newCount;
+}
+
 bool Joystick::readJoystickState(int joystickID, JoystickState& state) {
     if (std::find(activeJoysticks.begin(), activeJoysticks.end(), joystickID) == activeJoysticks.end()) {
         #if defined(_DEBUG) && defined(_DUBUG_JOYSTICK_)

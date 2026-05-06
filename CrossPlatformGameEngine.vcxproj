@@ -158,6 +158,10 @@
     <ClCompile Include="MyRandomizer.cpp" />
     <ClCompile Include="NetworkManager.cpp" />
     <ClCompile Include="OpenGLRenderer.cpp" />
+    <ClCompile Include="VULKAN_Renderer.cpp" />
+    <ClCompile Include="VULKAN_RenderFrame.cpp" />
+    <ClCompile Include="VULKAN_FXManager.cpp" />
+    <ClCompile Include="VULKAN_IOStreamThread.cpp" />
     <ClCompile Include="Physics.cpp" />
     <ClCompile Include="PUNPack.cpp" />
     <ClCompile Include="RendererFactory.cpp" />
@@ -213,7 +217,9 @@
     <ClInclude Include="ThreadManager.h" />
     <ClInclude Include="TTSManager.h" />
     <ClInclude Include="Vectors.h" />
-    <ClInclude Include="VulkanRenderer.h" />
+    <ClInclude Include="VULKAN_Renderer.h" />
+    <ClInclude Include="VULKAN_FXManager.h" />
+    <ClInclude Include="VULKAN_IOStreamThread.h" />
     <ClInclude Include="WinMediaPlayer.h" />
     <ClInclude Include="WinSystem.h" />
     <ClInclude Include="XMMODPlayer.h" />
