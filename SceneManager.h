@@ -37,6 +37,9 @@ enum SceneType
 	SCENE_CREDITS,
 	SCENE_EDITOR,
 	SCENE_LOAD_MP3,
+	#if defined(_DEBUG)
+		SCENE_EXPERIMENT,
+	#endif
 };
 
 struct SceneModelStateBinary

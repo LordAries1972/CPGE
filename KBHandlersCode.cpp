@@ -69,7 +69,7 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
                 {
                     case SceneType::SCENE_GAMEPLAY:
                     {
-                        fxManager.FadeToBlack(1.0f, 0.03f);
+                        fxManager.FadeToBlack(1.0f, 0.06f);
                         soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
                         while (fxManager.IsFadeActive()) 
                         {
@@ -86,7 +86,7 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
                     
                     case SceneType::SCENE_GAMETITLE:
                     {
-                        fxManager.FadeToBlack(1.0f, 0.03f);
+                        fxManager.FadeToBlack(1.0f, 0.06f);
                         soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
                         while (fxManager.IsFadeActive()) 
                         {

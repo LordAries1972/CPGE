@@ -24,7 +24,8 @@ enum class FXType {
     Scroller,
     ParticleExplosion,
     Starfield,
-    TextScroller,                                                               // NEW: Text scroller effect type
+    TextScroller,                                                               // Text scroller effect type
+    WarpDotTunnel,                                                              // NEW: 3D rotating dot-circle warp tunnel
 };
 
 enum class FXSubType {
@@ -49,11 +50,18 @@ enum class FXSubType {
     ScrollDownAndLeft,
     ScrollDownAndRight,
 
-    // NEW: Text Scroller Sub-types
+    // Text Scroller Sub-types
     TXT_SCROLL_LTOR,                                                            // Left to Right text scroller
     TXT_SCROLL_RTOL,                                                            // Right to Left text scroller
     TXT_SCROLL_CONSISTANT,                                                      // Consistent text scroller
     TXT_SCROLL_MOVIE,                                                           // Movie credits style scroller
+};
+
+// Spin direction for the WarpDotTunnel rings
+enum class TunnelSpinCycle {
+    None,
+    Clockwise,
+    AntiClockwise,
 };
 
 // Structure representing an individual animated particle for explosions
@@ -86,7 +94,39 @@ struct Star
     bool active;         // Whether the star is currently active
 };
 
-// NEW: Structure representing text scroll data for text scrollers
+// One ring of dots in a WarpDotTunnel effect
+struct TunnelRing {
+    float zPos       = 0.0f;     // current Z world position
+    float spinAngle  = 0.0f;     // accumulated rotation offset (radians)
+    float cx         = 0.0f;     // current X world centre
+    float cy         = 0.0f;     // current Y world centre
+    bool  alive      = true;
+};
+
+// Per-effect state for WarpDotTunnel
+struct WarpTunnelData {
+    float            startX         = 0.0f;
+    float            startY         = 0.0f;
+    float            startZ         = 0.0f;
+    float            minRadius      = 5.0f;
+    float            maxRadius      = 200.0f;
+    TunnelSpinCycle  spinCycle      = TunnelSpinCycle::None;
+    int              travelSpeed    = 80;
+    bool             reverseTravel  = false;
+    int              dotsPerCircle  = 24;
+    int              density        = 4;
+
+    float totalDistance = 800.0f;  // computed: world-space length of the tunnel
+    float nearZ         = 0.0f;    // camera-near end  (= startZ for forward travel)
+    float farZ          = 800.0f;  // camera-far  end
+    float spinSpeed     = 0.0f;    // radians / second derived from travelSpeed
+
+    static constexpr float kMaxXYRadius = 300.0f;  // maximum XY deviation of ring centres
+
+    std::vector<TunnelRing> rings;
+};
+
+// Structure representing text scroll data for text scrollers
 struct TextScrollData {
     std::wstring text;                                                          // Text content to scroll
     std::vector<std::wstring> textLines;                                        // Text split into lines for movie scroller
@@ -167,8 +207,11 @@ struct FXItem {
     XMFLOAT3 starfieldOrigin = { 0.0f, 0.0f, 0.0f };              // Center/target position for starfield
     bool starfieldReverse = false;                                  // If true, stars travel toward starfieldOrigin
 
-    // NEW: Text Scroller support
+    // Text Scroller support
     TextScrollData textScrollData;                                  // Text scrolling data for text scroller effects
+
+    // WarpDotTunnel support
+    WarpTunnelData warpTunnelData;                                  // State for WarpDotTunnel effect (only used when type == WarpDotTunnel)
 };
 
 struct ScrollTween {
@@ -195,6 +238,8 @@ struct ParallaxLayerProfile {
 struct ActiveFXState {
     bool starfieldActive;                                                       // Whether starfield was active
     int starfieldID;                                                            // Starfield effect ID
+    bool tunnelActive;                                                          // Whether WarpDotTunnel was active
+    int tunnelID;                                                               // WarpDotTunnel effect ID
     bool textScrollerActive;                                                    // Whether text scroller was active
     std::vector<int> textScrollerIDs;                                           // Active text scroller IDs
     bool fadeEffectActive;                                                      // Whether fade effect was active
@@ -205,6 +250,8 @@ struct ActiveFXState {
     ActiveFXState()
         : starfieldActive(false)                                                // Initialize starfield active flag
         , starfieldID(0)                                                        // Initialize starfield ID
+        , tunnelActive(false)                                                   // Initialize tunnel active flag
+        , tunnelID(0)                                                           // Initialize tunnel ID
         , textScrollerActive(false)                                             // Initialize text scroller flag
         , fadeEffectActive(false)                                               // Initialize fade effect flag
         , scrollEffectsActive(false)                                            // Initialize scroll effects flag
@@ -222,6 +269,8 @@ struct ActiveFXState {
     ActiveFXState(const ActiveFXState& other)
         : starfieldActive(other.starfieldActive)
         , starfieldID(other.starfieldID)
+        , tunnelActive(other.tunnelActive)
+        , tunnelID(other.tunnelID)
         , textScrollerActive(other.textScrollerActive)
         , textScrollerIDs(other.textScrollerIDs)                                // Vector copy constructor handles this safely
         , fadeEffectActive(other.fadeEffectActive)
@@ -235,6 +284,8 @@ struct ActiveFXState {
         if (this != &other) {                                                   // Prevent self-assignment
             starfieldActive = other.starfieldActive;
             starfieldID = other.starfieldID;
+            tunnelActive = other.tunnelActive;
+            tunnelID = other.tunnelID;
             textScrollerActive = other.textScrollerActive;
             textScrollerIDs = other.textScrollerIDs;                            // Vector assignment handles this safely
             fadeEffectActive = other.fadeEffectActive;
@@ -248,6 +299,8 @@ struct ActiveFXState {
     ActiveFXState(ActiveFXState&& other) noexcept
         : starfieldActive(other.starfieldActive)
         , starfieldID(other.starfieldID)
+        , tunnelActive(other.tunnelActive)
+        , tunnelID(other.tunnelID)
         , textScrollerActive(other.textScrollerActive)
         , textScrollerIDs(std::move(other.textScrollerIDs))                     // Move vector contents
         , fadeEffectActive(other.fadeEffectActive)
@@ -257,6 +310,8 @@ struct ActiveFXState {
         // Reset moved-from object to safe state
         other.starfieldActive = false;
         other.starfieldID = 0;
+        other.tunnelActive = false;
+        other.tunnelID = 0;
         other.textScrollerActive = false;
         other.fadeEffectActive = false;
         other.scrollEffectsActive = false;
@@ -267,6 +322,8 @@ struct ActiveFXState {
         if (this != &other) {                                                   // Prevent self-assignment
             starfieldActive = other.starfieldActive;
             starfieldID = other.starfieldID;
+            tunnelActive = other.tunnelActive;
+            tunnelID = other.tunnelID;
             textScrollerActive = other.textScrollerActive;
             textScrollerIDs = std::move(other.textScrollerIDs);                 // Move vector contents
             fadeEffectActive = other.fadeEffectActive;
@@ -276,6 +333,8 @@ struct ActiveFXState {
             // Reset moved-from object to safe state
             other.starfieldActive = false;
             other.starfieldID = 0;
+            other.tunnelActive = false;
+            other.tunnelID = 0;
             other.textScrollerActive = false;
             other.fadeEffectActive = false;
             other.scrollEffectsActive = false;
@@ -375,6 +434,15 @@ public:
     void UpdateStarfield(float deltaTime);
     void RenderStarfield(FXItem& fxItem, ID3D11DeviceContext* context, const XMMATRIX& viewMatrix);
 
+    // WarpDotTunnel Utility Calls
+    int tunnelID = 0;
+    void Init3DWarpDOTTunnel(float x, float y, float z,
+                             float minRadius, float maxRadius,
+                             TunnelSpinCycle spinCycle,
+                             int travelSpeed, bool reverseTravel,
+                             int dotsPerCircle, int density);
+    void StopWarpDotTunnel();
+
     // The Fader Utility Calls
     bool IsFadeActive() const;
     void FadeToColor(XMFLOAT4 color, float duration, float delay);
@@ -427,6 +495,10 @@ public:
     void RenderTextScroller(FXItem& fxItem);
 
 private:
+    // WarpDotTunnel private helpers
+    void UpdateWarpDotTunnel(FXItem& fx, float deltaTime);
+    void RenderWarpDotTunnel(FXItem& fx, ID3D11DeviceContext* context);
+
     // Internal Helper functions
     void ApplyColorFader(FXItem& fxItem);
     void ApplyScroller(FXItem& fxItem);

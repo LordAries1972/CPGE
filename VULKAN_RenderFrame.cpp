@@ -382,6 +382,11 @@ void VulkanRenderer::RenderFrame()
                 // FX 2D effects (scrollers, particles)
                 try { fxManager.Render2D(); } catch (...) {}
 
+                // 3D warp dot tunnel (projects to 2D overlay via Blit2DColoredPixel)
+                if (fxManager.tunnelID > 0) {
+                    try { fxManager.RenderFX(fxManager.tunnelID, cmd, myCamera.GetViewMatrix()); } catch (...) {}
+                }
+
                 // GUI windows
                 try { guiManager.Render(); } catch (...) {}
 

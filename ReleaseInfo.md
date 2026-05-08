@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1094*
+*Current Build Version: v0.0.1099*
 
 ---
 
@@ -532,6 +532,42 @@ Once the base DirectX 11 implementation is complete, the project will be release
   [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`VULKAN_FXManager.h`](VULKAN_FXManager.h),
   [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp), [`VULKAN_IOStreamThread.h`](VULKAN_IOStreamThread.h),
   [`VULKAN_IOStreamThread.cpp`](VULKAN_IOStreamThread.cpp), [`Includes.h`](Includes.h)*
+
+**May 08, 2026** - 3D Warp Dot Tunnel FX system (`Init3DWarpDOTTunnel`):
+
+- Added a new `FXType::WarpDotTunnel` effect — a Doctor Who–style 3D rotating dot-circle tunnel
+  with full perspective projection, density-based ring spawning, and sine-path XY drift.
+- **`Init3DWarpDOTTunnel(x, y, z, minRadius, maxRadius, TunnelSpinCycle, travelSpeed, reverseTravel, dotsPerCircle, density)`**:
+  - `minRadius`/`maxRadius` — ring radius at the far end and near-camera end respectively; linearly
+    interpolated over the tunnel's 800-unit Z depth.
+  - `TunnelSpinCycle` — enum: `None`, `Clockwise`, `AntiClockwise`; spin speed is derived from
+    `travelSpeed * 0.05` rad/s.
+  - `travelSpeed` — units/second base speed; for forward travel (non-reverse) rings accelerate as
+    they approach the camera (`0.5 + t * 1.5` factor); for reverse travel they decelerate (`2.0 - t * 1.5`).
+  - `reverseTravel` — `false` = rings fly toward camera (Doctor Who intro); `true` = rings recede
+    from camera toward focal point.
+  - `density` (1–100) — number of simultaneous rings; rings are staggered evenly along the tunnel
+    at startup so density is immediately uniform. Each ring resets to the far/near origin once it
+    reaches its destination, with the next ring spawning at 1/density of travel elapsed.
+  - Ring XY centres follow a parametric circular sine-path (radius 300 world units, one complete
+    revolution per tunnel length) computed via `FAST_MATH.FastSinCos` from the precalculation
+    tables — never sporadic, always a clean closed loop.
+  - Dots drawn via `Blit2DColoredPixel` after perspective projection; culled on NDC bounds; size
+    scales from 1 px (far) to 4 px (near); colour transitions from dim cool-blue (far) to bright
+    white-blue (near); alpha-edge-fades at 8 % of travel from each end to prevent popping.
+- **`StopWarpDotTunnel()`** — removes the active tunnel FX and clears `tunnelID`.
+- `StopAllFXForResize()` saves `tunnelActive`/`tunnelID` and stops the tunnel before resize so
+  no stale rings are left in-flight during DirectX resource recreation.
+- `Render()` update loop calls `UpdateWarpDotTunnel()` alongside the existing Starfield update;
+  `RenderFX()` dispatches `RenderWarpDotTunnel()` for the new FXType.
+- `DXRenderFrame.cpp` and `VULKAN_RenderFrame.cpp` both call
+  `fxManager.RenderFX(fxManager.tunnelID, ...)` when `tunnelID > 0`, consistent with the
+  existing Starfield render call pattern.
+- Full Vulkan mirror in `VKFXManager`: `VKTunnelRing`, `VKWarpTunnelData`, identical
+  `Init3DWarpDOTTunnel` / `StopWarpDotTunnel` / `UpdateWarpDotTunnel` / `RenderWarpDotTunnel`.
+- *See: [`DX_FXManager.h`](DX_FXManager.h), [`DX_FXManager.cpp`](DX_FXManager.cpp),
+  [`VULKAN_FXManager.h`](VULKAN_FXManager.h), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp),
+  [`DXRenderFrame.cpp`](DXRenderFrame.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp)*
 
 ---
 

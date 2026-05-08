@@ -234,6 +234,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 //------------------------------------------
 // XM / MP3 Modules
 //------------------------------------------
+const int MAX_GLOBAL_VOLUME = 64;
 #if defined(__USE_MP3PLAYER__)
     inline const std::filesystem::path mp3FilePlaylist[] = { L"game1.mp3" };
     inline const std::filesystem::path SingleMP3Filename = "game1.mp3";

@@ -1,0 +1,9 @@
+DXRenderFrame.cpp - 08-05-2026
+================================
+Added WarpDotTunnel render call alongside existing starfieldID RenderFX call:
+
+  if (fxManager.tunnelID > 0) {
+      fxManager.RenderFX(fxManager.tunnelID, m_d3dContext.Get(), myCamera.GetViewMatrix());
+  }
+
+Placed immediately after the starfield RenderFX block (same scene guard scope).

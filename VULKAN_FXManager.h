@@ -46,6 +46,7 @@ enum class FXType {
     ParticleExplosion,
     Starfield,
     TextScroller,
+    WarpDotTunnel,                                                              // NEW: 3D rotating dot-circle warp tunnel
 };
 
 enum class FXSubType {
@@ -54,6 +55,13 @@ enum class FXSubType {
     ScrollRight, ScrollLeft, ScrollUp, ScrollDown,
     ScrollUpAndLeft, ScrollUpAndRight, ScrollDownAndLeft, ScrollDownAndRight,
     TXT_SCROLL_LTOR, TXT_SCROLL_RTOL, TXT_SCROLL_CONSISTANT, TXT_SCROLL_MOVIE,
+};
+
+// Spin direction for the WarpDotTunnel rings
+enum class TunnelSpinCycle {
+    None,
+    Clockwise,
+    AntiClockwise,
 };
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -78,6 +86,38 @@ struct VKStar {
     float     size;
     float     speed;
     bool      active;
+};
+
+// One ring of dots in a WarpDotTunnel effect
+struct VKTunnelRing {
+    float zPos      = 0.0f;
+    float spinAngle = 0.0f;
+    float cx        = 0.0f;
+    float cy        = 0.0f;
+    bool  alive     = true;
+};
+
+// Per-effect state for WarpDotTunnel
+struct VKWarpTunnelData {
+    float            startX        = 0.0f;
+    float            startY        = 0.0f;
+    float            startZ        = 0.0f;
+    float            minRadius     = 5.0f;
+    float            maxRadius     = 200.0f;
+    TunnelSpinCycle  spinCycle     = TunnelSpinCycle::None;
+    int              travelSpeed   = 80;
+    bool             reverseTravel = false;
+    int              dotsPerCircle = 24;
+    int              density       = 4;
+
+    float totalDistance = 800.0f;
+    float nearZ         = 0.0f;
+    float farZ          = 800.0f;
+    float spinSpeed     = 0.0f;
+
+    static constexpr float kMaxXYRadius = 300.0f;
+
+    std::vector<VKTunnelRing> rings;
 };
 
 struct VKTextScrollData {
@@ -148,6 +188,9 @@ struct VKFXItem {
 
     // Text scroller
     VKTextScrollData textScrollData;
+
+    // WarpDotTunnel
+    VKWarpTunnelData warpTunnelData;
 };
 
 struct VKScrollTween {
@@ -160,6 +203,8 @@ struct VKScrollTween {
 struct VKActiveFXState {
     bool  starfieldActive      = false;
     int   starfieldID          = 0;
+    bool  tunnelActive         = false;
+    int   tunnelID             = 0;
     bool  textScrollerActive   = false;
     std::vector<int> textScrollerIDs;
     bool  fadeEffectActive     = false;
@@ -226,6 +271,15 @@ public:
     void UpdateStarfield(float deltaTime);
     void RenderStarfield(VKFXItem& fxItem, VkCommandBuffer cmd, const XMMATRIX& viewMatrix);
 
+    // WarpDotTunnel
+    int  tunnelID = 0;
+    void Init3DWarpDOTTunnel(float x, float y, float z,
+                             float minRadius, float maxRadius,
+                             TunnelSpinCycle spinCycle,
+                             int travelSpeed, bool reverseTravel,
+                             int dotsPerCircle, int density);
+    void StopWarpDotTunnel();
+
     // Fader
     bool IsFadeActive() const;
     void FadeToColor(XMFLOAT4 color, float duration, float delay);
@@ -288,6 +342,10 @@ public:
     void RenderTextScroller(VKFXItem& fxItem);
 
 private:
+    // WarpDotTunnel private helpers
+    void UpdateWarpDotTunnel(VKFXItem& fx, float deltaTime);
+    void RenderWarpDotTunnel(VKFXItem& fx, VkCommandBuffer cmd);
+
     // Internal helpers
     void ApplyColorFader(VKFXItem& fxItem);
     void ApplyScroller(VKFXItem& fxItem);

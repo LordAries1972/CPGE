@@ -10,13 +10,14 @@
 6. [Scroll Effects](#scroll-effects)
 7. [Particle Explosion Effects](#particle-explosion-effects)
 8. [Starfield Effects](#starfield-effects)
-9. [Text Scroller Effects](#text-scroller-effects)
-10. [Advanced Features](#advanced-features)
-11. [Window Resize Handling](#window-resize-handling)
-12. [Thread Safety](#thread-safety)
-13. [Performance Considerations](#performance-considerations)
-14. [Troubleshooting](#troubleshooting)
-15. [Code Examples](#code-examples)
+9. [Warp Dot Tunnel Effects](#warp-dot-tunnel-effects)
+10. [Text Scroller Effects](#text-scroller-effects)
+11. [Advanced Features](#advanced-features)
+12. [Window Resize Handling](#window-resize-handling)
+13. [Thread Safety](#thread-safety)
+14. [Performance Considerations](#performance-considerations)
+15. [Troubleshooting](#troubleshooting)
+16. [Code Examples](#code-examples)
 
 ---
 
@@ -27,36 +28,40 @@ The FXManager class is a comprehensive visual effects system designed for real-t
 ### Key Features
 - **Multi-threaded rendering support** with thread-safe operations
 - **Queue-based effect management** for complex effect sequences
-- **Multiple effect types** including fades, scrolls, particles, and text
+- **Multiple effect types** including fades, scrolls, particles, starfields, text, and 3D warp tunnels
 - **Callback system** for chaining effects and events
-- **DirectX 11 integration** with shader-based rendering
+- **DirectX 11 and Vulkan integration** — full feature parity across both renderers
 - **Window resize handling** with state preservation
-- **Performance optimized** for real-time applications
+- **Performance optimized** using precalculated math lookup tables for real-time applications
 
 ---
 
 ## Important Notes
 
-⚠️ **RENDERER COMPATIBILITY WARNING** ⚠️
+⚠️ **RENDERER COMPATIBILITY NOTE** ⚠️
 
-**This FXManager implementation is currently designed specifically for DirectX 11 rendering systems. It requires further development and adaptation to work with other rendering backends including:**
+**The engine currently ships two fully-featured FXManager implementations:**
 
+| Class | File | Renderer |
+|---|---|---|
+| `FXManager` | `DX_FXManager.h/.cpp` | DirectX 11 |
+| `VKFXManager` | `VULKAN_FXManager.h/.cpp` | Vulkan (Windows/Linux/Android) |
+
+Both implementations provide identical public APIs and support all effect types including WarpDotTunnel. The global `fxManager` instance is automatically the correct type for the active renderer — game code does not need to branch on the renderer.
+
+**Renderers still requiring FXManager ports:**
 - DirectX 12
 - OpenGL
-- Vulkan
-- Other custom rendering systems
 
-**Key DirectX 11 Dependencies:**
-- Uses ID3D11Device and ID3D11DeviceContext for rendering operations
-- Shader compilation and management specific to DirectX 11
-- Blend state and render state management using DirectX 11 APIs
+**Key DirectX 11 Dependencies (DX path only):**
+- Uses `ID3D11Device` and `ID3D11DeviceContext` for rendering operations
+- Shader compilation and blend state management via DirectX 11 APIs
 - Vertex buffer and constant buffer operations
 
-**Future Development Required:**
-- Abstract rendering interface implementation
-- Shader compilation for different APIs
-- Platform-specific resource management
-- API-agnostic rendering calls
+**Vulkan Notes:**
+- Fullscreen fade quad rendered via inline GLSL compiled with shaderc at runtime (falls back gracefully if shaderc is unavailable)
+- Pixel-level effects (`Blit2DColoredPixel`) draw to the Direct2D CPU overlay on Windows, or to the CPU rasterizer on Linux/Android
+- `VkCommandBuffer` is passed through for future GPU-native effects; current effects do not submit Vulkan draw commands directly
 
 ---
 
@@ -389,6 +394,213 @@ fxManager.StopStarfield();
 
 ---
 
+## Warp Dot Tunnel Effects
+
+The WarpDotTunnel effect renders a perspective-projected 3D tunnel of rotating dot rings — inspired by the classic *Doctor Who* TARDIS title sequence. Rings of dots travel along the Z axis, spinning and drifting in X/Y, creating the illusion of flying through an infinitely deep vortex.
+
+The effect is fully integrated into the resize system and runs on both DirectX 11 (`FXManager`) and Vulkan (`VKFXManager`) with identical behaviour.
+
+---
+
+### Signature
+
+```cpp
+void Init3DWarpDOTTunnel(
+    float           x,             // Tunnel origin — world X
+    float           y,             // Tunnel origin — world Y
+    float           z,             // Tunnel origin — world Z (near end)
+    float           minRadius,     // Dot-circle radius at the far end  (small)
+    float           maxRadius,     // Dot-circle radius at the near end (large)
+    TunnelSpinCycle spinCycle,     // None | Clockwise | AntiClockwise
+    int             travelSpeed,   // Base speed in world units / second
+    bool            reverseTravel, // false = toward camera; true = away from camera
+    int             dotsPerCircle, // Dots evenly spread across the full 360° of each ring
+    int             density        // Simultaneous rings in flight (1–100)
+);
+```
+
+---
+
+### Parameter Reference
+
+| Parameter | Type | Description |
+|---|---|---|
+| `x, y, z` | `float` | World-space origin of the tunnel. `z` is the near (camera-side) end. |
+| `minRadius` | `float` | Radius of the dot ring when it is at the far end of the tunnel (small). |
+| `maxRadius` | `float` | Radius of the dot ring when it reaches the near end; ring ends its cycle here. |
+| `spinCycle` | `TunnelSpinCycle` | Rotational direction applied to every ring each frame. |
+| `travelSpeed` | `int` | Base movement speed in world units/second. Actual speed is modulated per frame (see acceleration below). Spin speed is derived as `travelSpeed × 0.05` rad/s. |
+| `reverseTravel` | `bool` | `false` — rings move toward the camera (classic warp-in). `true` — rings move away from the camera (warp-out / dive-in). |
+| `dotsPerCircle` | `int` | Number of dots placed evenly around the 360° of each ring. Minimum 3. |
+| `density` | `int` | Number of rings simultaneously active (clamped 1–100). Rings are staggered at startup so visual density is immediately uniform. |
+
+---
+
+### TunnelSpinCycle Enum
+
+```cpp
+enum class TunnelSpinCycle {
+    None,           // Rings do not rotate
+    Clockwise,      // Rings rotate clockwise when viewed from the camera
+    AntiClockwise,  // Rings rotate counter-clockwise when viewed from the camera
+};
+```
+
+---
+
+### How It Works
+
+#### Travel and Acceleration
+
+The tunnel is 800 world units deep. Each ring's normalised travel progress `t` runs from `0.0` (far end) to `1.0` (near/camera end).
+
+- **Forward travel** (`reverseTravel = false`): rings start far away and fly toward the camera. Speed is scaled by `0.5 + t × 1.5`, so a ring travels at half speed when born at the far end and at double speed just before it passes the camera — creating the classic accelerating-vortex look.
+- **Reverse travel** (`reverseTravel = true`): rings start near the camera and travel away. Speed is scaled by `2.0 − t × 1.5`, so movement is fastest at the camera and decelerates toward the focal point — a warp-deceleration or dive-away feel.
+
+When a ring reaches its destination end it instantly resets to the origin end, maintaining the continuous stream.
+
+#### Ring Density and Staggering
+
+At creation, `density` rings are pre-spawned with their Z positions staggered evenly along the tunnel (ring `i` starts at fraction `i / density` of the total distance). This means a density-4 tunnel has rings at 0 %, 25 %, 50 %, and 75 % of travel from the first frame — no warm-up period.
+
+#### XY Path (Sine-Based)
+
+As each ring travels, its centre X/Y traces a circular parametric path derived from the precalculated math tables:
+
+```
+pathAngle = t × 2π
+cx = startX + 300 × FastSin(pathAngle)
+cy = startY + 300 × FastCos(pathAngle)
+```
+
+One full circle is completed over a single tunnel traversal. The maximum deviation from the origin is **300 world units**. Because the path is a closed parametric curve, it never appears sporadic and always loops cleanly — consecutive rings follow the same smooth path.
+
+#### Visual Properties
+
+| Property | Far end (t = 0) | Near end (t = 1) |
+|---|---|---|
+| Ring radius | `minRadius` | `maxRadius` |
+| Dot pixel size | 1 px | 4 px |
+| Colour | Dim cool blue | Bright white-blue |
+| Alpha | Fades in from 0 over first 8 % of travel | Fades out to 0 over last 8 % of travel |
+
+---
+
+### Basic Usage
+
+#### Classic Forward Warp Tunnel
+
+```cpp
+// 24 dots per ring, 6 rings in flight, clockwise spin
+fxManager.Init3DWarpDOTTunnel(
+    0.0f, 0.0f, 50.0f,          // Origin at world centre, z=50
+    8.0f,                        // minRadius — tiny rings at the far end
+    180.0f,                      // maxRadius — large rings near camera
+    TunnelSpinCycle::Clockwise,
+    100,                         // travelSpeed
+    false,                       // forward — rings fly toward camera
+    24,                          // dotsPerCircle
+    6                            // density
+);
+```
+
+#### Reverse Warp (Dive Away)
+
+```cpp
+// Rings start large at camera, shrink as they recede — "diving into the tunnel"
+fxManager.Init3DWarpDOTTunnel(
+    0.0f, 0.0f, 50.0f,
+    8.0f,
+    200.0f,
+    TunnelSpinCycle::AntiClockwise,
+    120,
+    true,                        // reverseTravel — rings travel away from camera
+    32,
+    8
+);
+```
+
+#### Dense Intense Warp
+
+```cpp
+// High density and many dots per ring for an intense vortex
+fxManager.Init3DWarpDOTTunnel(
+    0.0f, 0.0f, 20.0f,
+    4.0f,
+    250.0f,
+    TunnelSpinCycle::Clockwise,
+    150,
+    false,
+    48,
+    20                           // 20 rings simultaneously
+);
+```
+
+#### No Spin — Pure Tunnel
+
+```cpp
+fxManager.Init3DWarpDOTTunnel(
+    0.0f, 0.0f, 0.0f,
+    6.0f, 160.0f,
+    TunnelSpinCycle::None,       // no rotation
+    80, false, 24, 5
+);
+```
+
+---
+
+### Stopping the Tunnel
+
+```cpp
+fxManager.StopWarpDotTunnel();
+```
+
+```cpp
+// Check whether the tunnel is active before stopping
+if (fxManager.tunnelID > 0) {
+    fxManager.StopWarpDotTunnel();
+}
+```
+
+---
+
+### Render Integration
+
+The tunnel renders automatically once started — no per-frame calls are needed in your game code. Internally:
+
+- `Render()` calls `UpdateWarpDotTunnel()` each frame to advance ring positions and spin angles.
+- `RenderFX(fxManager.tunnelID, context, viewMatrix)` is called from the renderer's render loop (already wired in `DXRenderFrame.cpp` and `VULKAN_RenderFrame.cpp`).
+
+The tunnel uses the camera's view and projection matrices for perspective projection and `Blit2DColoredPixel` to draw each dot, exactly like the Starfield effect.
+
+---
+
+### Resize Handling
+
+The tunnel is automatically stopped before a DirectX/Vulkan resource recreation and its active state is preserved in `ActiveFXState.tunnelActive`. No additional code is required in your resize handler. If you restart effects manually after resize, check:
+
+```cpp
+if (savedFXState.tunnelActive) {
+    // Re-call Init3DWarpDOTTunnel with the original parameters
+}
+```
+
+---
+
+### Warp Tunnel Features
+
+- **Perspective projection** — dots are transformed through the camera view/projection matrix; near rings appear large and bright, far rings small and dim
+- **Acceleration profile** — forward travel accelerates toward camera; reverse travel decelerates; both create authentic warp-tunnel depth illusion
+- **Density staggering** — rings pre-distributed at startup for immediate, uniform visual density
+- **Sine XY drift** — smooth closed-loop parametric path; maximum 300 world-unit deviation; computed via `MathPrecalculation` lookup tables
+- **Per-dot spin** — each ring accumulates a rotation offset every frame; spin speed tied to `travelSpeed`
+- **Depth-based visual scaling** — radius, dot size, brightness, and alpha all interpolate smoothly with depth progress
+- **Continuous looping** — rings wrap to origin automatically; effect runs until `StopWarpDotTunnel()` is called
+- **Resize safe** — active state saved and restored across window resize events
+- **Vulkan parity** — `VKFXManager` provides identical API and behaviour
+
+---
+
 ## Text Scroller Effects
 
 The FXManager provides four types of text scrolling effects for different use cases.
@@ -594,12 +806,17 @@ The FXManager uses ThreadLockHelper for safe locking:
    - Use smaller maximum radius values
    - Consider LOD based on screen size
 
-3. **Text Scrollers**
+3. **Warp Dot Tunnel**
+   - `dotsPerCircle × density` `Blit2DColoredPixel` calls are issued every frame — keep `density ≤ 20` and `dotsPerCircle ≤ 48` for comfortable frame budgets
+   - Only one tunnel can be active at a time (`tunnelID` is a single slot); start a new tunnel to change parameters
+   - XY path and spin use `FAST_MATH.FastSinCos` from the precalculation tables — no `sinf`/`cosf` calls per dot
+
+4. **Text Scrollers**
    - Limit number of concurrent text effects
    - Use shorter text strings when possible
    - Optimize font rendering
 
-4. **Memory Management**
+5. **Memory Management**
    - Effects are automatically cleaned up
    - Callbacks are removed after execution
    - Vectors are properly managed
@@ -735,6 +952,105 @@ void SetupNewsTicker() {
 }
 ```
 
+### Warp Dot Tunnel Sequences
+
+#### Simple Doctor Who Intro Tunnel
+
+```cpp
+void StartWarpTunnel() {
+    fxManager.Init3DWarpDOTTunnel(
+        0.0f, 0.0f, 50.0f,          // world origin, z=50
+        6.0f,                        // tiny rings at the far end
+        200.0f,                      // large rings near the camera
+        TunnelSpinCycle::Clockwise,
+        120,                         // travel speed
+        false,                       // forward — rings fly toward camera
+        32,                          // dots per ring
+        8                            // 8 rings simultaneously
+    );
+}
+
+void StopWarpTunnel() {
+    if (fxManager.tunnelID > 0)
+        fxManager.StopWarpDotTunnel();
+}
+```
+
+#### Tunnel → Scene Transition
+
+Starts a warp tunnel during loading, then fades to the new scene when ready.
+
+```cpp
+void EnterWarpAndLoad(std::function<void()> loadCallback) {
+    // Kick off the tunnel immediately
+    fxManager.Init3DWarpDOTTunnel(
+        0.0f, 0.0f, 50.0f,
+        6.0f, 200.0f,
+        TunnelSpinCycle::Clockwise,
+        120, false, 32, 8
+    );
+
+    // After 3 seconds fade to black, run the load callback, then stop the tunnel
+    fxManager.FadeOutThenCallback(
+        XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f),  // fade to black
+        1.5f,                                // fade duration
+        3.0f,                                // delay — let tunnel play first
+        [loadCallback]() {
+            fxManager.StopWarpDotTunnel();
+            loadCallback();                  // load the next scene
+            fxManager.FadeToImage(1.5f, 0.0f);
+        }
+    );
+}
+```
+
+#### Reverse Tunnel — Warp Deceleration / Arrival
+
+```cpp
+void WarpArrival() {
+    // Reverse: rings start large at camera and shrink into the distance
+    fxManager.Init3DWarpDOTTunnel(
+        0.0f, 0.0f, 50.0f,
+        5.0f,                        // minRadius (far, end state)
+        220.0f,                      // maxRadius (near, start state for reverse)
+        TunnelSpinCycle::AntiClockwise,
+        140,
+        true,                        // reverseTravel — deceleration feel
+        28,
+        10
+    );
+
+    // Stop after 4 seconds and transition
+    fxManager.FadeOutThenCallback(
+        XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f),
+        1.0f, 4.0f,
+        []() {
+            fxManager.StopWarpDotTunnel();
+            sceneManager.BeginGameplay();
+        }
+    );
+}
+```
+
+#### Dense Intense Vortex
+
+```cpp
+void MaxIntensityVortex() {
+    fxManager.Init3DWarpDOTTunnel(
+        0.0f, 0.0f, 10.0f,
+        3.0f,                        // very small far rings
+        240.0f,
+        TunnelSpinCycle::Clockwise,
+        180,                         // high speed
+        false,
+        48,                          // many dots per ring
+        16                           // many rings at once
+    );
+}
+```
+
+---
+
 ### Starfield Warp Sequence
 
 A two-phase sequence: warp in (default, stars fly past) transitions to arrival (reverse, stars converge to the destination point) via a fade.
@@ -779,4 +1095,14 @@ void EndWarpSequence(XMFLOAT3 destinationPos) {
 
 ---
 
-This comprehensive guide covers all major features of the FXManager class. For additional support or advanced usage scenarios, refer to the source code documentation and debug output for detailed operation information.
+This comprehensive guide covers all major features of the FXManager class. For additional support or advanced usage scenarios, refer to the source files listed below and enable `_DEBUG_FXMANAGER_` for detailed runtime logging.
+
+### Source File Reference
+
+| File | Purpose |
+|---|---|
+| [`DX_FXManager.h`](../DX_FXManager.h) | DirectX 11 FXManager — types, structs, class declaration |
+| [`DX_FXManager.cpp`](../DX_FXManager.cpp) | DirectX 11 FXManager — full implementation |
+| [`VULKAN_FXManager.h`](../VULKAN_FXManager.h) | Vulkan VKFXManager — types, structs, class declaration |
+| [`VULKAN_FXManager.cpp`](../VULKAN_FXManager.cpp) | Vulkan VKFXManager — full implementation |
+| [`MathPrecalculation.h`](../MathPrecalculation.h) | `FAST_MATH` lookup tables used by tunnel and starfield |

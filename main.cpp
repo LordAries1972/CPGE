@@ -250,10 +250,10 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard);
 // Helpers
 // *----------------------------------------------------------------------------------------------
 #if defined(PLATFORM_WINDOWS)
-// Sets the Windows default audio endpoint master volume. vol64 is 0-64 mapped to 0.0-1.0.
+// Sets the Windows default audio endpoint master volume. vol64 is 0-MAX_GLOBAL_VOLUME mapped to 0.0-1.0.
 void ApplySystemMasterVolume(int vol64)
 {
-    float scalar = static_cast<float>(std::clamp(vol64, 0, 64)) / 64.0f;
+    float scalar = static_cast<float>(std::clamp(vol64, 0, MAX_GLOBAL_VOLUME)) / 64.0f;
 
     IMMDeviceEnumerator* pEnum = nullptr;
     if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr,
@@ -601,9 +601,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             sysUtils.CenterSystemWindow(hwnd);
         }
 
-        std::wstring alert = L"This is an alert status message.\n\n"
-        L"Congratulations if you're seeing this window!\n"
-        L"It means the system initialized correctly.\n";
+//        std::wstring alert = L"This is an alert status message.\n\n"
+//        L"Congratulations if you're seeing this window!\n"
+//        L"It means the system initialized correctly.\n";
 
 //        guiManager.CreateAlertWindow(alert);
 
@@ -637,7 +637,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                     if (xmPlayer.IsPaused()) {
                         // Restart from pattern 0 with correct volume.
                         // Stop()+Play() is blocking so run it off the main thread.
-                        uint8_t vol = static_cast<uint8_t>(std::clamp(cfg.musicVolume, 0, 64));
+                        uint8_t vol = static_cast<uint8_t>(std::clamp(cfg.musicVolume, 0, MAX_GLOBAL_VOLUME));
                         std::wstring musicFile = g_currentMusicFile;
                         std::thread([vol, musicFile]() {
                             xmPlayer.Stop();
@@ -645,7 +645,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                                 xmPlayer.SetVolume(vol);
                         }).detach();
                     } else if (xmPlayer.IsPlaying()) {
-                        xmPlayer.SetVolume(static_cast<uint8_t>(std::clamp(cfg.musicVolume, 0, 64)));
+                        xmPlayer.SetVolume(static_cast<uint8_t>(std::clamp(cfg.musicVolume, 0, MAX_GLOBAL_VOLUME)));
                     }
                 } else {
                     if (xmPlayer.IsPlaying() && !xmPlayer.IsPaused())
@@ -665,7 +665,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             if (ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR) {
                 ttsManager.SetSpeakerChannel(TTSSpeakerChannel::CHANNEL_BOTH);
                 ttsManager.SetVoiceVolume(config.myConfig.TTSVolume);
-                ttsManager.PlayAsync(L"This Game Production uses the Cross Platform Gaming Engine by Daniel J. Hobson of Australia 2025.");
+                ttsManager.PlayAsync(L"This system uses the Cross Platform Gaming Engine by Daniel J. Hobson of Australia 2023 to 2026.");
             }
         }
 
@@ -689,18 +689,19 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                 // Update key states for edge detection (call once per frame)
                 keyboard.UpdateKeyStates();
 
-                // Poll for joystick connect/disconnect every 2 seconds.
+                // Poll for joystick connect/disconnect every 3 seconds.
                 // joyGetPosEx is inexpensive but scanning all slots on every frame
-                // is wasteful, so we throttle to once per 2000 ms.
+                // is wasteful, so we throttle to once per 3000 ms.
                 {
                     static ULONGLONG jsLastPollMs = 0;
                     ULONGLONG nowMs = GetTickCount64();
-                    if (nowMs - jsLastPollMs >= 2000ULL) {
+                    if (nowMs - jsLastPollMs >= 3000ULL) {
                         js.PollControllers();
                         jsLastPollMs = nowMs;
                     }
                 }
 
+                // Determine what Scene we are in, and execute code based on that.
                 switch (scene.stSceneType)
                 {
                     // Our Starting / CPGE Splash Screen (Need to create a linking library for this section.
@@ -1036,7 +1037,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                     {
                         dismissOtherVolOSDs(MIC_OSD);
                         float gain = screenRecorder.GetMicMonitorGain() + adj * 0.1f;
-                        gain = gain < 0.0f ? 0.0f : (gain > 4.0f ? 4.0f : gain);
+                        gain = gain < 0.0f ? 0.0f : (gain > 10.0f ? 10.0f : gain);
                         screenRecorder.SetMicMonitorGain(gain);
                         config.myConfig.microphoneVolume = gain;
 
@@ -1084,8 +1085,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                             w->controls[1].label =
                                 L"  Monitor Volume:  " + std::to_wstring(pct) + L"%"
                                 + (pct == 0   ? L"  (muted)" :
-                                   pct >= 300 ? L"  (max)"    :
-                                   pct >= 200 ? L"  (boosted)" : L"");
+                                   pct >= 700 ? L"  (max)"    :
+                                   pct >= 400 ? L"  (boosted)" : L"");
                         }
                         micOSDLastShown = std::chrono::steady_clock::now();
                     }
@@ -1095,12 +1096,12 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                     {
                         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                             std::chrono::steady_clock::now() - micOSDLastShown).count();
-                        if (elapsed >= 10)
+                        if (elapsed >= 5)
                             guiManager.RemoveWindow(MIC_OSD);
                     }
                 }
 
-                // Music volume — ALT+NUMPAD+ raises, ALT+NUMPAD- lowers. Range: 0-64.
+                // Music volume — ALT+NUMPAD+ raises, ALT+NUMPAD- lowers. Range: 0-MAX_GLOBAL_VOLUME.
                 // OSD sits bottom-centre and is removed automatically after 10 seconds.
                 {
                     const std::string MUSIC_OSD    = "music_vol_osd";
@@ -1113,7 +1114,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                     {
                         dismissOtherVolOSDs(MUSIC_OSD);
                         int vol = config.myConfig.musicVolume + adj;
-                        vol = vol < 0 ? 0 : (vol > 64 ? 64 : vol);
+                        vol = vol < 0 ? 0 : (vol > MAX_GLOBAL_VOLUME ? MAX_GLOBAL_VOLUME : vol);
                         config.myConfig.musicVolume = vol;
 
                         #if defined(__USE_XMPLAYER__)
@@ -1161,7 +1162,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                             w->controls[1].label =
                                 L"  Volume:  " + std::to_wstring(config.myConfig.musicVolume) + L" / 64"
                                 + (config.myConfig.musicVolume == 0  ? L"  (muted)" :
-                                   config.myConfig.musicVolume == 64 ? L"  (max)"   : L"");
+                                   config.myConfig.musicVolume == MAX_GLOBAL_VOLUME ? L"  (max)"   : L"");
                         }
                         musicOSDLastShown = std::chrono::steady_clock::now();
                     }
@@ -1170,12 +1171,12 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                     {
                         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                             std::chrono::steady_clock::now() - musicOSDLastShown).count();
-                        if (elapsed >= 10)
+                        if (elapsed >= 5)
                             guiManager.RemoveWindow(MUSIC_OSD);
                     }
                 }
 
-                // SFX volume — CTRL+NUMPAD+ raises, CTRL+NUMPAD- lowers. Range: 0-64.
+                // SFX volume — CTRL+NUMPAD+ raises, CTRL+NUMPAD- lowers. Range: 0-${MAX_GLOBAL_VOLUME}.
                 // Maps to soundManager.SetGlobalVolume(); OSD auto-removed after 10 seconds.
                 {
                     const std::string SFX_OSD     = "sfx_vol_osd";
@@ -1188,7 +1189,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                     {
                         dismissOtherVolOSDs(SFX_OSD);
                         int vol = config.myConfig.dialogVolume + adj;
-                        vol = vol < 0 ? 0 : (vol > 64 ? 64 : vol);
+                        vol = vol < 0 ? 0 : (vol > MAX_GLOBAL_VOLUME ? MAX_GLOBAL_VOLUME : vol);
                         config.myConfig.dialogVolume = vol;
                         soundManager.SetGlobalVolume(static_cast<float>(vol) / 64.0f);
 
@@ -1231,7 +1232,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                             w->controls[1].label =
                                 L"  Volume:  " + std::to_wstring(config.myConfig.dialogVolume) + L" / 64"
                                 + (config.myConfig.dialogVolume == 0  ? L"  (muted)" :
-                                   config.myConfig.dialogVolume == 64 ? L"  (max)"   : L"");
+                                   config.myConfig.dialogVolume == MAX_GLOBAL_VOLUME ? L"  (max)"   : L"");
                         }
                         sfxOSDLastShown = std::chrono::steady_clock::now();
                     }
@@ -1240,12 +1241,12 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                     {
                         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                             std::chrono::steady_clock::now() - sfxOSDLastShown).count();
-                        if (elapsed >= 10)
+                        if (elapsed >= 5)
                             guiManager.RemoveWindow(SFX_OSD);
                     }
                 }
 
-                // Master volume — CTRL+SHIFT+NUMPAD+ raises, CTRL+SHIFT+NUMPAD- lowers. Range: 0-64.
+                // Master volume — CTRL+SHIFT+NUMPAD+ raises, CTRL+SHIFT+NUMPAD- lowers. Range: 0-${MAX_GLOBAL_VOLUME}.
                 // Applies to the Windows default audio endpoint; OSD auto-removed after 10 seconds.
                 {
                     const std::string MASTER_OSD  = "master_vol_osd";
@@ -1258,7 +1259,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                     {
                         dismissOtherVolOSDs(MASTER_OSD);
                         int vol = config.myConfig.masterVolume + adj;
-                        vol = vol < 0 ? 0 : (vol > 64 ? 64 : vol);
+                        vol = vol < 0 ? 0 : (vol > MAX_GLOBAL_VOLUME ? MAX_GLOBAL_VOLUME : vol);
                         config.myConfig.masterVolume = vol;
                         #if defined(PLATFORM_WINDOWS)
                             ApplySystemMasterVolume(vol);
@@ -1301,9 +1302,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                         if (auto w = guiManager.GetWindow(MASTER_OSD); w && w->controls.size() >= 2)
                         {
                             w->controls[1].label =
-                                L"  Volume:  " + std::to_wstring(config.myConfig.masterVolume) + L" / 64"
+                                L"  Volume:  " + std::to_wstring(config.myConfig.masterVolume) + L" / " + std::to_wstring(MAX_GLOBAL_VOLUME)
                                 + (config.myConfig.masterVolume == 0  ? L"  (muted)" :
-                                   config.myConfig.masterVolume == 64 ? L"  (max)"   : L"");
+                                   config.myConfig.masterVolume == MAX_GLOBAL_VOLUME ? L"  (max)"   : L"");
                         }
                         masterOSDLastShown = std::chrono::steady_clock::now();
                     }
@@ -1312,7 +1313,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                     {
                         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                             std::chrono::steady_clock::now() - masterOSDLastShown).count();
-                        if (elapsed >= 10)
+                        if (elapsed >= 5)
                             guiManager.RemoveWindow(MASTER_OSD);
                     }
                 }
@@ -1384,7 +1385,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                     {
                         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                             std::chrono::steady_clock::now() - ttsOSDLastShown).count();
-                        if (elapsed >= 10)
+                        if (elapsed >= 5)
                             guiManager.RemoveWindow(TTS_OSD);
                     }
                 }
@@ -1589,10 +1590,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 return 0;
             }
 
-            GetCursorPos(&cursorPos);                                   // Get current cursor position
-            ScreenToClient(hwnd, &cursorPos);                           // Convert to client coordinates
-            myMouseCoords.x = static_cast<float>(cursorPos.x);          // Store mouse X coordinate
-            myMouseCoords.y = static_cast<float>(cursorPos.y);          // Store mouse Y coordinate
+            GetCursorPos(&cursorPos);                                    // Get current cursor position
+            ScreenToClient(hwnd, &cursorPos);                            // Convert to client coordinates
+            myMouseCoords.x = static_cast<float>(cursorPos.x);           // Store mouse X coordinate
+            myMouseCoords.y = static_cast<float>(cursorPos.y);           // Store mouse Y coordinate
 
             // Clamp mouse coordinates to window bounds
             if (cursorPos.x >= winMetrics.width) {
@@ -1914,7 +1915,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                                 debug.logLevelMessage(LogLevel::LOG_INFO, L"[WM_SIZE] Step 5: Resuming loader thread for resource reload");
                             #endif
 
-                            renderer->ResumeLoader(true);               // Resume loader with resize flag to reload resources
+                            renderer->ResumeLoader(true);                   // Resume loader with resize flag to reload resources
 
                             // Restore camera state AFTER all resources are recreated
                             renderer->myCamera.RestoreCameraStateAfterResize();

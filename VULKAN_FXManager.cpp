@@ -135,6 +135,12 @@ void VKFXManager::StopAllFXForResize() {
             StopStarfield();
         }
 
+        if (tunnelID > 0) {
+            m_savedFXState.tunnelActive = true;
+            m_savedFXState.tunnelID     = tunnelID;
+            StopWarpDotTunnel();
+        }
+
         std::vector<int> activeTextIDs;
         for (const auto& fx : effects)
             if (fx.type == FXType::TextScroller)
@@ -445,9 +451,13 @@ void VKFXManager::Render() {
         float deltaTime = std::min(std::chrono::duration<float>(now - lastRenderTime).count(), 0.1f);
         lastRenderTime  = now;
 
-        // Update starfield
-        for (auto& fx : effects)
-            if (fx.type == FXType::Starfield) { UpdateStarfield(deltaTime); break; }
+        // Update per-frame animated effects
+        for (auto& fx : effects) {
+            if (fx.type == FXType::Starfield)
+                UpdateStarfield(deltaTime);
+            else if (fx.type == FXType::WarpDotTunnel)
+                UpdateWarpDotTunnel(fx, deltaTime);
+        }
 
         for (auto& fx : effects) {
             if (threadManager.threadVars.bIsShuttingDown.load()) break;
@@ -546,8 +556,9 @@ void VKFXManager::RenderFX(int effectID, VkCommandBuffer cmd, const XMMATRIX& wo
         fx.lastUpdate = fxNow;
 
         switch (fx.type) {
-        case FXType::ColorFader:  ApplyColorFader(fx);                    break;
-        case FXType::Starfield:   UpdateStarfield(dt); RenderStarfield(fx, cmd, worldMatrix); break;
+        case FXType::ColorFader:   ApplyColorFader(fx);                              break;
+        case FXType::Starfield:    UpdateStarfield(dt); RenderStarfield(fx, cmd, worldMatrix); break;
+        case FXType::WarpDotTunnel: RenderWarpDotTunnel(fx, cmd);                   break;
         default: break;
         }
 
@@ -1457,6 +1468,209 @@ void VKFXManager::SplitTextIntoLines(const std::wstring& text, std::vector<std::
         else { currentLine = testLine; }
     }
     if (!currentLine.empty()) lines.push_back(currentLine);
+}
+
+// ============================================================================================================
+// WarpDotTunnel Implementation (Vulkan)
+// ============================================================================================================
+
+void VKFXManager::Init3DWarpDOTTunnel(float x, float y, float z,
+                                      float minRadius, float maxRadius,
+                                      TunnelSpinCycle spinCycle,
+                                      int travelSpeed, bool reverseTravel,
+                                      int dotsPerCircle, int density)
+{
+    std::lock_guard<std::mutex> lock(m_effectsMutex);
+
+    if (tunnelID > 0)
+        StopWarpDotTunnel();
+
+    VKFXItem newFX;
+    newFX.type       = FXType::WarpDotTunnel;
+    newFX.fxID       = static_cast<int>(effects.size()) + 1;
+    newFX.duration   = FLT_MAX;
+    newFX.timeout    = FLT_MAX;
+    newFX.progress   = 0.0f;
+    newFX.startTime  = std::chrono::steady_clock::now();
+    newFX.lastUpdate = newFX.startTime;
+    tunnelID         = newFX.fxID;
+
+    VKWarpTunnelData& data = newFX.warpTunnelData;
+    data.startX        = x;
+    data.startY        = y;
+    data.startZ        = z;
+    data.minRadius     = minRadius;
+    data.maxRadius     = maxRadius;
+    data.spinCycle     = spinCycle;
+    data.travelSpeed   = std::max(1, travelSpeed);
+    data.reverseTravel = reverseTravel;
+    data.dotsPerCircle = std::max(3, dotsPerCircle);
+    data.density       = std::clamp(density, 1, 100);
+    data.totalDistance = 800.0f;
+    data.nearZ         = z;
+    data.farZ          = z + data.totalDistance;
+    data.spinSpeed     = static_cast<float>(travelSpeed) * 0.05f;
+
+    int ringCount = data.density;
+    data.rings.reserve(ringCount);
+    for (int i = 0; i < ringCount; ++i)
+    {
+        VKTunnelRing ring{};
+        float fraction = static_cast<float>(i) / static_cast<float>(ringCount);
+
+        ring.zPos = reverseTravel
+            ? (data.nearZ + fraction * data.totalDistance)
+            : (data.farZ  - fraction * data.totalDistance);
+
+        float pathT = std::clamp((data.farZ - ring.zPos) / data.totalDistance, 0.0f, 1.0f);
+        float pathAngle = pathT * XM_2PI;
+        float sinVal, cosVal;
+        FAST_MATH.FastSinCos(pathAngle, sinVal, cosVal);
+        ring.cx        = x + VKWarpTunnelData::kMaxXYRadius * sinVal;
+        ring.cy        = y + VKWarpTunnelData::kMaxXYRadius * cosVal;
+        ring.spinAngle = 0.0f;
+        ring.alive     = true;
+
+        data.rings.push_back(ring);
+    }
+
+    effects.push_back(newFX);
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[VKFXManager] WarpDotTunnel created: Density=" +
+        std::to_wstring(density) + L", DotsPerCircle=" + std::to_wstring(dotsPerCircle) +
+        L", FXID=" + std::to_wstring(newFX.fxID));
+}
+
+void VKFXManager::StopWarpDotTunnel()
+{
+    if (tunnelID <= 0) return;
+
+    effects.erase(
+        std::remove_if(effects.begin(), effects.end(), [this](const VKFXItem& fx) {
+            return fx.type == FXType::WarpDotTunnel && fx.fxID == tunnelID;
+        }),
+        effects.end()
+    );
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[VKFXManager] WarpDotTunnel stopped.");
+    tunnelID = 0;
+}
+
+void VKFXManager::UpdateWarpDotTunnel(VKFXItem& fx, float deltaTime)
+{
+    VKWarpTunnelData& data = fx.warpTunnelData;
+    if (data.rings.empty()) return;
+
+    const float dt        = std::min(deltaTime, 0.05f);
+    const float baseSpeed = static_cast<float>(data.travelSpeed);
+
+    for (auto& ring : data.rings)
+    {
+        if (!ring.alive) continue;
+
+        float pathT = std::clamp((data.farZ - ring.zPos) / data.totalDistance, 0.0f, 1.0f);
+
+        float speedFactor = data.reverseTravel
+            ? (2.0f - pathT * 1.5f)
+            : (0.5f + pathT * 1.5f);
+        float frameSpeed = baseSpeed * speedFactor * dt;
+
+        if (!data.reverseTravel)
+            ring.zPos -= frameSpeed;
+        else
+            ring.zPos += frameSpeed;
+
+        if (!data.reverseTravel && ring.zPos < data.nearZ)
+            ring.zPos = data.farZ;
+        else if (data.reverseTravel && ring.zPos > data.farZ)
+            ring.zPos = data.nearZ;
+
+        pathT = std::clamp((data.farZ - ring.zPos) / data.totalDistance, 0.0f, 1.0f);
+
+        float pathAngle = pathT * XM_2PI;
+        float sinVal, cosVal;
+        FAST_MATH.FastSinCos(pathAngle, sinVal, cosVal);
+        ring.cx = data.startX + VKWarpTunnelData::kMaxXYRadius * sinVal;
+        ring.cy = data.startY + VKWarpTunnelData::kMaxXYRadius * cosVal;
+
+        switch (data.spinCycle)
+        {
+        case TunnelSpinCycle::Clockwise:     ring.spinAngle += data.spinSpeed * dt; break;
+        case TunnelSpinCycle::AntiClockwise: ring.spinAngle -= data.spinSpeed * dt; break;
+        default: break;
+        }
+        ring.spinAngle = fmodf(ring.spinAngle, XM_2PI);
+        if (ring.spinAngle < 0.0f) ring.spinAngle += XM_2PI;
+    }
+}
+
+void VKFXManager::RenderWarpDotTunnel(VKFXItem& fx, VkCommandBuffer cmd)
+{
+    const VKWarpTunnelData& data = fx.warpTunnelData;
+    if (data.rings.empty()) return;
+
+    XMMATRIX viewProj = renderer->myCamera.GetViewMatrix() * renderer->myCamera.GetProjectionMatrix();
+
+    const float angleStep = XM_2PI / static_cast<float>(data.dotsPerCircle);
+    const float halfW     = static_cast<float>(renderer->iOrigWidth)  * 0.5f;
+    const float halfH     = static_cast<float>(renderer->iOrigHeight) * 0.5f;
+    const float edgeFade  = 0.08f;
+
+    for (const auto& ring : data.rings)
+    {
+        if (!ring.alive) continue;
+
+        float pathT = std::clamp((data.farZ - ring.zPos) / data.totalDistance, 0.0f, 1.0f);
+
+        float ringRadius = data.minRadius + (data.maxRadius - data.minRadius) * pathT;
+
+        float alpha = 1.0f;
+        if (pathT < edgeFade)
+            alpha = pathT / edgeFade;
+        else if (pathT > 1.0f - edgeFade)
+            alpha = (1.0f - pathT) / edgeFade;
+
+        float brightness = 0.3f + pathT * 0.7f;
+        float r = brightness * (0.7f + pathT * 0.3f);
+        float g = brightness * (0.8f + pathT * 0.2f);
+        float b = brightness;
+        float dotSize = 1.0f + pathT * 3.0f;
+
+        XMFLOAT4 dotColor(r, g, b, alpha);
+
+        for (int i = 0; i < data.dotsPerCircle; ++i)
+        {
+            float dotAngle = angleStep * static_cast<float>(i) + ring.spinAngle;
+            float sinA, cosA;
+            FAST_MATH.FastSinCos(dotAngle, sinA, cosA);
+
+            XMVECTOR worldPos = XMVectorSet(
+                ring.cx + cosA * ringRadius,
+                ring.cy + sinA * ringRadius,
+                ring.zPos,
+                1.0f
+            );
+
+            XMVECTOR proj = XMVector3TransformCoord(worldPos, viewProj);
+            float ndcX = XMVectorGetX(proj);
+            float ndcY = XMVectorGetY(proj);
+            float ndcZ = XMVectorGetZ(proj);
+
+            if (ndcZ <= 0.0f || ndcZ > 1.0f) continue;
+            if (ndcX < -1.0f || ndcX > 1.0f) continue;
+            if (ndcY < -1.0f || ndcY > 1.0f) continue;
+
+            float screenX = (ndcX + 1.0f) * halfW;
+            float screenY = (1.0f - ndcY) * halfH;
+
+            renderer->Blit2DColoredPixel(
+                static_cast<int>(screenX),
+                static_cast<int>(screenY),
+                dotSize,
+                dotColor
+            );
+        }
+    }
 }
 
 #pragma warning(pop)

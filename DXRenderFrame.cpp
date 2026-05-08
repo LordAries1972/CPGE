@@ -476,8 +476,8 @@ void DX11Renderer::RenderFrame()
                        if (osdElapsed < 5.0f)
                        {
                            std::wstring osdMsg = config.myConfig.showDebugInfo
-                               ? L"► Debug Info: ENABLED"
-                               : L"► Debug Info: DISABLED";
+                               ? L"=> Debug Info: ENABLED"
+                               : L"=> Debug Info: DISABLED";
                            DrawMyText(osdMsg, Vector2(10.0f, 80.0f), MyColor(255, 220, 0, 255), 14.0f);
                        }
                        else
@@ -866,6 +866,11 @@ void DX11Renderer::RenderBackgroundImage()
                 // Render 3D starfield effect if available
                 if (fxManager.starfieldID > 0) {
                     fxManager.RenderFX(fxManager.starfieldID, m_d3dContext.Get(), myCamera.GetViewMatrix());
+                }
+
+                // Render 3D warp dot tunnel if active
+                if (fxManager.tunnelID > 0) {
+                    fxManager.RenderFX(fxManager.tunnelID, m_d3dContext.Get(), myCamera.GetViewMatrix());
                 }
             }
             else

@@ -76,6 +76,26 @@ void DX11Renderer::LoaderTaskThread()
 		// (Add I/O loading tasks here)
 		switch (scene.stSceneType)
 		{
+			#if defined(_DEBUG)
+				// This is strictly for testing purposes, to test the loader thread and resource loading without having
+				// to load the entire intro scene.  You can place any resources you want to test here, but remember 
+				// to #define _DEBUG in your preprocessor settings to enable this scene type.
+
+				// This includes when you want to test new effects, shaders, models or whatever so you can
+				// quickly iterate on your changes without having to load the entire intro scene every time.
+				case SceneType::SCENE_EXPERIMENT:
+				{
+					threadManager.threadVars.b2DTexturesLoaded.store(false);
+					if (LoadAllKnownTextures())
+						// State that we have loaded all our required 2D Textures.
+						threadManager.threadVars.b2DTexturesLoaded.store(true);
+
+					threadManager.PauseThread(THREAD_LOADER);
+					threadManager.threadVars.bLoaderTaskFinished.store(true);
+					break;
+				}
+			#endif
+
 			case SceneType::SCENE_INTRO:
 			{
 				threadManager.threadVars.b2DTexturesLoaded.store(false);

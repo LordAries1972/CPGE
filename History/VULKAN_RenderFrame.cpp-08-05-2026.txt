@@ -1,0 +1,12 @@
+VULKAN_RenderFrame.cpp - 08-05-2026
+=====================================
+Added WarpDotTunnel render call in the D2D overlay section (alongside Render2D):
+
+  if (fxManager.tunnelID > 0) {
+      try { fxManager.RenderFX(fxManager.tunnelID, cmd, myCamera.GetViewMatrix()); } catch (...) {}
+  }
+
+Placed immediately after the fxManager.Render2D() call inside the
+m_d2dRenderTarget BeginDraw/EndDraw block so dots are drawn to the
+CPU-side overlay surface (same path as Blit2DColoredPixel on Vulkan/Windows).
+cmd is in scope from the command buffer acquisition at the start of the frame.

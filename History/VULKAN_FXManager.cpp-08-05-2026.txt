@@ -1,0 +1,24 @@
+VULKAN_FXManager.cpp - 08-05-2026
+===================================
+Changes for WarpDotTunnel FX system (Vulkan mirror of DX_FXManager.cpp changes):
+
+1. StopAllFXForResize(): added tunnelID save/stop block alongside starfieldID.
+
+2. Render() update loop: replaced single-break Starfield check with a range loop
+   calling UpdateWarpDotTunnel(fx, deltaTime) for WarpDotTunnel effects.
+
+3. RenderFX() switch: added case FXType::WarpDotTunnel -> RenderWarpDotTunnel(fx, cmd).
+
+4. New function - Init3DWarpDOTTunnel():
+   - Identical logic to DX version; uses VKFXItem and VKWarpTunnelData.
+
+5. New function - StopWarpDotTunnel():
+   - Identical logic to DX version; operates on VKFXItem vector.
+
+6. New function - UpdateWarpDotTunnel():
+   - Identical physics to DX version; uses VKTunnelRing / VKWarpTunnelData.
+
+7. New function - RenderWarpDotTunnel():
+   - Identical projection logic to DX version.
+   - VkCommandBuffer cmd parameter accepted but not used for Blit2DColoredPixel
+     calls (which go through the CPU-side D2D overlay); retained for API symmetry.
