@@ -440,6 +440,7 @@ public:
     void StopAllFX();
     void SaveAndSuspendFXForScene();
     void RestoreFXAfterScene();
+    void DiscardSavedFXState();
     void Init3DWarpDOTTunnel(float x, float y, float z,
                              float minRadius, float maxRadius,
                              TunnelSpinCycle spinCycle,

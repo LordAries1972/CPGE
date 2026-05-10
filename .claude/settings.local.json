@@ -48,7 +48,9 @@
       "Bash(Get-ChildItem -Path \"f:\\\\Projects\\\\C++\\\\CPGE2026\" -Recurse -File -Name)",
       "Bash(grep -rn \"CreateGameMenuWindow\" \"f:\\\\Projects\\\\C++\\\\CPGE2026\\\\\" --include=\"*.cpp\")",
       "Read(//f/Projects/C++/**)",
-      "Bash(\"D:\\\\Programs\\\\CMake\\\\bin\\\\cmake.exe\" --build \"build\\\\Debug\" --config Debug --parallel)"
+      "Bash(\"D:\\\\Programs\\\\CMake\\\\bin\\\\cmake.exe\" --build \"build\\\\Debug\" --config Debug --parallel)",
+      "Bash(Get-ChildItem -Path \"f:\\\\Projects\\\\C++\\\\CPGE2026\" -Filter \"*.h\" -File)",
+      "Bash(Select-Object Name, FullName)"
     ],
     "additionalDirectories": [
       "f:\\Projects\\C++\\CPGE2026\\.vs\\CrossPlatformGameEngine\\v17",

@@ -1,0 +1,16 @@
+DXCamera.cpp - 10-05-2026
+==========================
+
+SetupDefaultCamera() — sync position/target public members (line ~2568)
+
+Added two lines after XMStoreFloat3 extractions so that GetPosition() and the
+target member stay consistent after a default-camera reset:
+
+    position = eyePos;
+    target   = lookPos;
+
+Previously SetupDefaultCamera() only updated viewMatrix (via SetViewMatrix) and
+projectionMatrix. After the tunnel fly-through moved position/target via
+SetPosition()/SetTarget(), calling SetupDefaultCamera() left the public members
+stale, causing the next frame's GetPosition() call to return the tunnel position
+instead of the default camera position.

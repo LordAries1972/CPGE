@@ -1,0 +1,56 @@
+##CPGE_SCRIPT
+##ScriptVersion: 1.0
+##Written: 2026-05-10
+##Scene: SCENE_GAMEPLAY
+##Author: LordAries1972
+##Description: Main gameplay scene — positions player, arms live collision detection, manages FX.
+
+# ---------------------------------------------------------------------------
+# Ensure clean slate on entry
+# ---------------------------------------------------------------------------
+STOP EFFECTS
+
+# ---------------------------------------------------------------------------
+# Camera — positioned slightly above and behind player spawn
+# POSITION x y z yaw pitch
+# ---------------------------------------------------------------------------
+POSITION 0.0 4.0 -8.0 0.0 -10.0
+
+# ---------------------------------------------------------------------------
+# Fade in cleanly from black
+# ---------------------------------------------------------------------------
+Execute FadeToBlack(0.0, 0.0)
+Execute FadeToImage(1.5, 0.0)
+
+# ---------------------------------------------------------------------------
+# Player spawn position
+# ---------------------------------------------------------------------------
+PLAY_POSITION 0.0 0.0 0.0
+WAIT(1.0)
+GET_READY
+
+# ---------------------------------------------------------------------------
+# Set gameplay player state active (PlayerState::ACTIVE = 1)
+# SetPlayerState(playerID, stateID)
+# ---------------------------------------------------------------------------
+Execute SetPlayerState(0, 1)
+Execute StartPlayerTimer(0)
+
+# ---------------------------------------------------------------------------
+# Collision monitoring
+# Player 0 vs wall pixel map (uses GamePlayer collision bitmap)
+# ---------------------------------------------------------------------------
+DETECT_COLLISION PLAYER 0 WALL 0 ALERT Error "Player hit boundary wall"
+
+# ---------------------------------------------------------------------------
+# Player vs player collision (multiplayer)
+# ---------------------------------------------------------------------------
+DETECT_COLLISION PLAYER 0 PLAYER 1 32.0 ALERT General "Player-to-player contact"
+
+# ---------------------------------------------------------------------------
+# Audio
+# ---------------------------------------------------------------------------
+Execute StartPlaybackThread()
+Execute SetGlobalVolume(1.0)
+
+ALERT General "Gameplay scene ready."

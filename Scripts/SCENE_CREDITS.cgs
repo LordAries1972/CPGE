@@ -1,0 +1,32 @@
+##CPGE_SCRIPT
+##ScriptVersion: 1.0
+##Written: 2026-05-10
+##Scene: SCENE_CREDITS
+##Author: LordAries1972
+##Description: Credits roll — stop gameplay systems, run scrolling text FX.
+
+# ---------------------------------------------------------------------------
+# Clean up gameplay residue
+# ---------------------------------------------------------------------------
+STOP EFFECTS
+STOP MOUSE
+STOP GAMEPAD
+
+# ---------------------------------------------------------------------------
+# Fade to black, then fade to credits backdrop image
+# ---------------------------------------------------------------------------
+Execute FadeToBlack(1.0, 0.0)
+Execute FadeToImage(2.0, 1.0)
+
+# ---------------------------------------------------------------------------
+# Credits scroll on texture layer 1
+# StartScrollEffect(textureIndex, direction, speed, tileWidth, tileHeight, delay)
+# ---------------------------------------------------------------------------
+Execute StartScrollEffect(1, ScrollUp, 1, 640, 480, 2.0)
+
+# ---------------------------------------------------------------------------
+# Audio — soft background during credits
+# ---------------------------------------------------------------------------
+Execute StartPlaybackThread()
+Execute SetGlobalVolume(0.6)
+

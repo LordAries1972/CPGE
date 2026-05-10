@@ -41,14 +41,15 @@ public:
 
     // These defined atomics are used through-out this engine, 
     // please leave these here!
-    std::atomic<bool> bLoaderTaskFinished;
-    std::atomic<bool> bIsRendering;
-    std::atomic<bool> bIsShuttingDown;
-	std::atomic<bool> bIsResizing;
+    std::atomic<bool> bLoaderTaskFinished;                          // If False, we are currently loading in resources.
+    std::atomic<bool> bIsRendering;                                 // If True, We are Currently Rendering
+    std::atomic<bool> bIsShuttingDown;                              // If True, Application Shutdown in progress!
+	std::atomic<bool> bIsResizing;                                  // If True, we are currently resizing and reinitiating new window dimensions & resources.
     std::atomic<bool> bHasGameReset;
     std::atomic<bool> bHasReset;
-    std::atomic<bool> b2DTexturesLoaded;
+    std::atomic<bool> b2DTexturesLoaded;                            // If True, DirectX 2D Textures have been loaded into memory.
     std::atomic<bool> bSettingFullScreen;
+    std::atomic<bool> bInitiateFader;                               // Used for Loading Screen.
 
     // Add your required Atomics here!
      
@@ -65,6 +66,7 @@ private:
         bIsResizing(false),
         bHasGameReset(false),
         b2DTexturesLoaded(false),
+        bInitiateFader(false),
         bSettingFullScreen(false)
     { }
 };

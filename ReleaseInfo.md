@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1124*
+*Current Build Version: v0.0.1134*
 
 ---
 
@@ -569,6 +569,68 @@ Once the base DirectX 11 implementation is complete, the project will be release
   [`VULKAN_FXManager.h`](VULKAN_FXManager.h), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp),
   [`DXRenderFrame.cpp`](DXRenderFrame.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp)*
 
+**May 10, 2026** - WarpDotTunnel fly-through camera overhaul and straight-tunnel redesign:
+
+- **Straight tunnel geometry** — removed the sine-path XY winding from both `Init3DWarpDOTTunnel`
+  and `UpdateWarpDotTunnel`. Ring centres no longer drift up to 300 world units from the tunnel
+  axis; they are fixed at `(startX, startY)` throughout the tunnel. Effect is now a perfectly
+  straight corridor of circles flying directly at the viewer.
+- **One-time camera setup in `Init3DWarpDOTTunnel`** — camera is repositioned once when the
+  tunnel starts: `SetPosition(x, y, nearZ)`, `SetTarget(x, y, farZ)`, `SetYawPitch(0, 0)`.
+  This fires under the fade-to-black overlay so there is no visible snap. Camera sits at the
+  tunnel entrance looking straight down the tunnel axis toward the far-end vanishing point.
+- **Removed per-frame `SetPosition` from `UpdateWarpDotTunnel`** — previous iterations called
+  `SetPosition()` every frame trying to track the nearest ring centre; this caused choppiness
+  because it fought the camera system's internal state. Camera position is now fixed for the
+  lifetime of the effect. `UpdateWarpDotTunnel` only calls `SetTarget` to keep the look-target
+  locked to `(startX, startY, farZ)`.
+- **Removed `pathPhaseOffset` advance** — the per-frame phase drift that drove the XY winding is
+  no longer updated. The field remains in the struct but is unused.
+- **`SetupDefaultCamera` now syncs `position`/`target` public members** — previously
+  `SetupDefaultCamera` set the view matrix via `XMMatrixLookAtLH` but left the `position` and
+  `target` public members stale. Added `position = eyePos; target = lookPos;` so that
+  `GetPosition()` and `target` return the correct values immediately after a default-camera reset.
+- **ESC exit — camera reset moved to after fade completes** — when ESC is pressed to return from
+  the tunnel to the game menu, `SetupDefaultCamera` and `SetYawPitch` now execute after the
+  `IsFadeActive()` loop (screen fully black) rather than before `FadeToBlack`. This eliminates
+  the visible camera snap that was seen when exiting the effect.
+- *See: [`DX_FXManager.cpp`](DX_FXManager.cpp), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp),
+  [`DXCamera.cpp`](DXCamera.cpp), [`KBHandlersCode.cpp`](KBHandlersCode.cpp)*
+
+- **ScriptManager Class**: Full scene script execution system introduced. Scripts are plain ASCII
+  `.cgs` (CPGE Game Script) files stored in `Scripts/<SCENE_NAME>.cgs` and detected automatically
+  during scene initialisation. Each script carries its own `ScriptVersion` and `Written` date fields
+  so individual scripts are independently versioned.
+- **11 commands implemented (v1.0)**:
+  - `Execute FunctionName(args)` — dispatches any of 53 registered engine API calls spanning
+    FXManager, Camera, SoundManager, SceneManager, GamePlayer and GUIManager. Case-insensitive.
+  - `QUIT` — clean engine shutdown via `PostQuitMessage(0)`.
+  - `ALERT <General|Error|CRITICAL> "message"` — centred red/yellow alert window; CRITICAL auto-triggers QUIT.
+  - `STOP <MUSIC|EFFECTS|MOUSE|GAMEPAD>` — halts the targeted subsystem; MOUSE/GAMEPAD expose
+    flags (`IsMouseStopped()` / `IsGamepadStopped()`) for the main loop to honour.
+  - `POSITION x y z yaw pitch` — instant camera placement and orientation.
+  - `PLAY_POSITION x y z` — sets world position of all active players.
+  - `GET_READY` — plays the get-ready audio cue for the current player.
+  - `RESET` — stops FX/audio, clears collision rules, resets mouse/gamepad flags, returns to `SCENE_GAMETITLE`.
+  - `SAVE` / `LOAD` — precache scene state to/from `Precache/scene_precache.bin`.
+  - `DETECT_COLLISION typeA idxA typeB idxB [radius] <action>` — registers a per-frame collision
+    rule; evaluates `PLAYER vs PLAYER` (sphere check via Physics) and `PLAYER vs WALL` (GamePlayer
+    collision bitmap); fires the action string as a command on first contact (one-shot).
+- **Execution modes**: synchronous (`ExecuteScript`) or detached background thread (`ExecuteScriptAsync`);
+  stop requested via atomic flag at each command boundary.
+- **Six scene scripts created** in new `Scripts/` directory:
+  `SCENE_INITIALISE`, `SCENE_GAMETITLE`, `SCENE_GAMEPLAY`, `SCENE_INTRO`, `SCENE_GAMEOVER`, `SCENE_CREDITS`.
+- **`WAIT(seconds)` command added**: Pauses script execution for the specified duration before
+  proceeding to the next command. Interruptible via `StopExecution()` — checked every 50 ms so
+  shutdown is never blocked. Supports both `WAIT(2.5)` and `WAIT 2.5` syntax forms.
+- **`LABEL <Name>:` and `GOTO <Name>` commands added**: Full label/jump system within a script.
+  Labels are resolved into a name→index map at load time so forward and backward references both
+  work. `GOTO` redirects the execution loop to the command after the named label. Labels are
+  case-insensitive; the trailing colon is optional. A 1,000,000-step guard prevents runaway
+  infinite loops from locking the engine.
+- *See: [`ScriptManager.h`](ScriptManager.h), [`ScriptManager.cpp`](ScriptManager.cpp),
+  [`Scripts/`](Scripts/), [`Docs/Scripting-Example-Usage.md`](Docs/Scripting-Example-Usage.md)*
+
 ---
 
 ## Future Development
@@ -600,13 +662,13 @@ Since this is early-stage days of development (WIP), major reconstruction may oc
 ### **📋 Current Priority Tasks**
 
 **May 27, 2025** - Multi-renderer implementation:
-- OpenGL Renderer for Windows/Linux/MacOS/Android
-- Vulkan Renderer for Windows/Linux/Android
+- OpenGL Renderer for Windows/Linux/MacOS/Android (WIP)
+- Vulkan Renderer for Windows/Linux/Android (WIP)
 
 **March 16, 2025** - Platform integrations:
-- Steam Class implementation
-- GooglePlay interface for Android
-- AppStore interface for iOS
+- Steam Class implementation (WIP)
+- GooglePlay interface for Android (WIP)
+- AppStore interface for iOS (WIP)
 
 **May 25, 2025** - Optimization:
 - Code optimizations and refactoring

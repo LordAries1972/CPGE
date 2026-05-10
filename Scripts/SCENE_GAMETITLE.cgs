@@ -1,0 +1,51 @@
+##CPGE_SCRIPT
+##ScriptVersion: 1.0
+##Written: 2026-05-10
+##Scene: SCENE_GAMETITLE
+##Author: Daniel J. Hobson of Australia
+##Description: Title screen initialisation — positions camera, starts FX, arms collision rules.
+
+# ---------------------------------------------------------------------------
+# Stop any leftover effects from a prior scene before we begin
+# ---------------------------------------------------------------------------
+STOP EFFECTS
+STOP MUSIC
+
+# ---------------------------------------------------------------------------
+# Camera starting position for the title screen
+# POSITION x y z yaw pitch
+# ---------------------------------------------------------------------------
+POSITION 10.0 5.0 -15.0 0.0 0.0
+
+# ---------------------------------------------------------------------------
+# Fade in from black over 2 seconds, then wait 0.5s before continuing
+# ---------------------------------------------------------------------------
+Execute FadeToBlack(0.0, 0.0)
+Execute FadeToImage(2.0, 0.5)
+WAIT(2.5)
+
+# ---------------------------------------------------------------------------
+# Launch the background starfield
+# CreateStarfield(numStars, circularRadius, resetDepth, x, y, z, reverse)
+# ---------------------------------------------------------------------------
+Execute CreateStarfield(300, 450.0, -600.0, 0.0, 0.0, 0.0, false)
+
+# ---------------------------------------------------------------------------
+# Start background scroll on texture layer 0 (title backdrop)
+# StartScrollEffect(textureIndex, direction, speed, tileWidth, tileHeight, delay)
+# ---------------------------------------------------------------------------
+Execute StartScrollEffect(0, ScrollLeft, 2, 640, 480, 0.0)
+
+# ---------------------------------------------------------------------------
+# Begin audio playback thread
+# ---------------------------------------------------------------------------
+Execute StartPlaybackThread()
+Execute SetGlobalVolume(0.85)
+
+# ---------------------------------------------------------------------------
+# Player set-up (player 0 at world origin)
+# ---------------------------------------------------------------------------
+PLAY_POSITION 0.0 0.0 0.0
+GET_READY
+
+

@@ -1,0 +1,35 @@
+##CPGE_SCRIPT
+##ScriptVersion: 1.0
+##Written: 2026-05-10
+##Scene: SCENE_GAMEOVER
+##Author: LordAries1972
+##Description: Game Over screen — halt all player systems, fade out, present game over.
+
+# ---------------------------------------------------------------------------
+# Halt all running subsystems gracefully
+# ---------------------------------------------------------------------------
+STOP EFFECTS
+STOP MUSIC
+STOP MOUSE
+STOP GAMEPAD
+
+# ---------------------------------------------------------------------------
+# Fade the screen to black over 1.5 seconds
+# ---------------------------------------------------------------------------
+Execute FadeToBlack(1.5, 0.0)
+
+# ---------------------------------------------------------------------------
+# Stop all player timers
+# ---------------------------------------------------------------------------
+Execute StopPlayerTimer(0)
+Execute SetPlayerState(0, 2)
+
+# ---------------------------------------------------------------------------
+# Display game over alert, then wait for scene system to take over
+# ---------------------------------------------------------------------------
+ALERT General "Game Over."
+
+# ---------------------------------------------------------------------------
+# Reset all player stats ready for a potential restart
+# ---------------------------------------------------------------------------
+Execute ResetAllPlayerStats()

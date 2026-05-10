@@ -1573,16 +1573,19 @@ void VKFXManager::Init3DWarpDOTTunnel(float x, float y, float z,
             ? (data.nearZ + fraction * data.totalDistance)
             : (data.farZ  - fraction * data.totalDistance);
 
-        float pathT = std::clamp((data.farZ - ring.zPos) / data.totalDistance, 0.0f, 1.0f);
-        float pathAngle = pathT * XM_2PI;
-        float sinVal, cosVal;
-        FAST_MATH.FastSinCos(pathAngle, sinVal, cosVal);
-        ring.cx        = x + VKWarpTunnelData::kMaxXYRadius * sinVal;
-        ring.cy        = y + VKWarpTunnelData::kMaxXYRadius * cosVal;
+        ring.cx        = x;
+        ring.cy        = y;
         ring.spinAngle = 0.0f;
         ring.alive     = true;
 
         data.rings.push_back(ring);
+    }
+
+    if (renderer)
+    {
+        renderer->myCamera.SetPosition(x, y, data.nearZ);
+        renderer->myCamera.SetTarget(XMFLOAT3(x, y, data.farZ));
+        renderer->myCamera.SetYawPitch(0.0f, 0.0f);
     }
 
     effects.push_back(newFX);
@@ -1615,10 +1618,6 @@ void VKFXManager::UpdateWarpDotTunnel(VKFXItem& fx, float deltaTime)
     const float dt        = std::min(deltaTime, 0.05f);
     const float baseSpeed = static_cast<float>(data.travelSpeed);
 
-    // Advance the global path phase each frame so the tunnel winding position drifts.
-    data.pathPhaseOffset += static_cast<float>(data.travelSpeed) * 0.004f * dt;
-    data.pathPhaseOffset  = fmodf(data.pathPhaseOffset, XM_2PI);
-
     for (auto& ring : data.rings)
     {
         if (!ring.alive) continue;
@@ -1640,13 +1639,8 @@ void VKFXManager::UpdateWarpDotTunnel(VKFXItem& fx, float deltaTime)
         else if (data.reverseTravel && ring.zPos > data.farZ)
             ring.zPos = data.nearZ;
 
-        pathT = std::clamp((data.farZ - ring.zPos) / data.totalDistance, 0.0f, 1.0f);
-
-        float pathAngle = pathT * XM_2PI + data.pathPhaseOffset;
-        float sinVal, cosVal;
-        FAST_MATH.FastSinCos(pathAngle, sinVal, cosVal);
-        ring.cx = data.startX + VKWarpTunnelData::kMaxXYRadius * sinVal;
-        ring.cy = data.startY + VKWarpTunnelData::kMaxXYRadius * cosVal;
+        ring.cx = data.startX;
+        ring.cy = data.startY;
 
         switch (data.spinCycle)
         {
@@ -1658,7 +1652,6 @@ void VKFXManager::UpdateWarpDotTunnel(VKFXItem& fx, float deltaTime)
         if (ring.spinAngle < 0.0f) ring.spinAngle += XM_2PI;
     }
 
-    // Warp tunnel camera: fixed look at the static far-end centre — rings fly at viewer.
     if (renderer)
         renderer->myCamera.SetTarget(XMFLOAT3(data.startX, data.startY, data.farZ));
 }

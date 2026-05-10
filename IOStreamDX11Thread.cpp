@@ -92,6 +92,7 @@ void DX11Renderer::LoaderTaskThread()
 
 					threadManager.PauseThread(THREAD_LOADER);
 					threadManager.threadVars.bLoaderTaskFinished.store(true);
+					fxManager.FadeToImage(1.0f, 0.08f);
 					break;
 				}
 			#endif
@@ -161,7 +162,7 @@ void DX11Renderer::LoaderTaskThread()
 					if (preAllocLock.IsLocked())
 					{
 						scene.ParseGLTFScene(AssetsDir / L"splash-hover1.gltf");
-						//					scene.ParseGLBScene(AssetsDir / L"test1.glb");
+//		  				  scene.ParseGLBScene(AssetsDir / L"test1.glb");
 						if (!scene.bGltfCameraParsed)
 						{
 							scene.AutoFrameSceneToCamera();
@@ -172,6 +173,11 @@ void DX11Renderer::LoaderTaskThread()
 
 					// Create Game Menu
 					myCamera.SetupDefaultCamera(static_cast<float>(iOrigWidth), static_cast<float>(iOrigHeight));
+					// Set Camera Position
+					myCamera.SetPosition(2.5f, 4.0f, -5.0f);
+					// Now set Yaw and Pitch
+					myCamera.SetYawPitch(0.0f, 0.0f);
+
 					guiManager.CreateGameMenuWindow(L"winGameMenu");
 
 					// Reverse — stars start spread near camera and converge toward {0, 0, 0}

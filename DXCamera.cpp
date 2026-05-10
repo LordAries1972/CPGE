@@ -2568,6 +2568,8 @@ void Camera::SetupDefaultCamera(float windowWidth, float windowHeight)
     XMFLOAT3 eyePos, lookPos;
     XMStoreFloat3(&eyePos, eye);
     XMStoreFloat3(&lookPos, lookAt);
+    position = eyePos;
+    target   = lookPos;
 
     #if defined(_DEBUG_CAMERA_)
         debug.logDebugMessage(LogLevel::LOG_INFO, L"Camera eye: (%.2f, %.2f, %.2f) → lookAt: (%.2f, %.2f, %.2f)",

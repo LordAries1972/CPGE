@@ -1,0 +1,53 @@
+##CPGE_SCRIPT
+##ScriptVersion: 1.0
+##Written: 2026-05-10
+##Scene: SCENE_INTRO
+##Author: LordAries1972
+##Description: Intro cinematic — camera choreography, full-screen FX sequence, LABEL/GOTO demo.
+
+# ---------------------------------------------------------------------------
+# Camera starting position for intro flythrough
+# POSITION x y z yaw pitch
+# ---------------------------------------------------------------------------
+POSITION 0.0 10.0 -30.0 0.0 -15.0
+
+# ---------------------------------------------------------------------------
+# Hold black for half a second, then fade in
+# ---------------------------------------------------------------------------
+Execute FadeToBlack(0.0, 0.0)
+Execute FadeToImage(3.0, 0.5)
+
+# ---------------------------------------------------------------------------
+# Warp dot tunnel during the intro
+# InitWarpDotTunnel(x, y, z, minRadius, maxRadius, spinCycle, travelSpeed,
+#                   reverseTravel, dotsPerCircle, density)
+# ---------------------------------------------------------------------------
+LABEL TunnelStart:
+Execute InitWarpDotTunnel(0.0, 0.0, 0.0, 5.0, 80.0, Clockwise, 3, false, 24, 3)
+
+# ---------------------------------------------------------------------------
+# Animated camera sweep — rotate 45 degrees on Y over speed 2
+# RotateY(degrees, speed, focusOnTarget)
+# ---------------------------------------------------------------------------
+Execute RotateY(45.0, 2, false)
+WAIT(4.0)
+Execute StopWarpDotTunnel()
+Execute StopRotating()
+
+# ---------------------------------------------------------------------------
+# Audio
+# ---------------------------------------------------------------------------
+Execute StartPlaybackThread()
+Execute SetGlobalVolume(0.9)
+
+ALERT General "Intro sequence running."
+
+# ---------------------------------------------------------------------------
+# LABEL / GOTO example:
+# In a real script a condition check would decide whether to loop.
+# GOTO TunnelStart would restart the tunnel sequence from the top.
+# Shown here commented out to avoid an actual infinite loop in the demo.
+# Uncomment and pair with a conditional mechanism when the IF command
+# is introduced in a future ScriptManager version.
+# ---------------------------------------------------------------------------
+# GOTO TunnelStart

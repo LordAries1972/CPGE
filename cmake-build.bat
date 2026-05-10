@@ -16,12 +16,12 @@ if errorlevel 1 goto :error
 if errorlevel 1 goto :error
 
 echo.
-echo Build succeeded: %CONFIG%
+echo Build succeeded: %CONFIG% -- %DATE%  %TIME%
 goto :end
 
 :error
 echo.
-echo Build FAILED.
+echo Build FAILED: %CONFIG% -- %DATE%  %TIME%
 exit /b 1
 
 :end

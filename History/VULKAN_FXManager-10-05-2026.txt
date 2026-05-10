@@ -1,0 +1,15 @@
+VULKAN_FXManager.cpp - 10-05-2026
+==================================
+
+Mirror of all DX_FXManager changes (same date):
+
+Init3DWarpDOTTunnel():
+  - Removed sine-path cx/cy on ring spawn; rings initialise to cx=x, cy=y.
+  - Added one-time camera setup: SetPosition(x,y,nearZ), SetTarget(x,y,farZ),
+    SetYawPitch(0,0).
+
+UpdateWarpDotTunnel():
+  - Removed pathPhaseOffset advance.
+  - Removed pathT recalculation after wrap.
+  - Replaced XY sine-path with ring.cx = data.startX; ring.cy = data.startY;
+  - Replaced multi-pass fly-through camera block with single SetTarget to farZ.
