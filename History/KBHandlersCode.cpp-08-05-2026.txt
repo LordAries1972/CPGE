@@ -1,0 +1,24 @@
+KBHandlersCode.cpp - 08-05-2026
+=================================
+1. Added #include "GUIManager.h" to includes (after ScreenRecorder.h).
+
+2. Added extern GUIManager guiManager; to externs (after ScreenRecorder).
+
+3. SCENE_GAMETITLE ESC case: inserted #if defined(_DEBUG) block BEFORE the
+   existing quit sequence:
+
+     #if defined(_DEBUG)
+     if (fxManager.tunnelID > 0) {
+         soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+         fxManager.StopWarpDotTunnel();
+         fxManager.FadeToBlack(1.0f, 0.06f);
+         // wait loop with RENDERER_IS_THREAD guard
+         guiManager.CreateGameMenuWindow(L"");
+         fxManager.FadeToImage(1.0f, 0.06f);
+         break;   // skips quit logic
+     }
+     #endif
+     // ... existing FadeToBlack + PostQuitMessage path unchanged
+
+Release builds: _DEBUG block compiled out entirely; ESC behaviour at SCENE_GAMETITLE
+is identical to before.

@@ -89,8 +89,8 @@ bool ScreenRecorder::StartRecording(UINT width, UINT height,
         fpsVal = 60; fps = RecordFPS::FPS_60;
     }
 
-    m_width               = width;
-    m_height              = height;
+    m_width               = width  & ~1u;   // NVENC NV12 requires even dimensions
+    m_height              = height & ~1u;
     m_targetFPS           = fps;
     m_framePeriod         = 10'000'000LL / static_cast<LONGLONG>(fpsVal);
     m_framePeriodSnapshot = m_framePeriod;
@@ -128,7 +128,7 @@ bool ScreenRecorder::StartRecording(UINT width, UINT height,
         if (SUCCEEDED(hr)) hr = pOut->SetGUID   (MF_MT_SUBTYPE,        MFVideoFormat_H264);
         if (SUCCEEDED(hr)) hr = pOut->SetUINT32 (MF_MT_AVG_BITRATE,    VIDEO_BITRATE);
         if (SUCCEEDED(hr)) hr = pOut->SetUINT32 (MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
-        if (SUCCEEDED(hr)) hr = MFSetAttributeSize (pOut, MF_MT_FRAME_SIZE,         width, height);
+        if (SUCCEEDED(hr)) hr = MFSetAttributeSize (pOut, MF_MT_FRAME_SIZE,         m_width, m_height);
         if (SUCCEEDED(hr)) hr = MFSetAttributeRatio(pOut, MF_MT_FRAME_RATE,         fpsVal, 1);
         if (SUCCEEDED(hr)) hr = MFSetAttributeRatio(pOut, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
         if (SUCCEEDED(hr)) hr = m_pSinkWriter->AddStream(pOut, &m_videoStreamIndex);
@@ -147,7 +147,7 @@ bool ScreenRecorder::StartRecording(UINT width, UINT height,
         if (SUCCEEDED(hr)) hr = pIn->SetGUID   (MF_MT_MAJOR_TYPE,     MFMediaType_Video);
         if (SUCCEEDED(hr)) hr = pIn->SetGUID   (MF_MT_SUBTYPE,        MFVideoFormat_ARGB32);
         if (SUCCEEDED(hr)) hr = pIn->SetUINT32 (MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
-        if (SUCCEEDED(hr)) hr = MFSetAttributeSize (pIn, MF_MT_FRAME_SIZE,         width, height);
+        if (SUCCEEDED(hr)) hr = MFSetAttributeSize (pIn, MF_MT_FRAME_SIZE,         m_width, m_height);
         if (SUCCEEDED(hr)) hr = MFSetAttributeRatio(pIn, MF_MT_FRAME_RATE,         fpsVal, 1);
         if (SUCCEEDED(hr)) hr = MFSetAttributeRatio(pIn, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
         if (SUCCEEDED(hr)) hr = m_pSinkWriter->SetInputMediaType(m_videoStreamIndex, pIn, nullptr);
@@ -279,14 +279,23 @@ void ScreenRecorder::CaptureFrame(ID3D11Device*        device,
     D3D11_TEXTURE2D_DESC bbDesc = {};
     backBuffer->GetDesc(&bbDesc);
 
-    if (!m_stagingTexture || bbDesc.Width != m_width || bbDesc.Height != m_height)
+    // Skip if the back buffer is smaller than the encoder's frame — can't crop upward.
+    if (bbDesc.Width < m_width || bbDesc.Height < m_height)
     {
-        m_stagingTexture.Reset();
-        m_width = bbDesc.Width; m_height = bbDesc.Height;
+        debug.logLevelMessage(LogLevel::LOG_WARNING,
+            L"ScreenRecorder: back buffer smaller than recording dimensions — frame skipped.");
+        return;
+    }
 
+    // Staging texture created once at m_width × m_height (encoder dims, even-rounded).
+    // Using the back-buffer's actual format avoids CopySubresourceRegion format mismatches.
+    if (!m_stagingTexture)
+    {
         D3D11_TEXTURE2D_DESC desc = {};
-        desc.Width = m_width; desc.Height = m_height;
-        desc.MipLevels = 1; desc.ArraySize = 1;
+        desc.Width            = m_width;
+        desc.Height           = m_height;
+        desc.MipLevels        = 1;
+        desc.ArraySize        = 1;
         desc.Format           = DXGI_FORMAT_B8G8R8A8_UNORM;
         desc.SampleDesc.Count = 1;
         desc.Usage            = D3D11_USAGE_STAGING;
@@ -294,14 +303,21 @@ void ScreenRecorder::CaptureFrame(ID3D11Device*        device,
 
         if (FAILED(device->CreateTexture2D(&desc, nullptr, m_stagingTexture.GetAddressOf())))
         {
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder: Failed to create staging texture");
+            debug.logLevelMessage(LogLevel::LOG_ERROR,
+                L"ScreenRecorder: Failed to create staging texture (bbDesc.Format=" +
+                std::to_wstring(bbDesc.Format) + L")");
             return;
         }
     }
 
-    context->CopyResource(m_stagingTexture.Get(), backBuffer.Get());
+    // Copy only the m_width × m_height region so staging and encoder dims are always identical.
+    D3D11_BOX srcBox = { 0, 0, 0, m_width, m_height, 1 };
+    context->CopySubresourceRegion(m_stagingTexture.Get(), 0, 0, 0, 0,
+                                    backBuffer.Get(), 0, &srcBox);
+
     D3D11_MAPPED_SUBRESOURCE mapped = {};
     if (FAILED(context->Map(m_stagingTexture.Get(), 0, D3D11_MAP_READ, 0, &mapped))) return;
+    if (!mapped.pData) { context->Unmap(m_stagingTexture.Get(), 0); return; }
     WriteVideoFrame(static_cast<const BYTE*>(mapped.pData), static_cast<UINT>(mapped.RowPitch), ts);
     context->Unmap(m_stagingTexture.Get(), 0);
 }
@@ -555,7 +571,10 @@ void ScreenRecorder::AudioCaptureThread()
                     const UINT32 gapFrames = static_cast<UINT32>(
                         (wallTS - m_audioTimestamp) * m_pWaveFormat->nSamplesPerSec / 10'000'000LL);
                     if (gapFrames > 0)
+                    {
+                        std::lock_guard<std::mutex> lk(m_mutex);
                         WriteAudioSilence(m_pSinkWriter, m_audioStreamIndex, m_pWaveFormat, gapFrames, m_audioTimestamp);
+                    }
                     m_audioTimestamp = wallTS;
                 }
             }
@@ -598,7 +617,10 @@ void ScreenRecorder::AudioCaptureThread()
                     pS->AddBuffer(pBuf);
                     pS->SetSampleTime(audioTS);
                     pS->SetSampleDuration(dur);
-                    m_pSinkWriter->WriteSample(m_audioStreamIndex, pS);
+                    {
+                        std::lock_guard<std::mutex> lk(m_mutex);
+                        m_pSinkWriter->WriteSample(m_audioStreamIndex, pS);
+                    }
                     pS->Release();
                 }
                 pBuf->Release();
@@ -855,7 +877,10 @@ void ScreenRecorder::MicCaptureThread()
                     const UINT32 gapFrames = static_cast<UINT32>(
                         (wallTS - m_micAudioTimestamp) * m_pMicWaveFormat->nSamplesPerSec / 10'000'000LL);
                     if (gapFrames > 0)
+                    {
+                        std::lock_guard<std::mutex> lk(m_mutex);
                         WriteAudioSilence(m_pSinkWriter, m_micStreamIndex, m_pMicWaveFormat, gapFrames, m_micAudioTimestamp);
+                    }
                     m_micAudioTimestamp = wallTS;
                 }
             }
@@ -884,7 +909,10 @@ void ScreenRecorder::MicCaptureThread()
                 if (SUCCEEDED(MFCreateSample(&pS)))
                 {
                     pS->AddBuffer(pBuf); pS->SetSampleTime(micTS); pS->SetSampleDuration(dur);
-                    m_pSinkWriter->WriteSample(m_micStreamIndex, pS);
+                    {
+                        std::lock_guard<std::mutex> lk(m_mutex);
+                        m_pSinkWriter->WriteSample(m_micStreamIndex, pS);
+                    }
                     pS->Release();
                 }
                 pBuf->Release();

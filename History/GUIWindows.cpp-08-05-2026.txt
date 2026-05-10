@@ -1,0 +1,13 @@
+GUIWindows.cpp - 08-05-2026
+============================
+Added Experimental button to CreateGameMenuWindow under #if defined(_DEBUG):
+
+  - Positioned at gameMenuWindow->position.y + 330 (below Quit at +275)
+  - Orange text (255, 128, 0) to visually distinguish from release buttons
+  - Label: "   ** EXPERIMENTAL **"
+  - onMouseBtnDown: beep, FadeToBlack (1.0f, 0.06f), wait loop (max 300 * 10ms),
+    RemoveWindow, then fxManager.Init3DWarpDOTTunnel(0,0,50, 5,200,
+    TunnelSpinCycle::Clockwise, 100, false, 32, 8)
+  - Entire block wrapped in #if defined(_DEBUG) / #endif — invisible in Release
+
+No changes to release-build code paths.

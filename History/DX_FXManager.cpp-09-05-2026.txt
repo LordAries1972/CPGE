@@ -1,0 +1,21 @@
+DX_FXManager.cpp - 09-05-2026
+==============================
+1. UpdateWarpDotTunnel: pathPhaseOffset drift; fixed-target camera (startX,startY,farZ).
+2. Added StopAllFX().
+3. Added SaveAndSuspendFXForScene():
+   - Copies full effects vector + starfieldID/tunnelID into m_sceneSaved* members.
+   - Calls SafelyClearAllEffects() and zeros IDs.
+   - Guard against double-save without restore.
+   - Now acquires m_effectsMutex to prevent render-thread race.
+4. Added RestoreFXAfterScene():
+   - Stops any tunnel started in the experimental scene.
+   - Moves m_sceneSavedEffects back into effects; restores IDs.
+   - Clears the snapshot slots.
+   - No-ops if nothing was saved.
+   - Now acquires m_effectsMutex to prevent render-thread race.
+
+Thread safety fix: RENDERER_IS_THREAD means the render thread runs independently
+and iterates the effects vector concurrently. SaveAndSuspendFXForScene and
+RestoreFXAfterScene are called from the main thread. Both now hold m_effectsMutex
+for their entire body. StopWarpDotTunnel/StopStarfield/SafelyClearAllEffects do
+NOT acquire m_effectsMutex themselves, so no deadlock.

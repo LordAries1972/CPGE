@@ -121,7 +121,7 @@ private:
     // ---- D3D11 staging texture ----
     ComPtr<ID3D11Texture2D> m_stagingTexture;
 
-    // ---- capture dimensions ----
+    // ---- capture dimensions (even-rounded, set once in StartRecording) ----
     UINT                    m_width;
     UINT                    m_height;
 

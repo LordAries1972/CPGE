@@ -119,7 +119,8 @@ struct WarpTunnelData {
     float totalDistance = 800.0f;  // computed: world-space length of the tunnel
     float nearZ         = 0.0f;    // camera-near end  (= startZ for forward travel)
     float farZ          = 800.0f;  // camera-far  end
-    float spinSpeed     = 0.0f;    // radians / second derived from travelSpeed
+    float spinSpeed       = 0.0f;    // radians / second derived from travelSpeed
+    float pathPhaseOffset = 0.0f;    // advances each frame so the path drifts, creating winding movement
 
     static constexpr float kMaxXYRadius = 300.0f;  // maximum XY deviation of ring centres
 
@@ -436,6 +437,9 @@ public:
 
     // WarpDotTunnel Utility Calls
     int tunnelID = 0;
+    void StopAllFX();
+    void SaveAndSuspendFXForScene();
+    void RestoreFXAfterScene();
     void Init3DWarpDOTTunnel(float x, float y, float z,
                              float minRadius, float maxRadius,
                              TunnelSpinCycle spinCycle,
@@ -517,6 +521,11 @@ private:
 
     // Store FX state during resize
     ActiveFXState savedFXState;
+
+    // Full-effect snapshot for scene transitions (experimental scene save/restore)
+    std::vector<FXItem> m_sceneSavedEffects;
+    int                 m_sceneSavedStarfieldID = 0;
+    int                 m_sceneSavedTunnelID    = 0;
     
     // Helper function to safely collect active effect IDs without iterator invalidation
     std::vector<int> CollectActiveTextScrollerIDs() const {

@@ -510,6 +510,47 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     // Add the quit button control to the window
     gameMenuWindow->AddControl(quitButton);
 
+#if defined(_DEBUG)
+    // Experimental button — DEBUG builds only; launches WarpDotTunnel demo
+    GUIControl experimentalButton;
+    experimentalButton.type = GUIControlType::Button;
+    experimentalButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 330);
+    experimentalButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);
+    experimentalButton.bgColor = MyColor(0, 0, 0, 255);
+    experimentalButton.txtColor = MyColor(255, 128, 0, 255);                                                       // Orange text — visually distinct from release buttons
+    experimentalButton.useShadowedText = true;
+    experimentalButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);
+    experimentalButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);
+    experimentalButton.label = L"   ** EXPERIMENTAL **";
+    experimentalButton.lblFontSize = 16.0f;
+    experimentalButton.isVisible = true;
+
+    experimentalButton.onMouseBtnDown = [this, windowName = std::string(WINDOW_NAME)]() {
+        try {
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Experimental button clicked, launching WarpDotTunnel");
+
+            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+
+            fxManager.FadeToBlack(1.0f, 0.06f);
+
+            // Do NOT Sleep here — this callback runs on the render thread, so sleeping
+            // prevents RenderFrame from being called, meaning the fade never advances.
+            // The fade will complete naturally as the render loop resumes after this returns.
+            RemoveWindow(windowName);
+
+            fxManager.SaveAndSuspendFXForScene();
+            fxManager.Init3DWarpDOTTunnel(0.0f, 0.0f, 100.0f, 5.0f, 200.0f,
+                TunnelSpinCycle::Clockwise, 50, false, 24, 64);
+        }
+        catch (const std::exception& e) {
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateGameMenuWindow - Exception in experimental button handler: %s",
+                std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
+        }
+    };
+
+    gameMenuWindow->AddControl(experimentalButton);
+#endif
+
     // Log successful completion of game menu window creation
     debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Game menu window created successfully with %d controls",
         static_cast<int>(gameMenuWindow->controls.size()));

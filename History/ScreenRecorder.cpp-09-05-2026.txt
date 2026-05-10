@@ -1,0 +1,68 @@
+ScreenRecorder.cpp - 09-05-2026
+==============================
+Bug fix 1: IMFSinkWriter thread-safety crash (nvEncMFTH264x.dll RTWorkQ crash).
+IMFSinkWriter is not thread-safe. AudioCaptureThread and MicCaptureThread were
+calling WriteSample() without holding m_mutex, racing with CaptureFrame() on the
+render thread. Concurrent WriteSample calls corrupt NVIDIA encoder state and crash
+in the RTWorkQ background thread.
+Fix: wrapped all WriteSample/WriteAudioSilence calls in AudioCaptureThread and
+MicCaptureThread with std::lock_guard<std::mutex>(m_mutex).
+
+Bug fix 2: Dimension-change crash mid-recording.
+When the swap chain is resized during an active recording, CaptureFrame was
+updating m_width/m_height to the new dimensions and sending a wrong-size frame to
+the NVIDIA H264 encoder, which was configured at recording-start dimensions. This
+also crashes in nvEncMFTH264x via RTWorkQ.
+Fix: if the staging texture already exists (recording in progress) and the back
+buffer dimensions changed, the frame is skipped and a warning is logged. Recording
+continues at the original dimensions until StopRecording is called.
+
+Bug fix 3 (ROOT CAUSE): Odd height crash — nvEncMFTH264x NV12 / RTWorkQ crash.
+GetClientRect returned 784×561. Height 561 is odd. The NVIDIA hardware H264 encoder
+internally converts ARGB32 → NV12 (YUV 4:2:0). NV12 chroma plane height = luma/2,
+which requires luma height to be even. 561/2 = 280.5 — non-integer — caused an
+access violation in mfplat.dll called from nvEncMFTH264x.dll via the RTWorkQ async
+encode thread on the very first video frame.
+
+Fix: two new members m_captureWidth / m_captureHeight track the actual back-buffer
+dimensions used for the D3D11 staging texture (CopyResource requires identical
+source and destination dimensions). m_width / m_height are now rounded down to the
+nearest even number in StartRecording (width & ~1u) and are never changed after
+that. WriteVideoFrame already uses m_width×m_height to size the MF buffer and copy
+rows, so it naturally crops the odd bottom row and the encoder only ever sees
+even-dimensioned frames.
+
+Key invariants after this fix:
+  m_width  = StartRecording width  & ~1u   (encoder dimension, stays constant)
+  m_height = StartRecording height & ~1u   (encoder dimension, stays constant)
+  Staging texture created ONCE at m_width×m_height (encoder dims, using bbDesc.Format).
+  CopySubresourceRegion with srcBox{0,0,0,m_width,m_height,1} copies only those pixels.
+  WriteVideoFrame reads m_width×m_height from a staging that IS m_width×m_height: no OOB.
+  MFSetAttributeSize for H.264 output and ARGB32 input both use m_width/m_height.
+
+Bug fix 4: memcpy crash in WriteVideoFrame (CopyResource staging/encoder dim split).
+After fix 3, the staging texture was created at actual back-buffer dimensions
+(m_captureWidth×m_captureHeight, e.g. 784×561) and CopyResource was used. But
+WriteVideoFrame looped over only m_height=560 rows with m_width=784 columns. For
+the last row (559), the read ends at pData + 559*rowPitch + packed-1. If D3D11
+allocates staging memory as EXACTLY rowPitch×height bytes and the read extends
+into that final region or past a guard page, the memcpy faults. Additionally,
+the staging format was hardcoded to DXGI_FORMAT_B8G8R8A8_UNORM which would
+silently fail CopyResource if the back buffer uses a different format variant.
+Fix: staging texture is now created at m_width×m_height (encoder dims) using
+bbDesc.Format. CopyResource replaced by CopySubresourceRegion with a source box
+{0,0,0,m_width,m_height,1}. Staging and WriteVideoFrame loop are now identical
+in size — no OOB possible. Removed m_captureWidth/m_captureHeight members.
+
+Bug fix 6 (in main.cpp): no video — every frame skipped due to GetClientRect/DXGI mismatch.
+See History/main.cpp-10-05-2026.txt.
+
+Bug fix 5: no video track — staging texture creation failing due to bbDesc.Format.
+After fix 4, staging texture was created with desc.Format = bbDesc.Format. DXGI flip
+swap chains commonly return DXGI_FORMAT_B8G8R8A8_UNORM_SRGB from GetBuffer(). Some
+drivers refuse to create a D3D11_USAGE_STAGING texture with an SRGB format. The
+CreateTexture2D HRESULT failed, m_stagingTexture stayed null, and every CaptureFrame
+call returned early — resulting in audio-only recordings.
+Fix: staging texture hardcoded back to DXGI_FORMAT_B8G8R8A8_UNORM (always supported
+for staging). CopySubresourceRegion from UNORM_SRGB source to UNORM destination is
+valid in D3D11 (same typeless format family, identical bit layout).

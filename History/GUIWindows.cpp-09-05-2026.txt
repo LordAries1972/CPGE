@@ -1,0 +1,11 @@
+GUIWindows.cpp - 09-05-2026
+==============================
+Bug fix: experimental button callback used Sleep(10) loop waiting for FadeToBlack
+to complete, but this callback runs on the render thread. Sleeping blocked RenderFrame,
+so the fade never advanced (IsFadeActive() stayed true for the full 3-second timeout).
+This also caused the recorder to be starved of video frames for 3 seconds, increasing
+the window for the concurrent WriteSample race with AudioCaptureThread.
+
+Fixed by removing the Sleep/spin-wait. The FadeToBlack is started and the scene
+transition happens immediately; the fade completes visually on its own as the render
+loop resumes after the callback returns.

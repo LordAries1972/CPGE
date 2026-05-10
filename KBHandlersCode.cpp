@@ -19,6 +19,7 @@
 #include "GamingAI.h"
 #include "ThreadManager.h"
 #include "ScreenRecorder.h"
+#include "GUIManager.h"
 
 #if defined(PLATFORM_WINDOWS)
     #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
@@ -56,6 +57,7 @@ extern std::atomic<int>  sfxVolumeAdjustRequest;
 extern std::atomic<int>  masterVolumeAdjustRequest;
 extern std::atomic<int>  ttsVolumeAdjustRequest;
 extern ScreenRecorder    screenRecorder;
+extern GUIManager        guiManager;
 
 void SetMyKeyUpHandler(KeyboardHandler& keyboard)
 { 
@@ -86,9 +88,26 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
                     
                     case SceneType::SCENE_GAMETITLE:
                     {
+#if defined(_DEBUG)
+                        if (fxManager.tunnelID > 0) {
+                            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+                            fxManager.RestoreFXAfterScene();
+                            fxManager.FadeToBlack(1.0f, 0.06f);
+                            while (fxManager.IsFadeActive())
+                            {
+                                #if !defined(RENDERER_IS_THREAD)
+                                    renderer->RenderFrame();
+                                #endif
+                                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                            }
+                            guiManager.CreateGameMenuWindow(L"");
+                            fxManager.FadeToImage(1.0f, 0.06f);
+                            break;
+                        }
+#endif
                         fxManager.FadeToBlack(1.0f, 0.06f);
                         soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
-                        while (fxManager.IsFadeActive()) 
+                        while (fxManager.IsFadeActive())
                         {
                             #if !defined(RENDERER_IS_THREAD)
                                 renderer->RenderFrame();

@@ -1474,6 +1474,57 @@ void VKFXManager::SplitTextIntoLines(const std::wstring& text, std::vector<std::
 // WarpDotTunnel Implementation (Vulkan)
 // ============================================================================================================
 
+void VKFXManager::StopAllFX()
+{
+    if (starfieldID > 0) StopStarfield();
+    if (tunnelID    > 0) StopWarpDotTunnel();
+    SafelyClearAllEffects();
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[VKFXManager] StopAllFX: all effects cleared.");
+}
+
+void VKFXManager::SaveAndSuspendFXForScene()
+{
+    if (!m_sceneSavedEffects.empty() || m_sceneSavedStarfieldID > 0)
+    {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[VKFXManager] SaveAndSuspendFXForScene: previous save not yet restored — overwriting.");
+        m_sceneSavedEffects.clear();
+    }
+
+    m_sceneSavedEffects     = effects;
+    m_sceneSavedStarfieldID = starfieldID;
+    m_sceneSavedTunnelID    = tunnelID;
+
+    SafelyClearAllEffects();
+    starfieldID = 0;
+    tunnelID    = 0;
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[VKFXManager] Scene FX state saved ("
+        + std::to_wstring(m_sceneSavedEffects.size()) + L" effects). Scene suspended.");
+}
+
+void VKFXManager::RestoreFXAfterScene()
+{
+    if (m_sceneSavedEffects.empty() && m_sceneSavedStarfieldID == 0)
+    {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[VKFXManager] RestoreFXAfterScene: nothing saved to restore.");
+        return;
+    }
+
+    if (tunnelID > 0) StopWarpDotTunnel();
+    SafelyClearAllEffects();
+
+    effects     = std::move(m_sceneSavedEffects);
+    starfieldID = m_sceneSavedStarfieldID;
+    tunnelID    = m_sceneSavedTunnelID;
+
+    m_sceneSavedEffects.clear();
+    m_sceneSavedStarfieldID = 0;
+    m_sceneSavedTunnelID    = 0;
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[VKFXManager] Scene FX state restored ("
+        + std::to_wstring(effects.size()) + L" effects).");
+}
+
 void VKFXManager::Init3DWarpDOTTunnel(float x, float y, float z,
                                       float minRadius, float maxRadius,
                                       TunnelSpinCycle spinCycle,
@@ -1564,6 +1615,10 @@ void VKFXManager::UpdateWarpDotTunnel(VKFXItem& fx, float deltaTime)
     const float dt        = std::min(deltaTime, 0.05f);
     const float baseSpeed = static_cast<float>(data.travelSpeed);
 
+    // Advance the global path phase each frame so the tunnel winding position drifts.
+    data.pathPhaseOffset += static_cast<float>(data.travelSpeed) * 0.004f * dt;
+    data.pathPhaseOffset  = fmodf(data.pathPhaseOffset, XM_2PI);
+
     for (auto& ring : data.rings)
     {
         if (!ring.alive) continue;
@@ -1587,7 +1642,7 @@ void VKFXManager::UpdateWarpDotTunnel(VKFXItem& fx, float deltaTime)
 
         pathT = std::clamp((data.farZ - ring.zPos) / data.totalDistance, 0.0f, 1.0f);
 
-        float pathAngle = pathT * XM_2PI;
+        float pathAngle = pathT * XM_2PI + data.pathPhaseOffset;
         float sinVal, cosVal;
         FAST_MATH.FastSinCos(pathAngle, sinVal, cosVal);
         ring.cx = data.startX + VKWarpTunnelData::kMaxXYRadius * sinVal;
@@ -1602,6 +1657,10 @@ void VKFXManager::UpdateWarpDotTunnel(VKFXItem& fx, float deltaTime)
         ring.spinAngle = fmodf(ring.spinAngle, XM_2PI);
         if (ring.spinAngle < 0.0f) ring.spinAngle += XM_2PI;
     }
+
+    // Warp tunnel camera: fixed look at the static far-end centre — rings fly at viewer.
+    if (renderer)
+        renderer->myCamera.SetTarget(XMFLOAT3(data.startX, data.startY, data.farZ));
 }
 
 void VKFXManager::RenderWarpDotTunnel(VKFXItem& fx, VkCommandBuffer cmd)

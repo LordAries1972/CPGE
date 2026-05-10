@@ -993,12 +993,27 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                     }
                     else
                     {
-                        // Use the client area, not winMetrics (which includes title bar / borders).
-                        // The swap chain back buffer matches the client area exactly.
-                        RECT clientRect = {};
-                        GetClientRect(hwnd, &clientRect);
-                        UINT recWidth  = static_cast<UINT>(clientRect.right  - clientRect.left);
-                        UINT recHeight = static_cast<UINT>(clientRect.bottom - clientRect.top);
+                        // Query the swap chain directly for the back-buffer dimensions.
+                        // GetClientRect can disagree with DXGI on DPI-aware setups because
+                        // CreateSwapChainForHwnd(W=0,H=0) picks logical coordinates while
+                        // GetClientRect returns physical pixels on per-monitor-DPI apps.
+                        UINT recWidth = 0, recHeight = 0;
+                        {
+                            IDXGISwapChain1* pSC = static_cast<IDXGISwapChain1*>(renderer->GetSwapChain());
+                            DXGI_SWAP_CHAIN_DESC1 scDesc = {};
+                            if (pSC && SUCCEEDED(pSC->GetDesc1(&scDesc)))
+                            {
+                                recWidth  = scDesc.Width;
+                                recHeight = scDesc.Height;
+                            }
+                            else
+                            {
+                                RECT clientRect = {};
+                                GetClientRect(hwnd, &clientRect);
+                                recWidth  = static_cast<UINT>(clientRect.right  - clientRect.left);
+                                recHeight = static_cast<UINT>(clientRect.bottom - clientRect.top);
+                            }
+                        }
 
                         std::wstring outPath = L"Assets\\recording.mp4";
                         if (screenRecorder.StartRecording(recWidth, recHeight, RecordFPS::FPS_60, outPath, MicMode::Mixed))

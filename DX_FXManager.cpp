@@ -2891,6 +2891,67 @@ void FXManager::SplitTextIntoLines(const std::wstring& text, std::vector<std::ws
 // WarpDotTunnel Implementation
 // ============================================================================================================
 
+void FXManager::StopAllFX()
+{
+    if (starfieldID > 0) StopStarfield();
+    if (tunnelID    > 0) StopWarpDotTunnel();
+    SafelyClearAllEffects();
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] StopAllFX: all effects cleared.");
+}
+
+void FXManager::SaveAndSuspendFXForScene()
+{
+    std::lock_guard<std::mutex> lock(m_effectsMutex);
+
+    // Guard against double-save without a restore in between
+    if (!m_sceneSavedEffects.empty() || m_sceneSavedStarfieldID > 0)
+    {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] SaveAndSuspendFXForScene: previous save not yet restored — overwriting.");
+        m_sceneSavedEffects.clear();
+    }
+
+    // Snapshot the entire effects list plus the named IDs
+    m_sceneSavedEffects       = effects;
+    m_sceneSavedStarfieldID   = starfieldID;
+    m_sceneSavedTunnelID      = tunnelID;
+
+    // Clear everything so the experimental scene starts with a blank slate
+    SafelyClearAllEffects();
+    starfieldID = 0;
+    tunnelID    = 0;
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Scene FX state saved ("
+        + std::to_wstring(m_sceneSavedEffects.size()) + L" effects). Scene suspended.");
+}
+
+void FXManager::RestoreFXAfterScene()
+{
+    std::lock_guard<std::mutex> lock(m_effectsMutex);
+
+    if (m_sceneSavedEffects.empty() && m_sceneSavedStarfieldID == 0)
+    {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] RestoreFXAfterScene: nothing saved to restore.");
+        return;
+    }
+
+    // Stop whatever the experimental scene started
+    if (tunnelID > 0) StopWarpDotTunnel();
+    SafelyClearAllEffects();
+
+    // Restore the full snapshot
+    effects     = std::move(m_sceneSavedEffects);
+    starfieldID = m_sceneSavedStarfieldID;
+    tunnelID    = m_sceneSavedTunnelID;
+
+    // Clear the snapshot slots
+    m_sceneSavedEffects.clear();
+    m_sceneSavedStarfieldID = 0;
+    m_sceneSavedTunnelID    = 0;
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Scene FX state restored ("
+        + std::to_wstring(effects.size()) + L" effects).");
+}
+
 void FXManager::Init3DWarpDOTTunnel(float x, float y, float z,
                                     float minRadius, float maxRadius,
                                     TunnelSpinCycle spinCycle,
@@ -2983,6 +3044,11 @@ void FXManager::UpdateWarpDotTunnel(FXItem& fx, float deltaTime)
     const float dt = std::min(deltaTime, 0.05f);
     const float baseSpeed = static_cast<float>(data.travelSpeed);
 
+    // Advance the global path phase each frame so the tunnel winding position drifts,
+    // giving the illusion of flying through a continuously shifting tube.
+    data.pathPhaseOffset += static_cast<float>(data.travelSpeed) * 0.004f * dt;
+    data.pathPhaseOffset  = fmodf(data.pathPhaseOffset, XM_2PI);
+
     for (auto& ring : data.rings)
     {
         if (!ring.alive) continue;
@@ -3011,10 +3077,9 @@ void FXManager::UpdateWarpDotTunnel(FXItem& fx, float deltaTime)
         // Recalculate pathT after potential reset
         pathT = std::clamp((data.farZ - ring.zPos) / data.totalDistance, 0.0f, 1.0f);
 
-        // XY centre follows a clean circular sine-path — one full revolution over the tunnel length.
-        // Max deviation is WarpTunnelData::kMaxXYRadius (300 world units) and the cycle closes
-        // perfectly so movement is never sporadic.
-        float pathAngle = pathT * XM_2PI;
+        // XY centre: sine-path offset by the drifting phase so each new ring cycle starts
+        // at a different XY position, making the tunnel appear to wind through space.
+        float pathAngle = pathT * XM_2PI + data.pathPhaseOffset;
         float sinVal, cosVal;
         FAST_MATH.FastSinCos(pathAngle, sinVal, cosVal);
         ring.cx = data.startX + WarpTunnelData::kMaxXYRadius * sinVal;
@@ -3035,6 +3100,12 @@ void FXManager::UpdateWarpDotTunnel(FXItem& fx, float deltaTime)
         ring.spinAngle = fmodf(ring.spinAngle, XM_2PI);
         if (ring.spinAngle < 0.0f) ring.spinAngle += XM_2PI;
     }
+
+    // Warp tunnel camera: the camera does NOT move — the rings fly at the viewer.
+    // Lock the look target onto the static centre of the far end so rings always
+    // expand outward from one fixed vanishing point, exactly like the Doctor Who effect.
+    if (renderer)
+        renderer->myCamera.SetTarget(XMFLOAT3(data.startX, data.startY, data.farZ));
 }
 
 void FXManager::RenderWarpDotTunnel(FXItem& fx, ID3D11DeviceContext* context)

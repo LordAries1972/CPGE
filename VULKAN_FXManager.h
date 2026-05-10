@@ -113,7 +113,8 @@ struct VKWarpTunnelData {
     float totalDistance = 800.0f;
     float nearZ         = 0.0f;
     float farZ          = 800.0f;
-    float spinSpeed     = 0.0f;
+    float spinSpeed       = 0.0f;
+    float pathPhaseOffset = 0.0f;    // advances each frame so the path drifts, creating winding movement
 
     static constexpr float kMaxXYRadius = 300.0f;
 
@@ -273,6 +274,9 @@ public:
 
     // WarpDotTunnel
     int  tunnelID = 0;
+    void StopAllFX();
+    void SaveAndSuspendFXForScene();
+    void RestoreFXAfterScene();
     void Init3DWarpDOTTunnel(float x, float y, float z,
                              float minRadius, float maxRadius,
                              TunnelSpinCycle spinCycle,
@@ -385,6 +389,11 @@ private:
     std::vector<VKCallbackEntry>   m_pendingCallbacks;
     std::vector<VKScrollTween>     m_activeTweens;
     VKActiveFXState                m_savedFXState;
+
+    // Full-effect snapshot for scene transitions
+    std::vector<VKFXItem> m_sceneSavedEffects;
+    int                   m_sceneSavedStarfieldID = 0;
+    int                   m_sceneSavedTunnelID    = 0;
 };
 
 #endif // __USE_VULKAN__

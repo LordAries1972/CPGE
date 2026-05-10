@@ -47,7 +47,8 @@ The FXManager class is a comprehensive visual effects system designed for real-t
 | `FXManager` | `DX_FXManager.h/.cpp` | DirectX 11 |
 | `VKFXManager` | `VULKAN_FXManager.h/.cpp` | Vulkan (Windows/Linux/Android) |
 
-Both implementations provide identical public APIs and support all effect types including WarpDotTunnel. The global `fxManager` instance is automatically the correct type for the active renderer — game code does not need to branch on the renderer.
+Both implementations provide identical public APIs and support all effect types including WarpDotTunnel. The global `fxManager` instance is 
+automatically the correct type for the active renderer — game code does not need to branch on the renderer.
 
 **Renderers still requiring FXManager ports:**
 - DirectX 12
@@ -194,10 +195,10 @@ fxManager.StartScrollEffect(
 - `ScrollLeft` - Move texture left  
 - `ScrollUp` - Move texture up
 - `ScrollDown` - Move texture down
-- `ScrollUpAndLeft` - Diagonal movement
-- `ScrollUpAndRight` - Diagonal movement
-- `ScrollDownAndLeft` - Diagonal movement
-- `ScrollDownAndRight` - Diagonal movement
+- `ScrollUpAndLeft` - Diagonal movement (SE => NW)
+- `ScrollUpAndRight` - Diagonal movement (SW => NE)
+- `ScrollDownAndLeft` - Diagonal movement (NE => SW)
+- `ScrollDownAndRight` - Diagonal movement (NW => SE)
 
 ### Advanced Scrolling
 
@@ -396,7 +397,8 @@ fxManager.StopStarfield();
 
 ## Warp Dot Tunnel Effects
 
-The WarpDotTunnel effect renders a perspective-projected 3D tunnel of rotating dot rings — inspired by the classic *Doctor Who* TARDIS title sequence. Rings of dots travel along the Z axis, spinning and drifting in X/Y, creating the illusion of flying through an infinitely deep vortex.
+The WarpDotTunnel effect renders a perspective-projected 3D tunnel of rotating dot rings — inspired by the classic *Doctor Who* 
+TARDIS title sequence. Rings of dots travel along the Z axis, spinning and drifting in X/Y, creating the illusion of flying through an infinitely deep vortex.
 
 The effect is fully integrated into the resize system and runs on both DirectX 11 (`FXManager`) and Vulkan (`VKFXManager`) with identical behaviour.
 

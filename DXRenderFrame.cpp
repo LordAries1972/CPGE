@@ -313,6 +313,22 @@ void DX11Renderer::RenderFrame()
             // Scene-specific 3D rendering
             switch (scene.stSceneType)
             {
+                // Only in during development/testing - not part of main game flow
+                // We can use this for testing new features, effects, or experimental content 
+                // without affecting the main scenes
+                #if defined(_DEBUG)
+                    case SceneType::SCENE_EXPERIMENT:
+                    {
+                        // Experiment screen - minimal 3D rendering, primarily 2D
+                        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Rendering experiment scene");
+                        #endif
+
+                        break;
+                    }
+                #endif
+
+
                 case SceneType::SCENE_INTRO:
                 {
                     // Splash screen - minimal 3D rendering, primarily 2D

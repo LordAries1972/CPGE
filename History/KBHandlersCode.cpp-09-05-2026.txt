@@ -1,0 +1,5 @@
+KBHandlersCode.cpp - 09-05-2026
+=================================
+ESC handler SCENE_GAMETITLE _DEBUG block: replaced fxManager.StopWarpDotTunnel()
+with fxManager.RestoreFXAfterScene() so the saved effects (starfield, etc.)
+are reinstated before the menu fades back in.

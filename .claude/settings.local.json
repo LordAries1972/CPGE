@@ -44,7 +44,11 @@
       "PowerShell($env:PATH -split ';' | Where-Object { $_ -match 'git' -or $_ -match 'bash' } | ForEach-Object { \"$_\" })",
       "PowerShell(Add-Type -AssemblyName System.Drawing; $img = [System.Drawing.Image]::FromFile\\(\"f:\\\\Projects\\\\C++\\\\CPGE2026\\\\Assets\\\\loadingring.png\"\\); \"Width: $\\($img.Width\\), Height: $\\($img.Height\\)\"; $img.Dispose\\(\\))",
       "Bash(grep -v \"//.*BG_LOADER_CIRCLE\")",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(Get-ChildItem -Path \"f:\\\\Projects\\\\C++\\\\CPGE2026\" -Recurse -File -Name)",
+      "Bash(grep -rn \"CreateGameMenuWindow\" \"f:\\\\Projects\\\\C++\\\\CPGE2026\\\\\" --include=\"*.cpp\")",
+      "Read(//f/Projects/C++/**)",
+      "Bash(\"D:\\\\Programs\\\\CMake\\\\bin\\\\cmake.exe\" --build \"build\\\\Debug\" --config Debug --parallel)"
     ],
     "additionalDirectories": [
       "f:\\Projects\\C++\\CPGE2026\\.vs\\CrossPlatformGameEngine\\v17",

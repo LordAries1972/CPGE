@@ -1,0 +1,4 @@
+VULKAN_FXManager.cpp - 09-05-2026
+==================================
+1. UpdateWarpDotTunnel: pathPhaseOffset drift; fixed-target camera (startX,startY,farZ).
+2. Added StopAllFX(), SaveAndSuspendFXForScene(), RestoreFXAfterScene() — mirrors DX.
