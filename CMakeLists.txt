@@ -43,6 +43,7 @@ set(SOURCES
     PUNPack.cpp
     RendererFactory.cpp
     SceneManager.cpp
+    ScriptManager.cpp
     ScreenRecorder.cpp
     ShaderLoaders.cpp
     ShaderManager.cpp

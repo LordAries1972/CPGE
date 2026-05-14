@@ -1,0 +1,38 @@
+================================================================================
+DXCamera.cpp — History File
+Date:    2026-05-11
+================================================================================
+
+BUG FIX — Camera constructor hardcoded 800×600 screen dimensions
+
+ROOT CAUSE
+----------
+The Camera constructor initialised screen dimensions with compile-time constants
+regardless of the configured or actual runtime resolution:
+
+    m_screenWidth  = fDEFAULT_WINDOW_WIDTH;                    // 800.0f
+    m_screenHeight = fDEFAULT_WINDOW_HEIGHT;                   // 600.0f
+    m_aspectRatio  = fDEFAULT_WINDOW_WIDTH / fDEFAULT_WINDOW_HEIGHT; // 4:3
+    SetupDefaultCamera(fDEFAULT_WINDOW_WIDTH, fDEFAULT_WINDOW_HEIGHT);
+
+When the engine started at a different resolution (e.g. 1920×1080 from config),
+the camera projection matrix was set up for 800×600 until UpdateResolution()
+was explicitly called. If SetFullExclusive() ran before UpdateResolution() was
+triggered by a WM_SIZE event, the camera could remain in the wrong aspect ratio.
+
+FIXES APPLIED
+-------------
+DXCamera.cpp — Camera constructor:
+  - m_screenWidth  = static_cast<float>(config.myConfig.resolutionWidth)
+  - m_screenHeight = static_cast<float>(config.myConfig.resolutionHeight)
+  - m_aspectRatio  = LookupAspectRatio(resolutionWidth, resolutionHeight)
+  - SetupDefaultCamera(m_screenWidth, m_screenHeight)
+
+  The camera now initialises from the same config values used everywhere else,
+  so the projection matrix is correct from the very first frame, regardless of
+  whether a WM_SIZE or UpdateResolution() call arrives later.
+
+  Note: config is available at camera construction time because Configuration
+  is loaded before the renderer (and therefore the Camera) is instantiated.
+
+================================================================================

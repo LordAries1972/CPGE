@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1134*
+*Current Build Version: v0.0.1150*
 
 ---
 
@@ -450,6 +450,63 @@ Once the base DirectX 11 implementation is complete, the project will be release
 
 ### May 2026 - More major updates and fixes
 
+**May 11, 2026** - Bug fixes, hardcoded resolution audit, and ScriptManager pipeline integration:
+
+- **Bug fix — full-screen quarter-screen rendering**: `DX11Renderer::SetupViewport()` had hardcoded
+  `DEFAULT_WINDOW_WIDTH` (800) and `DEFAULT_WINDOW_HEIGHT` (600). On a 1600×1200 display those values
+  are exactly 1/4 of the screen area (half width × half height), producing the reported quarter-screen
+  symptom in fullscreen mode.
+  - `SetupViewport()` now uses `m_renderTargetWidth` / `m_renderTargetHeight`, populated from the
+    actual swap chain back buffer by `CreateRenderTargetViews()`.
+  - `Initialize()` now seeds `m_renderTargetWidth/Height` from `config.myConfig.resolutionWidth/Height`
+    at startup before any D3D resource creation.
+  - All renderer headers (`DX11Renderer.h`, `DX12Renderer.h`, `OpenGLRenderer.h`, `VULKAN_Renderer.h`)
+    member initializers changed from `DEFAULT_WINDOW_WIDTH/HEIGHT` to `0`.
+  - *See: [`DX11Renderer.cpp`](DX11Renderer.cpp), [`DX11Renderer.h`](DX11Renderer.h)*
+
+- **Bug fix — mouse cursor confined to 800×600 in fullscreen exclusive mode**:
+  `SetFullExclusive()` updated `iOrigWidth/iOrigHeight` to the real monitor resolution but never
+  synced `winMetrics.width/height`. The `WM_MOUSEMOVE` cursor clamp reads `winMetrics.width/height`,
+  so any cursor position beyond the original HWND size (800×600) was silently clamped to 799×599.
+  - `SetFullExclusive()` now updates `winMetrics.width/height/clientWidth/clientHeight`,
+    `m_renderTargetWidth/Height`, and calls `myCamera.UpdateResolution()` with the actual monitor
+    resolution and canonical aspect ratio immediately after the buffers are resized.
+  - *See: [`DX11Renderer.cpp`](DX11Renderer.cpp)*
+
+- **Bug fix — camera constructor hardcoded 800×600**: `Camera::Camera()` initialised
+  `m_screenWidth/Height` from `fDEFAULT_WINDOW_WIDTH/HEIGHT` and called
+  `SetupDefaultCamera(800, 600)` regardless of the configured resolution. Camera projection was
+  therefore wrong until the first `UpdateResolution()` call arrived via `WM_SIZE`.
+  - Constructor now reads `config.myConfig.resolutionWidth/Height` and calls
+    `LookupAspectRatio()` — consistent with every other subsystem that tracks screen dimensions.
+  - *See: [`DXCamera.cpp`](DXCamera.cpp)*
+
+- **Hardcoded resolution audit — remaining instances eliminated**:
+  - `Configuration.h` — `MyConfig` struct defaults changed from `resolutionWidth=1920`,
+    `resolutionHeight=1080`, `displayMode=2` (Full Screen) to `resolutionWidth=800`,
+    `resolutionHeight=600`, `displayMode=0` (Windowed). If `GameConfig.cfg` is absent or corrupt,
+    `loadConfig()` returns false and the struct defaults take effect — engine now falls back safely
+    to 800×600 windowed instead of attempting 1920×1080 fullscreen.
+  - `DX_FXManager.h` — `TextScrollData` default region changed from raw literals `800.0f/600.0f`
+    to `fDEFAULT_WINDOW_WIDTH/fDEFAULT_WINDOW_HEIGHT` (numerically identical but now self-documenting).
+  - *See: [`Configuration.h`](Configuration.h), [`DX_FXManager.h`](DX_FXManager.h)*
+
+- **ScriptManager integrated into the render and scene pipeline**: The `__USE_SCRIPT_MANAGER__`
+  conditional compilation guard is now fully wired throughout `main.cpp` and `DXRenderFrame.cpp`.
+  All call sites are wrapped in `#ifdef __USE_SCRIPT_MANAGER__` so the system compiles away to
+  nothing when the define is commented out in `Includes.h`.
+  - `main.cpp`: added `#include "ScriptManager.h"` guard; `ScriptManager scriptManager;` global
+    instance; `scriptManager.Initialize(...)` + `LoadSceneScript(SCENE_INITIALISE)` +
+    `ExecuteScriptAsync()` called after `scene.Initialize(renderer)` at startup.
+  - Scene transition functions — `SwitchToGamePlay()`, `SwitchToMovieIntro()`,
+    `SwitchToGameIntro()` — each call `StopExecution()` before the scene switch and
+    `LoadSceneScript()` + `ExecuteScriptAsync()` immediately after `InitiateScene()`.
+  - `DXRenderFrame.cpp`: `extern ScriptManager scriptManager` declared under the guard;
+    `scriptManager.Update(deltaTime)` called each frame after the delta-time clamp so
+    `DETECT_COLLISION` rules are evaluated every rendered frame.
+  - *See: [`main.cpp`](main.cpp), [`DXRenderFrame.cpp`](DXRenderFrame.cpp),
+    [`ScriptManager.h`](ScriptManager.h), [`ScriptManager.cpp`](ScriptManager.cpp)*
+
 **May 02, 2026** - More major updates and fixes:
 
 - Real Time in runtime configuration management system (GUIConfigWindow.cpp) - This is your panel for 
@@ -630,6 +687,52 @@ Once the base DirectX 11 implementation is complete, the project will be release
   infinite loops from locking the engine.
 - *See: [`ScriptManager.h`](ScriptManager.h), [`ScriptManager.cpp`](ScriptManager.cpp),
   [`Scripts/`](Scripts/), [`Docs/Scripting-Example-Usage.md`](Docs/Scripting-Example-Usage.md)*
+
+**May 14, 2026** - ScriptManager v1.1 — Variables and FOR loop support added:
+
+- **VAR directive** — typed global variable declarations added to the script language.
+  Four types supported: `int` (C++ `int`), `bool` (C++ `bool`), `float` (C++ `float`),
+  `string` (C++ `std::wstring`). Syntax: `VAR <type> <Name> = <value>;` (trailing
+  semicolon optional). Variables must be declared at the top of the script body, before
+  any executable commands — placement after a command is detected at parse time and
+  logged as an error.
+  - Runtime: `Cmd_VarDecl()` populates `m_variables` (a `std::unordered_map<std::string, ScriptVar>`)
+    on each script execution, so variables are always re-initialised to their declared values.
+  - `ScriptVar` struct stores typed value fields (`intVal`, `boolVal`, `floatVal`, `strVal`)
+    alongside a `Type` enum; helper functions `GetVarAsFloat()` / `SetVarFromFloat()` read
+    and write variables uniformly regardless of declared type.
+
+- **FOR / BEGIN / END loop** — counted loop construct added to the script language.
+  Full syntax: `FOR <Var> = <start> TO <end> [STEP <n>] DO / BEGIN … END`.
+  - Direction (forward or reverse) is inferred automatically: `start < end` increments,
+    `start > end` decrements; the `STEP` value is always positive.
+  - Forward exit condition: counter `>=` end (checked after each increment at `END`).
+  - Reverse exit condition: counter `<=` end (checked after each decrement at `END`).
+  - If start already satisfies the exit condition, the loop body is skipped entirely (zero iterations).
+  - Nested loops are fully supported via a runtime `m_loopStack` (`std::vector<LoopFrame>`);
+    each frame stores variable name, end value, step, direction flag, body-start index, and
+    END_BLOCK index.
+  - `BuildLoopMap()` runs once after parsing: a single-pass stack scan cross-links every
+    `FOR_LOOP` command to its matching `END_BLOCK` via a new `blockPeer` field on
+    `ScriptCommand`, resolving all loop jumps to O(1) index lookups at runtime.
+  - `BEGIN` is a structural no-op; `Cmd_ForLoop()` auto-detects and skips it when computing
+    the body-start index so `BEGIN` is optional but recommended for readability.
+  - The existing 1,000,000-step guard still protects against runaway loops.
+
+- **ScriptManager added to build system** — `ScriptManager.cpp` and `ScriptManager.h` were
+  tracked by git but absent from both `CMakeLists.txt` and `CrossPlatformGameEngine.vcxproj`.
+  The file compiled to nothing and no changes were ever validated by the build. Both build
+  files updated; first confirmed clean compile as part of this session (v0.0.1149 Debug).
+
+- **`Docs/Scripting-Example-Usage.md` updated to v1.1** — document version, Table of Contents,
+  Script File Format, Versioned Header, Command Reference, and Error Handling table all
+  updated to cover `VAR`, `FOR`, `BEGIN`, `END` with full syntax tables, termination rules,
+  and worked examples for all four loop forms (forward step 1, forward step 2, reverse step 1,
+  reverse step 2) including a nested loop example.
+
+- *See: [`ScriptManager.h`](ScriptManager.h), [`ScriptManager.cpp`](ScriptManager.cpp),
+  [`CMakeLists.txt`](CMakeLists.txt), [`CrossPlatformGameEngine.vcxproj`](CrossPlatformGameEngine.vcxproj),
+  [`Docs/Scripting-Example-Usage.md`](Docs/Scripting-Example-Usage.md)*
 
 ---
 

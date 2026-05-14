@@ -1,6 +1,6 @@
 /* ---------------------------------------------------------------------------------------------------------
 This is your base Includes.h header file for the specified Renderer & other engine sub-systems 
-and to only include what is needed on a given platform.
+and to only include what is needed on a given platform when requested.
 
 It includes all the necessary headers and libraries for Windows, DirectX, OpenGL, and other platforms.
 This is to eliminate the need for multiple includes in your project files.
@@ -8,6 +8,9 @@ This is to eliminate the need for multiple includes in your project files.
 NOTE:   Becareful to not alter the order of the includes or directive conditional blocks, as some 
         libraries may depend on others being included first.  It also strongly focuses on the
         approach of only including what is needed for the specific platform and renderer being used.
+
+        Be sensible when adding new includes to this file, as it is included in many places and 
+        can affect compile times or cause problems, if not managed properly.
         
 --------------------------------------------------------------------------------------------------------- */
 #pragma once
@@ -17,6 +20,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 #define __USING_JOYSTICKS__                                                             // Uncomment this line if you want to use Joysticks with this engine.
 #define __USE_NETWORKING__                                                              // Uncomment this line if you want to use Networking TCP/UDP Protocols with this engine.
 #define __USE_GAMINGAI__                                                                // Uncomment this line if you want to use Gaming AI with this engine.
+//#define __USE_SCRIPT_MANAGER__                                                          // Uncomment this line to use the interal Script Manager System.
 
 // -----------------------------------
 // Windows Specific Includes
@@ -27,7 +31,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 
         // CRITICAL: Define this before any Windows includes to prevent macro conflicts
         #ifndef NOMINMAX
-            #define NOMINMAX                                                                // Prevents Windows.h from defining min and max macros which allows then to std::min, std::max
+            #define NOMINMAX                                                            // Prevents Windows.h from defining min and max macros which allows then to std::min, std::max
         #endif
 
         #ifndef WIN32_LEAN_AND_MEAN

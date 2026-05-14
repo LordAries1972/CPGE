@@ -112,6 +112,9 @@
     <ClCompile Include="F:\Projects\C++\CPGE2026\SceneManager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="F:\Projects\C++\CPGE2026\ScriptManager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="F:\Projects\C++\CPGE2026\ScreenRecorder.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

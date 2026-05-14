@@ -166,6 +166,7 @@
     <ClCompile Include="PUNPack.cpp" />
     <ClCompile Include="RendererFactory.cpp" />
     <ClCompile Include="SceneManager.cpp" />
+    <ClCompile Include="ScriptManager.cpp" />
     <ClCompile Include="ScreenRecorder.cpp" />
     <ClCompile Include="ShaderLoaders.cpp" />
     <ClCompile Include="ShaderManager.cpp" />
@@ -210,6 +211,7 @@
     <ClInclude Include="Renderer.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="SceneManager.h" />
+    <ClInclude Include="ScriptManager.h" />
     <ClInclude Include="ScreenRecorder.h" />
     <ClInclude Include="ShaderManager.h" />
     <ClInclude Include="SoundManager.h" />

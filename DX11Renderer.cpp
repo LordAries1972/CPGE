@@ -92,7 +92,13 @@ void DX11Renderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
 	// Set the Renderer Name
     RendererName(RENDERER_NAME);
     
-    iOrigWidth = winMetrics.clientWidth;
+    // Seed render-target dimensions from the loaded configuration so that
+    // any internal resource creation that runs before CreateRenderTargetViews()
+    // has a valid configured resolution rather than a hardcoded fallback.
+    m_renderTargetWidth  = config.myConfig.resolutionWidth;
+    m_renderTargetHeight = config.myConfig.resolutionHeight;
+
+    iOrigWidth  = winMetrics.clientWidth;
     iOrigHeight = winMetrics.clientHeight;
 
     // Initilize Direct2D & Direct3D 11 Device and Swap Chain
@@ -1892,8 +1898,8 @@ void DX11Renderer::CreateDepthStencilBuffer() {
 
 void DX11Renderer::SetupViewport() {
     D3D11_VIEWPORT viewport = {};
-    viewport.Width = static_cast<float>(DEFAULT_WINDOW_WIDTH);
-    viewport.Height = static_cast<float>(DEFAULT_WINDOW_HEIGHT);
+    viewport.Width    = static_cast<float>(m_renderTargetWidth);
+    viewport.Height   = static_cast<float>(m_renderTargetHeight);
     viewport.MinDepth = 0.0f;
     viewport.MaxDepth = 1.0f;
     m_d3dContext->RSSetViewports(1, &viewport);
@@ -2291,8 +2297,22 @@ bool DX11Renderer::SetFullScreen(void)
         m_d3dContext->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
 
         // Update rendering dimensions
-        iOrigWidth = fullscreenWidth;                                           // Update width
-        iOrigHeight = fullscreenHeight;                                         // Update height
+        iOrigWidth           = fullscreenWidth;                                 // Update width
+        iOrigHeight          = fullscreenHeight;                                // Update height
+        m_renderTargetWidth  = fullscreenWidth;                                 // Keep render target in sync
+        m_renderTargetHeight = fullscreenHeight;
+
+        // Update window metrics so mouse clamp and GUI layout use the real display size
+        winMetrics.width        = fullscreenWidth;
+        winMetrics.height       = fullscreenHeight;
+        winMetrics.clientWidth  = fullscreenWidth;
+        winMetrics.clientHeight = fullscreenHeight;
+
+        // Update camera so 3D projection and screen-space calculations use real resolution
+        {
+            float newAR = LookupAspectRatio(static_cast<int>(fullscreenWidth), static_cast<int>(fullscreenHeight));
+            myCamera.UpdateResolution(fullscreenWidth, fullscreenHeight, newAR);
+        }
 
         // Recreate D2D resources
         CreateDirect2DResources();

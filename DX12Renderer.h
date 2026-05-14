@@ -261,8 +261,8 @@ private:
     std::string sName;                                                          // Renderer name
     std::chrono::steady_clock::time_point lastTime;                             // Last frame time
     int frameCount = 0;                                                         // Frame counter
-    int m_renderTargetWidth = DEFAULT_WINDOW_WIDTH;                             // Render target width
-    int m_renderTargetHeight = DEFAULT_WINDOW_HEIGHT;                           // Render target height
+    int m_renderTargetWidth  = 0;                                               // Seeded from config.resolutionWidth in Initialize(); updated from swap chain back buffer thereafter
+    int m_renderTargetHeight = 0;
     int delay = 0;                                                              // Delay counter
     int loadIndex = 0;                                                          // Load index
     int iPosX = 0;                                                              // Position X

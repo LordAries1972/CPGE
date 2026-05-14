@@ -1,0 +1,35 @@
+================================================================================
+DXRenderFrame.cpp — History File
+Date:    2026-05-11
+Version: 1.0 (ScriptManager per-frame Update integration)
+Author:  LordAries1972
+================================================================================
+
+Changes Made (2026-05-11):
+--------------------------
+Integrated ScriptManager per-frame Update() call and extern declaration into
+DXRenderFrame.cpp with full #ifdef __USE_SCRIPT_MANAGER__ guards.
+
+1. After extern bFullScreenTransition declaration (before #pragma warning(push)):
+   - Added:
+       #ifdef __USE_SCRIPT_MANAGER__
+       #include "ScriptManager.h"
+       extern ScriptManager scriptManager;
+       #endif
+   - Including ScriptManager.h here is safe; all its dependencies are already
+     pulled in via Includes.h and the other includes above. #pragma once prevents
+     duplicate processing.
+
+2. After deltaTime = std::clamp(...) (before lastFrameTime = now):
+   - Added:
+       #ifdef __USE_SCRIPT_MANAGER__
+           scriptManager.Update(deltaTime);
+       #endif
+   - This evaluates all DETECT_COLLISION rules registered by the active script
+     on every rendered frame, using the same clamped delta time as all other
+     per-frame systems.
+
+Usage:
+  To enable ScriptManager:   uncomment  #define __USE_SCRIPT_MANAGER__  in Includes.h
+  To disable ScriptManager:  re-comment #define __USE_SCRIPT_MANAGER__  in Includes.h
+================================================================================

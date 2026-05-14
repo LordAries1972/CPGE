@@ -162,7 +162,7 @@ struct TextScrollData {
     TextScrollData() :
         text(L""), fontName(L"Arial"), fontSize(16.0f), textColor(1.0f, 1.0f, 1.0f, 1.0f),
         scrollSpeed(1.0f), currentXPosition(0.0f), currentYPosition(0.0f),
-        centerHoldTime(2.0f), centerHoldTimer(0.0f), regionWidth(800.0f), regionHeight(600.0f),
+        centerHoldTime(2.0f), centerHoldTimer(0.0f), regionWidth(fDEFAULT_WINDOW_WIDTH), regionHeight(fDEFAULT_WINDOW_HEIGHT),
         regionX(0.0f), regionY(0.0f), currentLineIndex(0), lineSpacing(20.0f),
         characterSpacing(1.0f), wordSpacing(8.0f), isInCenterPhase(false), hasReachedCenter(false),
         widthCached(false), cachedTextWidth(0.0f), cachedTotalTextWidth(0.0f) {

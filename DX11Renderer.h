@@ -318,8 +318,8 @@ private:
     std::string sName;
     std::chrono::steady_clock::time_point lastTime;
     int frameCount = 0;
-    int m_renderTargetWidth = DEFAULT_WINDOW_WIDTH;
-    int m_renderTargetHeight = DEFAULT_WINDOW_HEIGHT;
+    int m_renderTargetWidth  = 0;   // Seeded from config.resolutionWidth in Initialize(); updated from swap chain back buffer thereafter
+    int m_renderTargetHeight = 0;
     int m_renderTargetSampleCount = 0;
     int m_renderTargetSampleQuality = 0;
     int delay = 0;

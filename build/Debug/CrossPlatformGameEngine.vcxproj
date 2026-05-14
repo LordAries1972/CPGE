@@ -632,6 +632,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="F:\Projects\C++\CPGE2026\PUNPack.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\RendererFactory.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\SceneManager.cpp" />
+    <ClCompile Include="F:\Projects\C++\CPGE2026\ScriptManager.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\ScreenRecorder.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\ShaderLoaders.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\ShaderManager.cpp" />

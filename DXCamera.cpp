@@ -45,14 +45,12 @@ Camera::Camera() {
     m_jumpAnimationTimer = 0.0f;
     m_totalJumpTime = 0.0f;
     
-    // In Camera constructor initialization list, add:
-    m_screenWidth = fDEFAULT_WINDOW_WIDTH;                                  // Default screen width
-    m_screenHeight = fDEFAULT_WINDOW_HEIGHT;                                // Default screen height  
-    m_aspectRatio = fDEFAULT_WINDOW_WIDTH / fDEFAULT_WINDOW_HEIGHT;         // Default aspect ratio (4:3)
-//    m_fieldOfView = XMConvertToRadians(45.0f);                              // Default Config Settings for FOV
-    m_fieldOfView = XMConvertToRadians(config.myConfig.fov);                // Default Config Settings for FOV
-    m_nearPlane = config.myConfig.nearPlane;                                // Default near plane
-    m_farPlane = config.myConfig.farPlane;                                  // Default far plane
+    m_screenWidth  = static_cast<float>(config.myConfig.resolutionWidth);
+    m_screenHeight = static_cast<float>(config.myConfig.resolutionHeight);
+    m_aspectRatio  = LookupAspectRatio(config.myConfig.resolutionWidth, config.myConfig.resolutionHeight);
+    m_fieldOfView  = XMConvertToRadians(config.myConfig.fov);
+    m_nearPlane    = config.myConfig.nearPlane;
+    m_farPlane     = config.myConfig.farPlane;
 
     // Initialize continuous rotation variables
     m_isRotatingAroundTarget = false;                                       // Initialize rotation flag
@@ -76,7 +74,7 @@ Camera::Camera() {
     // Reserve memory for jump history to avoid reallocations
     m_jumpHistory.reserve(MAX_JUMP_HISTORY);
     
-    SetupDefaultCamera(fDEFAULT_WINDOW_WIDTH, fDEFAULT_WINDOW_HEIGHT);      // Default window size
+    SetupDefaultCamera(m_screenWidth, m_screenHeight);
     UpdateViewMatrix();
 
     #if defined(_DEBUG_CAMERA_)

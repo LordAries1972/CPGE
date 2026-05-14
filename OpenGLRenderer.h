@@ -278,8 +278,8 @@ private:
     std::string sName;                                                          // Renderer instance name
     std::chrono::steady_clock::time_point lastTime;                             // Last frame timestamp for timing
     int frameCount = 0;                                                         // Frame counter for performance metrics
-    int m_renderTargetWidth = DEFAULT_WINDOW_WIDTH;                             // Current render target width
-    int m_renderTargetHeight = DEFAULT_WINDOW_HEIGHT;                           // Current render target height
+    int m_renderTargetWidth  = 0;                                               // Seeded from config.resolutionWidth in Initialize(); updated from surface size thereafter
+    int m_renderTargetHeight = 0;                                               // Current render target height
     int delay = 0;                                                              // Loading animation delay counter
     int loadIndex = 0;                                                          // Loading animation frame index
     int iPosX = 0;                                                              // Temporary position X coordinate

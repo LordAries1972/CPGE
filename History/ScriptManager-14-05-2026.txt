@@ -1,0 +1,169 @@
+================================================================================
+ScriptManager — History File
+Date:    2026-05-14
+Version: 1.1 (Variables and FOR loops)
+Author:  LordAries1972
+================================================================================
+
+Changes Made (2026-05-14):
+--------------------------
+Added VAR variable declarations and FOR … BEGIN … END counted loops to the
+ScriptManager scripting system.  Version bumped from 1.0 to 1.1.
+
+Also added ScriptManager.cpp/.h to CMakeLists.txt and CrossPlatformGameEngine.vcxproj
+(they were tracked by git but missing from the build system).
+
+--------------------------------------------------------------------------------
+ScriptManager.h changes:
+--------------------------------------------------------------------------------
+
+1. Version updated: 1.0 → 1.1
+
+2. New ScriptCmdType enum values added (before COMMENT/UNKNOWN):
+     VAR_DECL, FOR_LOOP, BEGIN_BLOCK, END_BLOCK
+
+3. ScriptCommand struct: added int blockPeer = -1;
+     Stores the cross-linked command index between FOR_LOOP and END_BLOCK.
+     Set by BuildLoopMap() after parsing.  -1 means unlinked.
+
+4. New struct ScriptVar (after CollisionRule struct):
+     Holds a typed runtime variable (int / bool / float / std::wstring).
+     enum class Type { INT, BOOL, FLOAT, STRING }.
+
+5. Private section additions:
+     - std::unordered_map<std::string, ScriptVar> m_variables
+       (populated by VAR_DECL commands at runtime)
+     - struct LoopFrame (nested private):
+         varName, endVal, step, isForward, bodyStartIdx, endIdx
+     - std::vector<LoopFrame> m_loopStack
+     - void BuildLoopMap() declaration
+     - void GetVarAsFloat / SetVarFromFloat helper declarations
+     - New Cmd_ handler declarations:
+         Cmd_VarDecl, Cmd_ForLoop, Cmd_BeginBlock, Cmd_EndBlock
+
+6. DispatchCommand signature: added int cmdIdx = -1 default parameter.
+
+--------------------------------------------------------------------------------
+ScriptManager.cpp changes:
+--------------------------------------------------------------------------------
+
+1. Version updated: 1.0 → 1.1
+
+2. Cleanup(): added m_variables.clear() and m_loopStack.clear()
+
+3. LoadScriptFromFile(): added BuildLoopMap() call after BuildLabelMap()
+
+4. ParseFile(): added bool seenBodyCmd tracking.
+     If a VAR_DECL appears after any non-VAR body command, SetError is called.
+
+5. ParseLine(): added cases for VAR, FOR, BEGIN, END before the WAIT block.
+   - VAR <type> <name> = <value>[;]
+       Strips trailing semicolon from value token.  Stores args as
+       [type, name, "=", value].
+   - FOR <var> = <start> TO <end> [STEP <n>] [DO]
+       Stores args as [varName, startStr, endStr, stepStr].
+       If STEP is absent, stepStr defaults to "1".
+       Requires at least 6 tokens; emits error otherwise.
+   - BEGIN  →  BEGIN_BLOCK (no args, no-op at runtime)
+   - END    →  END_BLOCK   (no args; runtime increments var and checks)
+
+6. RunCommands(): added m_loopStack.clear() at entry; passes current index i
+   to DispatchCommand(cmds[i], i).
+
+7. DispatchCommand(cmd, cmdIdx): added four new cases at the top of the switch:
+     VAR_DECL → Cmd_VarDecl
+     FOR_LOOP  → Cmd_ForLoop
+     BEGIN_BLOCK → Cmd_BeginBlock
+     END_BLOCK   → Cmd_EndBlock
+
+8. New function Cmd_VarDecl(args, line):
+     Parses [type, name, "=", value].  Skips "=" token if present.
+     Strips stray trailing semicolons.  Creates a ScriptVar of the correct
+     type and inserts it into m_variables[upperName].
+
+9. New function Cmd_ForLoop(cmd, cmdIdx):
+     Reads args [varName, start, end, step].  Determines direction from
+     start < end (forward) or start > end (reverse).
+     Auto-creates the variable as int if not declared with VAR.
+     Sets the variable to startVal.
+     Pre-check: if startVal already satisfies the exit condition, sets
+     m_jumpTarget = blockPeer + 1 to skip the loop entirely.
+     Otherwise: finds bodyStartIdx by skipping BEGIN_BLOCK if present at
+     cmdIdx+1, then pushes a LoopFrame onto m_loopStack.
+
+10. New function Cmd_BeginBlock(): no-op structural marker.
+
+11. New function Cmd_EndBlock(cmd):
+      Gets the top LoopFrame.  Applies step (add for forward, subtract for
+      reverse).  Checks continue condition:
+        forward:  newVal < endVal → jump to bodyStartIdx
+        reverse:  newVal > endVal → jump to bodyStartIdx
+      Otherwise pops the frame and continues sequentially.
+
+12. New function GetVarAsFloat(nameUpper):
+      Returns the variable's current value as float regardless of declared type.
+
+13. New function SetVarFromFloat(nameUpper, val):
+      Updates the variable's stored field from a float, respecting its type.
+      Auto-creates as int if the variable doesn't exist yet.
+
+14. New function BuildLoopMap():
+      Single-pass scan of m_commands using a stack.
+      FOR_LOOP → pushed.
+      END_BLOCK → pops the most recent FOR_LOOP; sets blockPeer on both.
+      Unmatched END or unmatched FOR → SetError.
+
+--------------------------------------------------------------------------------
+Script syntax (v1.1):
+--------------------------------------------------------------------------------
+
+Variable declaration (strictly before any executable commands):
+
+  VAR int    X      = 0;
+  VAR bool   Status = False;
+  VAR float  Result = 1.5;
+  VAR string Name   = "hello";
+
+FOR loops:
+
+  # Forward, step 1 (body runs for Y = 0..9; Y = 10 after exit)
+  FOR Y = 0 TO 10 DO
+  BEGIN
+    Execute SomeFunction()
+  END
+
+  # Forward, step 2
+  FOR Y = 0 TO 10 STEP 2 DO
+  BEGIN
+    Execute SomeFunction()
+  END
+
+  # Reverse, step 1 (body runs for Y = 10..1; Y = 0 after exit)
+  FOR Y = 10 TO 0 DO
+  BEGIN
+    Execute SomeFunction()
+  END
+
+  # Reverse, step 2
+  FOR Y = 10 TO 0 STEP 2 DO
+  BEGIN
+    Execute SomeFunction()
+  END
+
+Loop termination:
+  - Forward: exits when counter >= endVal (checked after each increment)
+  - Reverse: exits when counter <= endVal (checked after each decrement)
+  - Loops where start already satisfies the exit condition are skipped (0 iters)
+  - Nested loops are fully supported via the m_loopStack stack structure
+  - kMaxExecutionSteps still guards against infinite loops
+
+--------------------------------------------------------------------------------
+Build system (CMakeLists.txt / vcxproj):
+--------------------------------------------------------------------------------
+
+ScriptManager.cpp added as ClCompile in CrossPlatformGameEngine.vcxproj.
+ScriptManager.h   added as ClInclude in CrossPlatformGameEngine.vcxproj.
+ScriptManager.cpp added to CMakeLists.txt source list (after SceneManager.cpp).
+
+Build confirmed clean (v0.0.1149 Debug, 2026-05-14).
+================================================================================

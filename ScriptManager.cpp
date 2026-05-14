@@ -1,10 +1,13 @@
 // =============================================================================
 // ScriptManager.cpp - Scene Script Management System
-// Written:  2026-05-10
-// Version:  1.0
-// Author:   LordAries1972
+// Written:  10-05-2026
+// Version:  1.1
+// Author:   Daniel J. Hobson of Australia (Ultimanium.com)
 // =============================================================================
 #include "ScriptManager.h"
+
+#ifdef __USE_SCRIPT_MANAGER__
+
 #include "Debug.h"
 
 #include <fstream>
@@ -74,6 +77,8 @@ void ScriptManager::Cleanup()
     m_commands.clear();
     m_collisionRules.clear();
     m_execRegistry.clear();
+    m_variables.clear();
+    m_loopStack.clear();
     m_loaded   = false;
     m_hasError = false;
 }
@@ -113,6 +118,7 @@ bool ScriptManager::LoadScriptFromFile(const std::string& filePath)
     }
 
     BuildLabelMap();
+    BuildLoopMap();
     m_loaded = true;
     debug.Log("[ScriptManager] Loaded: " + filePath +
               "  (v" + m_header.scriptVersion +
@@ -132,8 +138,9 @@ bool ScriptManager::ParseFile(const std::string& path)
     }
 
     std::string line;
-    int lineNum = 0;
-    bool headerDone = false;
+    int lineNum      = 0;
+    bool headerDone  = false;
+    bool seenBodyCmd = false;
 
     while (std::getline(file, line)) {
         ++lineNum;
@@ -171,6 +178,10 @@ bool ScriptManager::ParseFile(const std::string& path)
         if (cmd.type != ScriptCmdType::UNKNOWN &&
             cmd.type != ScriptCmdType::COMMENT)
         {
+            if (cmd.type == ScriptCmdType::VAR_DECL && seenBodyCmd)
+                SetError(lineNum, "VAR declarations must precede all executable commands");
+            if (cmd.type != ScriptCmdType::VAR_DECL)
+                seenBodyCmd = true;
             m_commands.push_back(std::move(cmd));
         }
     }
@@ -225,6 +236,42 @@ ScriptCommand ScriptManager::ParseLine(const std::string& line, int lineNum)
         cmd.args.assign(tokens.begin() + 1, tokens.end());
         if (!cmd.args.empty())
             cmd.args[0] = ToUpper(cmd.args[0]);
+        return cmd;
+    }
+    else if (kw == "VAR") {
+        cmd.type = ScriptCmdType::VAR_DECL;
+        std::vector<std::string> vargs(tokens.begin() + 1, tokens.end());
+        // Strip trailing semicolon from the last token (value token)
+        if (!vargs.empty() && !vargs.back().empty() && vargs.back().back() == ';')
+            vargs.back().pop_back();
+        cmd.args = std::move(vargs);
+        return cmd;
+    }
+    else if (kw == "FOR") {
+        // FOR <var> = <start> TO <end> [STEP <n>] [DO]
+        if (tokens.size() < 6) {
+            SetError(lineNum, "FOR: syntax — FOR <var> = <start> TO <end> [STEP <n>] DO");
+            cmd.type = ScriptCmdType::UNKNOWN;
+            return cmd;
+        }
+        const std::string varName  = tokens[1];
+        // tokens[2] == "="
+        const std::string startStr = tokens[3];
+        // tokens[4] == "TO"
+        const std::string endStr   = tokens[5];
+        std::string stepStr = "1";
+        if (tokens.size() > 7 && ToUpper(tokens[6]) == "STEP")
+            stepStr = tokens[7];
+        cmd.type = ScriptCmdType::FOR_LOOP;
+        cmd.args = { varName, startStr, endStr, stepStr };
+        return cmd;
+    }
+    else if (kw == "BEGIN") {
+        cmd.type = ScriptCmdType::BEGIN_BLOCK;
+        return cmd;
+    }
+    else if (kw == "END") {
+        cmd.type = ScriptCmdType::END_BLOCK;
         return cmd;
     }
     else if (kw == "WAIT" || kw.rfind("WAIT(", 0) == 0) {
@@ -315,29 +362,42 @@ void ScriptManager::RunCommands(const std::vector<ScriptCommand>& cmds)
     const int count = static_cast<int>(cmds.size());
     int stepCount   = 0;
     int i           = 0;
+    m_loopStack.clear();
 
     while (i < count) {
         if (m_stopRequested.load()) break;
 
         if (++stepCount > kMaxExecutionSteps) {
-            SetError(0, "Script exceeded maximum execution steps — possible infinite loop via GOTO.");
+            SetError(0, "Script exceeded maximum execution steps — possible infinite loop.");
             break;
         }
 
         m_jumpTarget = -1;
-        DispatchCommand(cmds[i]);
+        DispatchCommand(cmds[i], i);
 
         if (m_jumpTarget >= 0 && m_jumpTarget < count) {
-            i = m_jumpTarget;   // GOTO redirected execution
+            i = m_jumpTarget;
         } else {
             ++i;
         }
     }
 }
 
-void ScriptManager::DispatchCommand(const ScriptCommand& cmd)
+void ScriptManager::DispatchCommand(const ScriptCommand& cmd, int cmdIdx)
 {
     switch (cmd.type) {
+        case ScriptCmdType::VAR_DECL:
+            Cmd_VarDecl(cmd.args, cmd.lineNumber);
+            break;
+        case ScriptCmdType::FOR_LOOP:
+            Cmd_ForLoop(cmd, cmdIdx);
+            break;
+        case ScriptCmdType::BEGIN_BLOCK:
+            Cmd_BeginBlock();
+            break;
+        case ScriptCmdType::END_BLOCK:
+            Cmd_EndBlock(cmd);
+            break;
         case ScriptCmdType::EXECUTE:
             Cmd_Execute(cmd.args, cmd.lineNumber);
             break;
@@ -741,6 +801,213 @@ void ScriptManager::Cmd_DetectCollision(const std::vector<std::string>& args, in
     debug.Log("[ScriptManager] DETECT_COLLISION registered: " +
               args[0] + "[" + args[1] + "] vs " +
               args[2] + "[" + args[3] + "]");
+}
+
+// =============================================================================
+// Command: VAR <type> <Name> = <value>[;]
+// Declares and initialises a typed global variable.
+// =============================================================================
+void ScriptManager::Cmd_VarDecl(const std::vector<std::string>& args, int line)
+{
+    // args: [type, name, "=", value]  — the "=" may be its own token or absent
+    if (args.size() < 2) {
+        SetError(line, "VAR: syntax — VAR <type> <name> = <value>");
+        return;
+    }
+
+    const std::string typeName = ToUpper(args[0]);
+    const std::string varName  = ToUpper(args[1]);
+
+    // Locate value token: skip optional "=" token
+    size_t valIdx = 2;
+    if (args.size() > valIdx && args[valIdx] == "=") ++valIdx;
+    std::string valueStr = (args.size() > valIdx) ? args[valIdx] : "";
+
+    // Strip any stray trailing semicolon
+    if (!valueStr.empty() && valueStr.back() == ';') valueStr.pop_back();
+
+    ScriptVar var;
+    if (typeName == "INT") {
+        var.varType = ScriptVar::Type::INT;
+        var.intVal  = SafeStoi(valueStr);
+    }
+    else if (typeName == "BOOL") {
+        var.varType = ScriptVar::Type::BOOL;
+        var.boolVal = SafeStob(valueStr);
+    }
+    else if (typeName == "FLOAT") {
+        var.varType  = ScriptVar::Type::FLOAT;
+        var.floatVal = SafeStof(valueStr);
+    }
+    else if (typeName == "STRING") {
+        var.varType = ScriptVar::Type::STRING;
+        var.strVal  = std::wstring(valueStr.begin(), valueStr.end());
+    }
+    else {
+        SetError(line, "VAR: unknown type '" + args[0] + "' — use int, bool, float, or string");
+        return;
+    }
+
+    m_variables[varName] = var;
+    debug.Log("[ScriptManager] VAR " + args[0] + " " + varName + " = " + valueStr);
+}
+
+// =============================================================================
+// Command: FOR <var> = <start> TO <end> [STEP <n>] DO
+// Sets the loop variable, checks the initial condition, and pushes a loop frame.
+// =============================================================================
+void ScriptManager::Cmd_ForLoop(const ScriptCommand& cmd, int cmdIdx)
+{
+    if (cmd.args.size() < 4) {
+        SetError(cmd.lineNumber, "FOR: internal parse error");
+        return;
+    }
+    if (cmd.blockPeer < 0) {
+        SetError(cmd.lineNumber, "FOR: no matching END");
+        return;
+    }
+
+    const std::string varName = ToUpper(cmd.args[0]);
+    const float startVal = SafeStof(cmd.args[1]);
+    const float endVal   = SafeStof(cmd.args[2]);
+    const float stepVal  = SafeStof(cmd.args[3], 1.0f);
+    const bool isForward = (startVal < endVal);
+
+    // Ensure variable exists; auto-create as int if not declared
+    if (m_variables.find(varName) == m_variables.end()) {
+        ScriptVar v;
+        v.varType = ScriptVar::Type::INT;
+        v.intVal  = 0;
+        m_variables[varName] = v;
+    }
+
+    SetVarFromFloat(varName, startVal);
+
+    // Skip entire loop if start already satisfies the exit condition
+    const bool shouldSkip = isForward ? (startVal >= endVal) : (startVal <= endVal);
+    if (shouldSkip) {
+        m_jumpTarget = cmd.blockPeer + 1;
+        debug.Log("[ScriptManager] FOR " + cmd.args[0] + " skipped (start already at/past end)");
+        return;
+    }
+
+    // Find body start: skip BEGIN_BLOCK if it immediately follows the FOR command
+    int bodyStart = cmdIdx + 1;
+    if (bodyStart < static_cast<int>(m_commands.size()) &&
+        m_commands[bodyStart].type == ScriptCmdType::BEGIN_BLOCK)
+        ++bodyStart;
+
+    LoopFrame frame;
+    frame.varName      = varName;
+    frame.endVal       = endVal;
+    frame.step         = stepVal;
+    frame.isForward    = isForward;
+    frame.bodyStartIdx = bodyStart;
+    frame.endIdx       = cmd.blockPeer;
+    m_loopStack.push_back(frame);
+
+    debug.Log("[ScriptManager] FOR " + cmd.args[0] +
+              " = " + cmd.args[1] + " TO " + cmd.args[2] +
+              " STEP " + cmd.args[3] + (isForward ? " [fwd]" : " [rev]"));
+}
+
+// =============================================================================
+// Command: BEGIN
+// Structural marker — no runtime action.
+// =============================================================================
+void ScriptManager::Cmd_BeginBlock()
+{
+    // No-op
+}
+
+// =============================================================================
+// Command: END
+// Updates the loop counter and either jumps back to the body or exits.
+// =============================================================================
+void ScriptManager::Cmd_EndBlock(const ScriptCommand& cmd)
+{
+    if (m_loopStack.empty()) {
+        SetError(cmd.lineNumber, "END without an active FOR loop");
+        return;
+    }
+
+    LoopFrame& frame = m_loopStack.back();
+
+    const float newVal = GetVarAsFloat(frame.varName) +
+                         (frame.isForward ? frame.step : -frame.step);
+    SetVarFromFloat(frame.varName, newVal);
+
+    const bool continueLoop = frame.isForward ? (newVal < frame.endVal)
+                                               : (newVal > frame.endVal);
+    if (continueLoop) {
+        m_jumpTarget = frame.bodyStartIdx;
+    } else {
+        m_loopStack.pop_back();
+        debug.Log("[ScriptManager] FOR loop completed");
+    }
+}
+
+// =============================================================================
+// Variable helpers
+// =============================================================================
+float ScriptManager::GetVarAsFloat(const std::string& nameUpper) const
+{
+    auto it = m_variables.find(nameUpper);
+    if (it == m_variables.end()) return 0.0f;
+    switch (it->second.varType) {
+        case ScriptVar::Type::INT:    return static_cast<float>(it->second.intVal);
+        case ScriptVar::Type::BOOL:   return it->second.boolVal ? 1.0f : 0.0f;
+        case ScriptVar::Type::FLOAT:  return it->second.floatVal;
+        case ScriptVar::Type::STRING: return 0.0f;
+    }
+    return 0.0f;
+}
+
+void ScriptManager::SetVarFromFloat(const std::string& nameUpper, float val)
+{
+    auto it = m_variables.find(nameUpper);
+    if (it == m_variables.end()) {
+        ScriptVar v;
+        v.varType = ScriptVar::Type::INT;
+        v.intVal  = static_cast<int>(val);
+        m_variables[nameUpper] = v;
+        return;
+    }
+    switch (it->second.varType) {
+        case ScriptVar::Type::INT:    it->second.intVal   = static_cast<int>(val); break;
+        case ScriptVar::Type::BOOL:   it->second.boolVal  = (val != 0.0f);         break;
+        case ScriptVar::Type::FLOAT:  it->second.floatVal = val;                   break;
+        case ScriptVar::Type::STRING: break;
+    }
+}
+
+// =============================================================================
+// Loop map — built once after parsing; cross-links FOR_LOOP and END_BLOCK
+// commands via their blockPeer field so jumps can be resolved in O(1).
+// =============================================================================
+void ScriptManager::BuildLoopMap()
+{
+    std::vector<int> stack;
+    const int count = static_cast<int>(m_commands.size());
+
+    for (int i = 0; i < count; ++i) {
+        if (m_commands[i].type == ScriptCmdType::FOR_LOOP) {
+            stack.push_back(i);
+        }
+        else if (m_commands[i].type == ScriptCmdType::END_BLOCK) {
+            if (stack.empty()) {
+                SetError(m_commands[i].lineNumber, "END without a matching FOR loop");
+                continue;
+            }
+            const int forIdx = stack.back();
+            stack.pop_back();
+            m_commands[forIdx].blockPeer = i;
+            m_commands[i].blockPeer      = forIdx;
+        }
+    }
+
+    for (int idx : stack)
+        SetError(m_commands[idx].lineNumber, "FOR loop has no matching END");
 }
 
 // =============================================================================
@@ -1166,3 +1433,5 @@ void ScriptManager::SetError(int line, const std::string& msg)
         [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
     return out;
 }
+
+#endif // __USE_SCRIPT_MANAGER__

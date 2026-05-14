@@ -1,0 +1,32 @@
+================================================================================
+ScriptManager — History File
+Date:    2026-05-11
+Version: 1.0 (conditional compilation guard)
+Author:  LordAries1972
+================================================================================
+
+Changes Made (2026-05-11):
+--------------------------
+Added #ifdef __USE_SCRIPT_MANAGER__ conditional compilation guards to both
+ScriptManager.h and ScriptManager.cpp so the entire ScriptManager system can
+be included or excluded from builds via a single define in Includes.h.
+
+ScriptManager.h:
+  - #pragma once kept outside the guard (always processed by compiler)
+  - #ifdef __USE_SCRIPT_MANAGER__ added immediately after #pragma once
+  - #endif // __USE_SCRIPT_MANAGER__ added at end of file (after extern declaration)
+
+ScriptManager.cpp:
+  - #include "ScriptManager.h" kept outside the guard (safe — header is itself guarded)
+  - #ifdef __USE_SCRIPT_MANAGER__ added after the ScriptManager.h include
+  - All other includes, the extern, and the full implementation are inside the guard
+  - #endif // __USE_SCRIPT_MANAGER__ added at end of file
+
+Includes.h (unchanged):
+  - Line 20 already has: //#define __USE_SCRIPT_MANAGER__
+  - Uncomment this line to enable the ScriptManager system in a build.
+
+Usage:
+  To enable:   uncomment  #define __USE_SCRIPT_MANAGER__  in Includes.h
+  To disable:  re-comment #define __USE_SCRIPT_MANAGER__  in Includes.h
+================================================================================

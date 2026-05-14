@@ -55,6 +55,11 @@ extern bool bResizing;
 extern std::atomic<bool> bResizeInProgress;                    // Prevents multiple resize operations
 extern std::atomic<bool> bFullScreenTransition;                // Prevents handling during fullscreen transitions
 
+#ifdef __USE_SCRIPT_MANAGER__
+#include "ScriptManager.h"
+extern ScriptManager scriptManager;
+#endif
+
 #pragma warning(push)
 #pragma warning(disable: 4101)
 
@@ -287,6 +292,10 @@ void DX11Renderer::RenderFrame()
 
             // SAFETY: Clamp delta time to prevent massive jumps during debugging or frame drops
             deltaTime = std::clamp(deltaTime, 0.001f, 0.1f);                              // Min 0.001s (1000 FPS), Max 0.1s (10 FPS)
+
+            #ifdef __USE_SCRIPT_MANAGER__
+                scriptManager.Update(deltaTime);
+            #endif
 
             // Update frame time for next frame
             lastFrameTime = now;

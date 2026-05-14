@@ -1,0 +1,85 @@
+================================================================================
+DX11Renderer.h / DX11Renderer.cpp — History File
+Date:    2026-05-11
+================================================================================
+
+BUG FIX 1 — Full-screen quarter-screen rendering issue
+
+ROOT CAUSE
+----------
+SetupViewport() was hardcoded to DEFAULT_WINDOW_WIDTH (800) and
+DEFAULT_WINDOW_HEIGHT (600):
+
+    viewport.Width  = static_cast<float>(DEFAULT_WINDOW_WIDTH);
+    viewport.Height = static_cast<float>(DEFAULT_WINDOW_HEIGHT);
+
+On a 1600×1200 monitor, 800×600 is exactly 1/4 of the screen area
+(half width × half height), producing the reported "quarter screen" symptom.
+
+FIXES APPLIED
+-------------
+DX11Renderer.cpp — SetupViewport()
+  - Replaced DEFAULT_WINDOW_WIDTH / DEFAULT_WINDOW_HEIGHT with
+    m_renderTargetWidth / m_renderTargetHeight.
+  - CreateRenderTargetViews() (called before SetupViewport() in Initialize())
+    sets these members from the actual swap chain back buffer dimensions,
+    so the viewport always matches reality.
+
+DX11Renderer.cpp — Initialize()
+  - Added at the top (before CreateDeviceAndSwapChain):
+      m_renderTargetWidth  = config.myConfig.resolutionWidth;
+      m_renderTargetHeight = config.myConfig.resolutionHeight;
+  - This seeds the members from the loaded configuration (e.g. 1920×1080)
+    so any internal code that runs before CreateRenderTargetViews() already
+    has a valid configured resolution rather than 0 or a hardcoded fallback.
+
+DX11Renderer.h — m_renderTargetWidth / m_renderTargetHeight
+  - Changed in-class member initializers from DEFAULT_WINDOW_WIDTH /
+    DEFAULT_WINDOW_HEIGHT to 0.
+  - 0 is the correct sentinel: the real value is always set by
+    Initialize() → config, then overwritten by CreateRenderTargetViews()
+    from the actual swap chain back buffer.
+
+NOTE: DXRenderFrame.cpp already correctly used winMetrics.monitorFullArea
+for the per-frame viewport in fullscreen mode — no change required there.
+The swap chain creation already used Width=0/Height=0 (DXGI auto-size from
+HWND) — no change required there either.
+
+================================================================================
+
+BUG FIX 2 — Mouse cursor confined to 800×600 in fullscreen exclusive mode
+
+ROOT CAUSE
+----------
+SetFullExclusive() updated iOrigWidth/iOrigHeight to the real monitor resolution
+(e.g. 1920×1080) but did NOT update:
+  - winMetrics.width / winMetrics.height  ← used by WM_MOUSEMOVE cursor clamp
+  - m_renderTargetWidth / m_renderTargetHeight
+  - myCamera.m_screenWidth / m_screenHeight
+
+winMetrics.width/height therefore stayed at the initial HWND size (800×600),
+so the WM_MOUSEMOVE clamp:
+    if (cursorPos.x >= winMetrics.width)
+        myMouseCoords.x = winMetrics.width - 1;
+capped the cursor at x=799, y=599, confining it to the top-left 800×600 area
+of the 1920×1080 display.
+
+FIXES APPLIED
+-------------
+DX11Renderer.cpp — SetFullExclusive() (after iOrigWidth/iOrigHeight update):
+  - Added:
+      m_renderTargetWidth  = fullscreenWidth;
+      m_renderTargetHeight = fullscreenHeight;
+  - Added winMetrics sync:
+      winMetrics.width        = fullscreenWidth;
+      winMetrics.height       = fullscreenHeight;
+      winMetrics.clientWidth  = fullscreenWidth;
+      winMetrics.clientHeight = fullscreenHeight;
+  - Added camera update:
+      float newAR = LookupAspectRatio(fullscreenWidth, fullscreenHeight);
+      myCamera.UpdateResolution(fullscreenWidth, fullscreenHeight, newAR);
+
+  All three together ensure that after SetFullExclusive() completes, every
+  subsystem that tracks screen dimensions reflects the real display resolution.
+
+================================================================================

@@ -56,10 +56,13 @@ struct MyConfig {
     bool UseTTS = true;
     long double TTSVolume = 1.0f;
 
-    // Display / window settings
-    int displayMode      = 2;     // 0=Windowed  1=Borderless  2=Full Screen
-    int resolutionWidth  = 1920;
-    int resolutionHeight = 1080;
+    // Display / window settings.
+    // Defaults match DEFAULT_WINDOW_WIDTH / DEFAULT_WINDOW_HEIGHT (800×600, windowed).
+    // loadConfig() overwrites these with the saved values on success.
+    // If GameConfig.cfg is absent or corrupt, 800×600 windowed is the safe fallback.
+    int displayMode      = 0;   // 0=Windowed  1=Borderless  2=Full Screen
+    int resolutionWidth  = 800;
+    int resolutionHeight = 600;
     int refreshRate      = 60;
 };
 

@@ -1,0 +1,15 @@
+================================================================================
+DX12Renderer.h — History File
+Date:    2026-05-11
+================================================================================
+
+CHANGE — Remove hardcoded DEFAULT_WINDOW_WIDTH / DEFAULT_WINDOW_HEIGHT
+
+  m_renderTargetWidth  = DEFAULT_WINDOW_WIDTH  → 0
+  m_renderTargetHeight = DEFAULT_WINDOW_HEIGHT → 0
+
+These members are set from the actual swap chain / back buffer dimensions
+during Initialize(); the hardcoded constants were never correct values for
+fullscreen or any non-800×600 configuration.
+
+================================================================================

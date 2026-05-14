@@ -423,8 +423,8 @@ private:
     // State
     // ------------------------------------------
     std::string     m_rendererName;
-    int             m_renderTargetWidth  = DEFAULT_WINDOW_WIDTH;
-    int             m_renderTargetHeight = DEFAULT_WINDOW_HEIGHT;
+    int             m_renderTargetWidth  = 0;   // Seeded from config.resolutionWidth in Initialize(); updated from swapchain extent thereafter
+    int             m_renderTargetHeight = 0;
     float           m_fps = 0.0f;
     int             m_frameCount = 0;
     int             m_loadIndex  = 0;

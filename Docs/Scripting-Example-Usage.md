@@ -1,6 +1,7 @@
 # ScriptManager — CPGE Game Script (.cgs) Reference
-**Engine version:** v1.0  
+**Engine version:** v1.1  
 **Document written:** 2026-05-10  
+**Last updated:** 2026-05-14  
 **Author:** LordAries1972
 
 ---
@@ -10,6 +11,8 @@
 2. [Script File Format](#script-file-format)
 3. [Versioned Header](#versioned-header)
 4. [Command Reference](#command-reference)
+   - [VAR — Variable Declaration](#var--variable-declaration)
+   - [FOR / BEGIN / END — Counted Loop](#for--begin--end--counted-loop)
    - [Execute](#execute)
    - [QUIT](#quit)
    - [ALERT](#alert)
@@ -24,10 +27,7 @@
    - [WAIT](#wait)
    - [LABEL](#label)
    - [GOTO](#goto)
-5. [WAIT](#wait)
-6. [LABEL](#label)
-7. [GOTO](#goto)
-8. [Execute Function Index](#execute-function-index)
+5. [Execute Function Index](#execute-function-index)
 6. [Integration Guide](#integration-guide)
 7. [Script Loading at Scene Start](#script-loading-at-scene-start)
 8. [Error Handling](#error-handling)
@@ -61,11 +61,17 @@ versioned header block followed by the command body.
 
 ```
 ##CPGE_SCRIPT
-##ScriptVersion: 1.0
+##ScriptVersion: 1.1
 ##Written: 2026-05-10
 ##Scene: SCENE_GAMETITLE
 ##Author: LordAries1972
 ##Description: Short description of what this script does.
+
+# Variables MUST be declared here, before any executable commands
+VAR int    Counter  = 0;
+VAR bool   Ready    = False;
+VAR float  Speed    = 2.5;
+VAR string MapName  = "level01";
 
 # This is a comment line — ignored by the parser
 COMMAND arg1 arg2 "quoted string"
@@ -76,6 +82,7 @@ COMMAND arg1 arg2 "quoted string"
 | Header lines | Must start with `##` |
 | Comment lines | Must start with `#` |
 | Blank lines | Ignored |
+| Variable declarations | `VAR` lines must come **before** all executable commands |
 | Commands | Case-insensitive keyword, one per line |
 | String arguments | Wrap in `"double quotes"` to preserve spaces |
 | Line endings | CRLF or LF both accepted |
@@ -90,7 +97,7 @@ does not matter, but all should be present):
 
 ```
 ##CPGE_SCRIPT
-##ScriptVersion: 1.0
+##ScriptVersion: 1.1
 ##Written: 2026-05-10
 ##Scene: SCENE_GAMETITLE
 ##Author: YourName
@@ -99,7 +106,7 @@ does not matter, but all should be present):
 
 | Field | Purpose |
 |-------|---------|
-| `ScriptVersion` | Script language version (currently `1.0`) |
+| `ScriptVersion` | Script language version (currently `1.1`) |
 | `Written` | ISO date the script was authored (`YYYY-MM-DD`) |
 | `Scene` | Scene this script belongs to (matches `SceneType` enum name) |
 | `Author` | Author of the script |
@@ -111,6 +118,144 @@ revision was made.  This is the script's version stamp.
 ---
 
 ## Command Reference
+
+---
+
+### VAR — Variable Declaration
+
+```
+VAR <type> <Name> = <value>;
+```
+
+Declares a named, typed global variable.  All variable declarations **must
+appear at the top of the script body**, immediately after the header block and
+before any executable commands (FOR, Execute, WAIT, etc.).  Placing a `VAR`
+after an executable command is a parse error and will be logged.
+
+| Type | C++ storage | Example value |
+|------|------------|---------------|
+| `int` | `int` | `0`, `-5`, `100` |
+| `bool` | `bool` | `True` / `False` (case-insensitive) |
+| `float` | `float` | `1.5`, `-3.14`, `0.0` |
+| `string` | `std::wstring` | `"my_file"` (double-quoted) |
+
+The trailing semicolon is **optional** — the parser strips it automatically.
+Variable names are **case-insensitive** internally (stored upper-case).
+
+**Examples:**
+
+```
+VAR int    Lives    = 3;
+VAR int    Score    = 0;
+VAR bool   GameOver = False;
+VAR float  Speed    = 1.5;
+VAR string MapFile  = "level01";
+```
+
+> **Note:** Variables declared with `VAR` are re-initialised to their declared
+> values every time the script is executed.  If a `FOR` loop references a
+> variable that was not declared with `VAR`, it is auto-created as `int 0`.
+
+---
+
+### FOR / BEGIN / END — Counted Loop
+
+```
+FOR <Var> = <start> TO <end> [STEP <n>] DO
+BEGIN
+  <commands>
+END
+```
+
+Executes the block between `BEGIN` and `END` repeatedly, updating `<Var>` by
+the step amount at each `END`.  Direction (increment or decrement) is
+determined automatically from the start and end values.
+
+| Clause | Detail |
+|--------|--------|
+| `<Var>` | Name of a declared `VAR` variable used as the loop counter |
+| `<start>` | Initial value assigned to `<Var>` when the loop is entered |
+| `<end>` | Exit threshold (see termination rules below) |
+| `STEP <n>` | Optional step magnitude (default `1`); always a positive number |
+| `DO` | Optional keyword — included for readability, not required |
+| `BEGIN` | Marks the start of the loop body |
+| `END` | Marks the end; updates the counter and re-checks the exit condition |
+
+**Termination rules:**
+
+| Direction | Condition to continue | Exits when |
+|-----------|----------------------|------------|
+| Forward (`start < end`) | counter `<` end | counter `>=` end |
+| Reverse (`start > end`) | counter `>` end | counter `<=` end |
+
+If `start` already satisfies the exit condition when the `FOR` line is
+reached, the loop body is **skipped entirely** (zero iterations).
+
+**Forward loop, step 1** — counter runs 0 → 9; exits with counter = 10:
+
+```
+VAR int Y = 0;
+
+FOR Y = 0 TO 10 DO
+BEGIN
+  Execute PlayImmediateSFX(2)
+  WAIT(0.5)
+END
+```
+
+**Forward loop, step 2** — counter runs 0, 2, 4, 6, 8; exits with counter = 10:
+
+```
+VAR int Y = 0;
+
+FOR Y = 0 TO 10 STEP 2 DO
+BEGIN
+  Execute PlayImmediateSFX(2)
+END
+```
+
+**Reverse loop, step 1** — counter runs 10 → 1; exits with counter = 0:
+
+```
+VAR int Y = 0;
+
+FOR Y = 10 TO 0 DO
+BEGIN
+  Execute FadeToBlack(0.5, 0.0)
+  WAIT(0.1)
+END
+```
+
+**Reverse loop, step 2** — counter runs 10, 8, 6, 4, 2; exits with counter = 0:
+
+```
+VAR int Y = 0;
+
+FOR Y = 10 TO 0 STEP 2 DO
+BEGIN
+  Execute FadeToBlack(0.5, 0.0)
+END
+```
+
+**Nested loops** are fully supported:
+
+```
+VAR int I = 0;
+VAR int J = 0;
+
+FOR I = 0 TO 3 DO
+BEGIN
+  FOR J = 0 TO 5 DO
+  BEGIN
+    Execute PlayImmediateSFX(2)
+  END
+  WAIT(1.0)
+END
+```
+
+> **Loop guard:** The global step limit of **1,000,000** executed commands
+> still applies.  A deeply nested or very high-count loop that exceeds this
+> will be halted and an error logged.
 
 ---
 
@@ -344,7 +489,7 @@ dispatched as a script command.  Each rule fires **once** by default (one-shot).
 | `radius` | *(Optional)* Sphere collision radius in world units (default: 32.0) |
 | `action` | Full command string to execute on trigger |
 
-**Supported pairs (v1.0):**
+**Supported pairs (v1.1):**
 
 | Pair | Detection method |
 |------|-----------------|
@@ -716,6 +861,12 @@ no error is raised and execution continues with engine defaults.
 | Unknown `Execute` function | Error logged; function skipped |
 | `ALERT CRITICAL` | Alert shown, then `QUIT` is called |
 | Parse error in DETECT_COLLISION | Error logged; rule not registered |
+| `VAR` with unknown type | Error logged; variable not created |
+| `VAR` declared after executable commands | Error logged; variable still created |
+| `FOR` with fewer than 6 tokens | Error logged; loop skipped |
+| `FOR` with no matching `END` | Error logged at load time; loop skipped at runtime |
+| `END` with no active `FOR` loop | Error logged; `END` ignored |
+| Loop counter variable undeclared | Auto-created as `int 0`; no error |
 
 Query errors at any time:
 

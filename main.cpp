@@ -121,6 +121,10 @@
 #include "MoviePlayer.h"
 #include "ScreenRecorder.h"
 
+#ifdef __USE_SCRIPT_MANAGER__
+    #include "ScriptManager.h"
+#endif
+
 //------------------------------------------
 // Platform Configuration Macros
 //------------------------------------------
@@ -157,6 +161,10 @@ ShaderManager shaderManager;
 ThreadManager threadManager;
 MoviePlayer moviePlayer;
 ScreenRecorder screenRecorder;
+
+#ifdef __USE_SCRIPT_MANAGER__
+    ScriptManager scriptManager;
+#endif
 
 PUNPack punPack;
 GamePlayer gamePlayer;
@@ -523,7 +531,13 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
         // Initialise our SceneManager
         scene.Initialize(renderer);
-        
+
+        #ifdef __USE_SCRIPT_MANAGER__
+            scriptManager.Initialize(&fxManager, &threadManager, &soundManager, &guiManager, &scene, &gamePlayer, nullptr, &js, &renderer->myCamera);
+            scriptManager.LoadSceneScript(SceneType::SCENE_INITIALISE);
+            scriptManager.ExecuteScriptAsync();
+        #endif
+
         // Force a Scene Jump Switch to the GAMEPLAY scene when in debug mode, 
         // so we can get on with the game testing scene without having to wait 
         // for all the other scenes to load & play through.
@@ -2077,11 +2091,18 @@ void SwitchToGamePlay()
         }
     }
 
+    #ifdef __USE_SCRIPT_MANAGER__
+        scriptManager.StopExecution();
+    #endif
     scene.CleanUp();
     scene.SetGotoScene(SCENE_GAMEPLAY);
     scene.InitiateScene();
     scene.SetGotoScene(SCENE_NONE);
     lastScenePhaseChangeTime = std::chrono::steady_clock::now();
+    #ifdef __USE_SCRIPT_MANAGER__
+        scriptManager.LoadSceneScript(SceneType::SCENE_GAMEPLAY);
+        scriptManager.ExecuteScriptAsync();
+    #endif
     // Reset Camera to default position.
     renderer->myCamera.SetYawPitch(0.0f, 0.0f);
 
@@ -2120,10 +2141,17 @@ void SwitchToMovieIntro()
         }
     }
 
+    #ifdef __USE_SCRIPT_MANAGER__
+        scriptManager.StopExecution();
+    #endif
     scene.SetGotoScene(SCENE_INTRO_MOVIE);
     scene.InitiateScene();
     scene.SetGotoScene(SCENE_NONE);
     lastScenePhaseChangeTime = std::chrono::steady_clock::now();
+    #ifdef __USE_SCRIPT_MANAGER__
+        scriptManager.LoadSceneScript(SceneType::SCENE_INTRO_MOVIE);
+        scriptManager.ExecuteScriptAsync();
+    #endif
     fxManager.FadeToImage(3.0f, 0.06f);
     OpenMovieAndPlay();
     // Restart the Loader Thread to load in required assets.
@@ -2149,6 +2177,9 @@ void SwitchToGameIntro()
         }
     }
 
+    #ifdef __USE_SCRIPT_MANAGER__
+        scriptManager.StopExecution();
+    #endif
     // Cleanup the current old scene!
     scene.CleanUp();
     // Select our New Scene!
@@ -2158,6 +2189,10 @@ void SwitchToGameIntro()
     // No GOTO Scene - User now choses the SCENE of action before deciding!
     scene.SetGotoScene(SCENE_NONE);
     lastScenePhaseChangeTime = std::chrono::steady_clock::now();
+    #ifdef __USE_SCRIPT_MANAGER__
+        scriptManager.LoadSceneScript(SceneType::SCENE_GAMETITLE);
+        scriptManager.ExecuteScriptAsync();
+    #endif
     // Restart the Loader Thread to load in required assets.
     renderer->ResumeLoader();
     // Resume Game State

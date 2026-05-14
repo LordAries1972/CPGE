@@ -50,7 +50,8 @@
       "Read(//f/Projects/C++/**)",
       "Bash(\"D:\\\\Programs\\\\CMake\\\\bin\\\\cmake.exe\" --build \"build\\\\Debug\" --config Debug --parallel)",
       "Bash(Get-ChildItem -Path \"f:\\\\Projects\\\\C++\\\\CPGE2026\" -Filter \"*.h\" -File)",
-      "Bash(Select-Object Name, FullName)"
+      "Bash(Select-Object Name, FullName)",
+      "Bash(cmake-build.bat Debug)"
     ],
     "additionalDirectories": [
       "f:\\Projects\\C++\\CPGE2026\\.vs\\CrossPlatformGameEngine\\v17",

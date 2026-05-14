@@ -1,0 +1,33 @@
+================================================================================
+Configuration.h — History File
+Date:    2026-05-11
+================================================================================
+
+CHANGE — MyConfig struct default resolution changed to 800×600
+
+REASON
+------
+If GameConfig.cfg is absent or corrupt, loadConfig() returns false and
+myConfig stays at its C++ struct defaults. Previously those defaults were
+1920×1080 (Full Screen), meaning a missing or corrupt config file would
+launch the engine at fullscreen 1920×1080 — an unsafe, unexpected state.
+
+FIXED
+-----
+Configuration.h — MyConfig struct:
+  Before:
+    int displayMode      = 2;   // Full Screen
+    int resolutionWidth  = 1920;
+    int resolutionHeight = 1080;
+
+  After:
+    int displayMode      = 0;   // Windowed
+    int resolutionWidth  = 800;
+    int resolutionHeight = 600;
+
+  800×600 matches DEFAULT_WINDOW_WIDTH / DEFAULT_WINDOW_HEIGHT in Includes.h.
+  These are also the dimensions the HWND is created with in main.cpp before
+  config is loaded, making 800×600 the correct safe-fallback state throughout
+  the startup sequence.
+
+================================================================================

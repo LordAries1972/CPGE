@@ -1,14 +1,18 @@
 // =============================================================================
 // ScriptManager.h - Scene Script Management System
 // Written:  2026-05-10
-// Version:  1.0
+// Version:  1.1
 // Author:   Daniel J. Hobson of Australia 2026
 //
 // Loads, parses and executes ASCII scene script files (.cgs — CPGE Game Script).
 // Scripts reside in Scripts/<SCENE_NAME>.cgs and are detected automatically
 // during scene initialisation.  Each script file carries its own version header.
 //
-// Commands supported (v1.0):
+// Commands supported (v1.1):
+//   VAR      <type> <Name> = <value>  — declare a global variable (int/bool/float/string)
+//   FOR      <Var> = <n> TO <n> [STEP <n>] DO
+//   BEGIN                             — start of FOR loop body
+//   END                               — end of FOR loop body; updates counter and re-checks
 //   Execute  FunctionName(arg, ...)   — invoke a registered engine API call
 //   QUIT                              — full engine shutdown
 //   ALERT    <severity> "<message>"   — on-screen alert (General/Error/CRITICAL)
@@ -22,6 +26,8 @@
 //   DETECT_COLLISION <typeA> <idxA> <typeB> <idxB> <action…>
 // =============================================================================
 #pragma once
+
+#ifdef __USE_SCRIPT_MANAGER__
 
 #include "Includes.h"
 #include "DX_FXManager.h"
@@ -81,6 +87,10 @@ enum class ScriptCmdType {
     WAIT,
     LABEL,
     GOTO,
+    VAR_DECL,
+    FOR_LOOP,
+    BEGIN_BLOCK,
+    END_BLOCK,
     COMMENT,
     UNKNOWN
 };
@@ -93,6 +103,7 @@ struct ScriptCommand {
     std::vector<std::string> args;       // Tokenised arguments (quotes stripped)
     std::string              raw;        // Original source line for error reporting
     int                      lineNumber = 0;
+    int                      blockPeer  = -1;  // FOR_LOOP↔END_BLOCK linkage; -1 = unlinked
 };
 
 // =============================================================================
@@ -118,6 +129,17 @@ struct CollisionRule {
     float       collisionRadius = 32.0f;// Default sphere radius for overlap test
     bool        triggered  = false;     // Has fired this session
     bool        oneShot    = true;      // Fire once then retire
+};
+
+// =============================================================================
+// A typed script variable (declared via VAR)
+// =============================================================================
+struct ScriptVar {
+    enum class Type { INT, BOOL, FLOAT, STRING } varType = Type::INT;
+    int          intVal   = 0;
+    bool         boolVal  = false;
+    float        floatVal = 0.0f;
+    std::wstring strVal;
 };
 
 // =============================================================================
@@ -205,9 +227,13 @@ private:
 
     // --- Execution ---
     void RunCommands(const std::vector<ScriptCommand>& cmds);
-    void DispatchCommand(const ScriptCommand& cmd);
+    void DispatchCommand(const ScriptCommand& cmd, int cmdIdx = -1);
 
     // --- Command handlers ---
+    void Cmd_VarDecl(const std::vector<std::string>& args, int line);
+    void Cmd_ForLoop(const ScriptCommand& cmd, int cmdIdx);
+    void Cmd_BeginBlock();
+    void Cmd_EndBlock(const ScriptCommand& cmd);
     void Cmd_Execute(const std::vector<std::string>& args, int line);
     void Cmd_Quit();
     void Cmd_Alert(const std::vector<std::string>& args, int line);
@@ -232,7 +258,26 @@ private:
     std::unordered_map<std::string, size_t> m_labelMap;  // label name (upper) → m_commands index
     int m_jumpTarget = -1;                                // -1 = no jump pending
     void BuildLabelMap();
+    void BuildLoopMap();
     static constexpr int kMaxExecutionSteps = 1'000'000; // infinite-loop guard
+
+    // --- Variable store (populated by VAR_DECL commands at runtime) ---
+    std::unordered_map<std::string, ScriptVar> m_variables;
+
+    // --- Loop execution stack ---
+    struct LoopFrame {
+        std::string varName;
+        float       endVal       = 0.0f;
+        float       step         = 1.0f;
+        bool        isForward    = true;
+        int         bodyStartIdx = -1;   // index of first command inside BEGIN
+        int         endIdx       = -1;   // index of END_BLOCK
+    };
+    std::vector<LoopFrame> m_loopStack;
+
+    // --- Variable helpers ---
+    float GetVarAsFloat(const std::string& nameUpper) const;
+    void  SetVarFromFloat(const std::string& nameUpper, float val);
 
     // --- Collision evaluation ---
     bool EvaluateCollisionRule(const CollisionRule& rule);
@@ -249,3 +294,5 @@ private:
 
 // Global instance declared alongside all other managers in main.cpp
 extern ScriptManager scriptManager;
+
+#endif // __USE_SCRIPT_MANAGER__
