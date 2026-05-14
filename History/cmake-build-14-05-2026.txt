@@ -7,8 +7,13 @@ if "%CONFIG%"=="" set CONFIG=Debug
 set CMAKE_EXE=D:\Programs\CMake\bin\cmake.exe
 
 if /i "%CONFIG%"=="clean" (
-    echo Cleaning all build directories...
-    if exist "build" rmdir /s /q "build"
+    echo Cleaning all build directories and compiled artifacts...
+    if exist "build"              rmdir /s /q "build"
+    if exist "x64"               rmdir /s /q "x64"
+    if exist "CrossPla.2bd3f178" rmdir /s /q "CrossPla.2bd3f178"
+    for %%F in (*.pdb *.ilk *.obj *.pch *.idb) do (
+        if exist "%%F" del /q "%%F"
+    )
     echo Clean complete.
     goto :end
 )

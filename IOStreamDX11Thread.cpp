@@ -176,8 +176,26 @@ void DX11Renderer::LoaderTaskThread()
 
                     Load_Music();
 
-					// Create Game Menu
-					myCamera.SetupDefaultCamera(static_cast<float>(iOrigWidth), static_cast<float>(iOrigHeight));
+					// Create Game Menu — derive viewport dimensions from the active display mode
+					{
+						float camW, camH;
+						switch (config.myConfig.displayMode)
+						{
+							case 2: // Fullscreen — use configured target resolution
+								camW = static_cast<float>(config.myConfig.resolutionWidth);
+								camH = static_cast<float>(config.myConfig.resolutionHeight);
+								break;
+							case 1: // Borderless — use full monitor area
+								camW = static_cast<float>(winMetrics.monitorFullArea.right  - winMetrics.monitorFullArea.left);
+								camH = static_cast<float>(winMetrics.monitorFullArea.bottom - winMetrics.monitorFullArea.top);
+								break;
+							default: // Windowed — client area only (excludes title bar / borders)
+								camW = static_cast<float>(winMetrics.clientWidth);
+								camH = static_cast<float>(winMetrics.clientHeight);
+								break;
+						}
+						myCamera.SetupDefaultCamera(camW, camH);
+					}
 					// Set Camera Position
 					myCamera.SetPosition(-5.0f, 2.0f, -20.0f);
 					// Now set Yaw and Pitch
@@ -213,10 +231,28 @@ void DX11Renderer::LoaderTaskThread()
 				}
 				else
 				{
-					// After a resize: reposition the GUI and recreate screen-size-dependent FX
-					// with updated dimensions (iOrigWidth/iOrigHeight already set by Resize()).
-
-					myCamera.SetupDefaultCamera(static_cast<float>(iOrigWidth), static_cast<float>(iOrigHeight));
+					// After a resize: reposition the GUI and recreate screen-size-dependent FX.
+					// winMetrics is refreshed by GetWindowMetrics() in main.cpp before the loader
+					// thread runs, so it reflects the new window state for all display modes.
+					{
+						float camW, camH;
+						switch (config.myConfig.displayMode)
+						{
+							case 2: // Fullscreen — use configured target resolution
+								camW = static_cast<float>(config.myConfig.resolutionWidth);
+								camH = static_cast<float>(config.myConfig.resolutionHeight);
+								break;
+							case 1: // Borderless — use full monitor area
+								camW = static_cast<float>(winMetrics.monitorFullArea.right  - winMetrics.monitorFullArea.left);
+								camH = static_cast<float>(winMetrics.monitorFullArea.bottom - winMetrics.monitorFullArea.top);
+								break;
+							default: // Windowed — client area only (excludes title bar / borders)
+								camW = static_cast<float>(winMetrics.clientWidth);
+								camH = static_cast<float>(winMetrics.clientHeight);
+								break;
+						}
+						myCamera.SetupDefaultCamera(camW, camH);
+					}
 					myCamera.SetPosition(-5.0f, 2.0f, -20.0f);
 					guiManager.OnWindowResize(iOrigWidth, iOrigHeight);
 

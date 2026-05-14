@@ -746,8 +746,6 @@ Once the base DirectX 11 implementation is complete, the project will be release
     Camera target is set internally by `UpdateWarpDotTunnel` — no extra setup required.
 - *See: [`DXRenderFrame.cpp`](DXRenderFrame.cpp)*
 
-**May 14, 2026** - SCENE_EXPERIMENT architectural fix — tunnel init moved to loader thread:
-
 - **Bug fix — WarpDotTunnel initialisation was happening on the main thread in GUIWindows.cpp**
   instead of in the loader thread (`IOStreamDX11Thread.cpp`) where all scene setup belongs.
   `SaveAndSuspendFXForScene()` and `Init3DWarpDOTTunnel()` were being called in the
@@ -764,12 +762,26 @@ Once the base DirectX 11 implementation is complete, the project will be release
     the fade-in begins.
 - *See: [`GUIWindows.cpp`](GUIWindows.cpp), [`IOStreamDX11Thread.cpp`](IOStreamDX11Thread.cpp)*
 
-**May 14, 2026** - cmake-build.bat: added `clean` target to wipe all build directories:
-
-- `cmake-build.bat clean` now deletes the entire `build\` folder (both Debug and Release
-  subdirectories) in one step, forcing a fresh configure and compile on the next run.
-  Match is case-insensitive (`CLEAN`, `Clean`, `clean` all work).
+- `cmake-build.bat clean` now performs a full wipe of all compiled artifacts in one step:
+  - `build\` — CMake build directory (Debug and Release subdirectories)
+  - `x64\` — Visual Studio output directory (PDB, EXE)
+  - `CrossPla.2bd3f178\` — Visual Studio intermediate directory (OBJ, IDB, ILK)
+  - Root-level `*.pdb`, `*.ilk`, `*.obj`, `*.pch`, `*.idb` files
+  - Match is case-insensitive (`CLEAN`, `Clean`, `clean` all work).
 - *See: [`cmake-build.bat`](cmake-build.bat)*
+
+- Both call sites in `IOStreamDX11Thread.cpp` (initial scene load and post-resize) previously passed
+  `iOrigWidth`/`iOrigHeight` directly to `SetupDefaultCamera`, with no regard for whether the engine
+  was running in Windowed, Borderless, or Fullscreen exclusive mode.
+- Replaced both calls with a `switch` on `config.myConfig.displayMode`:
+  - **Fullscreen (2)** — uses `config.myConfig.resolutionWidth` / `resolutionHeight` (the configured
+    target resolution).
+  - **Borderless (1)** — uses `winMetrics.monitorFullArea` rect dimensions (full physical monitor area).
+  - **Windowed (0)** — uses `winMetrics.clientWidth` / `clientHeight` (drawable client area only,
+    excluding title bar and borders).
+- `winMetrics` is always refreshed by `GetWindowMetrics()` in `main.cpp` after every resize, so both
+  paths read current live values regardless of when the loader thread runs.
+- *See: [`IOStreamDX11Thread.cpp`](IOStreamDX11Thread.cpp)*
 
 ---
 
