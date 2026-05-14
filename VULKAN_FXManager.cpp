@@ -1624,9 +1624,11 @@ void VKFXManager::UpdateWarpDotTunnel(VKFXItem& fx, float deltaTime)
 
         float pathT = std::clamp((data.farZ - ring.zPos) / data.totalDistance, 0.0f, 1.0f);
 
+        // Forward: quadratic acceleration toward camera; reverse: very fast at near end,
+        // decelerates toward the vanishing point (pathT=1 near camera, pathT=0 at far end).
         float speedFactor = data.reverseTravel
-            ? (2.0f - pathT * 1.5f)
-            : (0.5f + pathT * 1.5f);
+            ? (0.2f + pathT * 2.3f)
+            : (0.1f + pathT * pathT * 2.4f);
         float frameSpeed = baseSpeed * speedFactor * dt;
 
         if (!data.reverseTravel)

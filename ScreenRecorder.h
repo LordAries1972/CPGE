@@ -90,9 +90,9 @@ public:
     // Monitor gain: how loud you hear yourself (0.0 = silent, 1.0 = unity, 2.0 = double).
     // Record  gain: how loud the mic is in the recording when not monitoring
     //               (monitoring active = loopback captures mic, this has no effect).
-    void  SetMicMonitorGain(float g) { m_micMonitorGain = g < 0.f ? 0.f : (g > 4.f ? 4.f : g); }
+    void  SetMicMonitorGain(float g) { m_micMonitorGain = g < 0.f ? 0.f : (g > 20.f ? 20.f : g); }
     float GetMicMonitorGain() const  { return m_micMonitorGain; }
-    void  SetMicRecordGain (float g) { m_micRecordGain  = g < 0.f ? 0.f : (g > 4.f ? 4.f : g); }
+    void  SetMicRecordGain (float g) { m_micRecordGain  = g < 0.f ? 0.f : (g > 20.f ? 20.f : g); }
     float GetMicRecordGain () const  { return m_micRecordGain;  }
 
 private:

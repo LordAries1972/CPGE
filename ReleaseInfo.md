@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1155*
+*Current Build Version: v0.0.1161*
 
 ---
 
@@ -450,6 +450,24 @@ Once the base DirectX 11 implementation is complete, the project will be release
 
 ### May 2026 - More major updates and fixes
 
+**May 15, 2026** - WarpDotTunnel speed profile overhaul:
+
+- **WarpDotTunnel — forward direction quadratic acceleration**: Ring travel speed now uses a
+  quadratic curve instead of a linear ramp. Rings are very slow far from the camera and
+  accelerate dramatically as they approach, giving a much more visceral warp-tunnel feel.
+  - Speed formula changed from `0.5 + pathT × 1.5` to `0.1 + pathT² × 2.4`
+  - At far end (pathT = 0): speed factor ≈ **0.1×** (barely moving)
+  - At near end (pathT = 1): speed factor = **2.5×** (very fast)
+  - *See: [`DX_FXManager.cpp`](DX_FXManager.cpp), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp)*
+
+- **WarpDotTunnel — reverse direction speed profile corrected**: The reverse (`reverse=true`)
+  speed profile was inverted — rings were slow at the camera end and fast at the vanishing point,
+  which is the opposite of the intended feel. Formula fixed to be very fast at the near end and
+  decelerate smoothly toward the vanishing point.
+  - Old (wrong): `2.0 − pathT × 1.5` → slow at start (0.5×), fast at end (2.0×)
+  - New (correct): `0.2 + pathT × 2.3` → very fast at start (2.5×), slow at end (0.2×)
+  - *See: [`DX_FXManager.cpp`](DX_FXManager.cpp), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp)*
+
 **May 11, 2026** - Bug fixes, hardcoded resolution audit, and ScriptManager pipeline integration:
 
 - **Bug fix — full-screen quarter-screen rendering**: `DX11Renderer::SetupViewport()` had hardcoded
@@ -782,6 +800,31 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - `winMetrics` is always refreshed by `GetWindowMetrics()` in `main.cpp` after every resize, so both
   paths read current live values regardless of when the loader thread runs.
 - *See: [`IOStreamDX11Thread.cpp`](IOStreamDX11Thread.cpp)*
+
+**May 14, 2026** - Renderer selection added to configuration system:
+
+- `config.myConfig.rendererType` (int) added to `MyConfig` — persisted to `GameConfig.cfg` as
+  `"rendererType"`. Not included in the checksum (consistent with all other display settings).
+  Platform-valid defaults applied at load time and on every save via
+  `Configuration::ValidateRendererForPlatform()`.
+  - **Windows:** 0=DirectX 11 (default), 1=DirectX 12, 2=OpenGL, 3=Vulkan
+  - **Linux/Android:** 0=OpenGL (default), 1=Vulkan
+  - **iOS/macOS:** 0=OpenGL (only option — value is always clamped to 0)
+- `Includes.h` updated: all platform-valid renderer defines are now enabled simultaneously
+  rather than one at a time. Windows compiles all four backends; Linux/Android compiles
+  OpenGL and Vulkan; iOS/macOS compiles OpenGL. This is required so `RendererFactory.cpp`
+  can instantiate any backend at runtime without a recompile.
+- `RendererFactory.cpp` rewritten to read `config.myConfig.rendererType` at runtime. A
+  `switch` dispatches to the correct `std::make_shared<>` call, guarded per-case by
+  `#if defined(__USE_*)` so a missing backend falls to `default: EXIT_FAILURE` rather than
+  silently selecting the wrong one. Logs the chosen renderer type on success.
+- **Video tab — Renderer slider added**: appears below Display Mode in the config window.
+  Shows only the platform-valid options (hidden entirely on iOS/macOS where OpenGL is
+  the only choice). Changing the value sets `needsVideoRestart = true`, so the existing
+  10-second restart notification fires on Save.
+- *See: [`Configuration.h`](Configuration.h), [`Configuration.cpp`](Configuration.cpp),
+  [`Includes.h`](Includes.h), [`RendererFactory.cpp`](RendererFactory.cpp),
+  [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp), [`Renderer.h`](Renderer.h)*
 
 ---
 

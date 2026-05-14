@@ -1,0 +1,35 @@
+================================================================================
+VULKAN_FXManager.cpp — History File
+Date:    2026-05-15
+================================================================================
+
+CHANGE — WarpDotTunnel speed profile: quadratic forward acceleration + corrected reverse
+
+REASON
+------
+Mirror of the fix applied to DX_FXManager.cpp on the same date.
+Both managers share identical WarpDotTunnel update logic and must stay in sync.
+
+See History\DX_FXManager.cpp-15-05-2026.txt for full explanation.
+
+FIXED
+-----
+VKFXManager::UpdateWarpDotTunnel — speedFactor calculation:
+
+  Before:
+    float speedFactor = data.reverseTravel
+        ? (2.0f - pathT * 1.5f)
+        : (0.5f + pathT * 1.5f);
+
+  After:
+    // Forward: quadratic acceleration toward camera; reverse: very fast at near end,
+    // decelerates toward the vanishing point (pathT=1 near camera, pathT=0 at far end).
+    float speedFactor = data.reverseTravel
+        ? (0.2f + pathT * 2.3f)
+        : (0.1f + pathT * pathT * 2.4f);
+
+Speed ranges (factor applied to baseSpeed):
+  Forward:  pathT=0 (far) → 0.10×   pathT=1 (near camera) → 2.50×
+  Reverse:  pathT=1 (start, near camera) → 2.50×   pathT=0 (vanishing point) → 0.20×
+
+================================================================================

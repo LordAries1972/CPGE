@@ -64,6 +64,13 @@ struct MyConfig {
     int resolutionWidth  = 800;
     int resolutionHeight = 600;
     int refreshRate      = 60;
+
+    // Renderer selection — clamped to the valid range for the current platform by
+    // Configuration::ValidateRendererForPlatform() at load time and on every save.
+    // Windows:       0=DirectX 11 (default)  1=DirectX 12  2=OpenGL  3=Vulkan
+    // Linux/Android: 0=OpenGL (default)       1=Vulkan
+    // iOS/macOS:     0=OpenGL (only option)
+    int rendererType     = 0;
 };
 
 class Configuration {
@@ -79,6 +86,9 @@ public:
     void updateConfig(const MyConfig& newConfig);
     void setOnApplyCallback(std::function<void(const MyConfig&)> cb);
     void applyLive() const;
+
+    // Clamps rendererType to the valid range for the compiled platform.
+    static int ValidateRendererForPlatform(int type);
 
     // You can still keep these if needed
     std::wstring getConfigFile() const;

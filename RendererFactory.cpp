@@ -1,15 +1,18 @@
 #include "Includes.h"
 #include "Renderer.h"
-
+#include "Configuration.h"
 #include "Debug.h"
 
 #if defined(__USE_DIRECTX_11__)
     #include "DX11Renderer.h"
-#elif defined(__USE_DIRECTX_12__)
+#endif
+#if defined(__USE_DIRECTX_12__)
     #include "DX12Renderer.h"
-#elif defined(__USE_OPENGL__)
+#endif
+#if defined(__USE_OPENGL__)
     #include "OpenGLRenderer.h"
-#elif defined(__USE_VULKAN__)
+#endif
+#if defined(__USE_VULKAN__)
     #include "VulkanRenderer.h"
 #endif
 
@@ -17,24 +20,61 @@ std::shared_ptr<Renderer> renderer;
 
 int CreateRendererInstance()
 {
-#if defined(__USE_DIRECTX_11__)
-    renderer = std::make_shared<DX11Renderer>();
-#elif defined(__USE_DIRECTX_12__)
-    renderer = std::make_shared<DX12Renderer>();
-#elif defined(__USE_OPENGL__)
-    renderer = std::make_shared<OpenGLRenderer>();
-#elif defined(__USE_VULKAN__)
-    renderer = std::make_shared<VulkanRenderer>();
+    const int rendererType = Configuration::ValidateRendererForPlatform(config.myConfig.rendererType);
+
+#if defined(PLATFORM_WINDOWS)
+    // Windows: 0=DirectX 11  1=DirectX 12  2=OpenGL  3=Vulkan
+    switch (rendererType)
+    {
+    #if defined(__USE_DIRECTX_11__)
+        case 0: renderer = std::make_shared<DX11Renderer>();    break;
+    #endif
+    #if defined(__USE_DIRECTX_12__)
+        case 1: renderer = std::make_shared<DX12Renderer>();    break;
+    #endif
+    #if defined(__USE_OPENGL__)
+        case 2: renderer = std::make_shared<OpenGLRenderer>();  break;
+    #endif
+    #if defined(__USE_VULKAN__)
+        case 3: renderer = std::make_shared<VulkanRenderer>();  break;
+    #endif
+        default:
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Renderer] No valid renderer selected for Windows platform.");
+            return EXIT_FAILURE;
+    }
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    // Linux / Android: 0=OpenGL  1=Vulkan
+    switch (rendererType)
+    {
+    #if defined(__USE_OPENGL__)
+        case 0: renderer = std::make_shared<OpenGLRenderer>();  break;
+    #endif
+    #if defined(__USE_VULKAN__)
+        case 1: renderer = std::make_shared<VulkanRenderer>();  break;
+    #endif
+        default:
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Renderer] No valid renderer selected for Linux/Android platform.");
+            return EXIT_FAILURE;
+    }
+#elif defined(PLATFORM_APPLE) || defined(PLATFORM_IOS)
+    // macOS / iOS: OpenGL only
+    #if defined(__USE_OPENGL__)
+        renderer = std::make_shared<OpenGLRenderer>();
+    #else
+        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Renderer] OpenGL is required but not compiled in for this Apple platform.");
+        return EXIT_FAILURE;
+    #endif
 #else
-    debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"NO valid Rendering Engine has been selected in configuration.");
+    debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Renderer] Unknown platform — no renderer can be selected.");
     return EXIT_FAILURE;
 #endif
 
     if (!renderer)
     {
-        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Renderer creation failed.");
+        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Renderer] Renderer instance creation failed.");
         return EXIT_FAILURE;
     }
 
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[Renderer] Renderer instance created successfully.");
     return EXIT_SUCCESS;
 }

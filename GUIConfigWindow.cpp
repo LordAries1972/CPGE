@@ -76,6 +76,38 @@ static const wchar_t* const DISP_MODE_NAMES[3] = {
     L"Windowed", L"Borderless", L"Full Screen"
 };
 
+// Renderer name strings and valid range.
+// RENDERER_MAX is derived from what is actually compiled in — not a hardcoded platform
+// maximum — so the slider only offers backends that are present in this build.
+// With a single backend (e.g. DX11 only), RENDERER_MAX=0 and the slider is hidden.
+static const wchar_t* const RENDERER_NAMES[4] = {
+    L"DirectX 11", L"DirectX 12", L"OpenGL", L"Vulkan"
+};
+
+#if defined(PLATFORM_WINDOWS)
+static constexpr int RENDERER_MAX =
+#if   defined(__USE_VULKAN__)
+    3
+#elif defined(__USE_OPENGL__)
+    2
+#elif defined(__USE_DIRECTX_12__)
+    1
+#else
+    0   // DX11 only — slider hidden
+#endif
+    ;
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+static constexpr int RENDERER_MAX =
+#if defined(__USE_VULKAN__)
+    1
+#else
+    0
+#endif
+    ;
+#else // iOS / macOS
+static constexpr int RENDERER_MAX = 0;
+#endif
+
 // ---------------------------------------------------------------------------
 // Local formatting helpers
 // ---------------------------------------------------------------------------
@@ -502,10 +534,10 @@ void GUIManager::CreateConfigWindow()
         y += ROW;
 
         addSliderRow("t1_micvol", y, L"Microphone Volume:", false, 1,
-            0.0f, 10.0f, (float)config.myConfig.microphoneVolume,
+            0.0f, 20.0f, (float)config.myConfig.microphoneVolume,
             [](float v) { return CfgFmtFloat((long double)v, 2); },
             [](float v) {
-                config.myConfig.microphoneVolume = (long double)std::clamp(v, 0.0f, 10.0f);
+                config.myConfig.microphoneVolume = (long double)std::clamp(v, 0.0f, 20.0f);
                 config.applyLive();
             });
     }
@@ -541,6 +573,22 @@ void GUIManager::CreateConfigWindow()
                 *needsVideoRestart = true;
             });
         y += ROW;
+
+        // --- Renderer (platform-specific options, takes effect after restart) ---
+#if RENDERER_MAX > 0
+        addSliderRow("t2_renderer", y, L"Renderer:",
+            false, 2,
+            0.0f, (float)RENDERER_MAX,
+            (float)std::clamp(config.myConfig.rendererType, 0, RENDERER_MAX),
+            [](float v) -> std::wstring {
+                return RENDERER_NAMES[std::clamp((int)std::round(v), 0, RENDERER_MAX)];
+            },
+            [needsVideoRestart](float v) {
+                config.myConfig.rendererType = std::clamp((int)std::round(v), 0, RENDERER_MAX);
+                *needsVideoRestart = true;
+            });
+        y += ROW;
+#endif
 
         // --- Resolution (slider left = lowest res, right = highest res) ---
         // uniqueRes is sorted largest-first, so invert: realIdx = (size-1) - sliderPos

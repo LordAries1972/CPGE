@@ -70,6 +70,7 @@ bool Configuration::loadConfig() {
         myConfig.resolutionWidth  = j.value("resolutionWidth",  1920);
         myConfig.resolutionHeight = j.value("resolutionHeight", 1080);
         myConfig.refreshRate      = j.value("refreshRate",      60);
+        myConfig.rendererType     = ValidateRendererForPlatform(j.value("rendererType", 0));
         myConfig.chksum = j["chksum"];
     }
     catch (const std::exception& e) {
@@ -154,6 +155,7 @@ bool Configuration::saveConfig() {
         j["resolutionWidth"]  = myConfig.resolutionWidth;
         j["resolutionHeight"] = myConfig.resolutionHeight;
         j["refreshRate"]      = myConfig.refreshRate;
+        j["rendererType"]     = ValidateRendererForPlatform(myConfig.rendererType);
         j["chksum"] = calculateChecksum(myConfig);
 
         configStream << j.dump(4);  // Pretty print the JSON with 4 spaces
@@ -179,6 +181,65 @@ void Configuration::setOnApplyCallback(std::function<void(const MyConfig&)> cb) 
 
 void Configuration::applyLive() const {
     if (onApply) onApply(myConfig);
+}
+
+// Validate the renderer type against what is actually compiled in for this platform.
+// Returns the requested type if a matching backend was compiled; otherwise returns 0.
+int Configuration::ValidateRendererForPlatform(int type)
+{
+#if defined(PLATFORM_WINDOWS)
+    // Windows: 0=DX11  1=DX12  2=OpenGL  3=Vulkan
+    // Each case only accepts the type if its backend define is present.
+    switch (type)
+    {
+        case 0:
+#if defined(__USE_DIRECTX_11__)
+            return 0;
+#else
+            break;
+#endif
+        case 1:
+#if defined(__USE_DIRECTX_12__)
+            return 1;
+#else
+            break;
+#endif
+        case 2:
+#if defined(__USE_OPENGL__)
+            return 2;
+#else
+            break;
+#endif
+        case 3:
+#if defined(__USE_VULKAN__)
+            return 3;
+#else
+            break;
+#endif
+    }
+    return 0; // Fall back to DX11
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    // Linux/Android: 0=OpenGL  1=Vulkan
+    switch (type)
+    {
+        case 0:
+#if defined(__USE_OPENGL__)
+            return 0;
+#else
+            break;
+#endif
+        case 1:
+#if defined(__USE_VULKAN__)
+            return 1;
+#else
+            break;
+#endif
+    }
+    return 0;
+#else
+    // iOS / macOS — OpenGL only
+    return 0;
+#endif
 }
 
 // Calculate checksum for the configuration

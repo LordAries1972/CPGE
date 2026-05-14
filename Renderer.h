@@ -2,35 +2,38 @@
    RENDERER SYSTEM FLOW DIAGRAM
    -------------------------------------------------------------------------------
    Purpose:
-       Dynamically selects one rendering backend (DX11, DX12, OpenGL, Vulkan)
-       at compile time, but allows engine code to work uniformly via abstraction.
+       Compiles all platform-valid rendering backends and selects one at runtime
+       via config.myConfig.rendererType, allowing the user to switch renderer
+       from the in-game Video settings panel without recompiling.
 
    -------------------------------------------------------------------------------
-   COMPILE-TIME DEFINES (from Includes.h):
+   COMPILE-TIME DEFINES (from Includes.h) — ALL valid for the platform are defined:
 
-       #define __USE_DIRECTX_11__
-       #define __USE_DIRECTX_12__
-       #define __USE_OPENGL__
-       #define __USE_VULKAN__
-
-   Only ONE should be defined at a time.
+       Windows:       __USE_DIRECTX_11__  __USE_DIRECTX_12__  __USE_OPENGL__  __USE_VULKAN__
+       Linux/Android: __USE_OPENGL__  __USE_VULKAN__
+       iOS/macOS:     __USE_OPENGL__
 
    -------------------------------------------------------------------------------
-   INSTANTIATION FLOW (WinMain):
+   RUNTIME SELECTION (config.myConfig.rendererType):
 
-       std::shared_ptr<Renderer> renderer;
+       Windows:       0=DirectX 11 (default)  1=DirectX 12  2=OpenGL  3=Vulkan
+       Linux/Android: 0=OpenGL (default)       1=Vulkan
+       iOS/macOS:     0=OpenGL (only option)
 
-   At runtime:
+   RendererFactory.cpp reads this value, validates it via
+   Configuration::ValidateRendererForPlatform(), and instantiates the correct
+   subclass. A restart is required for the change to take effect.
 
-       #if defined(__USE_DIRECTX_11__)
-           renderer = std::make_shared<DX11Renderer>();
-       #elif defined(__USE_DIRECTX_12__)
-           renderer = std::make_shared<DX12Renderer>();
-       #elif defined(__USE_OPENGL__)
-           renderer = std::make_shared<OpenGLRenderer>();
-       #elif defined(__USE_VULKAN__)
-           renderer = std::make_shared<VulkanRenderer>();
-       #endif
+   -------------------------------------------------------------------------------
+   INSTANTIATION FLOW (RendererFactory.cpp):
+
+       const int t = Configuration::ValidateRendererForPlatform(config.myConfig.rendererType);
+       switch (t) {
+           case 0: renderer = std::make_shared<DX11Renderer>();   break;  // Windows
+           case 1: renderer = std::make_shared<DX12Renderer>();   break;  // Windows
+           case 2: renderer = std::make_shared<OpenGLRenderer>(); break;  // Windows
+           case 3: renderer = std::make_shared<VulkanRenderer>(); break;  // Windows
+       }
 
    -------------------------------------------------------------------------------
    CLASS RELATIONSHIP DIAGRAM:

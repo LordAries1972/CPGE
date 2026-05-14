@@ -637,8 +637,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         // Configure for 3D usage (Like for FPS, TPS, 3D flight etc)
         js.ConfigureFor3DMovement();
 
-        // Apply saved microphone monitor volume from configuration
+        // Apply saved microphone volume from configuration (monitor and record stay in sync)
         screenRecorder.SetMicMonitorGain(static_cast<float>(config.myConfig.microphoneVolume));
+        screenRecorder.SetMicRecordGain (static_cast<float>(config.myConfig.microphoneVolume));
 
         // Whenever the config window saves, immediately push new values to all live subsystems.
         config.setOnApplyCallback([](const MyConfig& cfg) {
@@ -667,6 +668,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                 }
             #endif
             screenRecorder.SetMicMonitorGain(static_cast<float>(cfg.microphoneVolume));
+            screenRecorder.SetMicRecordGain (static_cast<float>(cfg.microphoneVolume));
             #if defined(_WIN64) || defined(_WIN32)
                 if (cfg.UseTTS && ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR)
                     ttsManager.SetVoiceVolume(static_cast<float>(cfg.TTSVolume));
@@ -1066,8 +1068,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                     {
                         dismissOtherVolOSDs(MIC_OSD);
                         float gain = screenRecorder.GetMicMonitorGain() + adj * 0.1f;
-                        gain = gain < 0.0f ? 0.0f : (gain > 10.0f ? 10.0f : gain);
+                        gain = gain < 0.0f ? 0.0f : (gain > 20.0f ? 20.0f : gain);
                         screenRecorder.SetMicMonitorGain(gain);
+                        screenRecorder.SetMicRecordGain (gain);
                         config.myConfig.microphoneVolume = gain;
 
                         if (!guiManager.GetWindow(MIC_OSD))
@@ -1113,9 +1116,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                             int pct = static_cast<int>(screenRecorder.GetMicMonitorGain() * 100.0f + 0.5f);
                             w->controls[1].label =
                                 L"  Monitor Volume:  " + std::to_wstring(pct) + L"%"
-                                + (pct == 0   ? L"  (muted)" :
-                                   pct >= 700 ? L"  (max)"    :
-                                   pct >= 400 ? L"  (boosted)" : L"");
+                                + (pct == 0    ? L"  (muted)"   :
+                                   pct >= 1900 ? L"  (max)"     :
+                                   pct >= 1000 ? L"  (boosted)" : L"");
                         }
                         micOSDLastShown = std::chrono::steady_clock::now();
                     }

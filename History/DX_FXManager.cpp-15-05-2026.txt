@@ -1,0 +1,43 @@
+================================================================================
+DX_FXManager.cpp — History File
+Date:    2026-05-15
+================================================================================
+
+CHANGE — WarpDotTunnel speed profile: quadratic forward acceleration + corrected reverse
+
+REASON
+------
+Forward direction: the previous linear ramp (0.5 → 2.0) produced a mediocre sense
+of acceleration. A quadratic curve gives a dramatically slow approach from the far
+end that snaps to high speed as rings close on the camera.
+
+Reverse direction: the speedFactor formula (2.0 − pathT × 1.5) was inverted.
+pathT = 1 at the camera-near end (ring start in reverse) and 0 at the vanishing
+point (ring end). The old formula evaluated to 0.5 at start and 2.0 at end —
+rings began sluggishly and sped up toward the vanishing point, the opposite of
+the intended feel.
+
+FIXED
+-----
+UpdateWarpDotTunnel — speedFactor calculation:
+
+  Before:
+    // Speed profile: non-reverse accelerates as ring approaches camera (Doctor Who feel);
+    // reverse starts fast and decelerates toward the focal point.
+    float speedFactor = data.reverseTravel
+        ? (2.0f - pathT * 1.5f)
+        : (0.5f + pathT * 1.5f);
+
+  After:
+    // Forward: quadratic acceleration — very slow far out, dramatically faster as the ring
+    // closes on the camera. Reverse: very fast at the near end, decelerates toward the
+    // vanishing point (pathT=1 near camera, pathT=0 at far end).
+    float speedFactor = data.reverseTravel
+        ? (0.2f + pathT * 2.3f)
+        : (0.1f + pathT * pathT * 2.4f);
+
+Speed ranges (factor applied to baseSpeed):
+  Forward:  pathT=0 (far) → 0.10×   pathT=1 (near camera) → 2.50×
+  Reverse:  pathT=1 (start, near camera) → 2.50×   pathT=0 (vanishing point) → 0.20×
+
+================================================================================

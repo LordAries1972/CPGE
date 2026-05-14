@@ -1,0 +1,438 @@
+/* === Configuration.h ===
+#pragma once
+
+#include "BuildInfo.h"
+#include "Debug.h"
+
+#include <nlohmann/json.hpp>
+#include <functional>
+
+/* -------------------------------------------------------- */
+// Music Player Configuration
+/* -------------------------------------------------------- */
+// Ensure only ONE Music player type is defined only
+#if (defined(__USE_XMPLAYER__) + defined(__USE_MP3PLAYER__)) > 1 
+#error "Multiple Music Players are Defined for use. Please define only one if you are wanting Music Playback."
+#endif
+
+using json = nlohmann::json;
+
+extern const std::string lpCONFIG_FILENAME;
+
+struct MyConfig {
+    long double chksum = 0.0;
+    long int current_money = 0;
+    long int level = 1;
+
+    int musicVolume = 64;
+    int masterVolume = 64;
+    int ambientVolume = 64;
+    int dialogVolume = 64;
+    int buildVersion    = CURRENT_BUILD_VERSION;
+    int buildSubVersion = CURRENT_BUILD_SUBVERSION;
+    int build           = CURRENT_BUILD;
+
+    bool playMusic = true;
+    bool enableVSync = true;
+    bool msaaEnabled = false;
+    bool antiAliasingEnabled = true;
+    bool MipMapping = true;
+    bool BackCulling = true;
+    bool showDebugInfo = false;
+
+    long double fov = 60.0f;
+    long double zoomSensitivity = 0.005f;
+    long double moveSensitivity = 0.0005f;
+    long double joystickSensitivity = 0.01f;
+    long double joystickRotationSensitivity = 0.001f;
+    long double nearPlane = 0.1f;
+    long double farPlane = 1000.0f;
+    long double aspectRatio = 16.0 / 9.0;                                       // Default widescreen
+    long double maxPitch = 89.0f;                                               // Degrees
+    long double minPitch = -89.0f;                                              // Degrees
+
+    long double microphoneVolume = 2.5f;
+
+    // Add more configuration parameters as needed
+    bool UseTTS = true;
+    long double TTSVolume = 1.0f;
+
+    // Display / window settings.
+    // Defaults match DEFAULT_WINDOW_WIDTH / DEFAULT_WINDOW_HEIGHT (800×600, windowed).
+    // loadConfig() overwrites these with the saved values on success.
+    // If GameConfig.cfg is absent or corrupt, 800×600 windowed is the safe fallback.
+    int displayMode      = 0;   // 0=Windowed  1=Borderless  2=Full Screen
+    int resolutionWidth  = 800;
+    int resolutionHeight = 600;
+    int refreshRate      = 60;
+
+    // Renderer selection — clamped to the valid range for the current platform by
+    // Configuration::ValidateRendererForPlatform() at load time and on every save.
+    // Windows:       0=DirectX 11 (default)  1=DirectX 12  2=OpenGL  3=Vulkan
+    // Linux/Android: 0=OpenGL (default)       1=Vulkan
+    // iOS/macOS:     0=OpenGL (only option)
+    int rendererType     = 0;
+};
+
+class Configuration {
+public:
+    MyConfig myConfig;
+
+    Configuration();      // No filename argument anymore
+    ~Configuration();
+
+    MyConfig GetConfig() const;
+    bool loadConfig();
+    bool saveConfig();
+    void updateConfig(const MyConfig& newConfig);
+    void setOnApplyCallback(std::function<void(const MyConfig&)> cb);
+    void applyLive() const;
+
+    // Clamps rendererType to the valid range for the compiled platform.
+    static int ValidateRendererForPlatform(int type);
+
+    // You can still keep these if needed
+    std::wstring getConfigFile() const;
+    void setConfigFile(const std::wstring& filename);
+
+private:
+    std::wstring configFile;
+    long double calculateChecksum(const MyConfig& cfg) const;
+    bool validateChecksum(const MyConfig& cfg) const;
+
+    bool bShutdownComplete = false;
+    std::function<void(const MyConfig&)> onApply;
+
+	// Disable copy constructor and assignment operator
+    Configuration(const Configuration&) = delete;
+    Configuration& operator=(const Configuration&) = delete;
+};
+
+// This must remain here after the fact of declaration
+// DO NOT PLACE above class declaration.
+extern Configuration config;
+extern Debug debug;
+
+extern const std::string lpCONFIG_FILENAME;
+
+/* === Configuration.cpp ===
+#include "Includes.h"
+#include "Configuration.h"
+#include "Debug.h"
+#include "WinSystem.h"
+
+extern Debug debug;
+extern SystemUtils sysUtils;
+
+// Constructor
+Configuration::Configuration() : configFile(L"GameConfig.cfg") {
+    loadConfig();
+}
+
+// Destructor
+Configuration::~Configuration() {
+	if (bShutdownComplete) return;                                      // Prevent double destruction
+    // Optionally save the configuration before destruction
+    saveConfig();
+    bShutdownComplete = true;
+}
+
+// Instance method to get the current configuration
+MyConfig Configuration::GetConfig() const {
+    return myConfig;
+}
+
+// Instance method to load the configuration from a file
+bool Configuration::loadConfig() {
+    std::ifstream configStream(configFile);
+    if (!configStream.is_open()) {
+        std::wstring msg = L"Error opening config file: " + configFile;
+        debug.logLevelMessage(LogLevel::LOG_ERROR, msg);
+        return false;
+    }
+
+    // Deserialize the configuration from JSON
+    try {
+        json j;
+        configStream >> j;
+        myConfig.current_money = j["current_money"];
+        myConfig.level = j["level"];
+        myConfig.playMusic = j["playMusic"];
+        myConfig.musicVolume = j["musicVolume"];
+        myConfig.masterVolume = j["masterVolume"];
+        myConfig.ambientVolume = j["ambientVolume"];
+        myConfig.dialogVolume = j["dialogVolume"];
+        myConfig.enableVSync = j["enableVSync"];
+        myConfig.msaaEnabled = j["msaaEnabled"];
+        myConfig.antiAliasingEnabled = j["antiAliasingEnabled"];
+        myConfig.MipMapping = j["MipMapping"];
+        myConfig.BackCulling = j["BackCulling"];
+        myConfig.showDebugInfo = j.value("showDebugInfo", false);
+        myConfig.buildVersion = j["buildVersion"];
+        myConfig.buildSubVersion = j["buildSubVersion"];
+        myConfig.build = j["build"];
+        myConfig.fov = j["fov"];
+        myConfig.maxPitch = j["maxPitch"];
+        myConfig.minPitch = j["minPitch"];
+        myConfig.nearPlane = j["nearPlane"];
+        myConfig.farPlane = j["farPlane"];
+        myConfig.aspectRatio = j.value("aspectRatio", 16.0 / 9.0);
+        myConfig.zoomSensitivity = j["zoomSensitivity"];
+        myConfig.moveSensitivity = j["moveSensitivity"];
+        myConfig.joystickSensitivity = j.value("joystickSensitivity", 0.01);
+        myConfig.joystickRotationSensitivity = j.value("joystickRotationSensitivity", 0.001);
+        myConfig.microphoneVolume = j.value("microphoneVolume", 2.5);
+        myConfig.TTSVolume = j["TTSVolume"];
+        myConfig.UseTTS = j["UseTTS"];
+        myConfig.displayMode      = j.value("displayMode",      2);
+        myConfig.resolutionWidth  = j.value("resolutionWidth",  1920);
+        myConfig.resolutionHeight = j.value("resolutionHeight", 1080);
+        myConfig.refreshRate      = j.value("refreshRate",      60);
+        myConfig.rendererType     = ValidateRendererForPlatform(j.value("rendererType", 0));
+        myConfig.chksum = j["chksum"];
+    }
+    catch (const std::exception& e) {
+        std::wstring msg = L"Error loading configuration: " + sysUtils.widen(e.what());
+        debug.logLevelMessage(LogLevel::LOG_ERROR, msg);
+        return false;
+    }
+
+    // Validate checksum, if fails, reset to defaults and force save
+    if (!validateChecksum(myConfig)) 
+    {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Checksum validation failed / Tamper Proof Protection detected - RESETTING!!!!");
+
+        // Set to default base configuration
+        myConfig = MyConfig();  // Default initialization
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"Adopting default base configuration due to checksum failure.");
+
+        // Save default config immediately
+        if (!saveConfig()) {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Failed to save default configuration after checksum failure!");
+        }
+        else {
+            #if defined(_DEBUG_CONFIGURATION_)
+                debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Default configuration saved successfully.");
+            #endif
+        }
+    }
+
+    // Always stamp the current build identity so the next saveConfig() records it.
+    myConfig.buildVersion    = CURRENT_BUILD_VERSION;
+    myConfig.buildSubVersion = CURRENT_BUILD_SUBVERSION;
+    myConfig.build           = CURRENT_BUILD;
+
+    #if defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Configuration file loaded successfully.");
+    #endif
+    return true;
+}
+
+// Instance method to save the current configuration to a file
+bool Configuration::saveConfig() {
+    std::ofstream configStream(configFile);
+    if (!configStream.is_open()) {
+        std::wstring msg = L"Error opening config file for saving: " + configFile;
+        debug.logLevelMessage(LogLevel::LOG_ERROR, msg);
+        return false;
+    }
+
+    // Serialize the configuration to JSON
+    try {
+        json j;
+        j["buildVersion"] = myConfig.buildVersion;
+        j["buildSubVersion"] = myConfig.buildSubVersion;
+        j["build"] = myConfig.build;
+        j["current_money"] = myConfig.current_money;
+        j["level"] = myConfig.level;
+        j["playMusic"] = myConfig.playMusic;
+        j["musicVolume"] = myConfig.musicVolume;
+        j["masterVolume"] = myConfig.masterVolume;
+        j["ambientVolume"] = myConfig.ambientVolume;
+        j["dialogVolume"] = myConfig.dialogVolume;
+        j["enableVSync"] = myConfig.enableVSync;
+        j["msaaEnabled"] = myConfig.msaaEnabled;
+        j["antiAliasingEnabled"] = myConfig.antiAliasingEnabled;
+        j["MipMapping"] = myConfig.MipMapping;
+        j["BackCulling"] = myConfig.BackCulling;
+        j["showDebugInfo"] = myConfig.showDebugInfo;
+        j["fov"] = myConfig.fov;
+        j["maxPitch"] = myConfig.maxPitch;
+        j["minPitch"] = myConfig.minPitch;
+        j["zoomSensitivity"] = myConfig.zoomSensitivity;
+        j["moveSensitivity"] = myConfig.moveSensitivity;
+        j["joystickSensitivity"] = myConfig.joystickSensitivity;
+        j["joystickRotationSensitivity"] = myConfig.joystickRotationSensitivity;
+        j["microphoneVolume"] = myConfig.microphoneVolume;
+        j["nearPlane"] = myConfig.nearPlane;
+		j["farPlane"] = myConfig.farPlane;
+        j["aspectRatio"] = myConfig.aspectRatio;
+        j["UseTTS"] = myConfig.UseTTS;
+        j["TTSVolume"] = myConfig.TTSVolume;
+        j["displayMode"]      = myConfig.displayMode;
+        j["resolutionWidth"]  = myConfig.resolutionWidth;
+        j["resolutionHeight"] = myConfig.resolutionHeight;
+        j["refreshRate"]      = myConfig.refreshRate;
+        j["rendererType"]     = ValidateRendererForPlatform(myConfig.rendererType);
+        j["chksum"] = calculateChecksum(myConfig);
+
+        configStream << j.dump(4);  // Pretty print the JSON with 4 spaces
+    }
+    catch (const std::exception& e) {
+		std::wstring msg = L"Error saving configuration: " + sysUtils.widen(e.what());
+        debug.logLevelMessage(LogLevel::LOG_ERROR, msg);        
+        return false;
+    }
+
+    return true;
+}
+
+// Instance method to update the configuration
+void Configuration::updateConfig(const MyConfig& newConfig) {
+    myConfig = newConfig;
+    if (onApply) onApply(myConfig);
+}
+
+void Configuration::setOnApplyCallback(std::function<void(const MyConfig&)> cb) {
+    onApply = std::move(cb);
+}
+
+void Configuration::applyLive() const {
+    if (onApply) onApply(myConfig);
+}
+
+// Validate the renderer type against what is actually compiled in for this platform.
+// Returns the requested type if a matching backend was compiled; otherwise returns 0.
+int Configuration::ValidateRendererForPlatform(int type)
+{
+#if defined(PLATFORM_WINDOWS)
+    // Windows: 0=DX11  1=DX12  2=OpenGL  3=Vulkan
+    // Each case only accepts the type if its backend define is present.
+    switch (type)
+    {
+        case 0:
+#if defined(__USE_DIRECTX_11__)
+            return 0;
+#else
+            break;
+#endif
+        case 1:
+#if defined(__USE_DIRECTX_12__)
+            return 1;
+#else
+            break;
+#endif
+        case 2:
+#if defined(__USE_OPENGL__)
+            return 2;
+#else
+            break;
+#endif
+        case 3:
+#if defined(__USE_VULKAN__)
+            return 3;
+#else
+            break;
+#endif
+    }
+    return 0; // Fall back to DX11
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    // Linux/Android: 0=OpenGL  1=Vulkan
+    switch (type)
+    {
+        case 0:
+#if defined(__USE_OPENGL__)
+            return 0;
+#else
+            break;
+#endif
+        case 1:
+#if defined(__USE_VULKAN__)
+            return 1;
+#else
+            break;
+#endif
+    }
+    return 0;
+#else
+    // iOS / macOS — OpenGL only
+    return 0;
+#endif
+}
+
+// Calculate checksum for the configuration
+long double Configuration::calculateChecksum(const MyConfig& cfg) const
+{
+    // Create a single string that contains the important values, 
+    // that is everything, but the cksum field.
+    std::ostringstream ss;
+    ss << static_cast<int>(cfg.playMusic)
+        << static_cast<int>(cfg.enableVSync)
+        << static_cast<int>(cfg.msaaEnabled)
+        << static_cast<int>(cfg.antiAliasingEnabled)
+        << static_cast<int>(cfg.MipMapping)
+        << static_cast<int>(cfg.BackCulling)
+        << static_cast<int>(cfg.showDebugInfo)
+        << static_cast<int>(cfg.UseTTS)
+        << cfg.musicVolume
+        << cfg.masterVolume
+        << cfg.ambientVolume
+        << cfg.dialogVolume
+        << cfg.buildVersion
+		<< cfg.buildSubVersion
+		<< cfg.build
+		<< cfg.fov
+        << cfg.maxPitch
+        << cfg.minPitch
+        << cfg.zoomSensitivity
+        << cfg.moveSensitivity
+        << cfg.joystickSensitivity
+        << cfg.joystickRotationSensitivity
+        << cfg.microphoneVolume
+        << cfg.nearPlane
+		<< cfg.farPlane
+        << cfg.aspectRatio
+        << cfg.level
+        << cfg.TTSVolume
+        << std::fixed << std::setprecision(4) << cfg.current_money;
+
+    std::string combined = ss.str();
+    // FNV-1a 64-bit hash implementation
+    uint64_t hash = 14695981039346656037ULL;
+    for (char c : combined) {
+        hash ^= static_cast<uint8_t>(c);
+        hash *= 1099511628211ULL;
+    }
+
+    // Convert to long double in a way that's not obviously tied to input
+    long double obscured = static_cast<long double>(hash) / 1337.77;
+
+    return obscured;
+}
+
+// Validate checksum
+bool Configuration::validateChecksum(const MyConfig& cfg) const
+{
+    long double calculatedChecksum = calculateChecksum(cfg);
+
+    // Use tighter and cleaner comparison logic
+    constexpr long double epsilon = 0.00001;
+
+    if (std::fabs(calculatedChecksum - cfg.chksum) < epsilon) {
+        return true;
+    }
+
+    // Optional: logging/debugging here
+    debug.logLevelMessage(LogLevel::LOG_WARNING, L"Configuration checksum mismatch detected.");
+
+    return false;
+}
+
+// Getters and setters for the configFile
+std::wstring Configuration::getConfigFile() const {
+    return configFile;
+}
+
+void Configuration::setConfigFile(const std::wstring& filename) {
+    configFile = filename;
+}

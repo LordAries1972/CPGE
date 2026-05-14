@@ -35,9 +35,6 @@ events:
     found: "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeCXXCompilerId.cpp.in"
     search_context:
       ENV{PATH}:
-        - "D:\\Program Files\\PowerShell\\7"
-        - "D:\\Python\\Python313\\Scripts"
-        - "D:\\Program Files\\Microsoft VS Code"
         - "C:\\Program Files (x86)\\Embarcadero\\Studio\\23.0\\bin"
         - "C:\\Users\\Public\\Documents\\Embarcadero\\Studio\\23.0\\Bpl"
         - "C:\\Program Files (x86)\\Embarcadero\\Studio\\23.0\\bin64"
@@ -83,6 +80,7 @@ events:
         - "F:\\BPL\\Win32"
         - "C:\\Users\\hobso\\.dotnet\\tools"
         - "D:\\Programs\\CMake\\bin"
+        - "D:\\Program Files\\Git\\usr\\bin"
   -
     kind: "message-v1"
     backtrace:
@@ -99,9 +97,9 @@ events:
       The output was:
       0
       MSBuild version 17.14.40+3e7442088 for .NET Framework
-      Build started 23/04/2026 2:42:12 PM.
+      Build started 14/05/2026 10:05:31 PM.
       
-      Project "F:\\Projects\\C++\\CPGE2026\\build\\Debug\\CMakeFiles\\4.3.2\\CompilerIdCXX\\CompilerIdCXX.vcxproj" on node 1 (default targets).
+      Project "F:\\Projects\\C++\\CPGE2026\\build\\debug\\CMakeFiles\\4.3.2\\CompilerIdCXX\\CompilerIdCXX.vcxproj" on node 1 (default targets).
       PrepareForBuild:
         Creating directory "Debug\\".
         Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
@@ -114,7 +112,7 @@ events:
         CMakeCXXCompilerId.cpp
       Link:
         D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:".\\CompilerIdCXX.exe" /INCREMENTAL:NO /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /PDB:".\\CompilerIdCXX.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:".\\CompilerIdCXX.lib" /MACHINE:X64 Debug\\CMakeCXXCompilerId.obj
-        CompilerIdCXX.vcxproj -> F:\\Projects\\C++\\CPGE2026\\build\\Debug\\CMakeFiles\\4.3.2\\CompilerIdCXX\\CompilerIdCXX.exe
+        CompilerIdCXX.vcxproj -> F:\\Projects\\C++\\CPGE2026\\build\\debug\\CMakeFiles\\4.3.2\\CompilerIdCXX\\CompilerIdCXX.exe
       PostBuildEvent:
         for %%i in (cl.exe) do @echo CMAKE_CXX_COMPILER=%%~$PATH:i
         :VCEnd
@@ -122,13 +120,13 @@ events:
       FinalizeBuildStatus:
         Deleting file "Debug\\CompilerIdCXX.tlog\\unsuccessfulbuild".
         Touching "Debug\\CompilerIdCXX.tlog\\CompilerIdCXX.lastbuildstate".
-      Done Building Project "F:\\Projects\\C++\\CPGE2026\\build\\Debug\\CMakeFiles\\4.3.2\\CompilerIdCXX\\CompilerIdCXX.vcxproj" (default targets).
+      Done Building Project "F:\\Projects\\C++\\CPGE2026\\build\\debug\\CMakeFiles\\4.3.2\\CompilerIdCXX\\CompilerIdCXX.vcxproj" (default targets).
       
       Build succeeded.
           0 Warning(s)
           0 Error(s)
       
-      Time Elapsed 00:00:03.30
+      Time Elapsed 00:00:03.87
       
       
       Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "CompilerIdCXX.exe"
@@ -136,7 +134,7 @@ events:
       Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "CompilerIdCXX.vcxproj"
       
       The CXX compiler identification is MSVC, found in:
-        F:/Projects/C++/CPGE2026/build/Debug/CMakeFiles/4.3.2/CompilerIdCXX/CompilerIdCXX.exe
+        F:/Projects/C++/CPGE2026/build/debug/CMakeFiles/4.3.2/CompilerIdCXX/CompilerIdCXX.exe
       
   -
     kind: "find-v1"
@@ -161,9 +159,6 @@ events:
       - "link"
     candidate_directories:
       - "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.38.33130/bin/Hostx64/x64/"
-      - "D:/Program Files/PowerShell/7/"
-      - "D:/Python/Python313/Scripts/"
-      - "D:/Program Files/Microsoft VS Code/"
       - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin/"
       - "C:/Users/Public/Documents/Embarcadero/Studio/23.0/Bpl/"
       - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin64/"
@@ -190,8 +185,10 @@ events:
       - "D:/Windows Kits/10/Windows Performance Toolkit/"
       - "C:/ProgramData/chocolatey/bin/"
       - "D:/Program Files/PuTTY/"
+      - "D:/Program Files/PowerShell/7/"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
       - "D:/Program Files/Git/cmd/"
+      - "D:/Python/Python313/Scripts/"
       - "D:/Python/Python313/"
       - "C:/Program Files/MySQL/MySQL Shell 8.0/bin/"
       - "C:/Users/hobso/AppData/Local/Microsoft/WindowsApps/"
@@ -207,14 +204,12 @@ events:
       - "F:/BPL/Win32/"
       - "C:/Users/hobso/.dotnet/tools/"
       - "D:/Programs/CMake/bin/"
+      - "D:/Program Files/Git/usr/bin/"
     searched_directories:
       - "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.38.33130/bin/Hostx64/x64/link.com"
     found: "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.38.33130/bin/Hostx64/x64/link.exe"
     search_context:
       ENV{PATH}:
-        - "D:\\Program Files\\PowerShell\\7"
-        - "D:\\Python\\Python313\\Scripts"
-        - "D:\\Program Files\\Microsoft VS Code"
         - "C:\\Program Files (x86)\\Embarcadero\\Studio\\23.0\\bin"
         - "C:\\Users\\Public\\Documents\\Embarcadero\\Studio\\23.0\\Bpl"
         - "C:\\Program Files (x86)\\Embarcadero\\Studio\\23.0\\bin64"
@@ -260,6 +255,7 @@ events:
         - "F:\\BPL\\Win32"
         - "C:\\Users\\hobso\\.dotnet\\tools"
         - "D:\\Programs\\CMake\\bin"
+        - "D:\\Program Files\\Git\\usr\\bin"
   -
     kind: "find-v1"
     backtrace:
@@ -283,9 +279,6 @@ events:
       - "lld-link"
     candidate_directories:
       - "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.38.33130/bin/Hostx64/x64/"
-      - "D:/Program Files/PowerShell/7/"
-      - "D:/Python/Python313/Scripts/"
-      - "D:/Program Files/Microsoft VS Code/"
       - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin/"
       - "C:/Users/Public/Documents/Embarcadero/Studio/23.0/Bpl/"
       - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin64/"
@@ -312,8 +305,10 @@ events:
       - "D:/Windows Kits/10/Windows Performance Toolkit/"
       - "C:/ProgramData/chocolatey/bin/"
       - "D:/Program Files/PuTTY/"
+      - "D:/Program Files/PowerShell/7/"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
       - "D:/Program Files/Git/cmd/"
+      - "D:/Python/Python313/Scripts/"
       - "D:/Python/Python313/"
       - "C:/Program Files/MySQL/MySQL Shell 8.0/bin/"
       - "C:/Users/hobso/AppData/Local/Microsoft/WindowsApps/"
@@ -329,19 +324,11 @@ events:
       - "F:/BPL/Win32/"
       - "C:/Users/hobso/.dotnet/tools/"
       - "D:/Programs/CMake/bin/"
+      - "D:/Program Files/Git/usr/bin/"
     searched_directories:
       - "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.38.33130/bin/Hostx64/x64/lld-link.com"
       - "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.38.33130/bin/Hostx64/x64/lld-link.exe"
       - "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.38.33130/bin/Hostx64/x64/lld-link"
-      - "D:/Program Files/PowerShell/7/lld-link.com"
-      - "D:/Program Files/PowerShell/7/lld-link.exe"
-      - "D:/Program Files/PowerShell/7/lld-link"
-      - "D:/Python/Python313/Scripts/lld-link.com"
-      - "D:/Python/Python313/Scripts/lld-link.exe"
-      - "D:/Python/Python313/Scripts/lld-link"
-      - "D:/Program Files/Microsoft VS Code/lld-link.com"
-      - "D:/Program Files/Microsoft VS Code/lld-link.exe"
-      - "D:/Program Files/Microsoft VS Code/lld-link"
       - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin/lld-link.com"
       - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin/lld-link.exe"
       - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin/lld-link"
@@ -420,12 +407,18 @@ events:
       - "D:/Program Files/PuTTY/lld-link.com"
       - "D:/Program Files/PuTTY/lld-link.exe"
       - "D:/Program Files/PuTTY/lld-link"
+      - "D:/Program Files/PowerShell/7/lld-link.com"
+      - "D:/Program Files/PowerShell/7/lld-link.exe"
+      - "D:/Program Files/PowerShell/7/lld-link"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/lld-link.com"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/lld-link.exe"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/lld-link"
       - "D:/Program Files/Git/cmd/lld-link.com"
       - "D:/Program Files/Git/cmd/lld-link.exe"
       - "D:/Program Files/Git/cmd/lld-link"
+      - "D:/Python/Python313/Scripts/lld-link.com"
+      - "D:/Python/Python313/Scripts/lld-link.exe"
+      - "D:/Python/Python313/Scripts/lld-link"
       - "D:/Python/Python313/lld-link.com"
       - "D:/Python/Python313/lld-link.exe"
       - "D:/Python/Python313/lld-link"
@@ -471,12 +464,12 @@ events:
       - "D:/Programs/CMake/bin/lld-link.com"
       - "D:/Programs/CMake/bin/lld-link.exe"
       - "D:/Programs/CMake/bin/lld-link"
+      - "D:/Program Files/Git/usr/bin/lld-link.com"
+      - "D:/Program Files/Git/usr/bin/lld-link.exe"
+      - "D:/Program Files/Git/usr/bin/lld-link"
     found: false
     search_context:
       ENV{PATH}:
-        - "D:\\Program Files\\PowerShell\\7"
-        - "D:\\Python\\Python313\\Scripts"
-        - "D:\\Program Files\\Microsoft VS Code"
         - "C:\\Program Files (x86)\\Embarcadero\\Studio\\23.0\\bin"
         - "C:\\Users\\Public\\Documents\\Embarcadero\\Studio\\23.0\\Bpl"
         - "C:\\Program Files (x86)\\Embarcadero\\Studio\\23.0\\bin64"
@@ -522,6 +515,7 @@ events:
         - "F:\\BPL\\Win32"
         - "C:\\Users\\hobso\\.dotnet\\tools"
         - "D:\\Programs\\CMake\\bin"
+        - "D:\\Program Files\\Git\\usr\\bin"
   -
     kind: "find-v1"
     backtrace:
@@ -543,9 +537,6 @@ events:
       - "link"
     candidate_directories:
       - "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.38.33130/bin/Hostx64/x64/"
-      - "D:/Program Files/PowerShell/7/"
-      - "D:/Python/Python313/Scripts/"
-      - "D:/Program Files/Microsoft VS Code/"
       - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin/"
       - "C:/Users/Public/Documents/Embarcadero/Studio/23.0/Bpl/"
       - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin64/"
@@ -572,8 +563,10 @@ events:
       - "D:/Windows Kits/10/Windows Performance Toolkit/"
       - "C:/ProgramData/chocolatey/bin/"
       - "D:/Program Files/PuTTY/"
+      - "D:/Program Files/PowerShell/7/"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
       - "D:/Program Files/Git/cmd/"
+      - "D:/Python/Python313/Scripts/"
       - "D:/Python/Python313/"
       - "C:/Program Files/MySQL/MySQL Shell 8.0/bin/"
       - "C:/Users/hobso/AppData/Local/Microsoft/WindowsApps/"
@@ -589,14 +582,12 @@ events:
       - "F:/BPL/Win32/"
       - "C:/Users/hobso/.dotnet/tools/"
       - "D:/Programs/CMake/bin/"
+      - "D:/Program Files/Git/usr/bin/"
     searched_directories:
       - "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.38.33130/bin/Hostx64/x64/link.com"
     found: "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.38.33130/bin/Hostx64/x64/link.exe"
     search_context:
       ENV{PATH}:
-        - "D:\\Program Files\\PowerShell\\7"
-        - "D:\\Python\\Python313\\Scripts"
-        - "D:\\Program Files\\Microsoft VS Code"
         - "C:\\Program Files (x86)\\Embarcadero\\Studio\\23.0\\bin"
         - "C:\\Users\\Public\\Documents\\Embarcadero\\Studio\\23.0\\Bpl"
         - "C:\\Program Files (x86)\\Embarcadero\\Studio\\23.0\\bin64"
@@ -642,6 +633,7 @@ events:
         - "F:\\BPL\\Win32"
         - "C:\\Users\\hobso\\.dotnet\\tools"
         - "D:\\Programs\\CMake\\bin"
+        - "D:\\Program Files\\Git\\usr\\bin"
   -
     kind: "find-v1"
     backtrace:
@@ -663,9 +655,6 @@ events:
       - "mt"
     candidate_directories:
       - "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.38.33130/bin/Hostx64/x64/"
-      - "D:/Program Files/PowerShell/7/"
-      - "D:/Python/Python313/Scripts/"
-      - "D:/Program Files/Microsoft VS Code/"
       - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin/"
       - "C:/Users/Public/Documents/Embarcadero/Studio/23.0/Bpl/"
       - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin64/"
@@ -692,8 +681,10 @@ events:
       - "D:/Windows Kits/10/Windows Performance Toolkit/"
       - "C:/ProgramData/chocolatey/bin/"
       - "D:/Program Files/PuTTY/"
+      - "D:/Program Files/PowerShell/7/"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
       - "D:/Program Files/Git/cmd/"
+      - "D:/Python/Python313/Scripts/"
       - "D:/Python/Python313/"
       - "C:/Program Files/MySQL/MySQL Shell 8.0/bin/"
       - "C:/Users/hobso/AppData/Local/Microsoft/WindowsApps/"
@@ -709,19 +700,11 @@ events:
       - "F:/BPL/Win32/"
       - "C:/Users/hobso/.dotnet/tools/"
       - "D:/Programs/CMake/bin/"
+      - "D:/Program Files/Git/usr/bin/"
     searched_directories:
       - "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.38.33130/bin/Hostx64/x64/mt.com"
       - "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.38.33130/bin/Hostx64/x64/mt.exe"
       - "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.38.33130/bin/Hostx64/x64/mt"
-      - "D:/Program Files/PowerShell/7/mt.com"
-      - "D:/Program Files/PowerShell/7/mt.exe"
-      - "D:/Program Files/PowerShell/7/mt"
-      - "D:/Python/Python313/Scripts/mt.com"
-      - "D:/Python/Python313/Scripts/mt.exe"
-      - "D:/Python/Python313/Scripts/mt"
-      - "D:/Program Files/Microsoft VS Code/mt.com"
-      - "D:/Program Files/Microsoft VS Code/mt.exe"
-      - "D:/Program Files/Microsoft VS Code/mt"
       - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin/mt.com"
       - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin/mt.exe"
       - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin/mt"
@@ -800,12 +783,18 @@ events:
       - "D:/Program Files/PuTTY/mt.com"
       - "D:/Program Files/PuTTY/mt.exe"
       - "D:/Program Files/PuTTY/mt"
+      - "D:/Program Files/PowerShell/7/mt.com"
+      - "D:/Program Files/PowerShell/7/mt.exe"
+      - "D:/Program Files/PowerShell/7/mt"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/mt.com"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/mt.exe"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/mt"
       - "D:/Program Files/Git/cmd/mt.com"
       - "D:/Program Files/Git/cmd/mt.exe"
       - "D:/Program Files/Git/cmd/mt"
+      - "D:/Python/Python313/Scripts/mt.com"
+      - "D:/Python/Python313/Scripts/mt.exe"
+      - "D:/Python/Python313/Scripts/mt"
       - "D:/Python/Python313/mt.com"
       - "D:/Python/Python313/mt.exe"
       - "D:/Python/Python313/mt"
@@ -851,12 +840,12 @@ events:
       - "D:/Programs/CMake/bin/mt.com"
       - "D:/Programs/CMake/bin/mt.exe"
       - "D:/Programs/CMake/bin/mt"
+      - "D:/Program Files/Git/usr/bin/mt.com"
+      - "D:/Program Files/Git/usr/bin/mt.exe"
+      - "D:/Program Files/Git/usr/bin/mt"
     found: false
     search_context:
       ENV{PATH}:
-        - "D:\\Program Files\\PowerShell\\7"
-        - "D:\\Python\\Python313\\Scripts"
-        - "D:\\Program Files\\Microsoft VS Code"
         - "C:\\Program Files (x86)\\Embarcadero\\Studio\\23.0\\bin"
         - "C:\\Users\\Public\\Documents\\Embarcadero\\Studio\\23.0\\Bpl"
         - "C:\\Program Files (x86)\\Embarcadero\\Studio\\23.0\\bin64"
@@ -902,6 +891,7 @@ events:
         - "F:\\BPL\\Win32"
         - "C:\\Users\\hobso\\.dotnet\\tools"
         - "D:\\Programs\\CMake\\bin"
+        - "D:\\Program Files\\Git\\usr\\bin"
   -
     kind: "find-v1"
     backtrace:
@@ -923,9 +913,6 @@ events:
       - "lib"
     candidate_directories:
       - "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.38.33130/bin/Hostx64/x64/"
-      - "D:/Program Files/PowerShell/7/"
-      - "D:/Python/Python313/Scripts/"
-      - "D:/Program Files/Microsoft VS Code/"
       - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin/"
       - "C:/Users/Public/Documents/Embarcadero/Studio/23.0/Bpl/"
       - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin64/"
@@ -952,8 +939,10 @@ events:
       - "D:/Windows Kits/10/Windows Performance Toolkit/"
       - "C:/ProgramData/chocolatey/bin/"
       - "D:/Program Files/PuTTY/"
+      - "D:/Program Files/PowerShell/7/"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
       - "D:/Program Files/Git/cmd/"
+      - "D:/Python/Python313/Scripts/"
       - "D:/Python/Python313/"
       - "C:/Program Files/MySQL/MySQL Shell 8.0/bin/"
       - "C:/Users/hobso/AppData/Local/Microsoft/WindowsApps/"
@@ -969,14 +958,12 @@ events:
       - "F:/BPL/Win32/"
       - "C:/Users/hobso/.dotnet/tools/"
       - "D:/Programs/CMake/bin/"
+      - "D:/Program Files/Git/usr/bin/"
     searched_directories:
       - "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.38.33130/bin/Hostx64/x64/lib.com"
     found: "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.38.33130/bin/Hostx64/x64/lib.exe"
     search_context:
       ENV{PATH}:
-        - "D:\\Program Files\\PowerShell\\7"
-        - "D:\\Python\\Python313\\Scripts"
-        - "D:\\Program Files\\Microsoft VS Code"
         - "C:\\Program Files (x86)\\Embarcadero\\Studio\\23.0\\bin"
         - "C:\\Users\\Public\\Documents\\Embarcadero\\Studio\\23.0\\Bpl"
         - "C:\\Program Files (x86)\\Embarcadero\\Studio\\23.0\\bin64"
@@ -1022,6 +1009,7 @@ events:
         - "F:\\BPL\\Win32"
         - "C:\\Users\\hobso\\.dotnet\\tools"
         - "D:\\Programs\\CMake\\bin"
+        - "D:\\Program Files\\Git\\usr\\bin"
   -
     kind: "find-v1"
     backtrace:
@@ -1045,9 +1033,6 @@ events:
     names:
       - "rc"
     candidate_directories:
-      - "D:/Program Files/PowerShell/7/"
-      - "D:/Python/Python313/Scripts/"
-      - "D:/Program Files/Microsoft VS Code/"
       - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin/"
       - "C:/Users/Public/Documents/Embarcadero/Studio/23.0/Bpl/"
       - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin64/"
@@ -1074,8 +1059,10 @@ events:
       - "D:/Windows Kits/10/Windows Performance Toolkit/"
       - "C:/ProgramData/chocolatey/bin/"
       - "D:/Program Files/PuTTY/"
+      - "D:/Program Files/PowerShell/7/"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
       - "D:/Program Files/Git/cmd/"
+      - "D:/Python/Python313/Scripts/"
       - "D:/Python/Python313/"
       - "C:/Program Files/MySQL/MySQL Shell 8.0/bin/"
       - "C:/Users/hobso/AppData/Local/Microsoft/WindowsApps/"
@@ -1091,6 +1078,7 @@ events:
       - "F:/BPL/Win32/"
       - "C:/Users/hobso/.dotnet/tools/"
       - "D:/Programs/CMake/bin/"
+      - "D:/Program Files/Git/usr/bin/"
       - "C:/Program Files/bin/"
       - "C:/Program Files/sbin/"
       - "C:/Program Files/"
@@ -1104,22 +1092,10 @@ events:
       - "C:/Program Files/CrossPlatformGameEngine/sbin/"
       - "C:/Program Files/CrossPlatformGameEngine/"
     searched_directories:
-      - "D:/Program Files/PowerShell/7/rc.com"
-      - "D:/Program Files/PowerShell/7/rc.exe"
-      - "D:/Program Files/PowerShell/7/rc"
-      - "D:/Python/Python313/Scripts/rc.com"
-      - "D:/Python/Python313/Scripts/rc.exe"
-      - "D:/Python/Python313/Scripts/rc"
-      - "D:/Program Files/Microsoft VS Code/rc.com"
-      - "D:/Program Files/Microsoft VS Code/rc.exe"
-      - "D:/Program Files/Microsoft VS Code/rc"
       - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin/rc.com"
     found: "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin/rc.exe"
     search_context:
       ENV{PATH}:
-        - "D:\\Program Files\\PowerShell\\7"
-        - "D:\\Python\\Python313\\Scripts"
-        - "D:\\Program Files\\Microsoft VS Code"
         - "C:\\Program Files (x86)\\Embarcadero\\Studio\\23.0\\bin"
         - "C:\\Users\\Public\\Documents\\Embarcadero\\Studio\\23.0\\Bpl"
         - "C:\\Program Files (x86)\\Embarcadero\\Studio\\23.0\\bin64"
@@ -1165,6 +1141,7 @@ events:
         - "F:\\BPL\\Win32"
         - "C:\\Users\\hobso\\.dotnet\\tools"
         - "D:\\Programs\\CMake\\bin"
+        - "D:\\Program Files\\Git\\usr\\bin"
       CMAKE_INSTALL_PREFIX: "C:/Program Files/CrossPlatformGameEngine"
       CMAKE_SYSTEM_PREFIX_PATH:
         - "C:/Program Files"
@@ -1180,8 +1157,8 @@ events:
     checks:
       - "Detecting CXX compiler ABI info"
     directories:
-      source: "F:/Projects/C++/CPGE2026/build/Debug/CMakeFiles/CMakeScratch/TryCompile-jfs1kd"
-      binary: "F:/Projects/C++/CPGE2026/build/Debug/CMakeFiles/CMakeScratch/TryCompile-jfs1kd"
+      source: "F:/Projects/C++/CPGE2026/build/debug/CMakeFiles/CMakeScratch/TryCompile-90scki"
+      binary: "F:/Projects/C++/CPGE2026/build/debug/CMakeFiles/CMakeScratch/TryCompile-90scki"
     cmakeVariables:
       CMAKE_CXX_FLAGS: "/DWIN32 /D_WINDOWS /EHsc"
       CMAKE_CXX_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
@@ -1192,39 +1169,39 @@ events:
       variable: "CMAKE_CXX_ABI_COMPILED"
       cached: true
       stdout: |
-        Change Dir: 'F:/Projects/C++/CPGE2026/build/Debug/CMakeFiles/CMakeScratch/TryCompile-jfs1kd'
+        Change Dir: 'F:/Projects/C++/CPGE2026/build/debug/CMakeFiles/CMakeScratch/TryCompile-90scki'
         
-        Run Build Command(s): "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_b3666.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        Run Build Command(s): "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_800b0.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
         MSBuild version 17.14.40+3e7442088 for .NET Framework
-        Build started 23/04/2026 2:42:17 PM.
+        Build started 14/05/2026 10:05:37 PM.
         
-        Project "F:\\Projects\\C++\\CPGE2026\\build\\Debug\\CMakeFiles\\CMakeScratch\\TryCompile-jfs1kd\\cmTC_b3666.vcxproj" on node 1 (default targets).
+        Project "F:\\Projects\\C++\\CPGE2026\\build\\debug\\CMakeFiles\\CMakeScratch\\TryCompile-90scki\\cmTC_800b0.vcxproj" on node 1 (default targets).
         PrepareForBuild:
           Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
-          Creating directory "F:\\Projects\\C++\\CPGE2026\\build\\Debug\\CMakeFiles\\CMakeScratch\\TryCompile-jfs1kd\\Debug\\".
-          Creating directory "cmTC_b3666.dir\\Debug\\cmTC_b3666.tlog\\".
+          Creating directory "F:\\Projects\\C++\\CPGE2026\\build\\debug\\CMakeFiles\\CMakeScratch\\TryCompile-90scki\\Debug\\".
+          Creating directory "cmTC_800b0.dir\\Debug\\cmTC_800b0.tlog\\".
         InitializeBuildStatus:
-          Creating "cmTC_b3666.dir\\Debug\\cmTC_b3666.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
-          Touching "cmTC_b3666.dir\\Debug\\cmTC_b3666.tlog\\unsuccessfulbuild".
+          Creating "cmTC_800b0.dir\\Debug\\cmTC_800b0.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_800b0.dir\\Debug\\cmTC_800b0.tlog\\unsuccessfulbuild".
         ClCompile:
-          D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /Fo"cmTC_b3666.dir\\Debug\\\\" /Fd"cmTC_b3666.dir\\Debug\\vc143.pdb" /external:W1 /TP /errorReport:queue "D:\\Programs\\CMake\\share\\cmake-4.3\\Modules\\CMakeCXXCompilerABI.cpp"
+          D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /Fo"cmTC_800b0.dir\\Debug\\\\" /Fd"cmTC_800b0.dir\\Debug\\vc143.pdb" /external:W1 /TP /errorReport:queue "D:\\Programs\\CMake\\share\\cmake-4.3\\Modules\\CMakeCXXCompilerABI.cpp"
           Microsoft (R) C/C++ Optimizing Compiler Version 19.38.33145 for x64
           Copyright (C) Microsoft Corporation.  All rights reserved.
-          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /Fo"cmTC_b3666.dir\\Debug\\\\" /Fd"cmTC_b3666.dir\\Debug\\vc143.pdb" /external:W1 /TP /errorReport:queue "D:\\Programs\\CMake\\share\\cmake-4.3\\Modules\\CMakeCXXCompilerABI.cpp"
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /Fo"cmTC_800b0.dir\\Debug\\\\" /Fd"cmTC_800b0.dir\\Debug\\vc143.pdb" /external:W1 /TP /errorReport:queue "D:\\Programs\\CMake\\share\\cmake-4.3\\Modules\\CMakeCXXCompilerABI.cpp"
           CMakeCXXCompilerABI.cpp
         Link:
-          D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\link.exe /OUT:"F:\\Projects\\C++\\CPGE2026\\build\\Debug\\CMakeFiles\\CMakeScratch\\TryCompile-jfs1kd\\Debug\\cmTC_b3666.exe" /INCREMENTAL /ILK:"cmTC_b3666.dir\\Debug\\cmTC_b3666.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"F:/Projects/C++/CPGE2026/build/Debug/CMakeFiles/CMakeScratch/TryCompile-jfs1kd/Debug/cmTC_b3666.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"F:/Projects/C++/CPGE2026/build/Debug/CMakeFiles/CMakeScratch/TryCompile-jfs1kd/Debug/cmTC_b3666.lib" /MACHINE:X64  /machine:x64 cmTC_b3666.dir\\Debug\\CMakeCXXCompilerABI.obj
-          cmTC_b3666.vcxproj -> F:\\Projects\\C++\\CPGE2026\\build\\Debug\\CMakeFiles\\CMakeScratch\\TryCompile-jfs1kd\\Debug\\cmTC_b3666.exe
+          D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\link.exe /OUT:"F:\\Projects\\C++\\CPGE2026\\build\\debug\\CMakeFiles\\CMakeScratch\\TryCompile-90scki\\Debug\\cmTC_800b0.exe" /INCREMENTAL /ILK:"cmTC_800b0.dir\\Debug\\cmTC_800b0.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"F:/Projects/C++/CPGE2026/build/debug/CMakeFiles/CMakeScratch/TryCompile-90scki/Debug/cmTC_800b0.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"F:/Projects/C++/CPGE2026/build/debug/CMakeFiles/CMakeScratch/TryCompile-90scki/Debug/cmTC_800b0.lib" /MACHINE:X64  /machine:x64 cmTC_800b0.dir\\Debug\\CMakeCXXCompilerABI.obj
+          cmTC_800b0.vcxproj -> F:\\Projects\\C++\\CPGE2026\\build\\debug\\CMakeFiles\\CMakeScratch\\TryCompile-90scki\\Debug\\cmTC_800b0.exe
         FinalizeBuildStatus:
-          Deleting file "cmTC_b3666.dir\\Debug\\cmTC_b3666.tlog\\unsuccessfulbuild".
-          Touching "cmTC_b3666.dir\\Debug\\cmTC_b3666.tlog\\cmTC_b3666.lastbuildstate".
-        Done Building Project "F:\\Projects\\C++\\CPGE2026\\build\\Debug\\CMakeFiles\\CMakeScratch\\TryCompile-jfs1kd\\cmTC_b3666.vcxproj" (default targets).
+          Deleting file "cmTC_800b0.dir\\Debug\\cmTC_800b0.tlog\\unsuccessfulbuild".
+          Touching "cmTC_800b0.dir\\Debug\\cmTC_800b0.tlog\\cmTC_800b0.lastbuildstate".
+        Done Building Project "F:\\Projects\\C++\\CPGE2026\\build\\debug\\CMakeFiles\\CMakeScratch\\TryCompile-90scki\\cmTC_800b0.vcxproj" (default targets).
         
         Build succeeded.
             0 Warning(s)
             0 Error(s)
         
-        Time Elapsed 00:00:01.94
+        Time Elapsed 00:00:01.71
         
       exitCode: 0
   -
@@ -1255,323 +1232,10 @@ events:
       Running the CXX compiler's linker: "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.38.33130/bin/HostX64/x64/link.exe" "-v"
       Microsoft (R) Incremental Linker Version 14.38.33145.0
       Copyright (C) Microsoft Corporation.  All rights reserved.
-...
-
----
-events:
   -
     kind: "find-v1"
     backtrace:
-      - "CMakeLists.txt:130 (find_program)"
-    mode: "program"
-    variable: "FXC_EXE"
-    description: "HLSL shader compiler"
-    settings:
-      SearchFramework: "NEVER"
-      SearchAppBundle: "NEVER"
-      CMAKE_FIND_USE_CMAKE_PATH: true
-      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
-      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
-      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
-      CMAKE_FIND_USE_INSTALL_PREFIX: true
-    names:
-      - "fxc"
-    candidate_directories:
-      - "C:/Program Files (x86)/Windows Kits/10/bin/10.0.26100.0/x64/"
-      - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin/"
-      - "C:/Users/Public/Documents/Embarcadero/Studio/23.0/Bpl/"
-      - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin64/"
-      - "C:/Users/Public/Documents/Embarcadero/Studio/23.0/Bpl/Win64/"
-      - "D:/Program Files/NVIDIA Corporation/CudaToolkit/bin/"
-      - "D:/Program Files/NVIDIA Corporation/CudaToolkit/libnvvp/"
-      - "D:/Program Files (x86)/VMware/VMware Workstation/bin/"
-      - "C:/Program Files/Eclipse Adoptium/jdk-11.0.15.10-hotspot/bin/"
-      - "C:/WINDOWS/System32/"
-      - "C:/WINDOWS/"
-      - "C:/WINDOWS/System32/wbem/"
-      - "C:/WINDOWS/System32/WindowsPowerShell/v1.0/"
-      - "C:/WINDOWS/System32/OpenSSH/"
-      - "C:/Program Files/Microsoft SQL Server/Client SDK/ODBC/170/Tools/Binn/"
-      - "C:/Program Files/Microsoft SQL Server/150/Tools/Binn/"
-      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/"
-      - "C:/Program Files/dotnet/"
-      - "C:/Program Files/GitHub CLI/"
-      - "D:/Program Files/Assimp/bin/x64/"
-      - "D:/Program Files/Assimp/lib/x64/"
-      - "D:/Program Files/Assimp/include/assimp/"
-      - "C:/Program Files/NVIDIA Corporation/Nsight Compute 2024.3.2/"
-      - "D:/Program Files/WinMerge/"
-      - "D:/Windows Kits/10/Windows Performance Toolkit/"
-      - "C:/ProgramData/chocolatey/bin/"
-      - "D:/Program Files/PuTTY/"
-      - "D:/Program Files/PowerShell/7/"
-      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
-      - "D:/Program Files/Git/cmd/"
-      - "D:/Python/Python313/Scripts/"
-      - "D:/Python/Python313/"
-      - "C:/Program Files/MySQL/MySQL Shell 8.0/bin/"
-      - "C:/Users/hobso/AppData/Local/Microsoft/WindowsApps/"
-      - "C:/Users/hobso/AppData/Local/GitHubDesktop/bin/"
-      - "D:/Program Files/Microsoft VS Code/bin/"
-      - "C:/Users/hobso/AppData/Local/Programs/Windsurf/bin/"
-      - "C:/Program Files/Tesseract-OCR/"
-      - "F:/PHP/"
-      - "C:/Users/hobso/AppData/Local/ComposerSetup/bin/"
-      - "C:/Users/hobso/AppData/Roaming/Composer/vendor/bin/"
-      - "F:/curl/bin/"
-      - "F:/PHP/ext/"
-      - "F:/BPL/Win32/"
-      - "C:/Users/hobso/.dotnet/tools/"
-      - "D:/Programs/CMake/bin/"
-      - "C:/Program Files/bin/"
-      - "C:/Program Files/sbin/"
-      - "C:/Program Files/"
-      - "C:/Program Files (x86)/bin/"
-      - "C:/Program Files (x86)/sbin/"
-      - "C:/Program Files (x86)/"
-      - "D:/Programs/CMake/bin/"
-      - "D:/Programs/CMake/sbin/"
-      - "D:/Programs/CMake/"
-      - "C:/Program Files/CrossPlatformGameEngine/bin/"
-      - "C:/Program Files/CrossPlatformGameEngine/sbin/"
-      - "C:/Program Files/CrossPlatformGameEngine/"
-    searched_directories:
-      - "C:/Program Files (x86)/Windows Kits/10/bin/10.0.26100.0/x64/fxc.com"
-      - "C:/Program Files (x86)/Windows Kits/10/bin/10.0.26100.0/x64/fxc.exe"
-      - "C:/Program Files (x86)/Windows Kits/10/bin/10.0.26100.0/x64/fxc"
-      - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin/fxc.com"
-      - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin/fxc.exe"
-      - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin/fxc"
-      - "C:/Users/Public/Documents/Embarcadero/Studio/23.0/Bpl/fxc.com"
-      - "C:/Users/Public/Documents/Embarcadero/Studio/23.0/Bpl/fxc.exe"
-      - "C:/Users/Public/Documents/Embarcadero/Studio/23.0/Bpl/fxc"
-      - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin64/fxc.com"
-      - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin64/fxc.exe"
-      - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin64/fxc"
-      - "C:/Users/Public/Documents/Embarcadero/Studio/23.0/Bpl/Win64/fxc.com"
-      - "C:/Users/Public/Documents/Embarcadero/Studio/23.0/Bpl/Win64/fxc.exe"
-      - "C:/Users/Public/Documents/Embarcadero/Studio/23.0/Bpl/Win64/fxc"
-      - "D:/Program Files/NVIDIA Corporation/CudaToolkit/bin/fxc.com"
-      - "D:/Program Files/NVIDIA Corporation/CudaToolkit/bin/fxc.exe"
-      - "D:/Program Files/NVIDIA Corporation/CudaToolkit/bin/fxc"
-      - "D:/Program Files/NVIDIA Corporation/CudaToolkit/libnvvp/fxc.com"
-      - "D:/Program Files/NVIDIA Corporation/CudaToolkit/libnvvp/fxc.exe"
-      - "D:/Program Files/NVIDIA Corporation/CudaToolkit/libnvvp/fxc"
-      - "D:/Program Files (x86)/VMware/VMware Workstation/bin/fxc.com"
-      - "D:/Program Files (x86)/VMware/VMware Workstation/bin/fxc.exe"
-      - "D:/Program Files (x86)/VMware/VMware Workstation/bin/fxc"
-      - "C:/Program Files/Eclipse Adoptium/jdk-11.0.15.10-hotspot/bin/fxc.com"
-      - "C:/Program Files/Eclipse Adoptium/jdk-11.0.15.10-hotspot/bin/fxc.exe"
-      - "C:/Program Files/Eclipse Adoptium/jdk-11.0.15.10-hotspot/bin/fxc"
-      - "C:/WINDOWS/System32/fxc.com"
-      - "C:/WINDOWS/System32/fxc.exe"
-      - "C:/WINDOWS/System32/fxc"
-      - "C:/WINDOWS/fxc.com"
-      - "C:/WINDOWS/fxc.exe"
-      - "C:/WINDOWS/fxc"
-      - "C:/WINDOWS/System32/wbem/fxc.com"
-      - "C:/WINDOWS/System32/wbem/fxc.exe"
-      - "C:/WINDOWS/System32/wbem/fxc"
-      - "C:/WINDOWS/System32/WindowsPowerShell/v1.0/fxc.com"
-      - "C:/WINDOWS/System32/WindowsPowerShell/v1.0/fxc.exe"
-      - "C:/WINDOWS/System32/WindowsPowerShell/v1.0/fxc"
-      - "C:/WINDOWS/System32/OpenSSH/fxc.com"
-      - "C:/WINDOWS/System32/OpenSSH/fxc.exe"
-      - "C:/WINDOWS/System32/OpenSSH/fxc"
-      - "C:/Program Files/Microsoft SQL Server/Client SDK/ODBC/170/Tools/Binn/fxc.com"
-      - "C:/Program Files/Microsoft SQL Server/Client SDK/ODBC/170/Tools/Binn/fxc.exe"
-      - "C:/Program Files/Microsoft SQL Server/Client SDK/ODBC/170/Tools/Binn/fxc"
-      - "C:/Program Files/Microsoft SQL Server/150/Tools/Binn/fxc.com"
-      - "C:/Program Files/Microsoft SQL Server/150/Tools/Binn/fxc.exe"
-      - "C:/Program Files/Microsoft SQL Server/150/Tools/Binn/fxc"
-      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/fxc.com"
-      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/fxc.exe"
-      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/fxc"
-      - "C:/Program Files/dotnet/fxc.com"
-      - "C:/Program Files/dotnet/fxc.exe"
-      - "C:/Program Files/dotnet/fxc"
-      - "C:/Program Files/GitHub CLI/fxc.com"
-      - "C:/Program Files/GitHub CLI/fxc.exe"
-      - "C:/Program Files/GitHub CLI/fxc"
-      - "D:/Program Files/Assimp/bin/x64/fxc.com"
-      - "D:/Program Files/Assimp/bin/x64/fxc.exe"
-      - "D:/Program Files/Assimp/bin/x64/fxc"
-      - "D:/Program Files/Assimp/lib/x64/fxc.com"
-      - "D:/Program Files/Assimp/lib/x64/fxc.exe"
-      - "D:/Program Files/Assimp/lib/x64/fxc"
-      - "D:/Program Files/Assimp/include/assimp/fxc.com"
-      - "D:/Program Files/Assimp/include/assimp/fxc.exe"
-      - "D:/Program Files/Assimp/include/assimp/fxc"
-      - "C:/Program Files/NVIDIA Corporation/Nsight Compute 2024.3.2/fxc.com"
-      - "C:/Program Files/NVIDIA Corporation/Nsight Compute 2024.3.2/fxc.exe"
-      - "C:/Program Files/NVIDIA Corporation/Nsight Compute 2024.3.2/fxc"
-      - "D:/Program Files/WinMerge/fxc.com"
-      - "D:/Program Files/WinMerge/fxc.exe"
-      - "D:/Program Files/WinMerge/fxc"
-      - "D:/Windows Kits/10/Windows Performance Toolkit/fxc.com"
-      - "D:/Windows Kits/10/Windows Performance Toolkit/fxc.exe"
-      - "D:/Windows Kits/10/Windows Performance Toolkit/fxc"
-      - "C:/ProgramData/chocolatey/bin/fxc.com"
-      - "C:/ProgramData/chocolatey/bin/fxc.exe"
-      - "C:/ProgramData/chocolatey/bin/fxc"
-      - "D:/Program Files/PuTTY/fxc.com"
-      - "D:/Program Files/PuTTY/fxc.exe"
-      - "D:/Program Files/PuTTY/fxc"
-      - "D:/Program Files/PowerShell/7/fxc.com"
-      - "D:/Program Files/PowerShell/7/fxc.exe"
-      - "D:/Program Files/PowerShell/7/fxc"
-      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/fxc.com"
-      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/fxc.exe"
-      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/fxc"
-      - "D:/Program Files/Git/cmd/fxc.com"
-      - "D:/Program Files/Git/cmd/fxc.exe"
-      - "D:/Program Files/Git/cmd/fxc"
-      - "D:/Python/Python313/Scripts/fxc.com"
-      - "D:/Python/Python313/Scripts/fxc.exe"
-      - "D:/Python/Python313/Scripts/fxc"
-      - "D:/Python/Python313/fxc.com"
-      - "D:/Python/Python313/fxc.exe"
-      - "D:/Python/Python313/fxc"
-      - "C:/Program Files/MySQL/MySQL Shell 8.0/bin/fxc.com"
-      - "C:/Program Files/MySQL/MySQL Shell 8.0/bin/fxc.exe"
-      - "C:/Program Files/MySQL/MySQL Shell 8.0/bin/fxc"
-      - "C:/Users/hobso/AppData/Local/Microsoft/WindowsApps/fxc.com"
-      - "C:/Users/hobso/AppData/Local/Microsoft/WindowsApps/fxc.exe"
-      - "C:/Users/hobso/AppData/Local/Microsoft/WindowsApps/fxc"
-      - "C:/Users/hobso/AppData/Local/GitHubDesktop/bin/fxc.com"
-      - "C:/Users/hobso/AppData/Local/GitHubDesktop/bin/fxc.exe"
-      - "C:/Users/hobso/AppData/Local/GitHubDesktop/bin/fxc"
-      - "D:/Program Files/Microsoft VS Code/bin/fxc.com"
-      - "D:/Program Files/Microsoft VS Code/bin/fxc.exe"
-      - "D:/Program Files/Microsoft VS Code/bin/fxc"
-      - "C:/Users/hobso/AppData/Local/Programs/Windsurf/bin/fxc.com"
-      - "C:/Users/hobso/AppData/Local/Programs/Windsurf/bin/fxc.exe"
-      - "C:/Users/hobso/AppData/Local/Programs/Windsurf/bin/fxc"
-      - "C:/Program Files/Tesseract-OCR/fxc.com"
-      - "C:/Program Files/Tesseract-OCR/fxc.exe"
-      - "C:/Program Files/Tesseract-OCR/fxc"
-      - "F:/PHP/fxc.com"
-      - "F:/PHP/fxc.exe"
-      - "F:/PHP/fxc"
-      - "C:/Users/hobso/AppData/Local/ComposerSetup/bin/fxc.com"
-      - "C:/Users/hobso/AppData/Local/ComposerSetup/bin/fxc.exe"
-      - "C:/Users/hobso/AppData/Local/ComposerSetup/bin/fxc"
-      - "C:/Users/hobso/AppData/Roaming/Composer/vendor/bin/fxc.com"
-      - "C:/Users/hobso/AppData/Roaming/Composer/vendor/bin/fxc.exe"
-      - "C:/Users/hobso/AppData/Roaming/Composer/vendor/bin/fxc"
-      - "F:/curl/bin/fxc.com"
-      - "F:/curl/bin/fxc.exe"
-      - "F:/curl/bin/fxc"
-      - "F:/PHP/ext/fxc.com"
-      - "F:/PHP/ext/fxc.exe"
-      - "F:/PHP/ext/fxc"
-      - "F:/BPL/Win32/fxc.com"
-      - "F:/BPL/Win32/fxc.exe"
-      - "F:/BPL/Win32/fxc"
-      - "C:/Users/hobso/.dotnet/tools/fxc.com"
-      - "C:/Users/hobso/.dotnet/tools/fxc.exe"
-      - "C:/Users/hobso/.dotnet/tools/fxc"
-      - "D:/Programs/CMake/bin/fxc.com"
-      - "D:/Programs/CMake/bin/fxc.exe"
-      - "D:/Programs/CMake/bin/fxc"
-      - "C:/Program Files/bin/fxc.com"
-      - "C:/Program Files/bin/fxc.exe"
-      - "C:/Program Files/bin/fxc"
-      - "C:/Program Files/sbin/fxc.com"
-      - "C:/Program Files/sbin/fxc.exe"
-      - "C:/Program Files/sbin/fxc"
-      - "C:/Program Files/fxc.com"
-      - "C:/Program Files/fxc.exe"
-      - "C:/Program Files/fxc"
-      - "C:/Program Files (x86)/bin/fxc.com"
-      - "C:/Program Files (x86)/bin/fxc.exe"
-      - "C:/Program Files (x86)/bin/fxc"
-      - "C:/Program Files (x86)/sbin/fxc.com"
-      - "C:/Program Files (x86)/sbin/fxc.exe"
-      - "C:/Program Files (x86)/sbin/fxc"
-      - "C:/Program Files (x86)/fxc.com"
-      - "C:/Program Files (x86)/fxc.exe"
-      - "C:/Program Files (x86)/fxc"
-      - "D:/Programs/CMake/bin/fxc.com"
-      - "D:/Programs/CMake/bin/fxc.exe"
-      - "D:/Programs/CMake/bin/fxc"
-      - "D:/Programs/CMake/sbin/fxc.com"
-      - "D:/Programs/CMake/sbin/fxc.exe"
-      - "D:/Programs/CMake/sbin/fxc"
-      - "D:/Programs/CMake/fxc.com"
-      - "D:/Programs/CMake/fxc.exe"
-      - "D:/Programs/CMake/fxc"
-      - "C:/Program Files/CrossPlatformGameEngine/bin/fxc.com"
-      - "C:/Program Files/CrossPlatformGameEngine/bin/fxc.exe"
-      - "C:/Program Files/CrossPlatformGameEngine/bin/fxc"
-      - "C:/Program Files/CrossPlatformGameEngine/sbin/fxc.com"
-      - "C:/Program Files/CrossPlatformGameEngine/sbin/fxc.exe"
-      - "C:/Program Files/CrossPlatformGameEngine/sbin/fxc"
-      - "C:/Program Files/CrossPlatformGameEngine/fxc.com"
-      - "C:/Program Files/CrossPlatformGameEngine/fxc.exe"
-      - "C:/Program Files/CrossPlatformGameEngine/fxc"
-    found: false
-    search_context:
-      ENV{PATH}:
-        - "C:\\Program Files (x86)\\Embarcadero\\Studio\\23.0\\bin"
-        - "C:\\Users\\Public\\Documents\\Embarcadero\\Studio\\23.0\\Bpl"
-        - "C:\\Program Files (x86)\\Embarcadero\\Studio\\23.0\\bin64"
-        - "C:\\Users\\Public\\Documents\\Embarcadero\\Studio\\23.0\\Bpl\\Win64"
-        - "D:\\Program Files\\NVIDIA Corporation\\CudaToolkit\\bin"
-        - "D:\\Program Files\\NVIDIA Corporation\\CudaToolkit\\libnvvp"
-        - "D:\\Program Files (x86)\\VMware\\VMware Workstation\\bin\\"
-        - "C:\\Program Files\\Eclipse Adoptium\\jdk-11.0.15.10-hotspot\\bin"
-        - "C:\\WINDOWS\\system32"
-        - "C:\\WINDOWS"
-        - "C:\\WINDOWS\\System32\\Wbem"
-        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
-        - "C:\\WINDOWS\\System32\\OpenSSH\\"
-        - "C:\\Program Files\\Microsoft SQL Server\\Client SDK\\ODBC\\170\\Tools\\Binn\\"
-        - "C:\\Program Files\\Microsoft SQL Server\\150\\Tools\\Binn\\"
-        - "C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common"
-        - "C:\\Program Files\\dotnet\\"
-        - "C:\\Program Files\\GitHub CLI\\"
-        - "D:\\Program Files\\Assimp\\bin\\x64"
-        - "D:\\Program Files\\Assimp\\lib\\x64"
-        - "D:\\Program Files\\Assimp\\include\\assimp"
-        - "C:\\Program Files\\NVIDIA Corporation\\Nsight Compute 2024.3.2\\"
-        - "D:\\Program Files\\WinMerge"
-        - "D:\\Windows Kits\\10\\Windows Performance Toolkit\\"
-        - "C:\\ProgramData\\chocolatey\\bin"
-        - "D:\\Program Files\\PuTTY\\"
-        - "D:\\Program Files\\PowerShell\\7\\"
-        - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA App\\NvDLISR"
-        - "D:\\Program Files\\Git\\cmd"
-        - "D:\\Python\\Python313\\Scripts\\"
-        - "D:\\Python\\Python313\\"
-        - "C:\\Program Files\\MySQL\\MySQL Shell 8.0\\bin\\"
-        - "C:\\Users\\hobso\\AppData\\Local\\Microsoft\\WindowsApps"
-        - "C:\\Users\\hobso\\AppData\\Local\\GitHubDesktop\\bin"
-        - "D:\\Program Files\\Microsoft VS Code\\bin"
-        - "C:\\Users\\hobso\\AppData\\Local\\Programs\\Windsurf\\bin"
-        - "C:\\Program Files\\Tesseract-OCR"
-        - "F:\\PHP"
-        - "C:\\Users\\hobso\\AppData\\Local\\ComposerSetup\\bin"
-        - "C:\\Users\\hobso\\AppData\\Roaming\\Composer\\vendor\\bin"
-        - "F:\\curl\\bin"
-        - "F:\\PHP\\ext"
-        - "F:\\BPL\\Win32"
-        - "C:\\Users\\hobso\\.dotnet\\tools"
-        - "D:\\Programs\\CMake\\bin"
-      CMAKE_INSTALL_PREFIX: "C:/Program Files/CrossPlatformGameEngine"
-      CMAKE_SYSTEM_PREFIX_PATH:
-        - "C:/Program Files"
-        - "C:/Program Files (x86)"
-        - "D:/Programs/CMake"
-        - "C:/Program Files/CrossPlatformGameEngine"
-...
-
----
-events:
-  -
-    kind: "find-v1"
-    backtrace:
-      - "CMakeLists.txt:164 (find_program)"
+      - "CMakeLists.txt:169 (find_program)"
     mode: "program"
     variable: "FXC_EXE"
     description: "HLSL shader compiler"
@@ -1639,6 +1303,7 @@ events:
       - "F:/BPL/Win32/"
       - "C:/Users/hobso/.dotnet/tools/"
       - "D:/Programs/CMake/bin/"
+      - "D:/Program Files/Git/usr/bin/"
       - "C:/Program Files/bin/"
       - "C:/Program Files/sbin/"
       - "C:/Program Files/"
@@ -1719,6 +1384,7 @@ events:
         - "F:\\BPL\\Win32"
         - "C:\\Users\\hobso\\.dotnet\\tools"
         - "D:\\Programs\\CMake\\bin"
+        - "D:\\Program Files\\Git\\usr\\bin"
       CMAKE_INSTALL_PREFIX: "C:/Program Files/CrossPlatformGameEngine"
       CMAKE_SYSTEM_PREFIX_PATH:
         - "C:/Program Files"

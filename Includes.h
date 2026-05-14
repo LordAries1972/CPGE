@@ -66,7 +66,9 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
             #pragma comment(lib, "iphlpapi.lib")                                    // IP Helper API library
         #endif // __USE_NETWORKING__
         
-        // Windows Platform Master Renderer Switches
+        // Windows Platform — enable the renderer(s) you have installed.
+        // Only one is needed at minimum; add more as they become available.
+        // Runtime selection via config.myConfig.rendererType: 0=DX11  1=DX12  2=OpenGL  3=Vulkan
         #define __USE_DIRECTX_11__
         //#define __USE_DIRECTX_12__
         //#define __USE_OPENGL__
@@ -172,6 +174,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
         #define PLATFORM_LINUX
     #endif
 
+    // Linux — enable renderers you have installed; runtime selection via rendererType: 0=OpenGL  1=Vulkan
     //#define __USE_OPENGL__
     //#define __USE_VULKAN__
 #elif defined(__ANDROID__)
@@ -179,23 +182,21 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
         #define PLATFORM_ANDROID
     #endif // !PLATFORM_ANDROID
 
+    // Android — enable renderers you have installed; runtime selection via rendererType: 0=OpenGL  1=Vulkan
     //#define __USE_OPENGL__
     //#define __USE_VULKAN__
 #elif defined(__APPLE__)
     #ifndef PLATFORM_APPLE
         #define PLATFORM_APPLE
     #endif // !PLATFORM_APPLE
+    // macOS — OpenGL only
     //#define __USE_OPENGL__
 #elif defined(TARGET_OS_IPHONE) || (TARGET_IPHONE_SIMULATOR)
     #ifndef PLATFORM_IOS
-        #ifndef PLATFORM_IOS
-            #define PLATFORM_IOS
-        #endif // !PLATFORM_IOS
-        #define __USE_OPENGL__
-    #else
-        // FUTURE: Whatever other OS you may need to build a Renderer for.
-        //#define PLATFORM_WHATEVER_NAME_HERE
-    #endif
+        #define PLATFORM_IOS
+    #endif // !PLATFORM_IOS
+    // iOS — OpenGL only
+    #define __USE_OPENGL__
 #endif // !PLATFORM_WINDOWS, PLATFORM_LINUX, PLATFORM_ANDROID, PLATFORM_APPLE, PLATFORM_IOS
 
 // Your General C/C++ Includes

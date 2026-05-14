@@ -646,7 +646,7 @@ are optional and have defaults.
 | `SaveAndSuspendFXForScene` | _(none)_ | Save & pause FX for scene transition |
 | `RestoreFXAfterScene` | _(none)_ | Restore suspended FX after scene |
 | `DiscardSavedFXState` | _(none)_ | Discard saved FX state |
-| `InitWarpDotTunnel` | `x, y, z, minR, maxR, spin, speed, [reverse=false], [dots=24], [density=3]` | Start warp dot tunnel |
+| `InitWarpDotTunnel` | `x, y, z, minR, maxR, spin, speed, [reverse=false], [dots=24], [density=3]` | Start warp dot tunnel. Forward (`reverse=false`): quadratic acceleration — very slow far from camera, very fast close up. Reverse (`reverse=true`): very fast at camera end, decelerates toward the vanishing point. |
 | `StopWarpDotTunnel` | _(none)_ | Stop warp dot tunnel |
 
 **Scroll direction values:** `ScrollRight`, `ScrollLeft`, `ScrollUp`,

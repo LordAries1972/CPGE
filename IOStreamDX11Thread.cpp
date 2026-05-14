@@ -14,6 +14,7 @@ for the given scene.
 #include "ExceptionHandler.h"
 #include "ThreadManager.h"
 #include "WinSystem.h"
+#include "Configuration.h"
 #include "ShaderManager.h"
 #include "Models.h"
 #include "Lights.h"
