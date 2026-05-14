@@ -72,9 +72,9 @@ void DX11Renderer::RenderFrame()
         #endif
         return;
     }
-    
+
     // Check for shutdown, minimized, resizing, or already rendering states
-    if (threadManager.threadVars.bIsShuttingDown.load() || bIsMinimized.load() || 
+    if (threadManager.threadVars.bIsShuttingDown.load() || bIsMinimized.load() ||
         threadManager.threadVars.bIsResizing.load() || !bIsInitialized.load()) {
         #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
             debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Early exit - system state prevents rendering");
@@ -103,7 +103,7 @@ void DX11Renderer::RenderFrame()
     try
     {
         exceptionHandler.RecordFunctionCall("RenderFrame");             // Record function call for crash analysis
-        
+
         // Set rendering state atomically to indicate we are now rendering
         threadManager.threadVars.bIsRendering.store(true);
 
@@ -118,7 +118,7 @@ void DX11Renderer::RenderFrame()
         // MODEL SAFETY CHECK!
         #if defined(_DEBUG)
             FLOAT clearColor[4] = { 0.01f, 0.01f, 0.01f, 1.0f };        // Use Very Dark Grey clear color with full alpha to ensure all models are rendering properly.
-        #else 
+        #else
             FLOAT clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };           // Black clear color with full alpha
         #endif
 
@@ -128,12 +128,12 @@ void DX11Renderer::RenderFrame()
         #ifdef RENDERER_IS_THREAD
             // Thread-based rendering loop - check thread status continuously
             ThreadStatus status = threadManager.GetThreadStatus(THREAD_RENDERER);
-            while (((status == ThreadStatus::Running) || (status == ThreadStatus::Paused)) && 
+            while (((status == ThreadStatus::Running) || (status == ThreadStatus::Paused)) &&
                    (!threadManager.threadVars.bIsShuttingDown.load()))
             {
                 // Update thread status for current iteration
                 status = threadManager.GetThreadStatus(THREAD_RENDERER);
-            
+
                 // Handle paused state - yield CPU and continue loop
                 if (status == ThreadStatus::Paused)
                 {
@@ -162,32 +162,32 @@ void DX11Renderer::RenderFrame()
                 if (FAILED(deviceStatus) && (!threadManager.threadVars.bIsResizing.load()))
                 {
                     // Verify window is not minimized before attempting device reset
-                    if (!sysUtils.IsWindowMinimized()) 
+                    if (!sysUtils.IsWindowMinimized())
                     {
                         #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
                             debug.logDebugMessage(LogLevel::LOG_WARNING, L"[RENDERFRAME] Device removed detected (0x%08X). Attempting reset.", deviceStatus);
                         #endif
-                        
+
                         threadManager.threadVars.bIsResizing.store(true); // Set resize flag for reset operation
-                        
+
                         try {
                             // Attempt device reset through resize
-                            Resize(iOrigWidth, iOrigHeight);             
+                            Resize(iOrigWidth, iOrigHeight);
                             // Reload resources after reset
-                            ResumeLoader();                              
+                            ResumeLoader();
                         }
                         catch (const std::exception& e) {
                             #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
                                 debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Device reset failed: %hs", e.what());
                             #endif
                         }
-                        
+
                         // Clear resize flag
-                        threadManager.threadVars.bIsResizing.store(false);  
+                        threadManager.threadVars.bIsResizing.store(false);
                         // Clear rendering flag
-                        threadManager.threadVars.bIsRendering.store(false); 
+                        threadManager.threadVars.bIsRendering.store(false);
                         // Exit after device reset attempt
-                        return;                                             
+                        return;
                     }
                     else
                     {
@@ -252,7 +252,7 @@ void DX11Renderer::RenderFrame()
                     m_d3dContext->ClearRenderTargetView(m_renderTargetView.Get(), clearColor);
                     // Clear depth stencil with maximum depth and zero stencil
                     m_d3dContext->ClearDepthStencilView(m_depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-                    
+
                     #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
                         debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Render targets cleared successfully");
                     #endif
@@ -281,12 +281,12 @@ void DX11Renderer::RenderFrame()
             myCamera.UpdateJumpAnimation();
 
             // Get current high-resolution time
-            auto now = std::chrono::steady_clock::now();                                   
+            auto now = std::chrono::steady_clock::now();
             // Calculate raw delta time in seconds
-            float rawDeltaTime = std::chrono::duration<float>(now - lastFrameTime).count(); 
-            
+            float rawDeltaTime = std::chrono::duration<float>(now - lastFrameTime).count();
+
             // Target 60 FPS for smoothing
-            float smoothedDeltaTime = deltaTimeSmoothing.ProcessDelta(rawDeltaTime, 60.0f); 
+            float smoothedDeltaTime = deltaTimeSmoothing.ProcessDelta(rawDeltaTime, 60.0f);
             // Use smoothed delta time for animations
             float deltaTime = smoothedDeltaTime;
 
@@ -323,7 +323,7 @@ void DX11Renderer::RenderFrame()
             switch (scene.stSceneType)
             {
                 // Only in during development/testing - not part of main game flow
-                // We can use this for testing new features, effects, or experimental content 
+                // We can use this for testing new features, effects, or experimental content
                 // without affecting the main scenes
                 #if defined(_DEBUG)
                     case SceneType::SCENE_EXPERIMENT:
@@ -389,17 +389,17 @@ void DX11Renderer::RenderFrame()
                     // Begin Direct2D drawing operations
                     try {
                         // Start Direct2D rendering session
-                        m_d2dRenderTarget->BeginDraw();                  
+                        m_d2dRenderTarget->BeginDraw();
                     }
                     catch (const std::exception& e) {
                         #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
                             debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Failed to begin 2D draw: %hs", e.what());
                         #endif
-                        
+
                         // Clear rendering flag
-                        threadManager.threadVars.bIsRendering.store(false); 
+                        threadManager.threadVars.bIsRendering.store(false);
                         // Exit on 2D begin failure
-                        return;                                         
+                        return;
                     }
 
                     // Verify system state before 2D rendering
@@ -480,14 +480,14 @@ void DX11Renderer::RenderFrame()
                        }
 
                        // Build comprehensive debug information string
-                       XMFLOAT3 Coords = myCamera.GetPosition();                                                
+                       XMFLOAT3 Coords = myCamera.GetPosition();
 
                        // Display Relative Information.
-                       std::wstring fpsText = L"FPS: " + std::to_wstring(fps) +                                 
+                       std::wstring fpsText = L"FPS: " + std::to_wstring(fps) +
                            L"\nMOUSE: x" + std::to_wstring(myMouseCoords.x) + L", y" + std::to_wstring(myMouseCoords.y) +
                            L"\nCamera X: " + std::to_wstring(Coords.x) + L", Y: " + std::to_wstring(Coords.y) + L", Z: " + std::to_wstring(Coords.z) +
                            L", Yaw: " + std::to_wstring(myCamera.m_yaw) + L", Pitch: " + std::to_wstring(myCamera.m_pitch) + L"\n" +
-                           L"Global Light Count: " + std::to_wstring(lightsManager.GetLightCount()) + L"\n";    
+                           L"Global Light Count: " + std::to_wstring(lightsManager.GetLightCount()) + L"\n";
 
                        // Render debug text in top-left corner
                        DrawMyText(fpsText, Vector2(0, 0), MyColor(255, 255, 255, 255), 10.0f);
@@ -561,7 +561,7 @@ void DX11Renderer::RenderFrame()
                        recBlinkCounter = (recBlinkCounter + 1) % 60;
                        if (recBlinkCounter < 30) // visible for first half of the 60-frame cycle
                        {
-                           DrawMyText(L"\u25CF REC",
+                           DrawMyText(L"● REC",
                                Vector2(width - 75.0f, 12.0f),
                                MyColor::Red(),
                                18.0f);
@@ -606,7 +606,7 @@ void DX11Renderer::RenderFrame()
                #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
                    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Presenting frame to display");
                #endif
-               
+
                // Capture back-buffer BEFORE Present so the fully-composed frame is recorded
                screenRecorder.CaptureFrame(m_d3dDevice.Get(), m_d3dContext.Get(), m_swapChain.Get());
 
@@ -664,7 +664,7 @@ void DX11Renderer::RenderFrame()
        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
            debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"[RENDERFRAME] Critical exception occurred: %hs", e.what());
        #endif
-       
+
        // Ensure rendering flag is cleared on exception
        threadManager.threadVars.bIsRendering.store(false);
    }
@@ -905,7 +905,7 @@ void DX11Renderer::RenderBackgroundImage()
                         threadManager.threadVars.bInitiateFader.store(false);
                         fxManager.FadeToImage(1.0f, 0.1f);
                     }
-                    
+
                     Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
                 }
             }

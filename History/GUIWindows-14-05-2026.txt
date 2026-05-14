@@ -1,0 +1,446 @@
+
+#include "Includes.h"
+
+#include "DX_FXManager.h"
+#include "ThreadManager.h"
+#include "SoundManager.h"
+#include "GUIManager.h"
+#include "WinSystem.h"
+#include "Debug.h"
+#include "SceneManager.h"
+
+extern Vector2 myMouseCoords;
+extern SoundManager soundManager;
+extern WindowMetrics winMetrics;
+extern FXManager fxManager;
+extern ThreadManager threadManager;
+extern SceneManager scene;
+extern Debug debug;
+extern std::shared_ptr<Renderer> renderer;
+
+extern void SwitchToGameIntro();
+
+void GUIManager::CreateAlertWindow(const std::wstring& message) {
+    const std::string WINDOW_NAME = "AlertWindow";
+
+    CreateMyWindow(
+        WINDOW_NAME,
+        GUIWindowType::Alert,
+        Vector2(200, 150),
+        Vector2(400, 300),
+        MyColor(120, 0, 0, 0),
+        int(BlitObj2DIndexType::IMG_WINFRAME1)
+    );
+
+    std::shared_ptr<GUIWindow> alertWindow = GetWindow(WINDOW_NAME);
+    if (!alertWindow) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateAlertWindow - Failed to create alert window");
+        return;
+    }
+
+    GUIControl titleBar;
+    titleBar.type = GUIControlType::TitleBar;
+    titleBar.position = Vector2(alertWindow->position.x, alertWindow->position.y);
+    titleBar.size = Vector2(alertWindow->size.x - (CLOSEWINBUTTON_SIZE + 6), TITLEBAR_HEIGHT);
+    titleBar.bgColor = MyColor(0, 0, 0, 255);
+    titleBar.txtColor = MyColor(255, 255, 0, 255);
+    titleBar.bgTextureId = int(BlitObj2DIndexType::IMG_TITLEBAR1);
+    titleBar.bgTextureHoverId = int(BlitObj2DIndexType::IMG_TITLEBAR1HL);
+    titleBar.label = L"   Alert Status!";
+    titleBar.lblFontSize = 18.0f;
+    titleBar.isVisible = true;
+
+    std::weak_ptr<GUIWindow> weakAlertWindow = alertWindow;
+
+    titleBar.onMouseBtnDown = [weakAlertWindow]() {
+        if (auto window = weakAlertWindow.lock()) {
+            if (!window->bWindowDestroy) {
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"CreateAlertWindow - TitleBar mouse down detected");
+                window->isDragging = true;
+            }
+        }
+        };
+
+    titleBar.onMouseBtnUp = [weakAlertWindow]() {
+        if (auto window = weakAlertWindow.lock()) {
+            if (!window->bWindowDestroy) {
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"CreateAlertWindow - TitleBar mouse up detected");
+                window->isDragging = false;
+            }
+        }
+        };
+
+    titleBar.onMouseMove = [weakAlertWindow]() {
+        if (auto window = weakAlertWindow.lock()) {
+            if (!window->bWindowDestroy) {
+            }
+        }
+        };
+
+    alertWindow->AddControl(titleBar);
+    alertWindow->contentText = message;
+
+    GUIControl textArea;
+    textArea.type = GUIControlType::TextArea;
+    textArea.position = Vector2(alertWindow->position.x + 6, alertWindow->position.y + (titleBar.size.y + 6));
+    textArea.size = Vector2(alertWindow->size.x - 6 - (SCROLLBAR_WIDTH - 2), alertWindow->size.y - 74);
+    textArea.lblFontSize = 14.0f;
+    textArea.bgColor = MyColor(60, 0, 0, 255);
+    textArea.txtColor = MyColor(0, 175, 255, 255);
+    textArea.bgTextureId = int(BlitObj2DIndexType::IMG_BEVEL1);
+    textArea.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BEVEL1);
+    textArea.isVisible = true;
+    alertWindow->AddControl(textArea);
+
+    GUIControl okayButton;
+    okayButton.type = GUIControlType::Button;
+    okayButton.position = Vector2(alertWindow->position.x + (140 - winMetrics.borderWidth),
+        (alertWindow->position.y + alertWindow->size.y) - 35);
+    okayButton.size = Vector2(BUTTON_WIDTH, 30);
+    okayButton.bgColor = MyColor(0, 0, 0, 255);
+    okayButton.txtColor = MyColor(0, 80, 255, 255);
+    okayButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTONUP1);
+    okayButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTONUP1);
+    okayButton.label = L"Ok";
+    okayButton.lblFontSize = 16.0f;
+    okayButton.isVisible = true;
+
+    okayButton.onMouseBtnDown = [this, windowName = std::string(WINDOW_NAME)]() {
+        try {
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateAlertWindow - Okay button clicked");
+            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+            RemoveWindow(windowName);
+        }
+        catch (const std::exception& e) {
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateAlertWindow - Exception in okay button handler: %s",
+                std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
+        }
+        };
+    alertWindow->AddControl(okayButton);
+
+    GUIControl btnClose;
+    btnClose.type = GUIControlType::Button;
+    btnClose.position = Vector2((alertWindow->position.x + alertWindow->size.x) - (CLOSEWINBUTTON_SIZE + 4),
+        alertWindow->position.y + 4);
+    btnClose.size = Vector2(CLOSEWINBUTTON_SIZE, CLOSEWINBUTTON_SIZE);
+    btnClose.bgColor = MyColor(120, 0, 0, 255);
+    btnClose.txtColor = MyColor(80, 0, 0, 255);
+    btnClose.bgTextureId = int(BlitObj2DIndexType::IMG_BTNCLOSEUP1);
+    btnClose.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BTNCLOSEUP1);
+    btnClose.label = L"";
+    btnClose.lblFontSize = 8.0f;
+    btnClose.isVisible = true;
+
+    btnClose.onMouseBtnDown = [this, windowName = std::string(WINDOW_NAME)]()
+    {
+        try {
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateAlertWindow - Close button clicked");
+            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+            RemoveWindow(windowName);
+        }
+        catch (const std::exception& e) {
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateAlertWindow - Exception in close button handler: %s",
+                std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
+        }
+    };
+
+    alertWindow->AddControl(btnClose);
+}
+
+void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
+    const std::string WINDOW_NAME = "GameMenuWindow";
+
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Creating game menu window with message: %s", message.c_str());
+
+    if (!renderer) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateGameMenuWindow - DX11 renderer is null, cannot create window");
+        return;
+    }
+
+    CreateMyWindow(
+        WINDOW_NAME,
+        GUIWindowType::Dialog,
+        Vector2(renderer->iOrigWidth - 305, 0),
+        Vector2(300, renderer->iOrigHeight),
+        MyColor(0, 0, 0, 0),
+        int(BlitObj2DIndexType::NONE)
+    );
+
+    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"CreateGameMenuWindow - Window created at position (%d, %d) with size (%d, %d)",
+        renderer->iOrigWidth - 305, 0, 300, renderer->iOrigHeight);
+
+    std::shared_ptr<GUIWindow> gameMenuWindow = GetWindow(WINDOW_NAME);
+    if (!gameMenuWindow) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateGameMenuWindow - Failed to create game menu window");
+        return;
+    }
+
+    std::weak_ptr<GUIWindow> weakGameMenuWindow = gameMenuWindow;
+
+    GUIControl titleBar;
+    titleBar.type = GUIControlType::TitleBar;
+    titleBar.position = Vector2(gameMenuWindow->position.x, gameMenuWindow->position.y);
+    titleBar.size = Vector2(gameMenuWindow->size.x, 40);
+    titleBar.bgColor = MyColor(0, 0, 0, 255);
+    titleBar.txtColor = MyColor(255, 255, 0, 255);
+    titleBar.bgTextureId = int(BlitObj2DIndexType::IMG_TITLEBAR2);
+    titleBar.bgTextureHoverId = int(BlitObj2DIndexType::IMG_TITLEBAR2);
+    titleBar.label = L"";
+    titleBar.lblFontSize = 18.0f;
+    titleBar.isVisible = true;
+
+    gameMenuWindow->AddControl(titleBar);
+
+    GUIControl configButton;
+    configButton.type = GUIControlType::Button;
+    configButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 55);
+    configButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);
+    configButton.bgColor = MyColor(0, 0, 0, 255);
+    configButton.txtColor = MyColor(255, 255, 0, 255);
+    configButton.useShadowedText = true;
+    configButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);
+    configButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);
+    configButton.label = L"      CONFIGURATION";
+    configButton.lblFontSize = 16.0f;
+    configButton.isVisible = true;
+
+    configButton.onMouseOver = [weakGameMenuWindow]() {
+        if (auto window = weakGameMenuWindow.lock()) {
+            if (!window->bWindowDestroy) {
+            }
+        }
+        };
+
+    configButton.onMouseBtnUp = [this]() {
+        try {
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Configuration button released, opening config window");
+            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+            CreateConfigWindow();
+        }
+        catch (const std::exception& e) {
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateGameMenuWindow - Exception in configuration button handler: %s",
+                std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
+        }
+        };
+
+    gameMenuWindow->AddControl(configButton);
+
+    GUIControl gameplayButton;
+    gameplayButton.type = GUIControlType::Button;
+    gameplayButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 110);
+    gameplayButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);
+    gameplayButton.bgColor = MyColor(0, 0, 0, 255);
+    gameplayButton.txtColor = MyColor(255, 255, 0, 255);
+    gameplayButton.useShadowedText = true;
+    gameplayButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);
+    gameplayButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);
+    gameplayButton.label = L"        GAME PLAY";
+    gameplayButton.lblFontSize = 16.0f;
+    gameplayButton.isVisible = true;
+
+    gameplayButton.onMouseOver = [weakGameMenuWindow]() {
+        if (auto window = weakGameMenuWindow.lock()) {
+            if (!window->bWindowDestroy) {
+            }
+        }
+        };
+
+    gameplayButton.onMouseBtnDown = [this, windowName = std::string(WINDOW_NAME)]() {
+        try {
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Game Play button clicked");
+            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+            fxManager.FadeToBlack(1.0f, 0.06f);
+
+            int fadeTimeout = 0;
+            const int MAX_FADE_TIMEOUT = 300;
+            while (fxManager.IsFadeActive() && fadeTimeout < MAX_FADE_TIMEOUT) {
+                Sleep(10);
+                fadeTimeout++;
+            }
+
+            RemoveWindow(windowName);
+            SwitchToGamePlay();
+        }
+        catch (const std::exception& e) {
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateGameMenuWindow - Exception in gameplay button handler: %s",
+                std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
+        }
+        };
+
+    gameMenuWindow->AddControl(gameplayButton);
+
+    GUIControl hiscoresButton;
+    hiscoresButton.type = GUIControlType::Button;
+    hiscoresButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 165);
+    hiscoresButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);
+    hiscoresButton.bgColor = MyColor(0, 0, 0, 255);
+    hiscoresButton.txtColor = MyColor(255, 255, 0, 255);
+    hiscoresButton.useShadowedText = true;
+    hiscoresButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);
+    hiscoresButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);
+    hiscoresButton.label = L"       HIGH SCORES";
+    hiscoresButton.lblFontSize = 16.0f;
+    hiscoresButton.isVisible = true;
+
+    hiscoresButton.onMouseOver = [weakGameMenuWindow]() {
+        if (auto window = weakGameMenuWindow.lock()) {
+            if (!window->bWindowDestroy) {
+            }
+        }
+    };
+
+    hiscoresButton.onMouseBtnDown = [this]() {
+        try {
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - High Scores button clicked");
+            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+        }
+        catch (const std::exception& e) {
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateGameMenuWindow - Exception in high scores button handler: %s",
+                std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
+        }
+    };
+
+    gameMenuWindow->AddControl(hiscoresButton);
+
+    GUIControl creditsButton;
+    creditsButton.type = GUIControlType::Button;
+    creditsButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 220);
+    creditsButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);
+    creditsButton.bgColor = MyColor(0, 0, 0, 255);
+    creditsButton.txtColor = MyColor(255, 255, 0, 255);
+    creditsButton.useShadowedText = true;
+    creditsButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);
+    creditsButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);
+    creditsButton.label = L"    SHOW CREDITS";
+    creditsButton.lblFontSize = 16.0f;
+    creditsButton.isVisible = true;
+
+    creditsButton.onMouseOver = [weakGameMenuWindow]() {
+        if (auto window = weakGameMenuWindow.lock()) {
+            if (!window->bWindowDestroy) {
+            }
+        }
+        };
+
+    creditsButton.onMouseBtnDown = [this]() {
+        try {
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Credits button clicked");
+            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+        }
+        catch (const std::exception& e) {
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateGameMenuWindow - Exception in credits button handler: %s",
+                std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
+        }
+        };
+
+    gameMenuWindow->AddControl(creditsButton);
+
+    GUIControl quitButton;
+    quitButton.type = GUIControlType::Button;
+    quitButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 275);
+    quitButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);
+    quitButton.bgColor = MyColor(0, 0, 0, 255);
+    quitButton.txtColor = MyColor(255, 255, 0, 255);
+    quitButton.useShadowedText = true;
+    quitButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);
+    quitButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);
+    quitButton.label = L"    QUIT TO DESKTOP";
+    quitButton.lblFontSize = 16.0f;
+    quitButton.isVisible = true;
+
+    quitButton.onMouseOver = [weakGameMenuWindow]() {
+        if (auto window = weakGameMenuWindow.lock()) {
+            if (!window->bWindowDestroy) {
+            }
+        }
+        };
+
+    quitButton.onMouseBtnDown = [this, windowName = std::string(WINDOW_NAME)]()
+    {
+        try {
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Quit button clicked, initiating shutdown sequence");
+            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+            fxManager.FadeToBlack(1.0f, 0.06f);
+
+            int fadeTimeout = 0;
+            const int MAX_FADE_TIMEOUT = 300;
+            while (fxManager.IsFadeActive() && fadeTimeout < MAX_FADE_TIMEOUT) {
+                Sleep(10);
+                fadeTimeout++;
+            }
+
+            if (fadeTimeout >= MAX_FADE_TIMEOUT)
+                debug.logDebugMessage(LogLevel::LOG_WARNING, L"CreateGameMenuWindow - Fade effect timeout reached, proceeding with shutdown");
+            else
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"CreateGameMenuWindow - Fade effect completed successfully");
+
+            RemoveWindow(windowName);
+
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Posting quit message for application shutdown");
+            threadManager.threadVars.bIsShuttingDown.store(true);
+            PostQuitMessage(0);
+        }
+        catch (const std::exception& e) {
+            debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"CreateGameMenuWindow - Exception in quit button handler: %s",
+                std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
+            threadManager.threadVars.bIsShuttingDown.store(true);
+            PostQuitMessage(0);
+        }
+    };
+
+    gameMenuWindow->AddControl(quitButton);
+
+#if defined(_DEBUG)
+    // Experimental button — DEBUG builds only; launches WarpDotTunnel demo
+    GUIControl experimentalButton;
+    experimentalButton.type = GUIControlType::Button;
+    experimentalButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 330);
+    experimentalButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);
+    experimentalButton.bgColor = MyColor(0, 0, 0, 255);
+    experimentalButton.txtColor = MyColor(255, 128, 0, 255);
+    experimentalButton.useShadowedText = true;
+    experimentalButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);
+    experimentalButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);
+    experimentalButton.label = L"   ** EXPERIMENTAL **";
+    experimentalButton.lblFontSize = 16.0f;
+    experimentalButton.isVisible = true;
+
+    experimentalButton.onMouseBtnDown = [this, windowName = std::string(WINDOW_NAME)]() {
+        try {
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Experimental button clicked, launching WarpDotTunnel");
+
+            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+
+            fxManager.FadeToBlack(1.0f, 0.06f);
+
+            // This callback runs on the main thread (via HandleAllInput), so we CAN
+            // sleep here. The separate render thread advances the fade independently.
+            int fadeTimeout = 0;
+            const int MAX_FADE_TIMEOUT = 300;
+            while (fxManager.IsFadeActive() && fadeTimeout < MAX_FADE_TIMEOUT) {
+                Sleep(10);
+                fadeTimeout++;
+            }
+
+            RemoveWindow(windowName);
+
+            // Screen is black — hand off to the loader thread which owns all
+            // scene initialisation (SaveAndSuspendFXForScene + Init3DWarpDOTTunnel
+            // + FadeToImage are all called from SCENE_EXPERIMENT in IOStreamDX11Thread).
+            scene.SetGotoScene(SCENE_EXPERIMENT);
+            scene.InitiateScene();
+            scene.SetGotoScene(SCENE_NONE);
+            renderer->ResumeLoader();
+        }
+        catch (const std::exception& e) {
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateGameMenuWindow - Exception in experimental button handler: %s",
+                std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
+        }
+    };
+
+    gameMenuWindow->AddControl(experimentalButton);
+#endif
+
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Game menu window created successfully with %d controls",
+        static_cast<int>(gameMenuWindow->controls.size()));
+}

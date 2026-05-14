@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1150*
+*Current Build Version: v0.0.1155*
 
 ---
 
@@ -733,6 +733,43 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - *See: [`ScriptManager.h`](ScriptManager.h), [`ScriptManager.cpp`](ScriptManager.cpp),
   [`CMakeLists.txt`](CMakeLists.txt), [`CrossPlatformGameEngine.vcxproj`](CrossPlatformGameEngine.vcxproj),
   [`Docs/Scripting-Example-Usage.md`](Docs/Scripting-Example-Usage.md)*
+
+**May 14, 2026** - SCENE_EXPERIMENT black screen fix — WarpDotTunnel not rendering:
+
+- **Bug fix — SCENE_EXPERIMENT rendered a pure black screen with no tunnel visible**: `RenderBackgroundImage()`
+  had no case for `SCENE_EXPERIMENT` in its scene switch, so it fell through to `default: break` every frame.
+  The `fxManager.RenderFX(fxManager.tunnelID, ...)` call that drives the WarpDotTunnel was only wired inside
+  the `SCENE_GAMETITLE` case — never reached when the experiment scene was active.
+  - Added a `#if defined(_DEBUG)` guarded `SCENE_EXPERIMENT` case to `RenderBackgroundImage()` that calls
+    `fxManager.RenderFX(fxManager.tunnelID, m_d3dContext.Get(), myCamera.GetViewMatrix())` once
+    `bLoaderTaskFinished` is true. Background stays black (D3D clear); tunnel dots render on top.
+    Camera target is set internally by `UpdateWarpDotTunnel` — no extra setup required.
+- *See: [`DXRenderFrame.cpp`](DXRenderFrame.cpp)*
+
+**May 14, 2026** - SCENE_EXPERIMENT architectural fix — tunnel init moved to loader thread:
+
+- **Bug fix — WarpDotTunnel initialisation was happening on the main thread in GUIWindows.cpp**
+  instead of in the loader thread (`IOStreamDX11Thread.cpp`) where all scene setup belongs.
+  `SaveAndSuspendFXForScene()` and `Init3DWarpDOTTunnel()` were being called in the
+  experimental button handler before `ResumeLoader()` was even called — violating the
+  established pattern where the loader thread owns all scene resource and effect setup.
+  - Removed `SaveAndSuspendFXForScene()` and `Init3DWarpDOTTunnel()` from the
+    `experimentalButton.onMouseBtnDown` handler in `GUIWindows.cpp`. The button handler
+    now only fades to black, removes the menu window, switches scene, and calls
+    `ResumeLoader()` — consistent with how all other scene buttons work.
+  - Added `SaveAndSuspendFXForScene()` and `Init3DWarpDOTTunnel()` to the
+    `SCENE_EXPERIMENT` case in `IOStreamDX11Thread.cpp`, after textures are loaded and
+    before `bLoaderTaskFinished` is set and `FadeToImage` is called. Screen is already
+    black when the loader thread runs, so the tunnel is initialised and rendering before
+    the fade-in begins.
+- *See: [`GUIWindows.cpp`](GUIWindows.cpp), [`IOStreamDX11Thread.cpp`](IOStreamDX11Thread.cpp)*
+
+**May 14, 2026** - cmake-build.bat: added `clean` target to wipe all build directories:
+
+- `cmake-build.bat clean` now deletes the entire `build\` folder (both Debug and Release
+  subdirectories) in one step, forcing a fresh configure and compile on the next run.
+  Match is case-insensitive (`CLEAN`, `Clean`, `clean` all work).
+- *See: [`cmake-build.bat`](cmake-build.bat)*
 
 ---
 
