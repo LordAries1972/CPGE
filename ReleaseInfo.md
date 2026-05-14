@@ -30,7 +30,11 @@ the engines full power!  I am planning to make the CPGE engine a flight engine u
 8) Even thou the system is not currently as advanced as UNREAL and the others out there, why help them to only elevate your costs right!
 9) Time to jump on board, making a game is what we do, and contribute your recommendations here so we can all 
    benefit from the expertise of others and yet, keep our costs down for our players so we all can make a buck right!
-10) We will NEVER EVER charge anyone for the privilege of using our gaming engine!
+10) Scripting support that allows the user to customise scene generation via scripts for those who are NOT programmable savvy or for those who can
+    manipulate sequencing without the code in the engine for the scene transitions. This allows a direct API interface to the main core engine and
+    that been said, allows you do externally edit your game engine.
+
+It should also be duely noted, that we will NEVER EVER charge anyone for the privilege of using our gaming engine!
 
 To me, its only common sense, join now our community, request a PULL Request from management on our website as given above, so you too can help the community
 build a real gaming platform on Multiple-Platform Systems and yet, keep our gaming prices low so that users can afford to play!
