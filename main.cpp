@@ -120,6 +120,7 @@
 #include "Lights.h"
 #include "MoviePlayer.h"
 #include "ScreenRecorder.h"
+#include "ConsoleWindow.h"
 
 #ifdef __USE_SCRIPT_MANAGER__
     #include "ScriptManager.h"
@@ -161,6 +162,7 @@ ShaderManager shaderManager;
 ThreadManager threadManager;
 MoviePlayer moviePlayer;
 ScreenRecorder screenRecorder;
+extern ConsoleWindow consoleWindow;
 
 #ifdef __USE_SCRIPT_MANAGER__
     ScriptManager scriptManager;
@@ -1689,6 +1691,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
             isLeftClicked = true;
             guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
+            consoleWindow.HandleMouseClick(myMouseCoords.x, myMouseCoords.y);
             return 0;
 
         case WM_RBUTTONDOWN:
@@ -1999,6 +2002,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         {
             // Ignore mouse wheel during resize or fullscreen transitions
             if (bResizeInProgress.load() || bFullScreenTransition.load()) {
+                return 0;
+            }
+
+            // Console window takes priority — absorb wheel when visible
+            if (consoleWindow.bIsVisible)
+            {
+                consoleWindow.HandleMouseWheel(GET_WHEEL_DELTA_WPARAM(wParam));
                 return 0;
             }
 

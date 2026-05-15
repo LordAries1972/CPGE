@@ -130,6 +130,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Configuration.cpp" />
+    <ClCompile Include="ConsoleWindow.cpp" />
     <ClCompile Include="Debug.cpp" />
     <ClCompile Include="DX11Renderer.cpp" />
     <ClCompile Include="DX12Renderer.cpp" />
@@ -180,6 +181,7 @@
   <ItemGroup>
     <ClInclude Include="BuildInfo.h" />
     <ClInclude Include="Color.h" />
+    <ClInclude Include="ConsoleWindow.h" />
     <ClInclude Include="Configuration.h" />
     <ClInclude Include="ConstantBuffer.h" />
     <ClInclude Include="Debug.h" />

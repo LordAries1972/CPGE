@@ -7,6 +7,9 @@
     <ClCompile Include="F:\Projects\C++\CPGE2026\Configuration.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="F:\Projects\C++\CPGE2026\ConsoleWindow.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="F:\Projects\C++\CPGE2026\Debug.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

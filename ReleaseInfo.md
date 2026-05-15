@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1161*
+*Current Build Version: v0.0.1169*
 
 ---
 
@@ -454,81 +454,6 @@ Once the base DirectX 11 implementation is complete, the project will be release
 
 ### May 2026 - More major updates and fixes
 
-**May 15, 2026** - WarpDotTunnel speed profile overhaul:
-
-- **WarpDotTunnel — forward direction quadratic acceleration**: Ring travel speed now uses a
-  quadratic curve instead of a linear ramp. Rings are very slow far from the camera and
-  accelerate dramatically as they approach, giving a much more visceral warp-tunnel feel.
-  - Speed formula changed from `0.5 + pathT × 1.5` to `0.1 + pathT² × 2.4`
-  - At far end (pathT = 0): speed factor ≈ **0.1×** (barely moving)
-  - At near end (pathT = 1): speed factor = **2.5×** (very fast)
-  - *See: [`DX_FXManager.cpp`](DX_FXManager.cpp), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp)*
-
-- **WarpDotTunnel — reverse direction speed profile corrected**: The reverse (`reverse=true`)
-  speed profile was inverted — rings were slow at the camera end and fast at the vanishing point,
-  which is the opposite of the intended feel. Formula fixed to be very fast at the near end and
-  decelerate smoothly toward the vanishing point.
-  - Old (wrong): `2.0 − pathT × 1.5` → slow at start (0.5×), fast at end (2.0×)
-  - New (correct): `0.2 + pathT × 2.3` → very fast at start (2.5×), slow at end (0.2×)
-  - *See: [`DX_FXManager.cpp`](DX_FXManager.cpp), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp)*
-
-**May 11, 2026** - Bug fixes, hardcoded resolution audit, and ScriptManager pipeline integration:
-
-- **Bug fix — full-screen quarter-screen rendering**: `DX11Renderer::SetupViewport()` had hardcoded
-  `DEFAULT_WINDOW_WIDTH` (800) and `DEFAULT_WINDOW_HEIGHT` (600). On a 1600×1200 display those values
-  are exactly 1/4 of the screen area (half width × half height), producing the reported quarter-screen
-  symptom in fullscreen mode.
-  - `SetupViewport()` now uses `m_renderTargetWidth` / `m_renderTargetHeight`, populated from the
-    actual swap chain back buffer by `CreateRenderTargetViews()`.
-  - `Initialize()` now seeds `m_renderTargetWidth/Height` from `config.myConfig.resolutionWidth/Height`
-    at startup before any D3D resource creation.
-  - All renderer headers (`DX11Renderer.h`, `DX12Renderer.h`, `OpenGLRenderer.h`, `VULKAN_Renderer.h`)
-    member initializers changed from `DEFAULT_WINDOW_WIDTH/HEIGHT` to `0`.
-  - *See: [`DX11Renderer.cpp`](DX11Renderer.cpp), [`DX11Renderer.h`](DX11Renderer.h)*
-
-- **Bug fix — mouse cursor confined to 800×600 in fullscreen exclusive mode**:
-  `SetFullExclusive()` updated `iOrigWidth/iOrigHeight` to the real monitor resolution but never
-  synced `winMetrics.width/height`. The `WM_MOUSEMOVE` cursor clamp reads `winMetrics.width/height`,
-  so any cursor position beyond the original HWND size (800×600) was silently clamped to 799×599.
-  - `SetFullExclusive()` now updates `winMetrics.width/height/clientWidth/clientHeight`,
-    `m_renderTargetWidth/Height`, and calls `myCamera.UpdateResolution()` with the actual monitor
-    resolution and canonical aspect ratio immediately after the buffers are resized.
-  - *See: [`DX11Renderer.cpp`](DX11Renderer.cpp)*
-
-- **Bug fix — camera constructor hardcoded 800×600**: `Camera::Camera()` initialised
-  `m_screenWidth/Height` from `fDEFAULT_WINDOW_WIDTH/HEIGHT` and called
-  `SetupDefaultCamera(800, 600)` regardless of the configured resolution. Camera projection was
-  therefore wrong until the first `UpdateResolution()` call arrived via `WM_SIZE`.
-  - Constructor now reads `config.myConfig.resolutionWidth/Height` and calls
-    `LookupAspectRatio()` — consistent with every other subsystem that tracks screen dimensions.
-  - *See: [`DXCamera.cpp`](DXCamera.cpp)*
-
-- **Hardcoded resolution audit — remaining instances eliminated**:
-  - `Configuration.h` — `MyConfig` struct defaults changed from `resolutionWidth=1920`,
-    `resolutionHeight=1080`, `displayMode=2` (Full Screen) to `resolutionWidth=800`,
-    `resolutionHeight=600`, `displayMode=0` (Windowed). If `GameConfig.cfg` is absent or corrupt,
-    `loadConfig()` returns false and the struct defaults take effect — engine now falls back safely
-    to 800×600 windowed instead of attempting 1920×1080 fullscreen.
-  - `DX_FXManager.h` — `TextScrollData` default region changed from raw literals `800.0f/600.0f`
-    to `fDEFAULT_WINDOW_WIDTH/fDEFAULT_WINDOW_HEIGHT` (numerically identical but now self-documenting).
-  - *See: [`Configuration.h`](Configuration.h), [`DX_FXManager.h`](DX_FXManager.h)*
-
-- **ScriptManager integrated into the render and scene pipeline**: The `__USE_SCRIPT_MANAGER__`
-  conditional compilation guard is now fully wired throughout `main.cpp` and `DXRenderFrame.cpp`.
-  All call sites are wrapped in `#ifdef __USE_SCRIPT_MANAGER__` so the system compiles away to
-  nothing when the define is commented out in `Includes.h`.
-  - `main.cpp`: added `#include "ScriptManager.h"` guard; `ScriptManager scriptManager;` global
-    instance; `scriptManager.Initialize(...)` + `LoadSceneScript(SCENE_INITIALISE)` +
-    `ExecuteScriptAsync()` called after `scene.Initialize(renderer)` at startup.
-  - Scene transition functions — `SwitchToGamePlay()`, `SwitchToMovieIntro()`,
-    `SwitchToGameIntro()` — each call `StopExecution()` before the scene switch and
-    `LoadSceneScript()` + `ExecuteScriptAsync()` immediately after `InitiateScene()`.
-  - `DXRenderFrame.cpp`: `extern ScriptManager scriptManager` declared under the guard;
-    `scriptManager.Update(deltaTime)` called each frame after the delta-time clamp so
-    `DETECT_COLLISION` rules are evaluated every rendered frame.
-  - *See: [`main.cpp`](main.cpp), [`DXRenderFrame.cpp`](DXRenderFrame.cpp),
-    [`ScriptManager.h`](ScriptManager.h), [`ScriptManager.cpp`](ScriptManager.cpp)*
-
 **May 02, 2026** - More major updates and fixes:
 
 - Real Time in runtime configuration management system (GUIConfigWindow.cpp) - This is your panel for 
@@ -710,6 +635,63 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - *See: [`ScriptManager.h`](ScriptManager.h), [`ScriptManager.cpp`](ScriptManager.cpp),
   [`Scripts/`](Scripts/), [`Docs/Scripting-Example-Usage.md`](Docs/Scripting-Example-Usage.md)*
 
+**May 11, 2026** - Bug fixes, hardcoded resolution audit, and ScriptManager pipeline integration:
+
+- **Bug fix — full-screen quarter-screen rendering**: `DX11Renderer::SetupViewport()` had hardcoded
+  `DEFAULT_WINDOW_WIDTH` (800) and `DEFAULT_WINDOW_HEIGHT` (600). On a 1600×1200 display those values
+  are exactly 1/4 of the screen area (half width × half height), producing the reported quarter-screen
+  symptom in fullscreen mode.
+  - `SetupViewport()` now uses `m_renderTargetWidth` / `m_renderTargetHeight`, populated from the
+    actual swap chain back buffer by `CreateRenderTargetViews()`.
+  - `Initialize()` now seeds `m_renderTargetWidth/Height` from `config.myConfig.resolutionWidth/Height`
+    at startup before any D3D resource creation.
+  - All renderer headers (`DX11Renderer.h`, `DX12Renderer.h`, `OpenGLRenderer.h`, `VULKAN_Renderer.h`)
+    member initializers changed from `DEFAULT_WINDOW_WIDTH/HEIGHT` to `0`.
+  - *See: [`DX11Renderer.cpp`](DX11Renderer.cpp), [`DX11Renderer.h`](DX11Renderer.h)*
+
+- **Bug fix — mouse cursor confined to 800×600 in fullscreen exclusive mode**:
+  `SetFullExclusive()` updated `iOrigWidth/iOrigHeight` to the real monitor resolution but never
+  synced `winMetrics.width/height`. The `WM_MOUSEMOVE` cursor clamp reads `winMetrics.width/height`,
+  so any cursor position beyond the original HWND size (800×600) was silently clamped to 799×599.
+  - `SetFullExclusive()` now updates `winMetrics.width/height/clientWidth/clientHeight`,
+    `m_renderTargetWidth/Height`, and calls `myCamera.UpdateResolution()` with the actual monitor
+    resolution and canonical aspect ratio immediately after the buffers are resized.
+  - *See: [`DX11Renderer.cpp`](DX11Renderer.cpp)*
+
+- **Bug fix — camera constructor hardcoded 800×600**: `Camera::Camera()` initialised
+  `m_screenWidth/Height` from `fDEFAULT_WINDOW_WIDTH/HEIGHT` and called
+  `SetupDefaultCamera(800, 600)` regardless of the configured resolution. Camera projection was
+  therefore wrong until the first `UpdateResolution()` call arrived via `WM_SIZE`.
+  - Constructor now reads `config.myConfig.resolutionWidth/Height` and calls
+    `LookupAspectRatio()` — consistent with every other subsystem that tracks screen dimensions.
+  - *See: [`DXCamera.cpp`](DXCamera.cpp)*
+
+- **Hardcoded resolution audit — remaining instances eliminated**:
+  - `Configuration.h` — `MyConfig` struct defaults changed from `resolutionWidth=1920`,
+    `resolutionHeight=1080`, `displayMode=2` (Full Screen) to `resolutionWidth=800`,
+    `resolutionHeight=600`, `displayMode=0` (Windowed). If `GameConfig.cfg` is absent or corrupt,
+    `loadConfig()` returns false and the struct defaults take effect — engine now falls back safely
+    to 800×600 windowed instead of attempting 1920×1080 fullscreen.
+  - `DX_FXManager.h` — `TextScrollData` default region changed from raw literals `800.0f/600.0f`
+    to `fDEFAULT_WINDOW_WIDTH/fDEFAULT_WINDOW_HEIGHT` (numerically identical but now self-documenting).
+  - *See: [`Configuration.h`](Configuration.h), [`DX_FXManager.h`](DX_FXManager.h)*
+
+- **ScriptManager integrated into the render and scene pipeline**: The `__USE_SCRIPT_MANAGER__`
+  conditional compilation guard is now fully wired throughout `main.cpp` and `DXRenderFrame.cpp`.
+  All call sites are wrapped in `#ifdef __USE_SCRIPT_MANAGER__` so the system compiles away to
+  nothing when the define is commented out in `Includes.h`.
+  - `main.cpp`: added `#include "ScriptManager.h"` guard; `ScriptManager scriptManager;` global
+    instance; `scriptManager.Initialize(...)` + `LoadSceneScript(SCENE_INITIALISE)` +
+    `ExecuteScriptAsync()` called after `scene.Initialize(renderer)` at startup.
+  - Scene transition functions — `SwitchToGamePlay()`, `SwitchToMovieIntro()`,
+    `SwitchToGameIntro()` — each call `StopExecution()` before the scene switch and
+    `LoadSceneScript()` + `ExecuteScriptAsync()` immediately after `InitiateScene()`.
+  - `DXRenderFrame.cpp`: `extern ScriptManager scriptManager` declared under the guard;
+    `scriptManager.Update(deltaTime)` called each frame after the delta-time clamp so
+    `DETECT_COLLISION` rules are evaluated every rendered frame.
+  - *See: [`main.cpp`](main.cpp), [`DXRenderFrame.cpp`](DXRenderFrame.cpp),
+    [`ScriptManager.h`](ScriptManager.h), [`ScriptManager.cpp`](ScriptManager.cpp)*
+
 **May 14, 2026** - ScriptManager v1.1 — Variables and FOR loop support added:
 
 - **VAR directive** — typed global variable declarations added to the script language.
@@ -829,6 +811,77 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - *See: [`Configuration.h`](Configuration.h), [`Configuration.cpp`](Configuration.cpp),
   [`Includes.h`](Includes.h), [`RendererFactory.cpp`](RendererFactory.cpp),
   [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp), [`Renderer.h`](Renderer.h)*
+
+**May 15, 2026** - WarpDotTunnel speed profile overhaul:
+
+- **WarpDotTunnel — forward direction quadratic acceleration**: Ring travel speed now uses a
+  quadratic curve instead of a linear ramp. Rings are very slow far from the camera and
+  accelerate dramatically as they approach, giving a much more visceral warp-tunnel feel.
+  - Speed formula changed from `0.5 + pathT × 1.5` to `0.1 + pathT² × 2.4`
+  - At far end (pathT = 0): speed factor ≈ **0.1×** (barely moving)
+  - At near end (pathT = 1): speed factor = **2.5×** (very fast)
+  - *See: [`DX_FXManager.cpp`](DX_FXManager.cpp), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp)*
+
+- **WarpDotTunnel — reverse direction speed profile corrected**: The reverse (`reverse=true`)
+  speed profile was inverted — rings were slow at the camera end and fast at the vanishing point,
+  which is the opposite of the intended feel. Formula fixed to be very fast at the near end and
+  decelerate smoothly toward the vanishing point.
+  - Old (wrong): `2.0 − pathT × 1.5` → slow at start (0.5×), fast at end (2.0×)
+  - New (correct): `0.2 + pathT × 2.3` → very fast at start (2.5×), slow at end (0.2×)
+  - *See: [`DX_FXManager.cpp`](DX_FXManager.cpp), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp)*
+
+- Microphone volume maximum raised from 10 to 20 across the entire system:
+  - `ScreenRecorder.h` — `SetMicMonitorGain` and `SetMicRecordGain` clamp raised from 4.0 → 20.0.
+  - `GUIConfigWindow.cpp` — Microphone Volume slider range and clamp updated from `0–10` to `0–20`.
+  - `main.cpp` — NUMPAD +/- keyboard OSD clamp raised from `10.0` to `20.0`.
+  - OSD label thresholds updated: "(boosted)" now triggers at ≥1000% (gain > 10.0), "(max)" at ≥1900% (gain ~19+).
+- **Bug fix — record gain never updated from config**: `m_micRecordGain` was initialised to 2.5
+  and never changed — only `m_micMonitorGain` was set from `microphoneVolume`. The mic appeared
+  soft in recordings regardless of the volume setting because the blend gain was always fixed at 2.5.
+  - Startup init, `applyLive` callback, and NUMPAD keyboard handler all now call `SetMicRecordGain`
+    alongside `SetMicMonitorGain`, keeping monitor and record gain permanently in sync.
+- *See: [`ScreenRecorder.h`](ScreenRecorder.h), [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp), [`main.cpp`](main.cpp)*
+
+**May 16, 2026** - Console Output Window (F8 toggle):
+
+- **ConsoleWindow class** introduced — a lightweight, scene-aware OSD console rendered directly
+  via the `Renderer` interface (no GUIManager dependency).
+- **50-line circular buffer** (`std::deque<ConsoleLine>`): oldest line evicted automatically when
+  the buffer exceeds the limit. Thread-safe for `AddLine()` called from any thread.
+- **14-line visible area** with newest line always at the bottom and empty slots pushed to the top
+  when the buffer is sparse.
+- **Vertical scrollbar** on the far-right edge of the window: thumb is proportional to the
+  filled fraction of the buffer and positioned at the bottom when showing the newest lines.
+  Scrollable with **Page Up / Page Down** (3 lines per keypress); only active when console is visible.
+- **"Console" titlebar** across the top of the window.
+- **Small font** — size is computed as `clamp(screenHeight / 108, 8, 12)` giving ~10pt at 1080p,
+  scaling down to 8pt on smaller displays and capped at 12pt on large ones.
+- **Scene restriction** — only rendered in `SCENE_GAMETITLE` and `SCENE_GAMEPLAY`. The render site
+  in `DXRenderFrame.cpp` skips the draw while `scene.bSceneSwitching` is true, hiding the console
+  automatically during all scene transitions without changing `bIsVisible`.
+- **F8 key handler** added in `KBHandlersCode.cpp`: toggles `consoleWindow.Toggle()` only when
+  the current scene is `SCENE_GAMETITLE` or `SCENE_GAMEPLAY`; ignored in all other scenes.
+- **Window position** — bottom margin raised to 50 px so the console clears the Windows taskbar.
+- **Window size** — width clamp raised to 80 % of screen width / max 1400 px; visible
+  lines raised from 10 to 14 for a taller content area.
+- **Text no-wrap** — lines are drawn with the unbounded `DrawMyText` overload (no size rect) so
+  long lines extend to the right rather than wrapping to a second row.
+- **Mouse input** — scrollbar now responds to the mouse in addition to Page Up / Page Down:
+  - **Mouse wheel** — when the console is visible the wheel is fully captured and scrolls
+    the buffer 3 lines per tick; camera zoom is suppressed while the console is open.
+  - **Scrollbar click** — clicking anywhere on the scrollbar track jumps directly to that
+    position in the buffer (top = oldest lines, bottom = newest).
+  - Scrollbar geometry (x, y, height) is cached each `Render()` frame for zero-cost hit-testing.
+- **Buffer raised** — `CONSOLE_MAX_LINES` increased from 50 to 100 lines.
+- **Debug system integration** — in `_DEBUG` builds all `Debug::` output paths forward to the
+  console window with per-line colour:
+  - `LOG_WARNING` / `LogWarning()` → **yellow** `(255, 220, 0)`
+  - `LOG_ERROR` / `LOG_CRITICAL` / `LogError()` → **orange** `(255, 140, 0)`
+  - All other levels / `Log()` / `DebugLog()` / `LogFunction()` → **white** `(210, 210, 210)`
+  - Forwarding is inside `#ifdef _DEBUG` blocks; Release builds unchanged.
+- *See: [`ConsoleWindow.h`](ConsoleWindow.h), [`ConsoleWindow.cpp`](ConsoleWindow.cpp),
+  [`Debug.cpp`](Debug.cpp), [`KBHandlersCode.cpp`](KBHandlersCode.cpp),
+  [`DXRenderFrame.cpp`](DXRenderFrame.cpp)*
 
 ---
 

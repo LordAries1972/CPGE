@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(SOURCES
     BlenderImports.cpp
     Configuration.cpp
+    ConsoleWindow.cpp
     Debug.cpp
     DX11Renderer.cpp
     DX12Renderer.cpp

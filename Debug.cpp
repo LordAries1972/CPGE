@@ -1,5 +1,9 @@
 #include "Includes.h"
 #include "Debug.h"
+#ifdef _DEBUG
+#include "ConsoleWindow.h"
+extern ConsoleWindow consoleWindow;
+#endif
 
 // -----------------------------------------
 // Debug Logging Function
@@ -9,6 +13,12 @@ void Debug::DebugLog(const std::string& message)
     std::ostringstream oss;
     oss << "[INFO]: " << message << "\n";
     OutputDebugStringA(oss.str().c_str());
+#ifdef _DEBUG
+    {
+        std::wstring w(message.begin(), message.end());
+        consoleWindow.AddLine(L"[INFO]: " + w, ConsoleLineColor::Normal);
+    }
+#endif
 }
 
 void Debug::Insert_Into_Log_File(const std::wstring& filename, const std::wstring& lineMsg)
@@ -97,6 +107,17 @@ void Debug::logLevelMessage(LogLevel level, const std::wstring& message)
         woss << taggedMessage << L"\n";
         OutputDebugStringW(woss.str().c_str());
 
+#ifdef _DEBUG
+        {
+            ConsoleLineColor clr = ConsoleLineColor::Normal;
+            if (level == LogLevel::LOG_WARNING)
+                clr = ConsoleLineColor::Warning;
+            else if (level == LogLevel::LOG_ERROR || level == LogLevel::LOG_CRITICAL)
+                clr = ConsoleLineColor::Error;
+            consoleWindow.AddLine(taggedMessage, clr);
+        }
+#endif
+
         // Write unmodified (but tagged) message to the log file
         #if (!defined(NO_DEBUGFILE_OUTPUT))
             Insert_Into_Log_File(LOG_FILE_NAME, taggedMessage);
@@ -134,33 +155,46 @@ bool Debug::LOG_IF_FAILED(HRESULT hr, const LPCWSTR msg)
 
 void Debug::Log(const std::string& message)
 {
-    // Log message to the standard output
     #ifdef _DEBUG
-        OutputDebugStringA(("[INFO]: " + message).c_str()); // Also output to the debug console
+        OutputDebugStringA(("[INFO]: " + message).c_str());
+        {
+            std::wstring w(message.begin(), message.end());
+            consoleWindow.AddLine(L"[INFO]: " + w, ConsoleLineColor::Normal);
+        }
     #endif
 }
 
 void Debug::LogWarning(const std::string& message)
 {
-    // Log warning to the standard output
     #ifdef _DEBUG
-        OutputDebugStringA(("[WARNING]: " + message + "\n").c_str()); // Also output to the debug console
+        OutputDebugStringA(("[WARNING]: " + message + "\n").c_str());
+        {
+            std::wstring w(message.begin(), message.end());
+            consoleWindow.AddLine(L"[WARNING]: " + w, ConsoleLineColor::Warning);
+        }
     #endif
 }
 
-void Debug::LogError(const std::string& message) {
-
-    // Log error to the standard output
+void Debug::LogError(const std::string& message)
+{
     #ifdef _DEBUG
-        OutputDebugStringA(("[ERROR]: " + message + "\n").c_str()); // Also output to the debug console
+        OutputDebugStringA(("[ERROR]: " + message + "\n").c_str());
+        {
+            std::wstring w(message.begin(), message.end());
+            consoleWindow.AddLine(L"[ERROR]: " + w, ConsoleLineColor::Error);
+        }
     #endif
 }
 
-void Debug::LogFunction(const std::string& functionName, const std::string& message) {
-    // Log function-specific messages
+void Debug::LogFunction(const std::string& functionName, const std::string& message)
+{
     std::string fullMessage = "[Function: " + functionName + "] " + message;
     #ifdef _DEBUG
-        OutputDebugStringA(fullMessage.c_str()); // Also output to the debug console
+        OutputDebugStringA(fullMessage.c_str());
+        {
+            std::wstring w(fullMessage.begin(), fullMessage.end());
+            consoleWindow.AddLine(w, ConsoleLineColor::Normal);
+        }
     #endif
 }
 

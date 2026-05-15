@@ -28,6 +28,7 @@
 #include "Configuration.h"
 #include "DX_FXManager.h"
 #include "GUIManager.h"
+#include "ConsoleWindow.h"
 #include "Models.h"
 #include "Lights.h"
 #include "SceneManager.h"
@@ -38,6 +39,7 @@
 extern HWND hwnd;
 extern HINSTANCE hInst;
 extern GUIManager guiManager;
+extern ConsoleWindow consoleWindow;
 extern Debug debug;
 extern ExceptionHandler exceptionHandler;
 extern SystemUtils sysUtils;
@@ -548,6 +550,22 @@ void DX11Renderer::RenderFrame()
                        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
                            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] GUI rendering failed: %hs", e.what());
                        #endif
+                   }
+
+                   // Render console output window (F8 toggle).
+                   // Only visible in GAMETITLE / GAMEPLAY; hidden automatically during scene transitions.
+                   if (!scene.bSceneSwitching &&
+                       (scene.stSceneType == SceneType::SCENE_GAMETITLE ||
+                        scene.stSceneType == SceneType::SCENE_GAMEPLAY))
+                   {
+                       try {
+                           consoleWindow.Render(this, static_cast<int>(width), static_cast<int>(height));
+                       }
+                       catch (const std::exception& e) {
+                           #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
+                               debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Console window rendering failed: %hs", e.what());
+                           #endif
+                       }
                    }
 
                    // Render mouse cursor (always on top)

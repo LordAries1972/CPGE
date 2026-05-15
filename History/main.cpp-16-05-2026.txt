@@ -1,0 +1,9 @@
+main.cpp - Updated 16-05-2026
+==============================
+Console window mouse input wiring:
+  - Added #include "ConsoleWindow.h" (after ScreenRecorder.h)
+  - Added extern ConsoleWindow consoleWindow;
+  - WM_MOUSEWHEEL: when consoleWindow.bIsVisible, forwards wheel delta to
+    consoleWindow.HandleMouseWheel() and returns — console takes priority over camera zoom
+  - WM_LBUTTONDOWN: calls consoleWindow.HandleMouseClick(myMouseCoords.x, myMouseCoords.y)
+    after guiManager.HandleAllInput() so scrollbar track clicks are processed

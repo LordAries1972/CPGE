@@ -1,0 +1,13 @@
+DXRenderFrame.cpp - Edited 16-05-2026
+======================================
+Initial edit (see earlier entry):
+  - Added #include "ConsoleWindow.h", extern ConsoleWindow consoleWindow
+  - Added scene-guarded consoleWindow.Render() call after guiManager.Render()
+
+Bug-fix update (same day):
+  - POSITIONING: The render call was passing iOrigWidth/iOrigHeight (class members that may lag
+    after a resize) instead of the per-frame width/height locals computed from GetClientRect each
+    frame. The REC indicator already uses these locals correctly (Vector2(width-75, 12)).
+    Fixed: consoleWindow.Render(this, static_cast<int>(width), static_cast<int>(height))
+    This ensures the console is always positioned relative to the actual live viewport size,
+    matching what the D2D render target is actually drawing into.

@@ -20,6 +20,7 @@
 #include "ThreadManager.h"
 #include "ScreenRecorder.h"
 #include "GUIManager.h"
+#include "ConsoleWindow.h"
 
 #if defined(PLATFORM_WINDOWS)
     #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
@@ -58,6 +59,7 @@ extern std::atomic<int>  masterVolumeAdjustRequest;
 extern std::atomic<int>  ttsVolumeAdjustRequest;
 extern ScreenRecorder    screenRecorder;
 extern GUIManager        guiManager;
+extern ConsoleWindow     consoleWindow;
 
 void SetMyKeyUpHandler(KeyboardHandler& keyboard)
 { 
@@ -142,6 +144,34 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
                     renderer->debugOSDStartTime = std::chrono::steady_clock::now();
                     bDismissAllSettingOSDs      = true;
 
+                    break;
+                }
+
+                // Toggle console output window with F8 key (GAMETITLE / GAMEPLAY only)
+                case KeyCode::KEY_F8:
+                {
+                    switch (scene.stSceneType)
+                    {
+                        case SceneType::SCENE_GAMETITLE:
+                        case SceneType::SCENE_GAMEPLAY:
+                            consoleWindow.Toggle();
+                            break;
+                    }
+                    break;
+                }
+
+                // Scroll console window up/down with PAGE UP / PAGE DOWN
+                case KeyCode::KEY_PAGE_UP:
+                {
+                    if (consoleWindow.bIsVisible)
+                        consoleWindow.Scroll(3);
+                    break;
+                }
+
+                case KeyCode::KEY_PAGE_DOWN:
+                {
+                    if (consoleWindow.bIsVisible)
+                        consoleWindow.Scroll(-3);
                     break;
                 }
 

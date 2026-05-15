@@ -1,0 +1,5 @@
+CrossPlatformGameEngine.vcxproj - Edited 16-05-2026
+====================================================
+Changes:
+  - Added <ClCompile Include="ConsoleWindow.cpp" /> (before Debug.cpp entry)
+  - Added <ClInclude Include="ConsoleWindow.h" /> (after Color.h entry)
