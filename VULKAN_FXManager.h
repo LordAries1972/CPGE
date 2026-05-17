@@ -92,9 +92,12 @@ struct VKStar {
 struct VKTunnelRing {
     float zPos      = 0.0f;
     float spinAngle = 0.0f;
-    float cx        = 0.0f;
-    float cy        = 0.0f;
+    float cx        = 0.0f;     // current X centre (set at birth, never changes mid-flight)
+    float cy        = 0.0f;     // current Y centre (set at birth, never changes mid-flight)
+    float bornCx    = 0.0f;     // X position assigned at birth; ring flies straight from here
+    float bornCy    = 0.0f;     // Y position assigned at birth; ring flies straight from here
     bool  alive     = true;
+    int   colorStep = 0;
 };
 
 // Per-effect state for WarpDotTunnel
@@ -115,7 +118,13 @@ struct VKWarpTunnelData {
     float farZ          = 800.0f;
     float spinSpeed       = 0.0f;
     float pathPhaseOffset = 0.0f;    // advances each frame so the path drifts, creating winding movement
+    float sideWaveTime    = 0.0f;    // accumulates per-frame; drives the furthest-ring left/right sway
+    XMFLOAT3 smoothLookTarget = { 0.0f, 0.0f, 800.0f }; // exponentially-smoothed camera look target
 
+    static constexpr float kSideWaveRadius = 60.0f;
+    static constexpr float kSideWaveSpeed  = 0.5f;
+    static constexpr float kCameraSmooth   = 3.0f;
+    static constexpr int   kGraySteps      = 8;
     static constexpr float kMaxXYRadius = 300.0f;
 
     std::vector<VKTunnelRing> rings;

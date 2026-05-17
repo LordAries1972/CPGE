@@ -5,16 +5,16 @@
 //
 // Handles all coordinate-system, winding-order, material, and
 // version-specific differences for Blender 3.x through 5.x
-// GLTF 2.0 / GLB exports into a DirectX left-handed Y-up system.
+// GLTF 2.0 / GLB exports.
 //
-// GLTF spec  : right-handed, Y-up  (+X right, +Y up, -Z forward)
-// DirectX    : left-handed,  Y-up  (+X right, +Y up, +Z forward)
-// Conversion : negate Z on positions, normals, tangents, translations;
-//              adjust quaternions accordingly; reverse triangle winding.
+// Coordinate system mapping:
+//   GLTF spec  : right-handed, Y-up  (+X right, +Y up, -Z forward)
+//   DirectX    : left-handed,  Y-up  (+X right, +Y up, +Z forward)  → negate Z
+//   OpenGL     : right-handed, Y-up  (+X right, +Y up, -Z forward)  → no flip needed
+//   Vulkan     : right-handed, Y-down (+X right, -Y up, +Z forward) → flip Y
 //
 // Usage:
-//   1. Call BuildConfig() once per file immediately after reading the
-//      asset.generator string.
+//   1. Call BuildConfig() once per file after reading asset.generator.
 //   2. Pass the returned ImportConfig to every conversion helper.
 //   3. Call ApplyPBRMaterial() inside BindGLTFMaterialTexturesToModel.
 // ============================================================
@@ -39,7 +39,6 @@ public:
         int  patch = 0;
         bool valid = false;
 
-        // True if this version is at least (maj.min.pat)
         bool AtLeast(int maj, int min = 0, int pat = 0) const noexcept
         {
             if (major != maj) return major > maj;
@@ -56,8 +55,10 @@ public:
     };
 
     // ----------------------------------------------------------
-    // Axis-flip flags — combine with | as needed
-    //   GLTF_TO_DX = FLIP_Z  (the standard conversion)
+    // Axis-flip flags
+    //   GLTF_TO_DX  = FLIP_Z   (negate Z for DirectX LH)
+    //   GLTF_TO_GL  = FLIP_NONE (OpenGL is also RH Y-up — no flip)
+    //   GLTF_TO_VK  = FLIP_Y   (Vulkan Y-axis is flipped relative to GLTF)
     // ----------------------------------------------------------
     enum AxisFlipFlags : uint32_t
     {
@@ -67,19 +68,27 @@ public:
         FLIP_Z    = 1u << 2,
     };
 
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+    static constexpr AxisFlipFlags GLTF_DEFAULT_FLIP = FLIP_Z;   // GLTF → DirectX LH
+#elif defined(__USE_VULKAN__)
+    static constexpr AxisFlipFlags GLTF_DEFAULT_FLIP = FLIP_Y;   // GLTF → Vulkan (Y-down)
+#else
+    static constexpr AxisFlipFlags GLTF_DEFAULT_FLIP = FLIP_NONE; // GLTF → OpenGL (same handedness)
+#endif
+
+    // Legacy alias kept for existing call sites
     static constexpr AxisFlipFlags GLTF_TO_DX = FLIP_Z;
 
     // ----------------------------------------------------------
-    // Per-file import configuration — built once per ParseGLTFScene /
-    // ParseGLBScene call, then used throughout the loading pipeline.
+    // Per-file import configuration
     // ----------------------------------------------------------
     struct ImportConfig
     {
         Version       version;
-        AxisFlipFlags flipAxes          = FLIP_Z;   // default: GLTF→DX
-        bool          fixWinding        = true;      // reverse winding when flip count is odd
+        AxisFlipFlags flipAxes          = GLTF_DEFAULT_FLIP;
+        bool          fixWinding        = true;
         bool          isBlenderFile     = false;
-        bool          hasEmbeddedImages = false;     // GLB: images live in bufferViews, not URIs
+        bool          hasEmbeddedImages = false;
     };
 
     // ---- Detection -------------------------------------------
@@ -88,44 +97,40 @@ public:
     static ImportConfig BuildConfig  (const std::string& generator, const json& doc);
 
     // ---- Coordinate conversion --------------------------------
-    // Positions, normals, tangents: apply sign flip to selected axes.
+    // XMFLOAT3 aliases to Vector3 on OpenGL/Vulkan builds (Includes.h).
     static XMFLOAT3 ConvertPosition   (XMFLOAT3 p, AxisFlipFlags f) noexcept;
     static XMFLOAT3 ConvertNormal     (XMFLOAT3 n, AxisFlipFlags f) noexcept;
     static XMFLOAT3 ConvertTangent    (XMFLOAT3 t, AxisFlipFlags f) noexcept;
     static XMFLOAT3 ConvertTranslation(XMFLOAT3 t, AxisFlipFlags f) noexcept;
     static XMFLOAT3 ConvertScale      (XMFLOAT3 s, AxisFlipFlags f) noexcept;
 
-    // Quaternion: for each flipped axis negate the OTHER two quaternion components.
+    // Quaternion: negate components depending on axis flip.
     //   FLIP_X → negate qy, qz
     //   FLIP_Y → negate qx, qz
-    //   FLIP_Z → negate qx, qy   (GLTF standard)
+    //   FLIP_Z → negate qx, qy   (DX standard)
     static XMFLOAT4 ConvertQuat(XMFLOAT4 q, AxisFlipFlags f) noexcept;
 
-    // Full 4×4 node matrix (DX row-major): applies  F * M * F^-1
+    // Full 4×4 node matrix conversion.
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
     static XMMATRIX ConvertNodeMatrix(const XMMATRIX& m, AxisFlipFlags f) noexcept;
+#elif defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+    static Matrix4x4 ConvertNodeMatrix(const Matrix4x4& m, AxisFlipFlags f) noexcept;
+#endif
 
     // ---- Winding order ----------------------------------------
-    // Winding must be reversed when an odd number of axes are flipped.
     static bool NeedsWindingFlip(AxisFlipFlags f) noexcept;
     static void FixWindingOrder (std::vector<uint32_t>& indices) noexcept;
 
     // ---- Material fixup ----------------------------------------
-    // Fully extracts ALL GLTF 2.0 PBR properties (Blender 3.x–5.x)
-    // and populates the Material struct.  Call this instead of the
-    // per-property reads that were scattered through BindGLTFMaterialTexturesToModel.
     static void ApplyPBRMaterial(Material& mat, const json& gltfMat,
                                  const ImportConfig& cfg);
 
     // ---- Embedded-image extraction (GLB) ----------------------
-    // Returns the raw PNG/JPEG bytes for images[imgIdx] when the
-    // image uses a bufferView rather than a URI.
-    // Returns empty vector if the image has a URI or is out of range.
     static std::vector<uint8_t> ExtractEmbeddedImage(int imgIdx,
                                                       const json& doc,
                                                       const std::vector<uint8_t>& binaryChunk);
 
     // ---- Version capability queries ---------------------------
-    // Did this Blender version support the given extension?
     static bool HasLocalTRSAnimation (const Version& v) noexcept { return v.AtLeast(4, 4); }
     static bool HasEmissiveStrength   (const Version& v) noexcept { return v.AtLeast(3, 2); }
     static bool HasClearcoat          (const Version& v) noexcept { return v.AtLeast(3, 0); }

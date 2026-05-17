@@ -7,7 +7,9 @@
 #include "Color.h"
 #include "ConstantBuffer.h"
 
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
 using namespace DirectX;
+#endif
 
 enum class LightType {
     DIRECTIONAL,

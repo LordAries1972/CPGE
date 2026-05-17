@@ -1,35 +1,40 @@
 // *------------------------------------------------------------------
 // Constant Buffers for shaders.
 //
-// Note: The following structures are aligned to 16 bytes to ensure 
-// proper alignment for DirectX.  This is important for performance 
+// Note: The following structures are aligned to 16 bytes to ensure
+// proper alignment for DirectX.  This is important for performance
 // and correctness in GPU memory access.
 //
 // Please see Lights.h for the Lights Constant Buffer structure.
 // *------------------------------------------------------------------
 #pragma once
 
-#include <d3d11.h>
-#include <wrl/client.h>
-#include <DirectXMath.h>                                // For DirectX math types like XMFLOAT4, XMMATRIX, etc.
+#include "Includes.h"
 
-using namespace DirectX;
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+    #include <d3d11.h>
+    #include <wrl/client.h>
+    #include <DirectXMath.h>
+    using namespace DirectX;
+#endif
 
-// ConstantBuffer structure.
+// ConstantBuffer structure — used by all renderers.
+// DX11/12: maps to cbuffer register(b0) exactly.
+// OpenGL/Vulkan: mirrors layout via std140 UBO (see ModelVertex.glsl).
 struct alignas(16) ConstantBuffer
 {
     XMMATRIX worldMatrix;                               // World transformation matrix.
     XMMATRIX viewMatrix;                                // View transformation matrix.
     XMMATRIX projectionMatrix;                          // Projection transformation matrix.
-	XMFLOAT3 cameraPosition;                            // Camera position in world space.
-	float padding;                                      // Padding to align to 16-byte boundary
+    XMFLOAT3 cameraPosition;                            // Camera position in world space.
+    float padding;                                      // Padding to align to 16-byte boundary
 
     XMFLOAT3 modelScale;                                // Scale vector
     float  padding2;
 };
 
 // =====================================================================
-// GPU Constant Buffer Layouts (Must match ModelPixel.hlsl exactly)
+// GPU Constant Buffer Layouts (Must match ModelPixel.hlsl / ModelPixel.glsl exactly)
 // NOTE: These structures exist ONLY to guarantee correct ByteWidth and
 //       correct field ordering when mapping constant buffers.
 // =====================================================================
@@ -37,7 +42,7 @@ struct alignas(16) ConstantBuffer
 
 // -------------------------------------------------------------
 // MaterialGPU - Matches cbuffer MaterialBuffer : register(b4)
-// Size: 80 bytes (multiple of 16 required by D3D11 constant buffers)
+// Size: 112 bytes (multiple of 16 required by D3D11 constant buffers)
 // -------------------------------------------------------------
 struct alignas(16) MaterialGPU
 {
@@ -75,7 +80,4 @@ struct alignas(16) EnvBufferGPU
     XMFLOAT2 padEnv;                              // Padding to 16 byte boundary.
 };
 
-#endif
-
-
-
+#endif // __USE_DIRECTX_11__ || __USE_DIRECTX_12__

@@ -1,0 +1,11 @@
+WarpDotTunnel enhancements (Vulkan) — 16/05/2026
+
+VKTunnelRing struct:
+- Added: int colorStep = 0  (index into the dark-to-white gray ramp)
+
+VKWarpTunnelData struct:
+- Added: float sideWaveTime = 0.0f
+- Added: static constexpr float kSideWaveRadius = 30.0f
+- Added: static constexpr float kSideWaveSpeed  = 0.5f
+- Added: static constexpr int   kGraySteps      = 8
+Mirrors identical changes made to DX_FXManager.h TunnelRing / WarpTunnelData.

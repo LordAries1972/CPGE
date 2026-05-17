@@ -12,7 +12,7 @@
 // ============
 // PLEASE NOTE:
 // ============
-// This implementation is to maintain support for the older video cards and OS systems.  For newer systems,
+// This implementation is to maintain support for the older video cards and for Win10 OS systems.  For newer systems,
 // Please refer to the DX12Renderer or respective class implementations such as VulKAN and OpenGL2/3.
 // -------------------------------------------------------------------------------------------------------------
 #pragma once
@@ -34,7 +34,10 @@
 
 #include <dxgi1_2.h>
 
+#ifndef RENDERER_NAME_DEFINED
+#define RENDERER_NAME_DEFINED
 const std::string RENDERER_NAME = "DX11Renderer";
+#endif
 
 // Forward declarations
 class Debug;

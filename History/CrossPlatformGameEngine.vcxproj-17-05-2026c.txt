@@ -1,0 +1,8 @@
+CrossPlatformGameEngine.vcxproj — History 17-05-2026c
+OpenGLModels and VulkanModels added to MSVS project.
+
+Changes:
+- <ClCompile Include="OpenGLModels.cpp" /> added after OpenGLCamera.cpp
+- <ClCompile Include="VulkanModels.cpp" /> added after VulkanCamera.cpp
+- <ClInclude Include="OpenGLModels.h" /> added after OpenGLCamera.h
+- <ClInclude Include="VulkanModels.h" /> added after VulkanCamera.h

@@ -135,12 +135,21 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
         #endif
 
         #if defined(__USE_OPENGL__)
-            #include "opengl32.h"
-            #include "GL\glew32.h"
+            // GLEW must be first — it replaces and includes gl.h internally.
+            // Fall back to the bare Windows SDK gl.h if GLEW is not installed.
+            #if __has_include(<GL/glew.h>)
+                #pragma warning(push)
+                #pragma warning(disable: 4005)  // wglew.h redefines GLEWAPI already defined in glew.h
+                #include <GL/glew.h>
+                #pragma warning(pop)
+                #pragma comment(lib, "glew32.lib")
+            #else
+                #include <GL/gl.h>      // Windows SDK — core OpenGL 1.1
+            #endif
+            #include <GL/glu.h>         // Windows SDK — GLU utilities
 
-            #pragma comment(lib, "glfw3.lib")
-            #pragma comment(lib, "glew32.lib")
             #pragma comment(lib, "opengl32.lib")
+            #pragma comment(lib, "glu32.lib")
             #pragma comment(lib, "user32.lib")
             #pragma comment(lib, "gdi32.lib")
             #pragma comment(lib, "shell32.lib")
@@ -235,6 +244,41 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 #include <unordered_map>                                // For std::unordered_map
 #include <unordered_set>                                // For std::unordered_set
 #include <map>				                            // Used for mapping spec indices to object hierarchy
+
+//------------------------------------------
+// Cross-Platform Math Type Aliases
+// When NOT using DirectX 11/12, map the DX
+// math types to the engine's built-in Vector
+// classes so shared headers compile cleanly.
+//------------------------------------------
+#if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__)
+    #include "Vectors.h"    // Vector2, Vector3, Vector4
+
+    // Minimal 4x4 float matrix — identity by default, row-major to match XMMATRIX.
+    struct Matrix4x4 {
+        float m[4][4];
+        Matrix4x4() {
+            for (int i = 0; i < 4; i++)
+                for (int j = 0; j < 4; j++)
+                    m[i][j] = (i == j) ? 1.0f : 0.0f;
+        }
+    };
+
+    // Alias DirectX math types to portable engine types so existing code compiles.
+    using XMFLOAT2 = Vector2;
+    using XMFLOAT3 = Vector3;
+    using XMFLOAT4 = Vector4;
+    using XMMATRIX = Matrix4x4;
+    using XMVECTOR = Vector4;
+
+    #ifndef XM_PI
+        #define XM_PI 3.141592653589793f
+    #endif
+
+    // Empty DirectX namespace stub — lets "using namespace DirectX;" in shared
+    // headers compile without pulling in any DX symbols.
+    namespace DirectX {}
+#endif // !__USE_DIRECTX_11__ && !__USE_DIRECTX_12__
 
 //------------------------------------------
 // XM / MP3 Modules

@@ -1,0 +1,14 @@
+VulkanModels.cpp — History 17-05-2026
+NEW FILE — Vulkan model utility implementation.
+
+Purpose: Implements Vulkan GPU buffer/texture management and shader module loading.
+
+Contents:
+- Staging buffer upload pattern for GPU-local memory (host-visible staging + device-local dest)
+- FindMemoryType helper queries VkPhysicalDeviceMemoryProperties
+- Image creation: VkImageCreateInfo, VkMemoryAllocateInfo, vkAllocateMemory
+- stb_image texture loading (conditional on __has_include)
+- shaderc GLSL -> SPIR-V compilation OR .spv file fallback via fopen/fread
+- VulkanModelBuffers::Upload(): creates all VkBuffer/VkImage resources from vertex/index/tex data
+- VulkanModelBuffers::Destroy(): destroys all Vulkan handles in reverse creation order
+- Guard: #if defined(__USE_VULKAN__)

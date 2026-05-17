@@ -1,4 +1,4 @@
-/* -------------------------------------------------------------------------------
+﻿/* -------------------------------------------------------------------------------
    RENDERER SYSTEM FLOW DIAGRAM
    -------------------------------------------------------------------------------
    Purpose:
@@ -91,7 +91,13 @@
 #include <chrono>
 #include <memory>
 
-#include "DXCamera.h"
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+    #include "DXCamera.h"
+#elif defined(__USE_OPENGL__)
+    #include "OpenGLCamera.h"
+#elif defined(__USE_VULKAN__)
+    #include "VulkanCamera.h"
+#endif
 
 // Uncomment this line if Renderer is to be a 
 // separate tasking thread
@@ -333,8 +339,13 @@ public:
     #if defined(_WIN64) || defined(_WIN32)
         // Blitting Functions
         virtual void Blit2DWrappedObjectAtOffset(BlitObj2DIndexType iIndex, int iBlitX, int iBlitY, int iXOffset, int iYOffset, int iTileSizeX, int iTileSizeY) = 0;
-        // Draws a single X x Y sized pixel at the specified position with the given RGBA color.
+    #endif
+    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+        // Draws a single X x Y sized pixel at the specified position with the given RGBA color (DX11/12 only).
         virtual void Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 color) = 0;
+    #elif defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        // Draws a single X x Y sized pixel at the specified position with the given RGBA color (OpenGL/Vulkan).
+        virtual void Blit2DColoredPixel(int x, int y, float pixelSize, const Vector4& color) = 0;
     #endif
 
 // Your private base declarations go here!

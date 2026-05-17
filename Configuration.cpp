@@ -63,7 +63,7 @@ bool Configuration::loadConfig() {
         myConfig.moveSensitivity = j["moveSensitivity"];
         myConfig.joystickSensitivity = j.value("joystickSensitivity", 0.01);
         myConfig.joystickRotationSensitivity = j.value("joystickRotationSensitivity", 0.001);
-        myConfig.microphoneVolume = j.value("microphoneVolume", 2.5);
+        myConfig.microphoneVolume = j.value("microphoneVolume", 10.0);
         myConfig.TTSVolume = j["TTSVolume"];
         myConfig.UseTTS = j["UseTTS"];
         myConfig.displayMode      = j.value("displayMode",      2);
@@ -276,6 +276,7 @@ long double Configuration::calculateChecksum(const MyConfig& cfg) const
         << cfg.aspectRatio
         << cfg.level
         << cfg.TTSVolume
+        << cfg.rendererType
         << std::fixed << std::setprecision(4) << cfg.current_money;
 
     std::string combined = ss.str();

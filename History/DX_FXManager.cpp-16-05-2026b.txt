@@ -1,0 +1,30 @@
+WarpDotTunnel sway fix + quartic speed — 16/05/2026 (second pass)
+
+UpdateWarpDotTunnel — full rewrite of sway and speed logic:
+
+SWAY FIX — previous approach was wrong:
+  Old: scanned all rings each frame to find the one with max zPos, applied the sine offset
+       only to that ring. This caused visible snapping as rings overtook each other and the
+       "furthest" tag jumped between rings.
+
+  New: sway is a per-frame global value (sideOffset = kSideWaveRadius * sin(time * kSideWaveSpeed)).
+       Applied to EVERY ring proportionally via ring.cx = startX + sideOffset * (1.0 - pathT).
+       - pathT=0 (far end): ring gets full sideOffset  → born at the sway position ✓
+       - pathT=1 (near camera): ring gets zero offset   → centered at camera ✓
+       - In between: smooth lerp as the ring travels, tracking the weave all the way ✓
+       pathT is recomputed AFTER zPos is moved so the sway reflects the ring's new depth,
+       not the pre-move depth (no one-frame lag).
+
+SPEED — quartic acceleration (was cubic):
+  Forward: 0.1 + (pathT^4) * 12.0
+    - Far end (t=0):  0.1×  → barely visible motion at the vanishing point
+    - Mid (t=0.5):    0.85× → gentle mid-tunnel drift
+    - Near (t=0.9):   7.97× → surging fast
+    - Camera (t=1):  12.1×  → explosive final rush
+    Average traversal speed ~200 units/s → ~4 seconds full tunnel pass at travelSpeed=80.
+
+  Reverse: 0.1 + (pathT^4) * 6.0
+    - Near (t=1): 6.1× (fast recession from camera)
+    - Far (t=0):  0.1× (slow drift to vanishing point)
+
+  Index-based loop removed; back to range-for (no furthestIdx needed).

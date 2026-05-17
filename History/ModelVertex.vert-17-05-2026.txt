@@ -1,0 +1,14 @@
+ModelVertex.vert — History 17-05-2026
+NEW FILE — Vulkan vertex shader (GLSL 450 / SPIR-V source).
+
+Purpose: Vulkan vertex shader, mirrors ModelVertex.glsl (OpenGL) with Vulkan clip-space conventions.
+         Compiled to SPIR-V via glslangValidator or shaderc at build time.
+
+Shader: GLSL 450 (Vulkan)
+UBO: layout(set=0, binding=0) uniform ConstantBuffer (world/view/proj/camera/scale)
+Vertex inputs: location 0-3 (position/normal/texCoord/tangent)
+Outputs: vWorldPosition, vNormal, vTexCoord, vViewDirection, vTangent, vBitangent
+Helper: inverse3x3() — same shear-safe normal matrix approach as OpenGL version
+Vulkan clip-space fix:
+  clipPos.y = -clipPos.y  (flip Y: Vulkan NDC is Y-down)
+  clipPos.z = (clipPos.z + clipPos.w) * 0.5  (remap Z from [-1,1] to [0,1])

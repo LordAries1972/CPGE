@@ -1,31 +1,33 @@
-﻿#pragma once
+#pragma once
 
 #include "Includes.h"
-#include "ConstantBuffer.h"
-#include "DX11Renderer.h"
 #include "Lights.h"
+
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+    #include "ConstantBuffer.h"
+    #include "DX11Renderer.h"
+#endif
 
 //==============================================================================
 // Constant Declarations
 //==============================================================================
-const int MAX_MODELS = 2048;                                                        // Maximum number of unique models in the scene    
+const int MAX_MODELS = 2048;                                                        // Maximum number of unique models in the scene
 const int MAX_MODEL_LIGHTS = MAX_LIGHTS;                                            // Maximum number of lights per model
 const std::wstring ShipName = L"Ship1";
 const std::wstring SplashShipName = L"SplashShip1";
+
 //==============================================================================
 // namespaces
 //==============================================================================
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
 using namespace DirectX;
+#endif
 
 //==============================================================================
 // Forward Declarations
 //==============================================================================
 class SceneManager;
 class LightManager;
-
-//==============================================================================
-// Macros
-//==============================================================================
 
 //==============================================================================
 // Vertex Structure Declaration
@@ -41,10 +43,10 @@ struct Vertex {
 
 #elif defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
 struct Vertex {
-	float position[3];
-	float normal[3];
-	float texCoord[2];
-    float tangent[3] = {1.0f, 0.0f, 0.0f}; // Initialized for safety
+    float position[3];
+    float normal[3];
+    float texCoord[2];
+    float tangent[3] = {1.0f, 0.0f, 0.0f};                                        // Initialized for safety
 };
 #endif
 
@@ -59,80 +61,68 @@ enum ModelID
 // Animation Data Structures for GLTF/GLB Animation Support
 //==============================================================================
 
-// Animation interpolation types supported by GLTF specification
 enum class AnimationInterpolation : int
 {
-    LINEAR = 0,                                                                      // Linear interpolation between keyframes
-    STEP = 1,                                                                        // Step interpolation (no smoothing)
-    CUBICSPLINE = 2                                                                  // Cubic spline interpolation
+    LINEAR = 0,
+    STEP = 1,
+    CUBICSPLINE = 2
 };
 
-// Animation target property types that can be animated
 enum class AnimationTargetPath : int
 {
-    TRANSLATION = 0,                                                                 // Position animation (3 floats)
-    ROTATION = 1,                                                                    // Rotation animation (4 floats - quaternion)
-    SCALE = 2,                                                                       // Scale animation (3 floats)
-    WEIGHTS = 3                                                                      // Morph target weights animation
+    TRANSLATION = 0,
+    ROTATION = 1,
+    SCALE = 2,
+    WEIGHTS = 3
 };
 
-// Single keyframe data for animation sampling
 struct AnimationKeyframe
 {
-    float time;                                                                      // Time in seconds for this keyframe
-    std::vector<float> values;                                                       // Value data (3 for translation/scale, 4 for rotation)
+    float time;
+    std::vector<float> values;
 
-    // Constructor for easy initialization
     AnimationKeyframe() : time(0.0f) {}
     AnimationKeyframe(float t, const std::vector<float>& v) : time(t), values(v) {}
 };
 
-// Animation sampler defines how keyframes are interpolated
 struct AnimationSampler
 {
-    std::vector<AnimationKeyframe> keyframes;                                        // All keyframes for this sampler
-    AnimationInterpolation interpolation;                                            // Interpolation method to use
-    float minTime;                                                                   // Minimum time value in keyframes
-    float maxTime;                                                                   // Maximum time value in keyframes
+    std::vector<AnimationKeyframe> keyframes;
+    AnimationInterpolation interpolation;
+    float minTime;
+    float maxTime;
 
-    // Constructor with default values
     AnimationSampler() : interpolation(AnimationInterpolation::LINEAR), minTime(0.0f), maxTime(0.0f) {}
 };
 
-// Animation channel connects a sampler to a specific node and property
 struct AnimationChannel
 {
-    int samplerIndex;                                                                // Index into animation's samplers array
-    int targetNodeIndex;                                                             // Index of the node to animate
-    AnimationTargetPath targetPath;                                                 // Which property to animate
+    int samplerIndex;
+    int targetNodeIndex;
+    AnimationTargetPath targetPath;
 
-    // Constructor with default values
     AnimationChannel() : samplerIndex(-1), targetNodeIndex(-1), targetPath(AnimationTargetPath::TRANSLATION) {}
 };
 
-// Complete animation definition containing all samplers and channels
 struct GLTFAnimation
 {
-    std::wstring name;                                                               // Name of this animation
-    std::vector<AnimationSampler> samplers;                                          // All samplers for this animation
-    std::vector<AnimationChannel> channels;                                          // All channels for this animation
-    float duration;                                                                  // Total duration of animation in seconds
+    std::wstring name;
+    std::vector<AnimationSampler> samplers;
+    std::vector<AnimationChannel> channels;
+    float duration;
 
-    // Constructor with default values
     GLTFAnimation() : name(L"Unnamed Animation"), duration(0.0f) {}
 };
 
-// Animation instance for playback - tracks current state of a playing animation
 struct AnimationInstance
 {
-    int animationIndex;                                                              // Index into GLTFAnimations array
-    float currentTime;                                                               // Current playback time in seconds
-    float playbackSpeed;                                                             // Speed multiplier (1.0 = normal speed)
-    bool isPlaying;                                                                  // Whether animation is currently playing
-    bool isLooping;                                                                  // Whether animation should loop
-    int parentModelID;                                                               // Parent model ID this animation applies to
+    int animationIndex;
+    float currentTime;
+    float playbackSpeed;
+    bool isPlaying;
+    bool isLooping;
+    int parentModelID;
 
-    // Constructor with default values
     AnimationInstance() : animationIndex(-1), currentTime(0.0f), playbackSpeed(1.0f),
         isPlaying(false), isLooping(true), parentModelID(-1) {
     }
@@ -140,44 +130,64 @@ struct AnimationInstance
 
 //==============================================================================
 // Texture Class Declaration
+// Platform-specific GPU texture resource wrapper.
 //==============================================================================
-// Encapsulates GPU texture resource loading and access for DX11.
 class Texture {
 public:
-    Texture();                                                                      // Default constructor
-    Texture(const std::wstring& path);                                              // Load immediately
-    ~Texture();                                                                     // Destructor
+    Texture();
+    Texture(const std::wstring& path);
+    ~Texture();
 
-    bool LoadFromFile(const std::wstring& path);                                    // Load texture from file
-    bool LoadFromMemory(const uint8_t* data, size_t size);                          // Load texture from embedded GLB buffer
-    ID3D11ShaderResourceView* GetSRV() const { return textureSRV; }
-
+    bool LoadFromFile(const std::wstring& path);
+    bool LoadFromMemory(const uint8_t* data, size_t size);
     const std::wstring& GetPath() const { return texturePath; }
+
+#if defined(__USE_DIRECTX_11__)
+    ID3D11ShaderResourceView* GetSRV() const { return textureSRV; }
     bool CreateSolidColorTexture(uint32_t width, uint32_t height, const XMFLOAT4& color);
+#elif defined(__USE_OPENGL__)
+    GLuint GetTextureID() const { return textureID; }
+    bool CreateSolidColorTexture(uint32_t width, uint32_t height, const Vector4& color);
+#elif defined(__USE_VULKAN__)
+    VkImageView GetImageView() const { return imageView; }
+    bool CreateSolidColorTexture(uint32_t width, uint32_t height, const Vector4& color);
+#endif
 
 private:
-    std::wstring texturePath;                                                       // File path of the texture
-	bool bTextureDestroyed = false;                                                 // Flag to prevent double deletion
-    #if defined(__USE_DIRECTX_11__)
-        ID3D11ShaderResourceView* textureSRV = nullptr;                             // Shader Resource View
-        ID3D11Resource* textureResource = nullptr;                                  // Original texture resource
-        bool IsValid() const { return textureSRV != nullptr; }
-    #endif
+    std::wstring texturePath;
+    bool bTextureDestroyed = false;
 
-    // Prevent copy (not safe with raw COM pointers)
+#if defined(__USE_DIRECTX_11__)
+    ID3D11ShaderResourceView* textureSRV = nullptr;
+    ID3D11Resource* textureResource = nullptr;
+    bool IsValid() const { return textureSRV != nullptr; }
+#elif defined(__USE_OPENGL__)
+    GLuint textureID = 0;
+    bool IsValid() const { return textureID != 0; }
+#elif defined(__USE_VULKAN__)
+    VkImage image = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+    VkImageView imageView = VK_NULL_HANDLE;
+    bool IsValid() const { return imageView != VK_NULL_HANDLE; }
+#endif
+
     Texture(const Texture&) = delete;
     Texture& operator=(const Texture&) = delete;
 };
 
+//==============================================================================
+// Material Struct — cross-platform PBR material properties.
+// XMFLOAT3 aliases to Vector3 on OpenGL/Vulkan via Includes.h.
+//==============================================================================
 struct Material {
-    std::string name;                                                               // Material name
-    std::string diffuseMapPath;                                                     // Texture filename
+    std::string name;
+    std::string diffuseMapPath;
     std::string normalMapPath;
     std::wstring ambientMapPath;
     std::wstring specularMapPath;
-    std::string metallicMapPath;                                                    // Path to metallic map
-    std::string roughnessMapPath;                                                   // Path to roughness map
-    std::string aoMapPath;                                                          // Path to ambient occlusion map
+    std::string metallicMapPath;
+    std::string roughnessMapPath;
+    std::string aoMapPath;
     std::shared_ptr<Texture> diffuseTexture = nullptr;
     std::shared_ptr<Texture> normalMap = nullptr;
     std::shared_ptr<Texture> ambientTexture = nullptr;
@@ -186,219 +196,232 @@ struct Material {
     std::shared_ptr<Texture> roughnessMap = nullptr;
     std::shared_ptr<Texture> aoMap = nullptr;
 
-    float dissolve = 1.0f;                                                          // from 'd'
-    int illumModel = 2;                                                             // from 'illum'
+    float dissolve = 1.0f;
+    int illumModel = 2;
 
     XMFLOAT3 Kd = { 1.0f, 1.0f, 1.0f };                                             // Diffuse reflection
     XMFLOAT3 Ka = { 0.1f, 0.1f, 0.1f };                                             // Ambient reflection
     XMFLOAT3 Ks = { 0.5f, 0.5f, 0.5f };                                             // Specular reflection
-    float Ns = 32.0f;                                                               // Specular exponent (shininess)
-	float Shiningness = 0.0f;                                                       // Shiningness factor (0.0 = no shine, 1.0 = full shine)
-    float Reflection = 0.0f;                                                        // Reflection coefficient
-	float Metallic = 0.0f;                                                          // Metalness factor (0.0 = non-metal, 1.0 = pure metal)
-	float Roughness = 0.5f;                                                         // Roughness factor (0.0 = smooth, 1.0 = rough)
-	float Transmission = 0.0f;                                                      // Transmission coefficient (for transparent materials)
-	float AlphaCutoff = 0.5f;                                                       // Alpha cutoff value for transparency
-    XMFLOAT3 emissiveFactor = { 0.0f, 0.0f, 0.0f };                                // Emissive color (KHR_materials_emissive_strength base)
-    float emissiveStrength = 1.0f;                                                  // KHR_materials_emissive_strength multiplier
+    float Ns = 32.0f;
+    float Shiningness = 0.0f;
+    float Reflection = 0.0f;
+    float Metallic = 0.0f;
+    float Roughness = 0.5f;
+    float Transmission = 0.0f;
+    float AlphaCutoff = 0.5f;
+    XMFLOAT3 emissiveFactor = { 0.0f, 0.0f, 0.0f };
+    float emissiveStrength = 1.0f;
 
-    // ---- GLTF 2.0 / Blender import properties ----
-    bool        doubleSided        = false;             // GLTF doubleSided flag
-    std::string alphaMode          = "OPAQUE";          // OPAQUE | MASK | BLEND
-    float       normalScale        = 1.0f;              // normalTexture.scale
+    bool        doubleSided        = false;
+    std::string alphaMode          = "OPAQUE";
+    float       normalScale        = 1.0f;
 
-    // KHR_materials_clearcoat  (Blender 3.0+)
     float       clearcoatFactor    = 0.0f;
     float       clearcoatRoughness = 0.0f;
-
-    // KHR_materials_ior  (Blender 4.0+)
     float       ior                = 1.5f;
-
-    // KHR_materials_specular  (Blender 4.1+)
     float       specularFactor     = 1.0f;
     XMFLOAT3    specularColorFactor = { 1.0f, 1.0f, 1.0f };
-
-    // KHR_materials_sheen  (Blender 4.2+)
     XMFLOAT3    sheenColorFactor   = { 0.0f, 0.0f, 0.0f };
     float       sheenRoughness     = 0.0f;
 };
 
 //==============================================================================
 // ModelInfo Structure Declaration
-//==============================================================================
-// Aggregates all CPU‑side information for a model.
-// In Models.h, update the ModelInfo structure:
+// CPU-side data for a model. GPU buffer members are platform-specific.
 //==============================================================================
 struct ModelInfo {
-    int ID = 0;                                                                     // This Model ID number.
-    int iParentModelID = -1;                                                        // Parent model ID (if any) -> -1 = Is Parent Model.
-    int gltfNodeIndex = -1;                                                       // GLTF node index this model instance was created from (-1 = unknown).
-    bool bIsTransformOnly = false;                                                   // True if this instance represents a transform-only GLTF node (no mesh to render).
-    bool bIsTransformProxy = false;                                                  // Backwards-compatible alias for transform-only nodes used by older code paths.
-    bool bHasBaseLocalTRS = false;                                                   // True if base local TRS has been captured from the GLTF node.
-    std::wstring name;                                                              // Model name
+    int ID = 0;
+    int iParentModelID = -1;
+    int gltfNodeIndex = -1;
+    bool bIsTransformOnly = false;
+    bool bIsTransformProxy = false;
+    bool bHasBaseLocalTRS = false;
+    std::wstring name;
 
+    // --- Common transform fields (XMFLOAT3 aliases to Vector3 on OpenGL/Vulkan) ---
+    XMFLOAT3 position       = { 0.0f, 0.0f, 0.0f };
+    XMFLOAT3 scale          = { 0.01f, 0.01f, 0.01f };
+    XMFLOAT3 rotation       = { 0.0f, 0.0f, 0.0f };
+    XMFLOAT3 cameraPosition = { 0.0f, 0.0f, 0.0f };
+
+    // --- Common local TRS animation fields ---
+    XMFLOAT3 baseLocalTranslation   = { 0.0f, 0.0f, 0.0f };
+    XMFLOAT4 baseLocalRotationQuat  = { 0.0f, 0.0f, 0.0f, 1.0f };
+    XMFLOAT3 baseLocalScale         = { 1.0f, 1.0f, 1.0f };
+    XMFLOAT3 animLocalTranslation   = { 0.0f, 0.0f, 0.0f };
+    XMFLOAT4 animLocalRotationQuat  = { 0.0f, 0.0f, 0.0f, 1.0f };
+    XMFLOAT3 animLocalScale         = { 1.0f, 1.0f, 1.0f };
+
+    // --- Platform-specific transformation matrices ---
 #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-    XMFLOAT3 position;                                                              // Model position in the world space.
-    XMMATRIX worldMatrix;                                                           // World transformation matrix.
-    XMMATRIX viewMatrix;                                                            // View transformation matrix.
-    XMMATRIX projectionMatrix;                                                      // Projection transformation matrix.
-    XMFLOAT3 cameraPosition;                                                        // Camera position in world space.
-    XMFLOAT3 scale = { 0.01f, 0.01f, 0.01f };                                       // Default to no scaling.
-    XMFLOAT3 rotation = {0.0f, 0.0f, 0.0f};                                         // Default Model Rotation.
-
-    // ===========================================================================
-    // GLTF Animation Support - Local TRS (Blender 4.4+ exports GLTF animations as LOCAL TRS)
-    // NOTE: These values are used by GLTFAnimator to evaluate animations correctly.
-    //       worldMatrix must be recomposed via parent-child hierarchy.
-    // ===========================================================================
-    XMFLOAT3 baseLocalTranslation = { 0.0f, 0.0f, 0.0f };                            // Base local translation captured at load time.
-    XMFLOAT4 baseLocalRotationQuat = { 0.0f, 0.0f, 0.0f, 1.0f };                     // Base local rotation quaternion captured at load time.
-    XMFLOAT3 baseLocalScale = { 1.0f, 1.0f, 1.0f };                                  // Base local scale captured at load time.
-
-    XMFLOAT3 animLocalTranslation = { 0.0f, 0.0f, 0.0f };                            // Animated local translation for the current frame.
-    XMFLOAT4 animLocalRotationQuat = { 0.0f, 0.0f, 0.0f, 1.0f };                     // Animated local rotation quaternion for the current frame.
-    XMFLOAT3 animLocalScale = { 1.0f, 1.0f, 1.0f };                                  // Animated local scale for the current frame.
-
+    XMMATRIX worldMatrix;
+    XMMATRIX viewMatrix;
+    XMMATRIX projectionMatrix;
 #elif defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
-    Matrix4x4 worldMatrix;                                                          // World transformation matrix.
-    Matrix4x4 viewMatrix;                                                           // View transformation matrix.
-    Matrix4x4 projectionMatrix;                                                     // Projection transformation matrix.
+    Matrix4x4 worldMatrix;
+    Matrix4x4 viewMatrix;
+    Matrix4x4 projectionMatrix;
 #endif
 
-    std::vector<Vertex> vertices;                                                   // Geometry vertices.
-    std::vector<uint32_t> indices;                                                  // Geometry indices.
-    std::vector<Vertex> animationVertices;                                          // Vertices for animation updates.
-    std::vector<std::shared_ptr<Texture>> textures;                                 // Our list of used textures
-    std::vector<LightStruct> localLights;                                           // Lights attached to this model
-
-    // Temporary binary GLTF buffer — optional reference to .bin file contents if needed for re-processing
+    // --- Common geometry ---
+    std::vector<Vertex> vertices;
+    std::vector<uint32_t> indices;
+    std::vector<Vertex> animationVertices;
+    std::vector<std::shared_ptr<Texture>> textures;
+    std::vector<LightStruct> localLights;
     std::vector<uint8_t> gltfBinaryBuffer;
 
-    bool fxActive = false;                                                          // Whether an FX is currently active for this model
-    int iAnimationIndex;                                                            // Index of the animation vertices to be played (if any)
-    int fxID = -1;                                                                  // ID of the FX to be triggered (used by FXManager)
+    bool fxActive = false;
+    int  iAnimationIndex = -1;
+    int  fxID = -1;
 
+    // --- Platform-specific GPU resources ---
 #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-    // Buffers
-    ComPtr<ID3D11Buffer> vertexBuffer;                                              // Vertex buffer for GPU.
-    ComPtr<ID3D11Buffer> indexBuffer;                                               // Index buffer for GPU.
-    ComPtr<ID3D11Buffer> constantBuffer;                                            // Constant buffer for GPU.
-    ComPtr<ID3D11Buffer> materialBuffer;                                            // Model Material Constant buffer for GPU.
-    ComPtr<ID3D11Buffer> debugConstantBuffer;                                       // Model Debug Constant buffer for GPU Debugging.
-    ComPtr<ID3D11Buffer> lightConstantBuffer;                                       // Light constant buffer (register b1)
+    ComPtr<ID3D11Buffer> vertexBuffer;
+    ComPtr<ID3D11Buffer> indexBuffer;
+    ComPtr<ID3D11Buffer> constantBuffer;
+    ComPtr<ID3D11Buffer> materialBuffer;
+    ComPtr<ID3D11Buffer> debugConstantBuffer;
+    ComPtr<ID3D11Buffer> lightConstantBuffer;
 
-    // Shaders
-    ComPtr<ID3D11VertexShader> vertexShader;                                        // Vertex shader.
-    ComPtr<ID3D11PixelShader> pixelShader;                                          // Pixel shader.
+    ComPtr<ID3D11VertexShader> vertexShader;
+    ComPtr<ID3D11PixelShader>  pixelShader;
+    ComPtr<ID3DBlob> vertexShaderBlob;
+    ComPtr<ID3DBlob> pixelShaderBlob;
+    ComPtr<ID3D11InputLayout> inputLayout;
 
-    // Shader Blobs
-    ComPtr<ID3DBlob> vertexShaderBlob;                                              // Vertex shader blob.
-    ComPtr<ID3DBlob> pixelShaderBlob;                                               // Pixel shader blob.
+    std::vector<ComPtr<ID3D11ShaderResourceView>> textureSRVs;
+    std::vector<ComPtr<ID3D11ShaderResourceView>> normalMapSRVs;
+    ComPtr<ID3D11SamplerState> samplerState;
 
-    // Input Layout
-    ComPtr<ID3D11InputLayout> inputLayout;                                          // Input layout for vertex shader.
+    std::vector<XMFLOAT3> tempPositions;
+    std::vector<XMFLOAT3> tempNormals;
+    std::vector<XMFLOAT2> tempTexCoords;
+    std::vector<std::string> materials;
 
-    // Texture Resources
-    std::vector<ComPtr<ID3D11ShaderResourceView>> textureSRVs;                      // Texture SRVs.
-    std::vector<ComPtr<ID3D11ShaderResourceView>> normalMapSRVs;                    // Normal map SRVs.
-    ComPtr<ID3D11SamplerState> samplerState;                                        // Sampler state for textures.
+    float metallic          = 0.0f;
+    float roughness         = 0.5f;
+    float reflectionStrength= 1.0f;
+    float envIntensity      = 1.0f;
+    XMFLOAT3 envTint        = { 1.0f, 1.0f, 1.0f };
+    float mipLODBias        = 0.0f;
+    float fresnel0          = 0.04f;
 
-    // Additional fields for OBJ parsing
-    std::vector<XMFLOAT3> tempPositions;                                            // Temporary storage for vertex positions.
-    std::vector<XMFLOAT3> tempNormals;                                              // Temporary storage for vertex normals.
-    std::vector<XMFLOAT2> tempTexCoords;                                            // Temporary storage for texture coordinates.
-    std::vector<std::string> materials;                                             // Material names from the OBJ / GLTF 2.0 ? GLB file.
-
-    // PBR Material Properties
-    float metallic = 0.0f;                                                          // Base metallic value [0-1]
-    float roughness = 0.5f;                                                         // Base roughness value [0-1]
-    float reflectionStrength = 1.0f;                                                // Reflection strength multiplier
-
-    // Environment settings
-    float envIntensity = 1.0f;                                                      // Environment map intensity
-    XMFLOAT3 envTint = { 1.0f, 1.0f, 1.0f };                                        // Environment map tint color
-    float mipLODBias = 0.0f;                                                        // Mip level bias for environment sampling
-    float fresnel0 = 0.04f;                                                         // Base fresnel reflectance at normal incidence
-
-    // PBR Texture Maps
     std::shared_ptr<Texture> metallicMap;
     std::shared_ptr<Texture> roughnessMap;
     std::shared_ptr<Texture> aoMap;
 
-    // PBR Texture Resource Views
     ComPtr<ID3D11ShaderResourceView> metallicMapSRV;
     ComPtr<ID3D11ShaderResourceView> roughnessMapSRV;
     ComPtr<ID3D11ShaderResourceView> aoMapSRV;
     ComPtr<ID3D11ShaderResourceView> environmentMapSRV;
+    ComPtr<ID3D11Buffer>             environmentBuffer;
+    ComPtr<ID3D11SamplerState>       environmentSamplerState;
 
-    // PBR Constant Buffers
-    ComPtr<ID3D11Buffer> environmentBuffer;                                         // Model Environment buffer for GPU.
+    bool useMetallicMap     = false;
+    bool useRoughnessMap    = false;
+    bool useAOMap           = false;
+    bool useEnvironmentMap  = false;
 
-    // PBR Sampler State
-    ComPtr<ID3D11SamplerState> environmentSamplerState;
+#elif defined(__USE_OPENGL__)
+    GLuint VAO          = 0;    // Vertex Array Object
+    GLuint VBO          = 0;    // Vertex Buffer Object
+    GLuint EBO          = 0;    // Element (Index) Buffer Object
+    GLuint shaderProgram= 0;    // Linked shader program (vert + frag)
+    std::vector<GLuint> textureIDs;     // Per-material diffuse texture handles
+    std::vector<GLuint> normalMapIDs;   // Per-material normal map handles
+    GLuint metallicTexID    = 0;
+    GLuint roughnessTexID   = 0;
+    GLuint aoTexID          = 0;
+    GLuint envTexID         = 0;
+    std::vector<std::string> materials;
 
-    // PBR Flags
-    bool useMetallicMap = false;
-    bool useRoughnessMap = false;
-    bool useAOMap = false;
-    bool useEnvironmentMap = false;
+    float metallic          = 0.0f;
+    float roughness         = 0.5f;
+    float reflectionStrength= 1.0f;
+    float envIntensity      = 1.0f;
+    Vector3 envTint         = { 1.0f, 1.0f, 1.0f };
+    float mipLODBias        = 0.0f;
+    float fresnel0          = 0.04f;
 
-#elif defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
-    // Placeholder for OpenGL or Vulkan
-    // Add OpenGL/Vulkan-specific fields here (e.g., VAO, VBO, shader programs, etc.).
+    bool useMetallicMap     = false;
+    bool useRoughnessMap    = false;
+    bool useAOMap           = false;
+    bool useEnvironmentMap  = false;
+
+#elif defined(__USE_VULKAN__)
+    VkBuffer         vertexBuffer       = VK_NULL_HANDLE;
+    VkDeviceMemory   vertexBufferMemory = VK_NULL_HANDLE;
+    VkBuffer         indexBuffer        = VK_NULL_HANDLE;
+    VkDeviceMemory   indexBufferMemory  = VK_NULL_HANDLE;
+    VkPipeline       pipeline           = VK_NULL_HANDLE;
+    VkPipelineLayout pipelineLayout     = VK_NULL_HANDLE;
+    VkDescriptorSet  descriptorSet      = VK_NULL_HANDLE;
+    std::vector<std::string> materials;
+
+    float metallic          = 0.0f;
+    float roughness         = 0.5f;
+    float reflectionStrength= 1.0f;
+    float envIntensity      = 1.0f;
+    Vector3 envTint         = { 1.0f, 1.0f, 1.0f };
+    float mipLODBias        = 0.0f;
+    float fresnel0          = 0.04f;
+
+    bool useMetallicMap     = false;
+    bool useRoughnessMap    = false;
+    bool useAOMap           = false;
+    bool useEnvironmentMap  = false;
 #endif
 };
-
 
 //==============================================================================
 // Model Class Declaration
 //==============================================================================
-// Encapsulates loading, processing, animating, rendering, and resource management.
 class Model {
 public:
     Model();
     ~Model();
 
-    bool m_isLoaded;                                                                // Flag indicating if the model is loaded.
-	bool bInitialized = false;                                                      // Flag indicating if the model is initialized.
+    bool m_isLoaded;
+    bool bInitialized = false;
     bool bIsDestroyed = false;
-    float m_animationTime;                                                          // Internal animation timer.
+    float m_animationTime;
     LightsManager lighting;
-    ModelInfo m_modelInfo;                                                          // CPU‑side model information.
+    ModelInfo m_modelInfo;
 
-    // Loads a model from a file (.obj formats).
+    // --- Common model operations ---
     bool LoadModel(const std::wstring& filename, int ID);
     bool LoadMTL(const std::wstring& mtlPath);
-
-    // Frees all model resources.
     void DestroyModel();
-
-    // Loads a model from a Wavefront OBJ file.
     bool LoadOBJ(const std::string& path);
-    // Updates the constant buffer with the current world matrix.
     void UpdateConstantBuffer();
-    // Load Shaders and Compiler
-    HRESULT CompileShaderFromFile(const std::wstring& filePath, const std::string& entryPoint, const std::string& shaderModel, ID3DBlob** blobOut);
-    // Positioning.
-    void SetPosition(XMFLOAT3 position);
-    // Our Render routine
-    void Render(ID3D11DeviceContext* deviceContext, float deltaTime);
     void TriggerEffect(int effectID);
-	// Model Rendering Preparations
     bool SetupModelForRendering();
     bool SetupModelForRendering(int ID);
     void UpdateModelLighting();
     void ApplyDefaultLightingFromManager(LightsManager& myLightsManager);
-
-	// Utility functions
     void CopyFrom(const Model& other);
-    ModelInfo GetModelInfo() const { return m_modelInfo; }                          // Get model information
-
-    // Debug functions
+    ModelInfo GetModelInfo() const { return m_modelInfo; }
     void DebugInfoForModel() const;
 
-    // PBR Extension Methods
+    bool IsActive()    const { return m_isLoaded && bInitialized && !bIsDestroyed; }
+    bool HasGeometry() const { return !m_modelInfo.vertices.empty(); }
+
+    // --- Positioning (cross-platform: XMFLOAT3 aliases to Vector3 on OpenGL/Vulkan) ---
+    void SetPosition(XMFLOAT3 position);
+
+    // --- Platform-specific render call ---
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+    void Render(ID3D11DeviceContext* deviceContext, float deltaTime);
+    HRESULT CompileShaderFromFile(const std::wstring& filePath, const std::string& entryPoint,
+                                  const std::string& shaderModel, ID3DBlob** blobOut);
+    XMMATRIX GetWorldMatrix() const { return m_modelInfo.worldMatrix; }
+#elif defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+    void Render(float deltaTime);
+    Matrix4x4 GetWorldMatrix() const { return m_modelInfo.worldMatrix; }
+#endif
+
+    // --- PBR extension methods ---
     bool SetupPBRResources();
     bool LoadEnvironmentMap(const std::wstring& filePath);
     bool LoadMetallicMap(const std::wstring& filePath);
@@ -406,15 +429,18 @@ public:
     bool LoadAOMap(const std::wstring& filePath);
     void UpdateEnvironmentBuffer();
     void SetPBRProperties(float metallic, float roughness, float reflectionStrength);
+
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
     void SetEnvironmentProperties(float intensity, XMFLOAT3 tint, float mipBias, float fresnel0);
+#elif defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+    void SetEnvironmentProperties(float intensity, Vector3 tint, float mipBias, float fresnel0);
+#endif
 
     std::unordered_map<std::string, Material> m_materials;
-    std::mutex m_ModelMutex;                                                        // Mutex for thread safety.
+    std::mutex m_ModelMutex;
     std::atomic<bool> bIsSettingUpModel{ false };
 
 private:
-    // File Parsing Fallback funtions.
     void LoadFallbackTexture();
     void LoadFallbackNormalMap();
-
 };

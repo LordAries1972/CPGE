@@ -88,7 +88,28 @@
     <ClCompile Include="F:\Projects\C++\CPGE2026\NetworkManager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="F:\Projects\C++\CPGE2026\OpenGLCamera.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="F:\Projects\C++\CPGE2026\OpenGLModels.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="F:\Projects\C++\CPGE2026\OpenGLRenderer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="F:\Projects\C++\CPGE2026\OpenGLFXManager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="F:\Projects\C++\CPGE2026\OpenGLRenderFrame.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="F:\Projects\C++\CPGE2026\OpenGL_IOStreamThread.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="F:\Projects\C++\CPGE2026\VulkanCamera.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="F:\Projects\C++\CPGE2026\VulkanModels.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="F:\Projects\C++\CPGE2026\VULKAN_Renderer.cpp">
@@ -156,7 +177,7 @@
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Source Files">
-      <UniqueIdentifier>{B7D13A80-D64B-3E8F-9E75-A503E3F665F1}</UniqueIdentifier>
+      <UniqueIdentifier>{489C7D93-462C-308C-AD80-20A55A25829C}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
 </Project>

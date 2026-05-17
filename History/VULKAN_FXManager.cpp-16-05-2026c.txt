@@ -1,0 +1,3 @@
+WarpDotTunnel straight rings + camera look-ahead (Vulkan) — 16/05/2026 (third pass)
+
+Identical changes to DX_FXManager.cpp-16-05-2026c.txt applied to VKFXManager.

@@ -1,0 +1,1253 @@
+#include "Includes.h"
+
+#ifdef __USE_VULKAN__
+
+#include "Debug.h"
+#include "Configuration.h"
+#include "ExceptionHandler.h"
+#include "MathPrecalculation.h"
+#include "Configuration.h"
+#include "VulkanCamera.h"
+#include "Renderer.h"
+#include "WinSystem.h"
+
+#pragma warning(push)
+#pragma warning(disable: 4101)
+
+class Debug;
+class Configuration;
+
+extern Debug debug;
+extern Configuration config;
+
+extern std::shared_ptr<Renderer> renderer;
+extern WindowMetrics winMetrics;
+
+//-------------------------------------------------------------------------------------------------
+// Vulkan-specific projection matrix helper.
+// glm::perspective produces a right-handed matrix with depth [-1,1].
+// Vulkan requires depth [0,1] and Y pointing downward in NDC.
+// Flipping mat[1][1] corrects the Y inversion; using the _ZO suffix variant gives [0,1] depth.
+//-------------------------------------------------------------------------------------------------
+glm::mat4 Camera::MakeVulkanProjection(float fovYRadians, float aspect, float nearPlane, float farPlane) const
+{
+    glm::mat4 proj = glm::perspective(fovYRadians, aspect, nearPlane, farPlane);
+    proj[1][1] *= -1.0f;   // Flip Y for Vulkan NDC
+    return proj;
+}
+
+Camera::Camera() {
+    position = glm::vec3(0.0f, 0.0f, -5.0f);
+    target   = glm::vec3(0.0f, 0.0f,  0.0f);
+    up       = glm::vec3(0.0f, 1.0f,  0.0f);
+
+    m_isJumping               = false;
+    m_focusOnTarget           = false;
+    m_isJumpingBackInHistory  = false;
+    m_historyJumpStepsRemaining = 0;
+    m_jumpStartPosition  = glm::vec3(0.0f);
+    m_jumpTargetPosition = glm::vec3(0.0f);
+    m_originalTarget     = glm::vec3(0.0f);
+    m_jumpSpeed          = 1;
+    m_currentPathIndex   = 0;
+    m_jumpAnimationTimer = 0.0f;
+    m_totalJumpTime      = 0.0f;
+
+    m_screenWidth  = static_cast<float>(config.myConfig.resolutionWidth);
+    m_screenHeight = static_cast<float>(config.myConfig.resolutionHeight);
+    m_aspectRatio  = LookupAspectRatio(config.myConfig.resolutionWidth, config.myConfig.resolutionHeight);
+    m_fieldOfView  = glm::radians(static_cast<float>(config.myConfig.fov));
+    m_nearPlane    = config.myConfig.nearPlane;
+    m_farPlane     = config.myConfig.farPlane;
+
+    m_isRotatingAroundTarget = false;
+    m_continuousRotation     = false;
+    m_rotateAroundX          = false;
+    m_rotateAroundY          = false;
+    m_rotateAroundZ          = false;
+    m_rotationSpeedX  = 60.0f;
+    m_rotationSpeedY  = 60.0f;
+    m_rotationSpeedZ  = 60.0f;
+    m_currentRotationX = 0.0f;
+    m_currentRotationY = 0.0f;
+    m_currentRotationZ = 0.0f;
+    m_targetRotationX  = 360.0f;
+    m_targetRotationY  = 360.0f;
+    m_targetRotationZ  = 360.0f;
+    m_rotationStartPosition = glm::vec3(0.0f);
+    m_rotationTarget        = glm::vec3(0.0f);
+    m_rotationDistance      = 0.0f;
+
+    m_jumpHistory.reserve(MAX_JUMP_HISTORY);
+
+    SetupDefaultCamera(m_screenWidth, m_screenHeight);
+    UpdateViewMatrix();
+
+    #if defined(_DEBUG_CAMERA_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"Vulkan Camera created successfully with enhanced jump animation, history support, and continuous rotation");
+    #endif
+}
+
+Camera::~Camera() {
+    if (m_isRotatingAroundTarget)
+    {
+        StopRotating();
+        #if defined(_DEBUG_CAMERA_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[Camera] Stopped rotation during destructor cleanup");
+        #endif
+    }
+
+    m_currentTravelPath.clear();
+    m_jumpHistory.clear();
+
+    m_isRotatingAroundTarget = false;
+    m_continuousRotation     = false;
+    m_rotateAroundX          = false;
+    m_rotateAroundY          = false;
+    m_rotateAroundZ          = false;
+
+    #if defined(_DEBUG_CAMERA_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"Vulkan Camera destroyed with complete jump animation, history, and rotation cleanup!");
+    #endif
+}
+
+// === RESIZE STATE FUNCTIONS ===
+
+void Camera::SaveCameraStateForResize()
+{
+    #if defined(_DEBUG_WINSYSTEM_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[CAMERA] SaveCameraStateForResize() called");
+    #endif
+
+    try {
+        savedCameraState.position = position;
+        savedCameraState.target   = target;
+        savedCameraState.up       = up;
+        savedCameraState.yaw      = m_yaw;
+        savedCameraState.pitch    = m_pitch;
+
+        try {
+            float currentFov = GetFieldOfView();
+            if (currentFov > 0.0f && currentFov < 180.0f)
+                savedCameraState.fieldOfView = currentFov;
+            else
+                savedCameraState.fieldOfView = 45.0f;
+        }
+        catch (...) { savedCameraState.fieldOfView = 45.0f; }
+
+        try {
+            float currentNear = GetNearPlane();
+            float currentFar  = GetFarPlane();
+            if (currentNear > 0.0f && currentFar > currentNear) {
+                savedCameraState.nearPlane = currentNear;
+                savedCameraState.farPlane  = currentFar;
+            } else {
+                savedCameraState.nearPlane = 0.1f;
+                savedCameraState.farPlane  = 1000.0f;
+            }
+        }
+        catch (...) {
+            savedCameraState.nearPlane = 0.1f;
+            savedCameraState.farPlane  = 1000.0f;
+        }
+
+        savedCameraState.isValid = true;
+    }
+    catch (...) { savedCameraState.isValid = false; }
+}
+
+void Camera::RestoreCameraStateAfterResize()
+{
+    #if defined(_DEBUG_WINSYSTEM_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[CAMERA] RestoreCameraStateAfterResize() called");
+    #endif
+
+    if (!savedCameraState.isValid) return;
+
+    try {
+        position = savedCameraState.position;
+        target   = savedCameraState.target;
+        up       = savedCameraState.up;
+        m_yaw    = savedCameraState.yaw;
+        m_pitch  = savedCameraState.pitch;
+
+        float aspectRatio = 16.0f / 9.0f;
+        if (winMetrics.width > 0 && winMetrics.height > 0)
+            aspectRatio = static_cast<float>(winMetrics.width) / static_cast<float>(winMetrics.height);
+        else if (config.myConfig.aspectRatio > 0.0f)
+            aspectRatio = static_cast<float>(config.myConfig.aspectRatio);
+
+        aspectRatio = std::clamp(aspectRatio, 0.5f, 4.0f);
+
+        try {
+            float fovToRestore = savedCameraState.fieldOfView;
+            if (fovToRestore <= 0.0f || fovToRestore >= 180.0f) fovToRestore = 45.0f;
+
+            float fovRadians = glm::radians(fovToRestore);
+            float nearPlane  = std::max(0.01f, savedCameraState.nearPlane);
+            float farPlane   = std::max(nearPlane + 1.0f, savedCameraState.farPlane);
+
+            projectionMatrix = MakeVulkanProjection(fovRadians, aspectRatio, nearPlane, farPlane);
+        }
+        catch (...) {
+            projectionMatrix = MakeVulkanProjection(glm::radians(45.0f), aspectRatio, 0.1f, 1000.0f);
+        }
+
+        try {
+            glm::vec3 lookDir = glm::normalize(target - position);
+            forward    = lookDir;
+            viewMatrix = glm::lookAt(position, target, up);
+        }
+        catch (...) {}
+
+        savedCameraState.isValid = false;
+    }
+    catch (...) { savedCameraState.isValid = false; }
+}
+
+// === CAMERA JUMP FUNCTIONALITY ===
+
+void Camera::JumpTo(float new_x, float new_y, float new_z, int speed, bool FocusOnTarget)
+{
+    #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_INFO,
+            L"[Camera] JumpTo called: target(%.2f, %.2f, %.2f), speed=%d, focusOnTarget=%s",
+            new_x, new_y, new_z, speed, FocusOnTarget ? L"true" : L"false");
+    #endif
+
+    try {
+        if (speed <= 0) speed = 1;
+
+        m_jumpStartPosition  = position;
+        m_jumpTargetPosition = glm::vec3(new_x, new_y, new_z);
+        m_focusOnTarget      = FocusOnTarget;
+
+        if (m_focusOnTarget)
+            m_originalTarget = target;
+
+        float distance = glm::length(glm::vec2(position.x - new_x, position.z - new_z))
+                       + abs(position.y - new_y);
+
+        if (distance < 0.01f) return;
+
+        int pathPoints = static_cast<int>((distance * 15.0f) / (speed * 2.0f)) + 15;
+        pathPoints = std::clamp(pathPoints, 15, 120);
+
+        m_currentTravelPath = CalculateSmoothTravelPath(m_jumpStartPosition, m_jumpTargetPosition, pathPoints);
+
+        m_isJumping          = true;
+        m_jumpSpeed          = speed;
+        m_currentPathIndex   = 0;
+        m_jumpAnimationTimer = 0.0f;
+
+        float baseTime        = 0.8f;
+        float speedMultiplier = 1.0f / (static_cast<float>(speed) * 1.5f);
+        m_totalJumpTime       = baseTime * speedMultiplier * (1.0f + distance * 0.1f);
+        m_totalJumpTime       = std::clamp(m_totalJumpTime, 0.2f, 3.0f);
+
+        AddToJumpHistory(m_jumpStartPosition, m_jumpTargetPosition, m_currentTravelPath, speed, FocusOnTarget);
+    }
+    catch (const std::exception& e) {
+        m_isJumping          = false;
+        m_currentPathIndex   = 0;
+        m_jumpAnimationTimer = 0.0f;
+        exceptionHandler.LogException(e, "Camera::JumpTo");
+    }
+    catch (...) {
+        m_isJumping          = false;
+        m_currentPathIndex   = 0;
+        m_jumpAnimationTimer = 0.0f;
+        exceptionHandler.LogCustomException("Unknown exception in Camera::JumpTo", "Camera jump initialization");
+    }
+}
+
+void Camera::JumpToWithYawPitch(float new_x, float new_y, float new_z, float newYaw, float newPitch, int speed, bool FocusOnTarget)
+{
+    try {
+        if (speed <= 0) speed = 1;
+
+        float normalizedYaw  = newYaw;
+        const float two_pi   = glm::two_pi<float>();
+        while (normalizedYaw >  two_pi) normalizedYaw -= two_pi;
+        while (normalizedYaw < -two_pi) normalizedYaw += two_pi;
+
+        const float maxPitch   = glm::half_pi<float>() - 0.01f;
+        float clampedPitch     = std::clamp(newPitch, -maxPitch, maxPitch);
+
+        m_jumpStartPosition  = position;
+        m_jumpTargetPosition = glm::vec3(new_x, new_y, new_z);
+        m_focusOnTarget      = FocusOnTarget;
+        m_yaw                = normalizedYaw;
+        m_pitch              = clampedPitch;
+
+        glm::vec3 newForward = glm::normalize(glm::vec3(
+            FAST_COS(m_pitch) * FAST_SIN(m_yaw),
+            FAST_SIN(m_pitch),
+            FAST_COS(m_pitch) * FAST_COS(m_yaw)
+        ));
+        forward = newForward;
+
+        if (!m_focusOnTarget)
+            m_originalTarget = m_jumpTargetPosition + newForward;
+        else
+            m_originalTarget = target;
+
+        float distance = glm::length(glm::vec2(position.x - new_x, position.z - new_z))
+                       + abs(position.y - new_y);
+
+        if (distance < 0.01f) {
+            position = m_jumpTargetPosition;
+            target   = m_focusOnTarget ? m_originalTarget : position + newForward;
+            viewMatrix = glm::lookAt(position, target, up);
+            return;
+        }
+
+        int pathPoints = static_cast<int>((distance * 15.0f) / (speed * 2.0f)) + 15;
+        pathPoints = std::clamp(pathPoints, 15, 120);
+
+        m_currentTravelPath  = CalculateSmoothTravelPath(m_jumpStartPosition, m_jumpTargetPosition, pathPoints);
+        m_isJumping          = true;
+        m_jumpSpeed          = speed;
+        m_currentPathIndex   = 0;
+        m_jumpAnimationTimer = 0.0f;
+
+        float baseTime        = 0.8f;
+        float speedMultiplier = 1.0f / (static_cast<float>(speed) * 1.5f);
+        m_totalJumpTime       = baseTime * speedMultiplier * (1.0f + distance * 0.1f);
+        m_totalJumpTime       = std::clamp(m_totalJumpTime, 0.2f, 3.0f);
+
+        AddToJumpHistory(m_jumpStartPosition, m_jumpTargetPosition, m_currentTravelPath, speed, FocusOnTarget);
+    }
+    catch (const std::exception& e) {
+        m_isJumping          = false;
+        m_currentPathIndex   = 0;
+        m_jumpAnimationTimer = 0.0f;
+        exceptionHandler.LogException(e, "Camera::JumpToWithYawPitch");
+    }
+    catch (...) {
+        m_isJumping          = false;
+        m_currentPathIndex   = 0;
+        m_jumpAnimationTimer = 0.0f;
+        exceptionHandler.LogCustomException("Unknown exception in Camera::JumpToWithYawPitch", "Camera jump with orientation initialization");
+    }
+}
+
+void Camera::UpdateJumpAnimation()
+{
+    UpdateContinuousRotation();
+
+    if (!m_isJumping) return;
+
+    try {
+        float deltaTime  = 1.0f / 60.0f;
+        float speedBoost = 1.8f;
+        m_jumpAnimationTimer += deltaTime * speedBoost;
+
+        float progress = std::clamp(m_jumpAnimationTimer / m_totalJumpTime, 0.0f, 1.0f);
+
+        if (progress >= 1.0f)
+        {
+            position         = m_jumpTargetPosition;
+            m_isJumping      = false;
+            m_currentPathIndex   = 0;
+            m_jumpAnimationTimer = 0.0f;
+
+            if (m_isJumpingBackInHistory)
+            {
+                int entriesToRemove    = m_historyJumpStepsRemaining;
+                int currentHistorySize = static_cast<int>(m_jumpHistory.size());
+                if (entriesToRemove > 0 && entriesToRemove <= currentHistorySize)
+                    RemoveForwardHistoryEntries(currentHistorySize - entriesToRemove);
+                m_isJumpingBackInHistory    = false;
+                m_historyJumpStepsRemaining = 0;
+            }
+
+            if (m_focusOnTarget)
+            {
+                glm::vec3 newFwd = glm::normalize(m_originalTarget - position);
+                forward = newFwd;
+                target  = m_originalTarget;
+                float newYaw   = FAST_ATAN2(newFwd.x, newFwd.z);
+                float fwdLen   = FAST_SQRT(newFwd.x * newFwd.x + newFwd.z * newFwd.z);
+                float newPitch = FAST_ATAN2(newFwd.y, fwdLen);
+                m_yaw   = newYaw;
+                m_pitch = newPitch;
+                up = glm::vec3(0.0f, 1.0f, 0.0f);
+                viewMatrix = glm::lookAt(position, m_originalTarget, up);
+            }
+            else
+            {
+                glm::vec3 preservedFwd = glm::normalize(glm::vec3(
+                    FAST_COS(m_pitch) * FAST_SIN(m_yaw),
+                    FAST_SIN(m_pitch),
+                    FAST_COS(m_pitch) * FAST_COS(m_yaw)));
+                forward    = preservedFwd;
+                target     = position + preservedFwd;
+                viewMatrix = glm::lookAt(position, target, up);
+            }
+            return;
+        }
+
+        float pathProgress = CalculateJumpAnimationSpeed(progress, m_jumpSpeed);
+        int   totalPoints  = static_cast<int>(m_currentTravelPath.size());
+
+        if (totalPoints > 1)
+        {
+            float exactIndex   = pathProgress * (totalPoints - 1);
+            int   curIdx       = static_cast<int>(exactIndex);
+            int   nextIdx      = std::min(curIdx + 1, totalPoints - 1);
+            float interpFactor = exactIndex - curIdx;
+
+            const glm::vec3& curPt  = m_currentTravelPath[curIdx];
+            const glm::vec3& nextPt = m_currentTravelPath[nextIdx];
+
+            position.x = FAST_MATH.FastLerp(curPt.x, nextPt.x, interpFactor);
+            position.y = FAST_MATH.FastLerp(curPt.y, nextPt.y, interpFactor);
+            position.z = FAST_MATH.FastLerp(curPt.z, nextPt.z, interpFactor);
+
+            if (m_focusOnTarget)
+            {
+                glm::vec3 focusDir = glm::normalize(m_originalTarget - position);
+                viewMatrix = glm::lookAt(position, m_originalTarget, up);
+                forward    = focusDir;
+                target     = m_originalTarget;
+                float animYaw   = FAST_ATAN2(focusDir.x, focusDir.z);
+                float fwdLen    = FAST_SQRT(focusDir.x * focusDir.x + focusDir.z * focusDir.z);
+                float animPitch = FAST_ATAN2(focusDir.y, fwdLen);
+                m_yaw   = animYaw;
+                m_pitch = animPitch;
+            }
+            else
+            {
+                glm::vec3 storedFwd = glm::normalize(glm::vec3(
+                    FAST_COS(m_pitch) * FAST_SIN(m_yaw),
+                    FAST_SIN(m_pitch),
+                    FAST_COS(m_pitch) * FAST_COS(m_yaw)));
+                forward    = storedFwd;
+                target     = position + storedFwd;
+                viewMatrix = glm::lookAt(position, target, up);
+            }
+        }
+    }
+    catch (const std::exception& e) {
+        m_isJumping          = false;
+        m_currentPathIndex   = 0;
+        m_jumpAnimationTimer = 0.0f;
+        exceptionHandler.LogException(e, "Camera::UpdateJumpAnimation");
+    }
+    catch (...) {
+        m_isJumping          = false;
+        m_currentPathIndex   = 0;
+        m_jumpAnimationTimer = 0.0f;
+        exceptionHandler.LogCustomException("Unknown exception in Camera::UpdateJumpAnimation", "Camera jump animation");
+    }
+}
+
+// === ROTATION FUNCTIONS ===
+
+void Camera::RotateX(float degrees, int speed, bool FocusOnTarget)
+{
+    if (speed <= 0) speed = 2;
+    if (abs(degrees) < 0.001f) return;
+
+    glm::vec3 pivotPoint;
+    glm::vec3 vectorToRotate;
+    glm::vec3 newPosition;
+
+    if (FocusOnTarget) {
+        pivotPoint     = target;
+        vectorToRotate = position - pivotPoint;
+    } else {
+        pivotPoint     = position;
+        vectorToRotate = target - pivotPoint;
+        newPosition    = position;
+    }
+
+    float rotDist = glm::length(vectorToRotate);
+    if (rotDist < 0.1f) rotDist = 5.0f;
+
+    glm::mat4 rotMat = glm::rotate(glm::mat4(1.0f), glm::radians(degrees), glm::vec3(1.0f, 0.0f, 0.0f));
+    glm::vec3 rotated = glm::normalize(glm::vec3(rotMat * glm::vec4(vectorToRotate, 0.0f))) * rotDist;
+
+    if (FocusOnTarget) newPosition = pivotPoint + rotated;
+    else               target      = pivotPoint + rotated;
+
+    JumpTo(newPosition.x, newPosition.y, newPosition.z, speed, FocusOnTarget);
+}
+
+void Camera::RotateY(float degrees, int speed, bool FocusOnTarget)
+{
+    if (speed <= 0) speed = 2;
+    if (abs(degrees) < 0.001f) return;
+
+    glm::vec3 pivotPoint;
+    glm::vec3 vectorToRotate;
+    glm::vec3 newPosition;
+
+    if (FocusOnTarget) {
+        pivotPoint     = target;
+        vectorToRotate = position - pivotPoint;
+    } else {
+        pivotPoint     = position;
+        vectorToRotate = target - pivotPoint;
+        newPosition    = position;
+    }
+
+    float rotDist = glm::length(vectorToRotate);
+    if (rotDist < 0.1f) rotDist = 5.0f;
+
+    glm::mat4 rotMat = glm::rotate(glm::mat4(1.0f), glm::radians(degrees), glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::vec3 rotated = glm::normalize(glm::vec3(rotMat * glm::vec4(vectorToRotate, 0.0f))) * rotDist;
+
+    if (FocusOnTarget) newPosition = pivotPoint + rotated;
+    else               target      = pivotPoint + rotated;
+
+    JumpTo(newPosition.x, newPosition.y, newPosition.z, speed, FocusOnTarget);
+}
+
+void Camera::RotateZ(float degrees, int speed, bool FocusOnTarget)
+{
+    if (speed <= 0) speed = 2;
+    if (abs(degrees) < 0.001f) return;
+
+    glm::vec3 pivotPoint;
+    glm::vec3 vectorToRotate;
+    glm::vec3 newPosition;
+
+    if (FocusOnTarget) {
+        pivotPoint     = target;
+        vectorToRotate = position - pivotPoint;
+    } else {
+        pivotPoint     = position;
+        vectorToRotate = target - pivotPoint;
+        newPosition    = position;
+    }
+
+    float rotDist = glm::length(vectorToRotate);
+    if (rotDist < 0.1f) rotDist = 5.0f;
+
+    glm::mat4 rotMat = glm::rotate(glm::mat4(1.0f), glm::radians(degrees), glm::vec3(0.0f, 0.0f, 1.0f));
+    glm::vec3 rotated = glm::normalize(glm::vec3(rotMat * glm::vec4(vectorToRotate, 0.0f))) * rotDist;
+
+    if (FocusOnTarget) newPosition = pivotPoint + rotated;
+    else               target      = pivotPoint + rotated;
+
+    JumpTo(newPosition.x, newPosition.y, newPosition.z, speed, FocusOnTarget);
+}
+
+void Camera::RotateXYZ(float xDegrees, float yDegrees, float zDegrees, int speed, bool FocusOnTarget)
+{
+    if (speed <= 0) speed = 2;
+    if (abs(xDegrees) < 0.001f && abs(yDegrees) < 0.001f && abs(zDegrees) < 0.001f) return;
+
+    glm::vec3 pivotPoint;
+    glm::vec3 vectorToRotate;
+
+    if (FocusOnTarget) {
+        pivotPoint     = target;
+        vectorToRotate = position - pivotPoint;
+    } else {
+        pivotPoint     = position;
+        vectorToRotate = target - pivotPoint;
+    }
+
+    float rotDist = glm::length(vectorToRotate);
+    if (rotDist < 0.1f) rotDist = 5.0f;
+
+    glm::mat4 rotX   = glm::rotate(glm::mat4(1.0f), glm::radians(xDegrees), glm::vec3(1.0f, 0.0f, 0.0f));
+    glm::mat4 rotY   = glm::rotate(glm::mat4(1.0f), glm::radians(yDegrees), glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::mat4 rotZ   = glm::rotate(glm::mat4(1.0f), glm::radians(zDegrees), glm::vec3(0.0f, 0.0f, 1.0f));
+    glm::mat4 combined = rotZ * rotY * rotX;  // Reverse order: apply X first, then Y, then Z
+
+    glm::vec3 rotated = glm::normalize(glm::vec3(combined * glm::vec4(vectorToRotate, 0.0f))) * rotDist;
+
+    glm::vec3 newPosition;
+    if (FocusOnTarget) {
+        newPosition = pivotPoint + rotated;
+    } else {
+        newPosition = position;
+        target      = pivotPoint + rotated;
+    }
+
+    JumpTo(newPosition.x, newPosition.y, newPosition.z, speed, FocusOnTarget);
+}
+
+void Camera::RotateToOppositeSide(int speed)
+{
+    if (speed <= 0) speed = 2;
+    if (m_isJumping) return;
+
+    glm::vec3 lookDir    = glm::normalize(target - position);
+    float currentPitch   = FAST_ASIN(lookDir.y);
+    float pitchDegrees   = glm::degrees(currentPitch);
+    char  primaryAxis    = DeterminePrimaryLookDirection();
+    float rotationAngle  = 180.0f;
+
+    if (abs(pitchDegrees) > 60.0f)
+        RotateZ(rotationAngle, speed, true);
+    else if (abs(pitchDegrees) < 30.0f)
+        RotateY(rotationAngle, speed, true);
+    else
+    {
+        switch (primaryAxis)
+        {
+            case 'X': RotateY(rotationAngle, speed, true); break;
+            case 'Y': RotateX(rotationAngle, speed, true); break;
+            default:  RotateY(rotationAngle, speed, true); break;
+        }
+    }
+}
+
+char Camera::DeterminePrimaryLookDirection() const
+{
+    glm::vec3 lookDir = glm::normalize(target - position);
+    float absX = abs(lookDir.x);
+    float absY = abs(lookDir.y);
+    float absZ = abs(lookDir.z);
+
+    const float thresh = 0.1f;
+    float maxComp = std::max({absX, absY, absZ});
+
+    if (absX >= maxComp && absX > absY + thresh && absX > absZ + thresh) return 'X';
+    if (absY >= maxComp && absY > absX + thresh && absY > absZ + thresh) return 'Y';
+    if (absZ >= maxComp && absZ > absX + thresh && absZ > absY + thresh) return 'Z';
+    return 'D';
+}
+
+glm::vec3 Camera::CalculateRotatedPosition(const glm::vec3& currentPos, const glm::vec3& pivot, float angleX, float angleY, float angleZ) const
+{
+    glm::vec3 relPos = currentPos - pivot;
+
+    glm::mat4 rotX   = glm::rotate(glm::mat4(1.0f), glm::radians(angleX), glm::vec3(1.0f, 0.0f, 0.0f));
+    glm::mat4 rotY   = glm::rotate(glm::mat4(1.0f), glm::radians(angleY), glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::mat4 rotZ   = glm::rotate(glm::mat4(1.0f), glm::radians(angleZ), glm::vec3(0.0f, 0.0f, 1.0f));
+    glm::mat4 combined = rotZ * rotY * rotX;
+
+    return pivot + glm::vec3(combined * glm::vec4(relPos, 0.0f));
+}
+
+// === STATUS AND UTILITY FUNCTIONS ===
+
+bool Camera::IsJumping() const { return m_isJumping; }
+
+float Camera::GetJumpProgress() const
+{
+    if (!m_isJumping || m_totalJumpTime <= 0.0f) return 0.0f;
+    return std::clamp(m_jumpAnimationTimer / m_totalJumpTime, 0.0f, 1.0f);
+}
+
+void Camera::CancelJump()
+{
+    if (m_isJumping) {
+        m_isJumping          = false;
+        m_currentPathIndex   = 0;
+        m_jumpAnimationTimer = 0.0f;
+        m_currentTravelPath.clear();
+    }
+}
+
+const std::vector<CameraJumpHistoryEntry>& Camera::GetJumpHistory() const { return m_jumpHistory; }
+void Camera::ClearJumpHistory() { m_jumpHistory.clear(); }
+
+// === PRIVATE HELPER FUNCTIONS ===
+
+void Camera::UpdateYawPitchFromDirection(const glm::vec3& direction)
+{
+    m_yaw = FAST_ATAN2(direction.x, direction.z);
+    float horizLen = FAST_SQRT(direction.x * direction.x + direction.z * direction.z);
+    m_pitch = FAST_ATAN2(direction.y, horizLen);
+    const float maxPitch = glm::half_pi<float>() - 0.01f;
+    m_pitch = std::clamp(m_pitch, -maxPitch, maxPitch);
+}
+
+std::vector<glm::vec3> Camera::CalculateSmoothTravelPath(const glm::vec3& start, const glm::vec3& end, int pathPoints) const
+{
+    std::vector<glm::vec3> path;
+    path.reserve(pathPoints);
+
+    glm::vec3 midpoint  = (start + end) * 0.5f;
+    float     distance  = glm::length(glm::vec2(start.x - end.x, start.z - end.z));
+    float     arcHeight = distance * 0.1f;
+
+    glm::vec3 cp1 = start + (midpoint - start) * 0.3f + glm::vec3(0.0f, arcHeight, 0.0f);
+    glm::vec3 cp2 = start + (midpoint - start) * 0.7f + glm::vec3(0.0f, arcHeight, 0.0f);
+
+    for (int i = 0; i < pathPoints; ++i)
+    {
+        float t       = static_cast<float>(i) / static_cast<float>(pathPoints - 1);
+        float smoothT = FAST_MATH.FastSmoothStep(0.0f, 1.0f, t);
+        float invT    = 1.0f - smoothT;
+        float invT2   = invT * invT;
+        float invT3   = invT2 * invT;
+        float t2      = smoothT * smoothT;
+        float t3      = t2 * smoothT;
+
+        glm::vec3 pt;
+        pt.x = invT3 * start.x + 3.0f * invT2 * smoothT * cp1.x + 3.0f * invT * t2 * cp2.x + t3 * end.x;
+        pt.y = invT3 * start.y + 3.0f * invT2 * smoothT * cp1.y + 3.0f * invT * t2 * cp2.y + t3 * end.y;
+        pt.z = invT3 * start.z + 3.0f * invT2 * smoothT * cp1.z + 3.0f * invT * t2 * cp2.z + t3 * end.z;
+        path.push_back(pt);
+    }
+    return path;
+}
+
+float Camera::CalculateJumpAnimationSpeed(float progress, int speed) const
+{
+    float speedMultiplier = std::clamp(1.0f / (static_cast<float>(speed) * 0.3f), 0.1f, 3.0f);
+    float easedProgress   = FAST_MATH.FastEaseInOut(0.0f, 1.0f, progress);
+    float baseSpeed       = easedProgress * speedMultiplier;
+    float boostSpeed      = progress * (2.0f - speedMultiplier);
+    return std::clamp(baseSpeed + boostSpeed, 0.0f, 1.0f);
+}
+
+void Camera::AddToJumpHistory(const glm::vec3& start, const glm::vec3& end, const std::vector<glm::vec3>& path, int speed, bool focusOnTarget)
+{
+    if (m_isJumpingBackInHistory) return;
+
+    CameraJumpHistoryEntry entry;
+    entry.startPosition  = start;
+    entry.endPosition    = end;
+    entry.travelPath     = path;
+    entry.speed          = speed;
+    entry.focusOnTarget  = focusOnTarget;
+    entry.originalTarget = m_originalTarget;
+    entry.timestamp      = std::chrono::system_clock::now();
+    entry.totalDistance  = glm::length(glm::vec2(start.x - end.x, start.z - end.z)) + abs(start.y - end.y);
+
+    m_jumpHistory.push_back(entry);
+    while (m_jumpHistory.size() > MAX_JUMP_HISTORY)
+        m_jumpHistory.erase(m_jumpHistory.begin());
+}
+
+void Camera::JumpBackHistory(int numOfJumps)
+{
+    if (numOfJumps <= 0 || m_isJumping || m_jumpHistory.empty()) return;
+
+    int maxJumps    = static_cast<int>(m_jumpHistory.size());
+    int actualJumps = std::min(numOfJumps, maxJumps);
+    int targetIdx   = maxJumps - actualJumps;
+
+    const CameraJumpHistoryEntry& targetEntry = m_jumpHistory[targetIdx];
+
+    m_isJumpingBackInHistory    = true;
+    m_historyJumpStepsRemaining = actualJumps;
+
+    if (targetEntry.focusOnTarget) {
+        target           = targetEntry.originalTarget;
+        m_originalTarget = targetEntry.originalTarget;
+    }
+
+    JumpTo(targetEntry.startPosition.x, targetEntry.startPosition.y, targetEntry.startPosition.z,
+           std::max(1, targetEntry.speed), targetEntry.focusOnTarget);
+}
+
+void Camera::RemoveForwardHistoryEntries(int fromIndex)
+{
+    if (fromIndex < 0 || fromIndex >= static_cast<int>(m_jumpHistory.size())) return;
+    m_jumpHistory.erase(m_jumpHistory.begin() + fromIndex, m_jumpHistory.end());
+}
+
+int Camera::GetJumpHistoryCount() const { return static_cast<int>(m_jumpHistory.size()); }
+
+// === EXISTING CAMERA FUNCTIONS ===
+
+void Camera::SetLookDirection(glm::vec3 newForward, glm::vec3 newUp)
+{
+    forward    = glm::normalize(newForward);
+    up         = glm::normalize(newUp);
+    target     = position + forward;
+    viewMatrix = glm::lookAt(position, target, up);
+}
+
+void Camera::SetYawPitch(float newYaw, float newPitch)
+{
+    m_yaw   = newYaw;
+    m_pitch = newPitch;
+    glm::vec3 fwd = glm::normalize(glm::vec3(
+        FAST_COS(m_pitch) * FAST_SIN(m_yaw),
+        FAST_SIN(m_pitch),
+        FAST_COS(m_pitch) * FAST_COS(m_yaw)));
+    forward    = fwd;
+    up         = glm::vec3(0.0f, 1.0f, 0.0f);
+    target     = position + fwd;
+    viewMatrix = glm::lookAt(position, target, up);
+}
+
+void Camera::MoveUp(float distance)    { position.y += distance; UpdateViewMatrix(); }
+void Camera::MoveDown(float distance)  { position.y -= distance; UpdateViewMatrix(); }
+void Camera::MoveRight(float distance) { position.x += distance; UpdateViewMatrix(); }
+void Camera::MoveLeft(float distance)  { position.x -= distance; UpdateViewMatrix(); }
+
+void Camera::MoveIn(float distance)
+{
+    position += forward * distance;
+    target    = position + forward;
+    UpdateViewMatrix();
+}
+
+void Camera::MoveOut(float distance)
+{
+    position -= forward * distance;
+    target    = position + forward;
+    UpdateViewMatrix();
+}
+
+void Camera::SetPosition(float x, float y, float z) { position = glm::vec3(x, y, z); UpdateViewMatrix(); }
+glm::vec3 Camera::GetPosition() const               { return position; }
+
+void Camera::SetTarget(const glm::vec3& newTarget)
+{
+    target     = newTarget;
+    viewMatrix = glm::lookAt(position, target, up);
+}
+
+// === FOV / CLIPPING PLANE FUNCTIONS ===
+
+float     Camera::GetFieldOfView() const { return glm::degrees(m_fieldOfView); }
+glm::vec3 Camera::GetUpVector()    const { return up; }
+float     Camera::GetFarPlane()    const { return m_farPlane;  }
+float     Camera::GetNearPlane()   const { return m_nearPlane; }
+
+void Camera::SetFieldOfView(float fovDegrees)
+{
+    fovDegrees = std::clamp(fovDegrees, 1.0f, 179.0f);
+    float aspectRatio = static_cast<float>(config.myConfig.aspectRatio);
+    if (aspectRatio <= 0.0f) aspectRatio = 16.0f / 9.0f;
+    m_fieldOfView    = glm::radians(fovDegrees);
+    projectionMatrix = MakeVulkanProjection(m_fieldOfView, aspectRatio, m_nearPlane, m_farPlane);
+    config.myConfig.fov = fovDegrees;
+}
+
+void Camera::SetUpVector(const glm::vec3& newUp)
+{
+    float len = glm::length(newUp);
+    up        = (len < 0.001f) ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::normalize(newUp);
+    UpdateViewMatrix();
+}
+
+void Camera::SetNearFarPlanes(float nearPlane, float farPlane)
+{
+    if (nearPlane <= 0.0f) nearPlane = 0.1f;
+    if (farPlane <= nearPlane) farPlane = nearPlane + 1000.0f;
+
+    float aspectRatio = static_cast<float>(config.myConfig.aspectRatio);
+    if (aspectRatio <= 0.0f) aspectRatio = 16.0f / 9.0f;
+
+    m_nearPlane      = nearPlane;
+    m_farPlane       = farPlane;
+    projectionMatrix = MakeVulkanProjection(m_fieldOfView, aspectRatio, nearPlane, farPlane);
+    config.myConfig.nearPlane = nearPlane;
+    config.myConfig.farPlane  = farPlane;
+}
+
+void Camera::UpdateCameraMatrices()
+{
+    float dist = glm::length(target - position);
+    if (dist < 0.001f) target = position + forward;
+
+    viewMatrix = glm::lookAt(position, target, up);
+
+    float currentFov  = config.myConfig.fov;
+    float aspectRatio = static_cast<float>(config.myConfig.aspectRatio);
+    float nearPlane   = config.myConfig.nearPlane;
+    float farPlane    = config.myConfig.farPlane;
+
+    if (currentFov  <= 0.0f || currentFov >= 180.0f) currentFov  = 45.0f;
+    if (aspectRatio <= 0.0f)                          aspectRatio = 16.0f / 9.0f;
+    if (nearPlane   <= 0.0f)                          nearPlane   = 0.1f;
+    if (farPlane    <= nearPlane)                     farPlane    = nearPlane + 1000.0f;
+
+    projectionMatrix = MakeVulkanProjection(glm::radians(currentFov), aspectRatio, nearPlane, farPlane);
+
+    forward = glm::normalize(target - position);
+    UpdateYawPitchFromDirection(forward);
+}
+
+void Camera::SetNearFar(float nearPlane, float farPlane)
+{
+    float aspect = static_cast<float>(config.myConfig.aspectRatio);
+    float fovY   = 2.0f * atanf(FAST_TAN(static_cast<float>(config.myConfig.fov) * 0.5f * glm::pi<float>() / 180.0f) / aspect);
+    m_nearPlane      = nearPlane;
+    m_farPlane       = farPlane;
+    projectionMatrix = MakeVulkanProjection(fovY, aspect, nearPlane, farPlane);
+    config.myConfig.nearPlane = nearPlane;
+    config.myConfig.farPlane  = farPlane;
+}
+
+glm::mat4 Camera::GetViewMatrix()       const { return viewMatrix; }
+glm::mat4 Camera::GetProjectionMatrix() const { return projectionMatrix; }
+void Camera::SetViewMatrix(const glm::mat4& matrix)       { viewMatrix       = matrix; }
+void Camera::SetProjectionMatrix(const glm::mat4& matrix) { projectionMatrix = matrix; }
+
+void Camera::SetupDefaultCamera(float windowWidth, float windowHeight)
+{
+    glm::vec3 eye    = glm::vec3(4.0f, 0.0f, -15.0f);
+    glm::vec3 lookAt = glm::vec3(0.0f, 0.01f,  0.0f);
+    glm::vec3 upVec  = glm::vec3(0.0f, 1.0f,   0.0f);
+
+    SetViewMatrix(glm::lookAt(eye, lookAt, upVec));
+
+    float fovX_deg = config.myConfig.fov;
+    float aspect   = windowWidth / windowHeight;
+    float fovX_rad = glm::radians(fovX_deg);
+    float fovY_rad = 2.0f * atanf(tanf(fovX_rad / 2.0f) / aspect);
+
+    SetProjectionMatrix(MakeVulkanProjection(fovY_rad, aspect, config.myConfig.nearPlane, config.myConfig.farPlane));
+
+    position = eye;
+    target   = lookAt;
+}
+
+void Camera::UpdateViewMatrix()
+{
+    float cosPitch = FAST_COS(m_pitch);
+    float sinPitch = FAST_SIN(m_pitch);
+    float cosYaw   = FAST_COS(m_yaw);
+    float sinYaw   = FAST_SIN(m_yaw);
+
+    glm::vec3 fwd = glm::vec3(cosPitch * sinYaw, sinPitch, cosPitch * cosYaw);
+    forward = fwd;
+    target  = position + fwd;
+    viewMatrix = glm::lookAt(position, target, up);
+}
+
+void Camera::UpdateProjectionMatrix()
+{
+    if (m_aspectRatio <= 0.0f || m_nearPlane <= 0.0f || m_nearPlane >= m_farPlane || m_fieldOfView <= 0.0f) {
+        m_aspectRatio = (m_aspectRatio <= 0.0f)         ? (16.0f / 9.0f)       : m_aspectRatio;
+        m_nearPlane   = (m_nearPlane <= 0.0f)           ? 0.1f                 : m_nearPlane;
+        m_farPlane    = (m_farPlane <= m_nearPlane)     ? 1000.0f              : m_farPlane;
+        m_fieldOfView = (m_fieldOfView <= 0.0f)         ? glm::radians(45.0f)  : m_fieldOfView;
+    }
+    projectionMatrix = MakeVulkanProjection(m_fieldOfView, m_aspectRatio, m_nearPlane, m_farPlane);
+}
+
+void Camera::SetYawPitchFromForward()
+{
+    m_pitch = asinf(forward.y);
+    m_yaw   = atan2f(forward.x, forward.z);
+}
+
+// === MOVE AROUND TARGET ===
+
+void Camera::MoveAroundTarget(bool x, bool y, bool z, bool continuous)
+{
+    if (!x && !y && !z) return;
+    if (m_isJumping) return;
+    if (m_isRotatingAroundTarget) StopRotating();
+
+    m_rotationStartPosition = position;
+    m_rotationTarget        = target;
+    m_rotationDistance      = glm::length(position - target);
+    if (m_rotationDistance < 0.1f) m_rotationDistance = 5.0f;
+
+    m_isRotatingAroundTarget = true;
+    m_continuousRotation     = continuous;
+    m_rotateAroundX          = x;
+    m_rotateAroundY          = y;
+    m_rotateAroundZ          = z;
+    m_currentRotationX = m_currentRotationY = m_currentRotationZ = 0.0f;
+    m_targetRotationX  = x ? 360.0f : 0.0f;
+    m_targetRotationY  = y ? 360.0f : 0.0f;
+    m_targetRotationZ  = z ? 360.0f : 0.0f;
+
+    int   activeAxes      = (x ? 1 : 0) + (y ? 1 : 0) + (z ? 1 : 0);
+    float speedMultiplier = (activeAxes > 1) ? 0.7f : 1.0f;
+    float baseSpeed       = 60.0f;
+    m_rotationSpeedX = x ? baseSpeed * speedMultiplier : 0.0f;
+    m_rotationSpeedY = y ? baseSpeed * speedMultiplier : 0.0f;
+    m_rotationSpeedZ = z ? baseSpeed * speedMultiplier : 0.0f;
+}
+
+void Camera::MoveAroundTarget(bool x, bool y, bool z, float rotationSpeed, bool continuous)
+{
+    if (rotationSpeed <= 0.0f) rotationSpeed = 60.0f;
+    if (!x && !y && !z) return;
+    if (m_isJumping) return;
+    if (m_isRotatingAroundTarget) StopRotating();
+
+    m_rotationStartPosition = position;
+    m_rotationTarget        = target;
+    m_rotationDistance      = glm::length(position - target);
+    if (m_rotationDistance < 0.1f) m_rotationDistance = 5.0f;
+
+    m_isRotatingAroundTarget = true;
+    m_continuousRotation     = continuous;
+    m_rotateAroundX          = x;
+    m_rotateAroundY          = y;
+    m_rotateAroundZ          = z;
+    m_currentRotationX = m_currentRotationY = m_currentRotationZ = 0.0f;
+    m_targetRotationX  = x ? 360.0f : 0.0f;
+    m_targetRotationY  = y ? 360.0f : 0.0f;
+    m_targetRotationZ  = z ? 360.0f : 0.0f;
+    m_rotationSpeedX   = x ? rotationSpeed : 0.0f;
+    m_rotationSpeedY   = y ? rotationSpeed : 0.0f;
+    m_rotationSpeedZ   = z ? rotationSpeed : 0.0f;
+}
+
+void Camera::StopRotating()
+{
+    if (!m_isRotatingAroundTarget) return;
+    m_isRotatingAroundTarget = false;
+    m_continuousRotation     = false;
+    m_rotateAroundX = m_rotateAroundY = m_rotateAroundZ = false;
+    m_rotationSpeedX = m_rotationSpeedY = m_rotationSpeedZ = 0.0f;
+    m_currentRotationX = m_currentRotationY = m_currentRotationZ = 0.0f;
+    m_targetRotationX  = m_targetRotationY  = m_targetRotationZ  = 0.0f;
+    UpdateViewMatrix();
+}
+
+bool Camera::IsRotatingAroundTarget() const { return m_isRotatingAroundTarget; }
+
+float Camera::GetRotationProgress() const
+{
+    if (!m_isRotatingAroundTarget) return 0.0f;
+    float total = 0.0f; int active = 0;
+    if (m_rotateAroundX && m_targetRotationX > 0.0f) { total += m_currentRotationX / m_targetRotationX; active++; }
+    if (m_rotateAroundY && m_targetRotationY > 0.0f) { total += m_currentRotationY / m_targetRotationY; active++; }
+    if (m_rotateAroundZ && m_targetRotationZ > 0.0f) { total += m_currentRotationZ / m_targetRotationZ; active++; }
+    if (active > 0) total /= active;
+    return std::clamp(total, 0.0f, 1.0f);
+}
+
+glm::vec3 Camera::CalculateRotationPosition(float angleX, float angleY, float angleZ) const
+{
+    glm::vec3 relPos = glm::normalize(m_rotationStartPosition - m_rotationTarget) * m_rotationDistance;
+    glm::mat4 rotX   = glm::rotate(glm::mat4(1.0f), glm::radians(angleX), glm::vec3(1.0f, 0.0f, 0.0f));
+    glm::mat4 rotY   = glm::rotate(glm::mat4(1.0f), glm::radians(angleY), glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::mat4 rotZ   = glm::rotate(glm::mat4(1.0f), glm::radians(angleZ), glm::vec3(0.0f, 0.0f, 1.0f));
+    glm::mat4 combined = rotZ * rotY * rotX;
+    return m_rotationTarget + glm::vec3(combined * glm::vec4(relPos, 0.0f));
+}
+
+void Camera::UpdateContinuousRotation()
+{
+    if (!m_isRotatingAroundTarget) return;
+
+    float deltaTime       = 1.0f / 60.0f;
+    bool  rotationComplete = true;
+
+    auto updateAxis = [&](bool active, float& current, float speed, float targetAngle) {
+        if (!active) return;
+        current += speed * deltaTime;
+        if (!m_continuousRotation && current >= targetAngle)
+            current = targetAngle;
+        else if (m_continuousRotation) {
+            if (current >= 360.0f) current -= 360.0f;
+            rotationComplete = false;
+        } else {
+            rotationComplete = false;
+        }
+    };
+
+    updateAxis(m_rotateAroundX, m_currentRotationX, m_rotationSpeedX, m_targetRotationX);
+    updateAxis(m_rotateAroundY, m_currentRotationY, m_rotationSpeedY, m_targetRotationY);
+    updateAxis(m_rotateAroundZ, m_currentRotationZ, m_rotationSpeedZ, m_targetRotationZ);
+
+    position = CalculateRotationPosition(m_currentRotationX, m_currentRotationY, m_currentRotationZ);
+    viewMatrix = glm::lookAt(position, m_rotationTarget, up);
+
+    glm::vec3 focusDir = glm::normalize(m_rotationTarget - position);
+    forward = focusDir;
+    m_yaw   = FAST_ATAN2(focusDir.x, focusDir.z);
+    float fwdLen = FAST_SQRT(focusDir.x * focusDir.x + focusDir.z * focusDir.z);
+    m_pitch = FAST_ATAN2(focusDir.y, fwdLen);
+
+    if (!m_continuousRotation && rotationComplete)
+        StopRotating();
+}
+
+void Camera::PauseRotation()
+{
+    if (!m_isRotatingAroundTarget) return;
+    static float pausedSpeedX = 0.0f, pausedSpeedY = 0.0f, pausedSpeedZ = 0.0f;
+    pausedSpeedX = m_rotationSpeedX;
+    pausedSpeedY = m_rotationSpeedY;
+    pausedSpeedZ = m_rotationSpeedZ;
+    m_rotationSpeedX = m_rotationSpeedY = m_rotationSpeedZ = 0.0f;
+}
+
+void Camera::ResumeRotation()
+{
+    if (!m_isRotatingAroundTarget) return;
+    static float pausedSpeedX = 60.0f, pausedSpeedY = 60.0f, pausedSpeedZ = 60.0f;
+    m_rotationSpeedX = m_rotateAroundX ? pausedSpeedX : 0.0f;
+    m_rotationSpeedY = m_rotateAroundY ? pausedSpeedY : 0.0f;
+    m_rotationSpeedZ = m_rotateAroundZ ? pausedSpeedZ : 0.0f;
+}
+
+void Camera::SetRotationSpeed(float degreesPerSecond)
+{
+    if (degreesPerSecond < 0.0f) degreesPerSecond = 0.0f;
+    if (!m_isRotatingAroundTarget) return;
+    if (m_rotateAroundX) m_rotationSpeedX = degreesPerSecond;
+    if (m_rotateAroundY) m_rotationSpeedY = degreesPerSecond;
+    if (m_rotateAroundZ) m_rotationSpeedZ = degreesPerSecond;
+}
+
+glm::vec3 Camera::GetCurrentRotationAngles() const { return glm::vec3(m_currentRotationX, m_currentRotationY, m_currentRotationZ); }
+glm::vec3 Camera::GetRotationSpeeds()        const { return glm::vec3(m_rotationSpeedX,   m_rotationSpeedY,   m_rotationSpeedZ);   }
+
+bool Camera::IsRotationPaused() const
+{
+    return m_isRotatingAroundTarget &&
+           (m_rotationSpeedX == 0.0f && m_rotationSpeedY == 0.0f && m_rotationSpeedZ == 0.0f) &&
+           (m_rotateAroundX || m_rotateAroundY || m_rotateAroundZ);
+}
+
+float Camera::GetEstimatedTimeToComplete() const
+{
+    if (!m_isRotatingAroundTarget || m_continuousRotation) return -1.0f;
+    float maxTime = 0.0f;
+    if (m_rotateAroundX && m_rotationSpeedX > 0.0f) maxTime = std::max(maxTime, (m_targetRotationX - m_currentRotationX) / m_rotationSpeedX);
+    if (m_rotateAroundY && m_rotationSpeedY > 0.0f) maxTime = std::max(maxTime, (m_targetRotationY - m_currentRotationY) / m_rotationSpeedY);
+    if (m_rotateAroundZ && m_rotationSpeedZ > 0.0f) maxTime = std::max(maxTime, (m_targetRotationZ - m_currentRotationZ) / m_rotationSpeedZ);
+    return maxTime;
+}
+
+void Camera::UpdateResolution(uint32_t newWidth, uint32_t newHeight, float newAspectRatio)
+{
+    m_screenWidth  = static_cast<float>(newWidth);
+    m_screenHeight = static_cast<float>(newHeight);
+    m_aspectRatio  = newAspectRatio;
+
+    if (m_aspectRatio <= 0.1f || m_aspectRatio >= 10.0f) m_aspectRatio = 16.0f / 9.0f;
+    if (m_nearPlane <= 0.0f || m_nearPlane >= m_farPlane) { m_nearPlane = 0.1f; m_farPlane = 1000.0f; }
+    if (m_fieldOfView <= 0.0f || m_fieldOfView >= glm::pi<float>()) m_fieldOfView = glm::radians(45.0f);
+
+    UpdateProjectionMatrix();
+    UpdateViewMatrix();
+}
+
+// === DIRECTION VECTOR FUNCTIONS ===
+
+void Camera::UpdateDirectionVectors(const glm::vec3& forwardVec, const glm::vec3& rightVec, const glm::vec3& upVec)
+{
+    try {
+        if (glm::length(forwardVec) < 0.001f || glm::length(rightVec) < 0.001f || glm::length(upVec) < 0.001f) {
+            forward = glm::vec3(0.0f, 0.0f, 1.0f);
+            up      = glm::vec3(0.0f, 1.0f, 0.0f);
+            target  = position + forward;
+        } else {
+            forward = glm::normalize(forwardVec);
+            up      = glm::normalize(upVec);
+            target  = position + forward;
+            UpdateYawPitchFromDirection(forward);
+        }
+        UpdateViewMatrix();
+    }
+    catch (const std::exception& e) {
+        forward = glm::vec3(0.0f, 0.0f, 1.0f);
+        up      = glm::vec3(0.0f, 1.0f, 0.0f);
+        target  = position + forward;
+        UpdateViewMatrix();
+        exceptionHandler.LogException(e, "Camera::UpdateDirectionVectors");
+    }
+    catch (...) {
+        forward = glm::vec3(0.0f, 0.0f, 1.0f);
+        up      = glm::vec3(0.0f, 1.0f, 0.0f);
+        target  = position + forward;
+        UpdateViewMatrix();
+        exceptionHandler.LogCustomException("Unknown exception in Camera::UpdateDirectionVectors", "Camera direction update");
+    }
+}
+
+void Camera::CalculateDirectionVectors(float yaw, float pitch, glm::vec3& outForward, glm::vec3& outRight, glm::vec3& outUp) const
+{
+    try {
+        const float two_pi   = glm::two_pi<float>();
+        const float maxPitch = glm::half_pi<float>() - 0.01f;
+
+        while (yaw >  two_pi) yaw -= two_pi;
+        while (yaw < -two_pi) yaw += two_pi;
+        pitch = std::clamp(pitch, -maxPitch, maxPitch);
+
+        outForward = glm::normalize(glm::vec3(
+            FAST_COS(pitch) * FAST_SIN(yaw),
+            FAST_SIN(pitch),
+            FAST_COS(pitch) * FAST_COS(yaw)));
+        outRight = glm::normalize(glm::cross(glm::vec3(0.0f, 1.0f, 0.0f), outForward));
+        outUp    = glm::normalize(glm::cross(outForward, outRight));
+    }
+    catch (const std::exception& e) {
+        outForward = glm::vec3(0.0f, 0.0f, 1.0f);
+        outRight   = glm::vec3(1.0f, 0.0f, 0.0f);
+        outUp      = glm::vec3(0.0f, 1.0f, 0.0f);
+        exceptionHandler.LogException(e, "Camera::CalculateDirectionVectors");
+    }
+    catch (...) {
+        outForward = glm::vec3(0.0f, 0.0f, 1.0f);
+        outRight   = glm::vec3(1.0f, 0.0f, 0.0f);
+        outUp      = glm::vec3(0.0f, 1.0f, 0.0f);
+        exceptionHandler.LogCustomException("Unknown exception in Camera::CalculateDirectionVectors", "Camera direction calculation");
+    }
+}
+
+void Camera::UpdateCameraDirectionFromAngles(float yaw, float pitch)
+{
+    try {
+        glm::vec3 fwdVec, rightVec, upVec;
+        CalculateDirectionVectors(yaw, pitch, fwdVec, rightVec, upVec);
+        UpdateDirectionVectors(fwdVec, rightVec, upVec);
+        m_yaw   = yaw;
+        m_pitch = pitch;
+        UpdateViewMatrix();
+    }
+    catch (const std::exception& e) {
+        exceptionHandler.LogException(e, "Camera::UpdateCameraDirectionFromAngles");
+    }
+}
+
+void Camera::CalculateDirectionVectorsFromMouseDelta(float mouseDeltaX, float mouseDeltaY, float sensitivity,
+    glm::vec3& outForward, glm::vec3& outRight, glm::vec3& outUp)
+{
+    try {
+        const float two_pi   = glm::two_pi<float>();
+        const float maxPitch = glm::half_pi<float>() - 0.01f;
+
+        float newYaw   = m_yaw   + (mouseDeltaX * sensitivity);
+        float newPitch = m_pitch + (mouseDeltaY * sensitivity);
+
+        newPitch = std::clamp(newPitch, -maxPitch, maxPitch);
+        while (newYaw >  two_pi) newYaw -= two_pi;
+        while (newYaw < -two_pi) newYaw += two_pi;
+
+        outForward = glm::normalize(glm::vec3(
+            FAST_COS(newPitch) * FAST_SIN(newYaw),
+            FAST_SIN(newPitch),
+            FAST_COS(newPitch) * FAST_COS(newYaw)));
+        outRight = glm::normalize(glm::cross(glm::vec3(0.0f, 1.0f, 0.0f), outForward));
+        outUp    = glm::normalize(glm::cross(outForward, outRight));
+
+        m_yaw   = newYaw;
+        m_pitch = newPitch;
+    }
+    catch (const std::exception& e) {
+        outForward = glm::vec3(0.0f, 0.0f, 1.0f);
+        outRight   = glm::vec3(1.0f, 0.0f, 0.0f);
+        outUp      = glm::vec3(0.0f, 1.0f, 0.0f);
+        exceptionHandler.LogException(e, "Camera::CalculateDirectionVectorsFromMouseDelta");
+    }
+    catch (...) {
+        outForward = glm::vec3(0.0f, 0.0f, 1.0f);
+        outRight   = glm::vec3(1.0f, 0.0f, 0.0f);
+        outUp      = glm::vec3(0.0f, 1.0f, 0.0f);
+        exceptionHandler.LogCustomException("Unknown exception in Camera::CalculateDirectionVectorsFromMouseDelta", "Mouse delta direction calculation");
+    }
+}
+
+void Camera::UpdateCameraFromMouseMovement(float mouseDeltaX, float mouseDeltaY, float sensitivity)
+{
+    try {
+        glm::vec3 fwdVec, rightVec, upVec;
+        CalculateDirectionVectorsFromMouseDelta(mouseDeltaX, mouseDeltaY, sensitivity, fwdVec, rightVec, upVec);
+        UpdateDirectionVectors(fwdVec, rightVec, upVec);
+    }
+    catch (const std::exception& e) {
+        exceptionHandler.LogException(e, "Camera::UpdateCameraFromMouseMovement");
+    }
+}
+
+#pragma warning(pop)
+
+#endif // __USE_VULKAN__

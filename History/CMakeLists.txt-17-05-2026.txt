@@ -1,0 +1,302 @@
+cmake_minimum_required(VERSION 3.20)
+project(CrossPlatformGameEngine LANGUAGES CXX RC)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# ── Sources ──────────────────────────────────────────────────────────────────
+set(SOURCES
+    BlenderImports.cpp
+    Configuration.cpp
+    ConsoleWindow.cpp
+    Debug.cpp
+    DX11Renderer.cpp
+    DX12Renderer.cpp
+    DXCamera.cpp
+    DXRenderFrame.cpp
+    DX_FXManager.cpp
+    ExceptionHandler.cpp
+    FileIO.cpp
+    GamePlayer.cpp
+    GamingAI.cpp
+    GLTFAnimator.cpp
+    GUIConfigWindow.cpp
+    GUIManager.cpp
+    GUIWindows.cpp
+    IOStreamDX11Thread.cpp
+    IOStreamDX12Thread.cpp
+    Joystick.cpp
+    KBHandlersCode.cpp
+    KeyboardHandler.cpp
+    Lights.cpp
+    main.cpp
+    MathPrecalculation.cpp
+    Models.cpp
+    MoviePlayer.cpp
+    MyRandomizer.cpp
+    NetworkManager.cpp
+    OpenGLCamera.cpp
+    OpenGLRenderer.cpp
+    OpenGLFXManager.cpp
+    OpenGLRenderFrame.cpp
+    OpenGL_IOStreamThread.cpp
+    VulkanCamera.cpp
+    VULKAN_Renderer.cpp
+    VULKAN_RenderFrame.cpp
+    VULKAN_FXManager.cpp
+    VULKAN_IOStreamThread.cpp
+    Physics.cpp
+    PUNPack.cpp
+    RendererFactory.cpp
+    SceneManager.cpp
+    ScriptManager.cpp
+    ScreenRecorder.cpp
+    ShaderLoaders.cpp
+    ShaderManager.cpp
+    SoundManager.cpp
+    ThreadManager.cpp
+    TTSManager.cpp
+    WinMediaPlayer.cpp
+    WinSystem.cpp
+    XMMODPlayer.cpp
+    CrossPlatformGameEngine.rc
+)
+
+add_executable(CrossPlatformGameEngine WIN32 ${SOURCES})
+
+# ── Vulkan SDK detection ──────────────────────────────────────────────────────
+# Relies on VULKAN_SDK environment variable set by the Vulkan SDK installer.
+# Falls back to scanning common drive-root install locations if env var is absent.
+if(WIN32)
+    find_package(Vulkan QUIET)
+    if(NOT Vulkan_FOUND)
+        file(GLOB _VK_CANDIDATES LIST_DIRECTORIES true
+            "C:/VulkanSDK/*" "D:/VulkanSDK/*" "E:/VulkanSDK/*"
+            "F:/VulkanSDK/*" "G:/VulkanSDK/*"
+            "$ENV{ProgramFiles}/VulkanSDK/*"
+            "$ENV{ProgramW6432}/VulkanSDK/*")
+        foreach(_C IN LISTS _VK_CANDIDATES)
+            if(EXISTS "${_C}/Include/vulkan/vulkan.h")
+                set(ENV{VULKAN_SDK} "${_C}")
+                find_package(Vulkan QUIET)
+                if(Vulkan_FOUND)
+                    break()
+                endif()
+            endif()
+        endforeach()
+    endif()
+    if(NOT Vulkan_FOUND)
+        message(FATAL_ERROR
+            "\n"
+            "  ======================================================================\n"
+            "  CANNOT Compile Resources - Vulkan SDK Not Found\n"
+            "  ======================================================================\n"
+            "\n"
+            "  The Vulkan SDK (vulkan.h / vulkan-1.lib) could not be located.\n"
+            "  The VULKAN_SDK environment variable is not set, and no SDK was found\n"
+            "  in the expected drive-root locations (C:..G:\\VulkanSDK\\*).\n"
+            "\n"
+            "  -- OPTION 1: Install the LunarG Vulkan SDK (recommended) -------------\n"
+            "    Download from:  https://vulkan.lunarg.com/sdk/home#windows\n"
+            "    Run the installer — it sets VULKAN_SDK automatically.\n"
+            "    After install, restart your terminal and re-run cmake-build.bat\n"
+            "\n"
+            "  -- OPTION 2: Set VULKAN_SDK manually ---------------------------------\n"
+            "    set VULKAN_SDK=C:\\VulkanSDK\\<version>   (in a cmd / bat)\n"
+            "    or via System Properties -> Environment Variables\n"
+            "    Then re-run cmake-build.bat\n"
+            "\n"
+            "  Expected SDK layout:\n"
+            "    <VULKAN_SDK>\\Include\\vulkan\\vulkan.h\n"
+            "    <VULKAN_SDK>\\Lib\\vulkan-1.lib\n"
+            "  ======================================================================\n"
+        )
+    endif()
+    get_filename_component(_VK_LIB_DIR "${Vulkan_LIBRARIES}" DIRECTORY)
+    message(STATUS "Vulkan SDK include : ${Vulkan_INCLUDE_DIRS}")
+    message(STATUS "Vulkan SDK lib dir : ${_VK_LIB_DIR}")
+endif()
+
+# ── Include directories ───────────────────────────────────────────────────────
+target_include_directories(CrossPlatformGameEngine PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    F:/Projects/C++/CPGE
+    $<$<BOOL:${Vulkan_FOUND}>:${Vulkan_INCLUDE_DIRS}>
+)
+
+# ── Library directories ───────────────────────────────────────────────────────
+target_link_directories(CrossPlatformGameEngine PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib
+    ${CMAKE_CURRENT_SOURCE_DIR}/steam/lib/win64
+    $<$<BOOL:${Vulkan_FOUND}>:${_VK_LIB_DIR}>
+)
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+if(MSVC)
+    set_target_properties(CrossPlatformGameEngine PROPERTIES
+        LINK_FLAGS "/ENTRY:WinMainCRTStartup"
+    )
+endif()
+
+# ── MSVC compile options ──────────────────────────────────────────────────────
+if(MSVC)
+    target_compile_options(CrossPlatformGameEngine PRIVATE
+        /W3          # Warning level 3
+        /wd4244      # Disable C4244 (conversion, possible data loss)
+        /Zc:__cplusplus
+        /MP          # Multi-processor compilation
+        /nologo
+        /Zp16        # Struct member alignment 16 bytes
+        $<$<CONFIG:Debug>:/MTd /sdl>
+        $<$<CONFIG:Release>:/MT /sdl /Oi /Ob2 /GF /GT>
+    )
+
+    target_compile_definitions(CrossPlatformGameEngine PRIVATE
+        $<$<CONFIG:Debug>:_DEBUG;_CONSOLE>
+        $<$<CONFIG:Release>:NDEBUG;_CONSOLE>
+        UNICODE
+        _UNICODE
+    )
+
+    # Release: whole-program optimisation
+    set_target_properties(CrossPlatformGameEngine PROPERTIES
+        INTERPROCEDURAL_OPTIMIZATION_RELEASE ON
+    )
+
+    # Release: COMDAT folding + dead-code stripping
+    target_link_options(CrossPlatformGameEngine PRIVATE
+        $<$<CONFIG:Release>:/OPT:REF /OPT:ICF>
+        $<$<CONFIG:Debug>:/DEBUG /ASSEMBLYDEBUG>
+    )
+
+    # Debug: generate map file
+    set_target_properties(CrossPlatformGameEngine PROPERTIES
+        LINK_FLAGS_DEBUG "/MAP:${CMAKE_CURRENT_SOURCE_DIR}/CrossPlatformGameEngine.map"
+    )
+endif()
+
+# ── Shader pre-compilation ───────────────────────────────────────────────────
+# Compiles all HLSL shaders to .cso files as the first PRE_BUILD step.
+# Works with VS 2022, VS Build Tools, or a standalone Windows SDK install.
+# .cso files land next to the executable for each configuration.
+if(WIN32)
+    set(_FXC_HINTS "")
+
+    # Priority 1 — VS / Build Tools developer environment variables.
+    # Set by vcvars64.bat; always point to the exact SDK version in use.
+    if(DEFINED ENV{WindowsSdkBinPath})
+        string(REGEX REPLACE "[\\/]+$" "" _B "$ENV{WindowsSdkBinPath}")
+        list(APPEND _FXC_HINTS "${_B}/x64")
+    endif()
+    if(DEFINED ENV{WindowsSdkDir} AND DEFINED ENV{WindowsSDKVersion})
+        string(REGEX REPLACE "[\\/]+$" "" _D "$ENV{WindowsSdkDir}")
+        string(REGEX REPLACE "[\\/]+$" "" _V "$ENV{WindowsSDKVersion}")
+        list(APPEND _FXC_HINTS "${_D}/bin/${_V}/x64")
+    endif()
+
+    # Priority 2 — CMake VS-generator detected version, both PF locations.
+    if(CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION)
+        foreach(_PF "$ENV{ProgramFiles\(x86\)}" "C:/Program Files (x86)"
+                    "$ENV{ProgramW6432}"         "C:/Program Files")
+            list(APPEND _FXC_HINTS
+                "${_PF}/Windows Kits/10/bin/${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}/x64")
+        endforeach()
+    endif()
+
+    # Priority 3 — Windows registry KitsRoot10 key.
+    # Present on any machine with the standalone SDK installed, even without VS.
+    get_filename_component(_SDK_REG
+        "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots;KitsRoot10]"
+        ABSOLUTE)
+    if(_SDK_REG AND IS_DIRECTORY "${_SDK_REG}")
+        file(GLOB _SDK_REG_VERS LIST_DIRECTORIES true "${_SDK_REG}/bin/10.*")
+        foreach(_D IN LISTS _SDK_REG_VERS)
+            list(APPEND _FXC_HINTS "${_D}/x64")
+        endforeach()
+    endif()
+
+    # Priority 4 — broad glob across both Program Files roots (catches any version).
+    foreach(_PF_BIN
+            "$ENV{ProgramFiles\(x86\)}/Windows Kits/10/bin"
+            "C:/Program Files (x86)/Windows Kits/10/bin"
+            "$ENV{ProgramW6432}/Windows Kits/10/bin"
+            "C:/Program Files/Windows Kits/10/bin")
+        file(GLOB _G LIST_DIRECTORIES true "${_PF_BIN}/10.*")
+        foreach(_D IN LISTS _G)
+            list(APPEND _FXC_HINTS "${_D}/x64")
+        endforeach()
+    endforeach()
+
+    find_program(FXC_EXE NAMES fxc HINTS ${_FXC_HINTS} DOC "HLSL shader compiler")
+
+    if(NOT FXC_EXE)
+        message(FATAL_ERROR
+            "\n"
+            "  ======================================================================\n"
+            "  CANNOT Compile Resources - Please Install MSSDK\n"
+            "  ======================================================================\n"
+            "\n"
+            "  fxc.exe (DirectX HLSL shader compiler) was not found on this system.\n"
+            "  It is required to pre-compile HLSL shaders (.hlsl -> .cso) and is\n"
+            "  included with the Microsoft Windows 10/11 SDK.\n"
+            "\n"
+            "  -- OPTION 1: Install via Visual Studio Installer (recommended) --------\n"
+            "    1. Open the Visual Studio Installer\n"
+            "       (search 'Visual Studio Installer' in the Start menu)\n"
+            "    2. Click 'Modify' on your Visual Studio or Build Tools installation\n"
+            "    3. Select the 'Individual Components' tab\n"
+            "    4. Search for 'Windows SDK' and tick the latest entry, e.g.:\n"
+            "         'Windows 11 SDK (10.0.26100.0)'\n"
+            "    5. Click 'Modify' and wait for the installation to complete\n"
+            "    6. Re-run cmake-build.bat\n"
+            "\n"
+            "  -- OPTION 2: Standalone Windows SDK Installer -------------------------\n"
+            "    Download from:\n"
+            "      https://developer.microsoft.com/en-us/windows/downloads/windows-sdk/\n"
+            "    During installation select at minimum:\n"
+            "      - Windows SDK Signing Tools for Desktop Apps\n"
+            "      - Windows SDK for Desktop C++ x86 Apps\n"
+            "      - Windows SDK for Desktop C++ amd64 Apps\n"
+            "    After install, re-run cmake-build.bat\n"
+            "\n"
+            "  -- NOTES --------------------------------------------------------------\n"
+            "    fxc.exe will be installed to:\n"
+            "      C:\\Program Files (x86)\\Windows Kits\\10\\bin\\<version>\\x64\\fxc.exe\n"
+            "    This project targets Windows 10 / Windows 11 (x64).\n"
+            "    A minimum SDK version of 10.0.19041.0 is required.\n"
+            "  ======================================================================\n"
+        )
+    endif()
+
+    message(STATUS "Shader compiler: ${FXC_EXE}")
+    set(_SD "${CMAKE_CURRENT_SOURCE_DIR}/Assets/Shaders")
+
+    # Compile one HLSL to .cso alongside the executable
+    macro(add_hlsl_shader HLSL_FILE PROFILE OUT_CSO)
+        add_custom_command(TARGET CrossPlatformGameEngine PRE_BUILD
+            COMMAND "${FXC_EXE}"
+                /nologo
+                /T ${PROFILE}
+                /E main
+                $<IF:$<CONFIG:Debug>,/Od,/O1>
+                /Fo "$<TARGET_FILE_DIR:CrossPlatformGameEngine>/${OUT_CSO}"
+                "${_SD}/${HLSL_FILE}"
+            COMMENT "FXC: ${HLSL_FILE} -> ${OUT_CSO}"
+            VERBATIM
+        )
+    endmacro()
+
+    add_hlsl_shader(DefaultVertex.hlsl  vs_5_0  VertexShader.cso)
+    add_hlsl_shader(DefaultPixel.hlsl   ps_5_0  PixelShader.cso)
+    add_hlsl_shader(ModelVertex.hlsl    vs_5_0  ModelVShader.cso)
+    add_hlsl_shader(ModelPixel.hlsl     ps_5_0  ModelPShader.cso)
+endif()
+
+# ── Version auto-increment (mirrors UpdateVersionFile MSBuild target) ─────────
+set(VERSION_FILE "${CMAKE_CURRENT_SOURCE_DIR}/Version.id")
+add_custom_command(TARGET CrossPlatformGameEngine PRE_BUILD
+    COMMAND ${CMAKE_COMMAND}
+        -DVERSION_FILE=${VERSION_FILE}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/IncrementVersion.cmake"
+    COMMENT "Incrementing build version"
+)

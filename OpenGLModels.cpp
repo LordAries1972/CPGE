@@ -1,0 +1,335 @@
+// ============================================================================
+// OpenGLModels.cpp — OpenGL model resource implementation
+//
+// Implements OpenGLModelUtils helpers and OpenGLModelBuffers methods.
+// Texture loading uses stb_image (header-only; included inline below).
+// ============================================================================
+
+#include "Includes.h"
+
+#if defined(__USE_OPENGL__)
+
+#include "OpenGLModels.h"
+#include "Models.h"
+#include "Debug.h"
+
+extern Debug debug;
+
+// ---------------------------------------------------------------------------
+// stb_image — single-file image loader used for texture loading.
+// Define STB_IMAGE_IMPLEMENTATION in exactly one .cpp file.
+// ---------------------------------------------------------------------------
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_NO_STDIO          // use memory interface only — we do our own file I/O
+#pragma warning(push)
+#pragma warning(disable: 4244 4267 4996)
+#if __has_include(<stb_image.h>)
+    #include <stb_image.h>
+#elif __has_include("stb_image.h")
+    #include "stb_image.h"
+#else
+    // stb_image not found — texture loading from file will be unavailable.
+    // CreateGLTexture(data) still works for embedded images / solid colours.
+    #define STBI_NOT_AVAILABLE
+#endif
+#pragma warning(pop)
+
+#include <fstream>
+#include <sstream>
+
+// ============================================================================
+// OpenGLModelUtils implementation
+// ============================================================================
+namespace OpenGLModelUtils
+{
+    GLuint CreateGLTexture(uint32_t width, uint32_t height,
+                           const uint8_t* rgbaPixels, bool generateMipmaps)
+    {
+        if (!rgbaPixels || width == 0 || height == 0)
+            return 0;
+
+        GLuint texID = 0;
+        glGenTextures(1, &texID);
+        glBindTexture(GL_TEXTURE_2D, texID);
+
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
+                     (GLsizei)width, (GLsizei)height,
+                     0, GL_RGBA, GL_UNSIGNED_BYTE, rgbaPixels);
+
+        if (generateMipmaps)
+            glGenerateMipmap(GL_TEXTURE_2D);
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+                        generateMipmaps ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        glBindTexture(GL_TEXTURE_2D, 0);
+        return texID;
+    }
+
+    GLuint LoadGLTextureFromFile(const std::wstring& path)
+    {
+#if defined(STBI_NOT_AVAILABLE)
+        (void)path;
+        return 0;
+#else
+        // Convert wstring path to narrow string for stb_image.
+        std::string narrowPath(path.begin(), path.end());
+
+        // Load file into memory first (avoids stb stdio dependency).
+        std::ifstream file(narrowPath, std::ios::binary | std::ios::ate);
+        if (!file.is_open())
+        {
+            debug.logDebugMessage(LogLevel::LOG_WARNING,
+                L"[OpenGLModels] Cannot open texture file: %ls", path.c_str());
+            return 0;
+        }
+        size_t fileSize = (size_t)file.tellg();
+        file.seekg(0);
+        std::vector<uint8_t> buffer(fileSize);
+        file.read(reinterpret_cast<char*>(buffer.data()), (std::streamsize)fileSize);
+        file.close();
+
+        return LoadGLTextureFromMemory(buffer.data(), buffer.size());
+#endif
+    }
+
+    GLuint LoadGLTextureFromMemory(const uint8_t* data, size_t size)
+    {
+#if defined(STBI_NOT_AVAILABLE)
+        (void)data; (void)size;
+        return 0;
+#else
+        int w = 0, h = 0, channels = 0;
+        uint8_t* pixels = stbi_load_from_memory(
+            data, (int)size, &w, &h, &channels, STBI_rgb_alpha);
+
+        if (!pixels)
+        {
+            debug.logDebugMessage(LogLevel::LOG_WARNING,
+                L"[OpenGLModels] stb_image failed: %hs", stbi_failure_reason());
+            return 0;
+        }
+
+        GLuint texID = CreateGLTexture((uint32_t)w, (uint32_t)h, pixels, true);
+        stbi_image_free(pixels);
+        return texID;
+#endif
+    }
+
+    GLuint CreateSolidColourTexture(const Vector4& colour)
+    {
+        uint8_t rgba[4] = {
+            (uint8_t)(colour.x * 255.0f),
+            (uint8_t)(colour.y * 255.0f),
+            (uint8_t)(colour.z * 255.0f),
+            (uint8_t)(colour.w * 255.0f)
+        };
+        return CreateGLTexture(1, 1, rgba, false);
+    }
+
+    void DeleteGLTexture(GLuint& textureID)
+    {
+        if (textureID != 0)
+        {
+            glDeleteTextures(1, &textureID);
+            textureID = 0;
+        }
+    }
+
+    static GLuint CompileShaderStage(const std::string& src, GLenum type)
+    {
+        GLuint shader = glCreateShader(type);
+        const char* srcPtr = src.c_str();
+        glShaderSource(shader, 1, &srcPtr, nullptr);
+        glCompileShader(shader);
+
+        GLint ok = GL_FALSE;
+        glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
+        if (!ok)
+        {
+            GLint len = 0;
+            glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &len);
+            std::string log(len, '\0');
+            glGetShaderInfoLog(shader, len, nullptr, log.data());
+            debug.logDebugMessage(LogLevel::LOG_ERROR,
+                L"[OpenGLModels] Shader compile error: %hs", log.c_str());
+            glDeleteShader(shader);
+            return 0;
+        }
+        return shader;
+    }
+
+    GLuint CreateShaderProgram(const std::string& vertSrc, const std::string& fragSrc)
+    {
+        GLuint vert = CompileShaderStage(vertSrc, GL_VERTEX_SHADER);
+        GLuint frag = CompileShaderStage(fragSrc, GL_FRAGMENT_SHADER);
+        if (!vert || !frag)
+        {
+            glDeleteShader(vert);
+            glDeleteShader(frag);
+            return 0;
+        }
+
+        GLuint prog = glCreateProgram();
+        glAttachShader(prog, vert);
+        glAttachShader(prog, frag);
+        glLinkProgram(prog);
+
+        GLint ok = GL_FALSE;
+        glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+        if (!ok)
+        {
+            GLint len = 0;
+            glGetProgramiv(prog, GL_INFO_LOG_LENGTH, &len);
+            std::string log(len, '\0');
+            glGetProgramInfoLog(prog, len, nullptr, log.data());
+            debug.logDebugMessage(LogLevel::LOG_ERROR,
+                L"[OpenGLModels] Program link error: %hs", log.c_str());
+            glDeleteProgram(prog);
+            prog = 0;
+        }
+
+        glDetachShader(prog, vert);
+        glDetachShader(prog, frag);
+        glDeleteShader(vert);
+        glDeleteShader(frag);
+        return prog;
+    }
+
+    GLuint CompileShaderFromFile(const std::wstring& filePath, GLenum shaderType)
+    {
+        std::string narrow(filePath.begin(), filePath.end());
+        std::ifstream file(narrow);
+        if (!file.is_open())
+        {
+            debug.logDebugMessage(LogLevel::LOG_ERROR,
+                L"[OpenGLModels] Cannot open shader file: %ls", filePath.c_str());
+            return 0;
+        }
+        std::ostringstream ss;
+        ss << file.rdbuf();
+        return CompileShaderStage(ss.str(), shaderType);
+    }
+}
+
+// ============================================================================
+// OpenGLModelBuffers implementation
+// ============================================================================
+
+bool OpenGLModelBuffers::Upload(const void* vertexData, size_t vertexBytes,
+                                 const uint32_t* indices, size_t indexCount)
+{
+    // Clean up any previous allocation.
+    Destroy();
+
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glGenBuffers(1, &EBO);
+
+    glBindVertexArray(VAO);
+
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)vertexBytes, vertexData, GL_STATIC_DRAW);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                 (GLsizeiptr)(indexCount * sizeof(uint32_t)), indices, GL_STATIC_DRAW);
+
+    // Vertex layout matches the Vertex struct in Models.h (float arrays):
+    //   position [0]  : 3 floats at offset 0
+    //   normal   [1]  : 3 floats at offset 12
+    //   texCoord [2]  : 2 floats at offset 24
+    //   tangent  [3]  : 3 floats at offset 32
+    constexpr GLsizei stride = (3 + 3 + 2 + 3) * sizeof(float); // 44 bytes
+
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void*)0);               // position
+
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (void*)(3 * sizeof(float))); // normal
+
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*)(6 * sizeof(float))); // texCoord
+
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, stride, (void*)(8 * sizeof(float))); // tangent
+
+    glBindVertexArray(0);
+    return (VAO != 0);
+}
+
+void OpenGLModelBuffers::Destroy()
+{
+    if (EBO) { glDeleteBuffers(1, &EBO); EBO = 0; }
+    if (VBO) { glDeleteBuffers(1, &VBO); VBO = 0; }
+    if (VAO) { glDeleteVertexArrays(1, &VAO); VAO = 0; }
+    if (shaderProgram) { glDeleteProgram(shaderProgram); shaderProgram = 0; }
+
+    for (GLuint& t : diffuseTextures) { OpenGLModelUtils::DeleteGLTexture(t); }
+    for (GLuint& t : normalMaps)      { OpenGLModelUtils::DeleteGLTexture(t); }
+    diffuseTextures.clear();
+    normalMaps.clear();
+    OpenGLModelUtils::DeleteGLTexture(metallicTex);
+    OpenGLModelUtils::DeleteGLTexture(roughnessTex);
+    OpenGLModelUtils::DeleteGLTexture(aoTex);
+    OpenGLModelUtils::DeleteGLTexture(envTex);
+
+    if (uboTransform) { glDeleteBuffers(1, &uboTransform); uboTransform = 0; }
+    if (uboLights)    { glDeleteBuffers(1, &uboLights);    uboLights    = 0; }
+    if (uboMaterial)  { glDeleteBuffers(1, &uboMaterial);  uboMaterial  = 0; }
+    if (uboEnv)       { glDeleteBuffers(1, &uboEnv);       uboEnv       = 0; }
+}
+
+// ============================================================================
+// OpenGLMaterialUniforms
+// ============================================================================
+void OpenGLMaterialUniforms::Apply(GLuint program, const Material& mat)
+{
+    auto setVec3 = [program](const char* name, float x, float y, float z) {
+        GLint loc = glGetUniformLocation(program, name);
+        if (loc >= 0) glUniform3f(loc, x, y, z);
+    };
+    auto setFloat = [program](const char* name, float v) {
+        GLint loc = glGetUniformLocation(program, name);
+        if (loc >= 0) glUniform1f(loc, v);
+    };
+
+    setVec3 ("uKa",               mat.Ka.x, mat.Ka.y, mat.Ka.z);
+    setVec3 ("uKd",               mat.Kd.x, mat.Kd.y, mat.Kd.z);
+    setVec3 ("uKs",               mat.Ks.x, mat.Ks.y, mat.Ks.z);
+    setFloat("uNs",               mat.Ns);
+    setFloat("uMetallic",         mat.Metallic);
+    setFloat("uRoughness",        mat.Roughness);
+    setFloat("uNormalScale",      mat.normalScale);
+    setVec3 ("uEmissiveFactor",   mat.emissiveFactor.x, mat.emissiveFactor.y, mat.emissiveFactor.z);
+    setFloat("uEmissiveStrength", mat.emissiveStrength);
+}
+
+void OpenGLMaterialUniforms::ApplyTransform(GLuint program,
+                                             const Matrix4x4& world,
+                                             const Matrix4x4& view,
+                                             const Matrix4x4& proj,
+                                             const Vector3&   cameraPos,
+                                             const Vector3&   modelScale)
+{
+    auto setMat4 = [program](const char* name, const Matrix4x4& m) {
+        GLint loc = glGetUniformLocation(program, name);
+        if (loc >= 0)
+            glUniformMatrix4fv(loc, 1, GL_FALSE, &m.m[0][0]);
+    };
+    auto setVec3 = [program](const char* name, float x, float y, float z) {
+        GLint loc = glGetUniformLocation(program, name);
+        if (loc >= 0) glUniform3f(loc, x, y, z);
+    };
+
+    setMat4("uWorld",       world);
+    setMat4("uView",        view);
+    setMat4("uProjection",  proj);
+    setVec3("uCameraPos",   cameraPos.x, cameraPos.y, cameraPos.z);
+    setVec3("uModelScale",  modelScale.x, modelScale.y, modelScale.z);
+}
+
+#endif // __USE_OPENGL__

@@ -1,7 +1,15 @@
 #pragma once
 
 #include "Includes.h"
-#include "DX11Renderer.h"
+#if defined(__USE_DIRECTX_11__)
+    #include "DX11Renderer.h"
+#elif defined(__USE_DIRECTX_12__)
+    #include "DX12Renderer.h"
+#elif defined(__USE_OPENGL__)
+    #include "OpenGLRenderer.h"
+#elif defined(__USE_VULKAN__)
+    #include "VULKAN_Renderer.h"
+#endif
 #include "GLTFAnimator.h"
 #include "BlenderImports.h"
 
@@ -117,7 +125,17 @@ private:
 	// primitiveFilter: -1 = all primitives into one model (legacy), >= 0 = only that primitive index
 	void LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model& model, int primitiveFilter = -1);
 
-	DX11Renderer* myRenderer = nullptr;												 // Pointer to the DX11 renderer
+#if defined(__USE_DIRECTX_11__)
+	DX11Renderer* myRenderer = nullptr;
+#elif defined(__USE_DIRECTX_12__)
+	DX12Renderer* myRenderer = nullptr;
+#elif defined(__USE_OPENGL__)
+	OpenGLRenderer* myRenderer = nullptr;
+#elif defined(__USE_VULKAN__)
+	VulkanRenderer* myRenderer = nullptr;
+#else
+	void* myRenderer = nullptr;
+#endif
 };
 
 // --------------------------------------------------------------------------------------------------

@@ -22,15 +22,17 @@
 #include "Debug.h"
 #include "ThreadManager.h"
 #include "Vectors.h"
-#include "DirectXMath.h"
+
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+    #include <DirectXMath.h>
+    using namespace DirectX;
+#endif
 
 #include <vector>
 #include <array>
 #include <unordered_map>
 #include <mutex>
 #include <atomic>
-
-using namespace DirectX;
 
 //==============================================================================
 // Constants and Configuration

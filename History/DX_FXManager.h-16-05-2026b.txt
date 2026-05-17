@@ -1,0 +1,7 @@
+WarpDotTunnel bornCx — 16/05/2026 (third pass)
+
+TunnelRing struct:
+- Added: float bornCx = 0.0f
+  The lateral X position assigned to a ring at birth (init or wrap).
+  ring.cx is always set to ring.bornCx — rings travel in a straight line from their
+  birth offset and never drift laterally mid-flight.

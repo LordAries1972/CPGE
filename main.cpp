@@ -85,11 +85,11 @@
         #include "DX11Renderer.h"
     #elif defined(__USE_DIRECTX_12__)
         #include "DX12Renderer.h"
+    #elif defined(__USE_OPENGL__)    
+        #include "OpenGLRenderer.h"
     #elif defined(__USE_VULKAN__)
         #include "VULKAN_Renderer.h"
-    #elif defined(__USE_OPENGL__)
-        #include "OpenGLRenderer.h"
-    #else
+    #elif
         #error No rendering backend defined for Windows platform!
     #endif
 #else
@@ -113,7 +113,14 @@
 // --------------------------------------------
 // Include these after the Renderer's includes
 // --------------------------------------------
-#include "DX_FXManager.h"
+#if defined(__USE_OPENGL__)
+    #include "OpenGLFXManager.h"
+#elif defined(__USE_VULKAN__)
+    #include "VULKAN_FXManager.h"
+#else
+    #include "DX_FXManager.h"
+#endif
+
 #include "SceneManager.h"
 #include "ShaderManager.h"
 #include "Models.h"
@@ -138,7 +145,8 @@
 //------------------------------------------
 // Constants
 //------------------------------------------
-const LPCWSTR MY_WINDOW_TITLE = L"DirectX 11 Renderer by Daniel J. Hobson of Australia 2023-2026";
+const LPCWSTR MY_WINDOW_CLASS_NAME = L"CPGE2026_WindowClass";
+const LPCWSTR MY_WINDOW_TITLE = L"CPGE by Daniel J. Hobson of Australia 2023-2026";
 const LPCWSTR lpDEFAULT_NAME = L"CPGE_";
 
 //--------------------------------------------------------
@@ -155,7 +163,14 @@ SystemUtils sysUtils;
 Joystick js;
 SoundManager soundManager;
 GUIManager guiManager;
-FXManager fxManager;
+#if defined(__USE_OPENGL__)
+    GLFXManager fxManager;
+#elif defined(__USE_VULKAN__)
+    VKFXManager fxManager;
+#else
+    FXManager fxManager;
+#endif
+
 LightsManager lightsManager;
 SceneManager scene;
 ShaderManager shaderManager;
@@ -297,6 +312,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
     baseDir = sysUtils.Get_Current_Directory();
 
+    // Load in our Configuration file.
+    config.loadConfig();
+
     #if defined(PLATFORM_WINDOWS)
         WindowsVersion winVer = sysUtils.GetWindowsVersion();
         if (winVer < WindowsVersion::WINVER_WIN10)
@@ -314,6 +332,11 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     WNDCLASSEX wc = {};
     wc.cbSize = sizeof(WNDCLASSEX);
     wc.style = CS_HREDRAW | CS_VREDRAW;
+    // CS_OWNDC gives each OpenGL window its own persistent DC, required for WGL context creation
+    #if defined(__USE_OPENGL__)
+    if (renderer && renderer->RenderType == RendererType::RT_OpenGL)
+        wc.style |= CS_OWNDC;
+    #endif
     wc.lpfnWndProc = WindowProc;
     wc.hInstance = hInstance;
     wc.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
@@ -365,9 +388,6 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             debug.logLevelMessage(LogLevel::LOG_WARNING, L"[SYSTEM]: Media Foundation startup failed – screen recording unavailable.");
         }
 
-        // Load in our Configuration file.
-        config.loadConfig();
-
         // Initialise our Randomizer system.
         if (!myRandomizer.Initialize()) {
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Randomizer initialization has failed - Aborting!");
@@ -384,7 +404,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
         // Start the FileIO Thread Handler.
         if (!fileIO.StartFileIOThread()) {
-            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[DEMO] Failed to start FileIO thread");
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Failed to start the FileIO thread");
 
             UnregisterClass(lpDEFAULT_NAME, hInstance);
             return false;
@@ -1780,12 +1800,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     debug.logLevelMessage(LogLevel::LOG_INFO, L"[WM_SIZE] Window minimized - setting renderer minimized flag");
                 #endif
                 
-                #if defined(__USE_DIRECTX_11__)
-                    if (renderer && renderer->bIsInitialized.load()) {
-                        // Mark renderer as minimized
-                        renderer->bIsMinimized.store(true);
-                    }
-                #endif
+                if (renderer && renderer->bIsInitialized.load())
+                    renderer->bIsMinimized.store(true);
                 bResizeInProgress.store(false);
                 return 0;
             }
@@ -1796,9 +1812,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     debug.logLevelMessage(LogLevel::LOG_INFO, L"[WM_SIZE] Window restored from minimized state");
                 #endif
                 
-                #if defined(__USE_DIRECTX_11__)
-                    renderer->bIsMinimized.store(false);                // Clear minimized flag
-                #endif
+                renderer->bIsMinimized.store(false);
             }
 
             // Only process resize for valid size changes when renderer is ready

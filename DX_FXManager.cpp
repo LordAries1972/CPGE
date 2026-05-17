@@ -1,20 +1,9 @@
-﻿// FXManager.cpp
-//#include "Constants.h"
+﻿#if defined(__USE_DIRECTX_11__)
+#if defined(_WIN32) || defined(_WIN64)
+
 #include "Includes.h"
 #include "DX_FXManager.h"
-
-#if defined(_WIN32) || defined(_WIN64)
-#if defined(__USE_DIRECTX_11__)
 #include "DX11Renderer.h"
-#elif defined(__USE_DIRECTX_12__)
-#include "DX12Renderer.h"
-#elif defined(__USE_VULKAN__)
-#include "VulkanRenderer.h"
-#elif defined(__USE_OPENGL__)
-#include "OpenGLRenderer.h"
-#endif
-#endif  // End of #if defined(_WIN32) || defined(_WIN64)
-
 #include "Debug.h"
 #include "MathPrecalculation.h"
 #include "ThreadManager.h"
@@ -3018,10 +3007,11 @@ void FXManager::Init3DWarpDOTTunnel(float x, float y, float z,
     data.reverseTravel = reverseTravel;
     data.dotsPerCircle = std::max(3, dotsPerCircle);
     data.density       = std::clamp(density, 1, 100);
-    data.totalDistance = 800.0f;
-    data.nearZ         = z;
-    data.farZ          = z + data.totalDistance;
-    data.spinSpeed     = static_cast<float>(travelSpeed) * 0.05f;
+    data.totalDistance  = 800.0f;
+    data.nearZ          = z;
+    data.farZ           = z + data.totalDistance;
+    data.spinSpeed      = static_cast<float>(travelSpeed) * 0.05f;
+    data.smoothLookTarget = XMFLOAT3(x, y, data.farZ);
 
     int ringCount = data.density;
     data.rings.reserve(ringCount);
@@ -3035,10 +3025,15 @@ void FXManager::Init3DWarpDOTTunnel(float x, float y, float z,
             ? (data.nearZ + fraction * data.totalDistance)
             : (data.farZ  - fraction * data.totalDistance);
 
-        ring.cx        = x;
-        ring.cy        = y;
+        // Stagger initial birth positions around the full circle (sin/cos) so the
+        // tunnel already looks like it's weaving from the very first frame.
+        ring.bornCx    = x + WarpTunnelData::kSideWaveRadius * sinf(fraction * XM_2PI);
+        ring.bornCy    = y + WarpTunnelData::kSideWaveRadius * cosf(fraction * XM_2PI);
+        ring.cx        = ring.bornCx;
+        ring.cy        = ring.bornCy;
         ring.spinAngle = 0.0f;
         ring.alive     = true;
+        ring.colorStep = i % WarpTunnelData::kGraySteps;
 
         data.rings.push_back(ring);
     }
@@ -3079,22 +3074,24 @@ void FXManager::UpdateWarpDotTunnel(FXItem& fx, float deltaTime)
     WarpTunnelData& data = fx.warpTunnelData;
     if (data.rings.empty()) return;
 
-    const float dt = std::min(deltaTime, 0.05f);
+    const float dt        = std::min(deltaTime, 0.05f);
     const float baseSpeed = static_cast<float>(data.travelSpeed);
+
+    data.sideWaveTime += dt;
 
     for (auto& ring : data.rings)
     {
         if (!ring.alive) continue;
 
-        // Normalised progress: 0 = far end, 1 = near camera
         float pathT = std::clamp((data.farZ - ring.zPos) / data.totalDistance, 0.0f, 1.0f);
 
-        // Forward: quadratic acceleration — very slow far out, dramatically faster as the ring
-        // closes on the camera. Reverse: very fast at the near end, decelerates toward the
-        // vanishing point (pathT=1 near camera, pathT=0 at far end).
+        // Minimum factor 1.0 keeps all rings — even far ones — visibly moving.
+        // Quartic surge near camera gives the explosive Doctor Who warp rush.
+        float t2          = pathT * pathT;
         float speedFactor = data.reverseTravel
-            ? (0.2f + pathT * 2.3f)
-            : (0.1f + pathT * pathT * 2.4f);
+            ? (1.0f + t2 * t2 * 6.0f)
+            : (1.0f + t2 * t2 * 10.0f);
+
         float frameSpeed = baseSpeed * speedFactor * dt;
 
         if (!data.reverseTravel)
@@ -3102,23 +3099,37 @@ void FXManager::UpdateWarpDotTunnel(FXItem& fx, float deltaTime)
         else
             ring.zPos += frameSpeed;
 
-        // Wrap ring back to start when it reaches its destination end
+        // On wrap: assign new birth position from the circular sway wave (sin X, cos Y).
+        // The ring then travels STRAIGHT from that offset — no mid-flight drift.
         if (!data.reverseTravel && ring.zPos < data.nearZ)
-            ring.zPos = data.farZ;
+        {
+            ring.zPos   = data.farZ;
+            float phase = data.sideWaveTime * WarpTunnelData::kSideWaveSpeed;
+            ring.bornCx = data.startX + WarpTunnelData::kSideWaveRadius * sinf(phase);
+            ring.bornCy = data.startY + WarpTunnelData::kSideWaveRadius * cosf(phase);
+        }
         else if (data.reverseTravel && ring.zPos > data.farZ)
-            ring.zPos = data.nearZ;
+        {
+            ring.zPos   = data.nearZ;
+            float phase = data.sideWaveTime * WarpTunnelData::kSideWaveSpeed;
+            ring.bornCx = data.startX + WarpTunnelData::kSideWaveRadius * sinf(phase);
+            ring.bornCy = data.startY + WarpTunnelData::kSideWaveRadius * cosf(phase);
+        }
 
-        ring.cx = data.startX;
-        ring.cy = data.startY;
+        // Straight-line travel: cx/cy never change after birth
+        ring.cx = ring.bornCx;
+        ring.cy = ring.bornCy;
 
-        // Spin accumulation
+        // Reverse travel inverts the perceived rotation direction; negate to keep
+        // Clockwise/AntiClockwise consistent regardless of travel direction.
+        const float spinDelta = (data.reverseTravel ? -data.spinSpeed : data.spinSpeed) * dt;
         switch (data.spinCycle)
         {
         case TunnelSpinCycle::Clockwise:
-            ring.spinAngle += data.spinSpeed * dt;
+            ring.spinAngle += spinDelta;
             break;
         case TunnelSpinCycle::AntiClockwise:
-            ring.spinAngle -= data.spinSpeed * dt;
+            ring.spinAngle -= spinDelta;
             break;
         default:
             break;
@@ -3127,11 +3138,33 @@ void FXManager::UpdateWarpDotTunnel(FXItem& fx, float deltaTime)
         if (ring.spinAngle < 0.0f) ring.spinAngle += XM_2PI;
     }
 
-    // Lock the camera look-target to the tunnel's far-end vanishing point every frame.
-    // Camera position was set once in Init; per-frame movement is not needed for a
-    // straight tunnel — the rings flying at a fixed camera sell the fly-through.
+    // Camera look-ahead: sort rings nearest-first, aim at ring 20 positions ahead.
+    // Target is exponentially smoothed so the camera glides to the new aim point
+    // rather than snapping — alpha uses dt so the rate is framerate-independent.
     if (renderer)
-        renderer->myCamera.SetTarget(XMFLOAT3(data.startX, data.startY, data.farZ));
+    {
+        const int ringCount = static_cast<int>(data.rings.size());
+        const int lookIdx   = std::min(19, ringCount - 1);
+
+        std::vector<int> order;
+        order.reserve(ringCount);
+        for (int ri = 0; ri < ringCount; ++ri) order.push_back(ri);
+        std::sort(order.begin(), order.end(), [&data](int a, int b) {
+            float ptA = (data.farZ - data.rings[a].zPos) / data.totalDistance;
+            float ptB = (data.farZ - data.rings[b].zPos) / data.totalDistance;
+            return ptA > ptB;
+        });
+
+        const TunnelRing& lookRing = data.rings[order[lookIdx]];
+
+        // Exponential ease: covers ~95 % of distance in 1/kCameraSmooth seconds
+        const float alpha = 1.0f - expf(-WarpTunnelData::kCameraSmooth * dt);
+        data.smoothLookTarget.x += (lookRing.cx   - data.smoothLookTarget.x) * alpha;
+        data.smoothLookTarget.y += (lookRing.cy   - data.smoothLookTarget.y) * alpha;
+        data.smoothLookTarget.z += (lookRing.zPos - data.smoothLookTarget.z) * alpha;
+
+        renderer->myCamera.SetTarget(data.smoothLookTarget);
+    }
 }
 
 void FXManager::RenderWarpDotTunnel(FXItem& fx, ID3D11DeviceContext* context)
@@ -3145,6 +3178,11 @@ void FXManager::RenderWarpDotTunnel(FXItem& fx, ID3D11DeviceContext* context)
     const float halfW       = static_cast<float>(renderer->iOrigWidth)  * 0.5f;
     const float halfH       = static_cast<float>(renderer->iOrigHeight) * 0.5f;
     const float edgeFade    = 0.08f;
+
+    // Sequential gray ramp: very dark → white, kGraySteps entries
+    static constexpr float kGrayRamp[WarpTunnelData::kGraySteps] = {
+        0.08f, 0.19f, 0.30f, 0.44f, 0.58f, 0.72f, 0.86f, 1.0f
+    };
 
     for (const auto& ring : data.rings)
     {
@@ -3163,11 +3201,11 @@ void FXManager::RenderWarpDotTunnel(FXItem& fx, ID3D11DeviceContext* context)
         else if (pathT > 1.0f - edgeFade)
             alpha = (1.0f - pathT) / edgeFade;
 
-        // Colour: dim cool blue far, bright white-blue near
-        float brightness = 0.3f + pathT * 0.7f;
-        float r = brightness * (0.7f + pathT * 0.3f);
-        float g = brightness * (0.8f + pathT * 0.2f);
-        float b = brightness;
+        // Sequential gray from the ramp — each ring cycles independently from dark to white
+        float gray = kGrayRamp[ring.colorStep % WarpTunnelData::kGraySteps];
+        float r = gray;
+        float g = gray;
+        float b = gray;
 
         // Dot pixel size grows with depth proximity
         float dotSize = 1.0f + pathT * 3.0f;
@@ -3211,3 +3249,6 @@ void FXManager::RenderWarpDotTunnel(FXItem& fx, ID3D11DeviceContext* context)
 }
 
 #pragma warning(pop)
+
+    #endif   // End of #if defined(_WIN32) || defined(_WIN64)
+#endif       // End of #if defined(__USE_DIRECTX_11__)

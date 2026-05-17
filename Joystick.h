@@ -1,7 +1,13 @@
 #pragma once
 
 #include "Includes.h"
-#include "DXCamera.h"
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+    #include "DXCamera.h"
+#elif defined(__USE_OPENGL__)
+    #include "OpenGLCamera.h"
+#elif defined(__USE_VULKAN__)
+    #include "VulkanCamera.h"
+#endif
 #include "Configuration.h"
 
 const int MAX_JOYSTICKS = 2;

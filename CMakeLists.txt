@@ -35,7 +35,14 @@ set(SOURCES
     MoviePlayer.cpp
     MyRandomizer.cpp
     NetworkManager.cpp
+    OpenGLCamera.cpp
+    OpenGLModels.cpp
     OpenGLRenderer.cpp
+    OpenGLFXManager.cpp
+    OpenGLRenderFrame.cpp
+    OpenGL_IOStreamThread.cpp
+    VulkanCamera.cpp
+    VulkanModels.cpp
     VULKAN_Renderer.cpp
     VULKAN_RenderFrame.cpp
     VULKAN_FXManager.cpp
@@ -59,16 +66,71 @@ set(SOURCES
 
 add_executable(CrossPlatformGameEngine WIN32 ${SOURCES})
 
+# ── Vulkan SDK detection ──────────────────────────────────────────────────────
+# Relies on VULKAN_SDK environment variable set by the Vulkan SDK installer.
+# Falls back to scanning common drive-root install locations if env var is absent.
+if(WIN32)
+    find_package(Vulkan QUIET)
+    if(NOT Vulkan_FOUND)
+        file(GLOB _VK_CANDIDATES LIST_DIRECTORIES true
+            "C:/VulkanSDK/*" "D:/VulkanSDK/*" "E:/VulkanSDK/*"
+            "F:/VulkanSDK/*" "G:/VulkanSDK/*"
+            "$ENV{ProgramFiles}/VulkanSDK/*"
+            "$ENV{ProgramW6432}/VulkanSDK/*")
+        foreach(_C IN LISTS _VK_CANDIDATES)
+            if(EXISTS "${_C}/Include/vulkan/vulkan.h")
+                set(ENV{VULKAN_SDK} "${_C}")
+                find_package(Vulkan QUIET)
+                if(Vulkan_FOUND)
+                    break()
+                endif()
+            endif()
+        endforeach()
+    endif()
+    if(NOT Vulkan_FOUND)
+        message(FATAL_ERROR
+            "\n"
+            "  ======================================================================\n"
+            "  CANNOT Compile Resources - Vulkan SDK Not Found\n"
+            "  ======================================================================\n"
+            "\n"
+            "  The Vulkan SDK (vulkan.h / vulkan-1.lib) could not be located.\n"
+            "  The VULKAN_SDK environment variable is not set, and no SDK was found\n"
+            "  in the expected drive-root locations (C:..G:\\VulkanSDK\\*).\n"
+            "\n"
+            "  -- OPTION 1: Install the LunarG Vulkan SDK (recommended) -------------\n"
+            "    Download from:  https://vulkan.lunarg.com/sdk/home#windows\n"
+            "    Run the installer — it sets VULKAN_SDK automatically.\n"
+            "    After install, restart your terminal and re-run cmake-build.bat\n"
+            "\n"
+            "  -- OPTION 2: Set VULKAN_SDK manually ---------------------------------\n"
+            "    set VULKAN_SDK=C:\\VulkanSDK\\<version>   (in a cmd / bat)\n"
+            "    or via System Properties -> Environment Variables\n"
+            "    Then re-run cmake-build.bat\n"
+            "\n"
+            "  Expected SDK layout:\n"
+            "    <VULKAN_SDK>\\Include\\vulkan\\vulkan.h\n"
+            "    <VULKAN_SDK>\\Lib\\vulkan-1.lib\n"
+            "  ======================================================================\n"
+        )
+    endif()
+    get_filename_component(_VK_LIB_DIR "${Vulkan_LIBRARIES}" DIRECTORY)
+    message(STATUS "Vulkan SDK include : ${Vulkan_INCLUDE_DIRS}")
+    message(STATUS "Vulkan SDK lib dir : ${_VK_LIB_DIR}")
+endif()
+
 # ── Include directories ───────────────────────────────────────────────────────
 target_include_directories(CrossPlatformGameEngine PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     F:/Projects/C++/CPGE
+    $<$<BOOL:${Vulkan_FOUND}>:${Vulkan_INCLUDE_DIRS}>
 )
 
 # ── Library directories ───────────────────────────────────────────────────────
 target_link_directories(CrossPlatformGameEngine PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/lib
     ${CMAKE_CURRENT_SOURCE_DIR}/steam/lib/win64
+    $<$<BOOL:${Vulkan_FOUND}>:${_VK_LIB_DIR}>
 )
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -226,10 +288,70 @@ if(WIN32)
         )
     endmacro()
 
+    # ── DirectX HLSL shaders compiled via FXC (Windows SDK) ──────────────────
+    message(STATUS "[Shaders] DirectX: fxc.exe compiling HLSL shaders")
     add_hlsl_shader(DefaultVertex.hlsl  vs_5_0  VertexShader.cso)
     add_hlsl_shader(DefaultPixel.hlsl   ps_5_0  PixelShader.cso)
     add_hlsl_shader(ModelVertex.hlsl    vs_5_0  ModelVShader.cso)
     add_hlsl_shader(ModelPixel.hlsl     ps_5_0  ModelPShader.cso)
+
+    # ── OpenGL GLSL shaders — copy source to output dir (runtime-loaded) ─────
+    # OpenGL loads GLSL text at runtime; no compilation step needed.
+    # The Windows SDK opengl32.lib / glu32.lib provides the OpenGL implementation.
+    message(STATUS "[Shaders] OpenGL: GLSL source files copied to output dir (loaded at runtime)")
+    macro(copy_glsl_shader GLSL_FILE)
+        add_custom_command(TARGET CrossPlatformGameEngine POST_BUILD
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${_SD}/${GLSL_FILE}"
+                "$<TARGET_FILE_DIR:CrossPlatformGameEngine>/${GLSL_FILE}"
+            COMMENT "GLSL copy: ${GLSL_FILE}"
+            VERBATIM
+        )
+    endmacro()
+
+    copy_glsl_shader(ModelVertex.glsl)
+    copy_glsl_shader(ModelPixel.glsl)
+
+    # ── Vulkan SPIR-V shaders compiled via glslangValidator or shaderc ────────
+    # Preferred: glslangValidator from the Vulkan SDK (set by VULKAN_SDK env var).
+    # If not found the source .vert/.frag files are copied raw and VulkanModels.cpp
+    # will compile them at runtime via the shaderc API (if available).
+    if(Vulkan_FOUND)
+        find_program(GLSLANG_EXE
+            NAMES glslangValidator
+            HINTS
+                "$ENV{VULKAN_SDK}/bin"
+                "$ENV{VULKAN_SDK}/Bin"
+            DOC "Vulkan GLSL → SPIR-V compiler"
+        )
+
+        macro(compile_vulkan_shader GLSL_FILE SPV_FILE)
+            if(GLSLANG_EXE)
+                add_custom_command(TARGET CrossPlatformGameEngine PRE_BUILD
+                    COMMAND "${GLSLANG_EXE}"
+                        -V
+                        "${_SD}/${GLSL_FILE}"
+                        -o "$<TARGET_FILE_DIR:CrossPlatformGameEngine>/${SPV_FILE}"
+                    COMMENT "glslangValidator: ${GLSL_FILE} -> ${SPV_FILE}"
+                    VERBATIM
+                )
+                message(STATUS "[Shaders] Vulkan: glslangValidator compiling ${GLSL_FILE}")
+            else()
+                # glslangValidator absent — copy GLSL source; shaderc will compile at runtime.
+                add_custom_command(TARGET CrossPlatformGameEngine POST_BUILD
+                    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                        "${_SD}/${GLSL_FILE}"
+                        "$<TARGET_FILE_DIR:CrossPlatformGameEngine>/${GLSL_FILE}"
+                    COMMENT "Vulkan GLSL copy (no glslangValidator): ${GLSL_FILE}"
+                    VERBATIM
+                )
+                message(STATUS "[Shaders] Vulkan: glslangValidator not found — ${GLSL_FILE} will be compiled at runtime via shaderc")
+            endif()
+        endmacro()
+
+        compile_vulkan_shader(ModelVertex.vert  ModelVertex.vert.spv)
+        compile_vulkan_shader(ModelPixel.frag   ModelPixel.frag.spv)
+    endif()
 endif()
 
 # ── Version auto-increment (mirrors UpdateVersionFile MSBuild target) ─────────

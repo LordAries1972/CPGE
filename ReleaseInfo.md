@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1169*
+*Current Build Version: v0.0.1201*
 
 ---
 
@@ -882,6 +882,438 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - *See: [`ConsoleWindow.h`](ConsoleWindow.h), [`ConsoleWindow.cpp`](ConsoleWindow.cpp),
   [`Debug.cpp`](Debug.cpp), [`KBHandlersCode.cpp`](KBHandlersCode.cpp),
   [`DXRenderFrame.cpp`](DXRenderFrame.cpp)*
+
+**May 16, 2026** - WarpDotTunnel visual and motion enhancements:
+
+- **Sequential gray color cycling**: Each ring is now assigned a fixed shade from an 8-step
+  dark-to-white gray ramp (`colorStep = ringIndex % 8`). Shades cycle sequentially across
+  rings so the tunnel always shows the full gradient simultaneously — very dark grey, through
+  mid-tones, up to pure white — and the pattern wraps cleanly when ring count exceeds 8.
+  - Ramp values: `{0.08, 0.19, 0.30, 0.44, 0.58, 0.72, 0.86, 1.0}` (linear-ish perceptual steps)
+  - Replaces the previous blue-tinted brightness that was tied to per-ring `pathT` depth.
+  - `kGraySteps = 8` constant added to `WarpTunnelData` / `VKWarpTunnelData`.
+  - `colorStep` field added to `TunnelRing` / `VKTunnelRing`.
+
+- **Quartic forward acceleration with 1.0× minimum**: Speed floor raised so far rings are
+  always visibly moving; quartic surge retained for the explosive close approach.
+  Formula: `1.0 + t⁴ × 10.0` (forward), `1.0 + t⁴ × 6.0` (reverse).
+  - Far end (t = 0): factor = **1.0×** → 80 units/s (clearly moving at all times)
+  - Camera (t = 1): factor = **11.0×** → 880 units/s (violent final rush)
+  - Average ~3.0× → 240 units/s → ~3.3-second full ring pass at `travelSpeed=80`.
+
+- **Straight-line ring travel with per-ring birth offset (`bornCx`/`bornCy`)**: Rings no
+  longer drift laterally during flight. Each ring is assigned a birth position at spawn/reset
+  from a **circular** (sin X, cos Y) wave, then travels dead-straight from there to camera.
+  - At wrap: `phase = sideWaveTime × kSideWaveSpeed`; `bornCx = startX + kSideWaveRadius × sin(phase)`;
+    `bornCy = startY + kSideWaveRadius × cos(phase)`. X and Y are 90° out of phase so the far end
+    traces a circle, not a diagonal line — gives the proper Doctor Who helical corridor feel.
+  - At init: rings staggered with `sin/cos(fraction × 2π)` — circular distribution from frame 1.
+  - `ring.cx = ring.bornCx`, `ring.cy = ring.bornCy` throughout — immutable after birth.
+  - `bornCx` and `bornCy` fields added to `TunnelRing` / `VKTunnelRing`.
+  - `kSideWaveRadius` and `kSideWaveSpeed` constants added to both structs:
+    DX: `kSideWaveRadius = 80.0`, `kSideWaveSpeed = 0.85 rad/s` (wider, faster sway).
+    VK: `kSideWaveRadius = 60.0`, `kSideWaveSpeed = 0.50 rad/s` (narrower, slower sway).
+
+- **Camera look-ahead tuned to 20 rings**: Look-ahead index raised to `min(19,…)`. Camera
+  now tracks the **20th-nearest ring**, providing a much more distant aim point that smooths
+  out the visual jerkiness caused by individual fast-moving near rings.
+
+- **Smooth camera transitions — exponential ease on look target**: The camera no longer
+  snaps to the computed look-ahead ring position each frame. A `smoothLookTarget` is stored
+  in `WarpTunnelData` and updated per-frame using a framerate-independent exponential lerp:
+  `alpha = 1 − exp(−kCameraSmooth × dt)`.
+  - At 60 fps the camera closes the gap smoothly each frame — no snap.
+  - `smoothLookTarget` is seeded to `(startX, startY, farZ)` at init so the first frame
+    aims straight down the tunnel with no startup snap.
+  - `kCameraSmooth` is a `static constexpr` in both structs for easy tuning:
+    DX: `kCameraSmooth = 4.0` (~95 % gap closed in ~0.75 s — snappier).
+    VK: `kCameraSmooth = 3.0` (~95 % gap closed in ~1 s — slightly lazier).
+
+- *See: [`DX_FXManager.h`](DX_FXManager.h), [`DX_FXManager.cpp`](DX_FXManager.cpp),
+  [`VULKAN_FXManager.h`](VULKAN_FXManager.h), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp)*
+
+**May 16, 2026** - WarpDotTunnel reverse-mode spin direction fix:
+
+- **Bug fix — reverse travel spin direction inverted**: When `reverseTravel = true`, rings
+  travel away from the camera. Because the direction of travel is opposite to forward mode,
+  the perceived rotation direction was also reversed — specifying `TunnelSpinCycle::Clockwise`
+  in reverse mode caused the rings to appear counter-clockwise, and vice versa.
+  - Fix: the spin delta is negated when `reverseTravel = true`:
+    `spinDelta = (reverseTravel ? -spinSpeed : spinSpeed) * dt`
+  - Result: `Clockwise` and `AntiClockwise` now produce consistent visual results regardless
+    of travel direction. The fix is applied identically in both `DX_FXManager.cpp` and
+    `VULKAN_FXManager.cpp`.
+- *See: [`DX_FXManager.cpp`](DX_FXManager.cpp), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp)*
+
+**May 17, 2026** - GUIManager Z-order input routing — topmost window only receives mouse input:
+
+- **`GUIWindow::zOrder` field added**: integer assigned at `CreateMyWindow` from a monotonic
+  `m_nextZOrder` counter on `GUIManager`. Windows created later get higher Z-values and are
+  therefore considered to be on top. No external callers need to manage this; it is set
+  automatically.
+- **`Render()` Z-order sort**: the render snapshot is now sorted by `zOrder` ascending before
+  drawing, so the lowest window is drawn first and the highest is drawn last (visually on top).
+  Previously the render order was determined by `unordered_map` iteration, which is undefined.
+- **`HandleAllInput()` Z-order routing**: `validWindows` is sorted by `zOrder` descending
+  (topmost first). Input is routed by bounding-box test in that order:
+  - The first (topmost) window whose bounds contain the mouse position receives both
+    `HandleMouseClick` and `HandleMouseMove`; all lower windows are skipped for new input.
+  - Lower windows have their `isHovered` flags cleared so controls do not stay highlighted
+    when occluded.
+  - An in-progress drag (`isDragging`) or pressed slider (`isPressed`) in a lower window
+    continues to receive `HandleMouseMove` so the interaction is not frozen mid-drag when
+    the cursor leaves the window bounds. On mouse release those states are cancelled.
+- *See: [`GUIManager.h`](GUIManager.h), [`GUIManager.cpp`](GUIManager.cpp)*
+
+**May 17, 2026** - Renderer selector always visible in Video tab; `rendererType` added to checksum:
+
+- **Renderer slider now always shown in Video tab**: Previously the `t2_renderer` HSlider was
+  compiled away entirely when only DirectX 11 was present (`#if RENDERER_MAX > 0` guard).
+  The guard has been removed — the slider is always emitted. When only DX11 is built
+  (`RENDERER_MAX = 0`), the slider min and max are both 0 so the thumb is non-draggable and
+  the readout shows "DirectX 11" as a fixed label. On builds with multiple backends the slider
+  offers the full platform-valid range as before.
+- **Renderer slider moved directly under Field of View**: The row order in the Video tab is now
+  FOV → Renderer → Screen Display → Resolution → Refresh Rate → toggles. Previously Renderer
+  appeared after Screen Display.
+- **`rendererType` added to checksum**: `Configuration::calculateChecksum()` now includes
+  `cfg.rendererType` in the FNV-1a hash string. Previously the field was persisted to
+  `GameConfig.cfg` but excluded from tamper-proof validation; changing `rendererType` directly
+  in the JSON file would pass the checksum check silently. Existing saved configs will fail the
+  new checksum and reset to defaults on first load — the engine will immediately write a fresh
+  config with the correct checksum.
+- *See: [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp), [`Configuration.cpp`](Configuration.cpp)*
+
+**May 17, 2026** - OpenGL and Vulkan now visible in Video tab renderer selector:
+
+- **Bug fix — OpenGL and Vulkan missing from renderer list**: `__USE_OPENGL__` and `__USE_VULKAN__`
+  were commented out in `Includes.h`, so `RENDERER_MAX` evaluated to 0 at compile time and the
+  slider was locked to DirectX 11 only. Uncommented both defines for the Windows platform block;
+  the Video tab now correctly shows DirectX 11, OpenGL, and Vulkan on NVIDIA hardware.
+- **Secondary fix — renderer slider now uses a compile-time list**: Replaced `RENDERER_NAMES[]` +
+  `RENDERER_MAX` with an `AVAILABLE_RENDERERS[]` list containing only backends whose `__USE_*`
+  define is active. Slider position maps to list index so DX12 (define still commented out) is
+  never shown even with Vulkan enabled. Slider hidden entirely when only one backend is compiled.
+- *See: [`Includes.h`](Includes.h), [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp)*
+
+- **Build fix — wrong OpenGL headers and include order in `Includes.h`**: Two rounds of
+  fixes were needed. First round: `#include "opengl32.h"` (the lib name, not a header)
+  and `#include "GL\glew32.h"` (wrong path) caused mass C1083 in every TU. Second round:
+  GLEW was found at `include\GL\glew.h` but `<GL/gl.h>` was included before it — GLEW
+  requires being included FIRST because it replaces gl.h's declarations (`#error: gl.h
+  included before glew.h` in every TU). Final correct order:
+  - `#if __has_include(<GL/glew.h>)` → include GLEW first (it pulls in gl.h internally),
+    then link `glew32.lib`; else fall back to bare `<GL/gl.h>` from the Windows SDK
+  - `<GL/glu.h>` included after (Windows SDK GLU utilities)
+  - `glu32.lib` added; `glfw3.lib` removed (not installed)
+- *See: [`Includes.h`](Includes.h)*
+
+**May 17, 2026** - Vulkan SDK auto-detection added to CMake and VS2022 build systems:
+
+- **`CMakeLists.txt`** — added a `find_package(Vulkan)` detection block that:
+  - First attempts CMake's built-in `FindVulkan` module (reads the `VULKAN_SDK` env var set
+    by the LunarG SDK installer and also checks `VK_SDK_PATH` / system PATH).
+  - Falls back to a drive-root scan (`C:..G:\VulkanSDK\*`, `%ProgramFiles%\VulkanSDK\*`)
+    if the env var is absent, setting `ENV{VULKAN_SDK}` and retrying `find_package`.
+  - Emits a `FATAL_ERROR` with full installation instructions if the SDK is still not
+    found after the scan.
+  - Adds `${Vulkan_INCLUDE_DIRS}` to `target_include_directories` and the SDK `Lib`
+    directory to `target_link_directories` so `#pragma comment(lib, "vulkan-1.lib")`
+    resolves at link time.
+- **`CrossPlatformGameEngine.vcxproj`** — added `$(VULKAN_SDK)\Include` to
+  `AdditionalIncludeDirectories` and `$(VULKAN_SDK)\Lib` to `AdditionalLibraryDirectories`
+  in both Debug and Release `ItemDefinitionGroup` blocks. MSBuild reads `$(VULKAN_SDK)`
+  directly from the system environment variable set by the LunarG installer.
+- *See: [`CMakeLists.txt`](CMakeLists.txt), [`CrossPlatformGameEngine.vcxproj`](CrossPlatformGameEngine.vcxproj)*
+
+**May 17, 2026** - Build error fixes following Vulkan SDK integration and multi-renderer enablement:
+
+- **`VkAspectFlags` → `VkImageAspectFlags`**: `VkAspectFlags` is not a Vulkan SDK type. Corrected
+  the declaration in `VULKAN_Renderer.h` and the definition in `VULKAN_Renderer.cpp` to use
+  `VkImageAspectFlags`. This also resolved the secondary `CreateImageView` "does not take 3
+  arguments" errors which were a cascading parse failure from the unknown type.
+- **`RENDERER_NAME` redefinition**: `DX11Renderer.h` and `OpenGLRenderer.h` both defined a global
+  `const std::string RENDERER_NAME`. When all renderers are enabled simultaneously, both headers
+  are included in the same translation unit, causing a C2374 conflict. Added `#ifndef
+  RENDERER_NAME_DEFINED` / `#define RENDERER_NAME_DEFINED` guards to both headers so only the
+  first-included definition is compiled.
+- **`OpenGLRenderer::Resize` return type**: Base class `Renderer::Resize` is declared `virtual bool`
+  but `OpenGLRenderer::Resize` was declared `void`, causing a C2555 covariant-return error. Fixed
+  the declaration in `OpenGLRenderer.h` and added the missing implementation in `OpenGLRenderer.cpp`
+  (updates viewport via `glViewport`, returns `true` on success).
+- **`Model` missing `IsActive` / `HasGeometry` / `GetWorldMatrix`**: `VULKAN_RenderFrame.cpp`
+  called these methods on `Model` but they did not exist. Added all three as inline methods to
+  the `Model` class in `Models.h`. `DrawVulkan` was also called but Vulkan GPU buffers (`VkBuffer`,
+  `VkDescriptorSet`) are not yet provisioned in `ModelInfo`; the call is replaced with a `TODO`
+  comment until the Vulkan model infrastructure is wired in.
+- **`ThreadManager::StartThread` called with 2 arguments**: The correct pattern is
+  `SetThread(id, lambda)` followed by `StartThread(id)` (void return). `VulkanRenderer::StartRendererThreads`
+  was passing the lambda directly to `StartThread`, which only accepts the thread ID. Fixed to
+  use `SetThread` + `StartThread` for both `THREAD_RENDERER` and `THREAD_LOADER`, with success
+  reported via `DoesThreadExist`.
+- **GLEW `GLEWAPI` C4005 warning**: `wglew.h` (included internally by `glew.h`) redefines
+  `GLEWAPI`. Suppressed with `#pragma warning(push/disable: 4005/pop)` around the `glew.h`
+  include in `Includes.h`.
+- *See: [`VULKAN_Renderer.h`](VULKAN_Renderer.h), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp),
+  [`DX11Renderer.h`](DX11Renderer.h), [`OpenGLRenderer.h`](OpenGLRenderer.h),
+  [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`Models.h`](Models.h),
+  [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`Includes.h`](Includes.h)*
+
+**May 17, 2026** - Build error fixes round 2 — old project header contamination and GLEW:
+
+- **`RendererFactory.cpp` included `"VulkanRenderer.h"` (old filename)**: The new file is named
+  `VULKAN_Renderer.h`. Because `F:\Projects\C++\CPGE` is on the include path and the old project
+  has a file named `VulkanRenderer.h`, the compiler resolved it to the OLD project's header
+  (`F:\Projects\C++\CPGE\VulkanRenderer.h`). That old header chains into `F:\Projects\C++\CPGE\Includes.h`,
+  `Renderer.h`, `Vectors.h`, `Color.h`, `Debug.h`, `DXCamera.h`, etc., causing every type and
+  constant to be defined a second time in the same translation unit — all 40+ C2374/C2011
+  redefinition errors, the `Renderer` base class confusion, and the `VulkanRenderer →
+  shared_ptr<Renderer>` assignment failure. Fixed: `#include "VulkanRenderer.h"` →
+  `#include "VULKAN_Renderer.h"`. Also resolved the GLEW C4005 warning that appeared in
+  `RendererFactory.cpp` via the same old-header chain.
+- **GLEW `GLEWAPI` C4005 in `OpenGLRenderer.h`**: The local GLEW copy does not internally chain-
+  include `wglew.h` from `glew.h`. `OpenGLRenderer.h` included both `<GL/glew.h>` and
+  `<GL/wglew.h>` explicitly. Because `Includes.h` already included `glew.h` with a pragma
+  suppress, the `glew.h` include in `OpenGLRenderer.h` was a no-op (pragma-once), but the
+  explicit `wglew.h` was processed fresh, redefining `GLEWAPI`. Fixed by wrapping both lines
+  in `OpenGLRenderer.h` with `#pragma warning(push/disable: 4005/pop)`.
+- *See: [`RendererFactory.cpp`](RendererFactory.cpp), [`OpenGLRenderer.h`](OpenGLRenderer.h)*
+
+**May 17, 2026** - Full OpenGL renderer implementation — all source files complete:
+
+- **`OpenGLFXManager.h/.cpp`** — complete `GLFXManager` class, the OpenGL-native equivalent of
+  `DX_FXManager`/`VKFXManager`. All effect types ported: `ColorFader` (fullscreen-triangle GLSL
+  fade quad, push-color uniform), `Starfield` (3D→2D perspective projection via z-depth division),
+  `WarpDotTunnel` (dot projection, quartic acceleration, sequential gray cycling, circular birth
+  offsets), `ParticleExplosion`, `Scroller` (parallax layers with scroll tweens), and all four
+  `TextScroller` variants (LTOR, RTOL, Consistent, Movie) using GDI-to-texture text rendering.
+  OpenGL is a state machine — no command buffer or context parameter in `RenderFX(int, XMMATRIX&)`.
+  GL-prefixed structs (`GLParticle`, `GLStar`, `GLTunnelRing`, `GLWarpTunnelData`, etc.) avoid ODR
+  violations with DX types. All fade, callback, tween, and `SaveAndSuspendFXForScene` /
+  `RestoreFXAfterScene` logic mirrored from `VKFXManager`.
+- **`OpenGLRenderFrame.cpp`** — full `OpenGLRenderer::RenderFrame()` pipeline: safety guards →
+  exclusive lock → 8-frame weighted delta-time average → `glClear` → 3D scene switch
+  (`RenderGamePlay`, `RenderIntroMovie`) → 2D overlay → `fxManager.Render2D()` →
+  `fxManager.Render()` → FPS text → GUI → `SwapBuffers`. Inline `RenderGamePlay(float dt)` uploads
+  DirectXMath view/proj/model matrices as shader uniforms and iterates `models[i]`. Inline
+  `RenderIntroMovie()` uploads video frames to an OpenGL texture via `glTexImage2D`.
+- **`OpenGL_IOStreamThread.h/.cpp`** — `OpenGLRenderer::LoaderTaskThread()` with full scene-switch
+  structure matching the Vulkan loader thread: `SCENE_EXPERIMENT`, `SCENE_INTRO`,
+  `SCENE_GAMETITLE`, `SCENE_LOAD_MP3`, `SCENE_GAMEPLAY`, `SCENE_GAMEOVER`. All `config.myConfig.displayMode`
+  camera-setup switch branches (Windowed / Borderless / Fullscreen) replicated from the DX11 pattern.
+- **`OpenGLRenderer.h/.cpp`** — all previously missing implementations added:
+  - **Context creation** — `CreateOpenGLContext()` with `wglCreateContextAttribsARB` WGL 3.3 Core
+    Profile; `CS_OWNDC` required (enforced in `main.cpp` window class registration).
+  - **Shader system** — `CompileShader`, `CreateShaderProgram`, `LoadShaders`; GLSL source strings
+    for 2D orthographic quad (`k_2dVertGLSL`/`k_2dFragGLSL`) and 3D model pipeline
+    (`k_3dVertGLSL`/`k_3dFragGLSL`); `m_2dVAO`/`m_2dVBO` (GL_DYNAMIC_DRAW, 6 vertices, 4 floats).
+  - **Texture loading** — `LoadTexture` via GDI+ `Gdiplus::Bitmap → LockBits → glTexImage2D`;
+    `RenderTextToTexture` via GDI `CreateCompatibleDC → DrawTextW → DIBSection → BGRA→RGBA →
+    glTexImage2D`.
+  - **2D rendering** — `Render2DQuad` (orthographic projection, tinted textured quad),
+    `Blit2DObject`, `Blit2DObjectToSize`, `Blit2DObjectAtOffset`, `Blit2DWrappedObjectAtOffset`,
+    `DrawRectangle`, `DrawTexture`, `DrawVideoFrame`.
+  - **Text drawing** — `DrawMyText` (×2 overloads), `DrawMyTextWithFont`, `DrawMyTextCentered`,
+    `GetCharacterWidth` (×2), `CalculateTextWidth`, `CalculateTextHeight`.
+  - **Display mode** — `SetFullScreen`, `SetFullExclusive`, `SetWindowedScreen` with WGL vsync via
+    `wglSwapIntervalEXT`.
+  - All `Cleanup`, `CleanupTextures`, `Resize`, `WaitForGPUToFinish`, `WaitToFinishThenPauseThread`
+    methods fully implemented.
+- **`CMakeLists.txt`** — `OpenGLFXManager.cpp`, `OpenGLRenderFrame.cpp`, `OpenGL_IOStreamThread.cpp`
+  added to `SOURCES`.
+- **`CrossPlatformGameEngine.vcxproj`** — `ClCompile` entries for the three new `.cpp` files;
+  `ClInclude` entries for `OpenGLFXManager.h` and `OpenGL_IOStreamThread.h`.
+- **`main.cpp`** — `#include "DX_FXManager.h"` replaced with a three-way conditional:
+  `__USE_OPENGL__ → OpenGLFXManager.h`, `__USE_VULKAN__ → VULKAN_FXManager.h`,
+  else `DX_FXManager.h`. Global `fxManager` declaration similarly guarded to instantiate
+  `GLFXManager`, `VKFXManager`, or `FXManager` based on the active build configuration.
+- *See: [`OpenGLFXManager.h`](OpenGLFXManager.h), [`OpenGLFXManager.cpp`](OpenGLFXManager.cpp),
+  [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp), [`OpenGL_IOStreamThread.h`](OpenGL_IOStreamThread.h),
+  [`OpenGL_IOStreamThread.cpp`](OpenGL_IOStreamThread.cpp), [`OpenGLRenderer.h`](OpenGLRenderer.h),
+  [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`CMakeLists.txt`](CMakeLists.txt),
+  [`CrossPlatformGameEngine.vcxproj`](CrossPlatformGameEngine.vcxproj), [`main.cpp`](main.cpp)*
+
+**May 17, 2026** - OpenGL renderer abstract class fix and renderer-appropriate windowing:
+
+- **Bug fix — `OpenGLRenderer` was an uninstantiable abstract class**: Five pure virtual methods
+  from `Renderer` were not overridden, causing `error C2259` when `RendererFactory.cpp` tried to
+  `make_shared<OpenGLRenderer>()`.
+  - **`GetDevice()` / `GetDeviceContext()` / `GetSwapChain()`**: Added as inline overrides returning
+    `nullptr` — OpenGL has no DX device/context/swapchain equivalents.
+  - **`WaitToFinishThenPauseThread()`**: Added declaration in header and implementation in `.cpp`;
+    calls `WaitForGPUToFinish()` (which issues `glFinish()` under the render mutex) then
+    `threadManager.PauseThread(THREAD_RENDERER)` — matching the Vulkan pattern.
+  - **`Blit2DColoredPixel(int, int, float, XMFLOAT4)`**: Signature in `OpenGLRenderer.h` was
+    `Vector4 color` (no match for base class `XMFLOAT4`) so it never overrode the pure virtual.
+    Changed to `XMFLOAT4 color override`. Implementation uses the OpenGL fixed-function
+    `glColor4f` / `glPointSize` / `glBegin(GL_POINTS)` with Y-axis flip for top-left origin.
+  - `WaitForGPUToFinish()` was declared in the header but unimplemented; added a body that
+    locks `s_renderMutex` and calls `glFinish()`.
+- **Renderer-appropriate window class setup**: OpenGL WGL requires the window's device context
+  to be persistent (not recycled between `GetDC`/`ReleaseDC` pairs). Added a runtime check at
+  window-class registration: if the active renderer is OpenGL, `CS_OWNDC` is OR'd into `wc.style`
+  so WGL gets a stable DC throughout the session. DX11/DX12/Vulkan are unaffected.
+- **`bIsMinimized` guard extended to all renderers**: `WM_SIZE` handlers for `SIZE_MINIMIZED`
+  and `SIZE_RESTORED` were gated by `#if defined(__USE_DIRECTX_11__)`. Since `bIsMinimized` is a
+  member of the `Renderer` base class, the guard was removed — all renderer backends now track
+  the minimized state correctly.
+- *See: [`OpenGLRenderer.h`](OpenGLRenderer.h), [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp),
+  [`main.cpp`](main.cpp)*
+
+**May 17, 2026** - OpenGL and Vulkan GLM-based camera classes added:
+
+- **`OpenGLCamera.h/.cpp`** — full `Camera` class for OpenGL rendering, converted from `DXCamera.h/.cpp`:
+  - All DirectX Math types replaced with GLM equivalents: `XMFLOAT3` → `glm::vec3`, `XMMATRIX` → `glm::mat4`,
+    `XMVECTOR` → `glm::vec3`/`glm::vec4`, `XMLoadFloat3`/`XMStoreFloat3` removed entirely.
+  - View matrix via `glm::lookAt(eye, center, up)`; projection via `glm::perspective(fovY, aspect, near, far)` —
+    standard right-handed OpenGL convention, depth range [-1, 1].
+  - DX row-major combined rotations (`rotX * rotY * rotZ`) reversed to GLM column-major order
+    (`rotZ * rotY * rotX`) in `RotateXYZ` and `CalculateRotatedPosition`.
+  - `FAST_MATH.FastDistance(XMFLOAT2, XMFLOAT2)` calls replaced with `glm::length(glm::vec2(...))` — avoids
+    the DX-type dependency.
+  - `GetFieldOfView` / `GetNearPlane` / `GetFarPlane` return cached member values directly rather than
+    extracting them from the projection matrix (simpler, no GLM element parsing needed).
+  - Guarded by `#ifdef __USE_OPENGL__`; includes `<glm/glm.hpp>`, `<glm/gtc/matrix_transform.hpp>`,
+    `<glm/gtc/type_ptr.hpp>`.
+
+- **`VulkanCamera.h/.cpp`** — identical logic to `OpenGLCamera` but with Vulkan-specific projection:
+  - Private `MakeVulkanProjection(fovYRadians, aspect, near, far)` helper calls `glm::perspective` then
+    applies `proj[1][1] *= -1.0f` to flip the Y axis for Vulkan NDC (Y points down in Vulkan).
+  - All projection matrix creation routes through `MakeVulkanProjection` so the Y-flip is consistently
+    applied everywhere, including `SetupDefaultCamera`, `UpdateProjectionMatrix`, and `UpdateResolution`.
+  - Depth range is [0, 1] (Vulkan convention).
+  - Guarded by `#ifdef __USE_VULKAN__`.
+
+- **Build system integration**: Both new `.cpp` files added to `SOURCES` in `CMakeLists.txt` (OpenGLCamera
+  near OpenGLRenderer; VulkanCamera near VULKAN_Renderer). Corresponding `ClCompile` and `ClInclude`
+  entries added to `CrossPlatformGameEngine.vcxproj`.
+- *See: [`OpenGLCamera.h`](OpenGLCamera.h), [`OpenGLCamera.cpp`](OpenGLCamera.cpp),
+  [`VulkanCamera.h`](VulkanCamera.h), [`VulkanCamera.cpp`](VulkanCamera.cpp),
+  [`CMakeLists.txt`](CMakeLists.txt), [`CrossPlatformGameEngine.vcxproj`](CrossPlatformGameEngine.vcxproj)*
+
+**May 17, 2026** - Build system handle-release on cancelled/failed builds:
+
+- **`cmake-build.bat`** — added `:killcompiler` subroutine (`taskkill /F /IM cl.exe` +
+  `taskkill /F /IM mspdbsrv.exe`, errors suppressed). Called at two points:
+  - **Before cmake runs** — releases handles left by any previously cancelled build
+    (primary guarantee; Ctrl+C in a batch file cannot be trapped).
+  - **At `:error`** — releases handles from the build that just failed or was cancelled.
+- **`Directory.Build.targets`** — added `KillStaleCompilerProcesses` MSBuild target
+  (`BeforeTargets="ClCompile;Build"`) that runs the same two `taskkill` commands before
+  VS 2022 spawns new `cl.exe` instances. Ensures any orphaned handles from a previous
+  VS cancel are released at the start of every IDE build. `IgnoreExitCode="true"` prevents
+  a non-zero taskkill result (nothing running) from failing the build.
+- *See: [`cmake-build.bat`](cmake-build.bat), [`Directory.Build.targets`](Directory.Build.targets)*
+
+**May 17, 2026** - Renderer.h camera include fix — conditional include by active renderer:
+
+- **Bug fix — `error C3646: 'myCamera': unknown override specifier`**: `Renderer.h` unconditionally
+  included `DXCamera.h`, but `DXCamera.h` wraps its `Camera` class inside
+  `#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)`. When only `__USE_OPENGL__` is
+  active the `Camera` type is never emitted, making `Camera myCamera` on line 276 an unknown type.
+  - Replaced the hard-coded `#include "DXCamera.h"` with a three-way conditional block that selects
+    the correct camera header based on the active renderer define:
+    `__USE_DIRECTX_11__` / `__USE_DIRECTX_12__` → `DXCamera.h`;
+    `__USE_OPENGL__` → `OpenGLCamera.h`;
+    `__USE_VULKAN__` → `VulkanCamera.h`.
+- *See: [`Renderer.h`](Renderer.h)*
+
+**May 17, 2026** - Cross-platform math types, models, shaders, and build system — full multi-renderer pass:
+
+- **Cross-platform math type aliases** (`Includes.h`): For non-DX builds (`__USE_OPENGL__` /
+  `__USE_VULKAN__`), added a type-alias block that maps all DirectX Math types to engine-native
+  equivalents so every struct and function using them compiles without per-callsite guards:
+  - `#include "Vectors.h"` (provides `Vector2`, `Vector3`, `Vector4` with identical float layout)
+  - `struct Matrix4x4` — simple 4×4 identity matrix for OpenGL/Vulkan
+  - `using XMFLOAT2 = Vector2; using XMFLOAT3 = Vector3; using XMFLOAT4 = Vector4;`
+  - `using XMMATRIX = Matrix4x4; using XMVECTOR = Vector4;`
+  - `namespace DirectX {}` — empty namespace so `using namespace DirectX;` compiles without pulling DX symbols
+
+- **`ConstantBuffer.h` cross-platform**: Changed from unconditional `<d3d11.h>` / `<DirectXMath.h>`
+  includes to `#include "Includes.h"` base, with all DX-specific includes guarded by
+  `#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)`. Struct layouts unchanged.
+
+- **`Renderer.h` XMFLOAT4 guard fix**: `Blit2DColoredPixel` was inside `#if defined(_WIN64)`
+  (too broad — XMFLOAT4 undefined on OpenGL builds). Split into:
+  DX11/DX12 → `XMFLOAT4 color`; OpenGL/Vulkan → `const Vector4& color`.
+
+- **`Models.h` cross-platform rewrite**: Removed unconditional DX11 includes and
+  `using namespace DirectX;`. Added conditional platform blocks:
+  - `Texture`: `GetSRV()` inside DX11 guard; `GLuint GetTextureID()` for OpenGL; `VkImageView GetImageView()` for Vulkan
+  - `ModelInfo`: common transform fields always present; matrices (`worldMatrix`/`viewMatrix`/`projectionMatrix`)
+    use `XMMATRIX` (DX) or `Matrix4x4` (GL/VK); separate GPU fields per renderer
+  - `Model::Render()`: takes `ID3D11DeviceContext*` on DX; `float deltaTime` on OpenGL/Vulkan
+  - `IsActive()`, `HasGeometry()`, `GetWorldMatrix()` inline helpers added for Vulkan render frame
+
+- **`Lights.h` cross-platform**: `using namespace DirectX;` now guarded by DX-only block. `LightStruct`
+  field types (`XMFLOAT3`) resolve via aliases on non-DX builds — no layout change.
+
+- **`BlenderImports.h/.cpp` cross-platform**: `GLTF_DEFAULT_FLIP` constexpr now renderer-conditional
+  (`FLIP_Z` for DX, `FLIP_Y` for Vulkan, `FLIP_NONE` for OpenGL). `ConvertNodeMatrix` signature
+  conditional (`XMMATRIX` for DX; `Matrix4x4` for GL/VK). `.cpp` implementation splits
+  `XMMatrixScaling` (DX-only) from manual row-negation implementation for OpenGL/Vulkan.
+
+- **`MathPrecalculation.h` and `Physics.h` cross-platform**: Guarded `#include <DirectXMath.h>`
+  and `using namespace DirectX;` under `__USE_DIRECTX_11__ || __USE_DIRECTX_12__`. All struct
+  fields resolve via Includes.h type aliases on non-DX builds.
+
+- **`GUIManager.h` renderer-aware forward declaration**: Renderer class forward declaration
+  changed from always-DX11 to conditional: `DX11Renderer` / `DX12Renderer` / `OpenGLRenderer` / `VulkanRenderer`
+  based on the active `__USE_*` define.
+
+- **OpenGL model infrastructure** — two new files:
+  - **`OpenGLModels.h`**: `OpenGLModelUtils` namespace (texture/shader helpers); `OpenGLModelBuffers`
+    struct (VAO/VBO/EBO/UBO handles with `Upload()`/`Destroy()`); `OpenGLMaterialUniforms`
+    (`Apply()`/`ApplyTransform()` for uniform uploads). Guarded by `__USE_OPENGL__`.
+  - **`OpenGLModels.cpp`**: stb_image texture loading; VAO vertex attrib layout (stride=44:
+    position/normal/texCoord/tangent at locations 0–3); `glGetUniformLocation`-based material
+    and transform uploads.
+
+- **Vulkan model infrastructure** — two new files:
+  - **`VulkanModels.h`**: `VulkanModelUtils` namespace (buffer/image/sampler helpers);
+    `VulkanModelBuffers` struct (all `VkBuffer`/`VkImage`/`VkPipeline`/`VkDescriptorSet` handles
+    with `Upload()`/`Destroy()`). Guarded by `__USE_VULKAN__`.
+  - **`VulkanModels.cpp`**: staging-buffer upload pattern; `FindMemoryType`; stb_image integration;
+    shaderc GLSL→SPIR-V or `.spv` file fallback for shader modules.
+
+- **OpenGL GLSL shaders** — two new shader files:
+  - **`Assets/Shaders/ModelVertex.glsl`** (GLSL 330 core): OpenGL vertex shader; std140 UBO binding=0;
+    vertex locations 0–3; `inverse3x3` shear-safe normal matrix; outputs 6 varyings for the fragment stage.
+  - **`Assets/Shaders/ModelPixel.glsl`** (GLSL 330 core): OpenGL PBR fragment shader; combined
+    sampler2D/samplerCube bindings; std140 UBOs at bindings 0–5; full Cook-Torrance BRDF
+    (Fresnel-Schlick, GGX distribution, Smith geometry); all 10 debug modes; Reinhard tone-mapping
+    + gamma correction. DirectX→OpenGL G-channel normal map correction applied.
+
+- **Vulkan GLSL/SPIR-V shaders** — two new shader files:
+  - **`Assets/Shaders/ModelVertex.vert`** (GLSL 450): Vulkan vertex shader; `set=0,binding=0` UBO;
+    Vulkan clip-space fix: `clipPos.y = -clipPos.y; clipPos.z = (clipPos.z + clipPos.w) * 0.5`.
+  - **`Assets/Shaders/ModelPixel.frag`** (GLSL 450): Vulkan PBR fragment shader; `set=0` for
+    UBOs (bindings 0–5); `set=1` for combined image samplers (bindings 0–5); same PBR logic as
+    OpenGL version.
+
+- **CMake shader build integration** (`CMakeLists.txt`):
+  - HLSL→CSO: `fxc.exe` (Windows SDK) for DirectX shaders — unchanged, already present
+  - OpenGL GLSL: `copy_glsl_shader` macro copies `.glsl` files POST_BUILD (runtime-loaded via opengl32.lib)
+  - Vulkan SPIR-V: `compile_vulkan_shader` macro uses `glslangValidator` from Vulkan SDK PRE_BUILD;
+    falls back to raw `.vert`/`.frag` copy if `glslangValidator` absent (shaderc runtime compilation)
+  - CMake status messages identify which tool compiles which shaders
+  - `OpenGLModels.cpp` and `VulkanModels.cpp` added to `SOURCES`
+
+- **Build system** (`CrossPlatformGameEngine.vcxproj`):
+  - `<ClCompile>` entries added: `OpenGLModels.cpp`, `VulkanModels.cpp`
+  - `<ClInclude>` entries added: `OpenGLModels.h`, `VulkanModels.h`
+
+- *See: [`Includes.h`](Includes.h), [`ConstantBuffer.h`](ConstantBuffer.h), [`Renderer.h`](Renderer.h),
+  [`Models.h`](Models.h), [`Lights.h`](Lights.h), [`BlenderImports.h`](BlenderImports.h),
+  [`BlenderImports.cpp`](BlenderImports.cpp), [`MathPrecalculation.h`](MathPrecalculation.h),
+  [`Physics.h`](Physics.h), [`GUIManager.h`](GUIManager.h),
+  [`OpenGLModels.h`](OpenGLModels.h), [`OpenGLModels.cpp`](OpenGLModels.cpp),
+  [`VulkanModels.h`](VulkanModels.h), [`VulkanModels.cpp`](VulkanModels.cpp),
+  [`Assets/Shaders/ModelVertex.glsl`](Assets/Shaders/ModelVertex.glsl),
+  [`Assets/Shaders/ModelPixel.glsl`](Assets/Shaders/ModelPixel.glsl),
+  [`Assets/Shaders/ModelVertex.vert`](Assets/Shaders/ModelVertex.vert),
+  [`Assets/Shaders/ModelPixel.frag`](Assets/Shaders/ModelPixel.frag),
+  [`CMakeLists.txt`](CMakeLists.txt), [`CrossPlatformGameEngine.vcxproj`](CrossPlatformGameEngine.vcxproj)*
 
 ---
 

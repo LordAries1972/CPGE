@@ -68,9 +68,8 @@ BlenderImports::ImportConfig BlenderImports::BuildConfig(const std::string& gene
     cfg.isBlenderFile = IsBlenderFile(generator);
     cfg.version       = ParseVersion(generator);
 
-    // All GLTF files (regardless of exporter) use right-handed Y-up.
-    // DirectX is left-handed Y-up.  The standard fix is to negate Z.
-    cfg.flipAxes  = FLIP_Z;
+    // Apply platform-appropriate axis flip for GLTF right-handed Y-up input.
+    cfg.flipAxes   = GLTF_DEFAULT_FLIP;
     cfg.fixWinding = NeedsWindingFlip(cfg.flipAxes);
 
     // Detect GLB embedded images: first image with no "uri" uses a bufferView.
@@ -151,9 +150,9 @@ XMFLOAT4 BlenderImports::ConvertQuat(XMFLOAT4 q, AxisFlipFlags f) noexcept
 }
 
 // ============================================================
-// Full node-matrix conversion  (DX row-major convention)
-//   M_lh = F * M_rh * F   where F = diag(fx, fy, fz, 1)
+// Full node-matrix conversion  (M_lh = F * M_rh * F)
 // ============================================================
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
 XMMATRIX BlenderImports::ConvertNodeMatrix(const XMMATRIX& m, AxisFlipFlags f) noexcept
 {
     const float fx = (f & FLIP_X) ? -1.0f : 1.0f;
@@ -162,6 +161,27 @@ XMMATRIX BlenderImports::ConvertNodeMatrix(const XMMATRIX& m, AxisFlipFlags f) n
     const XMMATRIX F = XMMatrixScaling(fx, fy, fz);
     return F * m * F;
 }
+#elif defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+Matrix4x4 BlenderImports::ConvertNodeMatrix(const Matrix4x4& m, AxisFlipFlags f) noexcept
+{
+    const float fx = (f & FLIP_X) ? -1.0f : 1.0f;
+    const float fy = (f & FLIP_Y) ? -1.0f : 1.0f;
+    const float fz = (f & FLIP_Z) ? -1.0f : 1.0f;
+    // Apply scale flip: negate rows and columns for each flipped axis.
+    Matrix4x4 result = m;
+    for (int col = 0; col < 4; col++) {
+        result.m[0][col] *= fx;
+        result.m[1][col] *= fy;
+        result.m[2][col] *= fz;
+    }
+    for (int row = 0; row < 4; row++) {
+        result.m[row][0] *= fx;
+        result.m[row][1] *= fy;
+        result.m[row][2] *= fz;
+    }
+    return result;
+}
+#endif
 
 // ============================================================
 // Winding order

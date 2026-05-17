@@ -1,0 +1,20 @@
+Models.h — History 17-05-2026b
+Fully converted to cross-platform; DX-only members conditionally guarded.
+
+Changes:
+- Removed unconditional #include "DX11Renderer.h" and #include "ConstantBuffer.h"
+- Removed global 'using namespace DirectX;'
+- Added conditional DX-only includes under __USE_DIRECTX_11__ / __USE_DIRECTX_12__
+- Texture class: GetSRV() and CreateSolidColorTexture(XMFLOAT4) now inside __USE_DIRECTX_11__ block;
+  OpenGL: GLuint GetTextureID() + CreateSolidColorTexture(Vector4);
+  Vulkan: VkImageView GetImageView()
+- ModelInfo struct: common transform fields (position/scale/rotation/cameraPosition/animation TRS)
+  moved OUTSIDE platform blocks so they always exist;
+  matrices (worldMatrix/viewMatrix/projectionMatrix) remain conditional:
+    DX: XMMATRIX; OpenGL/Vulkan: Matrix4x4
+  OpenGL GPU fields added: VAO, VBO, EBO, shaderProgram, texture ID vectors
+  Vulkan GPU fields added: VkBuffer, VkPipeline, etc.
+- Model class: Render() conditional (ID3D11DeviceContext* for DX; float deltaTime for OpenGL/Vulkan);
+  CompileShaderFromFile under DX guard; GetWorldMatrix() returns XMMATRIX (DX) or Matrix4x4 (GL/VK);
+  SetEnvironmentProperties takes XMFLOAT3 (DX) or Vector3 (GL/VK)
+- IsActive(), HasGeometry(), GetWorldMatrix() added as inline methods for Vulkan render frame use

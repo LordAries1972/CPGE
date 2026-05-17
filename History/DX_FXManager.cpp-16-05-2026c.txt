@@ -1,0 +1,30 @@
+WarpDotTunnel straight rings + camera look-ahead — 16/05/2026 (third pass)
+
+Init3DWarpDOTTunnel:
+- ring.bornCx assigned at init using sinf(fraction * XM_2PI) * kSideWaveRadius so rings
+  are staggered around the sine wave from frame 1 (tunnel immediately looks like a weave,
+  not all rings at startX).
+
+UpdateWarpDotTunnel — redesigned for correct Doctor Who behaviour:
+
+RINGS travel STRAIGHT (correct approach):
+  - ring.cx = ring.bornCx at all times — never changes after birth.
+  - On wrap (ring resets to farZ/nearZ): bornCx assigned from current sway wave:
+      ring.bornCx = startX + kSideWaveRadius * sin(sideWaveTime * kSideWaveSpeed)
+  - Each ring entering the tunnel is born at a weaving lateral offset, then flies
+    STRAIGHT toward/away from the camera from that fixed position.
+  - Removed all mid-flight cx modifications (pathT-based sideOffset scaling removed).
+
+CAMERA look-ahead (correct approach):
+  - Sorts rings by pathT descending (nearest-first) each frame.
+  - Sets camera target to the ring at sort index min(9, ringCount-1) —
+    the 10th-nearest ring (or last if density < 10).
+  - Camera appears to fly centrally through the ring corridor: always looking ahead
+    at the ring 10 positions further into the tunnel.
+
+SPEED — minimum 1.0x so far rings are always visibly moving:
+  - Forward: 1.0 + t^4 * 10.0
+    Far (t=0):  1.0x   → 80 units/s (clearly moving at far end)
+    Near (t=1): 11.0x  → 880 units/s (explosive final surge)
+    Average: ~3.0x → 240 units/s → ~3.3s full pass at travelSpeed=80
+  - Reverse:  1.0 + t^4 * 6.0

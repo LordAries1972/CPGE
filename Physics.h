@@ -25,7 +25,11 @@
 #include "ExceptionHandler.h"
 #include "MathPrecalculation.h"
 #include "ThreadManager.h"
-#include "DirectXMath.h"
+
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+    #include <DirectXMath.h>
+    using namespace DirectX;
+#endif
 
 #include <vector>
 #include <array>
@@ -33,8 +37,6 @@
 #include <memory>
 #include <atomic>
 #include <mutex>
-
-using namespace DirectX;
 
 #pragma warning(push)
 #pragma warning(disable: 4101)
@@ -48,7 +50,7 @@ const int MAX_RAGDOLL_JOINTS = 64;                                             /
 const int MAX_PARTICLE_COUNT = 10000;                                          // Maximum particles in a system
 const int AUDIO_PROPAGATION_SAMPLES = 256;                                     // Audio propagation calculation samples
 
-const float DEFAULT_GRAVITY = 9.81f;                                           // Earth's gravity in m/s²
+const float DEFAULT_GRAVITY = 9.81f;                                           // Earth's gravity in m/sï¿½
 const float MIN_VELOCITY_THRESHOLD = 0.001f;                                   // Minimum velocity before object stops
 const float DEFAULT_AIR_RESISTANCE = 0.01f;                                    // Default air resistance coefficient
 const float DEFAULT_RESTITUTION = 0.8f;                                        // Default bounce coefficient

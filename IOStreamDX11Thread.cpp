@@ -93,8 +93,8 @@ void DX11Renderer::LoaderTaskThread()
 					// Screen is already black (button handler faded before ResumeLoader).
 					// Suspend any prior FX then start the tunnel before the fade-in begins.
 					fxManager.SaveAndSuspendFXForScene();
-					fxManager.Init3DWarpDOTTunnel(0.0f, 0.0f, 1000.0f, 10.0f, 150.0f,
-						TunnelSpinCycle::Clockwise, 60, false, 32, 64);
+					fxManager.Init3DWarpDOTTunnel(0.0f, 0.0f, 1000.0f, 10.0f, 200.0f,
+						TunnelSpinCycle::Clockwise, 100, false, 24, 100);
 
 					threadManager.PauseThread(THREAD_LOADER);
 					threadManager.threadVars.bLoaderTaskFinished.store(true);

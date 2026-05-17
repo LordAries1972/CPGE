@@ -2,39 +2,39 @@
 
 #include "Includes.h"
 
-// DirectX 11 Required Headers & Linking
-#include "Renderer.h"
-
 // Perform Renderer to USE Test.
 // This is done to ensure we only include required code.
 // Meaning, if we are NOT using this Renderer, forget it
 // and DO NOT include its code.
 #if defined(__USE_DIRECTX_11__)
-#include "DX11Renderer.h"
-#include "Debug.h"
-#include "ExceptionHandler.h"
-#include "WinSystem.h"
-#include "Configuration.h"
-#include "DX_FXManager.h"
-#include "GUIManager.h"
-#include "Models.h"
-#include "Lights.h"
-#include "SceneManager.h"
-#include "ShaderManager.h"
+    // DirectX 11 Required Headers & Linking
+    #include "Renderer.h"
 
-#if defined(__USE_MP3PLAYER__)
-#include "WinMediaPlayer.h"
-#elif defined(__USE_XMPLAYER__)
-#include "XMMODPlayer.h"
-#endif
+    #include "DX11Renderer.h"
+    #include "Debug.h"
+    #include "ExceptionHandler.h"
+    #include "WinSystem.h"
+    #include "Configuration.h"
+    #include "DX_FXManager.h"
+    #include "GUIManager.h"
+    #include "Models.h"
+    #include "Lights.h"
+    #include "SceneManager.h"
+    #include "ShaderManager.h"
 
-#include <d3dcompiler.h>
+    #if defined(__USE_MP3PLAYER__)
+        #include "WinMediaPlayer.h"
+    #elif defined(__USE_XMPLAYER__)
+        #include "XMMODPlayer.h"
+    #endif
 
-#pragma comment(lib, "d3dcompiler.lib")
-#pragma comment(lib, "dxgi.lib")
+    #include <d3dcompiler.h>
 
-#pragma warning(push)
-#pragma warning(disable: 4101)
+    #pragma comment(lib, "d3dcompiler.lib")
+    #pragma comment(lib, "dxgi.lib")
+
+    #pragma warning(push)
+    #pragma warning(disable: 4101)
 
 // Static member initialization
 std::mutex DX11Renderer::s_renderMutex;

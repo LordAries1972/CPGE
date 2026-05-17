@@ -1,0 +1,17 @@
+OpenGLModels.cpp — History 17-05-2026
+NEW FILE — OpenGL model utility implementation.
+
+Purpose: Implements OpenGL VAO/VBO/EBO vertex buffer management, texture loading, and shader utilities.
+
+Contents:
+- stb_image texture loading (conditional on __has_include)
+- Vertex attrib layout: stride=44 bytes
+    location 0: position (vec3, 12 bytes)
+    location 1: normal   (vec3, 12 bytes)
+    location 2: texCoord (vec2,  8 bytes)
+    location 3: tangent  (vec3, 12 bytes)
+- glGenVertexArrays / glGenBuffers / GL_ARRAY_BUFFER / GL_ELEMENT_ARRAY_BUFFER / GL_STATIC_DRAW
+- glGetUniformLocation-based uniform setting for material and transform UBOs
+- OpenGLModelBuffers::Upload(): creates VAO+VBO+EBO from vertex/index data
+- OpenGLModelBuffers::Destroy(): deletes all GL handles
+- Guard: #if defined(__USE_OPENGL__)

@@ -58,8 +58,12 @@ namespace SoundSystem {
         bool fadeIn = false;
         float fadeInDuration = 0.0f;
         std::chrono::steady_clock::time_point fadeInStartTime;
+#if defined(__USE_DIRECTX_11__)
         // DirectSound buffer tracking
         LPDIRECTSOUNDBUFFER buffer = nullptr;
+#else
+        void* buffer = nullptr;
+#endif
     };
 
     class SoundManager {
@@ -98,8 +102,13 @@ namespace SoundSystem {
 
     private:
 
+#if defined(__USE_DIRECTX_11__)
         LPDIRECTSOUND8 m_directSound = nullptr;
         LPDIRECTSOUNDBUFFER m_primaryBuffer = nullptr;
+#else
+        void* m_directSound = nullptr;
+        void* m_primaryBuffer = nullptr;
+#endif
 
         std::mutex m_queueMutex;
         std::vector<SoundQueueItem> m_soundQueue;

@@ -1,0 +1,18 @@
+ModelPixel.frag — History 17-05-2026
+NEW FILE — Vulkan fragment shader (GLSL 450 / SPIR-V source).
+
+Purpose: Vulkan fragment shader, mirrors ModelPixel.glsl (OpenGL) with Vulkan descriptor set/binding layout.
+         Compiled to SPIR-V via glslangValidator or shaderc at build time.
+
+Shader: GLSL 450 (Vulkan)
+Descriptor layout:
+  set 0: UBOs (binding 0-5) — ConstantBuffer, LightBuffer, DebugBuffer, GlobalLightBuffer, MaterialBuffer, EnvBuffer
+  set 1: combined image samplers (binding 0-5) — diffuse, normal, metallic, roughness, ao, env(cube)
+PBR: FresnelSchlick, DistributionGGX (GGX), GeometrySmith (Schlick-GGX), Cook-Torrance BRDF
+Light types: DIRECTIONAL(0), POINT(1), SPOT(2)
+Debug modes: same 10 modes as OpenGL version
+Tone mapping: Reinhard + gamma correction
+Key differences from OpenGL version:
+  Separate descriptor sets (set 0 / set 1) vs flat binding numbers
+  Combined sampler2D layout uses Vulkan set/binding notation
+  No Y-axis clip-space fix needed in fragment (done in vertex shader)

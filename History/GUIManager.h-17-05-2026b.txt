@@ -1,0 +1,16 @@
+GUIManager.h — History 17-05-2026b
+Renderer forward declaration made conditional per active renderer.
+
+Changes:
+- Forward declaration changed from always-DX11 to renderer-conditional:
+  #if defined(__USE_DIRECTX_11__)
+      class DX11Renderer;
+  #elif defined(__USE_DIRECTX_12__)
+      class DX12Renderer;
+  #elif defined(__USE_OPENGL__)
+      class OpenGLRenderer;
+  #elif defined(__USE_VULKAN__)
+      class VulkanRenderer;
+  #endif
+- Purpose: distinctive class names in forward declarations prevent ambiguity and correctly
+  type-check the renderer pointer stored in GUIManager, whichever backend is active.

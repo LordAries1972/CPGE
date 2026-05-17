@@ -35,7 +35,7 @@ endif()
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
 if(CMAKE_INSTALL_LOCAL_ONLY)
-  file(WRITE "F:/Projects/C++/CPGE2026/build/debug/install_local_manifest.txt"
+  file(WRITE "F:/Projects/C++/CPGE2026/build/Debug/install_local_manifest.txt"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")
 endif()
 if(CMAKE_INSTALL_COMPONENT)
@@ -51,6 +51,6 @@ else()
 endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
-  file(WRITE "F:/Projects/C++/CPGE2026/build/debug/${CMAKE_INSTALL_MANIFEST}"
+  file(WRITE "F:/Projects/C++/CPGE2026/build/Debug/${CMAKE_INSTALL_MANIFEST}"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")
 endif()

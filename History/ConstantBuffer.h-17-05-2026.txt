@@ -1,0 +1,11 @@
+ConstantBuffer.h — History 17-05-2026
+Rewritten to be cross-platform compatible.
+
+Changes:
+- Replaced unconditional #include <d3d11.h>, <wrl/client.h>, <DirectXMath.h>, 'using namespace DirectX'
+  with #include "Includes.h" as the single base include.
+- DirectX-specific includes and using-namespace now guarded:
+  #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+- ConstantBuffer struct itself unchanged — XMMATRIX/XMFLOAT3 fields resolve via Includes.h aliases
+  on non-DX builds (Matrix4x4/Vector3).
+- MaterialGPU and EnvBufferGPU structs remain under DirectX guard (DX-only GPU resource types).

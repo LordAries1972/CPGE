@@ -1,0 +1,15 @@
+WarpDotTunnel enhancements (Vulkan) — 16/05/2026
+
+Init3DWarpDOTTunnel:
+- ring.colorStep = i % VKWarpTunnelData::kGraySteps assigned at init.
+
+UpdateWarpDotTunnel:
+- sideWaveTime advanced by dt each frame.
+- Furthest ring identified by max zPos scan; its cx oscillates ±30 units via sine wave.
+- Speed curve forward: cubic (0.05 + t^3 * 3.9).
+- Speed curve reverse: quadratic (0.1 + t^2 * 3.5).
+- Mirrors identical changes made to DX_FXManager.cpp UpdateWarpDotTunnel.
+
+RenderWarpDotTunnel:
+- 8-step gray ramp (0.08–1.0) replaces blue-tinted brightness; r=g=b=gray keyed on ring.colorStep.
+- Mirrors identical changes made to DX_FXManager.cpp RenderWarpDotTunnel.

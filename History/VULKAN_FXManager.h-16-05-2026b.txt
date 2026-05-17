@@ -1,0 +1,4 @@
+WarpDotTunnel bornCx (Vulkan) — 16/05/2026 (third pass)
+
+VKTunnelRing struct:
+- Added: float bornCx = 0.0f  (mirrors DX TunnelRing change)

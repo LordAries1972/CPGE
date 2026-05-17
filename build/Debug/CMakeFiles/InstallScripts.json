@@ -1,7 +1,7 @@
 {
 	"InstallScripts" : 
 	[
-		"F:/Projects/C++/CPGE2026/build/debug/cmake_install.cmake"
+		"F:/Projects/C++/CPGE2026/build/Debug/cmake_install.cmake"
 	],
 	"Parallel" : false
 }

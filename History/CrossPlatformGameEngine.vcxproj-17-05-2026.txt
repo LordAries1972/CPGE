@@ -1,0 +1,304 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{2bd3f178-ecf9-420b-aedb-fbb9c8f5396b}</ProjectGuid>
+    <RootNamespace>CrossPlatformGameEngine</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+    <DCompiler>DMD</DCompiler>
+    <EnableASAN>false</EnableASAN>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+    <DCompiler>DMD</DCompiler>
+    <EnableASAN>false</EnableASAN>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <IncludePath>F:\Projects\C++\CPGE;$(IncludePath)</IncludePath>
+    <EnableManagedIncrementalBuild>true</EnableManagedIncrementalBuild>
+    <EnableClangTidyCodeAnalysis>false</EnableClangTidyCodeAnalysis>
+    <AllProjectIncludesArePublic>false</AllProjectIncludesArePublic>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <IncludePath>F:\Projects\C++\CPGE;$(IncludePath)</IncludePath>
+    <AllProjectIncludesArePublic>false</AllProjectIncludesArePublic>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <StructMemberAlignment>16Bytes</StructMemberAlignment>
+      <DisableSpecificWarnings>4244</DisableSpecificWarnings>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <SuppressStartupBanner>true</SuppressStartupBanner>
+      <AdditionalIncludeDirectories>.\include;$(VULKAN_SDK)\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EntryPointSymbol>WinMainCRTStartup</EntryPointSymbol>
+      <GenerateMapFile>true</GenerateMapFile>
+      <MapFileName>$(TargetName).map</MapFileName>
+      <AssemblyDebug>true</AssemblyDebug>
+      <AdditionalDependencies>
+      </AdditionalDependencies>
+      <AdditionalLibraryDirectories>.\lib;$(VULKAN_SDK)\Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
+    <ResourceCompile>
+      <ResourceOutputFileName>CrossPlatformGameEngine.res</ResourceOutputFileName>
+    </ResourceCompile>
+    <FxCompile>
+      <ShaderModel>5.0</ShaderModel>
+    </FxCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <DisableSpecificWarnings>4244</DisableSpecificWarnings>
+      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+      <EnableFiberSafeOptimizations>true</EnableFiberSafeOptimizations>
+      <StringPooling>true</StringPooling>
+      <SuppressStartupBanner>true</SuppressStartupBanner>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <AdditionalIncludeDirectories>.\include;.\steam;$(VULKAN_SDK)\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EntryPointSymbol>WinMainCRTStartup</EntryPointSymbol>
+      <AdditionalLibraryDirectories>.\lib;.\steam\lib\win64;$(VULKAN_SDK)\Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>
+      </AdditionalDependencies>
+    </Link>
+    <ResourceCompile>
+      <ResourceOutputFileName>CrossPlatformGameEngine.res</ResourceOutputFileName>
+    </ResourceCompile>
+    <FxCompile>
+      <ShaderModel>5.0</ShaderModel>
+    </FxCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="Configuration.cpp" />
+    <ClCompile Include="ConsoleWindow.cpp" />
+    <ClCompile Include="Debug.cpp" />
+    <ClCompile Include="DX11Renderer.cpp" />
+    <ClCompile Include="DX12Renderer.cpp" />
+    <ClCompile Include="DXCamera.cpp" />
+    <ClCompile Include="DXRenderFrame.cpp" />
+    <ClCompile Include="DX_FXManager.cpp" />
+    <ClCompile Include="ExceptionHandler.cpp" />
+    <ClCompile Include="FileIO.cpp" />
+    <ClCompile Include="GamePlayer.cpp" />
+    <ClCompile Include="GamingAI.cpp" />
+    <ClCompile Include="GLTFAnimator.cpp" />
+    <ClCompile Include="GUIConfigWindow.cpp" />
+    <ClCompile Include="GUIManager.cpp" />
+    <ClCompile Include="GUIWindows.cpp" />
+    <ClCompile Include="IOStreamDX11Thread.cpp" />
+    <ClCompile Include="IOStreamDX12Thread.cpp" />
+    <ClCompile Include="Joystick.cpp" />
+    <ClCompile Include="KBHandlersCode.cpp" />
+    <ClCompile Include="KeyboardHandler.cpp" />
+    <ClCompile Include="Lights.cpp" />
+    <ClCompile Include="main.cpp" />
+    <ClCompile Include="MathPrecalculation.cpp" />
+    <ClCompile Include="BlenderImports.cpp" />
+    <ClCompile Include="Models.cpp" />
+    <ClCompile Include="MoviePlayer.cpp" />
+    <ClCompile Include="MyRandomizer.cpp" />
+    <ClCompile Include="NetworkManager.cpp" />
+    <ClCompile Include="OpenGLCamera.cpp" />
+    <ClCompile Include="OpenGLRenderer.cpp" />
+    <ClCompile Include="OpenGLFXManager.cpp" />
+    <ClCompile Include="OpenGLRenderFrame.cpp" />
+    <ClCompile Include="OpenGL_IOStreamThread.cpp" />
+    <ClCompile Include="VulkanCamera.cpp" />
+    <ClCompile Include="VULKAN_Renderer.cpp" />
+    <ClCompile Include="VULKAN_RenderFrame.cpp" />
+    <ClCompile Include="VULKAN_FXManager.cpp" />
+    <ClCompile Include="VULKAN_IOStreamThread.cpp" />
+    <ClCompile Include="Physics.cpp" />
+    <ClCompile Include="PUNPack.cpp" />
+    <ClCompile Include="RendererFactory.cpp" />
+    <ClCompile Include="SceneManager.cpp" />
+    <ClCompile Include="ScriptManager.cpp" />
+    <ClCompile Include="ScreenRecorder.cpp" />
+    <ClCompile Include="ShaderLoaders.cpp" />
+    <ClCompile Include="ShaderManager.cpp" />
+    <ClCompile Include="SoundManager.cpp" />
+    <ClCompile Include="ThreadManager.cpp" />
+    <ClCompile Include="TTSManager.cpp" />
+    <ClCompile Include="WinMediaPlayer.cpp" />
+    <ClCompile Include="WinSystem.cpp" />
+    <ClCompile Include="XMMODPlayer.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="BuildInfo.h" />
+    <ClInclude Include="Color.h" />
+    <ClInclude Include="ConsoleWindow.h" />
+    <ClInclude Include="Configuration.h" />
+    <ClInclude Include="ConstantBuffer.h" />
+    <ClInclude Include="Debug.h" />
+    <ClInclude Include="DX11Renderer.h" />
+    <ClInclude Include="DX12Renderer.h" />
+    <ClInclude Include="DXCamera.h" />
+    <ClInclude Include="DX_FXManager.h" />
+    <ClInclude Include="ExceptionHandler.h" />
+    <ClInclude Include="FileIO.h" />
+    <ClInclude Include="GamePlayer.h" />
+    <ClInclude Include="GamingAI.h" />
+    <ClInclude Include="GLTFAnimator.h" />
+    <ClInclude Include="GUIManager.h" />
+    <ClInclude Include="Includes.h" />
+    <ClInclude Include="IOStreamDX11Thread.h" />
+    <ClInclude Include="IOStreamDX12Thread.h" />
+    <ClInclude Include="Joystick.h" />
+    <ClInclude Include="KeyboardHandler.h" />
+    <ClInclude Include="Lights.h" />
+    <ClInclude Include="MathPrecalculation.h" />
+    <ClInclude Include="BlenderImports.h" />
+    <ClInclude Include="Models.h" />
+    <ClInclude Include="MoviePlayer.h" />
+    <ClInclude Include="MyRandomizer.h" />
+    <ClInclude Include="NetworkManager.h" />
+    <ClInclude Include="OpenGLCamera.h" />
+    <ClInclude Include="OpenGLRenderer.h" />
+    <ClInclude Include="OpenGLFXManager.h" />
+    <ClInclude Include="OpenGL_IOStreamThread.h" />
+    <ClInclude Include="Physics.h" />
+    <ClInclude Include="PUNPack.h" />
+    <ClInclude Include="Renderer.h" />
+    <ClInclude Include="resource.h" />
+    <ClInclude Include="SceneManager.h" />
+    <ClInclude Include="ScriptManager.h" />
+    <ClInclude Include="ScreenRecorder.h" />
+    <ClInclude Include="ShaderManager.h" />
+    <ClInclude Include="SoundManager.h" />
+    <ClInclude Include="ThreadLockHelper.h" />
+    <ClInclude Include="ThreadManager.h" />
+    <ClInclude Include="TTSManager.h" />
+    <ClInclude Include="Vectors.h" />
+    <ClInclude Include="VulkanCamera.h" />
+    <ClInclude Include="VULKAN_Renderer.h" />
+    <ClInclude Include="VULKAN_FXManager.h" />
+    <ClInclude Include="VULKAN_IOStreamThread.h" />
+    <ClInclude Include="WinMediaPlayer.h" />
+    <ClInclude Include="WinSystem.h" />
+    <ClInclude Include="XMMODPlayer.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="CrossPlatformGameEngine.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="CrossPlatformGameEngine.rc" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Target Name="ComputeLinkImportLibraryOutputsForClean" Condition=" '$(TargetFramework)' != '' ">
+    <!-- Add a default or no-op action here -->
+  </Target>
+  <ImportGroup Label="ExtensionTargets" />
+  <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
+    <PropertyGroup>
+      <ErrorText>This project references NuGet package(s) that are missing on this computer. Use NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
+    </PropertyGroup>
+  </Target>
+  <Target Name="UpdateVersionFile" BeforeTargets="ClCompile">
+    <PropertyGroup>
+      <!-- Define your Master and SubRelease versions -->
+      <MasterVersion>0</MasterVersion>
+      <SubReleaseVersion>0</SubReleaseVersion>
+      <VersionFilePath>$(ProjectDir)Version.id</VersionFilePath>
+      <DefaultBuildNumber>695</DefaultBuildNumber>
+    </PropertyGroup>
+    <!-- Read existing version file if it exists -->
+    <ReadLinesFromFile File="$(VersionFilePath)" Condition="Exists('$(VersionFilePath)')">
+      <Output TaskParameter="Lines" ItemName="ExistingVersionLines" />
+    </ReadLinesFromFile>
+    <!-- Extract current build number from existing file -->
+    <PropertyGroup>
+      <ExistingVersionLine>@(ExistingVersionLines)</ExistingVersionLine>
+      <!-- Extract number after 'v' and last dot -->
+      <CurrentBuildStr>$([System.Text.RegularExpressions.Regex]::Match('$(ExistingVersionLine)', 'v\d+\.\d+\.(\d+)').Groups[1].Value)</CurrentBuildStr>
+      <CurrentBuild Condition="'$(CurrentBuildStr)' != ''">$(CurrentBuildStr)</CurrentBuild>
+      <CurrentBuild Condition="'$(CurrentBuildStr)' == ''">$(DefaultBuildNumber)</CurrentBuild>
+      <!-- Increment build number -->
+      <NewBuildNumber>$([MSBuild]::Add($(CurrentBuild), 1))</NewBuildNumber>
+      <!-- Create new version string -->
+      <NewVersionString>v$(MasterVersion).$(SubReleaseVersion).$(NewBuildNumber)</NewVersionString>
+      <VersionFileContent>Current Build Version: $(NewVersionString)</VersionFileContent>
+    </PropertyGroup>
+    <!-- Write updated version to file -->
+    <WriteLinesToFile File="$(VersionFilePath)" Lines="$(VersionFileContent)" Overwrite="true" Encoding="UTF-8" />
+    <!-- Update BuildInfo.h with new version numbers (pure MSBuild, no external process) -->
+    <ItemGroup>
+      <_BuildInfoLines Include="#pragma once" />
+      <_BuildInfoLines Include="// Authoritative build identity - update these on every release." />
+      <_BuildInfoLines Include="constexpr int CURRENT_BUILD_VERSION    = $(MasterVersion)%3B" />
+      <_BuildInfoLines Include="constexpr int CURRENT_BUILD_SUBVERSION = $(SubReleaseVersion)%3B" />
+      <_BuildInfoLines Include="constexpr int CURRENT_BUILD            = $(NewBuildNumber)%3B" />
+    </ItemGroup>
+    <WriteLinesToFile File="$(ProjectDir)BuildInfo.h" Lines="@(_BuildInfoLines)" Overwrite="true" Encoding="UTF-8" />
+    <!-- Update version badge in ReleaseInfo.md via inline PowerShell -->
+    <PropertyGroup>
+      <_ProjDirClean>$(ProjectDir.TrimEnd('\'))</_ProjDirClean>
+    </PropertyGroup>
+    <Exec Command="powershell -NoProfile -Command &quot;$f='$(_ProjDirClean)\ReleaseInfo.md'; $c=[IO.File]::ReadAllText($f); [IO.File]::WriteAllText($f, ($c -replace '\*Current Build Version: v[\d.]+\*', '*Current Build Version: $(NewVersionString)*'))&quot;" />
+    <!-- Display message in build output -->
+    <Message Text="════════════════════════════════════════" Importance="high" />
+    <Message Text="VERSION UPDATE: $(NewVersionString)" Importance="high" />
+    <Message Text="Previous: v$(MasterVersion).$(SubReleaseVersion).$(CurrentBuild)" Importance="high" />
+    <Message Text="Current:  $(NewVersionString)" Importance="high" />
+    <Message Text="════════════════════════════════════════" Importance="high" />
+  </Target>
+</Project>

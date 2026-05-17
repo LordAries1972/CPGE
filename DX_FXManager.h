@@ -5,15 +5,16 @@
 //-------------------------------------------------------------------------------------------------
 #include "Includes.h"
 #include "Renderer.h"
-#include "DirectXMath.h"
 
-#include <d3d11.h>
-#include <d3dcompiler.h>
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+    #include "DirectXMath.h"
+    #include <d3d11.h>
+    #include <d3dcompiler.h>
+    using namespace DirectX;
+#endif
 
 // Forward declarations if needed (e.g., Renderer or GUIManager)
 class Debug;
-
-using namespace DirectX;
 
 extern std::shared_ptr<Renderer> renderer;
 
@@ -98,9 +99,12 @@ struct Star
 struct TunnelRing {
     float zPos       = 0.0f;     // current Z world position
     float spinAngle  = 0.0f;     // accumulated rotation offset (radians)
-    float cx         = 0.0f;     // current X world centre
-    float cy         = 0.0f;     // current Y world centre
+    float cx         = 0.0f;     // current X world centre (set at birth, never changes mid-flight)
+    float cy         = 0.0f;     // current Y world centre (set at birth, never changes mid-flight)
+    float bornCx     = 0.0f;     // X position assigned at birth; ring flies straight from here
+    float bornCy     = 0.0f;     // Y position assigned at birth; ring flies straight from here
     bool  alive      = true;
+    int   colorStep  = 0;        // index into the gray ramp (0 = darkest, kGraySteps-1 = white)
 };
 
 // Per-effect state for WarpDotTunnel
@@ -109,20 +113,26 @@ struct WarpTunnelData {
     float            startY         = 0.0f;
     float            startZ         = 0.0f;
     float            minRadius      = 5.0f;
-    float            maxRadius      = 200.0f;
+    float            maxRadius      = 250.0f;
     TunnelSpinCycle  spinCycle      = TunnelSpinCycle::None;
-    int              travelSpeed    = 80;
+    int              travelSpeed    = 100;
     bool             reverseTravel  = false;
-    int              dotsPerCircle  = 24;
-    int              density        = 4;
+    int              dotsPerCircle  = 32;
+    int              density        = 5;
 
-    float totalDistance = 800.0f;  // computed: world-space length of the tunnel
-    float nearZ         = 0.0f;    // camera-near end  (= startZ for forward travel)
-    float farZ          = 800.0f;  // camera-far  end
+    float totalDistance = 900.0f;    // computed: world-space length of the tunnel
+    float nearZ         = 0.0f;      // camera-near end  (= startZ for forward travel)
+    float farZ          = 900.0f;    // camera-far  end
     float spinSpeed       = 0.0f;    // radians / second derived from travelSpeed
     float pathPhaseOffset = 0.0f;    // advances each frame so the path drifts, creating winding movement
+    float sideWaveTime    = 0.0f;    // accumulates per-frame; drives the furthest-ring left/right sway
+    XMFLOAT3 smoothLookTarget = { 0.0f, 0.0f, 900.0f }; // exponentially-smoothed camera look target
 
-    static constexpr float kMaxXYRadius = 300.0f;  // maximum XY deviation of ring centres
+    static constexpr float kSideWaveRadius = 80.0f;   // peak ±XY swing radius of the birth offset
+    static constexpr float kSideWaveSpeed  = 0.85f;   // oscillation frequency (rad/s)
+    static constexpr float kCameraSmooth   = 4.0f;    // look-target lerp speed (higher = snappier)
+    static constexpr int   kGraySteps      = 8;       // number of shades in the dark-to-white ramp
+    static constexpr float kMaxXYRadius = 300.0f;     // maximum XY deviation of ring centres
 
     std::vector<TunnelRing> rings;
 };

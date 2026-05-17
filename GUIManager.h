@@ -10,8 +10,16 @@
 #include "Renderer.h"
 #include "SoundManager.h"
 
-// Forward declarations
+// Forward declarations — renderer-specific
+#if defined(__USE_DIRECTX_11__)
 class DX11Renderer;
+#elif defined(__USE_DIRECTX_12__)
+class DX12Renderer;
+#elif defined(__USE_OPENGL__)
+class OpenGLRenderer;
+#elif defined(__USE_VULKAN__)
+class VulkanRenderer;
+#endif
 class Debug;
 
 // Forward declaration for scene switching function from main.cpp
@@ -99,6 +107,7 @@ public:
     bool wasDragging = false;
     bool bWindowDestroy = false;                        // Safety Flag to state when window is closing.
     bool isModal = false;                               // When true, all other windows are blocked from receiving input.
+    int  zOrder  = 0;                                   // Draw/input order; higher value = on top.
     std::vector<GUIControl> controls;                   // Our Controls list pertaining to this window.
     int scrollPosition = 0;                             // Current scroll position
     int maxScrollPosition = 0;                          // Maximum scroll position
@@ -154,6 +163,8 @@ private:
     Renderer* myRenderer = nullptr;                                           // Store the renderer
 
     std::timed_mutex mutex;                                                   // Mutex for thread safety
+
+    int  m_nextZOrder = 0;                                   // Monotonic counter assigned to each new window.
 
     // Click-event cooldown: prevents cross-window event bleed within the same frame
     // (clickConsumed flag) and across frames (1-second timestamp lock).

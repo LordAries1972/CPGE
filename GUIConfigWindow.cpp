@@ -76,37 +76,34 @@ static const wchar_t* const DISP_MODE_NAMES[3] = {
     L"Windowed", L"Borderless", L"Full Screen"
 };
 
-// Renderer name strings and valid range.
-// RENDERER_MAX is derived from what is actually compiled in — not a hardcoded platform
-// maximum — so the slider only offers backends that are present in this build.
-// With a single backend (e.g. DX11 only), RENDERER_MAX=0 and the slider is hidden.
-static const wchar_t* const RENDERER_NAMES[4] = {
-    L"DirectX 11", L"DirectX 12", L"OpenGL", L"Vulkan"
-};
-
+// Available-renderer list — only includes backends compiled into this build.
+// Slider position 0..RENDERER_COUNT-1 maps to this list; disabled backends
+// (e.g. DX12 on a card that lacks it) are never shown even when a higher-
+// numbered backend (Vulkan) is compiled in.  Slider is hidden when count == 1.
+struct RendererEntry { int type; const wchar_t* name; };
+static const RendererEntry AVAILABLE_RENDERERS[] = {
 #if defined(PLATFORM_WINDOWS)
-static constexpr int RENDERER_MAX =
-#if   defined(__USE_VULKAN__)
-    3
-#elif defined(__USE_OPENGL__)
-    2
-#elif defined(__USE_DIRECTX_12__)
-    1
-#else
-    0   // DX11 only — slider hidden
-#endif
-    ;
+    { 0, L"DirectX 11" },
+#  if defined(__USE_DIRECTX_12__)
+    { 1, L"DirectX 12" },
+#  endif
+#  if defined(__USE_OPENGL__)
+    { 2, L"OpenGL" },
+#  endif
+#  if defined(__USE_VULKAN__)
+    { 3, L"Vulkan" },
+#  endif
 #elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
-static constexpr int RENDERER_MAX =
-#if defined(__USE_VULKAN__)
-    1
-#else
-    0
+#  if defined(__USE_OPENGL__)
+    { 0, L"OpenGL" },
+#  endif
+#  if defined(__USE_VULKAN__)
+    { 1, L"Vulkan" },
+#  endif
 #endif
-    ;
-#else // iOS / macOS
-static constexpr int RENDERER_MAX = 0;
-#endif
+};
+static constexpr int RENDERER_COUNT =
+    (int)(sizeof(AVAILABLE_RENDERERS) / sizeof(AVAILABLE_RENDERERS[0]));
 
 // ---------------------------------------------------------------------------
 // Local formatting helpers
@@ -561,6 +558,32 @@ void GUIManager::CreateConfigWindow()
             });
         y += ROW;
 
+        // --- Renderer (hidden when only one backend is compiled in) ---
+        {
+            int rendSliderStart = 0;
+            for (int i = 0; i < RENDERER_COUNT; ++i) {
+                if (AVAILABLE_RENDERERS[i].type == config.myConfig.rendererType) {
+                    rendSliderStart = i; break;
+                }
+            }
+            if (RENDERER_COUNT > 1) {
+                addSliderRow("t2_renderer", y, L"Renderer:",
+                    false, 2,
+                    0.0f, (float)(RENDERER_COUNT - 1),
+                    (float)rendSliderStart,
+                    [](float v) -> std::wstring {
+                        int i = std::clamp((int)std::round(v), 0, RENDERER_COUNT - 1);
+                        return AVAILABLE_RENDERERS[i].name;
+                    },
+                    [needsVideoRestart](float v) {
+                        int i = std::clamp((int)std::round(v), 0, RENDERER_COUNT - 1);
+                        config.myConfig.rendererType = AVAILABLE_RENDERERS[i].type;
+                        *needsVideoRestart = true;
+                    });
+                y += ROW;
+            }
+        }
+
         // --- Display Mode (0=Windowed / 1=Borderless / 2=Full Screen) ---
         addSliderRow("t2_disp", y, L"Screen Display:",
             false, 2,
@@ -573,22 +596,6 @@ void GUIManager::CreateConfigWindow()
                 *needsVideoRestart = true;
             });
         y += ROW;
-
-        // --- Renderer (platform-specific options, takes effect after restart) ---
-#if RENDERER_MAX > 0
-        addSliderRow("t2_renderer", y, L"Renderer:",
-            false, 2,
-            0.0f, (float)RENDERER_MAX,
-            (float)std::clamp(config.myConfig.rendererType, 0, RENDERER_MAX),
-            [](float v) -> std::wstring {
-                return RENDERER_NAMES[std::clamp((int)std::round(v), 0, RENDERER_MAX)];
-            },
-            [needsVideoRestart](float v) {
-                config.myConfig.rendererType = std::clamp((int)std::round(v), 0, RENDERER_MAX);
-                *needsVideoRestart = true;
-            });
-        y += ROW;
-#endif
 
         // --- Resolution (slider left = lowest res, right = highest res) ---
         // uniqueRes is sorted largest-first, so invert: realIdx = (size-1) - sliderPos

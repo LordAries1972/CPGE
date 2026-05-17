@@ -1,0 +1,7 @@
+WarpDotTunnel bornCy + radius 60 — 16/05/2026 (fourth pass)
+
+TunnelRing struct:
+- Added: float bornCy = 0.0f  (Y birth position; ring.cy = ring.bornCy throughout flight)
+
+WarpTunnelData:
+- kSideWaveRadius changed from 30.0f to 60.0f (applies to both X and Y sway axes)

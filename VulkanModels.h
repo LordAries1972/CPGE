@@ -1,0 +1,146 @@
+#pragma once
+// ============================================================================
+// VulkanModels.h — Vulkan-specific model resource types and GPU helpers
+//
+// Included by Models.h when __USE_VULKAN__ is defined.
+// Contains Vulkan-specific texture loading, buffer management, descriptor
+// set handling, and pipeline binding for the Model / ModelInfo pipeline.
+// ============================================================================
+
+#if !defined(__USE_VULKAN__)
+#error "VulkanModels.h must only be included when __USE_VULKAN__ is defined."
+#endif
+
+#include "Includes.h"   // Provides vulkan/vulkan.h, Vector2/3/4, etc.
+#include "Vectors.h"
+#include "Color.h"
+#include "Debug.h"
+
+#include <string>
+#include <vector>
+#include <memory>
+#include <cstdint>
+
+// ============================================================================
+// Forward declarations
+// ============================================================================
+struct VulkanContext;   // Declared in VULKAN_Renderer.h
+
+// ============================================================================
+// VulkanModelUtils — free-function helpers used by the Vulkan model pipeline.
+// ============================================================================
+namespace VulkanModelUtils
+{
+    // Create a Vulkan buffer with the specified usage and memory properties.
+    bool CreateBuffer(VkDevice device, VkPhysicalDevice physDevice,
+                      VkDeviceSize size, VkBufferUsageFlags usage,
+                      VkMemoryPropertyFlags properties,
+                      VkBuffer& outBuffer, VkDeviceMemory& outMemory);
+
+    // Copy data from a staging buffer into a device-local buffer via a
+    // one-shot command buffer.
+    void CopyBuffer(VkDevice device, VkCommandPool cmdPool, VkQueue queue,
+                    VkBuffer src, VkBuffer dst, VkDeviceSize size);
+
+    // Upload vertex data to a device-local vertex buffer via a staging buffer.
+    bool UploadVertexBuffer(VkDevice device, VkPhysicalDevice physDevice,
+                            VkCommandPool cmdPool, VkQueue queue,
+                            const void* data, VkDeviceSize size,
+                            VkBuffer& outBuffer, VkDeviceMemory& outMemory);
+
+    // Upload index data to a device-local index buffer.
+    bool UploadIndexBuffer(VkDevice device, VkPhysicalDevice physDevice,
+                           VkCommandPool cmdPool, VkQueue queue,
+                           const uint32_t* indices, size_t indexCount,
+                           VkBuffer& outBuffer, VkDeviceMemory& outMemory);
+
+    // Load a texture from file into a VkImage / VkImageView.
+    // Returns VK_NULL_HANDLE on failure.
+    VkImageView LoadTextureFromFile(VkDevice device, VkPhysicalDevice physDevice,
+                                    VkCommandPool cmdPool, VkQueue queue,
+                                    const std::wstring& path,
+                                    VkImage& outImage, VkDeviceMemory& outMemory);
+
+    // Load a texture from an in-memory buffer (e.g. GLB embedded images).
+    VkImageView LoadTextureFromMemory(VkDevice device, VkPhysicalDevice physDevice,
+                                      VkCommandPool cmdPool, VkQueue queue,
+                                      const uint8_t* data, size_t size,
+                                      VkImage& outImage, VkDeviceMemory& outMemory);
+
+    // Create a 1×1 solid-colour texture (useful as a fallback / default).
+    VkImageView CreateSolidColourTexture(VkDevice device, VkPhysicalDevice physDevice,
+                                          VkCommandPool cmdPool, VkQueue queue,
+                                          const Vector4& colour,
+                                          VkImage& outImage, VkDeviceMemory& outMemory);
+
+    // Destroy a texture image/memory/view triplet and zero the handles.
+    void DestroyTexture(VkDevice device,
+                        VkImage& image, VkDeviceMemory& memory, VkImageView& view);
+
+    // Find a memory type index that satisfies the given filter and property flags.
+    uint32_t FindMemoryType(VkPhysicalDevice physDevice,
+                            uint32_t typeFilter, VkMemoryPropertyFlags properties);
+
+    // Compile GLSL source to SPIR-V bytecode using shaderc (if available).
+    // Falls back to reading a pre-compiled .spv file if shaderc is absent.
+    // Returns empty vector on failure.
+    std::vector<uint32_t> CompileGLSLToSPIRV(const std::wstring& glslFilePath,
+                                               VkShaderStageFlagBits stage);
+}
+
+// ============================================================================
+// VulkanModelBuffers — all per-model Vulkan GPU resources in one place.
+// ============================================================================
+struct VulkanModelBuffers
+{
+    // Geometry buffers
+    VkBuffer       vertexBuffer       = VK_NULL_HANDLE;
+    VkDeviceMemory vertexBufferMemory = VK_NULL_HANDLE;
+    VkBuffer       indexBuffer        = VK_NULL_HANDLE;
+    VkDeviceMemory indexBufferMemory  = VK_NULL_HANDLE;
+    uint32_t       indexCount         = 0;
+
+    // Uniform buffers (one per swapchain image for per-frame data)
+    std::vector<VkBuffer>       uniformBuffers;
+    std::vector<VkDeviceMemory> uniformBufferMemory;
+
+    // Textures
+    VkImage        diffuseImage  = VK_NULL_HANDLE;
+    VkDeviceMemory diffuseMemory = VK_NULL_HANDLE;
+    VkImageView    diffuseView   = VK_NULL_HANDLE;
+
+    VkImage        normalImage   = VK_NULL_HANDLE;
+    VkDeviceMemory normalMemory  = VK_NULL_HANDLE;
+    VkImageView    normalView    = VK_NULL_HANDLE;
+
+    VkImage        metallicImage = VK_NULL_HANDLE;
+    VkDeviceMemory metallicMemory= VK_NULL_HANDLE;
+    VkImageView    metallicView  = VK_NULL_HANDLE;
+
+    VkImage        roughImage    = VK_NULL_HANDLE;
+    VkDeviceMemory roughMemory   = VK_NULL_HANDLE;
+    VkImageView    roughView     = VK_NULL_HANDLE;
+
+    VkImage        aoImage       = VK_NULL_HANDLE;
+    VkDeviceMemory aoMemory      = VK_NULL_HANDLE;
+    VkImageView    aoView        = VK_NULL_HANDLE;
+
+    // Sampler shared across all textures for this model
+    VkSampler      sampler       = VK_NULL_HANDLE;
+
+    // Descriptor set (per model, updated each frame)
+    VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
+
+    // Pipeline (may be shared across models; nullptr = use renderer default)
+    VkPipeline       pipeline       = VK_NULL_HANDLE;
+    VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+
+    // Upload vertex + index data to the GPU.
+    bool Upload(VkDevice device, VkPhysicalDevice physDevice,
+                VkCommandPool cmdPool, VkQueue queue,
+                const void* vertData, size_t vertBytes,
+                const uint32_t* indexData, size_t idxCount);
+
+    // Release all GPU resources and zero all handles.
+    void Destroy(VkDevice device);
+};

@@ -1,0 +1,18 @@
+VulkanModels.h — History 17-05-2026
+NEW FILE — Vulkan model utility classes and structs.
+
+Purpose: Vulkan-specific model rendering infrastructure (buffers, textures, pipelines).
+
+Contents:
+- VulkanModelUtils namespace:
+  CreateBuffer, CreateImage, FindMemoryType, TransitionImageLayout, CopyBufferToImage,
+  CreateImageView, CreateSampler, LoadTextureFromFile, LoadTextureFromMemory,
+  CreateSolidColourTexture, DestroyTexture, CreateShaderModule, LoadSPIRV
+- VulkanModelBuffers struct:
+  VkBuffer vertexBuffer/indexBuffer/uniformBuffers;
+  VkDeviceMemory vertexMem/indexMem/uniformMems;
+  VkImage diffuseImage/normalImage/metallicImage/roughnessImage/aoImage/envImage;
+  VkImageView, VkSampler, VkDescriptorSet, VkPipeline handles;
+  Upload() and Destroy() methods
+- Guard: #if defined(__USE_VULKAN__)
+- Requires: vulkan/vulkan.h

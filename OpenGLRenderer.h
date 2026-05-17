@@ -33,8 +33,11 @@
 #ifndef GLEW_STATIC
 #define GLEW_STATIC
 #endif
+#pragma warning(push)
+#pragma warning(disable: 4005)
 #include <GL/glew.h>
 #include <GL/wglew.h>
+#pragma warning(pop)
 #elif defined(__linux__)
 #include <GL/gl.h>
 #include <GL/glu.h>
@@ -67,7 +70,10 @@
 #include "ThreadManager.h"
 #include "ConstantBuffer.h"
 
+#ifndef RENDERER_NAME_DEFINED
+#define RENDERER_NAME_DEFINED
 const std::string RENDERER_NAME = "OpenGLRenderer";
+#endif
 
 // Reserved Shader Uniform Locations for Render Pipeline
 const int UNIFORM_VIEW_MATRIX = 0;                                              // View Matrix Uniform Location   
@@ -226,9 +232,9 @@ public:
     bool Place2DBlitObjectToQueue(BlitObj2DIndexType iIndex, BlitPhaseLevel BlitPhaseLvl, BlitObj2DType objType, BlitObj2DDetails objDetails, CanBlitType BlitType); // Add 2D object to rendering queue
 
     // Draws a single X x Y sized pixel at the specified position with the given RGBA color.
-    void Blit2DColoredPixel(int x, int y, float pixelSize, Vector4 color);      // Render colored pixel using OpenGL
+    void Blit2DColoredPixel(int x, int y, float pixelSize, const Vector4& color) override; // Render colored pixel using OpenGL
 
-    void Resize(uint32_t width, uint32_t height) override;                      // Resize OpenGL viewport and framebuffers
+    bool Resize(uint32_t width, uint32_t height) override;                      // Resize OpenGL viewport and framebuffers
     void WaitForGPUToFinish();                                                  // Wait for all OpenGL commands to complete
     void UnloadTexture(int textureId, bool is2D);                               // Unload texture from OpenGL memory
     void Blit2DObject(BlitObj2DIndexType iIndex, int iX, int iY);               // Render 2D object at position
@@ -262,6 +268,13 @@ public:
     float GetCharacterWidth(wchar_t character, float FontSize, const std::wstring& fontName); // Calculate character width with specific font
     float CalculateTextWidth(const std::wstring& text, float FontSize, float containerWidth) override; // Calculate total text width
     float CalculateTextHeight(const std::wstring& text, float FontSize, float containerHeight) override; // Calculate text height
+
+    // Device accessors — OpenGL has no DX device/context/swapchain equivalents
+    void* GetDevice()        override { return nullptr; }
+    void* GetDeviceContext() override { return nullptr; }
+    void* GetSwapChain()     override { return nullptr; }
+
+    void WaitToFinishThenPauseThread() override;                                 // Wait for GPU, then pause renderer thread
 
     // Make render mutex accessible to other components that need OpenGL synchronization
     static std::mutex& GetRenderMutex() { return s_renderMutex; }               // Access rendering synchronization mutex
@@ -303,6 +316,11 @@ private:
     Vector4 ConvertColor(uint8_t r, uint8_t g, uint8_t b, uint8_t a);          // Convert color format for OpenGL
     inline void ThrowError(const std::string& message);                         // Error handling and logging function
 
+    // Scene rendering helpers (called from OpenGLRenderFrame.cpp)
+    inline void RenderGamePlay(float deltaTime);                                // Render 3D gameplay scene
+    inline void RenderIntroMovie();                                             // Render intro movie frame
+    void        RenderBackgroundImage();                                        // Render 2D background before any 3D
+
     // OpenGL-specific helper functions
     GLuint CompileShader(const std::string& source, GLenum shaderType);         // Compile individual OpenGL shader
     GLuint CreateShaderProgram(const std::string& vertexSource, const std::string& fragmentSource); // Create complete shader program
@@ -310,8 +328,29 @@ private:
     void SetupPlatformSpecificContext();                                        // Setup platform-specific OpenGL context
     void CleanupPlatformSpecificContext();                                      // Cleanup platform-specific OpenGL context
 
+    // 2D rendering helpers
+    void Render2DQuad(GLuint textureID, int x, int y, int w, int h,
+                      int srcX, int srcY, int srcW, int srcH,
+                      const MyColor& tint, bool wrap);                          // Internal 2D textured quad renderer
+
+    // Text rendering (GDI-to-texture on Windows)
+    GLuint RenderTextToTexture(const std::wstring& text, const std::wstring& fontName,
+                               float fontSize, const MyColor& color,
+                               int& outW, int& outH);                           // Rasterise text via GDI, upload as GL texture
+
     // Our private OpenGL resource management
     std::atomic<bool> playing{ false };                                         // Atomic flag for playback state
+
+    // Additional shader programs
+    OpenGLShaderProgram m_2dShaderProgram{};                                    // 2D quad rendering shader (texture + color)
+    OpenGLShaderProgram m_3dShaderProgram{};                                    // 3D model rendering shader (Phong/Lambert)
+
+    // 2D rendering VAO / VBO
+    GLuint m_2dVAO = 0;                                                         // Vertex Array Object for 2D quads
+    GLuint m_2dVBO = 0;                                                         // Vertex Buffer Object for 2D quads
+
+    // GDI+ token (Windows text / image loading)
+    ULONG_PTR m_gdiplusToken = 0;                                               // GDI+ initialisation token
 
     // Mutexes for thread safety
     static std::mutex s_loaderMutex;                                            // Static mutex for loader thread synchronization

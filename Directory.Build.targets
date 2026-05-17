@@ -1,7 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
   <!-- VisualD's dcompile.targets requires ComputeLinkImportLibraryOutputsForClean
        which only exists in managed (.NET) projects. This no-op stub prevents
        MSB4057 errors in pure C++ projects (including CMake compiler-detection builds). -->
   <Target Name="ComputeLinkImportLibraryOutputsForClean" />
+
+  <!-- Release any file handles left by a previous cancelled or interrupted build
+       before MSBuild spawns new cl.exe instances. Ctrl+Break in VS cannot be
+       trapped here, so "kill at the start of the next build" is the guarantee.
+       Errors are suppressed — if nothing is running, taskkill exits non-zero
+       but that is harmless and must not fail the build. -->
+  <Target Name="KillStaleCompilerProcesses" BeforeTargets="ClCompile;Build">
+    <Exec Command="taskkill /F /IM cl.exe       &gt;nul 2&gt;&amp;1 &amp; exit /b 0"
+          IgnoreExitCode="true"
+          StandardOutputImportance="Low"
+          StandardErrorImportance="Low" />
+    <Exec Command="taskkill /F /IM mspdbsrv.exe &gt;nul 2&gt;&amp;1 &amp; exit /b 0"
+          IgnoreExitCode="true"
+          StandardOutputImportance="Low"
+          StandardErrorImportance="Low" />
+  </Target>
+
 </Project>

@@ -2,6 +2,75 @@
 #include "SceneManager.h"
 #include "ExceptionHandler.h"
 
+// ── Non-DirectX math stubs ────────────────────────────────────────────────────
+// When building without DX11/DX12, supply minimal XM-function equivalents so
+// the animation code compiles unchanged.  On DX builds the real functions from
+// DirectXMath.h take precedence because this block is compiled away.
+#if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__)
+#include <cmath>
+
+struct XMFLOAT4X4 {
+    union {
+        struct { float _11,_12,_13,_14, _21,_22,_23,_24, _31,_32,_33,_34, _41,_42,_43,_44; };
+        float m[4][4];
+    };
+    XMFLOAT4X4() { for(int i=0;i<4;i++) for(int j=0;j<4;j++) m[i][j]=(i==j)?1.f:0.f; }
+};
+
+#ifndef XM_PIDIV2
+    #define XM_PIDIV2 1.5707963267948966f
+#endif
+
+inline Vector4 XMLoadFloat4(const Vector4* v)              { return *v; }
+inline void    XMStoreFloat4(Vector4* d, Vector4 v)        { *d = v; }
+inline Vector4 XMVectorSet(float x,float y,float z,float w){ return {x,y,z,w}; }
+
+inline Vector4 XMQuaternionNormalize(Vector4 q) {
+    float len = sqrtf(q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w);
+    if (len > 1e-6f) { float inv=1.f/len; return {q.x*inv,q.y*inv,q.z*inv,q.w*inv}; }
+    return {0.f,0.f,0.f,1.f};
+}
+inline Vector4 XMQuaternionSlerp(Vector4 q0, Vector4 q1, float t) {
+    float d = q0.x*q1.x + q0.y*q1.y + q0.z*q1.z + q0.w*q1.w;
+    if (d < 0.f) { q1.x=-q1.x; q1.y=-q1.y; q1.z=-q1.z; q1.w=-q1.w; d=-d; }
+    Vector4 r;
+    if (d > 0.9995f) {
+        r = {q0.x+t*(q1.x-q0.x), q0.y+t*(q1.y-q0.y), q0.z+t*(q1.z-q0.z), q0.w+t*(q1.w-q0.w)};
+    } else {
+        float theta0 = acosf(d), theta = theta0*t;
+        float s0 = cosf(theta) - d*sinf(theta)/sinf(theta0);
+        float s1 = sinf(theta)/sinf(theta0);
+        r = {s0*q0.x+s1*q1.x, s0*q0.y+s1*q1.y, s0*q0.z+s1*q1.z, s0*q0.w+s1*q1.w};
+    }
+    return XMQuaternionNormalize(r);
+}
+
+inline Matrix4x4 XMMatrixIdentity() { return Matrix4x4(); }
+inline Matrix4x4 XMMatrixScaling(float x,float y,float z) {
+    Matrix4x4 m; m.m[0][0]=x; m.m[1][1]=y; m.m[2][2]=z; return m;
+}
+inline Matrix4x4 XMMatrixScalingFromVector(Vector4 v) { return XMMatrixScaling(v.x,v.y,v.z); }
+inline Matrix4x4 XMMatrixTranslation(float x,float y,float z) {
+    Matrix4x4 m; m.m[3][0]=x; m.m[3][1]=y; m.m[3][2]=z; return m;
+}
+inline Matrix4x4 XMMatrixTranslationFromVector(Vector4 v) { return XMMatrixTranslation(v.x,v.y,v.z); }
+inline Matrix4x4 XMMatrixRotationQuaternion(Vector4 q) {
+    float x=q.x,y=q.y,z=q.z,w=q.w;
+    Matrix4x4 m;
+    m.m[0][0]=1-2*(y*y+z*z); m.m[0][1]=2*(x*y+z*w);   m.m[0][2]=2*(x*z-y*w);   m.m[0][3]=0;
+    m.m[1][0]=2*(x*y-z*w);   m.m[1][1]=1-2*(x*x+z*z); m.m[1][2]=2*(y*z+x*w);   m.m[1][3]=0;
+    m.m[2][0]=2*(x*z+y*w);   m.m[2][1]=2*(y*z-x*w);   m.m[2][2]=1-2*(x*x+y*y); m.m[2][3]=0;
+    m.m[3][0]=0;              m.m[3][1]=0;              m.m[3][2]=0;              m.m[3][3]=1;
+    return m;
+}
+inline Matrix4x4 operator*(const Matrix4x4& a, const Matrix4x4& b) {
+    Matrix4x4 r; for(int i=0;i<4;i++) { for(int j=0;j<4;j++) { r.m[i][j]=0; for(int k=0;k<4;k++) r.m[i][j]+=a.m[i][k]*b.m[k][j]; } } return r;
+}
+inline void XMStoreFloat4x4(XMFLOAT4X4* d, const Matrix4x4& s) {
+    for(int i=0;i<4;i++) for(int j=0;j<4;j++) d->m[i][j]=s.m[i][j];
+}
+#endif // !__USE_DIRECTX_11__ && !__USE_DIRECTX_12__
+
 // External references
 extern Debug debug;
 extern ExceptionHandler exceptionHandler;

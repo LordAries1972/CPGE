@@ -74,7 +74,7 @@
       <DisableSpecificWarnings>4244</DisableSpecificWarnings>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <SuppressStartupBanner>true</SuppressStartupBanner>
-      <AdditionalIncludeDirectories>.\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.\include;$(VULKAN_SDK)\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -85,7 +85,7 @@
       <AssemblyDebug>true</AssemblyDebug>
       <AdditionalDependencies>
       </AdditionalDependencies>
-      <AdditionalLibraryDirectories>.\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>.\lib;$(VULKAN_SDK)\Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <ResourceCompile>
       <ResourceOutputFileName>CrossPlatformGameEngine.res</ResourceOutputFileName>
@@ -109,7 +109,7 @@
       <StringPooling>true</StringPooling>
       <SuppressStartupBanner>true</SuppressStartupBanner>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
-      <AdditionalIncludeDirectories>.\include;.\steam;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.\include;.\steam;$(VULKAN_SDK)\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -117,7 +117,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EntryPointSymbol>WinMainCRTStartup</EntryPointSymbol>
-      <AdditionalLibraryDirectories>.\lib;.\steam\lib\win64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>.\lib;.\steam\lib\win64;$(VULKAN_SDK)\Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>
       </AdditionalDependencies>
     </Link>
@@ -158,7 +158,14 @@
     <ClCompile Include="MoviePlayer.cpp" />
     <ClCompile Include="MyRandomizer.cpp" />
     <ClCompile Include="NetworkManager.cpp" />
+    <ClCompile Include="OpenGLCamera.cpp" />
+    <ClCompile Include="OpenGLModels.cpp" />
     <ClCompile Include="OpenGLRenderer.cpp" />
+    <ClCompile Include="OpenGLFXManager.cpp" />
+    <ClCompile Include="OpenGLRenderFrame.cpp" />
+    <ClCompile Include="OpenGL_IOStreamThread.cpp" />
+    <ClCompile Include="VulkanCamera.cpp" />
+    <ClCompile Include="VulkanModels.cpp" />
     <ClCompile Include="VULKAN_Renderer.cpp" />
     <ClCompile Include="VULKAN_RenderFrame.cpp" />
     <ClCompile Include="VULKAN_FXManager.cpp" />
@@ -207,7 +214,11 @@
     <ClInclude Include="MoviePlayer.h" />
     <ClInclude Include="MyRandomizer.h" />
     <ClInclude Include="NetworkManager.h" />
+    <ClInclude Include="OpenGLCamera.h" />
+    <ClInclude Include="OpenGLModels.h" />
     <ClInclude Include="OpenGLRenderer.h" />
+    <ClInclude Include="OpenGLFXManager.h" />
+    <ClInclude Include="OpenGL_IOStreamThread.h" />
     <ClInclude Include="Physics.h" />
     <ClInclude Include="PUNPack.h" />
     <ClInclude Include="Renderer.h" />
@@ -221,6 +232,8 @@
     <ClInclude Include="ThreadManager.h" />
     <ClInclude Include="TTSManager.h" />
     <ClInclude Include="Vectors.h" />
+    <ClInclude Include="VulkanCamera.h" />
+    <ClInclude Include="VulkanModels.h" />
     <ClInclude Include="VULKAN_Renderer.h" />
     <ClInclude Include="VULKAN_FXManager.h" />
     <ClInclude Include="VULKAN_IOStreamThread.h" />

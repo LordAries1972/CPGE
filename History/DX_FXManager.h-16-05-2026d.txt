@@ -1,0 +1,10 @@
+WarpDotTunnel smooth camera look target — 16/05/2026 (fifth pass)
+
+WarpTunnelData struct:
+- Added: XMFLOAT3 smoothLookTarget = {0, 0, 800}
+  Stores the exponentially-smoothed camera look target. Seeded to (startX, startY, farZ) at
+  init so the first frame aims straight down the tunnel. Updated each frame by lerping toward
+  the computed 20th-nearest ring position.
+- Added: static constexpr float kCameraSmooth = 3.0f
+  Controls the lerp rate. alpha = 1 - exp(-kCameraSmooth * dt) per frame.
+  At 3.0 the camera covers ~95% of the gap in ~1 second.

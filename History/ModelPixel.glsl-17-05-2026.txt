@@ -1,0 +1,24 @@
+ModelPixel.glsl — History 17-05-2026
+NEW FILE — OpenGL fragment shader (GLSL 330 core).
+
+Purpose: OpenGL fragment shader, converted from ModelPixel.hlsl (HLSL 5.0).
+         Loaded as GLSL text at runtime — no compilation step required.
+         Mirrors ModelPixel.frag (Vulkan) but uses OpenGL descriptor layout.
+
+Shader: GLSL 330 core
+Samplers: uniform sampler2D/samplerCube (diffuse, normal, metallic, roughness, ao, env) — combined samplers
+UBO bindings (std140):
+  binding 0: ConstantBuffer (world/view/proj/camera)
+  binding 1: LightBuffer (numLights + LightStruct[8])
+  binding 2: DebugBuffer (debugMode)
+  binding 3: GlobalLightBuffer (globalLightCount + LightStruct[8])
+  binding 4: MaterialBuffer (Ka/Kd/Ks/Ns/Metallic/Roughness etc.)
+  binding 5: EnvBuffer (envIntensity/envTint/mipLODBias/fresnel0)
+PBR: FresnelSchlick, DistributionGGX (GGX), GeometrySmith (Schlick-GGX), Cook-Torrance BRDF
+Light types: DIRECTIONAL(0), POINT(1), SPOT(2) — all 3 processed in ProcessLight()
+Debug modes: 0=Full, 1=Normals, 2=TextureOnly, 3=LightingOnly, 8=ReflectionOnly, 9=MetallicOnly, 5=NoLighting
+Tone mapping: Reinhard + gamma correction (pow 1/2.2)
+Key HLSL->GLSL translations:
+  lerp->mix, saturate->clamp, float3->vec3, texture.Sample->texture(), SampleLevel->textureLod()
+  mul(v,m)->m*v, TBN multiply: mul(n,TBN)->mat3(T,B,N)*n
+  DirectX->OpenGL normal map G-channel: normalTS.y = -normalTS.y
