@@ -77,28 +77,21 @@ inline void OpenGLRenderer::RenderGamePlay(float deltaTime)
 
     glUseProgram(m_3dShaderProgram.programID);
 
-    // Build camera matrices using DirectXMath on Windows
-#if defined(_WIN32) || defined(_WIN64)
-    using namespace DirectX;
-    XMFLOAT3 camPos = myCamera.GetPosition();
-    XMMATRIX view   = myCamera.GetViewMatrix();
-    float fovRad    = XMConvertToRadians(config.myConfig.fov > 0.0f ? config.myConfig.fov : 60.0f);
-    float aspect    = (m_renderTargetHeight > 0)
+    // Build camera matrices using GLM (OpenGL native)
+    glm::vec3 camPos = myCamera.GetPosition();
+    glm::mat4 view   = myCamera.GetViewMatrix();
+    float fovRad     = glm::radians(config.myConfig.fov > 0.0f ? config.myConfig.fov : 60.0f);
+    float aspect     = (m_renderTargetHeight > 0)
                         ? static_cast<float>(m_renderTargetWidth) / static_cast<float>(m_renderTargetHeight)
                         : 16.0f / 9.0f;
-    XMMATRIX proj   = XMMatrixPerspectiveFovLH(fovRad, aspect, 0.1f, 5000.0f);
+    glm::mat4 proj   = glm::perspective(fovRad, aspect, 0.1f, 5000.0f);
 
-    // Obtain uniform locations
-    GLint locView = glGetUniformLocation(m_3dShaderProgram.programID, "uView");
-    GLint locProj = glGetUniformLocation(m_3dShaderProgram.programID, "uProjection");
+    GLint locView   = glGetUniformLocation(m_3dShaderProgram.programID, "uView");
+    GLint locProj   = glGetUniformLocation(m_3dShaderProgram.programID, "uProjection");
     GLint locCamPos = glGetUniformLocation(m_3dShaderProgram.programID, "uViewPos");
 
-    // Upload matrices (column-major for OpenGL — transpose the row-major XMMATRIX)
-    XMFLOAT4X4 mView, mProj;
-    XMStoreFloat4x4(&mView, XMMatrixTranspose(view));
-    XMStoreFloat4x4(&mProj, XMMatrixTranspose(proj));
-    if (locView  >= 0) glUniformMatrix4fv(locView,  1, GL_FALSE, &mView.m[0][0]);
-    if (locProj  >= 0) glUniformMatrix4fv(locProj,  1, GL_FALSE, &mProj.m[0][0]);
+    if (locView  >= 0) glUniformMatrix4fv(locView,  1, GL_FALSE, glm::value_ptr(view));
+    if (locProj  >= 0) glUniformMatrix4fv(locProj,  1, GL_FALSE, glm::value_ptr(proj));
     if (locCamPos >= 0) glUniform3f(locCamPos, camPos.x, camPos.y, camPos.z);
 
     // Upload first light
@@ -119,18 +112,19 @@ inline void OpenGLRenderer::RenderGamePlay(float deltaTime)
         Model& m = models[i];
         if (!m.IsActive() || !m.HasGeometry()) continue;
 
-        XMMATRIX world = m.GetWorldMatrix();
-        XMFLOAT4X4 mWorld;
-        XMStoreFloat4x4(&mWorld, XMMatrixTranspose(world));
+        // Matrix4x4 is row-major; build column-major glm::mat4 for OpenGL upload.
+        Matrix4x4 world = m.GetWorldMatrix();
+        glm::mat4 mWorld(
+            world.m[0][0], world.m[1][0], world.m[2][0], world.m[3][0],
+            world.m[0][1], world.m[1][1], world.m[2][1], world.m[3][1],
+            world.m[0][2], world.m[1][2], world.m[2][2], world.m[3][2],
+            world.m[0][3], world.m[1][3], world.m[2][3], world.m[3][3]);
 
         GLint locModel = glGetUniformLocation(m_3dShaderProgram.programID, "uModel");
-        if (locModel >= 0) glUniformMatrix4fv(locModel, 1, GL_FALSE, &mWorld.m[0][0]);
+        if (locModel >= 0) glUniformMatrix4fv(locModel, 1, GL_FALSE, glm::value_ptr(mWorld));
 
-        // TODO: Call m.DrawOpenGL() once OpenGL vertex/index buffers are provisioned in ModelInfo.
-        // GPU buffers for OpenGL will be added alongside the DX11/Vulkan buffer fields.
-        (void)mWorld;
+        // TODO: Call m.DrawOpenGL() once OpenGL vertex/index buffers are provisioned.
     }
-#endif
 
     glUseProgram(0);
 }
@@ -328,7 +322,7 @@ void OpenGLRenderer::RenderFrame()
                     lastFPSTime  = curTime;
                 }
 #if defined(_WIN32) || defined(_WIN64)
-                XMFLOAT3 coords = myCamera.GetPosition();
+                glm::vec3 coords = myCamera.GetPosition();
                 std::wstring dbgText =
                     L"FPS: " + std::to_wstring(fps) +
                     L"\nMOUSE: x" + std::to_wstring(myMouseCoords.x) +

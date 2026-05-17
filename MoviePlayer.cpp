@@ -187,19 +187,21 @@ bool MoviePlayer::OpenMovie(const std::wstring& filePath)
     }
 
     // Enable D3D11 multithreaded protection
-    auto dx11Renderer = std::dynamic_pointer_cast<DX11Renderer>(m_renderer);
-    if (dx11Renderer && dx11Renderer->m_d3dDevice)
+#if defined(__USE_DIRECTX_11__)
     {
-        // Enable multithreaded protection on the D3D11 device
-        ComPtr<ID3D10Multithread> pMultithread;
-        HRESULT hr = dx11Renderer->m_d3dDevice.As(&pMultithread);
-        if (SUCCEEDED(hr) && pMultithread)
+        auto dx11Renderer = std::dynamic_pointer_cast<DX11Renderer>(m_renderer);
+        if (dx11Renderer && dx11Renderer->m_d3dDevice)
         {
-            // Enable multithreaded protection
-            pMultithread->SetMultithreadProtected(TRUE);
-            debug.logLevelMessage(LogLevel::LOG_INFO, L"D3D11 multithreaded protection enabled");
+            ComPtr<ID3D10Multithread> pMultithread;
+            HRESULT hr = dx11Renderer->m_d3dDevice.As(&pMultithread);
+            if (SUCCEEDED(hr) && pMultithread)
+            {
+                pMultithread->SetMultithreadProtected(TRUE);
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"D3D11 multithreaded protection enabled");
+            }
         }
     }
+#endif
 
     // Detect video codec
     std::wstring codecName;
@@ -299,32 +301,33 @@ bool MoviePlayer::OpenMovie(const std::wstring& filePath)
     }
 
     // Set up D3D device manager for hardware acceleration with thread safety
-    if (dx11Renderer && dx11Renderer->m_d3dDevice)
+#if defined(__USE_DIRECTX_11__)
     {
-        // Lock the renderer when setting up the D3D manager
-        std::lock_guard<std::mutex> renderLock(DX11Renderer::GetRenderMutex());
-
-        // Create D3D device manager for hardware acceleration
-        IMFDXGIDeviceManager* pDeviceManager = nullptr;
-        UINT resetToken = 0;
-        hr = MFCreateDXGIDeviceManager(&resetToken, &pDeviceManager);
-        if (SUCCEEDED(hr))
+        auto dx11Renderer = std::dynamic_pointer_cast<DX11Renderer>(m_renderer);
+        if (dx11Renderer && dx11Renderer->m_d3dDevice)
         {
-            hr = pDeviceManager->ResetDevice(dx11Renderer->m_d3dDevice.Get(), resetToken);
+            std::lock_guard<std::mutex> renderLock(DX11Renderer::GetRenderMutex());
+
+            IMFDXGIDeviceManager* pDeviceManager = nullptr;
+            UINT resetToken = 0;
+            hr = MFCreateDXGIDeviceManager(&resetToken, &pDeviceManager);
             if (SUCCEEDED(hr))
             {
-                // Associate device manager with source reader
-                hr = pAttributes->SetUnknown(MF_SOURCE_READER_D3D_MANAGER, pDeviceManager);
+                hr = pDeviceManager->ResetDevice(dx11Renderer->m_d3dDevice.Get(), resetToken);
                 if (SUCCEEDED(hr))
                 {
-                    debug.logLevelMessage(LogLevel::LOG_INFO, L"Successfully set D3D manager for hardware decoding");
+                    hr = pAttributes->SetUnknown(MF_SOURCE_READER_D3D_MANAGER, pDeviceManager);
+                    if (SUCCEEDED(hr))
+                    {
+                        debug.logLevelMessage(LogLevel::LOG_INFO, L"Successfully set D3D manager for hardware decoding");
+                    }
                 }
-            }
 
-            // Release reference (attributes will hold its own reference)
-            pDeviceManager->Release();
+                pDeviceManager->Release();
+            }
         }
     }
+#endif
 
     // Create the source reader from URL with our enhanced attributes
     hr = MFCreateSourceReaderFromURL(urlPath.c_str(), pAttributes, &m_pSourceReader);
@@ -518,16 +521,17 @@ bool MoviePlayer::OpenMovie(const std::wstring& filePath)
             }
 
             // Lock the renderer when creating the video texture
+#if defined(__USE_DIRECTX_11__)
             {
                 std::lock_guard<std::mutex> renderLock(DX11Renderer::GetRenderMutex());
 
-                // Create a texture for rendering - regardless of the format we ended up with
                 if (!CreateVideoTexture(width, height, isHevcContent))
                 {
                     debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to create video texture");
                     return false;
                 }
             }
+#endif
         }
         else
         {
@@ -675,23 +679,22 @@ bool MoviePlayer::OpenMovie(const std::wstring& filePath)
 // -----------------------------------------------------------------------------------------------------
 bool MoviePlayer::CreateVideoTexture(UINT width, UINT height, bool isHevcContent)
 {
-    #if defined(__USE_DIRECTX_11__)
-        // This requires access to the DX11 renderer
-        auto dx11Renderer = std::dynamic_pointer_cast<DX11Renderer>(m_renderer);
-        if (!dx11Renderer)
-        {
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"MoviePlayer: Failed to cast to DX11Renderer");
-            return false;
-        }
+#if !defined(__USE_DIRECTX_11__)
+    return false;
+#else
+    auto dx11Renderer = std::dynamic_pointer_cast<DX11Renderer>(m_renderer);
+    if (!dx11Renderer)
+    {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"MoviePlayer: Failed to cast to DX11Renderer");
+        return false;
+    }
 
-        // Get D3D11 device
-        ComPtr<ID3D11Device> device = dx11Renderer->m_d3dDevice;
-        if (!device)
-        {
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"MoviePlayer: No D3D11 device available");
-            return false;
-        }
-    #endif
+    ComPtr<ID3D11Device> device = dx11Renderer->m_d3dDevice;
+    if (!device)
+    {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"MoviePlayer: No D3D11 device available");
+        return false;
+    }
 
         // For HEVC content, log the specific texture creation
     if (isHevcContent) {
@@ -805,6 +808,7 @@ bool MoviePlayer::CreateVideoTexture(UINT width, UINT height, bool isHevcContent
     #endif
 
     return true;
+#endif // __USE_DIRECTX_11__
 }
 
 // ----------------------------------------------------------------------------------------------
@@ -831,6 +835,9 @@ bool MoviePlayer::UpdateVideoTexture()
     }
 
     // Cast the renderer to DX11Renderer for DirectX 11 specific operations
+#if !defined(__USE_DIRECTX_11__)
+    return false;
+#else
     auto dx11Renderer = std::dynamic_pointer_cast<DX11Renderer>(m_renderer);
     if (!dx11Renderer)
     {
@@ -840,11 +847,8 @@ bool MoviePlayer::UpdateVideoTexture()
         return false;
     }
 
-    // CRITICAL: Use the renderer's render mutex to ensure we're not accessing the device context
-    // at the same time as the renderer thread
     std::lock_guard<std::mutex> renderLock(DX11Renderer::GetRenderMutex());
 
-    // Get the DirectX 11 device context for texture operations
     ComPtr<ID3D11DeviceContext> context = dx11Renderer->GetImmediateContext();
     if (!context)
     {
@@ -1464,6 +1468,7 @@ bool MoviePlayer::UpdateVideoTexture()
     buffer->Unlock();
 
     return true;
+#endif // __USE_DIRECTX_11__
 }
 
 // ----------------------------------------------------------------------------------------------
@@ -1873,14 +1878,13 @@ void MoviePlayer::GeneratePlaceholderFrame()
         return;
 
     // Cast the renderer to DX11Renderer for DirectX 11 specific operations
+#if !defined(__USE_DIRECTX_11__)
+    return;
+#else
     auto dx11Renderer = std::dynamic_pointer_cast<DX11Renderer>(m_renderer);
     if (!dx11Renderer)
         return;
 
-    // CRITICAL: We're already holding the renderer mutex from the caller
-    // No need to lock it again here to avoid recursive locking issues
-
-    // Get the DirectX 11 device context for texture operations
     ComPtr<ID3D11DeviceContext> context = dx11Renderer->GetImmediateContext();
     if (!context)
         return;
@@ -2097,6 +2101,7 @@ void MoviePlayer::GeneratePlaceholderFrame()
 #if defined(_DEBUG_MOVIEPLAYER_)
     debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Generated placeholder frame for HEVC content");
 #endif
+#endif // __USE_DIRECTX_11__
 }
 
 // ----------------------------------------------------------------------------------------------
@@ -2203,6 +2208,9 @@ void MoviePlayer::ProcessVideoSample(IMFSample* pSample)
         return;
     }
 
+#if !defined(__USE_DIRECTX_11__)
+    return;
+#else
     auto dx11Renderer = std::dynamic_pointer_cast<DX11Renderer>(m_renderer);
     if (!dx11Renderer)
         return;
@@ -2290,6 +2298,7 @@ void MoviePlayer::ProcessVideoSample(IMFSample* pSample)
 
     // Unlock the buffer
     buffer->Unlock();
+#endif // __USE_DIRECTX_11__
 }
 
 // UpdateFrame - called from the renderer each game tick.
@@ -2437,7 +2446,9 @@ bool MoviePlayer::ReadNextSample()
 
             // Using a lock_guard here with the renderer's mutex to ensure thread safety
             // when generating placeholder frames
+#if defined(__USE_DIRECTX_11__)
             std::lock_guard<std::mutex> renderLock(DX11Renderer::GetRenderMutex());
+#endif
             GeneratePlaceholderFrame();
             return true;
         }
@@ -2658,14 +2669,12 @@ void MoviePlayer::Render(const Vector2& position, const Vector2& size)
     if (!m_isPlaying.load() || m_videoTextureIndex < 0)
         return;
 
-    // CRITICAL: Use the renderer's render mutex to ensure we're not accessing resources
-    // at the same time as other methods or threads that use the D3D context
+#if defined(__USE_DIRECTX_11__)
     std::lock_guard<std::mutex> renderLock(DX11Renderer::GetRenderMutex());
 
     auto dx11Renderer = std::dynamic_pointer_cast<DX11Renderer>(m_renderer);
     if (dx11Renderer && m_videoTexture)
     {
-        // Use the Draw method from the renderer which already handles D2D properly
         dx11Renderer->DrawVideoFrame(
             position,
             size,
@@ -2673,7 +2682,7 @@ void MoviePlayer::Render(const Vector2& position, const Vector2& size)
             m_videoTexture
         );
 
-        // Reset the new frame flag after rendering
         m_hasNewFrame.store(false);
     }
+#endif
 }

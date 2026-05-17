@@ -26,8 +26,7 @@
 #pragma warning(disable: 4005)
 #include <GL/glew.h>
 #pragma warning(pop)
-#include <DirectXMath.h>
-using namespace DirectX;
+// Non-DX Windows build: use Includes.h type aliases (XMFLOAT3=Vector3 etc.) — no DirectXMath needed
 #elif defined(__linux__) || defined(__ANDROID__)
 #include <GL/glew.h>
 #include <glm/glm.hpp>

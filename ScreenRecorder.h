@@ -79,9 +79,11 @@ public:
 
     void StopRecording();
 
+#if defined(__USE_DIRECTX_11__)
     void CaptureFrame(ID3D11Device*        device,
                       ID3D11DeviceContext* context,
                       IDXGISwapChain1*     swapChain);
+#endif
 
     bool      IsRecording()  const { return m_isRecording.load(); }
     RecordFPS GetTargetFPS() const { return m_targetFPS; }
@@ -119,7 +121,9 @@ private:
     DWORD                   m_audioStreamIndex;
 
     // ---- D3D11 staging texture ----
+#if defined(__USE_DIRECTX_11__)
     ComPtr<ID3D11Texture2D> m_stagingTexture;
+#endif
 
     // ---- capture dimensions (even-rounded, set once in StartRecording) ----
     UINT                    m_width;

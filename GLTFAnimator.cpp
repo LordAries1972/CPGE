@@ -1,3 +1,5 @@
+// Suppress Includes.h global math stubs — this file defines its own local stubs below.
+#define CPGE_MATH_STUBS_DEFINED
 #include "Includes.h"
 #include "SceneManager.h"
 #include "ExceptionHandler.h"

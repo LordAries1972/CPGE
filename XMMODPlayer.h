@@ -52,8 +52,8 @@ struct XMInstrumentHeader {
     uint8_t vibratoDepth = 0;               // Offset 237
     uint8_t vibratoRate = 0;                // Offset 238
 
-    uint16_t volumeFadeout = 0;             // Offset 239–240 (correct!)
-    uint16_t reserved = 0;                  // Offset 241–242 (reserved, pad to 243 bytes)
+    uint16_t volumeFadeout = 0;             // Offset 239ï¿½240 (correct!)
+    uint16_t reserved = 0;                  // Offset 241ï¿½242 (reserved, pad to 243 bytes)
 };
 #pragma pack(pop)
 
@@ -129,7 +129,7 @@ struct ChannelVoice {
     const XMSample* sample = nullptr;           // Pointer to the current sample
     float position = 0.0f;                      // Playback position (in fractional samples)
     float step = 0.0f;                          // Step size per output sample (frequency)
-    uint8_t volume = 64;                        // Playback volume (0–64)
+    uint8_t volume = 64;                        // Playback volume (0ï¿½64)
     bool active = false;                        // Is the voice currently active?
     uint16_t envTick = 0;                       // Volume envelope tick counter
     uint32_t panEnvTick = 0;                    // Panning envelope tick counter (*** FIXED ***)
@@ -231,9 +231,15 @@ private:
     std::atomic<bool> isMuted{ false };
     std::mutex playbackMutex;
 
+#if defined(__USE_DIRECTX_11__)
     LPDIRECTSOUND8 directSound = nullptr;
     LPDIRECTSOUNDBUFFER primaryBuffer = nullptr;
     LPDIRECTSOUNDBUFFER secondaryBuffer = nullptr;
+#else
+    void* directSound = nullptr;
+    void* primaryBuffer = nullptr;
+    void* secondaryBuffer = nullptr;
+#endif
     DWORD writeCursor = 0;
     DWORD bufferSize = 0;
 

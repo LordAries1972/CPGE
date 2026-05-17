@@ -181,7 +181,8 @@ enum class BlitObj2DIndexType : int {
     IMG_COMPANYLOGO,
     IMG_TAB_RED,
     IMG_TAB_GUNMETALGRAY,
-    IMG_LOADING
+    IMG_LOADING,
+    IMG_BACKGROUND
 };
 
 struct BlitObj2DDetails

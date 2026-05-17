@@ -69,7 +69,9 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
         // Windows Platform — enable the renderer(s) you have installed.
         // Only one is needed at minimum; add more as they become available.
         // Runtime selection via config.myConfig.rendererType: 0=DX11  1=DX12  2=OpenGL  3=Vulkan
+        #ifndef __USE_DIRECTX_11__
         #define __USE_DIRECTX_11__
+        #endif
         //#define __USE_DIRECTX_12__
         //#define __USE_OPENGL__
         //#define __USE_VULKAN__
@@ -142,7 +144,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
                 #pragma warning(disable: 4005)  // wglew.h redefines GLEWAPI already defined in glew.h
                 #include <GL/glew.h>
                 #pragma warning(pop)
-                #pragma comment(lib, "glew32.lib")
+                #pragma comment(lib, "glew32s.lib")
             #else
                 #include <GL/gl.h>      // Windows SDK — core OpenGL 1.1
             #endif
@@ -256,7 +258,11 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 
     // Minimal 4x4 float matrix — identity by default, row-major to match XMMATRIX.
     struct Matrix4x4 {
-        float m[4][4];
+        union {
+            float m[4][4];
+            // DX-style _RC named fields (1-based row-column, matches XMFLOAT4X4 layout).
+            struct { float _11,_12,_13,_14, _21,_22,_23,_24, _31,_32,_33,_34, _41,_42,_43,_44; };
+        };
         Matrix4x4() {
             for (int i = 0; i < 4; i++)
                 for (int j = 0; j < 4; j++)
@@ -265,15 +271,213 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
     };
 
     // Alias DirectX math types to portable engine types so existing code compiles.
-    using XMFLOAT2 = Vector2;
-    using XMFLOAT3 = Vector3;
-    using XMFLOAT4 = Vector4;
-    using XMMATRIX = Matrix4x4;
-    using XMVECTOR = Vector4;
-
+    using XMFLOAT2  = Vector2;
+    using XMFLOAT3  = Vector3;
+    using XMFLOAT4  = Vector4;
+    using XMMATRIX  = Matrix4x4;
+    using XMVECTOR  = Vector4;
     #ifndef XM_PI
         #define XM_PI 3.141592653589793f
     #endif
+    #ifndef XM_2PI
+        #define XM_2PI 6.283185307179586f
+    #endif
+    #ifndef XM_PIDIV2
+        #define XM_PIDIV2 1.5707963267948966f
+    #endif
+    #ifndef XM_PIDIV4
+        #define XM_PIDIV4 0.7853981633974483f
+    #endif
+    #ifndef XMConvertToRadians
+        #define XMConvertToRadians(deg) ((deg) * (3.141592653589793f / 180.0f))
+    #endif
+    #ifndef XMConvertToDegrees
+        #define XMConvertToDegrees(rad) ((rad) * (180.0f / 3.141592653589793f))
+    #endif
+
+    // Non-DX math function stubs — provide XM* API so shared .cpp files compile
+    // without DirectXMath. GLTFAnimator.cpp defines CPGE_MATH_STUBS_DEFINED before
+    // its includes to suppress these and use its own local stubs instead.
+    #ifndef CPGE_MATH_STUBS_DEFINED
+    #define CPGE_MATH_STUBS_DEFINED
+
+    using XMFLOAT4X4 = Matrix4x4;  // DX storage type; same layout as XMMATRIX on non-DX builds
+
+    inline Matrix4x4 operator*(const Matrix4x4& a, const Matrix4x4& b) {
+        Matrix4x4 r;
+        for (int i = 0; i < 4; i++)
+            for (int j = 0; j < 4; j++) {
+                r.m[i][j] = 0.0f;
+                for (int k = 0; k < 4; k++) r.m[i][j] += a.m[i][k] * b.m[k][j];
+            }
+        return r;
+    }
+    inline Matrix4x4& operator*=(Matrix4x4& a, const Matrix4x4& b) { a = a * b; return a; }
+
+    inline XMVECTOR XMLoadFloat3(const XMFLOAT3* v) { return XMVECTOR(v->x, v->y, v->z, 0.0f); }
+    inline void     XMStoreFloat3(XMFLOAT3* d, XMVECTOR v) { d->x = v.x; d->y = v.y; d->z = v.z; }
+    // Overloads for OpenGL/Vulkan Vertex struct where fields are float[N] C-arrays.
+    inline XMVECTOR XMLoadFloat3(const float (*v)[3]) { return XMVECTOR((*v)[0], (*v)[1], (*v)[2], 0.0f); }
+    inline void     XMStoreFloat3(float (*d)[3], XMVECTOR v) { (*d)[0]=v.x; (*d)[1]=v.y; (*d)[2]=v.z; }
+
+    inline XMMATRIX XMMatrixIdentity() { return XMMATRIX(); }
+
+    inline XMMATRIX XMMatrixScaling(float x, float y, float z) {
+        XMMATRIX m; m.m[0][0] = x; m.m[1][1] = y; m.m[2][2] = z; return m;
+    }
+    inline XMMATRIX XMMatrixRotationX(float a) {
+        XMMATRIX m;
+        m.m[1][1] = cosf(a); m.m[1][2] = sinf(a);
+        m.m[2][1] = -sinf(a); m.m[2][2] = cosf(a);
+        return m;
+    }
+    inline XMMATRIX XMMatrixRotationY(float a) {
+        XMMATRIX m;
+        m.m[0][0] = cosf(a); m.m[0][2] = -sinf(a);
+        m.m[2][0] = sinf(a); m.m[2][2] = cosf(a);
+        return m;
+    }
+    inline XMMATRIX XMMatrixRotationZ(float a) {
+        XMMATRIX m;
+        m.m[0][0] = cosf(a); m.m[0][1] = sinf(a);
+        m.m[1][0] = -sinf(a); m.m[1][1] = cosf(a);
+        return m;
+    }
+    inline XMMATRIX XMMatrixMultiply(const XMMATRIX& a, const XMMATRIX& b) {
+        XMMATRIX r;
+        for (int i = 0; i < 4; i++)
+            for (int j = 0; j < 4; j++) {
+                r.m[i][j] = 0.0f;
+                for (int k = 0; k < 4; k++) r.m[i][j] += a.m[i][k] * b.m[k][j];
+            }
+        return r;
+    }
+    inline XMMATRIX XMMatrixRotationRollPitchYaw(float pitch, float yaw, float roll) {
+        return XMMatrixMultiply(XMMatrixMultiply(XMMatrixRotationX(pitch), XMMatrixRotationY(yaw)), XMMatrixRotationZ(roll));
+    }
+    // Stub: view matrix comes from the renderer's camera, not this math path on non-DX builds.
+    inline XMMATRIX XMMatrixLookAtLH(XMVECTOR, XMVECTOR, XMVECTOR) { return XMMATRIX(); }
+
+    inline XMVECTOR XMVector3Normalize(XMVECTOR v) {
+        float len = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
+        return len > 0.0f ? XMVECTOR(v.x / len, v.y / len, v.z / len, 0.0f) : XMVECTOR();
+    }
+    inline XMVECTOR XMVector3Dot(XMVECTOR a, XMVECTOR b) {
+        float d = a.x * b.x + a.y * b.y + a.z * b.z;
+        return XMVECTOR(d, d, d, d);
+    }
+    inline XMVECTOR XMQuaternionNormalize(XMVECTOR q) {
+        float len = sqrtf(q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w);
+        return len > 0.0f ? XMVECTOR(q.x/len, q.y/len, q.z/len, q.w/len) : XMVECTOR(0,0,0,1);
+    }
+
+    // Vector construction and component extraction
+    inline XMVECTOR XMVectorSet(float x, float y, float z, float w) { return XMVECTOR(x, y, z, w); }
+    inline float    XMVectorGetX(XMVECTOR v) { return v.x; }
+    inline float    XMVectorGetY(XMVECTOR v) { return v.y; }
+    inline float    XMVectorGetZ(XMVECTOR v) { return v.z; }
+    inline float    XMVectorGetW(XMVECTOR v) { return v.w; }
+
+    // Vector arithmetic
+    inline XMVECTOR XMVectorAdd  (XMVECTOR a, XMVECTOR b) { return a + b; }
+    inline XMVECTOR XMVectorScale(XMVECTOR v, float s)    { return v * s; }
+    inline XMVECTOR XMVectorSubtract(XMVECTOR a, XMVECTOR b) { return a - b; }
+
+    // Transform a direction vector (w=0) by a matrix — ignores translation row.
+    inline XMVECTOR XMVector3TransformNormal(XMVECTOR v, const XMMATRIX& m) {
+        return XMVECTOR(
+            v.x*m.m[0][0] + v.y*m.m[1][0] + v.z*m.m[2][0],
+            v.x*m.m[0][1] + v.y*m.m[1][1] + v.z*m.m[2][1],
+            v.x*m.m[0][2] + v.y*m.m[1][2] + v.z*m.m[2][2],
+            0.0f);
+    }
+
+    // Quaternion (x,y,z,w) to 4×4 rotation matrix.
+    inline XMMATRIX XMMatrixRotationQuaternion(XMVECTOR q) {
+        float x=q.x, y=q.y, z=q.z, w=q.w;
+        XMMATRIX m;
+        m.m[0][0]=1-2*(y*y+z*z); m.m[0][1]=2*(x*y+w*z); m.m[0][2]=2*(x*z-w*y); m.m[0][3]=0;
+        m.m[1][0]=2*(x*y-w*z); m.m[1][1]=1-2*(x*x+z*z); m.m[1][2]=2*(y*z+w*x); m.m[1][3]=0;
+        m.m[2][0]=2*(x*z+w*y); m.m[2][1]=2*(y*z-w*x); m.m[2][2]=1-2*(x*x+y*y); m.m[2][3]=0;
+        m.m[3][0]=0; m.m[3][1]=0; m.m[3][2]=0; m.m[3][3]=1;
+        return m;
+    }
+
+    // Left-handed perspective projection (stub — OpenGL camera supplies its own matrix at runtime).
+    inline XMMATRIX XMMatrixPerspectiveFovLH(float fovY, float aspect, float nearZ, float farZ) {
+        float sy = 1.0f / tanf(fovY * 0.5f);
+        float sx = sy / aspect;
+        float zz = farZ / (farZ - nearZ);
+        XMMATRIX m;
+        m.m[0][0]=sx; m.m[0][1]=0;  m.m[0][2]=0;   m.m[0][3]=0;
+        m.m[1][0]=0;  m.m[1][1]=sy; m.m[1][2]=0;   m.m[1][3]=0;
+        m.m[2][0]=0;  m.m[2][1]=0;  m.m[2][2]=zz;  m.m[2][3]=1;
+        m.m[3][0]=0;  m.m[3][1]=0;  m.m[3][2]=-nearZ*zz; m.m[3][3]=0;
+        return m;
+    }
+
+    // Transposed-matrix vector transform (position, w=1).
+    inline XMVECTOR XMVector3Transform(XMVECTOR v, const XMMATRIX& m) {
+        return XMVECTOR(
+            v.x*m.m[0][0] + v.y*m.m[1][0] + v.z*m.m[2][0] + m.m[3][0],
+            v.x*m.m[0][1] + v.y*m.m[1][1] + v.z*m.m[2][1] + m.m[3][1],
+            v.x*m.m[0][2] + v.y*m.m[1][2] + v.z*m.m[2][2] + m.m[3][2],
+            1.0f);
+    }
+
+    // Transform position by matrix and perspective-divide by w.
+    inline XMVECTOR XMVector3TransformCoord(XMVECTOR v, const XMMATRIX& m) {
+        float x = v.x*m.m[0][0] + v.y*m.m[1][0] + v.z*m.m[2][0] + m.m[3][0];
+        float y = v.x*m.m[0][1] + v.y*m.m[1][1] + v.z*m.m[2][1] + m.m[3][1];
+        float z = v.x*m.m[0][2] + v.y*m.m[1][2] + v.z*m.m[2][2] + m.m[3][2];
+        float w = v.x*m.m[0][3] + v.y*m.m[1][3] + v.z*m.m[2][3] + m.m[3][3];
+        float iw = (fabsf(w) > 1e-6f) ? 1.0f/w : 1.0f;
+        return XMVECTOR(x*iw, y*iw, z*iw, 1.0f);
+    }
+
+    // Broadcast the 3D length of a vector into all four lanes.
+    inline XMVECTOR XMVector3Length(XMVECTOR v) {
+        float len = sqrtf(v.x*v.x + v.y*v.y + v.z*v.z);
+        return XMVECTOR(len, len, len, len);
+    }
+
+    // Load/store for 4x4 float matrix (XMMATRIX == XMFLOAT4X4 on non-DX builds).
+    inline XMMATRIX  XMLoadFloat4x4(const XMFLOAT4X4* m) { return *m; }
+    inline void      XMStoreFloat4x4(XMFLOAT4X4* d, XMMATRIX m) { *d = m; }
+
+    // Load/store for a 4-component float vector.
+    inline XMVECTOR  XMLoadFloat4(const XMFLOAT4* v) { return *v; }
+    inline void      XMStoreFloat4(XMFLOAT4* d, XMVECTOR v) { *d = v; }
+
+    // Decompose a TRS matrix into scale, rotation quaternion, and translation.
+    // Returns true; outScale/outRotQuat/outTrans are XMVECTOR (xyz, xyzw, xyz).
+    inline bool XMMatrixDecompose(XMVECTOR* outScale, XMVECTOR* outRotQuat, XMVECTOR* outTrans, const XMMATRIX& M) {
+        *outTrans = XMVECTOR(M.m[3][0], M.m[3][1], M.m[3][2], 0.0f);
+        float sx = sqrtf(M.m[0][0]*M.m[0][0] + M.m[0][1]*M.m[0][1] + M.m[0][2]*M.m[0][2]);
+        float sy = sqrtf(M.m[1][0]*M.m[1][0] + M.m[1][1]*M.m[1][1] + M.m[1][2]*M.m[1][2]);
+        float sz = sqrtf(M.m[2][0]*M.m[2][0] + M.m[2][1]*M.m[2][1] + M.m[2][2]*M.m[2][2]);
+        *outScale = XMVECTOR(sx, sy, sz, 0.0f);
+        if (sx < 1e-6f || sy < 1e-6f || sz < 1e-6f) { *outRotQuat = XMVECTOR(0,0,0,1); return true; }
+        float isx=1.f/sx, isy=1.f/sy, isz=1.f/sz;
+        float r00=M.m[0][0]*isx, r01=M.m[0][1]*isx, r02=M.m[0][2]*isx;
+        float r10=M.m[1][0]*isy, r11=M.m[1][1]*isy, r12=M.m[1][2]*isy;
+        float r20=M.m[2][0]*isz, r21=M.m[2][1]*isz, r22=M.m[2][2]*isz;
+        float trace=r00+r11+r22;
+        float qx,qy,qz,qw;
+        if (trace>0) { float s=0.5f/sqrtf(trace+1.f); qw=0.25f/s; qx=(r21-r12)*s; qy=(r02-r20)*s; qz=(r10-r01)*s; }
+        else if (r00>r11&&r00>r22) { float s=2.f*sqrtf(1.f+r00-r11-r22); qw=(r21-r12)/s; qx=0.25f*s; qy=(r01+r10)/s; qz=(r02+r20)/s; }
+        else if (r11>r22) { float s=2.f*sqrtf(1.f+r11-r00-r22); qw=(r02-r20)/s; qx=(r01+r10)/s; qy=0.25f*s; qz=(r12+r21)/s; }
+        else { float s=2.f*sqrtf(1.f+r22-r00-r11); qw=(r10-r01)/s; qx=(r02+r20)/s; qy=(r12+r21)/s; qz=0.25f*s; }
+        *outRotQuat = XMVECTOR(qx,qy,qz,qw);
+        return true;
+    }
+
+    // Translation matrix from x, y, z.
+    inline XMMATRIX XMMatrixTranslation(float x, float y, float z) {
+        XMMATRIX m; m.m[3][0]=x; m.m[3][1]=y; m.m[3][2]=z; return m;
+    }
+
+    #endif // CPGE_MATH_STUBS_DEFINED
 
     // Empty DirectX namespace stub — lets "using namespace DirectX;" in shared
     // headers compile without pulling in any DX symbols.

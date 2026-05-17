@@ -434,7 +434,9 @@ public:
     // Our Render Calls
     void Render();
     // For Rendering that requires 3D Device Contexting
+#if defined(__USE_DIRECTX_11__)
     void RenderFX(int effectID, ID3D11DeviceContext* context, const XMMATRIX& worldMatrix);
+#endif
     // For effects like scroll that use Direct2D (ie. Tiled Img Scroller, Particle Explosion etc)
     void Render2D();                                                            
 
@@ -443,7 +445,9 @@ public:
     void CreateStarfield(int numStars, float circularRadius, float resetDepthPos, XMFLOAT3 startPos = { 0.0f, 0.0f, 0.0f }, bool reverse = false);
     void StopStarfield();
     void UpdateStarfield(float deltaTime);
+#if defined(__USE_DIRECTX_11__)
     void RenderStarfield(FXItem& fxItem, ID3D11DeviceContext* context, const XMMATRIX& viewMatrix);
+#endif
 
     // WarpDotTunnel Utility Calls
     int tunnelID = 0;
@@ -512,7 +516,11 @@ public:
 private:
     // WarpDotTunnel private helpers
     void UpdateWarpDotTunnel(FXItem& fx, float deltaTime);
+#if defined(__USE_DIRECTX_11__)
     void RenderWarpDotTunnel(FXItem& fx, ID3D11DeviceContext* context);
+#else
+    void RenderWarpDotTunnel(FXItem& fx);
+#endif
 
     // Internal Helper functions
     void ApplyColorFader(FXItem& fxItem);
@@ -622,6 +630,7 @@ private:
     std::vector<ParallaxLayerProfile> myIntroSceneLayers;
 
     // Other required pointers and variables
+#if defined(__USE_DIRECTX_11__)
     ID3D11BlendState* originalBlendState = nullptr;
     ID3D11BlendState* fadeBlendState = nullptr;
     ID3D11RenderTargetView* originalRenderTarget = nullptr;
@@ -634,7 +643,7 @@ private:
     ID3D11PixelShader* pixelShader = nullptr;
     ID3D11Buffer* constantBuffer = nullptr;
     D3D11_VIEWPORT originalViewport = {};
-
     UINT originalStencilRef = 0;
     UINT numViewports = 0;
+#endif
 };

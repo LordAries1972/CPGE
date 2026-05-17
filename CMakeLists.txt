@@ -158,6 +158,7 @@ if(MSVC)
         $<$<CONFIG:Release>:NDEBUG;_CONSOLE>
         UNICODE
         _UNICODE
+        __USE_DIRECTX_11__
     )
 
     # Release: whole-program optimisation

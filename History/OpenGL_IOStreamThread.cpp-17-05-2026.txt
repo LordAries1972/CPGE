@@ -19,6 +19,7 @@ for the given scene.  Platform guards cover every OS-specific call.
 #include "SceneManager.h"
 #include "GUIManager.h"
 #include "OpenGLFXManager.h"
+#include "Configuration.h"
 #include "OpenGLRenderer.h"
 
 #if defined(PLATFORM_WINDOWS)
@@ -45,8 +46,6 @@ extern SystemUtils   sysUtils;
 extern ShaderManager shaderManager;
 extern WindowMetrics winMetrics;
 #endif
-
-std::mutex OpenGLRenderer::s_loaderMutex;
 
 /* -------------------------------------------------------------- */
 // Main Tasking Thread for our I/O Loader Tasking Service

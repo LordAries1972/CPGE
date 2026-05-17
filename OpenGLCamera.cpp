@@ -966,7 +966,7 @@ void Camera::SetupDefaultCamera(float windowWidth, float windowHeight)
     float fovX_rad = glm::radians(fovX_deg);
     float fovY_rad = 2.0f * atanf(tanf(fovX_rad / 2.0f) / aspect);
 
-    SetProjectionMatrix(glm::perspective(fovY_rad, aspect, config.myConfig.nearPlane, config.myConfig.farPlane));
+    SetProjectionMatrix(glm::perspective(fovY_rad, aspect, static_cast<float>(config.myConfig.nearPlane), static_cast<float>(config.myConfig.farPlane)));
 
     position = eye;
     target   = lookAt;

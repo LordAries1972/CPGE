@@ -571,6 +571,7 @@ void Model::DestroyModel()
     // =========================================================
     // Release All DirectX GPU Resources
     // =========================================================
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
     if (m_modelInfo.vertexBuffer) { m_modelInfo.vertexBuffer.Reset(); }
     if (m_modelInfo.indexBuffer) { m_modelInfo.indexBuffer.Reset(); }
     if (m_modelInfo.materialBuffer) { m_modelInfo.materialBuffer.Reset(); }
@@ -588,6 +589,7 @@ void Model::DestroyModel()
         if (m_modelInfo.pixelShaderBlob) { m_modelInfo.pixelShaderBlob.Reset(); }
         if (m_modelInfo.constantBuffer) { m_modelInfo.constantBuffer.Reset(); }
     }
+#endif
 
     // =========================================================
     // Release and Clear All Textures and Shader Resource Views
@@ -599,6 +601,7 @@ void Model::DestroyModel()
     m_modelInfo.textures.clear();
     m_modelInfo.textures.shrink_to_fit();
 
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
     for (auto& srv : m_modelInfo.textureSRVs)
     {
         if (srv) srv.Reset();
@@ -612,6 +615,7 @@ void Model::DestroyModel()
     }
     m_modelInfo.normalMapSRVs.clear();
     m_modelInfo.normalMapSRVs.shrink_to_fit();
+#endif
 
     // =========================================================
     // Clear All Materials
@@ -623,9 +627,11 @@ void Model::DestroyModel()
     // =========================================================
     m_modelInfo.vertices.clear();
     m_modelInfo.indices.clear();
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
     m_modelInfo.tempPositions.clear();
     m_modelInfo.tempNormals.clear();
     m_modelInfo.tempTexCoords.clear();
+#endif
     m_modelInfo.animationVertices.clear(); // If used for animations
 
     // =========================================================
@@ -637,10 +643,17 @@ void Model::DestroyModel()
     // =========================================================
     // Reset Transformation Data
     // =========================================================
-    m_modelInfo.position = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
-    m_modelInfo.scale = DirectX::XMFLOAT3(1.0f, 1.0f, 1.0f);
-    m_modelInfo.rotation = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+    m_modelInfo.position    = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+    m_modelInfo.scale       = DirectX::XMFLOAT3(1.0f, 1.0f, 1.0f);
+    m_modelInfo.rotation    = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
     m_modelInfo.worldMatrix = DirectX::XMMatrixIdentity();
+#else
+    m_modelInfo.position    = XMFLOAT3(0.0f, 0.0f, 0.0f);
+    m_modelInfo.scale       = XMFLOAT3(1.0f, 1.0f, 1.0f);
+    m_modelInfo.rotation    = XMFLOAT3(0.0f, 0.0f, 0.0f);
+    m_modelInfo.worldMatrix = XMMATRIX();
+#endif
 
     // =========================================================
     // Reset Lighting Information
@@ -682,13 +695,17 @@ void Model::DestroyModel()
         // Clear container data safely.
         m_modelInfo.vertices.clear();
         m_modelInfo.indices.clear();
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
         m_modelInfo.tempPositions.clear();
         m_modelInfo.tempNormals.clear();
         m_modelInfo.tempTexCoords.clear();
+#endif
         m_modelInfo.animationVertices.clear();
         m_modelInfo.textures.clear();
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
         m_modelInfo.textureSRVs.clear();
         m_modelInfo.normalMapSRVs.clear();
+#endif
         m_modelInfo.localLights.clear();
     }
 
@@ -922,11 +939,15 @@ void Model::LoadFallbackTexture()
     {
         if (m_modelInfo.textures[0] == fallback)
         {
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
             // Ensure SRVs are also valid.
             if (!m_modelInfo.textureSRVs.empty() && m_modelInfo.textureSRVs[0].Get() == fallback->GetSRV())
             {
                 return;
             }
+#else
+            return;
+#endif
         }
     }
 
@@ -934,11 +955,13 @@ void Model::LoadFallbackTexture()
     m_modelInfo.textures.clear();
     m_modelInfo.textures.push_back(fallback);
 
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
     // Reset SRVs safely under lock.
     m_modelInfo.textureSRVs.clear();
     m_modelInfo.textureSRVs.shrink_to_fit();
     m_modelInfo.textureSRVs.reserve(1);
     m_modelInfo.textureSRVs.push_back(fallback->GetSRV());
+#endif
 }
 
 
@@ -1023,10 +1046,19 @@ bool Model::LoadOBJ(const std::string& path)
                 int normIdx = normStr.empty() ? 0 : std::stoi(normStr) - 1;
 
                 Vertex vertex;
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
                 vertex.position = tempPositions[posIdx];
-                vertex.texCoord = texIdx >= 0 && texIdx < tempTexCoords.size() ? tempTexCoords[texIdx] : XMFLOAT2(0, 0);
-                vertex.normal = normIdx >= 0 && normIdx < tempNormals.size() ? tempNormals[normIdx] : XMFLOAT3(0, 1, 0);
-                vertex.tangent = XMFLOAT3(0, 0, 0); // will compute later
+                vertex.texCoord = texIdx >= 0 && texIdx < (int)tempTexCoords.size() ? tempTexCoords[texIdx] : XMFLOAT2(0, 0);
+                vertex.normal   = normIdx >= 0 && normIdx < (int)tempNormals.size()  ? tempNormals[normIdx]  : XMFLOAT3(0, 1, 0);
+                vertex.tangent  = XMFLOAT3(0, 0, 0);
+#else
+                { auto& tp = tempPositions[posIdx]; vertex.position[0]=tp.x; vertex.position[1]=tp.y; vertex.position[2]=tp.z; }
+                if (texIdx>=0 && texIdx<(int)tempTexCoords.size()) { vertex.texCoord[0]=tempTexCoords[texIdx].x; vertex.texCoord[1]=tempTexCoords[texIdx].y; }
+                else { vertex.texCoord[0]=0.0f; vertex.texCoord[1]=0.0f; }
+                if (normIdx>=0 && normIdx<(int)tempNormals.size()) { auto& tn=tempNormals[normIdx]; vertex.normal[0]=tn.x; vertex.normal[1]=tn.y; vertex.normal[2]=tn.z; }
+                else { vertex.normal[0]=0.0f; vertex.normal[1]=1.0f; vertex.normal[2]=0.0f; }
+                vertex.tangent[0]=0.0f; vertex.tangent[1]=0.0f; vertex.tangent[2]=0.0f;
+#endif
 
                 m_modelInfo.vertices.push_back(vertex);
                 m_modelInfo.indices.push_back(static_cast<uint32_t>(m_modelInfo.vertices.size() - 1));
@@ -1039,6 +1071,7 @@ bool Model::LoadOBJ(const std::string& path)
     }
 
     // Tangent calculation
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
     std::vector<XMFLOAT3> accumulatedTangents(m_modelInfo.vertices.size(), XMFLOAT3(0, 0, 0));
     std::vector<uint32_t> tangentCounts(m_modelInfo.vertices.size(), 0);
 
@@ -1067,7 +1100,6 @@ bool Model::LoadOBJ(const std::string& path)
         float du2 = uv2.x - uv0.x;
         float dv2 = uv2.y - uv0.y;
 
-//        float r = 1.0f / (du1 * dv2 - du2 * dv1);
         // Safe guard this and ensure no division by zero!
         float denom = (du1 * dv2 - du2 * dv1);
         float r = denom == 0.0f ? 1.0f : 1.0f / denom;
@@ -1100,6 +1132,39 @@ bool Model::LoadOBJ(const std::string& path)
             m_modelInfo.vertices[i].tangent = XMFLOAT3(1, 0, 0);
         }
     }
+#else
+    // Non-DX tangent computation using plain float[] vertex arrays (OpenGL/Vulkan)
+    struct V3 { float x,y,z; V3(float a=0,float b=0,float c=0):x(a),y(b),z(c){} };
+    auto vadd=[](V3 a,V3 b){return V3(a.x+b.x,a.y+b.y,a.z+b.z);};
+    auto vsub=[](V3 a,V3 b){return V3(a.x-b.x,a.y-b.y,a.z-b.z);};
+    auto vscl=[](V3 a,float s){return V3(a.x*s,a.y*s,a.z*s);};
+    auto vdot=[](V3 a,V3 b){return a.x*b.x+a.y*b.y+a.z*b.z;};
+    auto vnrm=[&](V3 a){float l=sqrtf(vdot(a,a));return l>0.0f?vscl(a,1.0f/l):V3();};
+    std::vector<V3> accTan(m_modelInfo.vertices.size());
+    std::vector<uint32_t> tanCnt(m_modelInfo.vertices.size(), 0);
+    for (size_t i=0; i<m_modelInfo.indices.size(); i+=3) {
+        uint32_t i0=m_modelInfo.indices[i], i1=m_modelInfo.indices[i+1], i2=m_modelInfo.indices[i+2];
+        auto& v0=m_modelInfo.vertices[i0]; auto& v1=m_modelInfo.vertices[i1]; auto& v2=m_modelInfo.vertices[i2];
+        V3 p0(v0.position[0],v0.position[1],v0.position[2]);
+        V3 p1(v1.position[0],v1.position[1],v1.position[2]);
+        V3 p2(v2.position[0],v2.position[1],v2.position[2]);
+        float du1=v1.texCoord[0]-v0.texCoord[0], dv1=v1.texCoord[1]-v0.texCoord[1];
+        float du2=v2.texCoord[0]-v0.texCoord[0], dv2=v2.texCoord[1]-v0.texCoord[1];
+        float denom=(du1*dv2-du2*dv1); float r=denom==0.0f?1.0f:1.0f/denom;
+        V3 tan=vscl(vsub(vscl(vsub(p1,p0),dv2),vscl(vsub(p2,p0),dv1)),r);
+        for (uint32_t idx : {i0,i1,i2}) { accTan[idx]=vadd(accTan[idx],tan); tanCnt[idx]++; }
+    }
+    for (size_t i=0; i<m_modelInfo.vertices.size(); ++i) {
+        if (tanCnt[i]>0) {
+            V3 t=accTan[i];
+            V3 n(m_modelInfo.vertices[i].normal[0],m_modelInfo.vertices[i].normal[1],m_modelInfo.vertices[i].normal[2]);
+            t=vnrm(vsub(t,vscl(n,vdot(n,t))));
+            m_modelInfo.vertices[i].tangent[0]=t.x; m_modelInfo.vertices[i].tangent[1]=t.y; m_modelInfo.vertices[i].tangent[2]=t.z;
+        } else {
+            m_modelInfo.vertices[i].tangent[0]=1.0f; m_modelInfo.vertices[i].tangent[1]=0.0f; m_modelInfo.vertices[i].tangent[2]=0.0f;
+        }
+    }
+#endif
 
     return true;
 }
@@ -1107,6 +1172,7 @@ bool Model::LoadOBJ(const std::string& path)
 //==============================================================================
 // Helper function to compile shaders
 //==============================================================================
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
 HRESULT Model::CompileShaderFromFile(const std::wstring& filePath, const std::string& entryPoint, const std::string& shaderModel, ID3DBlob** blobOut) {
     HRESULT hr = S_OK;
 
@@ -1152,6 +1218,7 @@ HRESULT Model::CompileShaderFromFile(const std::wstring& filePath, const std::st
 
     return hr;
 }
+#endif // __USE_DIRECTX_11__ || __USE_DIRECTX_12__
 
 // --------------------------------------------------------------------------------------------------
 // Model::CopyFrom
@@ -1163,6 +1230,7 @@ void Model::CopyFrom(const Model& other)
     // === Basic Shallow Copy First ===
     m_modelInfo = other.m_modelInfo;
 
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
     if (threadManager.threadVars.bIsResizing)
     {
         #if defined(_DEBUG_MODEL_)
@@ -1205,11 +1273,12 @@ void Model::CopyFrom(const Model& other)
         m_modelInfo.samplerState.Reset();
         m_modelInfo.environmentSamplerState.Reset();
 
-        // === 🛡️ DO NOT TOUCH: ===
+        // === DO NOT TOUCH: ===
         // m_modelInfo.textures
         // m_modelInfo.materials
         // m_materials
     }
+#endif
 
     if (m_modelInfo.name.empty())
         m_modelInfo.name = L"UnnamedModel_" + std::to_wstring(m_modelInfo.ID);
@@ -1337,11 +1406,13 @@ void Model::LoadFallbackNormalMap()
         #endif
     }
 
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
     // Reset normal SRVs safely under lock.
     m_modelInfo.normalMapSRVs.clear();
     m_modelInfo.normalMapSRVs.shrink_to_fit();
     m_modelInfo.normalMapSRVs.reserve(1);
     m_modelInfo.normalMapSRVs.push_back(flatNormal->GetSRV());
+#endif
 }
 
 
@@ -1573,6 +1644,9 @@ lightDesc.Usage = D3D11_USAGE_DYNAMIC;
 // ============================================================================
 void Model::UpdateModelLighting()
 {
+#if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__)
+    return; // No-op on non-DX builds; lighting is handled by the shader/renderer layer
+#else
     if (!m_modelInfo.lightConstantBuffer)
         return;
 
@@ -1623,11 +1697,13 @@ context->PSSetConstantBuffers(SLOT_LIGHT_BUFFER, 1, m_modelInfo.lightConstantBuf
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"[Model] Failed to map light buffer for writing.");
 #endif
     }
+#endif // __USE_DIRECTX_11__ || __USE_DIRECTX_12__
 }
 
 //=============================================================================
 // void Model::Render(ID3D11DeviceContext* deviceContext)
 //=============================================================================
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
 void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
 {
 #if defined(__USE_DIRECTX_11__)
@@ -1842,6 +1918,7 @@ void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
 
 #endif
 }
+#endif // __USE_DIRECTX_11__ || __USE_DIRECTX_12__
 
 void Model::DebugInfoForModel() const
 {
@@ -1854,6 +1931,7 @@ void Model::DebugInfoForModel() const
         debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[SCALE]    X=%.2f Y=%.2f Z=%.2f", info.scale.x, info.scale.y, info.scale.z);
         debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[ROTATION] X=%.2f Y=%.2f Z=%.2f", info.rotation.x, info.rotation.y, info.rotation.z);
 
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
         // Dump worldMatrix via XMStoreFloat4x4
         XMFLOAT4X4 matOut = {};
         XMStoreFloat4x4(&matOut, info.worldMatrix);
@@ -1863,6 +1941,7 @@ void Model::DebugInfoForModel() const
         debug.logDebugMessage(LogLevel::LOG_DEBUG, L" %.2f %.2f %.2f %.2f", matOut._21, matOut._22, matOut._23, matOut._24);
         debug.logDebugMessage(LogLevel::LOG_DEBUG, L" %.2f %.2f %.2f %.2f", matOut._31, matOut._32, matOut._33, matOut._34);
         debug.logDebugMessage(LogLevel::LOG_DEBUG, L" %.2f %.2f %.2f %.2f", matOut._41, matOut._42, matOut._43, matOut._44);
+#endif
 
         // Geometry
         debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[GEOMETRY] Vertices = %zu | Indices = %zu", info.vertices.size(), info.indices.size());
@@ -1982,9 +2061,10 @@ bool Model::LoadMetallicMap(const std::wstring& filePath) {
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to load metallic map: " + filePath);
         return false;
     }
-
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
     m_modelInfo.metallicMap = tex;
     m_modelInfo.metallicMapSRV = tex->GetSRV();
+#endif
     m_modelInfo.useMetallicMap = true;
 
     debug.logLevelMessage(LogLevel::LOG_INFO, L"Successfully loaded metallic map: " + filePath);
@@ -1997,9 +2077,10 @@ bool Model::LoadRoughnessMap(const std::wstring& filePath) {
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to load roughness map: " + filePath);
         return false;
     }
-
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
     m_modelInfo.roughnessMap = tex;
     m_modelInfo.roughnessMapSRV = tex->GetSRV();
+#endif
     m_modelInfo.useRoughnessMap = true;
 
     debug.logLevelMessage(LogLevel::LOG_INFO, L"Successfully loaded roughness map: " + filePath);
@@ -2012,9 +2093,10 @@ bool Model::LoadAOMap(const std::wstring& filePath) {
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to load ambient occlusion map: " + filePath);
         return false;
     }
-
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
     m_modelInfo.aoMap = tex;
     m_modelInfo.aoMapSRV = tex->GetSRV();
+#endif
     m_modelInfo.useAOMap = true;
 
     debug.logLevelMessage(LogLevel::LOG_INFO, L"Successfully loaded ambient occlusion map: " + filePath);

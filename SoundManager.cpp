@@ -95,6 +95,7 @@ bool SoundManager::Initialize(HWND hwnd) {
         return true;
     }
 
+#if defined(__USE_DIRECTX_11__)
     HRESULT hr = DirectSoundCreate8(NULL, &m_directSound, NULL);
     if (FAILED(hr)) {
         debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"DirectSoundCreate8 failed");
@@ -116,6 +117,7 @@ bool SoundManager::Initialize(HWND hwnd) {
         debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"CreateSoundBuffer (primary) failed");
         return false;
     }
+#endif
 
     m_initialized = true;
     #if defined(_DEBUG_SOUNDMANAGER_)
@@ -336,6 +338,7 @@ void SoundManager::PlayImmediateSFX(SFX_ID id) {
 
     const LoadedSFX& sfx = it->second;
 
+#if defined(__USE_DIRECTX_11__)
     DSBUFFERDESC bufferDesc = {};
     bufferDesc.dwSize = sizeof(DSBUFFERDESC);
     bufferDesc.dwFlags = DSBCAPS_CTRLVOLUME;
@@ -369,6 +372,7 @@ void SoundManager::PlayImmediateSFX(SFX_ID id) {
     #if defined(_DEBUG_SOUNDMANAGER_)
         debug.logLevelMessage(LogLevel::LOG_INFO, L"DirectSound: Immediate SFX played");
     #endif
+#endif // __USE_DIRECTX_11__
 }
 
 void SoundManager::UpdateFadeInVolumes() {
@@ -389,6 +393,7 @@ void SoundManager::UpdateFadeInVolumes() {
         fadeRatio = std::clamp(fadeRatio, 0.0f, 1.0f);
         float volume = item.volume * fadeRatio;
 
+#if defined(__USE_DIRECTX_11__)
         LONG volumeDb = static_cast<LONG>(DSBVOLUME_MIN + (DSBVOLUME_MAX - DSBVOLUME_MIN) * volume);
 
         // Re-acquire the buffer and update volume (not implemented fully here)
@@ -399,10 +404,12 @@ void SoundManager::UpdateFadeInVolumes() {
                 debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Fade-in update - ID: " + std::to_wstring(static_cast<int>(item.id)) +
                     L" fadeRatio: " + std::to_wstring(fadeRatio) + L" db: " + std::to_wstring(volumeDb));
             #endif
+#endif // __USE_DIRECTX_11__
     }
 }
 
 void SoundManager::PlayQueueList() {
+#if defined(__USE_DIRECTX_11__)
     // Automatically remove expired or finished sounds
     m_soundQueue.erase(std::remove_if(m_soundQueue.begin(), m_soundQueue.end(), [](SoundQueueItem& item) {
         if (!item.isPlaying || !item.buffer)
@@ -488,11 +495,13 @@ void SoundManager::PlayQueueList() {
             debug.logLevelMessage(LogLevel::LOG_INFO, L"PlayQueueList: Playing SFX - ID: " + std::to_wstring(static_cast<int>(item.id)));
         #endif
     }
+#endif // __USE_DIRECTX_11__
 }
 
 void SoundManager::CleanUp() {
     m_cleanupDone = true;
 
+#if defined(__USE_DIRECTX_11__)
     if (m_primaryBuffer) {
         m_primaryBuffer->Release();
         m_primaryBuffer = nullptr;
@@ -502,6 +511,10 @@ void SoundManager::CleanUp() {
         m_directSound->Release();
         m_directSound = nullptr;
     }
+#else
+    m_primaryBuffer = nullptr;
+    m_directSound   = nullptr;
+#endif
 
     #if defined(_DEBUG_SOUNDMANAGER_)
         debug.logLevelMessage(LogLevel::LOG_INFO, L"SoundManager cleanup completed");

@@ -42,7 +42,9 @@
 #if defined(_WIN32) || defined(_WIN64)
 #pragma comment(lib, "opengl32.lib")                                            // Link Windows OpenGL library
 #pragma comment(lib, "glu32.lib")                                               // Link Windows GLU library
-#pragma comment(lib, "glew32.lib")                                              // Link GLEW extension library
+#pragma comment(lib, "glew32s.lib")                                             // Link GLEW static library (GLEW_STATIC is defined in OpenGLRenderer.h)
+#pragma comment(lib, "gdiplus.lib")                                             // Link GDI+ for texture loading
+#include <gdiplus.h>
 #endif
 
 // Static member initialization
@@ -802,8 +804,8 @@ bool OpenGLRenderer::LoadAllKnownTextures()
 {
     bool allOk = true;
     for (int i = 0; i < MAX_TEXTURE_BUFFERS; ++i) {
-        if (tex2DFilename[i].empty()) continue;
-        auto path = (AssetsDir / tex2DFilename[i]).wstring();
+        if (texFilename[i].empty()) continue;
+        auto path = (AssetsDir / texFilename[i]).wstring();
         if (!LoadTexture(i, path, true)) {
             debug.logLevelMessage(LogLevel::LOG_WARNING,
                 L"[OpenGLRenderer] LoadAllKnownTextures: failed to load index " + std::to_wstring(i));
@@ -831,11 +833,11 @@ bool OpenGLRenderer::Place2DBlitObjectToQueue(BlitObj2DIndexType iIndex, BlitPha
 {
     int idx = static_cast<int>(iIndex);
     if (idx < 0 || idx >= MAX_2D_IMG_QUEUE_OBJS) return false;
-    My2DBlitQueue[idx].BlitPhaseLvl  = BlitPhaseLvl;
-    My2DBlitQueue[idx].ObjType       = objType;
-    My2DBlitQueue[idx].ObjDetails    = objDetails;
+    My2DBlitQueue[idx].BlitPhase      = BlitPhaseLvl;
+    My2DBlitQueue[idx].BlitObjType   = objType;
+    My2DBlitQueue[idx].BlitObjDetails = objDetails;
     My2DBlitQueue[idx].BlitType      = BlitType;
-    My2DBlitQueue[idx].bIsActive     = true;
+    My2DBlitQueue[idx].bInUse        = true;
     return true;
 }
 

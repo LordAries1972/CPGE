@@ -877,7 +877,11 @@ void ShaderManager::DiagnoseShaderLinkageErrors(const std::string& programName) 
 
     // Get vertex shader resource
     ShaderResource* vertexShader = GetShader(program->vertexShaderName);
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
     if (!vertexShader || !vertexShader->shaderBlob) {
+#else
+    if (!vertexShader) {
+#endif
         #if defined(_DEBUG_SHADERMANAGER_)
             debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Vertex shader '%hs' not found or has no blob.", program->vertexShaderName.c_str());
         #endif

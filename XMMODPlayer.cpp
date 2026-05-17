@@ -22,6 +22,7 @@ void XMMODPlayer::Shutdown() {
     }
 
     // Release DirectSound buffers
+#if defined(__USE_DIRECTX_11__)
     if (secondaryBuffer) {
         secondaryBuffer->Stop();
         secondaryBuffer->Release();
@@ -35,6 +36,11 @@ void XMMODPlayer::Shutdown() {
         directSound->Release();
         directSound = nullptr;
     }
+#else
+    secondaryBuffer = nullptr;
+    primaryBuffer   = nullptr;
+    directSound     = nullptr;
+#endif
 
     // Clear voices and patterns
     voices.clear();
@@ -459,11 +465,13 @@ bool XMMODPlayer::Play(const std::wstring& filename) {
     debug.DebugLog("Play(): Starting playback thread...\n");
     TickRow();
 
+#if defined(__USE_DIRECTX_11__)
     HRESULT hr = secondaryBuffer->Play(0, 0, DSBPLAY_LOOPING);
     if (FAILED(hr)) {
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"Play(): Failed to start DirectSound buffer playback.");
         return false;
     }
+#endif
 
     isPlaying = true;
     isPaused = false;
@@ -599,6 +607,7 @@ void XMMODPlayer::Stop() {
 }
 
 void XMMODPlayer::SilenceBuffer() {
+#if defined(__USE_DIRECTX_11__)
     if (!secondaryBuffer) return;
 
     void* p1 = nullptr;
@@ -611,6 +620,7 @@ void XMMODPlayer::SilenceBuffer() {
         if (p2 && b2 > 0) memset(p2, 0, b2);
         secondaryBuffer->Unlock(p1, b1, p2, b2);
     }
+#endif
 }
 
 void XMMODPlayer::SetFadeIn(uint32_t durationMs) {
@@ -637,6 +647,7 @@ void XMMODPlayer::SetFadeOut(uint32_t durationMs) {
 }
 
 bool XMMODPlayer::CreateAudioDevice() {
+#if defined(__USE_DIRECTX_11__)
     HRESULT hr = DirectSoundCreate8(NULL, &directSound, NULL);
     if (FAILED(hr)) return false;
 
@@ -673,9 +684,13 @@ bool XMMODPlayer::CreateAudioDevice() {
     writeCursor = 0;
 
     return true;
+#else
+    return true; // Non-DX: audio handled by platform audio layer
+#endif
 }
 
 void XMMODPlayer::FillAudioBuffer() {
+#if defined(__USE_DIRECTX_11__)
 #if defined(_DEBUG_XMPlayer_)
     debug.logLevelMessage(LogLevel::LOG_DEBUG, L"FillAudioBuffer: Begin");
 #endif
@@ -749,6 +764,7 @@ void XMMODPlayer::FillAudioBuffer() {
 #if defined(_DEBUG_XMPlayer_)
     debug.logLevelMessage(LogLevel::LOG_DEBUG, L"FillAudioBuffer: End");
 #endif
+#endif // __USE_DIRECTX_11__
 }
 
 void XMMODPlayer::MixAudio(int16_t* buffer, size_t samples) {

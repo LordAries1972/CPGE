@@ -35,6 +35,7 @@ void FXManager::CleanUp()
     // Reset rendering flag to prevent any pending render operations
     bIsRendering.store(false);                                          // Ensure rendering flag is cleared
 
+#if defined(__USE_DIRECTX_11__)
     if (fadeBlendState) { fadeBlendState->Release(); fadeBlendState = nullptr; }
     if (fullscreenQuadVertexBuffer) { fullscreenQuadVertexBuffer->Release(); fullscreenQuadVertexBuffer = nullptr; }
     if (inputLayout) { inputLayout->Release(); inputLayout = nullptr; }
@@ -45,6 +46,7 @@ void FXManager::CleanUp()
     // Optional: release stored state
     if (originalBlendState) { originalBlendState->Release(); originalBlendState = nullptr; }
     if (originalRenderTarget) { originalRenderTarget->Release(); originalRenderTarget = nullptr; }
+#endif
 
     // Clear out any queued FX
     effects.clear();
@@ -81,6 +83,7 @@ void FXManager::Initialize() {
         return;
     }
 
+#if defined(__USE_DIRECTX_11__)
     try {
         // Validate DirectX 11 renderer and its components
         if (!renderer) {
@@ -176,6 +179,7 @@ void FXManager::Initialize() {
     catch (...) {
         debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] Unknown exception during initialization");
     }
+#endif
 }
 
 void FXManager::AddEffect(const FXItem& fxItem) {
@@ -405,6 +409,7 @@ void FXManager::RestartFXAfterResize()
     }
 }
 
+#if defined(__USE_DIRECTX_11__)
 bool FXManager::LoadFadeShaders()
 {
     // Early validation checks
@@ -557,6 +562,9 @@ bool FXManager::LoadFadeShaders()
 
     return success;                                                 // Return success status
 }
+#else
+bool FXManager::LoadFadeShaders() { return true; }
+#endif
 
 void FXManager::ApplyColorFader(FXItem& fxItem) {
     // Early validation checks to prevent crashes
@@ -639,6 +647,7 @@ void FXManager::ApplyColorFader(FXItem& fxItem) {
     }
 
     // Safe DirectX operations with error checking
+#if defined(__USE_DIRECTX_11__)
     try {
         // Retrieve our Device and Context from Renderer
         ComPtr<ID3D11Device> device;
@@ -670,8 +679,10 @@ void FXManager::ApplyColorFader(FXItem& fxItem) {
         // Mark effect as completed to remove it from processing
         fxItem.progress = 1.0f;
     }
+#endif
 }
 
+#if defined(__USE_DIRECTX_11__)
 void FXManager::SaveRenderState() {
     // Retrieve our Device and Context from Renderer
     ComPtr<ID3D11Device> device;
@@ -743,6 +754,10 @@ void FXManager::RestoreRenderState() {
         originalDepthStencilState = nullptr;
     }
 }
+#else
+void FXManager::SaveRenderState() {}
+void FXManager::RestoreRenderState() {}
+#endif
 
 // -------------------------------------------------------------------------------------------------------------
 // RemoveCompletedEffects - Safely removes completed FX effects using two-pass approach
@@ -854,7 +869,8 @@ void FXManager::RenderFullScreenQuad(const XMFLOAT4& color) {
     }
 
     // Safe DirectX operations with comprehensive error checking
-    try 
+#if defined(__USE_DIRECTX_11__)
+    try
     {
         // Retrieve our Device and Context from Renderer
         ComPtr<ID3D11Device> device;
@@ -938,6 +954,7 @@ void FXManager::RenderFullScreenQuad(const XMFLOAT4& color) {
     catch (...) {
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Unknown exception in RenderFullScreenQuad");
     }
+#endif
 }
 
 void FXManager::FadeToColor(XMFLOAT4 color, float duration, float delay) {
@@ -1730,6 +1747,7 @@ void FXManager::Render2D()
     lastTweenTime = now;  // moved here to avoid premature zeroing
 }
 
+#if defined(__USE_DIRECTX_11__)
 void FXManager::RenderFX(int effectID, ID3D11DeviceContext* context, const XMMATRIX& worldMatrix)
 {
     #if defined(_DEBUG_FXMANAGER_)
@@ -1799,6 +1817,7 @@ void FXManager::RenderFX(int effectID, ID3D11DeviceContext* context, const XMMAT
         }
     }
 }
+#endif
 
 // --------------------------------------------------------------------------------------------------------
 void FXManager::CreateStarfield(int numStars, float circularRadius, float resetDepthPos, XMFLOAT3 startPos, bool reverse)
@@ -1980,6 +1999,7 @@ void FXManager::StopStarfield() {
     starfieldID = 0;
 }
 
+#if defined(__USE_DIRECTX_11__)
 void FXManager::RenderStarfield(FXItem& fxItem, ID3D11DeviceContext* context, const XMMATRIX& viewMatrix)
 {
     if (fxItem.type != FXType::Starfield || !context)
@@ -2026,6 +2046,7 @@ void FXManager::RenderStarfield(FXItem& fxItem, ID3D11DeviceContext* context, co
         }
     }
 }
+#endif
 
 // -------------------------------------------------------------------------------------------------------------
 // NEW TEXT SCROLLER IMPLEMENTATION
@@ -3167,6 +3188,7 @@ void FXManager::UpdateWarpDotTunnel(FXItem& fx, float deltaTime)
     }
 }
 
+#if defined(__USE_DIRECTX_11__)
 void FXManager::RenderWarpDotTunnel(FXItem& fx, ID3D11DeviceContext* context)
 {
     const WarpTunnelData& data = fx.warpTunnelData;
@@ -3247,6 +3269,9 @@ void FXManager::RenderWarpDotTunnel(FXItem& fx, ID3D11DeviceContext* context)
         }
     }
 }
+#else
+void FXManager::RenderWarpDotTunnel(FXItem& fx) { /* OpenGL/Vulkan: 3D tunnel rendered via renderer layer */ }
+#endif
 
 #pragma warning(pop)
 

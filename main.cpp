@@ -1037,6 +1037,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                         // GetClientRect returns physical pixels on per-monitor-DPI apps.
                         UINT recWidth = 0, recHeight = 0;
                         {
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
                             IDXGISwapChain1* pSC = static_cast<IDXGISwapChain1*>(renderer->GetSwapChain());
                             DXGI_SWAP_CHAIN_DESC1 scDesc = {};
                             if (pSC && SUCCEEDED(pSC->GetDesc1(&scDesc)))
@@ -1045,6 +1046,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                                 recHeight = scDesc.Height;
                             }
                             else
+#endif
                             {
                                 RECT clientRect = {};
                                 GetClientRect(hwnd, &clientRect);
