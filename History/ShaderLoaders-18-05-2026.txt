@@ -8,7 +8,7 @@
 
     2) Keeps routines isolated from the ShaderManager class itself.
 
-    3) All Calls here are Public, so all other areas of your code can access these 
+    3) All Calls here are Public, so all other areas of your code can access these
        calls via extern referencing when required.
 
     4) A Helper class has been provided if you rather use this method for listing

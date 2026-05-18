@@ -4,6 +4,40 @@ project(CrossPlatformGameEngine LANGUAGES CXX RC)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# ── Game identity & renderer selection ───────────────────────────────────────
+# GameName must match #define GAME_NAME in Includes.h and <GameName> in the vcxproj.
+set(GAME_NAME "CPGE" CACHE STRING "Base game name used in the output executable")
+# Renderer: DX11 | DX12 | OpenGL | Vulkan
+set(RENDERER "DX11" CACHE STRING "Active renderer (DX11, DX12, OpenGL, Vulkan)")
+
+if(RENDERER STREQUAL "DX11")
+    set(RENDERER_PREFIX "DX")
+    set(RENDERER_DEFINE "__USE_DIRECTX_11__")
+elseif(RENDERER STREQUAL "DX12")
+    set(RENDERER_PREFIX "DX")
+    set(RENDERER_DEFINE "__USE_DIRECTX_12__")
+elseif(RENDERER STREQUAL "OpenGL")
+    set(RENDERER_PREFIX "OpenGL")
+    set(RENDERER_DEFINE "__USE_OPENGL__")
+elseif(RENDERER STREQUAL "Vulkan")
+    set(RENDERER_PREFIX "Vulkan")
+    set(RENDERER_DEFINE "__USE_VULKAN__")
+else()
+    message(FATAL_ERROR "Unknown RENDERER '${RENDERER}'. Valid values: DX11, DX12, OpenGL, Vulkan")
+endif()
+
+# Platform-appropriate output name:
+#   Windows  : DX{name}.exe / OpenGL{name}.exe / Vulkan{name}.exe  (.exe added by CMake)
+#   macOS    : DX{name}.app / OpenGL{name}.app / Vulkan{name}.app   (bundle; .app added by CMake)
+#   iOS      : {name}.app bundle via Xcode signing pipeline
+#   Linux    : OpenGL{name} / Vulkan{name}  (no extension on ELF)
+#   Android  : library name only; packaging to .apk is handled by the Android build toolchain
+set(EXE_OUTPUT_NAME "${RENDERER_PREFIX}${GAME_NAME}")
+
+message(STATUS "Game name  : ${GAME_NAME}")
+message(STATUS "Renderer   : ${RENDERER}  (define: ${RENDERER_DEFINE})")
+message(STATUS "Output exe : ${EXE_OUTPUT_NAME}")
+
 # ── Sources ──────────────────────────────────────────────────────────────────
 set(SOURCES
     BlenderImports.cpp
@@ -65,6 +99,19 @@ set(SOURCES
 )
 
 add_executable(CrossPlatformGameEngine WIN32 ${SOURCES})
+
+# ── Output file name ──────────────────────────────────────────────────────────
+set_target_properties(CrossPlatformGameEngine PROPERTIES
+    OUTPUT_NAME "${EXE_OUTPUT_NAME}"
+)
+
+# macOS / iOS: wrap as an .app bundle (Xcode/CPack turns this into .dmg/.ipa for distribution)
+if(APPLE)
+    set_target_properties(CrossPlatformGameEngine PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_BUNDLE_NAME "${EXE_OUTPUT_NAME}"
+    )
+endif()
 
 # ── Vulkan SDK detection ──────────────────────────────────────────────────────
 # Relies on VULKAN_SDK environment variable set by the Vulkan SDK installer.
@@ -158,7 +205,8 @@ if(MSVC)
         $<$<CONFIG:Release>:NDEBUG;_CONSOLE>
         UNICODE
         _UNICODE
-        __USE_DIRECTX_11__
+        ${RENDERER_DEFINE}
+        GLEW_STATIC     # Use glew32s.lib (static); prevents __declspec(dllimport) on GLEW symbols
     )
 
     # Release: whole-program optimisation
@@ -169,7 +217,8 @@ if(MSVC)
     # Release: COMDAT folding + dead-code stripping
     target_link_options(CrossPlatformGameEngine PRIVATE
         $<$<CONFIG:Release>:/OPT:REF /OPT:ICF>
-        $<$<CONFIG:Debug>:/DEBUG /ASSEMBLYDEBUG>
+        $<$<CONFIG:Debug>:/DEBUG /ASSEMBLYDEBUG /NODEFAULTLIB:LIBCMT>   # LIBCMT = release CRT; glew32s.lib was built /MT but we use /MTd
+        /ignore:4099    # glew32s.lib has no PDB — suppress "PDB was not found" noise
     )
 
     # Debug: generate map file

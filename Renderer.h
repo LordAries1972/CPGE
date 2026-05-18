@@ -104,7 +104,8 @@
 #define RENDERER_IS_THREAD
 
 const int MAX_SCREEN_MONITORS = 4;
-const bool USE_FPS_DISPLAY = true;
+const bool USE_FPS_DISPLAY   = true;
+const bool USE_RENDERER_INFO = true;    // Bottom-right renderer name + version overlay; set false to hide
 
 const int MAX_2D_IMG_QUEUE_OBJS = 512;
 const LPCWSTR FontName = L"MayaCulpa";

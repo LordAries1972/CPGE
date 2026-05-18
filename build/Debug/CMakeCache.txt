@@ -185,8 +185,14 @@ CrossPlatformGameEngine_SOURCE_DIR:STATIC=F:/Projects/C++/CPGE2026
 //HLSL shader compiler
 FXC_EXE:FILEPATH=D:/Windows Kits/10/bin/10.0.22621.0/x64/fxc.exe
 
+//Base game name used in the output executable
+GAME_NAME:STRING=CPGE
+
 //Vulkan GLSL → SPIR-V compiler
 GLSLANG_EXE:FILEPATH=D:/VulkanSDK/1.4.350.0/Bin/glslangValidator.exe
+
+//Active renderer (DX11, DX12, OpenGL, Vulkan)
+RENDERER:STRING=DX11
 
 //Path to a program.
 Vulkan_GLSLANG_VALIDATOR_EXECUTABLE:FILEPATH=D:/VulkanSDK/1.4.350.0/Bin/glslangValidator.exe

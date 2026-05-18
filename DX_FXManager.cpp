@@ -1,7 +1,8 @@
-﻿#if defined(__USE_DIRECTX_11__)
+﻿#include "Includes.h"    // Must come first — this file defines __USE_DIRECTX_11__
+
+#if defined(__USE_DIRECTX_11__)
 #if defined(_WIN32) || defined(_WIN64)
 
-#include "Includes.h"
 #include "DX_FXManager.h"
 #include "DX11Renderer.h"
 #include "Debug.h"

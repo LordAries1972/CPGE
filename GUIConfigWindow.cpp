@@ -76,32 +76,28 @@ static const wchar_t* const DISP_MODE_NAMES[3] = {
     L"Windowed", L"Borderless", L"Full Screen"
 };
 
-// Available-renderer list — only includes backends compiled into this build.
-// Slider position 0..RENDERER_COUNT-1 maps to this list; disabled backends
-// (e.g. DX12 on a card that lacks it) are never shown even when a higher-
-// numbered backend (Vulkan) is compiled in.  Slider is hidden when count == 1.
+// Available-renderer list.
+// Windows always shows all four so the user can select the preferred executable
+// (DX / OpenGL / Vulkan) regardless of which backend is currently compiled in.
+// Linux/Android: only compiled-in backends are shown; slider hidden when count == 1.
 struct RendererEntry { int type; const wchar_t* name; };
-static const RendererEntry AVAILABLE_RENDERERS[] = {
 #if defined(PLATFORM_WINDOWS)
+static const RendererEntry AVAILABLE_RENDERERS[] = {
     { 0, L"DirectX 11" },
-#  if defined(__USE_DIRECTX_12__)
     { 1, L"DirectX 12" },
-#  endif
-#  if defined(__USE_OPENGL__)
-    { 2, L"OpenGL" },
-#  endif
-#  if defined(__USE_VULKAN__)
-    { 3, L"Vulkan" },
-#  endif
-#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    { 2, L"OpenGL"     },
+    { 3, L"Vulkan"     },
+};
+#else
+static const RendererEntry AVAILABLE_RENDERERS[] = {
 #  if defined(__USE_OPENGL__)
     { 0, L"OpenGL" },
 #  endif
 #  if defined(__USE_VULKAN__)
     { 1, L"Vulkan" },
 #  endif
-#endif
 };
+#endif
 static constexpr int RENDERER_COUNT =
     (int)(sizeof(AVAILABLE_RENDERERS) / sizeof(AVAILABLE_RENDERERS[0]));
 
@@ -454,9 +450,16 @@ void GUIManager::CreateConfigWindow()
             });
         y += ROW;
 
-        addInfoRow("t0_near", y, L"Near Plane:", CfgFmtFloat(config.myConfig.nearPlane, 2), true);
+        addSliderRow("t0_near", y, L"Near Plane:", true, 0,
+            0.1f, 2.0f, (float)config.myConfig.nearPlane,
+            [](float v) { return CfgFmtFloat((long double)v, 2); },
+            [](float v) { config.myConfig.nearPlane = (long double)std::clamp(v, 0.1f, 2.0f); });
         y += ROW;
-        addInfoRow("t0_far",  y, L"Far Plane:",  CfgFmtFloat(config.myConfig.farPlane, 1), true);
+
+        addSliderRow("t0_far", y, L"Far Plane:", true, 0,
+            500.0f, 2000.0f, (float)config.myConfig.farPlane,
+            [](float v) { return CfgFmtInt((int)std::round(v)); },
+            [](float v) { config.myConfig.farPlane = (long double)std::clamp(std::round(v), 500.0f, 2000.0f); });
         y += ROW;
 
         addTogSlider("t0_dbg", y, L"Show Debug Info:", config.myConfig.showDebugInfo, true, 0,
@@ -558,30 +561,23 @@ void GUIManager::CreateConfigWindow()
             });
         y += ROW;
 
-        // --- Renderer (hidden when only one backend is compiled in) ---
-        {
-            int rendSliderStart = 0;
-            for (int i = 0; i < RENDERER_COUNT; ++i) {
-                if (AVAILABLE_RENDERERS[i].type == config.myConfig.rendererType) {
-                    rendSliderStart = i; break;
-                }
-            }
-            if (RENDERER_COUNT > 1) {
-                addSliderRow("t2_renderer", y, L"Renderer:",
-                    false, 2,
-                    0.0f, (float)(RENDERER_COUNT - 1),
-                    (float)rendSliderStart,
-                    [](float v) -> std::wstring {
-                        int i = std::clamp((int)std::round(v), 0, RENDERER_COUNT - 1);
-                        return AVAILABLE_RENDERERS[i].name;
-                    },
-                    [needsVideoRestart](float v) {
-                        int i = std::clamp((int)std::round(v), 0, RENDERER_COUNT - 1);
-                        config.myConfig.rendererType = AVAILABLE_RENDERERS[i].type;
-                        *needsVideoRestart = true;
-                    });
-                y += ROW;
-            }
+        // --- Renderer (always 4 entries on Windows; hidden on platforms with only 1) ---
+        if (RENDERER_COUNT > 1) {
+            int rendSliderStart = std::clamp(config.myConfig.rendererType, 0, RENDERER_COUNT - 1);
+            addSliderRow("t2_renderer", y, L"Renderer:",
+                false, 2,
+                0.0f, (float)(RENDERER_COUNT - 1),
+                (float)rendSliderStart,
+                [](float v) -> std::wstring {
+                    int i = std::clamp((int)std::round(v), 0, RENDERER_COUNT - 1);
+                    return AVAILABLE_RENDERERS[i].name;
+                },
+                [needsVideoRestart](float v) {
+                    int i = std::clamp((int)std::round(v), 0, RENDERER_COUNT - 1);
+                    config.myConfig.rendererType = AVAILABLE_RENDERERS[i].type;
+                    *needsVideoRestart = true;
+                });
+            y += ROW;
         }
 
         // --- Display Mode (0=Windowed / 1=Borderless / 2=Full Screen) ---

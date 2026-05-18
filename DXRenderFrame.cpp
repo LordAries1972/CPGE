@@ -22,6 +22,7 @@
 
 #if defined(__USE_DIRECTX_11__)
 #include "DX11Renderer.h"
+#include "BuildInfo.h"
 #include "Debug.h"
 #include "ExceptionHandler.h"
 #include "WinSystem.h"
@@ -491,8 +492,77 @@ void DX11Renderer::RenderFrame()
                            L", Yaw: " + std::to_wstring(myCamera.m_yaw) + L", Pitch: " + std::to_wstring(myCamera.m_pitch) + L"\n" +
                            L"Global Light Count: " + std::to_wstring(lightsManager.GetLightCount()) + L"\n";    
 
+                       // Font size scaled to resolution — matches console window sizing formula.
+                       const float dbgFontSize = std::clamp(height / 108.0f, 8.0f, 12.0f);
+
                        // Render debug text in top-left corner
-                       DrawMyText(fpsText, Vector2(0, 0), MyColor(255, 255, 255, 255), 10.0f);
+                       DrawMyText(fpsText, Vector2(0, 0), MyColor(255, 255, 255, 255), dbgFontSize);
+                   }
+
+                   // ── Renderer info overlay ─────────────────────────────────────────────
+                   // Bottom-right corner: "DirectX 11 v<Major>.<Minor>.<Build>"
+                   // Shown in selected scenes only; toggle USE_RENDERER_INFO in Renderer.h.
+                   if (USE_RENDERER_INFO && !scene.bSceneSwitching && m_d2dRenderTarget && m_dwriteFactory)
+                   {
+                       bool riShow = (scene.stSceneType == SceneType::SCENE_GAMETITLE ||
+                                      scene.stSceneType == SceneType::SCENE_GAMEPLAY  ||
+                                      scene.stSceneType == SceneType::SCENE_INTRO     ||
+                                      scene.stSceneType == SceneType::SCENE_GAMEOVER);
+                       #if defined(_DEBUG)
+                           riShow = riShow || (scene.stSceneType == SceneType::SCENE_EXPERIMENT);
+                       #endif
+
+                       if (riShow)
+                       {
+                           // Font size scaled to resolution — same formula as console window.
+                           const float riFontSize = std::clamp(
+                               static_cast<float>(iOrigHeight) / 72.0f, 10.0f, 16.0f);
+
+                           // "DirectX 11 v0.0.1235"
+                           const std::wstring riText =
+                               L"DirectX 11 v"                               +
+                               std::to_wstring(CURRENT_BUILD_VERSION)    + L"." +
+                               std::to_wstring(CURRENT_BUILD_SUBVERSION) + L"." +
+                               std::to_wstring(CURRENT_BUILD);
+
+                           // Measure actual text dimensions via DirectWrite layout so X and Y
+                           // are exactly: X = right edge - textWidth, Y = bottom edge - textHeight.
+                           IDWriteTextFormat* riFmt = GetOrCreateTextFormat(FontName, riFontSize);
+                           if (riFmt)
+                           {
+                               ComPtr<IDWriteTextLayout> riLayout;
+                               HRESULT riHr = m_dwriteFactory->CreateTextLayout(
+                                   riText.c_str(), static_cast<UINT32>(riText.size()),
+                                   riFmt,
+                                   static_cast<float>(iOrigWidth),   // max layout width
+                                   riFontSize * 2.0f,                // max layout height
+                                   &riLayout);
+
+                               if (SUCCEEDED(riHr) && riLayout)
+                               {
+                                   DWRITE_TEXT_METRICS riMetrics = {};
+                                   riLayout->GetMetrics(&riMetrics);
+
+                                   // Start X = right edge minus the actual text width.
+                                   // Start Y = bottom edge minus the actual text height.
+                                   const float riX = static_cast<float>(iOrigWidth)  - riMetrics.width;
+                                   const float riY = static_cast<float>(iOrigHeight) - riMetrics.height;
+
+                                   if (!m_pixelBrush)
+                                       m_d2dRenderTarget->CreateSolidColorBrush(
+                                           D2D1::ColorF(220.0f/255.0f, 220.0f/255.0f, 220.0f/255.0f, 1.0f),
+                                           &m_pixelBrush);
+                                   else
+                                       m_pixelBrush->SetColor(
+                                           D2D1::ColorF(220.0f/255.0f, 220.0f/255.0f, 220.0f/255.0f, 1.0f));
+
+                                   m_d2dRenderTarget->DrawTextLayout(
+                                       D2D1::Point2F(riX, riY),
+                                       riLayout.Get(),
+                                       m_pixelBrush.Get());
+                               }
+                           }
+                       }
                    }
 
                    // 5-second OSD notification after F2 debug toggle
@@ -528,7 +598,7 @@ void DX11Renderer::RenderFrame()
                        {
                            iPosX = loadIndex << 5;                            // Calculate X offset for animation frame
                            // Draw loading circle in bottom-right corner
-                           Blit2DObjectAtOffset(BlitObj2DIndexType::BG_LOADER_CIRCLE, iOrigWidth - 34, iOrigHeight - 34, iPosX, 0, 32, 32);
+                           Blit2DObjectAtOffset(BlitObj2DIndexType::BG_LOADER_CIRCLE, iOrigWidth - 34, iOrigHeight - 45, iPosX, 0, 32, 32);
                        }
                    }
 

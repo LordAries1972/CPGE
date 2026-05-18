@@ -1,0 +1,36 @@
+CMakeLists.txt - History - 18-05-2026
+======================================
+
+NEW: GAME_NAME and RENDERER cache variables with platform-aware OUTPUT_NAME
+
+Added immediately after set(CMAKE_CXX_STANDARD_REQUIRED ON):
+
+  set(GAME_NAME "CPGE" CACHE STRING ...)   — must match #define GAME_NAME in Includes.h
+  set(RENDERER  "DX11" CACHE STRING ...)   — DX11 | DX12 | OpenGL | Vulkan
+
+A block maps RENDERER to:
+  RENDERER_PREFIX  : "DX", "OpenGL", or "Vulkan"
+  RENDERER_DEFINE  : __USE_DIRECTX_11__, __USE_DIRECTX_12__, __USE_OPENGL__, __USE_VULKAN__
+  EXE_OUTPUT_NAME  : "${RENDERER_PREFIX}${GAME_NAME}"
+
+Status messages printed at configure time show the chosen combination.
+
+set_target_properties sets OUTPUT_NAME to EXE_OUTPUT_NAME so CMake
+generates the correct platform executable:
+  Windows  : DXCPGE.exe  (or OpenGLCPGE.exe / VulkanCPGE.exe)
+  macOS    : DXCPGE.app bundle (MACOSX_BUNDLE TRUE + BUNDLE_NAME set)
+  Linux    : DXCPGE / OpenGLCPGE / VulkanCPGE  (no extension)
+  Android  : library name only; APK packaging is the Android toolchain's job
+
+For macOS / iOS, MACOSX_BUNDLE TRUE is set automatically via if(APPLE).
+The .app bundle is then packaged into .dmg / .ipa using CPack or Xcode
+distribution tools as a separate step.
+
+target_compile_definitions: replaced hardcoded __USE_DIRECTX_11__
+with ${RENDERER_DEFINE} so the correct renderer guard flows through
+from the RENDERER cache variable automatically.
+
+To build with a different renderer from cmake-build.bat:
+  cmake -DRENDERER=Vulkan -DGAME_NAME=CPGE ..
+
+Files changed: CMakeLists.txt

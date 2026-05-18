@@ -1,0 +1,16 @@
+Renderer.h - History - 18-05-2026
+==================================
+
+NEW: USE_RENDERER_INFO constant
+
+Added alongside USE_FPS_DISPLAY:
+
+    const bool USE_RENDERER_INFO = true;
+
+When true: DXRenderFrame.cpp (and equivalent OpenGL/Vulkan render frames)
+draw the renderer name and engine version in the bottom-right corner on
+applicable scenes.
+
+Set to false to suppress the overlay entirely without touching render code.
+
+Files changed: Renderer.h

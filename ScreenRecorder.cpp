@@ -779,8 +779,18 @@ bool ScreenRecorder::InitMicCapture()
         return false;
     }
 
+    // Prefer the communications capture endpoint (headset/gaming mic) over the console
+    // default. Windows typically assigns a headset mic to eCommunications while the
+    // built-in laptop or desktop mic stays as eConsole — without this preference the
+    // wrong microphone gets selected whenever headphones are plugged in.
     IMMDevice* pDevice = nullptr;
-    hr = pEnum->GetDefaultAudioEndpoint(eCapture, eConsole, &pDevice);
+    bool usedComms = true;
+    hr = pEnum->GetDefaultAudioEndpoint(eCapture, eCommunications, &pDevice);
+    if (FAILED(hr))
+    {
+        usedComms = false;
+        hr = pEnum->GetDefaultAudioEndpoint(eCapture, eConsole, &pDevice);
+    }
     pEnum->Release();
     if (FAILED(hr))
     {
@@ -793,6 +803,9 @@ bool ScreenRecorder::InitMicCapture()
             debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: No capture endpoint (" + HRStr(hr) + L")");
         return false;
     }
+    debug.logLevelMessage(LogLevel::LOG_INFO,
+        usedComms ? L"ScreenRecorder Mic: Using Communications capture endpoint (headset/gaming mic)"
+                  : L"ScreenRecorder Mic: Using Console (default) capture endpoint");
 
     hr = pDevice->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
                            reinterpret_cast<void**>(&m_pMicAudioClient));

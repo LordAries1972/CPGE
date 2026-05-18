@@ -1,17 +1,17 @@
 /* ---------------------------------------------------------------------------------------------------------
-This is your base Includes.h header file for the specified Renderer & other engine sub-systems 
+This is your base Includes.h header file for the specified Renderer & other engine sub-systems
 and to only include what is needed on a given platform when requested.
 
 It includes all the necessary headers and libraries for Windows, DirectX, OpenGL, and other platforms.
 This is to eliminate the need for multiple includes in your project files.
 
-NOTE:   Becareful to not alter the order of the includes or directive conditional blocks, as some 
+NOTE:   Becareful to not alter the order of the includes or directive conditional blocks, as some
         libraries may depend on others being included first.  It also strongly focuses on the
         approach of only including what is needed for the specific platform and renderer being used.
 
-        Be sensible when adding new includes to this file, as it is included in many places and 
+        Be sensible when adding new includes to this file, as it is included in many places and
         can affect compile times or cause problems, if not managed properly.
-        
+
 --------------------------------------------------------------------------------------------------------- */
 #pragma once
 
@@ -73,7 +73,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
             #pragma comment(lib, "ws2_32.lib")                                      // Winsock 2 library
             #pragma comment(lib, "iphlpapi.lib")                                    // IP Helper API library
         #endif // __USE_NETWORKING__
-        
+
         // Windows Platform — enable the renderer(s) you have installed.
         // Only one is needed at minimum; add more as they become available.
         // Runtime selection via config.myConfig.rendererType: 0=DX11  1=DX12  2=OpenGL  3=Vulkan
@@ -151,9 +151,6 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
             // GLEW must be first — it replaces and includes gl.h internally.
             // Fall back to the bare Windows SDK gl.h if GLEW is not installed.
             #if __has_include(<GL/glew.h>)
-                #ifndef GLEW_STATIC
-                #define GLEW_STATIC         // Required for glew32s.lib; prevents __declspec(dllimport) on all GLEW symbols
-                #endif
                 #pragma warning(push)
                 #pragma warning(disable: 4005)  // wglew.h redefines GLEWAPI already defined in glew.h
                 #include <GL/glew.h>
@@ -505,7 +502,7 @@ const int MAX_GLOBAL_VOLUME = 64;
 #if defined(__USE_MP3PLAYER__)
     inline const std::filesystem::path mp3FilePlaylist[] = { L"game1.mp3" };
     inline const std::filesystem::path SingleMP3Filename = "game1.mp3";
-    inline const int MAX_MP3_MODULES = ARRAYSIZE(mp3FilePlaylist);
+    inline const int MAX_XM_MODULES = ARRAYSIZE(mp3FilePlaylist);
 #elif defined(__USE_XMPLAYER__)
     inline const std::filesystem::path xmFilePlaylist[] = { L"thevoid.xm", L"electro2.xm", L"battle.xm" };
     inline const std::filesystem::path SingleXMFilename = "todie4.xm";
@@ -524,7 +521,7 @@ const std::filesystem::path ShadersDir = L"./Assets/Shaders/";
 const std::vector<std::string> MyShaders = { "ModelVertex", "ModelPixel" };
 
 // Reserved Shader Slots for Render Pipeline ( b? slot )
-const int SLOT_CONST_BUFFER = 0;                                                // Constant Buffer Slot   
+const int SLOT_CONST_BUFFER = 0;                                                // Constant Buffer Slot
 const int SLOT_LIGHT_BUFFER = 1;                                                // Model Light Buffer Slot
 const int SLOT_DEBUG_BUFFER = 2;                                                // Debug Buffer Slot
 const int SLOT_GLOBAL_LIGHT_BUFFER = 3;                                         // Global Light Buffer Slot

@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1228*
+*Current Build Version: v0.0.1246*
 
 ---
 
@@ -969,20 +969,125 @@ Once the base DirectX 11 implementation is complete, the project will be release
 
 - *See: [`GUIManager.h`](GUIManager.h), [`GUIManager.cpp`](GUIManager.cpp), [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp), [`Configuration.cpp`](Configuration.cpp), [`Includes.h`](Includes.h), [`CMakeLists.txt`](CMakeLists.txt), [`CrossPlatformGameEngine.vcxproj`](CrossPlatformGameEngine.vcxproj), [`OpenGLRenderer.h`](OpenGLRenderer.h), [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`OpenGLFXManager.h`](OpenGLFXManager.h), [`OpenGLFXManager.cpp`](OpenGLFXManager.cpp), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp), [`OpenGL_IOStreamThread.h`](OpenGL_IOStreamThread.h), [`OpenGL_IOStreamThread.cpp`](OpenGL_IOStreamThread.cpp), [`OpenGLCamera.h`](OpenGLCamera.h), [`OpenGLCamera.cpp`](OpenGLCamera.cpp), [`VulkanCamera.h`](VulkanCamera.h), [`VulkanCamera.cpp`](VulkanCamera.cpp), [`OpenGLModels.h`](OpenGLModels.h), [`OpenGLModels.cpp`](OpenGLModels.cpp), [`VulkanModels.h`](VulkanModels.h), [`VulkanModels.cpp`](VulkanModels.cpp), [`Models.h`](Models.h), [`Renderer.h`](Renderer.h), [`SceneManager.cpp`](SceneManager.cpp), [`GUIWindows.cpp`](GUIWindows.cpp), [`KBHandlersCode.cpp`](KBHandlersCode.cpp), [`ScreenRecorder.cpp`](ScreenRecorder.cpp), [`MoviePlayer.h`](MoviePlayer.h), [`cmake-build.bat`](cmake-build.bat), [`Directory.Build.targets`](Directory.Build.targets), [`RendererFactory.cpp`](RendererFactory.cpp), [`main.cpp`](main.cpp)*
 
-**May 18, 2026** - Build fix — DirectX 11 platform linker errors and C4005 warnings eliminated (v0.0.1224):
+**May 18, 2026** - Multi-renderer build hardening, feature additions, and OpenGL runtime fixes (v0.0.1246):
 
-- **Root cause — linker errors**: `DX_FXManager.cpp` begins with `#if defined(__USE_DIRECTX_11__)` on line 1,
-  before any `#include`. `Includes.h` (which `#define`s `__USE_DIRECTX_11__`) is inside that
-  guard, so the preprocessor never sees the define — the entire translation unit compiled to
-  nothing, producing 18 unresolved external linker errors for every `FXManager` method.
-- **Fix — linker**: Added `__USE_DIRECTX_11__` to `target_compile_definitions` in `CMakeLists.txt`
-  so it is passed as a `/D` compiler flag, making the guard on line 1 evaluate correctly before
-  any includes are processed.
-- **Fix — C4005 warnings**: The `/D` flag and the `#define` in `Includes.h` both fired, producing
-  C4005 macro-redefinition warnings on every translation unit. Fixed by wrapping the `#define` in
-  `Includes.h` with `#ifndef __USE_DIRECTX_11__ / #define __USE_DIRECTX_11__ / #endif` so it only
-  fires when the flag was not already set on the command line. Zero warnings on clean rebuild.
-- *See: [`CMakeLists.txt`](CMakeLists.txt), [`Includes.h`](Includes.h)*
+**Build fixes:**
+
+- **DX11 linker — `DX_FXManager.cpp` compiled to nothing (18 unresolved symbols)**: `DX_FXManager.cpp`
+  began with `#if defined(__USE_DIRECTX_11__)` before any `#include`. `Includes.h` (which defines
+  `__USE_DIRECTX_11__`) is inside that guard, so the preprocessor never saw the define and the entire
+  translation unit compiled to nothing.
+  - **CMake fix**: Added `__USE_DIRECTX_11__` to `target_compile_definitions` as a `/D` flag so the
+    guard evaluates correctly before any includes are processed.
+  - **MSVS 2022 fix (source level)**: Moved `#include "Includes.h"` to the very top of
+    `DX_FXManager.cpp` before the guard — matches the pattern in `OpenGLFXManager.cpp` and
+    `VULKAN_FXManager.cpp`, making the TU self-sufficient regardless of build system.
+  - **MSVS 2022 fix (vcxproj level)**: `__USE_DIRECTX_11__` added to `<PreprocessorDefinitions>` for
+    both configurations — belt-and-suspenders so the guard works even if the source-level fix is reverted.
+  - **C4005 fix**: Wrapped the `#define __USE_DIRECTX_11__` in `Includes.h` with `#ifndef` so it only
+    fires when the build system has not already injected the flag. Zero warnings on clean rebuild.
+
+- **PKEY linker error (`unresolved external symbol PKEY_AudioEndpoint_FormFactor`)**: `PKEY_*` constants
+  require `INITGUID` to be defined before any transitive pull-in of `<propkeydef.h>`. Moved
+  `#include <initguid.h>` to the first include inside the Windows block of `main.cpp` so
+  `DEFINE_PROPERTYKEY` emits the full `DECLSPEC_SELECTANY` symbol definition. No external library required.
+
+- **Dual-renderer symbol collision (`Camera` / `CameraJumpHistoryEntry` / `CameraResizeState` redefined)**:
+  `Includes.h` had an unconditional `#define __USE_OPENGL__`, causing both DX and OpenGL camera headers to
+  be included simultaneously → C2011/C2086 redefinition cascade. Fixed by wrapping all four renderer
+  fallback `#define` lines in a single `#if !defined(...)` guard so they only fire when no renderer
+  is pre-defined by the build system.
+
+- **OpenGL linker warnings eliminated (`LNK4217`/`LNK4286`/`LNK4098`/`LNK4099`)**:
+  - **LNK4217/LNK4286** — `<GL/glew.h>` included without `GLEW_STATIC`; GLEW defaulted to
+    `__declspec(dllimport)`. Added `#ifndef GLEW_STATIC / #define GLEW_STATIC` before the include
+    in `Includes.h`; also added to `target_compile_definitions` (CMake) and vcxproj `<PreprocessorDefinitions>`.
+  - **LNK4098** — prebuilt `glew32s.lib` uses `/MT`; debug builds use `/MTd`. Added
+    `/NODEFAULTLIB:LIBCMT` to debug link options in both CMakeLists.txt and vcxproj.
+  - **LNK4099** — `glew32s.lib` carries no PDB. Added `/ignore:4099` to link options in both build systems.
+
+- **Build-time SDK diagnostics** — `PrintSDKDiagnostics` MSBuild target added to vcxproj
+  (`BeforeTargets="ClCompile"`). Emits a formatted block at the start of every build showing Vulkan SDK
+  path/header/lib, shader compiler locations (`glslc.exe`, `glslangValidator.exe`, `dxc.exe`,
+  `d3dcompiler`), and OpenGL/GLEW header and lib checks. MSBuild warnings fire if `VULKAN_SDK` is
+  unset or `glew.h` is missing.
+
+- *See: [`DX_FXManager.cpp`](DX_FXManager.cpp), [`Includes.h`](Includes.h), [`main.cpp`](main.cpp),
+  [`CMakeLists.txt`](CMakeLists.txt), [`CrossPlatformGameEngine.vcxproj`](CrossPlatformGameEngine.vcxproj)*
+
+**New features:**
+
+- **Audio device detection at startup** — `DetectAndLogAudioDevices()` added to `main.cpp` (Windows
+  only). Runs after COM initialisation, before any audio subsystem starts. Queries all four WASAPI
+  endpoints (Playback Default/Communications, Capture Default/Communications) and writes friendly names
+  and hardware form factors to the debug log. Audio routing confusion is immediately diagnosable from
+  the launch log. Added `#include <functiondiscoverykeys_devpkey.h>` for `PKEY_Device_FriendlyName`.
+
+- **ScreenRecorder mic capture endpoint fix** — `InitMicCapture()` now prefers `eCommunications`
+  capture over `eConsole`. Windows assigns a headset mic to `eCommunications` and the built-in mic to
+  `eConsole`; the old code always captured `eConsole`, silently ignoring plugged-in headsets.
+  Now tries `eCommunications` first, falls back to `eConsole` only when no separate communications
+  capture device exists.
+
+- **Dynamic executable naming** — renderer-prefixed output names across all build systems:
+  - `#define GAME_NAME "CPGE"` added to `Includes.h` as the single authoritative base name.
+  - **vcxproj**: `<GameName>` and `<ActiveRenderer>` UserMacros added. Set `ActiveRenderer` to `DX11`,
+    `DX12`, `OpenGL`, or `Vulkan` to switch output name and renderer define in one place. Outputs:
+    `DXCPGE.exe` (default), `OpenGLCPGE.exe`, `VulkanCPGE.exe`. `<PreprocessorDefinitions>` updated
+    from hardcoded `__USE_DIRECTX_11__` to `$(_RendererDefine)`.
+  - **CMakeLists.txt**: `GAME_NAME` and `RENDERER` cache variables; output name set via
+    `set_target_properties ... OUTPUT_NAME`. Platform-appropriate extensions applied automatically
+    (`.exe` Windows, `.app` macOS/iOS, no extension Linux, library Android). `target_compile_definitions`
+    uses `${RENDERER_DEFINE}`.
+
+- **Renderer info overlay** — renderer name + build version displayed in the bottom-right corner on
+  `SCENE_GAMETITLE`, `SCENE_GAMEPLAY`, `SCENE_INTRO`, `SCENE_GAMEOVER` (and `SCENE_EXPERIMENT` in Debug
+  only). Suppressed during scene transitions. `USE_RENDERER_INFO = true` flag added to `Renderer.h`.
+  Exact pixel positioning via `IDWriteTextLayout::GetMetrics()` for reliable right-edge alignment.
+  Font size: `clamp(iOrigHeight / 72.0f, 10.0f, 16.0f)`. Debug FPS text rescaled to
+  `clamp(height / 108, 8, 12)` (was hardcoded 10 pt). `#include "BuildInfo.h"` added to `DXRenderFrame.cpp`.
+
+- **Config window — all renderers shown on Windows; Near/Far Plane sliders added**:
+  - Renderer selector on Windows is now an unconditional 4-entry list (DirectX 11, 12, OpenGL, Vulkan)
+    regardless of compiled backends; non-Windows platforms retain compile-time filtering.
+  - Near Plane slider (Game Play tab): range 0.1 → 2.0, 2 dp. Writes `config.myConfig.nearPlane`.
+  - Far Plane slider (Game Play tab): range 500 → 2000, integer. Writes `config.myConfig.farPlane`.
+
+- *See: [`main.cpp`](main.cpp), [`ScreenRecorder.cpp`](ScreenRecorder.cpp), [`Includes.h`](Includes.h),
+  [`CrossPlatformGameEngine.vcxproj`](CrossPlatformGameEngine.vcxproj), [`CMakeLists.txt`](CMakeLists.txt),
+  [`DXRenderFrame.cpp`](DXRenderFrame.cpp), [`Renderer.h`](Renderer.h), [`BuildInfo.h`](BuildInfo.h),
+  [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp)*
+
+**Bug fixes:**
+
+- **Bug fix — OpenGLCPGE.exe silent exit on startup (`rendererType` config mismatch)**:
+  `GameConfig.cfg` persists `"rendererType": 0` (DirectX 11). `ValidateRendererForPlatform(0)` fell
+  through to a hard-coded `return 0`; `CreateRendererInstance()` then hit `default: EXIT_FAILURE` and
+  exited silently before any window appeared.
+  - **Fix 1** — `ValidateRendererForPlatform` now returns the renderer compiled into this binary
+    (`__USE_OPENGL__` → 2, `__USE_DIRECTX_12__` → 1, `__USE_VULKAN__` → 3, else 0).
+  - **Fix 2** — `rendererType` is loaded raw first so checksum verification uses the value that was
+    hashed on save; `ValidateRendererForPlatform` is called after the checksum block to avoid false
+    tamper-detection resets.
+  - **Fix 3** — `saveConfig()` writes `myConfig.rendererType` directly (already validated at load time)
+    so the JSON value and checksum input are always identical.
+
+- **Bug fix — no startup image (`LoadAllShaders` failure)**: `LoadAllShaders()` unconditionally
+  attempted to load `ModelVertex.hlsl`/`ModelPixel.hlsl` via `ShaderManager::LoadShader`, which called
+  `CompileGLSL()` on HLSL source and failed. This returned `false`, causing `main.cpp` to log
+  `[CRITICAL]: Failed to load required shaders!` and exit before any scene rendered. Fixed by adding
+  a `#if defined(__USE_OPENGL__)` early-return — the OpenGL renderer already compiles its own inline
+  GLSL shaders in `OpenGLRenderer::LoadShaders()`.
+
+- **Bug fix — access violation crash on exit (MoviePlayer atexit destructor)**: `moviePlayer` is a
+  global (`main.cpp:180`). Its atexit destructor called `Cleanup()` → `Stop()` →
+  `ThreadLockHelper(*m_threadManager, ...)`. By atexit time `threadManager` is already destroyed;
+  dereferencing its internal mutex produced SEH 0xC0000005. Fixed by inlining the stop logic in
+  `Cleanup()` (`m_isPlaying`/`m_isPaused = false`, XAudio2 flush) without calling `Stop()` or
+  touching `m_threadManager`. The thread-safe `Stop()` path remains intact for all normal callers.
+
+- *See: [`Configuration.cpp`](Configuration.cpp), [`ShaderLoaders.cpp`](ShaderLoaders.cpp),
+  [`MoviePlayer.cpp`](MoviePlayer.cpp)*
 
 ---
 

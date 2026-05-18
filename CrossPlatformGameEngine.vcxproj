@@ -51,22 +51,41 @@
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
-  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Label="UserMacros">
+    <!-- Game name used in the output executable: DX{GameName}.exe, OpenGL{GameName}.exe, Vulkan{GameName}.exe -->
+    <!-- Must match #define GAME_NAME in Includes.h -->
+    <GameName>CPGE</GameName>
+    <!-- Active renderer: DX11 | DX12 | OpenGL | Vulkan -->
+    <ActiveRenderer>DX11</ActiveRenderer>
+  </PropertyGroup>
+  <!-- Derive renderer prefix (DX / OpenGL / Vulkan) and C++ preprocessor define from ActiveRenderer -->
+  <PropertyGroup>
+    <_RendererPrefix Condition="'$(ActiveRenderer)' == 'DX11'">DX</_RendererPrefix>
+    <_RendererPrefix Condition="'$(ActiveRenderer)' == 'DX12'">DX</_RendererPrefix>
+    <_RendererPrefix Condition="'$(ActiveRenderer)' == 'OpenGL'">OpenGL</_RendererPrefix>
+    <_RendererPrefix Condition="'$(ActiveRenderer)' == 'Vulkan'">Vulkan</_RendererPrefix>
+    <_RendererDefine Condition="'$(ActiveRenderer)' == 'DX11'">__USE_DIRECTX_11__</_RendererDefine>
+    <_RendererDefine Condition="'$(ActiveRenderer)' == 'DX12'">__USE_DIRECTX_12__</_RendererDefine>
+    <_RendererDefine Condition="'$(ActiveRenderer)' == 'OpenGL'">__USE_OPENGL__</_RendererDefine>
+    <_RendererDefine Condition="'$(ActiveRenderer)' == 'Vulkan'">__USE_VULKAN__</_RendererDefine>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <IncludePath>F:\Projects\C++\CPGE;$(IncludePath)</IncludePath>
     <EnableManagedIncrementalBuild>true</EnableManagedIncrementalBuild>
     <EnableClangTidyCodeAnalysis>false</EnableClangTidyCodeAnalysis>
     <AllProjectIncludesArePublic>false</AllProjectIncludesArePublic>
+    <TargetName>$(_RendererPrefix)$(GameName)</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <IncludePath>F:\Projects\C++\CPGE;$(IncludePath)</IncludePath>
     <AllProjectIncludesArePublic>false</AllProjectIncludesArePublic>
+    <TargetName>$(_RendererPrefix)$(GameName)</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;GLEW_STATIC;$(_RendererDefine);%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
@@ -83,6 +102,8 @@
       <GenerateMapFile>true</GenerateMapFile>
       <MapFileName>$(TargetName).map</MapFileName>
       <AssemblyDebug>true</AssemblyDebug>
+      <IgnoreSpecificDefaultLibraries>LIBCMT;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <AdditionalOptions>/ignore:4099 %(AdditionalOptions)</AdditionalOptions>
       <AdditionalDependencies>
       </AdditionalDependencies>
       <AdditionalLibraryDirectories>.\lib;$(VULKAN_SDK)\Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
@@ -100,7 +121,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;_CONSOLE;GLEW_STATIC;$(_RendererDefine);%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <DisableSpecificWarnings>4244</DisableSpecificWarnings>
@@ -117,6 +138,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EntryPointSymbol>WinMainCRTStartup</EntryPointSymbol>
+      <AdditionalOptions>/ignore:4099 %(AdditionalOptions)</AdditionalOptions>
       <AdditionalLibraryDirectories>.\lib;.\steam\lib\win64;$(VULKAN_SDK)\Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>
       </AdditionalDependencies>
@@ -248,6 +270,48 @@
     <ResourceCompile Include="CrossPlatformGameEngine.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <!-- Build-time SDK diagnostics: Vulkan SDK, OpenGL, Shader Compilers   -->
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <Target Name="PrintSDKDiagnostics" BeforeTargets="ClCompile">
+    <!-- ── Vulkan SDK ──────────────────────────────────────────────────── -->
+    <PropertyGroup>
+      <_VkSDK>$(VULKAN_SDK)</_VkSDK>
+      <_VkInclude>$(_VkSDK)\Include\vulkan\vulkan.h</_VkInclude>
+      <_VkLib>$(_VkSDK)\Lib\vulkan-1.lib</_VkLib>
+      <_GlslcExe>$(_VkSDK)\Bin\glslc.exe</_GlslcExe>
+      <_GlslangExe>$(_VkSDK)\Bin\glslangValidator.exe</_GlslangExe>
+      <_DxcExe>$(_VkSDK)\Bin\dxc.exe</_DxcExe>
+      <!-- OpenGL ── GLEW headers live in .\include\GL -->
+      <_GLIncludeDir>$(ProjectDir)include\GL</_GLIncludeDir>
+      <_GlewH>$(ProjectDir)include\GL\glew.h</_GlewH>
+      <_GlewLib>$(ProjectDir)lib\glew32s.lib</_GlewLib>
+    </PropertyGroup>
+    <Message Text="════════════════════════════════════════════════════════════" Importance="high" />
+    <Message Text="  SDK DIAGNOSTICS" Importance="high" />
+    <Message Text="════════════════════════════════════════════════════════════" Importance="high" />
+    <!-- Vulkan -->
+    <Message Text="  VULKAN_SDK  : $(_VkSDK)" Importance="high" />
+    <Message Text="  VK Include  : $(_VkSDK)\Include  (vulkan.h present: $(Exists('$(_VkInclude)')))" Importance="high" />
+    <Message Text="  VK Lib Dir  : $(_VkSDK)\Lib      (vulkan-1.lib present: $(Exists('$(_VkLib)')))" Importance="high" />
+    <!-- Shader compilers (Vulkan SDK Bin) -->
+    <Message Text="  glslc.exe   : $(_GlslcExe)  [present: $(Exists('$(_GlslcExe)'))]" Importance="high" />
+    <Message Text="  glslangValidator: $(_GlslangExe)  [present: $(Exists('$(_GlslangExe)'))]" Importance="high" />
+    <Message Text="  dxc.exe     : $(_DxcExe)  [present: $(Exists('$(_DxcExe)'))]" Importance="high" />
+    <!-- HLSL shader compiler (d3dcompiler — Windows SDK, resolved by MSVC automatically) -->
+    <Message Text="  HLSL d3dcompiler: via Windows SDK (d3dcompiler.lib / D3DCompile API)" Importance="high" />
+    <!-- OpenGL / GLEW -->
+    <Message Text="  OpenGL GL   : Windows SDK opengl32.lib + glu32.lib (system)" Importance="high" />
+    <Message Text="  GLEW hdr dir: $(_GLIncludeDir)  (glew.h present: $(Exists('$(_GlewH)')))" Importance="high" />
+    <Message Text="  GLEW lib    : $(_GlewLib)  [present: $(Exists('$(_GlewLib)'))]" Importance="high" />
+    <Message Text="  OpenGL Note : If glew.h absent, Includes.h falls back to Windows SDK gl.h" Importance="high" />
+    <Message Text="════════════════════════════════════════════════════════════" Importance="high" />
+    <!-- Warn if Vulkan SDK not found -->
+    <Warning Text="VULKAN_SDK environment variable is not set — Vulkan headers and libraries will be missing." Condition="'$(_VkSDK)' == ''" />
+    <Warning Text="glew.h not found in $(ProjectDir)include\GL — OpenGL renderer will fall back to bare gl.h (OpenGL 1.1 only)." Condition="!Exists('$(_GlewH)')" />
+  </Target>
+
   <Target Name="ComputeLinkImportLibraryOutputsForClean" Condition=" '$(TargetFramework)' != '' ">
     <!-- Add a default or no-op action here -->
   </Target>

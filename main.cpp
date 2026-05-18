@@ -46,8 +46,10 @@
 #include <memory>
 
 #if defined(PLATFORM_WINDOWS)
+    #include <initguid.h>                           // MUST be first: defines INITGUID so every DEFINE_PROPERTYKEY call below emits a real symbol definition into this .obj (not just a declaration)
     #include <endpointvolume.h>
     #include <mmdeviceapi.h>
+    #include <functiondiscoverykeys_devpkey.h>
 #endif
 
 // --------------------------------------------
@@ -275,6 +277,96 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard);
 // Helpers
 // *----------------------------------------------------------------------------------------------
 #if defined(PLATFORM_WINDOWS)
+
+// Queries all four standard WASAPI endpoints at startup and logs their friendly names and
+// hardware form factors. This makes it immediately visible which physical device each audio
+// subsystem (SoundManager, ScreenRecorder loopback, mic capture, TTS) will route through,
+// and exposes any mismatch between the user's Windows audio settings and what the engine expects.
+static void DetectAndLogAudioDevices()
+{
+    auto GetDeviceName = [](IMMDevice* pDev) -> std::wstring {
+        if (!pDev) return L"(none)";
+        IPropertyStore* pStore = nullptr;
+        if (FAILED(pDev->OpenPropertyStore(STGM_READ, &pStore))) return L"(unknown)";
+        PROPVARIANT var;
+        PropVariantInit(&var);
+        std::wstring name = L"(unknown)";
+        if (SUCCEEDED(pStore->GetValue(PKEY_Device_FriendlyName, &var)) && var.vt == VT_LPWSTR)
+            name = var.pwszVal;
+        PropVariantClear(&var);
+        pStore->Release();
+        return name;
+    };
+
+    auto GetFormFactor = [](IMMDevice* pDev) -> std::wstring {
+        if (!pDev) return L"";
+        IPropertyStore* pStore = nullptr;
+        if (FAILED(pDev->OpenPropertyStore(STGM_READ, &pStore))) return L"";
+        PROPVARIANT var;
+        PropVariantInit(&var);
+        std::wstring ff;
+        if (SUCCEEDED(pStore->GetValue(PKEY_AudioEndpoint_FormFactor, &var)) && var.vt == VT_UI4)
+        {
+            switch (var.uintVal)
+            {
+            case RemoteNetworkDevice:       ff = L"RemoteNetwork";    break;
+            case Speakers:                  ff = L"Speakers";         break;
+            case LineLevel:                 ff = L"LineLevel";        break;
+            case Headphones:                ff = L"Headphones";       break;
+            case Microphone:                ff = L"Microphone";       break;
+            case Headset:                   ff = L"Headset";          break;
+            case Handset:                   ff = L"Handset";          break;
+            case UnknownDigitalPassthrough: ff = L"DigitalPassthru";  break;
+            case SPDIF:                     ff = L"SPDIF";            break;
+            case DigitalAudioDisplayDevice: ff = L"HDMI/DisplayPort"; break;
+            default:                        ff = L"Unknown";          break;
+            }
+        }
+        PropVariantClear(&var);
+        pStore->Release();
+        return ff;
+    };
+
+    IMMDeviceEnumerator* pEnum = nullptr;
+    if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr,
+                                CLSCTX_ALL, IID_PPV_ARGS(&pEnum))))
+    {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[AudioDevices]: Device enumerator unavailable.");
+        return;
+    }
+
+    struct Query { EDataFlow flow; ERole role; const wchar_t* label; };
+    const Query queries[] = {
+        { eRender,  eConsole,        L"Playback  (Default)"       },
+        { eRender,  eCommunications, L"Playback  (Communications)" },
+        { eCapture, eConsole,        L"Capture   (Default)"        },
+        { eCapture, eCommunications, L"Capture   (Communications)" },
+    };
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[AudioDevices] ======== Audio Device Report ========");
+    for (const auto& q : queries)
+    {
+        IMMDevice* pDev = nullptr;
+        HRESULT hr = pEnum->GetDefaultAudioEndpoint(q.flow, q.role, &pDev);
+        if (SUCCEEDED(hr))
+        {
+            std::wstring name = GetDeviceName(pDev);
+            std::wstring ff   = GetFormFactor(pDev);
+            std::wstring msg  = std::wstring(q.label) + L": " + name;
+            if (!ff.empty()) msg += L"  [" + ff + L"]";
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[AudioDevices] " + msg);
+            pDev->Release();
+        }
+        else
+        {
+            debug.logLevelMessage(LogLevel::LOG_INFO,
+                std::wstring(L"[AudioDevices] ") + q.label + L": (not available)");
+        }
+    }
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[AudioDevices] ====================================");
+    pEnum->Release();
+}
+
 // Sets the Windows default audio endpoint master volume. vol64 is 0-MAX_GLOBAL_VOLUME mapped to 0.0-1.0.
 void ApplySystemMasterVolume(int vol64)
 {
@@ -387,6 +479,14 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         if (FAILED(MFStartup(MF_VERSION))) {
             debug.logLevelMessage(LogLevel::LOG_WARNING, L"[SYSTEM]: Media Foundation startup failed – screen recording unavailable.");
         }
+
+        // Detect and log every active audio endpoint so it is immediately clear which
+        // physical device (headphones, speakers, headset mic, built-in mic, etc.) each
+        // audio subsystem will route through. Check the debug log if audio goes to the
+        // wrong output — the mismatch will be visible here.
+        #if defined(PLATFORM_WINDOWS)
+            DetectAndLogAudioDevices();
+        #endif
 
         // Initialise our Randomizer system.
         if (!myRandomizer.Initialize()) {

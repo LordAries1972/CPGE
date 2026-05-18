@@ -1,0 +1,44 @@
+main.cpp - History - 18-05-2026 (b)
+=====================================
+
+BUG FIX: PKEY_AudioEndpoint_FormFactor unresolved — moved <initguid.h> to first position in PLATFORM_WINDOWS block
+
+PKEY_AudioEndpoint_FormFactor (and PKEY_Device_FriendlyName) are
+defined via the DEFINE_PROPERTYKEY macro in
+<functiondiscoverykeys_devpkey.h>.
+
+That macro has two behaviours:
+  - INITGUID defined   → emits the full DECLSPEC_SELECTANY definition
+                         inline in the translation unit. No lib needed.
+  - INITGUID not defined → emits only "EXTERN_C const PROPERTYKEY NAME;"
+                           (declaration only). Linker then looks for the
+                           definition in propsys.lib or similar — which
+                           may not export these audio property keys.
+
+ROOT CAUSE OF PREVIOUS FAILED ATTEMPT:
+  <initguid.h> was placed between <mmdeviceapi.h> and
+  <functiondiscoverykeys_devpkey.h>. However, <mmdeviceapi.h> and
+  <endpointvolume.h> both transitively include <propkeydef.h>, which is
+  the header that actually defines the DEFINE_PROPERTYKEY macro.
+  <propkeydef.h> has an include guard (#ifndef _PROPKEYDEF_H_).
+  Once it is processed without INITGUID defined, its include guard
+  prevents re-processing — adding <initguid.h> afterward has no effect
+  because DEFINE_PROPERTYKEY has already been defined in its
+  declaration-only form.
+
+Fix: Moved #include <initguid.h> to the FIRST include inside the
+PLATFORM_WINDOWS block in main.cpp, before <endpointvolume.h> and
+<mmdeviceapi.h>. This guarantees INITGUID is defined before any
+transitive pull-in of <propkeydef.h> occurs, so DEFINE_PROPERTYKEY
+emits the actual constant definition into main.obj. propsys.lib is
+NOT required.
+
+Include order after fix:
+  #if defined(PLATFORM_WINDOWS)
+      #include <initguid.h>                   // FIRST — must be before any header that pulls in propkeydef.h
+      #include <endpointvolume.h>
+      #include <mmdeviceapi.h>
+      #include <functiondiscoverykeys_devpkey.h>
+  #endif
+
+Files changed: main.cpp
