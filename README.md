@@ -63,7 +63,9 @@ There are several demos that you can view to see the capabilites of CPGE.  I wil
 ## Known Issues
 These are the following known issues and will be resolved as humanly possible.
 
-1) Window Resizing in Window Mode.
+1) [ MAJOR ] Scene Cacheing is causing problems!  Reloads are not giving back the correct wanted data and flips on models!
+2) SCENE Loading has dramatically slowed!  Optimisations has been performed, but still too slow for my liking!
+3) Fader Transition in the FXManager (Possiblably broken due to OpenGL Implmentation - Currently look at it!)
 
 ## Getting Started
 
