@@ -24,13 +24,13 @@
 //#define _DEBUG_CONFIGURATION_
 //#define _DEBUG_SOUNDMANAGER_
 #define _DEBUG_SCENEMANAGER_                                            // Define this line, to show all debug output to runtime console for the SceneManager class.
-//#define _DEBUG_GLTFANIMATOR_                                              // Define this line, to show all debug output for the GLTFAnimator class.
+//#define _DEBUG_GLTFANIMATOR_                                            // Define this line, to show all debug output for the GLTFAnimator class.
 //#define _DEBUG_SHADERMANAGER_                                           // Define this line, to show all debug output for the ShaderManager class.
 //#define _DEBUG_NETWORKMANAGER_                                          // Define this line, to show all debug output to runtime console for the NetworkManager class.
 //#define _DEBUG_SCENE_TRANSITION_                                        // Debug Info for Scene Transistions.
 //#define _DEBUG_GAMINGAI_                                                // Define this line, to show all debug output for the GamingAI class.
-//#define _DEBUG_PUNPACK_                                                  // Define this line, to show all debug output for the PUNPuck class.
-//#define _DEBUG_GAMEPLAYER_                                               // Define this line, to show all debug output for the GamePlayer class.
+//#define _DEBUG_PUNPACK_                                                 // Define this line, to show all debug output for the PUNPuck class.
+//#define _DEBUG_GAMEPLAYER_                                              // Define this line, to show all debug output for the GamePlayer class.
 //#define _DEBUG_PHYSICS_                                                 // Define this line, to show all debug output for the Physics class.
 //#define _DEBUG_MYRANDOMIZER_                                            // Define this line, to show all debug output for the MyRandomizer class.
 //#define _DEBUG_TTSMANAGER_                                              // Define this line, to show all debug output for the TTSManager class.
@@ -59,20 +59,22 @@
 // ----------------------------------------------------------------------------------------------
 //#define _DEBUG_RENDERER_                                                    // Define this line, to show all debug output to runtime console for the DX11Renderer class.
 //#define _DEBUG_DX12RENDERER_                                                // Define this line, to show all debug output to runtime console for the DX12Renderer class.
-#define _DEBUG_PIXSHADER_
+//#define _DEBUG_PIXSHADER_
 
 //#define _DEBUG_CAMERA_
 //#define _DEBUG_MODEL_
 //#define _DEBUG_MODEL_RENDERER_
 //#define _DEBUG_LIGHTING_
-#define _DEBUG_RENDER_WIREFRAME_
+//#define _DEBUG_RENDER_WIREFRAME_
 #endif
 
 // ----------------------------------------------------------------------------------------------
 // OPENGL Debug flags.
 // ----------------------------------------------------------------------------------------------
-#define _DEBUG_OPENGLRENDERER_                                          // Define this line, to show all debug output for the OpenGLRenderer class.
- 
+#if defined(__USE_OPENGL__)
+    #define _DEBUG_OPENGLRENDERER_                                          // Define this line, to show all debug output for the OpenGLRenderer class.
+#endif // end of OPENGL Debug flags 
+
 // ----------------------------------------------------------------------------------------------
 // Define MACROS for error handling and reporting
 // ----------------------------------------------------------------------------------------------

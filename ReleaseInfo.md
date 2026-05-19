@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1246*
+*Current Build Version: v0.0.1265 — May 19, 2026*
 
 ---
 
@@ -842,108 +842,27 @@ Once the base DirectX 11 implementation is complete, the project will be release
     alongside `SetMicMonitorGain`, keeping monitor and record gain permanently in sync.
 - *See: [`ScreenRecorder.h`](ScreenRecorder.h), [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp), [`main.cpp`](main.cpp)*
 
-**May 16, 2026** - Console Output Window (F8 toggle):
+**May 16, 2026** - Console Output Window, WarpDotTunnel enhancements and spin fix:
 
-- **ConsoleWindow class** introduced — a lightweight, scene-aware OSD console rendered directly
-  via the `Renderer` interface (no GUIManager dependency).
-- **50-line circular buffer** (`std::deque<ConsoleLine>`): oldest line evicted automatically when
-  the buffer exceeds the limit. Thread-safe for `AddLine()` called from any thread.
-- **14-line visible area** with newest line always at the bottom and empty slots pushed to the top
-  when the buffer is sparse.
-- **Vertical scrollbar** on the far-right edge of the window: thumb is proportional to the
-  filled fraction of the buffer and positioned at the bottom when showing the newest lines.
-  Scrollable with **Page Up / Page Down** (3 lines per keypress); only active when console is visible.
-- **"Console" titlebar** across the top of the window.
-- **Small font** — size is computed as `clamp(screenHeight / 108, 8, 12)` giving ~10pt at 1080p,
-  scaling down to 8pt on smaller displays and capped at 12pt on large ones.
-- **Scene restriction** — only rendered in `SCENE_GAMETITLE` and `SCENE_GAMEPLAY`. The render site
-  in `DXRenderFrame.cpp` skips the draw while `scene.bSceneSwitching` is true, hiding the console
-  automatically during all scene transitions without changing `bIsVisible`.
-- **F8 key handler** added in `KBHandlersCode.cpp`: toggles `consoleWindow.Toggle()` only when
-  the current scene is `SCENE_GAMETITLE` or `SCENE_GAMEPLAY`; ignored in all other scenes.
-- **Window position** — bottom margin raised to 50 px so the console clears the Windows taskbar.
-- **Window size** — width clamp raised to 80 % of screen width / max 1400 px; visible
-  lines raised from 10 to 14 for a taller content area.
-- **Text no-wrap** — lines are drawn with the unbounded `DrawMyText` overload (no size rect) so
-  long lines extend to the right rather than wrapping to a second row.
-- **Mouse input** — scrollbar now responds to the mouse in addition to Page Up / Page Down:
-  - **Mouse wheel** — when the console is visible the wheel is fully captured and scrolls
-    the buffer 3 lines per tick; camera zoom is suppressed while the console is open.
-  - **Scrollbar click** — clicking anywhere on the scrollbar track jumps directly to that
-    position in the buffer (top = oldest lines, bottom = newest).
-  - Scrollbar geometry (x, y, height) is cached each `Render()` frame for zero-cost hit-testing.
-- **Buffer raised** — `CONSOLE_MAX_LINES` increased from 50 to 100 lines.
-- **Debug system integration** — in `_DEBUG` builds all `Debug::` output paths forward to the
-  console window with per-line colour:
-  - `LOG_WARNING` / `LogWarning()` → **yellow** `(255, 220, 0)`
-  - `LOG_ERROR` / `LOG_CRITICAL` / `LogError()` → **orange** `(255, 140, 0)`
-  - All other levels / `Log()` / `DebugLog()` / `LogFunction()` → **white** `(210, 210, 210)`
-  - Forwarding is inside `#ifdef _DEBUG` blocks; Release builds unchanged.
-- *See: [`ConsoleWindow.h`](ConsoleWindow.h), [`ConsoleWindow.cpp`](ConsoleWindow.cpp),
-  [`Debug.cpp`](Debug.cpp), [`KBHandlersCode.cpp`](KBHandlersCode.cpp),
-  [`DXRenderFrame.cpp`](DXRenderFrame.cpp)*
+**Console Output Window (F8 toggle):**
 
-**May 16, 2026** - WarpDotTunnel visual and motion enhancements:
+- **ConsoleWindow class** — lightweight scene-aware OSD rendered via `Renderer` (no GUIManager dependency). 100-line circular buffer (`std::deque<ConsoleLine>`), thread-safe `AddLine()`.
+- **14-line visible area**: newest line at bottom; vertical scrollbar with proportional thumb. Page Up / Page Down (3 lines/press) + mouse wheel capture + scrollbar click-to-jump. Scrollbar geometry cached per frame for zero-cost hit-testing.
+- **Font**: `clamp(screenHeight / 108, 8, 12)` — ~10pt at 1080p, scales with resolution.
+- **Scene restriction**: only rendered in `SCENE_GAMETITLE` / `SCENE_GAMEPLAY`; suppressed automatically during `bSceneSwitching`. F8 handler in `KBHandlersCode.cpp` ignores all other scenes.
+- **Layout**: width 80 % of screen / max 1400 px; bottom margin 50 px to clear taskbar; long lines extend right (no wrap).
+- **Debug integration** (`_DEBUG` only): all `Debug::` paths forward to console — `LOG_WARNING` → yellow, `LOG_ERROR`/`LOG_CRITICAL` → orange, all others → white. Release builds unchanged.
+- *See: [`ConsoleWindow.h`](ConsoleWindow.h), [`ConsoleWindow.cpp`](ConsoleWindow.cpp), [`Debug.cpp`](Debug.cpp), [`KBHandlersCode.cpp`](KBHandlersCode.cpp), [`DXRenderFrame.cpp`](DXRenderFrame.cpp)*
 
-- **Sequential gray color cycling**: Each ring is now assigned a fixed shade from an 8-step
-  dark-to-white gray ramp (`colorStep = ringIndex % 8`). Shades cycle sequentially across
-  rings so the tunnel always shows the full gradient simultaneously — very dark grey, through
-  mid-tones, up to pure white — and the pattern wraps cleanly when ring count exceeds 8.
-  - Ramp values: `{0.08, 0.19, 0.30, 0.44, 0.58, 0.72, 0.86, 1.0}` (linear-ish perceptual steps)
-  - Replaces the previous blue-tinted brightness that was tied to per-ring `pathT` depth.
-  - `kGraySteps = 8` constant added to `WarpTunnelData` / `VKWarpTunnelData`.
-  - `colorStep` field added to `TunnelRing` / `VKTunnelRing`.
+**WarpDotTunnel visual and motion enhancements:**
 
-- **Quartic forward acceleration with 1.0× minimum**: Speed floor raised so far rings are
-  always visibly moving; quartic surge retained for the explosive close approach.
-  Formula: `1.0 + t⁴ × 10.0` (forward), `1.0 + t⁴ × 6.0` (reverse).
-  - Far end (t = 0): factor = **1.0×** → 80 units/s (clearly moving at all times)
-  - Camera (t = 1): factor = **11.0×** → 880 units/s (violent final rush)
-  - Average ~3.0× → 240 units/s → ~3.3-second full ring pass at `travelSpeed=80`.
-
-- **Straight-line ring travel with per-ring birth offset (`bornCx`/`bornCy`)**: Rings no
-  longer drift laterally during flight. Each ring is assigned a birth position at spawn/reset
-  from a **circular** (sin X, cos Y) wave, then travels dead-straight from there to camera.
-  - At wrap: `phase = sideWaveTime × kSideWaveSpeed`; `bornCx = startX + kSideWaveRadius × sin(phase)`;
-    `bornCy = startY + kSideWaveRadius × cos(phase)`. X and Y are 90° out of phase so the far end
-    traces a circle, not a diagonal line — gives the proper Doctor Who helical corridor feel.
-  - At init: rings staggered with `sin/cos(fraction × 2π)` — circular distribution from frame 1.
-  - `ring.cx = ring.bornCx`, `ring.cy = ring.bornCy` throughout — immutable after birth.
-  - `bornCx` and `bornCy` fields added to `TunnelRing` / `VKTunnelRing`.
-  - `kSideWaveRadius` and `kSideWaveSpeed` constants added to both structs:
-    DX: `kSideWaveRadius = 80.0`, `kSideWaveSpeed = 0.85 rad/s` (wider, faster sway).
-    VK: `kSideWaveRadius = 60.0`, `kSideWaveSpeed = 0.50 rad/s` (narrower, slower sway).
-
-- **Camera look-ahead tuned to 20 rings**: Look-ahead index raised to `min(19,…)`. Camera
-  now tracks the **20th-nearest ring**, providing a much more distant aim point that smooths
-  out the visual jerkiness caused by individual fast-moving near rings.
-
-- **Smooth camera transitions — exponential ease on look target**: The camera no longer
-  snaps to the computed look-ahead ring position each frame. A `smoothLookTarget` is stored
-  in `WarpTunnelData` and updated per-frame using a framerate-independent exponential lerp:
-  `alpha = 1 − exp(−kCameraSmooth × dt)`.
-  - At 60 fps the camera closes the gap smoothly each frame — no snap.
-  - `smoothLookTarget` is seeded to `(startX, startY, farZ)` at init so the first frame
-    aims straight down the tunnel with no startup snap.
-  - `kCameraSmooth` is a `static constexpr` in both structs for easy tuning:
-    DX: `kCameraSmooth = 4.0` (~95 % gap closed in ~0.75 s — snappier).
-    VK: `kCameraSmooth = 3.0` (~95 % gap closed in ~1 s — slightly lazier).
-
-- *See: [`DX_FXManager.h`](DX_FXManager.h), [`DX_FXManager.cpp`](DX_FXManager.cpp),
-  [`VULKAN_FXManager.h`](VULKAN_FXManager.h), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp)*
-
-**May 16, 2026** - WarpDotTunnel reverse-mode spin direction fix:
-
-- **Bug fix — reverse travel spin direction inverted**: When `reverseTravel = true`, rings
-  travel away from the camera. Because the direction of travel is opposite to forward mode,
-  the perceived rotation direction was also reversed — specifying `TunnelSpinCycle::Clockwise`
-  in reverse mode caused the rings to appear counter-clockwise, and vice versa.
-  - Fix: the spin delta is negated when `reverseTravel = true`:
-    `spinDelta = (reverseTravel ? -spinSpeed : spinSpeed) * dt`
-  - Result: `Clockwise` and `AntiClockwise` now produce consistent visual results regardless
-    of travel direction. The fix is applied identically in both `DX_FXManager.cpp` and
-    `VULKAN_FXManager.cpp`.
-- *See: [`DX_FXManager.cpp`](DX_FXManager.cpp), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp)*
+- **8-step sequential gray ramp** (`colorStep = ringIndex % 8`): values `{0.08…1.0}` cycle across rings so the full dark-to-white gradient is always simultaneously visible. `kGraySteps`, `colorStep` added to both DX and VK structs.
+- **Quartic acceleration, 1.0× minimum**: `1.0 + t⁴ × 10.0` (forward) / `1.0 + t⁴ × 6.0` (reverse) — far rings always visibly moving (80 u/s), near rings surge to 880 u/s.
+- **Per-ring birth offset** (`bornCx`/`bornCy`): assigned at spawn from a circular sin/cos wave (X and Y 90° out of phase); rings travel dead-straight from birth position to camera — helical corridor feel. `kSideWaveRadius`/`kSideWaveSpeed` constants: DX `80.0 / 0.85 rad/s`, VK `60.0 / 0.50 rad/s`.
+- **Camera look-ahead raised to 20 rings**: tracks the 20th-nearest ring, smoothing jitter from fast near-rings.
+- **Exponential ease on look target** (`smoothLookTarget`): framerate-independent lerp `alpha = 1 − exp(−kCameraSmooth × dt)`. DX `kCameraSmooth = 4.0`, VK `3.0`. Seeded to `(startX, startY, farZ)` at init — no startup snap.
+- **Bug fix — reverse-mode spin direction inverted**: spin delta negated when `reverseTravel = true` (`spinDelta = (reverseTravel ? -spinSpeed : spinSpeed) * dt`). `Clockwise`/`AntiClockwise` now consistent regardless of travel direction. Applied identically in DX and VK.
+- *See: [`DX_FXManager.h`](DX_FXManager.h), [`DX_FXManager.cpp`](DX_FXManager.cpp), [`VULKAN_FXManager.h`](VULKAN_FXManager.h), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp)*
 
 **May 17, 2026** - Full multi-renderer implementation pass — OpenGL/Vulkan infrastructure, build system fixes, and zero-error OpenGL build achieved (v0.0.1219):
 
@@ -1088,6 +1007,87 @@ Once the base DirectX 11 implementation is complete, the project will be release
 
 - *See: [`Configuration.cpp`](Configuration.cpp), [`ShaderLoaders.cpp`](ShaderLoaders.cpp),
   [`MoviePlayer.cpp`](MoviePlayer.cpp)*
+
+**May 19, 2026** - SceneManager cache, models disk cache, version overlay, window client-area fix, renderer selection centralised (v0.0.1262):
+
+**SceneManager — geometry pre-cache and bug fixes:**
+
+- **Two-tier cache**: `models[MAX_MODELS]` survives scene switches; `scene_models[]` is per-scene. New `ModelInfo` fields (`sourceSceneFile`, `bGpuReady`, `cachedInstanceIndex`) drive a fast-path that skips all file I/O and GPU setup after first load.
+- **Fast-path rebuild**: `ParseGLBScene`/`ParseGLTFScene` scan `models[]` for `bGpuReady` entries and rebuild `scene_models[]` from cache without file I/O, JSON parse, or `SetupModelForRendering`. Animations restarted via `ForceAnimationReset` + `StartAnimation`.
+- **Write-back on first load**: both write-back blocks now call `models[modelSlot].CopyFrom(scene_models[instanceIndex])` so GPU resources (vertex/index buffers, SRVs, shaders) are live in both arrays simultaneously via ComPtr/shared_ptr AddRef.
+- **FNV-1a vertex hasher**: replaced XOR-chained hash (collision-prone for repeated components) with FNV-1a over raw `VertexKey` bytes; `reserve()` hints added to eliminate rehash reallocations during vertex welding.
+- **Single-pass slot scan**: one O(MAX_MODELS) pass tracking `modelSlot` + `firstFree`, replacing two sequential passes.
+- **Load timing** (`_DEBUG_SCENEMANAGER_`): `high_resolution_clock` at BEGIN/END of both parse functions; fast-path hits log elapsed time.
+- **Bug fix — cross-scene name collision / Z-flip contamination**: slot lookup now requires `name == primName` AND `(sourceSceneFile.empty() OR sourceSceneFile == m_currentSceneFile)`. Prevents scene B reusing scene A's slot when they share a model name.
+- **Bug fix — transform-only node position cached as (0,0,0)**: position extracted from `worldTransform._41/_42/_43` instead of `m_modelInfo.position` (zeroed by `DestroyModel()` before read).
+- **CACHE-WRITE / CACHE-RESTORE debug log lines**: confirm Z-flip preserved end-to-end in both `ParseGLB/GLTFNodeRecursive` write-back and fast-path restore.
+- **`main.cpp` preprocessor fixes**: `||` inside `defined()` corrected; bare `#elif` replaced with `#else`.
+- *See: [`SceneManager.h`](SceneManager.h), [`SceneManager.cpp`](SceneManager.cpp), [`Models.h`](Models.h), [`main.cpp`](main.cpp)*
+
+**Models disk cache (`cache.dat`) — on-disk persistence of the global models[] pool:**
+
+- **`MODELS_CACHE_FILENAME`** define added to `Includes.h`; resolves to `"cache.dat"` in the working directory.
+- **`SceneManager::SaveCache(filepath)`**: serialises all loaded entries in `models[MAX_MODELS]` (CPU-side geometry, transforms, GLTF binary blob, material names, PBR properties) to a compact binary file on program exit — called in `main.cpp` before `fxManager.CleanUp()` / `scene.CleanUp()`.
+- **`SceneManager::LoadCache(filepath)`**: called in `main.cpp` immediately after `scene.Initialize(renderer)`. Validates magic number, version, and `sizeof(Vertex)` before restoring each slot. If the cache file is absent a debug message (`_DEBUG_SCENEMANAGER_` only) informs the user that a full model reload is required.
+- **Platform guards**: file-existence check uses `GetFileAttributesA()` on Windows, `access()` (POSIX) on Linux / Android / Apple / iOS; file I/O uses `std::fstream` throughout. Both methods compile cleanly on all five target platforms.
+- **Debug output** (`_DEBUG_SCENEMANAGER_` + `_DEBUG` only): save reports model count written; load reports model count restored; absent-file case explicitly states "full model reload required".
+- *See: [`Includes.h`](Includes.h), [`SceneManager.h`](SceneManager.h), [`SceneManager.cpp`](SceneManager.cpp), [`main.cpp`](main.cpp)*
+
+**Version overlay — now shows `<GameName> <Platform> <Renderer> v<Major>.<Minor>.<Build>`:**
+
+- **`GAME_NAME_W`**, **`PLATFORM_NAME_W`**, **`RENDERER_NAME_W`** compile-time wide-string macros added to `Includes.h` after the platform-detection block, covering Windows / Linux / Android / macOS / iOS and DirectX 11 / 12 / OpenGL / Vulkan.
+- **`DXRenderFrame.cpp`** version overlay text updated from the hardcoded `"DirectX 11 v..."` to `GAME_NAME_W " " PLATFORM_NAME_W " " RENDERER_NAME_W " v..."` — adjacent string literals concatenated at compile time, zero runtime overhead.
+- *See: [`Includes.h`](Includes.h), [`DXRenderFrame.cpp`](DXRenderFrame.cpp)*
+
+**Window client-area resolution fix — renderer now gets exact configured dimensions:**
+
+- **Root cause**: `CreateWindowEx` was passed the raw config resolution (e.g. 720×480) as OUTER window dimensions. Windows adds the title bar (~31 px) and thin DWM borders, leaving the client area ~30–40 px shorter than configured. `winMetrics.clientHeight` was therefore wrong at renderer initialization, causing `iOrigHeight` (used for all UI/camera math) to be off by the non-client overhead.
+- **Fix** (`main.cpp`): Before `CreateWindowEx`, compute `wndOuterW/H` via `AdjustWindowRect(&wndRect, WS_OVERLAPPEDWINDOW, FALSE)` and pass those expanded values — the client area is now exactly 720×480 (or whatever `GameConfig.cfg` specifies). Config values are unchanged.
+- This fix covers all three affected renderers (DX11, DX12, OpenGL) which all read `winMetrics.clientWidth/Height` at initialization; Vulkan was already correct (derives size from swap-chain surface extent).
+- *See: [`main.cpp`](main.cpp)*
+
+**Renderer selection centralised to Includes.h (MSVC 2022 project):**
+
+- **Root cause**: `CrossPlatformGameEngine.vcxproj` was injecting the renderer preprocessor symbol (`__USE_DIRECTX_11__` etc.) via `$(_RendererDefine)` in `PreprocessorDefinitions`, derived from an `<ActiveRenderer>` UserMacro. This meant the active renderer was set in TWO places — the vcxproj AND the fallback block in `Includes.h` — and changing Includes.h alone had no effect.
+- **`CrossPlatformGameEngine.vcxproj`**: removed `<ActiveRenderer>`, `<_RendererPrefix>`, and `<_RendererDefine>` property groups; stripped `$(_RendererDefine);` from both Debug and Release `PreprocessorDefinitions`; simplified `<TargetName>` from `$(_RendererPrefix)$(GameName)` to `$(GameName)` (output binary is now `CPGE.exe`). CMakeLists.txt is unchanged.
+- **`Includes.h`**: the Windows renderer block is now an unconditional selection — uncomment exactly one `#define __USE_*__` to choose the compiled renderer. The old `#if !defined(...)` fallback guard is replaced by a `#error` that fires if none of the four symbols are defined, making misconfiguration a compile error rather than a silent wrong choice.
+- *See: [`Includes.h`](Includes.h), [`CrossPlatformGameEngine.vcxproj`](CrossPlatformGameEngine.vcxproj)*
+
+**Bug fix — C4005 macro redefinition warnings on CMake build (v0.0.1264):**
+
+- **Root cause**: `CMakeLists.txt` was still passing `${RENDERER_DEFINE}` (e.g. `__USE_DIRECTX_11__`) via `target_compile_definitions`, meaning the symbol arrived TWICE — once on the compiler command line from CMake and once via `#define` in `Includes.h` line 83. This produced a C4005 warning for every translation unit in the CMake build path.
+- **Fix — `CMakeLists.txt`**: removed `${RENDERER_DEFINE}` from `target_compile_definitions`. Renderer selection now lives exclusively in `Includes.h`; CMake still reads the `RENDERER` cache variable for output-name and status-message purposes but no longer injects the symbol at the compiler level.
+- **Fix — `build/Debug/CrossPlatformGameEngine.vcxproj`**: stripped the stale `;__USE_DIRECTX_11__` entry from all four configuration `PreprocessorDefinitions` blocks in the currently generated file so VS builds are clean immediately. This file is regenerated on every `cmake-build.bat` run; the CMakeLists.txt change ensures future regenerations are also correct.
+- *See: [`CMakeLists.txt`](CMakeLists.txt), [`build/Debug/CrossPlatformGameEngine.vcxproj`](build/Debug/CrossPlatformGameEngine.vcxproj)*
+
+**Bug fix — duplicate log output + materials/animations not restored after disk-cache load (v0.0.1265):**
+
+- **Duplicate log output — `Debug.cpp`**: `logDebugMessage` was calling `logLevelMessage` (which already writes the tagged message to the log file) and then calling `Insert_Into_Log_File` a second time with the untagged message. Every debug call produced two log file lines — one with `[INFO]:` prefix and one without. Removed the redundant `Insert_Into_Log_File` call from `logDebugMessage`; `logLevelMessage` is the single authoritative writer.
+- **Root cause of repeated parse messages**: `LoadGLTFMeshPrimitives` debug messages (`Processing N primitives`, `PRE-ALLOCATED N texture slots`, `gltfBinaryData size`) are inside `_DEBUG_SCENEMANAGER_` guards and are only called during a full parse. With the duplicate output fixed, each message appears exactly once per full parse. On subsequent reloads the fast-path returns `true` before the full parse is reached, so these messages do not repeat.
+- **Materials not restored after disk-cache load**: `ParseMaterialsFromGLTF` is only called in the full-parse path; after a disk-cache startup the fast-path fired without it. Fixed in both `ParseGLBScene` and `ParseGLTFScene` fast-paths: if `!bAnimationsLoaded` (indicator that the session is a fresh startup from disk cache), the GLB/GLTF file is re-opened and its JSON + BIN chunks are read — no geometry processing — and `ParseMaterialsFromGLTF(miniDoc)` is called to restore material data.
+- **Animations not restored after disk-cache load**: Same root cause. `gltfAnimator.ParseAnimationsFromGLTF` was never called in the fast-path on disk-cache startup, leaving `bAnimationsLoaded = false` and `gltfAnimator` empty. The same mini-parse now calls `gltfAnimator.ParseAnimationsFromGLTF(miniDoc, gltfBinaryData)`. Animation instances are then created via `CreateAnimationInstance` (a no-op if the instance already exists on same-session reloads) followed by `ForceAnimationReset` + `StartAnimation`.
+- *See: [`Debug.cpp`](Debug.cpp), [`SceneManager.cpp`](SceneManager.cpp)*
+
+**Resolution — all paths driven by GameConfig.cfg (fallback 800×600 if file absent):**
+
+- **`CreateWindowEx`** passes `config.myConfig.resolutionWidth/Height` instead of `DEFAULT_WINDOW_WIDTH/HEIGHT`.
+- **DX11 / DX12 `SetFullExclusive`**: `targetMode.RefreshRate.Numerator` reads `config.myConfig.refreshRate` (was hardcoded 60); windowed-restore fallback uses config values instead of `DEFAULT_WINDOW_WIDTH/HEIGHT`.
+- **Vulkan `SetWindowedScreen`**: `SetWindowPos` and `Resize` use `config.myConfig.resolutionWidth/Height`.
+- **DX11 / DX12 exclusive fullscreen — desktop capture and restore**: `EnumDisplaySettings(nullptr, ENUM_CURRENT_SETTINGS, &m_originalDesktopMode)` called before `SetFullscreenState(TRUE)`; new `bool m_isExclusiveFullscreen` member tracks state. `Cleanup()` calls `SetFullscreenState(FALSE, nullptr)` + `ChangeDisplaySettingsEx` with the saved `DEVMODE` before releasing the swap chain — previously the swap chain was freed while exclusive, leaving the desktop stuck at the game resolution until reboot.
+- *See: [`main.cpp`](main.cpp), [`DX11Renderer.h`](DX11Renderer.h), [`DX11Renderer.cpp`](DX11Renderer.cpp), [`DX12Renderer.h`](DX12Renderer.h), [`DX12Renderer.cpp`](DX12Renderer.cpp), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp)*
+
+**FXManager — fader viewport fix:**
+
+- **DX11**: `RenderFullScreenQuad` calls `RSSetViewports(renderer->iOrigWidth × iOrigHeight)` before `Draw(4,0)`. D2D `EndDraw()` leaves D3D11 viewport undefined; inheriting it caused the fade to cover only the stale 800×600 region.
+- **Vulkan**: `RenderFadeFullScreenQuad` calls `vkCmdSetViewport` + `vkCmdSetScissor` before `vkCmdDraw`. The pipeline uses `VK_DYNAMIC_STATE_VIEWPORT/SCISSOR` making these mandatory — previously the draw fired with no viewport.
+- *See: [`DX_FXManager.cpp`](DX_FXManager.cpp), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp)*
+
+**Bug fix — SceneManager disk-cache fast-path: "Model not loaded or constant buffer is invalid" (v0.0.1263):**
+
+- **Root cause**: `LoadCache()` restored `bGpuReady = true` from disk even though GPU COM objects (constantBuffer, vertexBuffer, indexBuffer, samplerState, shaders) cannot be serialised. On the next `ParseGLBScene`/`ParseGLTFScene` call the fast-path fired, called `CopyFrom(models[m])` which shallow-copied null COM pointers, then set `m_isLoaded = true`. The render loop then called `Render()` → `UpdateConstantBuffer()` and failed the `!m_isLoaded || !m_modelInfo.constantBuffer` guard every frame, producing the error and D3D11 index-buffer / sampler warnings.
+- **Fix 1 — `LoadCache()` — GPU re-serialisation**: after all data for a model is read from disk, `SetupModelForRendering()` is called to rebuild the GPU objects (constantBuffer, vertexBuffer, indexBuffer, lightConstantBuffer, materialBuffer, debugConstantBuffer, samplerState) from the cached geometry. `bGpuReady` starts `false` and is set `true` only if setup succeeds — if it fails the model safely falls through to a full GLB parse. Texture SRVs are not cached; fallback solid-colour textures are applied here and replaced by the actual asset textures when the first full parse writes back via `CopyFrom`. `bGpuReady = false` is always the initial state regardless of the serialised flag value.
+- **Fix 2 — defensive guard in both fast-paths** (`ParseGLBScene` and `ParseGLTFScene`): after `CopyFrom(models[m])` inside the `bGpuReady` branch, a `#if defined(__USE_DIRECTX_11__)` guard checks `!constantBuffer && !vertices.empty()`. If true (GPU resources absent despite `bGpuReady`), `SetupModelForRendering(idx)` is called immediately and all resulting GPU handles are written back into `models[m]` so subsequent same-session reloads find valid resources in the fast-path.
+- *See: [`SceneManager.cpp`](SceneManager.cpp)*
 
 ---
 
