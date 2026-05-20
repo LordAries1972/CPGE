@@ -1229,6 +1229,7 @@ void Model::CopyFrom(const Model& other)
 {
     // === Basic Shallow Copy First ===
     m_modelInfo = other.m_modelInfo;
+    m_materials = other.m_materials;
 
 #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
     if (threadManager.threadVars.bIsResizing)

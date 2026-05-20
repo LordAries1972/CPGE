@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1265 — May 19, 2026*
+*Current Build Version: v0.0.1266 — May 20, 2026*
 
 ---
 
@@ -1059,6 +1059,16 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - **Fix — `CMakeLists.txt`**: removed `${RENDERER_DEFINE}` from `target_compile_definitions`. Renderer selection now lives exclusively in `Includes.h`; CMake still reads the `RENDERER` cache variable for output-name and status-message purposes but no longer injects the symbol at the compiler level.
 - **Fix — `build/Debug/CrossPlatformGameEngine.vcxproj`**: stripped the stale `;__USE_DIRECTX_11__` entry from all four configuration `PreprocessorDefinitions` blocks in the currently generated file so VS builds are clean immediately. This file is regenerated on every `cmake-build.bat` run; the CMakeLists.txt change ensures future regenerations are also correct.
 - *See: [`CMakeLists.txt`](CMakeLists.txt), [`build/Debug/CrossPlatformGameEngine.vcxproj`](build/Debug/CrossPlatformGameEngine.vcxproj)*
+
+**May 20, 2026 — SceneManager material restoration root-cause fix + log consolidation (v0.0.1266):**
+
+- **Root cause — PBR material properties lost on cache restore**: `Model::CopyFrom` was copying `m_modelInfo` (which carries `textureSRVs` SRV handles) but silently skipping `m_materials` (the `unordered_map<string, Material>` containing Kd, metallic, roughness, emissive, alpha, and normal-scale scalars). The write-back step (`models[m].CopyFrom(scene_models[i])`) therefore stored an empty material map in `models[]`. On the next scene load the cache fast-path called `CopyFrom(models[m])` → restored empty `m_materials`. During rendering `UpdateMaterialBuffer()` found `m_materials.empty()` → GPU material constants defaulted to zero → wrong/black PBR output despite textures appearing. Fixed by adding `m_materials = other.m_materials;` immediately after `m_modelInfo = other.m_modelInfo` in `CopyFrom`, so material data now survives every copy/write-back/restore cycle.
+- **Log spam — `CleanUp()` per-model Reset lines**: Emitting `scene_models[N] Reset()` once per destroyed model produced dozens of sequential identical-pattern lines. Replaced with a single post-loop summary: `scene_models[first-last] released (N total)`.
+- **Log spam — `LoadGLTFMeshPrimitives` primitive-count header**: `LoadGLTFMeshPrimitives` is called once per primitive (not once per mesh). The `Processing N primitives` + `meshIndex` + `gltfBinaryData size` debug header therefore fired N times for an N-primitive mesh. All three per-call header logs are now guarded by `if (primitiveFilter == 0)` so they fire exactly once per mesh.
+- **Duplicate GLB header validation log**: `ParseGLBScene` printed `GLB Header validated` twice — once with `header.length / actualFileSize` and once with just `header.length`. The second (redundant) block was removed; the mismatch-warning block now includes both values for full context.
+- *See: [`Models.cpp`](Models.cpp), [`SceneManager.cpp`](SceneManager.cpp)*
+
+---
 
 **Bug fix — duplicate log output + materials/animations not restored after disk-cache load (v0.0.1265):**
 

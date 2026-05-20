@@ -77,19 +77,28 @@ void SceneManager::CleanUp()
         debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] CleanUp() called to release scene models.");
     #endif
 
+    #if defined(_DEBUG_SCENEMANAGER_)
+        int _firstDestroyed = -1, _lastDestroyed = -1, _destroyCount = 0;
+    #endif
     for (int i = 0; i < MAX_SCENE_MODELS; ++i)
     {
         if (scene_models[i].m_isLoaded)
         {
-            scene_models[i].DestroyModel();                 // Fully resets GPU buffers, shaders, textures, and internal state
+            scene_models[i].DestroyModel();
             #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[SceneManager] scene_models[%d] Reset().", i);
+                if (_firstDestroyed < 0) _firstDestroyed = i;
+                _lastDestroyed = i;
+                ++_destroyCount;
             #endif
         }
     }
-
     #if defined(_DEBUG_SCENEMANAGER_)
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] CleanUp() completed.");
+        if (_destroyCount > 0)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                L"[SceneManager] scene_models[%d-%d] released (%d total). CleanUp() complete.",
+                _firstDestroyed, _lastDestroyed, _destroyCount);
+        else
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[SceneManager] CleanUp() called — no loaded models to release.");
     #endif
 }
 
@@ -433,13 +442,10 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
     // Handle Blender GLB export bug where header.length is incorrect
     if (header.length != static_cast<uint32_t>(actualFileSize)) {
         #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] GLB header length mismatch - using actual file size for validation (Blender export bug)");
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] GLB header length mismatch (header=%d actual=%d) — Blender export bug, using actual size.",
+                header.length, static_cast<uint32_t>(actualFileSize));
         #endif
     }
-    
-    #if defined(_DEBUG_SCENEMANAGER_)
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] GLB Header validated - Version: %d, Total length: %d bytes", header.version, header.length);
-    #endif
 
     // GLB Chunk Structure: chunkLength(4) + chunkType(4) + chunkData(chunkLength)
     struct GLBChunk {
@@ -1796,8 +1802,10 @@ void SceneManager::ParseGLTFNodeRecursive(const json& node, int nodeIndex, const
 void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model& model, int primitiveFilter)
 {
     #if defined(_DEBUG_SCENEMANAGER_)
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] LoadGLTFMeshPrimitives() - meshIndex: %d", meshIndex);
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] gltfBinaryData size: %d bytes", static_cast<int>(gltfBinaryData.size()));
+    if (primitiveFilter == 0)
+    {
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] LoadGLTFMeshPrimitives() meshIndex: %d | binData: %d bytes", meshIndex, static_cast<int>(gltfBinaryData.size()));
+    }
     #endif
 
     // Validate required GLTF sections. (Prevents invalid JSON access.)
@@ -1838,10 +1846,10 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
     }
 
     #if defined(_DEBUG_SCENEMANAGER_)
-        debug.logDebugMessage(
-            LogLevel::LOG_INFO,
-            L"[SceneManager] Processing %d primitives",
-            static_cast<int>(mesh["primitives"].size()));
+    if (primitiveFilter == 0)
+        debug.logDebugMessage(LogLevel::LOG_INFO,
+            L"[SceneManager] Mesh[%d] has %d primitive(s) to process.",
+            meshIndex, static_cast<int>(mesh["primitives"].size()));
     #endif
 
     // Clear output arrays for this model. (Ensures no stale geometry remains.)
