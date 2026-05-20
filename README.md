@@ -28,12 +28,14 @@ If you like to know more about me and my history, please goto my website at http
 - High-performance rendering
 - Flexible and modular architecture
 - Extensive documentation and tutorials
-- Active community support
 
 ## What you could achieve with CPGE so far!
 With our First Release, you can now create a full working 2D game using the 2D Rendering system via DirectX 11 (DirectX 12 will be soon).  
 
 - Game Configuration Management, 
+- Multiple Renderer Support (DirectX11, DirectX12, OpenGL & Vulkan),
+- Various Debug and Console options (F8 Key) / debug.h
+- Configuration Window (Allows you to modify startup/runtime options),
 - Music & Sounds Management System, 
 - Faders, 2D Partical Explosion, 3D Starfield, Various Text Scrollers,
 - File Loader System & FileIO Management system, 
@@ -46,7 +48,7 @@ With our First Release, you can now create a full working 2D game using the 2D R
 - Networking, 
 - Game AI,
 - Screen and Audio Recording (dumps to recording.mp4)
-- Scene Management,
+- Scene Management & cacheing (cacheing system currently broken),
 - Randomizer & 
 - Custom Windows and Controls. 
 
@@ -84,6 +86,6 @@ To get started with CPGE, follow these steps:
 
    If you are wanting to just start a project of your own, please copy the CPGE folder to a new location
    and use that instead with your chosen IDE / Compiling system.  If you are NOT using Visual Studio
-   2019/2022 then you may need to setup the project in your chosen IDE.
+   2019/2022 then you may need to setup the project in your chosen IDE (CMAKE building now available).
    ```
 ---
