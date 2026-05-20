@@ -6,8 +6,7 @@ Welcome to the Cross Platform Gaming Engine (CPGE) repository which was original
 
 CPGE is a powerful and flexible gaming engine designed to work across multiple platforms. It aims to provide an easy-to-use C++ Class Modules interface for game developers while maintaining high performance and scalability.
 
-The idea of this is to give the developer a great starting frame-work to use with a game or system that they want to develop and the objective of this is to make it work across all platforms (Yes a big project!).  To use
-this successfully, you will need a very good understanding on C/C++ programming, especially on the targeted O/S you want to develop it for as some things can vary from each platform.
+The idea of this is to give the developer a great starting frame-work to use with a game or system that they want to develop and the objective of this is to make it work across all platforms (Yes a big project!).  To use this successfully, you will need a very good understanding on C/C++ & low level programming, especially on the targeted O/S you want to develop it for as some things can vary from each platform.
 
 If you like to know more about me and my history, please goto my website at https://www.ultimanium.com/index.php?action=aboutus
 
@@ -33,23 +32,23 @@ If you like to know more about me and my history, please goto my website at http
 With our First Release, you can now create a full working 2D game using the 2D Rendering system via DirectX 11 (DirectX 12 will be soon).  
 
 - Game Configuration Management, 
-- Multiple Renderer Support (DirectX11, DirectX12, OpenGL & Vulkan),
+- Multiple Renderer Support (DirectX11, DirectX12, OpenGL & Vulkan (DirectX11 confirmed and working) ),
 - Various Debug and Console options (F8 Key) / debug.h
-- Configuration Window (Allows you to modify startup/runtime options),
+- In System Configuration Window (Allows you to modify startup/runtime options),
 - Music & Sounds Management System, 
-- Faders, 2D Partical Explosion, 3D Starfield, Various Text Scrollers,
+- Faders, 2D Partical Explosion, 3D Starfield, 3D Warp Tunnel, Various Text Scrollers,
 - File Loader System & FileIO Management system, 
 - Threading and Thread Safety Management, 
 - Mouse input, Joystick/Gamepad & Keyboard, 
 - Player Management, 
-- Tiled Map Loading, 
 - Pack/Unpacking routines, 
 - Math Precalculation system,
 - Networking, 
 - Game AI,
+- Script Manager allow users to program the system via scripting,
 - Screen and Audio Recording (dumps to recording.mp4)
 - Scene Management & cacheing (cacheing system currently broken),
-- Randomizer & 
+- Randomizer (RNG System) & 
 - Custom Windows and Controls. 
 
 Basically everything you need to create a standard 2D Based Looking Gamimg system on the Windows 10 SP1 / 11 64bit Operating Systems.  Please note that Win32 is not supported!
@@ -67,7 +66,8 @@ These are the following known issues and will be resolved as humanly possible.
 
 1) [ MAJOR ] Scene Cacheing is causing problems!  Reloads are not giving back the correct wanted data and flips on models!
 2) SCENE Loading has dramatically slowed!  Optimisations has been performed, but still too slow for my liking!
-3) Fader Transition in the FXManager (Possiblably broken due to OpenGL Implmentation - Currently look at it!)
+3) Fader Transition in the FXManager (Possiblably broken due to OpenGL Implementation - Currently look at it!)
+4) Scene Cacheing is not working as expected, this is to help with Issue #2.
 
 ## Getting Started
 
