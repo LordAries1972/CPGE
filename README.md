@@ -6,7 +6,7 @@ Welcome to the Cross Platform Gaming Engine (CPGE) repository which was original
 
 CPGE is a powerful and flexible gaming engine designed to work across multiple platforms. It aims to provide an easy-to-use C++ Class Modules interface for game developers while maintaining high performance and scalability.
 
-The idea of this is to give the developer a great starting frame-work to use with a game or system that they want to develop and the objective of this is to make it work across all platforms (Yes a big project!).  To use this successfully, you will need a very good understanding on C/C++ & low level programming, especially on the targeted O/S you want to develop it for as some things can vary from each platform.
+The idea of this is to give the developer a great starting frame-work to use with a game or system that they want to develop and the objective of this is to make it work across all platforms (Yes a big project!).  To use this successfully, you will need a very good understanding on C/C++ & low level programming, especially on the targeted O/S you want to develop it for as some things can vary from each OS and Renderer Platform.
 
 If you like to know more about me and my history, please goto my website at https://www.ultimanium.com/index.php?action=aboutus
 
