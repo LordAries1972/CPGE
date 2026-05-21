@@ -200,8 +200,11 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
     // GEOMETRY PRE-CACHE FAST PATH
     // On second+ load of the same GLB, models[] already holds GPU-ready geometry
     // and full scene-instance data (transforms, hierarchy, TRS) written back on
-    // the first parse.  Bypass all file I/O and JSON work and restore
-    // scene_models[] directly from the cache.
+    // the first parse.  Re-parse the JSON+BIN chunk FIRST to restore per-load
+    // session state (exporter, blender axis config, camera, lights, materials,
+    // animations) BEFORE restoring scene_models[], so that geometry flip, winding
+    // order, UV orientation, and animation binding all match the first load.
+    // GPU resources and textures are rebuilt/rebound for every active renderer.
     // =========================================================================
     {
         int cacheCount = 0;
@@ -215,164 +218,324 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
 
         if (cacheCount > 0)
         {
-            int instanceIndex = 0;
-            for (int m = 0; m < MAX_MODELS; ++m)
+            // --- Step 1: Parse GLB document BEFORE touching any scene_models[] ---
+            // DetectGLTFExporter + BlenderImports::BuildConfig must run first so
+            // m_blenderConfig is correct when any transform or geometry code runs.
+            bool miniParseOK = false;
+            json miniDoc;
+
+            if (std::filesystem::exists(glbFile))
             {
-                const ModelInfo& cache = models[m].m_modelInfo;
-                if (cache.sourceSceneFile != glbFile) continue;
-                if (!cache.bGpuReady)                 continue;
-                int idx = cache.cachedInstanceIndex;
-                if (idx < 0 || idx >= MAX_SCENE_MODELS) continue;
-
-                if (cache.bIsTransformOnly)
+                std::ifstream miniF(glbFile, std::ios::binary);
+                if (miniF.is_open())
                 {
-                    scene_models[idx].DestroyModel();
-                    scene_models[idx].m_modelInfo.bIsTransformOnly  = true;
-                    scene_models[idx].m_modelInfo.bIsTransformProxy = true;
-                }
-                else
-                {
-                    scene_models[idx].CopyFrom(models[m]);
-
-                    // If GPU buffers are absent (e.g. models[] came from the binary disk cache
-                    // which cannot serialise COM objects), rebuild them now before the renderer
-                    // tries to use this model.  Write the new handles back to models[] so the
-                    // next same-session reload finds valid GPU resources.
-#if defined(__USE_DIRECTX_11__)
-                    if (!scene_models[idx].m_modelInfo.constantBuffer &&
-                        !scene_models[idx].m_modelInfo.vertices.empty())
+                    struct { uint32_t magic, version, length; } hdr{};
+                    miniF.read(reinterpret_cast<char*>(&hdr), 12);
+                    if (hdr.magic == 0x46546C67 && hdr.version == 2)
                     {
-                        scene_models[idx].SetupModelForRendering(idx);
-
-                        models[m].m_modelInfo.constantBuffer      = scene_models[idx].m_modelInfo.constantBuffer;
-                        models[m].m_modelInfo.vertexBuffer        = scene_models[idx].m_modelInfo.vertexBuffer;
-                        models[m].m_modelInfo.indexBuffer         = scene_models[idx].m_modelInfo.indexBuffer;
-                        models[m].m_modelInfo.lightConstantBuffer = scene_models[idx].m_modelInfo.lightConstantBuffer;
-                        models[m].m_modelInfo.materialBuffer      = scene_models[idx].m_modelInfo.materialBuffer;
-                        models[m].m_modelInfo.debugConstantBuffer = scene_models[idx].m_modelInfo.debugConstantBuffer;
-                        models[m].m_modelInfo.samplerState        = scene_models[idx].m_modelInfo.samplerState;
-                        models[m].m_modelInfo.textureSRVs         = scene_models[idx].m_modelInfo.textureSRVs;
-                        models[m].m_modelInfo.normalMapSRVs       = scene_models[idx].m_modelInfo.normalMapSRVs;
-                        models[m].m_modelInfo.bGpuReady           = true;
-                    }
-#endif
-                }
-
-                scene_models[idx].m_modelInfo.ID                    = idx;
-                scene_models[idx].m_modelInfo.name                  = cache.name;
-                scene_models[idx].m_modelInfo.worldMatrix            = cache.worldMatrix;
-                scene_models[idx].m_modelInfo.iParentModelID         = cache.iParentModelID;
-                scene_models[idx].m_modelInfo.gltfNodeIndex          = cache.gltfNodeIndex;
-                scene_models[idx].m_modelInfo.baseLocalTranslation   = cache.baseLocalTranslation;
-                scene_models[idx].m_modelInfo.baseLocalRotationQuat  = cache.baseLocalRotationQuat;
-                scene_models[idx].m_modelInfo.baseLocalScale         = cache.baseLocalScale;
-                scene_models[idx].m_modelInfo.animLocalTranslation   = cache.animLocalTranslation;
-                scene_models[idx].m_modelInfo.animLocalRotationQuat  = cache.animLocalRotationQuat;
-                scene_models[idx].m_modelInfo.animLocalScale         = cache.animLocalScale;
-                scene_models[idx].m_modelInfo.bHasBaseLocalTRS       = cache.bHasBaseLocalTRS;
-                scene_models[idx].m_modelInfo.bIsTransformOnly       = cache.bIsTransformOnly;
-                scene_models[idx].m_modelInfo.bIsTransformProxy      = cache.bIsTransformProxy;
-                scene_models[idx].m_modelInfo.position               = cache.position;
-                scene_models[idx].ApplyDefaultLightingFromManager(lightsManager);
-                scene_models[idx].m_isLoaded = true;
-
-                #if defined(_DEBUG_SCENEMANAGER_)
-                    if (!cache.bIsTransformOnly && !scene_models[idx].m_modelInfo.vertices.empty())
-                    {
-                        XMFLOAT4X4 cMat; XMStoreFloat4x4(&cMat, cache.worldMatrix);
-                        debug.logDebugMessage(LogLevel::LOG_DEBUG,
-                            L"[SceneManager] CACHE-RESTORE '%ls' vert[0].z=%.4f world_tz=%.4f",
-                            cache.name.c_str(),
-                            scene_models[idx].m_modelInfo.vertices[0].position.z,
-                            cMat._43);
-                    }
-                #endif
-
-                instanceIndex = std::max(instanceIndex, idx + 1);
-            }
-
-            if (instanceIndex > 0)
-            {
-                // On the first load after a disk-cache restore, materials and animations
-                // were not serialised.  Re-open the GLB and read its JSON + BIN chunks
-                // now — no geometry work, just the sections needed for materials and
-                // animations.  On same-session reloads bAnimationsLoaded is already true
-                // so this block is skipped entirely.
-                if (!bAnimationsLoaded && std::filesystem::exists(glbFile))
-                {
-                    std::ifstream miniF(glbFile, std::ios::binary);
-                    if (miniF.is_open())
-                    {
-                        struct { uint32_t magic, version, length; } hdr{};
-                        miniF.read(reinterpret_cast<char*>(&hdr), 12);
-                        if (hdr.magic == 0x46546C67 && hdr.version == 2)
+                        struct { uint32_t len, type; } jc{};
+                        miniF.read(reinterpret_cast<char*>(&jc), 8);
+                        if (jc.type == 0x4E4F534A && jc.len > 0)
                         {
-                            struct { uint32_t len, type; } jc{};
-                            miniF.read(reinterpret_cast<char*>(&jc), 8);
-                            if (jc.type == 0x4E4F534A && jc.len > 0)
+                            std::string jsonStr(jc.len, '\0');
+                            miniF.read(&jsonStr[0], jc.len);
+
+                            gltfBinaryData.clear();
+                            size_t binOff = 20 + jc.len;
+                            while (binOff % 4) ++binOff;
+                            miniF.seekg(static_cast<std::streamoff>(binOff));
+                            struct { uint32_t len, type; } bc{};
+                            if (miniF.read(reinterpret_cast<char*>(&bc), 8) && bc.type == 0x004E4942)
                             {
-                                std::string jsonStr(jc.len, '\0');
-                                miniF.read(&jsonStr[0], jc.len);
+                                gltfBinaryData.resize(bc.len);
+                                miniF.read(reinterpret_cast<char*>(gltfBinaryData.data()), bc.len);
+                            }
 
-                                // BIN chunk — needed for animation keyframe data
-                                gltfBinaryData.clear();
-                                size_t binOff = 20 + jc.len;
-                                while (binOff % 4) ++binOff;
-                                miniF.seekg(static_cast<std::streamoff>(binOff));
-                                struct { uint32_t len, type; } bc{};
-                                if (miniF.read(reinterpret_cast<char*>(&bc), 8) && bc.type == 0x004E4942)
-                                {
-                                    gltfBinaryData.resize(bc.len);
-                                    miniF.read(reinterpret_cast<char*>(gltfBinaryData.data()), bc.len);
-                                }
-
-                                try
-                                {
-                                    json miniDoc = json::parse(jsonStr);
-                                    ParseMaterialsFromGLTF(miniDoc);
-                                    bAnimationsLoaded = gltfAnimator.ParseAnimationsFromGLTF(miniDoc, gltfBinaryData);
-                                }
-                                catch (...) {}
+                            try { miniDoc = json::parse(jsonStr); miniParseOK = true; }
+                            catch (const std::exception&)
+                            {
+                                debug.logLevelMessage(LogLevel::LOG_ERROR,
+                                    L"[SceneManager] CACHE-RESTORE: GLB JSON parse failed — falling through to full parse");
                             }
                         }
-                        miniF.close();
+                    }
+                    miniF.close();
+                }
+            }
+
+            if (!miniParseOK)
+            {
+                #if defined(_DEBUG_SCENEMANAGER_)
+                    debug.logDebugMessage(LogLevel::LOG_WARNING,
+                        L"[SceneManager] ParseGLBScene() mini-parse failed — falling through to full parse");
+                #endif
+            }
+            else
+            {
+                // --- Step 2: Restore per-load session state (same order as full parse) ---
+                {
+                    std::string generator;
+                    if (miniDoc.contains("asset") && miniDoc["asset"].contains("generator") &&
+                        miniDoc["asset"]["generator"].is_string())
+                        generator = miniDoc["asset"]["generator"].get<std::string>();
+                    DetectGLTFExporter(miniDoc);
+                    m_blenderConfig = BlenderImports::BuildConfig(generator, miniDoc);
+                }
+                if (myRenderer)
+                    ParseGLTFCamera(miniDoc, myRenderer->myCamera, myRenderer->iOrigWidth, myRenderer->iOrigHeight);
+                ParseGLTFLights(miniDoc);
+                ParseMaterialsFromGLTF(miniDoc);
+                gltfAnimator.ClearAllAnimations();
+                bAnimationsLoaded = gltfAnimator.ParseAnimationsFromGLTF(miniDoc, gltfBinaryData);
+
+                // --- Step 3: Restore scene_models from cache ---
+                int instanceIndex = 0;
+                for (int m = 0; m < MAX_MODELS; ++m)
+                {
+                    const ModelInfo& cache = models[m].m_modelInfo;
+                    if (cache.sourceSceneFile != glbFile) continue;
+                    if (!cache.bGpuReady)                 continue;
+                    int idx = cache.cachedInstanceIndex;
+                    if (idx < 0 || idx >= MAX_SCENE_MODELS) continue;
+
+                    if (cache.bIsTransformOnly)
+                    {
+                        scene_models[idx].DestroyModel();
+                        scene_models[idx].m_modelInfo.bIsTransformOnly  = true;
+                        scene_models[idx].m_modelInfo.bIsTransformProxy = true;
+                    }
+                    else
+                    {
+                        scene_models[idx].CopyFrom(models[m]);
+
+                        // Restore CPU geometry if CopyFrom left it empty
+                        if (scene_models[idx].m_modelInfo.vertices.empty() &&
+                            !models[m].m_modelInfo.vertices.empty())
+                        {
+                            scene_models[idx].m_modelInfo.vertices = models[m].m_modelInfo.vertices;
+                            scene_models[idx].m_modelInfo.indices  = models[m].m_modelInfo.indices;
+                        }
+
+                        // --- GPU rebuild check: all renderers ---
+                        bool gpuRebuildNeeded = false;
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                        if (!scene_models[idx].m_modelInfo.vertexBuffer  ||
+                            !scene_models[idx].m_modelInfo.indexBuffer   ||
+                            !scene_models[idx].m_modelInfo.constantBuffer)
+                            gpuRebuildNeeded = true;
+#elif defined(__USE_VULKAN__)
+                        if (scene_models[idx].m_modelInfo.vertexBuffer == VK_NULL_HANDLE ||
+                            scene_models[idx].m_modelInfo.indexBuffer  == VK_NULL_HANDLE ||
+                            scene_models[idx].m_modelInfo.pipeline     == VK_NULL_HANDLE)
+                            gpuRebuildNeeded = true;
+#elif defined(__USE_OPENGL__)
+                        if (scene_models[idx].m_modelInfo.VAO == 0 ||
+                            scene_models[idx].m_modelInfo.VBO == 0 ||
+                            scene_models[idx].m_modelInfo.EBO == 0)
+                            gpuRebuildNeeded = true;
+#endif
+                        if (gpuRebuildNeeded && !scene_models[idx].m_modelInfo.vertices.empty())
+                        {
+                            scene_models[idx].SetupModelForRendering(idx);
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                            models[m].m_modelInfo.constantBuffer      = scene_models[idx].m_modelInfo.constantBuffer;
+                            models[m].m_modelInfo.vertexBuffer        = scene_models[idx].m_modelInfo.vertexBuffer;
+                            models[m].m_modelInfo.indexBuffer         = scene_models[idx].m_modelInfo.indexBuffer;
+                            models[m].m_modelInfo.lightConstantBuffer = scene_models[idx].m_modelInfo.lightConstantBuffer;
+                            models[m].m_modelInfo.materialBuffer      = scene_models[idx].m_modelInfo.materialBuffer;
+                            models[m].m_modelInfo.debugConstantBuffer = scene_models[idx].m_modelInfo.debugConstantBuffer;
+                            models[m].m_modelInfo.samplerState        = scene_models[idx].m_modelInfo.samplerState;
+                            models[m].m_modelInfo.textureSRVs         = scene_models[idx].m_modelInfo.textureSRVs;
+                            models[m].m_modelInfo.normalMapSRVs       = scene_models[idx].m_modelInfo.normalMapSRVs;
+#elif defined(__USE_VULKAN__)
+                            models[m].m_modelInfo.vertexBuffer       = scene_models[idx].m_modelInfo.vertexBuffer;
+                            models[m].m_modelInfo.vertexBufferMemory = scene_models[idx].m_modelInfo.vertexBufferMemory;
+                            models[m].m_modelInfo.indexBuffer        = scene_models[idx].m_modelInfo.indexBuffer;
+                            models[m].m_modelInfo.indexBufferMemory  = scene_models[idx].m_modelInfo.indexBufferMemory;
+                            models[m].m_modelInfo.pipeline           = scene_models[idx].m_modelInfo.pipeline;
+                            models[m].m_modelInfo.pipelineLayout     = scene_models[idx].m_modelInfo.pipelineLayout;
+                            models[m].m_modelInfo.descriptorSet      = scene_models[idx].m_modelInfo.descriptorSet;
+#elif defined(__USE_OPENGL__)
+                            models[m].m_modelInfo.VAO           = scene_models[idx].m_modelInfo.VAO;
+                            models[m].m_modelInfo.VBO           = scene_models[idx].m_modelInfo.VBO;
+                            models[m].m_modelInfo.EBO           = scene_models[idx].m_modelInfo.EBO;
+                            models[m].m_modelInfo.shaderProgram = scene_models[idx].m_modelInfo.shaderProgram;
+#endif
+                            models[m].m_modelInfo.bGpuReady = true;
+                            #if defined(_DEBUG_SCENEMANAGER_)
+                                debug.logDebugMessage(LogLevel::LOG_INFO,
+                                    L"[SceneManager] CACHE-RESTORE '%ls' — GPU rebuild triggered (missing core buffers)",
+                                    cache.name.c_str());
+                            #endif
+                        }
+
+                        // Restore CPU material strings
+                        if (scene_models[idx].m_materials.empty() && !models[m].m_materials.empty())
+                            scene_models[idx].m_materials = models[m].m_materials;
+                        if (scene_models[idx].m_modelInfo.materials.empty() &&
+                            !models[m].m_modelInfo.materials.empty())
+                            scene_models[idx].m_modelInfo.materials = models[m].m_modelInfo.materials;
+                    }
+
+                    // Common fields — set for both geometry and transform-only nodes
+                    scene_models[idx].m_modelInfo.ID                    = idx;
+                    scene_models[idx].m_modelInfo.name                  = cache.name;
+                    scene_models[idx].m_modelInfo.worldMatrix            = cache.worldMatrix;
+                    scene_models[idx].m_modelInfo.iParentModelID         = cache.iParentModelID;
+                    scene_models[idx].m_modelInfo.gltfNodeIndex          = cache.gltfNodeIndex;
+                    scene_models[idx].m_modelInfo.baseLocalTranslation   = cache.baseLocalTranslation;
+                    scene_models[idx].m_modelInfo.baseLocalRotationQuat  = cache.baseLocalRotationQuat;
+                    scene_models[idx].m_modelInfo.baseLocalScale         = cache.baseLocalScale;
+                    scene_models[idx].m_modelInfo.animLocalTranslation   = cache.animLocalTranslation;
+                    scene_models[idx].m_modelInfo.animLocalRotationQuat  = cache.animLocalRotationQuat;
+                    scene_models[idx].m_modelInfo.animLocalScale         = cache.animLocalScale;
+                    scene_models[idx].m_modelInfo.bHasBaseLocalTRS       = cache.bHasBaseLocalTRS;
+                    scene_models[idx].m_modelInfo.bIsTransformOnly       = cache.bIsTransformOnly;
+                    scene_models[idx].m_modelInfo.bIsTransformProxy      = cache.bIsTransformProxy;
+                    scene_models[idx].m_modelInfo.position               = cache.position;
+                    scene_models[idx].ApplyDefaultLightingFromManager(lightsManager);
+                    scene_models[idx].m_isLoaded = true;
+
+                    #if defined(_DEBUG_SCENEMANAGER_)
+                    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                        if (!cache.bIsTransformOnly && !scene_models[idx].m_modelInfo.vertices.empty())
+                        {
+                            XMFLOAT4X4 cMat; XMStoreFloat4x4(&cMat, cache.worldMatrix);
+                            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                                L"[SceneManager] CACHE-RESTORE '%ls' vert[0].z=%.4f world_tz=%.4f",
+                                cache.name.c_str(),
+                                scene_models[idx].m_modelInfo.vertices[0].position.z,
+                                cMat._43);
+                        }
+                    #endif
+                    #endif
+
+                    instanceIndex = std::max(instanceIndex, idx + 1);
+                }
+
+                // --- Step 4: Rebind textures and materials — ALL renderers ---
+                // Always clear stale GPU handles and rebind from the fresh GLB document.
+                // This fixes scene-switch SRV staleness, wrong-scene descriptor sets,
+                // and unbound PBR material data on every renderer.
+                // Results are written back to models[] so the next reload gets them too.
+                if (instanceIndex > 0 && miniDoc.contains("materials"))
+                {
+                    const auto& matsArr = miniDoc["materials"];
+                    for (int ti = 0; ti < instanceIndex; ++ti)
+                    {
+                        if (!scene_models[ti].m_isLoaded) continue;
+                        if (scene_models[ti].m_modelInfo.bIsTransformProxy) continue;
+                        if (scene_models[ti].m_modelInfo.bIsTransformOnly) continue;
+                        if (scene_models[ti].m_modelInfo.materials.empty()) continue;
+
+                        const std::string& matName = scene_models[ti].m_modelInfo.materials[0];
+                        for (int mi = 0; mi < static_cast<int>(matsArr.size()); ++mi)
+                        {
+                            if (matsArr[mi].value("name", "") != matName) continue;
+
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                            scene_models[ti].m_modelInfo.textures.clear();
+                            scene_models[ti].m_modelInfo.textureSRVs.clear();
+                            scene_models[ti].m_modelInfo.normalMapSRVs.clear();
+                            scene_models[ti].m_modelInfo.metallicMapSRV.Reset();
+                            scene_models[ti].m_modelInfo.roughnessMapSRV.Reset();
+                            scene_models[ti].m_modelInfo.aoMapSRV.Reset();
+#elif defined(__USE_OPENGL__)
+                            scene_models[ti].m_modelInfo.textureIDs.clear();
+                            scene_models[ti].m_modelInfo.normalMapIDs.clear();
+                            scene_models[ti].m_modelInfo.metallicTexID  = 0;
+                            scene_models[ti].m_modelInfo.roughnessTexID = 0;
+                            scene_models[ti].m_modelInfo.aoTexID        = 0;
+#elif defined(__USE_VULKAN__)
+                            scene_models[ti].m_modelInfo.descriptorSet = VK_NULL_HANDLE;
+#endif
+                            BindGLTFMaterialTexturesToModel(mi, scene_models[ti].m_modelInfo, scene_models[ti], miniDoc);
+
+                            for (int m2 = 0; m2 < MAX_MODELS; ++m2)
+                            {
+                                if (models[m2].m_modelInfo.cachedInstanceIndex == ti &&
+                                    models[m2].m_modelInfo.sourceSceneFile    == glbFile)
+                                {
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                                    models[m2].m_modelInfo.textures        = scene_models[ti].m_modelInfo.textures;
+                                    models[m2].m_modelInfo.textureSRVs     = scene_models[ti].m_modelInfo.textureSRVs;
+                                    models[m2].m_modelInfo.normalMapSRVs   = scene_models[ti].m_modelInfo.normalMapSRVs;
+                                    models[m2].m_modelInfo.metallicMapSRV  = scene_models[ti].m_modelInfo.metallicMapSRV;
+                                    models[m2].m_modelInfo.roughnessMapSRV = scene_models[ti].m_modelInfo.roughnessMapSRV;
+                                    models[m2].m_modelInfo.aoMapSRV        = scene_models[ti].m_modelInfo.aoMapSRV;
+                                    models[m2].m_materials                 = scene_models[ti].m_materials;
+#elif defined(__USE_OPENGL__)
+                                    models[m2].m_modelInfo.textureIDs      = scene_models[ti].m_modelInfo.textureIDs;
+                                    models[m2].m_modelInfo.normalMapIDs    = scene_models[ti].m_modelInfo.normalMapIDs;
+                                    models[m2].m_modelInfo.metallicTexID   = scene_models[ti].m_modelInfo.metallicTexID;
+                                    models[m2].m_modelInfo.roughnessTexID  = scene_models[ti].m_modelInfo.roughnessTexID;
+                                    models[m2].m_modelInfo.aoTexID         = scene_models[ti].m_modelInfo.aoTexID;
+                                    models[m2].m_materials                 = scene_models[ti].m_materials;
+#elif defined(__USE_VULKAN__)
+                                    models[m2].m_modelInfo.descriptorSet   = scene_models[ti].m_modelInfo.descriptorSet;
+                                    models[m2].m_materials                 = scene_models[ti].m_materials;
+#endif
+                                    #if defined(_DEBUG_SCENEMANAGER_)
+                                        debug.logDebugMessage(LogLevel::LOG_INFO,
+                                            L"[SceneManager] TEXTURE-RELOAD '%ls' — written back to models[%d]",
+                                            scene_models[ti].m_modelInfo.name.c_str(), m2);
+                                    #endif
+                                    break;
+                                }
+                            }
+                            break;
+                        }
                     }
                 }
 
+                // --- Step 5: Start animations ---
+                #if defined(_DEBUG_SCENEMANAGER_)
+                    debug.logDebugMessage(LogLevel::LOG_INFO,
+                        L"[SceneManager] CACHE-RESTORE Step 5: bAnimationsLoaded=%s, animCount=%d",
+                        bAnimationsLoaded ? L"true" : L"false",
+                        gltfAnimator.GetAnimationCount());
+                #endif
                 if (bAnimationsLoaded && gltfAnimator.GetAnimationCount() > 0)
                 {
                     for (int animIdx = 0; animIdx < gltfAnimator.GetAnimationCount(); ++animIdx)
                     {
                         int parentID = FindParentModelIDForAnimation(animIdx);
+                        #if defined(_DEBUG_SCENEMANAGER_)
+                            debug.logDebugMessage(LogLevel::LOG_INFO,
+                                L"[SceneManager] CACHE-RESTORE anim[%d] parentID=%d", animIdx, parentID);
+                        #endif
                         if (parentID < 0) continue;
-                        // CreateAnimationInstance is a no-op if the instance already
-                        // exists (same-session reload); for disk-cache restores it
-                        // creates the instance before starting it.
-                        gltfAnimator.CreateAnimationInstance(animIdx, parentID);
-                        gltfAnimator.ForceAnimationReset(parentID);
-                        gltfAnimator.SetAnimationSpeed(parentID, 0.75f);
-                        gltfAnimator.SetAnimationLooping(parentID, true);
-                        gltfAnimator.StartAnimation(parentID, animIdx);
+                        bool created = gltfAnimator.CreateAnimationInstance(animIdx, parentID);
+                        if (created)
+                        {
+                            gltfAnimator.ForceAnimationReset(parentID);
+                            gltfAnimator.SetAnimationSpeed(parentID, 0.75f);
+                            gltfAnimator.SetAnimationLooping(parentID, true);
+                            gltfAnimator.StartAnimation(parentID, animIdx);
+                        }
                     }
                 }
 
-                #if defined(_DEBUG_SCENEMANAGER_)
+                if (instanceIndex > 0)
                 {
-                    auto _e  = std::chrono::high_resolution_clock::now();
-                    auto _ms = std::chrono::duration_cast<std::chrono::milliseconds>(_e - _sceneLoadBegin).count();
-                    debug.logDebugMessage(LogLevel::LOG_INFO,
-                        L"[SceneManager] ParseGLBScene() CACHE HIT — ENGINE LOAD TIME: %lld ms — %d instances restored from %d cache entries",
-                        _ms, instanceIndex, cacheCount);
+                    #if defined(_DEBUG_SCENEMANAGER_)
+                    {
+                        auto _e  = std::chrono::high_resolution_clock::now();
+                        auto _ms = std::chrono::duration_cast<std::chrono::milliseconds>(_e - _sceneLoadBegin).count();
+                        debug.logDebugMessage(LogLevel::LOG_INFO,
+                            L"[SceneManager] ParseGLBScene() CACHE HIT — ENGINE LOAD TIME: %lld ms — %d instances restored from %d cache entries",
+                            _ms, instanceIndex, cacheCount);
+                    }
+                    #endif
+                    return true;
                 }
-                #endif
-                return true;
-            }
 
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_WARNING,
-                    L"[SceneManager] ParseGLBScene() cache had %d entries but rebuild yielded 0 — falling through to full parse",
-                    cacheCount);
-            #endif
+                #if defined(_DEBUG_SCENEMANAGER_)
+                    debug.logDebugMessage(LogLevel::LOG_WARNING,
+                        L"[SceneManager] ParseGLBScene() cache had %d entries but rebuild yielded 0 — falling through to full parse",
+                        cacheCount);
+                #endif
+            }
         }
     }
 
@@ -1110,6 +1273,10 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
 
     // =========================================================================
     // GEOMETRY PRE-CACHE FAST PATH
+    // Same structure as the GLB path: parse the GLTF document FIRST to restore
+    // per-load session state (exporter, blender axis config, camera, lights,
+    // materials, animations) BEFORE restoring scene_models[], then rebuild GPU
+    // resources and rebind materials/textures for every active renderer.
     // =========================================================================
     {
         int cacheCount = 0;
@@ -1123,133 +1290,294 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
 
         if (cacheCount > 0)
         {
-            int instanceIndex = 0;
-            for (int m = 0; m < MAX_MODELS; ++m)
+            // --- Step 1: Parse GLTF document BEFORE touching any scene_models[] ---
+            bool miniParseOK = false;
+            json miniDoc;
+
+            if (std::filesystem::exists(gltfFile))
             {
-                const ModelInfo& cache = models[m].m_modelInfo;
-                if (cache.sourceSceneFile != gltfFile) continue;
-                if (!cache.bGpuReady)                  continue;
-                int idx = cache.cachedInstanceIndex;
-                if (idx < 0 || idx >= MAX_SCENE_MODELS) continue;
-
-                if (cache.bIsTransformOnly)
+                std::ifstream miniF(gltfFile);
+                if (miniF.is_open())
                 {
-                    scene_models[idx].DestroyModel();
-                    scene_models[idx].m_modelInfo.bIsTransformOnly  = true;
-                    scene_models[idx].m_modelInfo.bIsTransformProxy = true;
-                }
-                else
-                {
-                    scene_models[idx].CopyFrom(models[m]);
-
-                    // If GPU buffers are absent (e.g. models[] came from the binary disk cache
-                    // which cannot serialise COM objects), rebuild them now before the renderer
-                    // tries to use this model.  Write the new handles back to models[] so the
-                    // next same-session reload finds valid GPU resources.
-#if defined(__USE_DIRECTX_11__)
-                    if (!scene_models[idx].m_modelInfo.constantBuffer &&
-                        !scene_models[idx].m_modelInfo.vertices.empty())
+                    try { miniDoc = json::parse(miniF); miniParseOK = true; }
+                    catch (const std::exception&)
                     {
-                        scene_models[idx].SetupModelForRendering(idx);
-
-                        models[m].m_modelInfo.constantBuffer      = scene_models[idx].m_modelInfo.constantBuffer;
-                        models[m].m_modelInfo.vertexBuffer        = scene_models[idx].m_modelInfo.vertexBuffer;
-                        models[m].m_modelInfo.indexBuffer         = scene_models[idx].m_modelInfo.indexBuffer;
-                        models[m].m_modelInfo.lightConstantBuffer = scene_models[idx].m_modelInfo.lightConstantBuffer;
-                        models[m].m_modelInfo.materialBuffer      = scene_models[idx].m_modelInfo.materialBuffer;
-                        models[m].m_modelInfo.debugConstantBuffer = scene_models[idx].m_modelInfo.debugConstantBuffer;
-                        models[m].m_modelInfo.samplerState        = scene_models[idx].m_modelInfo.samplerState;
-                        models[m].m_modelInfo.textureSRVs         = scene_models[idx].m_modelInfo.textureSRVs;
-                        models[m].m_modelInfo.normalMapSRVs       = scene_models[idx].m_modelInfo.normalMapSRVs;
-                        models[m].m_modelInfo.bGpuReady           = true;
+                        debug.logLevelMessage(LogLevel::LOG_ERROR,
+                            L"[SceneManager] CACHE-RESTORE: GLTF JSON parse failed — falling through to full parse");
                     }
-#endif
+                    miniF.close();
                 }
-
-                scene_models[idx].m_modelInfo.ID                    = idx;
-                scene_models[idx].m_modelInfo.name                  = cache.name;
-                scene_models[idx].m_modelInfo.worldMatrix            = cache.worldMatrix;
-                scene_models[idx].m_modelInfo.iParentModelID         = cache.iParentModelID;
-                scene_models[idx].m_modelInfo.gltfNodeIndex          = cache.gltfNodeIndex;
-                scene_models[idx].m_modelInfo.baseLocalTranslation   = cache.baseLocalTranslation;
-                scene_models[idx].m_modelInfo.baseLocalRotationQuat  = cache.baseLocalRotationQuat;
-                scene_models[idx].m_modelInfo.baseLocalScale         = cache.baseLocalScale;
-                scene_models[idx].m_modelInfo.animLocalTranslation   = cache.animLocalTranslation;
-                scene_models[idx].m_modelInfo.animLocalRotationQuat  = cache.animLocalRotationQuat;
-                scene_models[idx].m_modelInfo.animLocalScale         = cache.animLocalScale;
-                scene_models[idx].m_modelInfo.bHasBaseLocalTRS       = cache.bHasBaseLocalTRS;
-                scene_models[idx].m_modelInfo.bIsTransformOnly       = cache.bIsTransformOnly;
-                scene_models[idx].m_modelInfo.bIsTransformProxy      = cache.bIsTransformProxy;
-                scene_models[idx].m_modelInfo.position               = cache.position;
-                scene_models[idx].ApplyDefaultLightingFromManager(lightsManager);
-                scene_models[idx].m_isLoaded = true;
-
-                #if defined(_DEBUG_SCENEMANAGER_)
-                    if (!cache.bIsTransformOnly && !scene_models[idx].m_modelInfo.vertices.empty())
-                    {
-                        XMFLOAT4X4 cMat; XMStoreFloat4x4(&cMat, cache.worldMatrix);
-                        debug.logDebugMessage(LogLevel::LOG_DEBUG,
-                            L"[SceneManager] CACHE-RESTORE '%ls' vert[0].z=%.4f world_tz=%.4f",
-                            cache.name.c_str(),
-                            scene_models[idx].m_modelInfo.vertices[0].position.z,
-                            cMat._43);
-                    }
-                #endif
-
-                instanceIndex = std::max(instanceIndex, idx + 1);
             }
 
-            if (instanceIndex > 0)
+            if (!miniParseOK)
             {
-                // On the first load after a disk-cache restore, re-read the GLTF file
-                // for materials and animations (skipping geometry entirely).
-                if (!bAnimationsLoaded && std::filesystem::exists(gltfFile))
+                #if defined(_DEBUG_SCENEMANAGER_)
+                    debug.logDebugMessage(LogLevel::LOG_WARNING,
+                        L"[SceneManager] ParseGLTFScene() mini-parse failed — falling through to full parse");
+                #endif
+            }
+            else
+            {
+                // --- Step 2: Restore per-load session state (same order as full parse) ---
                 {
-                    std::ifstream miniF(gltfFile);
-                    if (miniF.is_open())
+                    std::string generator;
+                    if (miniDoc.contains("asset") && miniDoc["asset"].contains("generator") &&
+                        miniDoc["asset"]["generator"].is_string())
+                        generator = miniDoc["asset"]["generator"].get<std::string>();
+                    DetectGLTFExporter(miniDoc);
+                    m_blenderConfig = BlenderImports::BuildConfig(generator, miniDoc);
+                }
+                if (myRenderer)
+                    ParseGLTFCamera(miniDoc, myRenderer->myCamera, myRenderer->iOrigWidth, myRenderer->iOrigHeight);
+                ParseGLTFLights(miniDoc);
+                ParseMaterialsFromGLTF(miniDoc);
+                gltfAnimator.ClearAllAnimations();
+                bAnimationsLoaded = gltfAnimator.ParseAnimationsFromGLTF(miniDoc, gltfBinaryData);
+
+                // --- Step 3: Restore scene_models from cache ---
+                int instanceIndex = 0;
+                for (int m = 0; m < MAX_MODELS; ++m)
+                {
+                    const ModelInfo& cache = models[m].m_modelInfo;
+                    if (cache.sourceSceneFile != gltfFile) continue;
+                    if (!cache.bGpuReady)                  continue;
+                    int idx = cache.cachedInstanceIndex;
+                    if (idx < 0 || idx >= MAX_SCENE_MODELS) continue;
+
+                    if (cache.bIsTransformOnly)
                     {
-                        try
+                        scene_models[idx].DestroyModel();
+                        scene_models[idx].m_modelInfo.bIsTransformOnly  = true;
+                        scene_models[idx].m_modelInfo.bIsTransformProxy = true;
+                    }
+                    else
+                    {
+                        scene_models[idx].CopyFrom(models[m]);
+
+                        // Restore CPU geometry if CopyFrom left it empty
+                        if (scene_models[idx].m_modelInfo.vertices.empty() &&
+                            !models[m].m_modelInfo.vertices.empty())
                         {
-                            json miniDoc = json::parse(miniF);
-                            miniF.close();
-                            ParseMaterialsFromGLTF(miniDoc);
-                            bAnimationsLoaded = gltfAnimator.ParseAnimationsFromGLTF(miniDoc, gltfBinaryData);
+                            scene_models[idx].m_modelInfo.vertices = models[m].m_modelInfo.vertices;
+                            scene_models[idx].m_modelInfo.indices  = models[m].m_modelInfo.indices;
                         }
-                        catch (...) { if (miniF.is_open()) miniF.close(); }
+
+                        // --- GPU rebuild check: all renderers ---
+                        bool gpuRebuildNeeded = false;
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                        if (!scene_models[idx].m_modelInfo.vertexBuffer  ||
+                            !scene_models[idx].m_modelInfo.indexBuffer   ||
+                            !scene_models[idx].m_modelInfo.constantBuffer)
+                            gpuRebuildNeeded = true;
+#elif defined(__USE_VULKAN__)
+                        if (scene_models[idx].m_modelInfo.vertexBuffer == VK_NULL_HANDLE ||
+                            scene_models[idx].m_modelInfo.indexBuffer  == VK_NULL_HANDLE ||
+                            scene_models[idx].m_modelInfo.pipeline     == VK_NULL_HANDLE)
+                            gpuRebuildNeeded = true;
+#elif defined(__USE_OPENGL__)
+                        if (scene_models[idx].m_modelInfo.VAO == 0 ||
+                            scene_models[idx].m_modelInfo.VBO == 0 ||
+                            scene_models[idx].m_modelInfo.EBO == 0)
+                            gpuRebuildNeeded = true;
+#endif
+                        if (gpuRebuildNeeded && !scene_models[idx].m_modelInfo.vertices.empty())
+                        {
+                            scene_models[idx].SetupModelForRendering(idx);
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                            models[m].m_modelInfo.constantBuffer      = scene_models[idx].m_modelInfo.constantBuffer;
+                            models[m].m_modelInfo.vertexBuffer        = scene_models[idx].m_modelInfo.vertexBuffer;
+                            models[m].m_modelInfo.indexBuffer         = scene_models[idx].m_modelInfo.indexBuffer;
+                            models[m].m_modelInfo.lightConstantBuffer = scene_models[idx].m_modelInfo.lightConstantBuffer;
+                            models[m].m_modelInfo.materialBuffer      = scene_models[idx].m_modelInfo.materialBuffer;
+                            models[m].m_modelInfo.debugConstantBuffer = scene_models[idx].m_modelInfo.debugConstantBuffer;
+                            models[m].m_modelInfo.samplerState        = scene_models[idx].m_modelInfo.samplerState;
+                            models[m].m_modelInfo.textureSRVs         = scene_models[idx].m_modelInfo.textureSRVs;
+                            models[m].m_modelInfo.normalMapSRVs       = scene_models[idx].m_modelInfo.normalMapSRVs;
+#elif defined(__USE_VULKAN__)
+                            models[m].m_modelInfo.vertexBuffer       = scene_models[idx].m_modelInfo.vertexBuffer;
+                            models[m].m_modelInfo.vertexBufferMemory = scene_models[idx].m_modelInfo.vertexBufferMemory;
+                            models[m].m_modelInfo.indexBuffer        = scene_models[idx].m_modelInfo.indexBuffer;
+                            models[m].m_modelInfo.indexBufferMemory  = scene_models[idx].m_modelInfo.indexBufferMemory;
+                            models[m].m_modelInfo.pipeline           = scene_models[idx].m_modelInfo.pipeline;
+                            models[m].m_modelInfo.pipelineLayout     = scene_models[idx].m_modelInfo.pipelineLayout;
+                            models[m].m_modelInfo.descriptorSet      = scene_models[idx].m_modelInfo.descriptorSet;
+#elif defined(__USE_OPENGL__)
+                            models[m].m_modelInfo.VAO           = scene_models[idx].m_modelInfo.VAO;
+                            models[m].m_modelInfo.VBO           = scene_models[idx].m_modelInfo.VBO;
+                            models[m].m_modelInfo.EBO           = scene_models[idx].m_modelInfo.EBO;
+                            models[m].m_modelInfo.shaderProgram = scene_models[idx].m_modelInfo.shaderProgram;
+#endif
+                            models[m].m_modelInfo.bGpuReady = true;
+                            #if defined(_DEBUG_SCENEMANAGER_)
+                                debug.logDebugMessage(LogLevel::LOG_INFO,
+                                    L"[SceneManager] CACHE-RESTORE '%ls' — GPU rebuild triggered (missing core buffers)",
+                                    cache.name.c_str());
+                            #endif
+                        }
+
+                        // Restore CPU material strings
+                        if (scene_models[idx].m_materials.empty() && !models[m].m_materials.empty())
+                            scene_models[idx].m_materials = models[m].m_materials;
+                        if (scene_models[idx].m_modelInfo.materials.empty() &&
+                            !models[m].m_modelInfo.materials.empty())
+                            scene_models[idx].m_modelInfo.materials = models[m].m_modelInfo.materials;
+                    }
+
+                    // Common fields — set for both geometry and transform-only nodes
+                    scene_models[idx].m_modelInfo.ID                    = idx;
+                    scene_models[idx].m_modelInfo.name                  = cache.name;
+                    scene_models[idx].m_modelInfo.worldMatrix            = cache.worldMatrix;
+                    scene_models[idx].m_modelInfo.iParentModelID         = cache.iParentModelID;
+                    scene_models[idx].m_modelInfo.gltfNodeIndex          = cache.gltfNodeIndex;
+                    scene_models[idx].m_modelInfo.baseLocalTranslation   = cache.baseLocalTranslation;
+                    scene_models[idx].m_modelInfo.baseLocalRotationQuat  = cache.baseLocalRotationQuat;
+                    scene_models[idx].m_modelInfo.baseLocalScale         = cache.baseLocalScale;
+                    scene_models[idx].m_modelInfo.animLocalTranslation   = cache.animLocalTranslation;
+                    scene_models[idx].m_modelInfo.animLocalRotationQuat  = cache.animLocalRotationQuat;
+                    scene_models[idx].m_modelInfo.animLocalScale         = cache.animLocalScale;
+                    scene_models[idx].m_modelInfo.bHasBaseLocalTRS       = cache.bHasBaseLocalTRS;
+                    scene_models[idx].m_modelInfo.bIsTransformOnly       = cache.bIsTransformOnly;
+                    scene_models[idx].m_modelInfo.bIsTransformProxy      = cache.bIsTransformProxy;
+                    scene_models[idx].m_modelInfo.position               = cache.position;
+                    scene_models[idx].ApplyDefaultLightingFromManager(lightsManager);
+                    scene_models[idx].m_isLoaded = true;
+
+                    #if defined(_DEBUG_SCENEMANAGER_)
+                    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                        if (!cache.bIsTransformOnly && !scene_models[idx].m_modelInfo.vertices.empty())
+                        {
+                            XMFLOAT4X4 cMat; XMStoreFloat4x4(&cMat, cache.worldMatrix);
+                            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                                L"[SceneManager] CACHE-RESTORE '%ls' vert[0].z=%.4f world_tz=%.4f",
+                                cache.name.c_str(),
+                                scene_models[idx].m_modelInfo.vertices[0].position.z,
+                                cMat._43);
+                        }
+                    #endif
+                    #endif
+
+                    instanceIndex = std::max(instanceIndex, idx + 1);
+                }
+
+                // --- Step 4: Rebind textures and materials — ALL renderers ---
+                if (instanceIndex > 0 && miniDoc.contains("materials"))
+                {
+                    const auto& matsArr = miniDoc["materials"];
+                    for (int ti = 0; ti < instanceIndex; ++ti)
+                    {
+                        if (!scene_models[ti].m_isLoaded) continue;
+                        if (scene_models[ti].m_modelInfo.bIsTransformProxy) continue;
+                        if (scene_models[ti].m_modelInfo.bIsTransformOnly) continue;
+                        if (scene_models[ti].m_modelInfo.materials.empty()) continue;
+
+                        const std::string& matName = scene_models[ti].m_modelInfo.materials[0];
+                        for (int mi = 0; mi < static_cast<int>(matsArr.size()); ++mi)
+                        {
+                            if (matsArr[mi].value("name", "") != matName) continue;
+
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                            scene_models[ti].m_modelInfo.textures.clear();
+                            scene_models[ti].m_modelInfo.textureSRVs.clear();
+                            scene_models[ti].m_modelInfo.normalMapSRVs.clear();
+                            scene_models[ti].m_modelInfo.metallicMapSRV.Reset();
+                            scene_models[ti].m_modelInfo.roughnessMapSRV.Reset();
+                            scene_models[ti].m_modelInfo.aoMapSRV.Reset();
+#elif defined(__USE_OPENGL__)
+                            scene_models[ti].m_modelInfo.textureIDs.clear();
+                            scene_models[ti].m_modelInfo.normalMapIDs.clear();
+                            scene_models[ti].m_modelInfo.metallicTexID  = 0;
+                            scene_models[ti].m_modelInfo.roughnessTexID = 0;
+                            scene_models[ti].m_modelInfo.aoTexID        = 0;
+#elif defined(__USE_VULKAN__)
+                            scene_models[ti].m_modelInfo.descriptorSet = VK_NULL_HANDLE;
+#endif
+                            BindGLTFMaterialTexturesToModel(mi, scene_models[ti].m_modelInfo, scene_models[ti], miniDoc);
+
+                            for (int m2 = 0; m2 < MAX_MODELS; ++m2)
+                            {
+                                if (models[m2].m_modelInfo.cachedInstanceIndex == ti &&
+                                    models[m2].m_modelInfo.sourceSceneFile    == gltfFile)
+                                {
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                                    models[m2].m_modelInfo.textures        = scene_models[ti].m_modelInfo.textures;
+                                    models[m2].m_modelInfo.textureSRVs     = scene_models[ti].m_modelInfo.textureSRVs;
+                                    models[m2].m_modelInfo.normalMapSRVs   = scene_models[ti].m_modelInfo.normalMapSRVs;
+                                    models[m2].m_modelInfo.metallicMapSRV  = scene_models[ti].m_modelInfo.metallicMapSRV;
+                                    models[m2].m_modelInfo.roughnessMapSRV = scene_models[ti].m_modelInfo.roughnessMapSRV;
+                                    models[m2].m_modelInfo.aoMapSRV        = scene_models[ti].m_modelInfo.aoMapSRV;
+                                    models[m2].m_materials                 = scene_models[ti].m_materials;
+#elif defined(__USE_OPENGL__)
+                                    models[m2].m_modelInfo.textureIDs      = scene_models[ti].m_modelInfo.textureIDs;
+                                    models[m2].m_modelInfo.normalMapIDs    = scene_models[ti].m_modelInfo.normalMapIDs;
+                                    models[m2].m_modelInfo.metallicTexID   = scene_models[ti].m_modelInfo.metallicTexID;
+                                    models[m2].m_modelInfo.roughnessTexID  = scene_models[ti].m_modelInfo.roughnessTexID;
+                                    models[m2].m_modelInfo.aoTexID         = scene_models[ti].m_modelInfo.aoTexID;
+                                    models[m2].m_materials                 = scene_models[ti].m_materials;
+#elif defined(__USE_VULKAN__)
+                                    models[m2].m_modelInfo.descriptorSet   = scene_models[ti].m_modelInfo.descriptorSet;
+                                    models[m2].m_materials                 = scene_models[ti].m_materials;
+#endif
+                                    #if defined(_DEBUG_SCENEMANAGER_)
+                                        debug.logDebugMessage(LogLevel::LOG_INFO,
+                                            L"[SceneManager] TEXTURE-RELOAD '%ls' — written back to models[%d]",
+                                            scene_models[ti].m_modelInfo.name.c_str(), m2);
+                                    #endif
+                                    break;
+                                }
+                            }
+                            break;
+                        }
                     }
                 }
 
+                // --- Step 5: Start animations ---
+                #if defined(_DEBUG_SCENEMANAGER_)
+                    debug.logDebugMessage(LogLevel::LOG_INFO,
+                        L"[SceneManager] CACHE-RESTORE Step 5: bAnimationsLoaded=%s, animCount=%d",
+                        bAnimationsLoaded ? L"true" : L"false",
+                        gltfAnimator.GetAnimationCount());
+                #endif
                 if (bAnimationsLoaded && gltfAnimator.GetAnimationCount() > 0)
                 {
                     for (int animIdx = 0; animIdx < gltfAnimator.GetAnimationCount(); ++animIdx)
                     {
                         int parentID = FindParentModelIDForAnimation(animIdx);
+                        #if defined(_DEBUG_SCENEMANAGER_)
+                            debug.logDebugMessage(LogLevel::LOG_INFO,
+                                L"[SceneManager] CACHE-RESTORE anim[%d] parentID=%d", animIdx, parentID);
+                        #endif
                         if (parentID < 0) continue;
-                        gltfAnimator.CreateAnimationInstance(animIdx, parentID);
-                        gltfAnimator.ForceAnimationReset(parentID);
-                        gltfAnimator.SetAnimationSpeed(parentID, 0.75f);
-                        gltfAnimator.SetAnimationLooping(parentID, true);
-                        gltfAnimator.StartAnimation(parentID, animIdx);
+                        bool created = gltfAnimator.CreateAnimationInstance(animIdx, parentID);
+                        if (created)
+                        {
+                            gltfAnimator.ForceAnimationReset(parentID);
+                            gltfAnimator.SetAnimationSpeed(parentID, 0.75f);
+                            gltfAnimator.SetAnimationLooping(parentID, true);
+                            gltfAnimator.StartAnimation(parentID, animIdx);
+                        }
                     }
                 }
 
-                #if defined(_DEBUG_SCENEMANAGER_)
+                if (instanceIndex > 0)
                 {
-                    auto _e  = std::chrono::high_resolution_clock::now();
-                    auto _ms = std::chrono::duration_cast<std::chrono::milliseconds>(_e - _sceneLoadBegin).count();
-                    debug.logDebugMessage(LogLevel::LOG_INFO,
-                        L"[SceneManager] ParseGLTFScene() CACHE HIT — ENGINE LOAD TIME: %lld ms — %d instances restored from %d cache entries",
-                        _ms, instanceIndex, cacheCount);
+                    #if defined(_DEBUG_SCENEMANAGER_)
+                    {
+                        auto _e  = std::chrono::high_resolution_clock::now();
+                        auto _ms = std::chrono::duration_cast<std::chrono::milliseconds>(_e - _sceneLoadBegin).count();
+                        debug.logDebugMessage(LogLevel::LOG_INFO,
+                            L"[SceneManager] ParseGLTFScene() CACHE HIT — ENGINE LOAD TIME: %lld ms — %d instances restored from %d cache entries",
+                            _ms, instanceIndex, cacheCount);
+                    }
+                    #endif
+                    return true;
                 }
-                #endif
-                return true;
-            }
 
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_WARNING,
-                    L"[SceneManager] ParseGLTFScene() cache had %d entries but rebuild yielded 0 — falling through to full parse",
-                    cacheCount);
-            #endif
+                #if defined(_DEBUG_SCENEMANAGER_)
+                    debug.logDebugMessage(LogLevel::LOG_WARNING,
+                        L"[SceneManager] ParseGLTFScene() cache had %d entries but rebuild yielded 0 — falling through to full parse",
+                        cacheCount);
+                #endif
+            }
         }
     }
 
@@ -3648,16 +3976,6 @@ bool SceneManager::LoadSceneState(const std::wstring& path)
 // --------------------------------------------------------------------------------------------------
 void SceneManager::UpdateSceneAnimations(float deltaTime)
 {
-#if defined(_DEBUG_SCENEMANAGER_)
-    static float debugTimer = 0.0f;
-    debugTimer += deltaTime;
-    if (debugTimer >= 5.0f) // Log every 5 seconds
-    {
-        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[SceneManager] Updating scene animations with deltaTime: %.4f", deltaTime);
-        debugTimer = 0.0f;
-    }
-#endif
-
     // Only update animations if they were successfully loaded from the current scene
     if (bAnimationsLoaded)
     {
@@ -3737,11 +4055,17 @@ int SceneManager::FindParentModelID(const std::wstring& modelName)
         }
     }
 
-    // Model not found in scene_models array
+    // Model not found in scene_models array — log once per unique name to avoid per-frame spam
     #if defined(_DEBUG_SCENEMANAGER_)
-        debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] Model \"%ls\" not found in scene_models array", modelName.c_str());
+        static std::unordered_set<std::wstring> s_notFoundLogged;
+        if (s_notFoundLogged.find(modelName) == s_notFoundLogged.end())
+        {
+            s_notFoundLogged.insert(modelName);
+            debug.logDebugMessage(LogLevel::LOG_WARNING,
+                L"[SceneManager] Model \"%ls\" not found in scene_models array (logged once)", modelName.c_str());
+        }
     #endif
-    
+
     return -1;  // Return -1 to indicate model not found
 }
 
@@ -3875,6 +4199,17 @@ bool SceneManager::SaveCache(const std::string& filepath)
         #if defined(_DEBUG_SCENEMANAGER_) && defined(_DEBUG)
             debug.logLevelMessage(LogLevel::LOG_INFO,
                 L"[SceneManager] SaveCache: no loaded models to cache — file not written.");
+        #endif
+        return true;
+    }
+
+    // Do not overwrite an existing cache file — if one is already on disk it was
+    // written by a previous session and remains valid; let it stand.
+    if (std::filesystem::exists(filepath))
+    {
+        #if defined(_DEBUG_SCENEMANAGER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO,
+                L"[SceneManager] SaveCache: cache file already exists — skipping write.");
         #endif
         return true;
     }

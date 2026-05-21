@@ -502,13 +502,16 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
                 debug.logDebugMessage(LogLevel::LOG_DEBUG, L"CreateGameMenuWindow - Fade effect completed successfully");
             }
 
+            // Halt rendering immediately — no further frames after fade completes.
+            // Must be set BEFORE RemoveWindow so the render thread sees it and exits
+            // before any window/resource teardown begins.
+            threadManager.threadVars.bIsShuttingDown.store(true);
+
             // Remove the game menu window safely before application shutdown
             RemoveWindow(windowName);
 
             // Post quit message to initiate clean application shutdown
             debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Posting quit message for application shutdown");
-            // state we are shutting down as this will stop the renderer.
-            threadManager.threadVars.bIsShuttingDown.store(true);
             PostQuitMessage(0);
 
         }

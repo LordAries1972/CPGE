@@ -1,0 +1,35 @@
+SceneManager.cpp - History Entry - 20-05-2026e - Build v0.0.1272
+
+CACHE RESTORE — UNCONDITIONAL TEXTURE/MATERIAL/ANIMATION REVALIDATION
+
+Change:
+Previously, the GLB cache fast-path gated its texture, material, and animation
+re-parse on two flags: `texturesNeedReload` (true only when textureSRVs were
+completely empty) and `!bAnimationsLoaded` (false on every reload after the
+first parse, since the flag was never reset).  This caused three silent failures:
+
+  1. Textures  — stale-but-non-null SRVs (device reset, cross-scene reload)
+                 passed the empty-check and were never rebound.
+  2. Materials — BindGLTFMaterialTexturesToModel was only called when
+                 texturesNeedReload was true; same-session reloads with
+                 non-empty SRVs skipped material PBR binding entirely.
+  3. Animations — bAnimationsLoaded stayed true across different GLB files.
+                  Loading scene B then reloading scene A left gltfAnimator
+                  holding scene B's keyframes; the cache path skipped
+                  ParseAnimationsFromGLTF for scene A, so animations played
+                  with wrong channel data or not at all.
+
+Fix:
+  - Removed texturesNeedReload variable and its detection loop.
+  - Changed the outer guard from
+      if ((!bAnimationsLoaded || texturesNeedReload) && exists(glbFile))
+    to
+      if (exists(glbFile))
+    so the GLB JSON + BIN is always re-read on every cache restore.
+  - Removed the inner `if (!textureSRVs.empty()) continue` guard so all
+    geometry models are rebound (SRVs are cleared before BindGLTFMaterialTexturesToModel
+    is called, replacing any stale COM pointers).
+  - Updated stale comment that referred to "SRV vector is still empty".
+
+Files changed:
+  SceneManager.cpp (cache fast-path, lines ~348-420)

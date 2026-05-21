@@ -1,0 +1,33 @@
+SceneManager.cpp - 21-05-2026 - Cache-restore animation fix (v0.0.1274-1276)
+
+CHANGES:
+Both GLB and GLTF cache fast-paths fixed so animations fire on cache restore.
+
+PROBLEM 1 — stale m_animationInstances surviving ParseAnimationsFromGLTF:
+  ParseAnimationsFromGLTF clears m_animations but NOT m_animationInstances.
+  On cache restore, instances from prior scene loads survived the re-parse,
+  leaving the animator in inconsistent state. CreateAnimationInstance found
+  these stale instances and updated them, but state from previous scenes
+  could interfere.
+
+  FIX: Added gltfAnimator.ClearAllAnimations() immediately before
+  ParseAnimationsFromGLTF in both cache fast-paths (GLB and GLTF). This
+  ensures m_animationInstances is always empty when Step 5 runs, exactly
+  matching the clean state present on first (non-cache) load.
+
+PROBLEM 2 — Step 5 animation startup diverged from full-parse startup:
+  The full-parse animation startup checks the return value of
+  CreateAnimationInstance with `if (created)` before calling ForceAnimationReset,
+  SetAnimationSpeed, SetAnimationLooping, and StartAnimation. The cache fast-path
+  Step 5 called all five functions unconditionally, without the guard.
+
+  FIX: Both cache fast-paths now use `bool created = CreateAnimationInstance(...);
+  if (created) { ... }` matching the full-parse path exactly.
+
+DIAGNOSTIC LOGGING ADDED (under #if defined(_DEBUG_SCENEMANAGER_)):
+  At Step 5 entry: logs bAnimationsLoaded and GetAnimationCount().
+  Per animation: logs animIdx and parentID returned by FindParentModelIDForAnimation().
+  These allow definitive tracing of any remaining animation startup issues
+  without requiring a debugger.
+
+FILES CHANGED: SceneManager.cpp

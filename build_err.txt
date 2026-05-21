@@ -1,0 +1,24 @@
+'tlocal' is not recognized as an internal or external command,
+operable program or batch file.
+'et' is not recognized as an internal or external command,
+operable program or batch file.
+'""' is not recognized as an internal or external command,
+operable program or batch file.
+'et' is not recognized as an internal or external command,
+operable program or batch file.
+'f' is not recognized as an internal or external command,
+operable program or batch file.
+'it' is not recognized as an internal or external command,
+operable program or batch file.
+Kill: illegal pid: all
+Kill: illegal pid: cl.exe
+Kill: illegal pid: and
+Kill: illegal pid: mspdbsrv.exe
+Kill: illegal pid: processes
+Kill: illegal pid: to
+Kill: illegal pid: release
+Kill: illegal pid: any
+Kill: illegal pid: locked
+Kill: illegal pid: handles.
+'Errors' is not recognized as an internal or external command,
+operable program or batch file.
