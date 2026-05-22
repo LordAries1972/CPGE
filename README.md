@@ -47,7 +47,7 @@ With our First Release, you can now create a full working 2D game using the 2D R
 - Game AI,
 - Script Manager allow users to program the system via scripting,
 - Screen and Audio Recording (dumps to recording.mp4)
-- Scene Management & cacheing (cacheing system currently broken),
+- Scene Management & cacheing,
 - Randomizer (RNG System) & 
 - Custom Windows and Controls. 
 
