@@ -41,10 +41,10 @@ to ensure complete control and transparency over behavior, performance, and debu
 Versions of the required OS's above that are missing, will be given later as development proceeds as at this point in time, who knows what may be upgraded!!!
 
 ### 🎮 Graphics API Rendering Support Systems
-- DirectX 11
-- DirectX 12
-- OpenGL
-- Vulkan
+- DirectX 11 (Primary focus for now!)
+- DirectX 12 (Implemented, but not working WIP)
+- OpenGL (Implemented, but not working WIP)
+- Vulkan (Implemented, but not working WIP)
 
 These four Render Engines above, will cover all OS (Operating System) platforms.
 
@@ -55,9 +55,10 @@ These four Render Engines above, will cover all OS (Operating System) platforms.
 - Custom XM (Fast Tracker 2) module player with full effect support
 
 ### 📆 Scene Management
-- In-house GLTF 2.0 (.gltf) parser (fully working), .glb will be added soon!
+- In-house GLTF 2.0 (.gltf & .glb) parser (fully working)
 - Supports dynamic loading of models, lights, and cameras
 - Model instances are isolated from base assets to prevent data corruption and faster re-loading times (Cacheing)
+- Cacheing system to reduce major load times.
 
 ### 🚀 Engine Capabilities
 - Instance-based rendering with full constant buffer separation.
@@ -79,7 +80,7 @@ These four Render Engines above, will cover all OS (Operating System) platforms.
 - GUI (Graphics User Interface) Intuition System.
 - 2D Blitting Queue based on leveling.
 - 3D Model Handling System.
-- Scene Management via Compatible GLTF 2.0 formats / or singular OBJ files.
+- Scene Management via Compatible GLTF 2.0 formats / or singular OBJ files (More will come such as .fbx and .usd formats).
 - Keyboard and Mouse Interventions.
 
 - And so much more, and yet much more to come!!!
@@ -97,7 +98,7 @@ Daniel's philosophy is built on precision and stability:
 - JSON Parser is by Niels Lohmann and his work also too falls under the MIT License.  See below for his GitHUB link.
 
 - **Debug-centric design** — with deep diagnostics, color-coded shader fallbacks, and verbose logging for every subsystem; do not worry, you mess up, I got ya back!
-- **Platform-first design** — ensuring compatibility across multiple operating systems and graphics backends.
+- **Platform-first design** — ensuring compatibility across multiple operating systems and graphical render backends.
 
 ## Licensing
 
@@ -107,7 +108,7 @@ because they all want to make their super $$$ for their games; which of course, 
 This System comes Free-To-Use for study/personal or Commercial purposes for free.  
 
 All that you are required to do, is simply state in your game or application, that the Engine is based on the 
-"CPGE (Cross Platform Gaming Engine)" and that is it folks and that is the only mandatory thing I ask for using this engine.
+"CPGE (Cross Platform Gaming Engine) / PREFER TO YOU USE OUR STARTUP SCREEN" and that is it folks and that is the only mandatory thing I ask for using this engine.
 (Please always give recognition to those who ever helped you!!!).
 
 This Engine is a public go-to system for Game Development and is strictly free to use, based on given recognition, 
@@ -126,8 +127,8 @@ more importantly, demonstrates the very power of the people and FOSS (Free Open-
 > * "Persistence is the key, without the key, you go no where!"
 > * "Never Hang Back or get stuck in the mudd, Forwards is the only way to get through it all!"
 > * "Old School programming is slowly been forgotten, it is vital for the newer generation of people to learn and keep it going!"
-> * Doing my Part for the Open Source Software Community.
-> — Daniel J. Hobson of Australia 2025
+> * Doing my Part for the Free Open Source Software Community.
+> — Daniel J. Hobson of Melbourne, Australia 2023-2026
 ---
 
 ## Contact & Contributions
@@ -138,9 +139,9 @@ For inquiries, collaboration, or contributions to CPGE:
 
 📂 My Website: [https://ultimanium.com/](https://ultimanium.com/index.php?action=cpge)  
 
-When you visit mysite, I please ask that you do not use a VPN / Proxy deferer or otherwise you will be blocked.  My site is strictly about legitamacy and if you cannot do that! well we do not need you as you have already proven your dis-honest with us! ... Seniors and reliable only apply!
+When you visit mysite, I please ask that you do not use a VPN / Proxy deferer or otherwise you will be blocked.  My site is strictly about legitamacy and if you cannot do that! well we do not need you as you have already proven your dis-honesty with us! ... Seniors and reliable only apply!
 
 📂 JSON Parser by Niels Lohmann GitHub Repository: [https://github.com/nlohmann/json](https://github.com/nlohmann/json)  
-💬 Open issues or discussions directly on the repo  
+💬 Open issues or discussions directly on the repo or on my website CPGE forum board.
 📧 Contact via GitHub (or define a dedicated project email if desired)
 
