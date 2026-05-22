@@ -25,14 +25,13 @@ the engines full power!  I am planning to make the CPGE engine a flight engine u
    areas!  (ie, that be Effects, Renderer, Sounds, Music, Networking etc).
    
 5) Tools will be coming, its part of the plan to help and assist your gaming development.
-6) Scripting Support will be coming also real soon! - As of 27th April, 2026 (A favourite development of mine!)
-7) Why are you paying people like UNREAL engine? your adding cost to your game, which means you must ask the higher price, why? - Time to stop this BS right!
-8) Even thou the system is not currently as advanced as UNREAL and the others out there, why help them to only elevate your costs right!
-9) Time to jump on board, making a game is what we do, and contribute your recommendations here so we can all 
+6) Why are you paying people like UNREAL engine? your adding cost to your game, which means you must ask the higher price if selling on large volumes, why? - Time to stop this BS right!
+7) Even thou the system is not currently as advanced as UNREAL ATM and the others out there, why help them to only elevate your costs right!
+8) Time to jump on board, making a game is what I Love to do, and contribute your recommendations here so we can all 
    benefit from the expertise of others and yet, keep our costs down for our players so we all can make a buck right!
-10) Scripting support that allows the user to customise scene generation via scripts for those who are NOT programmable savvy or for those who can
-    manipulate sequencing without the code in the engine for the scene transitions. This allows a direct API interface to the main core engine and
-    that been said, allows you do externally edit your game engine.
+9) Scripting support that allows the user to customise scene generation via scripts for those who are NOT programmable savvy or for those who can
+   manipulate sequencing without the code in the engine for the scene transitions. This allows a direct API interface to the main core engine and
+   that been said, allows you do externally edit your game engine.
 
 It should also be duely noted, that we will NEVER EVER charge anyone for the privilege of using our gaming engine!
 
