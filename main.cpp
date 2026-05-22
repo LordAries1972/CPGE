@@ -672,6 +672,13 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
         #ifdef __USE_SCRIPT_MANAGER__
             scriptManager.Initialize(&fxManager, &threadManager, &soundManager, &guiManager, &scene, &gamePlayer, nullptr, &js, &renderer->myCamera);
+
+            // Route console command bar input to ScriptManager
+            consoleWindow.SetCommandCallback([](const std::wstring& cmd) {
+                std::string narrowCmd(cmd.begin(), cmd.end());
+                scriptManager.ExecuteCommandLine(narrowCmd);
+            });
+
             scriptManager.LoadSceneScript(SceneType::SCENE_INITIALISE);
             scriptManager.ExecuteScriptAsync();
         #endif
@@ -2130,6 +2137,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 bResizeInProgress.store(false);
             }
 
+            return 0;
+        }
+
+        case WM_CHAR:
+        {
+            if (consoleWindow.bIsVisible)
+                consoleWindow.HandleChar(static_cast<wchar_t>(wParam));
             return 0;
         }
 

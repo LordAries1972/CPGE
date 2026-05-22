@@ -1,0 +1,18 @@
+Changes - 23-05-2026:
+  - CONSOLE_MAX_LINES raised to 500
+  - CONSOLE_VISIBLE_LINES kept as compile-time fallback/default (14); overridden each frame
+  - Added CONSOLE_CMDBAR_H = 22.0f constant
+  - Added #include <atomic>, #include <functional>
+  - Added position/size constants block at top:
+      CONSOLE_WIN_X        = 10.0f   (left edge)
+      CONSOLE_WIN_Y        =  5.0f   (top edge)
+      CONSOLE_WIN_H_MARGIN = 10.0f   (px subtracted from client height; raised from 5→10 so
+                                       the +1px outer border is not clipped off-screen at bottom)
+      CONSOLE_WIN_W_PCT    =  0.75f  (fraction of client width, user-adjusted)
+      CONSOLE_WIN_W_MIN    = 570.0f  (minimum width, user-adjusted)
+      CONSOLE_WIN_W_MAX    = 1400.0f (maximum width)
+  - Added public methods: HandleChar(wchar_t), HandleBackspace(), HandleEnter()
+  - Added SetCommandCallback(std::function<void(const std::wstring&)>) public method
+  - Added m_visibleLines { CONSOLE_VISIBLE_LINES } atomic member
+  - Added m_cmdLine (std::wstring) private member for command line input buffer
+  - Added m_commandCallback (std::function) private member; invoked by HandleEnter()

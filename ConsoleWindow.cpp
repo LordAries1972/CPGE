@@ -34,7 +34,7 @@ void ConsoleWindow::Scroll(int delta)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     const int totalLines = static_cast<int>(m_buffer.size());
-    const int maxOffset  = std::max(0, totalLines - CONSOLE_VISIBLE_LINES);
+    const int maxOffset  = std::max(0, totalLines - m_visibleLines.load());
     m_scrollOffset = std::clamp(m_scrollOffset + delta, 0, maxOffset);
 }
 
@@ -52,7 +52,7 @@ void ConsoleWindow::HandleMouseClick(float x, float y)
 
     std::lock_guard<std::mutex> lock(m_mutex);
     const int totalLines = static_cast<int>(m_buffer.size());
-    const int maxOffset  = std::max(0, totalLines - CONSOLE_VISIBLE_LINES);
+    const int maxOffset  = std::max(0, totalLines - m_visibleLines.load());
     if (maxOffset == 0) return;
 
     // top of track = maxOffset (oldest); bottom = 0 (newest)
@@ -67,6 +67,33 @@ void ConsoleWindow::Clear()
     m_scrollOffset = 0;
 }
 
+void ConsoleWindow::HandleChar(wchar_t c)
+{
+    if (!bIsVisible) return;
+    if (c >= 32 && c != 127)
+        m_cmdLine += c;
+}
+
+void ConsoleWindow::HandleBackspace()
+{
+    if (!bIsVisible || m_cmdLine.empty()) return;
+    m_cmdLine.pop_back();
+}
+
+void ConsoleWindow::HandleEnter()
+{
+    if (!bIsVisible || m_cmdLine.empty()) return;
+    AddLine(L"> " + m_cmdLine);
+    if (m_commandCallback)
+        m_commandCallback(m_cmdLine);
+    m_cmdLine.clear();
+}
+
+void ConsoleWindow::SetCommandCallback(std::function<void(const std::wstring&)> cb)
+{
+    m_commandCallback = std::move(cb);
+}
+
 void ConsoleWindow::Render(Renderer* r, int screenWidth, int screenHeight)
 {
     if (!bIsVisible || !r) return;
@@ -78,12 +105,17 @@ void ConsoleWindow::Render(Renderer* r, int screenWidth, int screenHeight)
     const float fontSize   = std::clamp(static_cast<float>(screenHeight) / 108.0f, 8.0f, 12.0f);
     const float lineHeight = fontSize + 4.0f;
 
-    // Window geometry — bottom-left corner, 80% of screen width.
-    const float winW     = std::clamp(static_cast<float>(screenWidth) * 0.80f, 600.0f, 1400.0f);
-    const float contentH = lineHeight * static_cast<float>(CONSOLE_VISIBLE_LINES) + CONSOLE_PADDING * 2.0f;
-    const float winH     = CONSOLE_TITLEBAR_H + contentH;
-    const float winX     = 10.0f;
-    const float winY     = static_cast<float>(screenHeight) - winH - 50.0f;
+    // Window geometry — driven by constants in ConsoleWindow.h.
+    const float winW     = std::clamp(static_cast<float>(screenWidth) * CONSOLE_WIN_W_PCT,
+                                      CONSOLE_WIN_W_MIN, CONSOLE_WIN_W_MAX);
+    const float winH     = static_cast<float>(screenHeight) - CONSOLE_WIN_H_MARGIN;
+    const float winX     = CONSOLE_WIN_X;
+    const float winY     = CONSOLE_WIN_Y;
+    const float contentH  = winH - CONSOLE_TITLEBAR_H;
+    // textAreaH reserves the bottom CONSOLE_CMDBAR_H + 1px separator for the command line.
+    const float textAreaH = contentH - CONSOLE_CMDBAR_H - 1.0f;
+    const int   visibleLines = std::max(1, static_cast<int>((textAreaH - CONSOLE_PADDING * 2.0f) / lineHeight));
+    m_visibleLines.store(visibleLines);
 
     // --- Outer border — bright blue, clearly visible on any dark background ---
     r->DrawRectangle(Vector2(winX - 1.0f, winY - 1.0f),
@@ -114,54 +146,62 @@ void ConsoleWindow::Render(Renderer* r, int screenWidth, int screenHeight)
                      Vector2(winW, contentH),
                      MyColor(12, 18, 30, 218), true);
 
-    // --- Scrollbar track (right edge of content area) ---
+    // --- Scrollbar slot (right edge of content area) ---
     const float sbX = contentX + winW - CONSOLE_SCROLLBAR_W;
-    m_sbX = sbX;
-    m_sbY = contentY;
-    m_sbH = contentH;
-    r->DrawRectangle(Vector2(sbX, contentY),
-                     Vector2(CONSOLE_SCROLLBAR_W, contentH),
-                     MyColor(18, 35, 60, 255), true);
 
-    // Separator between text area and scrollbar
+    // Separator line — left boundary of the scrollbar slot (text area only, not cmd bar)
     r->DrawRectangle(Vector2(sbX, contentY),
-                     Vector2(1.0f, contentH),
+                     Vector2(1.0f, textAreaH),
                      MyColor(55, 110, 175, 255), true);
+
+    // Track: +1 X (after separator), -1 width, -1 height, centred vertically
+    const float trackX = sbX + 1.0f;
+    const float trackY = contentY + 0.5f;
+    const float trackW = CONSOLE_SCROLLBAR_W - 1.0f;
+    const float trackH = textAreaH - 1.0f;
+
+    m_sbX = trackX;
+    m_sbY = trackY;
+    m_sbH = trackH;
+
+    r->DrawRectangle(Vector2(trackX, trackY),
+                     Vector2(trackW, trackH),
+                     MyColor(18, 35, 60, 255), true);
 
     // --- Text lines and scrollbar thumb (under lock) ---
     {
         std::lock_guard<std::mutex> lock(m_mutex);
 
         const int totalLines = static_cast<int>(m_buffer.size());
-        const int maxOffset  = std::max(0, totalLines - CONSOLE_VISIBLE_LINES);
+        const int maxOffset  = std::max(0, totalLines - visibleLines);
         m_scrollOffset       = std::clamp(m_scrollOffset, 0, maxOffset);
 
-        // Scrollbar thumb — proportional to fraction of buffer that is visible.
+        // Scrollbar thumb — shrinks proportionally as buffer fills toward 300 lines.
         if (totalLines > 0)
         {
             const float fillRatio = std::min(1.0f,
-                static_cast<float>(CONSOLE_VISIBLE_LINES) / static_cast<float>(totalLines));
-            const float thumbH = std::max(8.0f, contentH * fillRatio);
+                static_cast<float>(visibleLines) / static_cast<float>(totalLines));
+            const float thumbH = std::max(8.0f, trackH * fillRatio);
 
             // scrollOffset=0 → thumb at bottom; scrollOffset=maxOffset → thumb at top.
             const float thumbT = (maxOffset > 0)
-                ? (contentH - thumbH) * (1.0f - static_cast<float>(m_scrollOffset) /
-                                                  static_cast<float>(maxOffset))
-                : contentH - thumbH;
+                ? (trackH - thumbH) * (1.0f - static_cast<float>(m_scrollOffset) /
+                                                static_cast<float>(maxOffset))
+                : trackH - thumbH;
 
-            r->DrawRectangle(Vector2(sbX + 1.0f, contentY + thumbT),
-                             Vector2(CONSOLE_SCROLLBAR_W - 2.0f, thumbH),
+            r->DrawRectangle(Vector2(trackX + 1.0f, trackY + thumbT),
+                             Vector2(trackW - 2.0f, thumbH),
                              MyColor(80, 150, 225, 255), true);
         }
 
         // Which lines to show (newest at bottom).
         int endIdx   = std::clamp(totalLines - m_scrollOffset, 0, totalLines);
-        int startIdx = std::max(0, endIdx - CONSOLE_VISIBLE_LINES);
+        int startIdx = std::max(0, endIdx - visibleLines);
         int lineCount = endIdx - startIdx;
 
         // Push lines to the bottom of the content area when buffer is sparse.
         const float textStartY = contentY + CONSOLE_PADDING +
-                                 static_cast<float>(CONSOLE_VISIBLE_LINES - lineCount) * lineHeight;
+                                 static_cast<float>(visibleLines - lineCount) * lineHeight;
 
         for (int i = 0; i < lineCount; ++i)
         {
@@ -179,4 +219,22 @@ void ConsoleWindow::Render(Renderer* r, int screenWidth, int screenHeight)
                           fontSize);
         }
     }
+
+    // --- Command line separator ---
+    const float cmdSepY = contentY + textAreaH;
+    r->DrawRectangle(Vector2(contentX, cmdSepY),
+                     Vector2(winW, 1.0f),
+                     MyColor(55, 110, 175, 255), true);
+
+    // --- Command line bar ---
+    const float cmdBarY = cmdSepY + 1.0f;
+    r->DrawRectangle(Vector2(contentX, cmdBarY),
+                     Vector2(winW, CONSOLE_CMDBAR_H),
+                     MyColor(10, 15, 25, 230), true);
+
+    const float cmdTextY = cmdBarY + (CONSOLE_CMDBAR_H - fontSize) * 0.5f - 1.0f;
+    r->DrawMyText(L"> " + m_cmdLine + L"_",
+                  Vector2(contentX + CONSOLE_PADDING, cmdTextY),
+                  MyColor(160, 220, 160, 255),
+                  fontSize);
 }

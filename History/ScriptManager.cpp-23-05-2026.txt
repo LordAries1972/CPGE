@@ -1,0 +1,5 @@
+Changes - 23-05-2026:
+  - Added ScriptManager::ExecuteCommandLine(const std::string& line):
+      Guards against uninitialized state (m_fx == nullptr) and concurrent script execution.
+      Calls ParseLine(line, 0) → DispatchCommand(cmd, 0) for valid command types.
+      Logs "[CONSOLE] Unrecognised command: ..." via debug.Log for UNKNOWN/COMMENT types.

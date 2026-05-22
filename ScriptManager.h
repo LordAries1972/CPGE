@@ -177,6 +177,10 @@ public:
     // Signal the async execution to stop at the next command boundary
     void StopExecution();
 
+    // Parse and execute a single command line typed at the console command bar.
+    // No-op if the engine is currently running a script asynchronously.
+    void ExecuteCommandLine(const std::string& line);
+
     // Call each frame — evaluates registered DETECT_COLLISION rules
     void Update(float deltaTime);
 

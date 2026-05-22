@@ -357,6 +357,26 @@ void ScriptManager::StopExecution()
     m_stopRequested.store(true);
 }
 
+void ScriptManager::ExecuteCommandLine(const std::string& line)
+{
+    if (line.empty()) return;
+
+    if (!m_fx) {
+        debug.Log("[CONSOLE] ScriptManager not initialized — command ignored.");
+        return;
+    }
+    if (m_executing.load()) {
+        debug.Log("[CONSOLE] Script busy — wait for it to finish before issuing commands.");
+        return;
+    }
+
+    ScriptCommand cmd = ParseLine(line, 0);
+    if (cmd.type != ScriptCmdType::UNKNOWN && cmd.type != ScriptCmdType::COMMENT)
+        DispatchCommand(cmd, 0);
+    else
+        debug.Log("[CONSOLE] Unrecognised command: " + line);
+}
+
 void ScriptManager::RunCommands(const std::vector<ScriptCommand>& cmds)
 {
     const int count = static_cast<int>(cmds.size());

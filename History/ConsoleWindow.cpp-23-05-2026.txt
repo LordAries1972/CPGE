@@ -1,0 +1,13 @@
+Changes - 23-05-2026:
+  - Window height: winH = screenHeight - CONSOLE_WIN_H_MARGIN; winY = CONSOLE_WIN_Y
+  - Window width uses CONSOLE_WIN_W_PCT clamped to [CONSOLE_WIN_W_MIN, CONSOLE_WIN_W_MAX]
+  - contentH split: textAreaH for output + 1px separator + CONSOLE_CMDBAR_H (22px) for command bar
+  - visibleLines computed dynamically from textAreaH; stored in m_visibleLines (atomic)
+  - Scrollbar separator and track use textAreaH — scrollbar stays within text area only
+  - Thumb shrinks proportionally as buffer fills toward CONSOLE_MAX_LINES
+  - Command bar: separator + dark background + green "> <input>_" prompt
+  - HandleChar(wchar_t): appends printable chars (>= 32, != 127) to m_cmdLine
+  - HandleBackspace(): removes last char from m_cmdLine
+  - HandleEnter(): echoes "> <cmd>" via AddLine, invokes m_commandCallback if set, clears m_cmdLine
+  - SetCommandCallback(): stores std::function callback; called from main.cpp after ScriptManager init
+  - Scroll() and HandleMouseClick() use m_visibleLines.load()

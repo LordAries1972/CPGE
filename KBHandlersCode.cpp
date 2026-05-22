@@ -187,6 +187,22 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
                     break;
                 }
 
+                // Console command bar — character deletion
+                case KeyCode::KEY_BACKSPACE:
+                {
+                    if (consoleWindow.bIsVisible)
+                        consoleWindow.HandleBackspace();
+                    break;
+                }
+
+                // Console command bar — submit command
+                case KeyCode::KEY_ENTER:
+                {
+                    if (consoleWindow.bIsVisible)
+                        consoleWindow.HandleEnter();
+                    break;
+                }
+
                 // Move to opposite side with F9 key
                 case KeyCode::KEY_F9:
                 {

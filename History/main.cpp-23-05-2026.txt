@@ -1,0 +1,7 @@
+Changes - 23-05-2026:
+  - WndProc: added case WM_CHAR — routes to consoleWindow.HandleChar(wchar_t(wParam))
+    when consoleWindow.bIsVisible; returns 0 to consume the message.
+    Placed immediately before case WM_MOUSEWHEEL.
+  - ScriptManager init block: after scriptManager.Initialize(), registers a lambda via
+    consoleWindow.SetCommandCallback() that converts the wstring command to a narrow string
+    and calls scriptManager.ExecuteCommandLine(). Guarded by #ifdef __USE_SCRIPT_MANAGER__.

@@ -325,24 +325,18 @@
     <Warning Text="glew.h not found in $(ProjectDir)include\GL — OpenGL renderer will fall back to bare gl.h (OpenGL 1.1 only)." Condition="!Exists('$(_GlewH)')" />
   </Target>
 
-  <!-- ── Apply renderer-prefixed output name to the linker ────────────────── -->
-  <!-- Runs BeforeTargets="Link" so all .obj items exist and can be updated.  -->
-  <!-- Sets TargetName/TargetPath so the Link task uses the correct /OUT: path -->
-  <!-- and updates %(Link.OutputFile) so MSB8012 is silenced.                  -->
-  <Target Name="SetRendererLinkerOutput" BeforeTargets="Link"
-          Condition="'$(_RendererPrefix)' != ''">
-    <PropertyGroup>
-      <TargetName>$(_RendererPrefix)$(GameName)</TargetName>
-      <TargetFileName>$(_RendererPrefix)$(GameName)$(TargetExt)</TargetFileName>
-      <TargetPath>$(TargetDir)$(_RendererPrefix)$(GameName)$(TargetExt)</TargetPath>
-    </PropertyGroup>
-    <!-- Sync OutputFile metadata on every compiled object so %(Link.Filename)
-         matches TargetName and MSB8012 does not fire. -->
-    <ItemGroup>
-      <Link Update="@(Link)">
-        <OutputFile>$(TargetPath)</OutputFile>
-      </Link>
-    </ItemGroup>
+  <!-- ── Copy linker output to renderer-prefixed name ───────────────────── -->
+  <!-- VS2022 always looks for $(TargetPath) = CPGE.exe to launch the        -->
+  <!-- debugger (static project evaluation). We therefore keep CPGE.exe as   -->
+  <!-- the primary linker output AND copy it to DXCPGE.exe / VulkanCPGE.exe  -->
+  <!-- etc. after linking. Both files exist: VS uses CPGE.exe, the prefixed   -->
+  <!-- copy is for distribution / renderer identification.                    -->
+  <Target Name="CopyRendererExe" AfterTargets="Link"
+          Condition="'$(_RendererPrefix)' != '' And Exists('$(TargetPath)')">
+    <Copy SourceFiles="$(TargetPath)"
+          DestinationFiles="$(TargetDir)$(_RendererPrefix)$(GameName)$(TargetExt)"
+          OverwriteReadOnlyFiles="true" />
+    <Message Text="  Renderer copy : $(TargetDir)$(_RendererPrefix)$(GameName)$(TargetExt)" Importance="high" />
   </Target>
 
   <Target Name="ComputeLinkImportLibraryOutputsForClean" Condition=" '$(TargetFramework)' != '' ">
