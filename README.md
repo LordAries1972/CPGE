@@ -59,15 +59,14 @@ Basically everything you need to create a standard 2D Based Looking Gamimg syste
 - Documents and example usages to this project can be found within the Docs folder.
 
 ## Demos
-There are several demos that you can view to see the capabilites of CPGE.  I will be moving all these at a later date once a web site is established.  Stay Tuned!
+Update 22nd May, 2026: I will be adding demo videos soon to my website and YouTube for public viewing so you can see the full power of the CPGE Engine.
 
-## Known Issues
+## Known Issues 22nd May, 2026:
 These are the following known issues and will be resolved as humanly possible.
 
-1) [ MAJOR ] Scene Cacheing is causing problems!  Reloads are not giving back the correct wanted data and flips on models!
-2) SCENE Loading has dramatically slowed!  Optimisations has been performed, but still too slow for my liking!
-3) Fader Transition in the FXManager (Possiblably broken due to OpenGL Implementation - Currently look at it!)
-4) Scene Cacheing is not working as expected, this is to help with Issue #2.
+1) Fader Transition in the FXManager (Possiblably broken due to OpenGL Implementation - Currently looking into it!)
+2) Scene Cacheing is now working as expected (but keeping a close eye out for any other possible mishaps).
+3) Models are still not been fully imported right (Investigating as it maybe possible I am not doing exports properly with Blender).
 
 ## Getting Started
 
