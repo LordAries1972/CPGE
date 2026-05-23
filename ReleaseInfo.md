@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1288 — May 23, 2026*
+*Current Build Version: v0.0.1297 — May 24, 2026*
 
 ---
 
@@ -1108,8 +1108,6 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - **Docs — FXManager-Example-Usage.md updated**: Added Section 11 "Loading Screen Text Fade Effect" documenting the new `TextFadeInOut` effect: `TextRenderStyle` struct, `LoadingTextFX` platform font namespace, `TextFadeData` field reference, full API signatures for `ShowLoadingText()` / `StopLoadingText()` / `RenderLoadingText()`, integration note (must be called inside active D2D draw context), renderer compatibility table (DX11/Vulkan/OpenGL), and four code examples covering basic use, coloured/styled text, persistent messages, and a full loading pipeline. TOC updated (items 11–17 renumbered), Key Features list updated to include TextFadeInOut and OpenGL, Important Notes table updated to include `GLFXManager`, Source File Reference table updated with OpenGL FXManager entries.
 - *See: [`Docs/FXManager-Example-Usage.md`](Docs/FXManager-Example-Usage.md)*
 
----
-
 **Bug fix — duplicate log output + materials/animations not restored after disk-cache load (v0.0.1265):**
 
 - **Duplicate log output — `Debug.cpp`**: `logDebugMessage` was calling `logLevelMessage` (which already writes the tagged message to the log file) and then calling `Insert_Into_Log_File` a second time with the untagged message. Every debug call produced two log file lines — one with `[INFO]:` prefix and one without. Removed the redundant `Insert_Into_Log_File` call from `logDebugMessage`; `logLevelMessage` is the single authoritative writer.
@@ -1138,6 +1136,15 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - **Fix 1 — `LoadCache()` — GPU re-serialisation**: after all data for a model is read from disk, `SetupModelForRendering()` is called to rebuild the GPU objects (constantBuffer, vertexBuffer, indexBuffer, lightConstantBuffer, materialBuffer, debugConstantBuffer, samplerState) from the cached geometry. `bGpuReady` starts `false` and is set `true` only if setup succeeds — if it fails the model safely falls through to a full GLB parse. Texture SRVs are not cached; fallback solid-colour textures are applied here and replaced by the actual asset textures when the first full parse writes back via `CopyFrom`. `bGpuReady = false` is always the initial state regardless of the serialised flag value.
 - **Fix 2 — defensive guard in both fast-paths** (`ParseGLBScene` and `ParseGLTFScene`): after `CopyFrom(models[m])` inside the `bGpuReady` branch, a `#if defined(__USE_DIRECTX_11__)` guard checks `!constantBuffer && !vertices.empty()`. If true (GPU resources absent despite `bGpuReady`), `SetupModelForRendering(idx)` is called immediately and all resulting GPU handles are written back into `models[m]` so subsequent same-session reloads find valid resources in the fast-path.
 - *See: [`SceneManager.cpp`](SceneManager.cpp)*
+
+**May 24, 2026 — TextFader loading-screen stage messages: progressive stage text via ShowLoadingText in GAMETITLE and GAMEPLAY loader threads; RenderLoadingText moved to second D2D overlay block; StopLoadingText before scene transition; horizontal centering and cross-fade timing fixes (v0.0.1295–1297):**
+
+- **Progressive loading-stage text** (`IOStreamDX11Thread.cpp`): `ShowLoadingText()` calls added at each major loading stage in `SCENE_GAMETITLE` and `SCENE_GAMEPLAY` loader paths — "Loading textures...", "Initialising lighting...", "Parsing scene...", "Loading audio...", "Building interface...", "Almost ready..." — using a per-case `showStage` lambda (Segoe UI 20pt, white, horizontally centred at Y=392, 0.4 s fade-in / 0.25 s fade-out with cross-fade between stages). Resize path gets "Updating display..." stage message.
+- **RenderLoadingText moved to second D2D overlay block** (`DXRenderFrame.cpp`): `RenderLoadingText()` removed from `RenderBackgroundImage()` (first D2D pass — image-only layer). It is now called in the scene-specific section of the second D2D overlay block for `SCENE_GAMETITLE` and `SCENE_GAMEPLAY` when `!bLoaderTaskFinished`. The second D2D block executes after the background blit, so text is correctly layered on top. The `IsFadeActive()` guard was dropped — the `ColorFader` D3D fullscreen quad (rendered via `fxManager.Render()` after `EndDraw()`) naturally covers text while the fade is active; once the fade completes the stage text is fully visible.
+- **StopLoadingText before transition** (`IOStreamDX11Thread.cpp`): `fxManager.StopLoadingText()` called immediately before `fxManager.FadeToImage()` (GAMETITLE full-load path) and before `bLoaderTaskFinished.store(true)` (resize and GAMEPLAY paths), ensuring all text effects are cleared before the scene transition or loading-complete signal fires.
+- **Horizontal centering fix** (`Renderer.h`, `DX11Renderer.cpp`): Added `bool centered = false` to `TextRenderStyle`. In `DrawMyTextStyled()`, when `centered` is true, `IDWriteTextFormat::SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)` is applied and the DirectWrite layout is created at full render-target width (fallback 1920), then drawn at `x=0.0f` so DirectWrite handles pixel-perfect centering natively. `showStage` lambdas set `s.centered = true`.
+- **Cross-fade timing fix** (`IOStreamDX11Thread.cpp`): `showStage` lambda fade-in reduced from 0.4 s → 0.2 s; fade-out reduced from 0.25 s → 0.05 s. With a 50 ms max `pendingDelay`, even rapid sequential `ShowLoadingText` calls start fading in within one frame of the previous effect completing, preventing the delay-stacking that was causing all stage text to be invisible during fast loads.
+- *See: [`DXRenderFrame.cpp`](DXRenderFrame.cpp), [`IOStreamDX11Thread.cpp`](IOStreamDX11Thread.cpp), [`Renderer.h`](Renderer.h), [`DX11Renderer.cpp`](DX11Renderer.cpp), [`BuildInfo.h`](BuildInfo.h)*
 
 ---
 
