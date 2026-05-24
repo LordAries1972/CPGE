@@ -438,11 +438,6 @@ void VKFXManager::RemoveCompletedEffects() {
         bool timedOut         = std::chrono::duration<float>(now - fx.startTime).count() >= fx.timeout;
         bool progressComplete = fx.progress >= 1.0f;
 
-        if (fx.type == FXType::TextFadeInOut) {
-            if (progressComplete) toRemove.push_back(i);
-            continue;
-        }
-
         if (fx.type == FXType::TextScroller && fx.subtype == FXSubType::TXT_SCROLL_CONSISTANT) {
             if (fx.duration != FLT_MAX && timedOut) toRemove.push_back(i);
         }

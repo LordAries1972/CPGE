@@ -1167,8 +1167,14 @@ int GLFXManager::ShowLoadingText(const std::wstring& text,
                 d.startColor.z + (d.endColor.z - d.startColor.z) * t,
                 d.startColor.w + (d.endColor.w   - d.startColor.w) * t
             };
+            if (d.fadeOutStartColor.w < 0.05f) {
+                d.immediateStop = true; fx.progress = 1.0f;
+                continue;
+            }
+            float effectiveFadeOut = std::max(d.fadeOutDuration * d.fadeOutStartColor.w, 0.02f);
+            d.fadeOutDuration = effectiveFadeOut;
             d.phase = TextFadePhase::FadeOut; d.phaseTimer = 0.0f;
-            if (d.fadeOutDuration > maxRemainingFadeOut) maxRemainingFadeOut = d.fadeOutDuration;
+            if (effectiveFadeOut > maxRemainingFadeOut) maxRemainingFadeOut = effectiveFadeOut;
         } else if (d.phase == TextFadePhase::Holding) {
             d.fadeOutStartColor = d.endColor;
             d.phase = TextFadePhase::FadeOut; d.phaseTimer = 0.0f;
@@ -1226,6 +1232,8 @@ void GLFXManager::StopLoadingText()
                 d.startColor.z + (d.endColor.z - d.startColor.z) * t,
                 d.startColor.w + (d.endColor.w   - d.startColor.w) * t
             };
+            if (d.fadeOutStartColor.w < 0.05f) { d.immediateStop = true; fx.progress = 1.0f; continue; }
+            d.fadeOutDuration = std::max(d.fadeOutDuration * d.fadeOutStartColor.w, 0.02f);
             d.phase = TextFadePhase::FadeOut; d.phaseTimer = 0.0f;
         } else if (d.phase == TextFadePhase::Holding) {
             d.fadeOutStartColor = d.endColor;

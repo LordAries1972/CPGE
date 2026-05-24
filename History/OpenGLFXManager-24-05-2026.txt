@@ -439,8 +439,6 @@ void GLFXManager::RenderFX(int effectID, const XMMATRIX& worldMatrix) {
 void GLFXManager::RemoveCompletedEffects() {
     effects.erase(
         std::remove_if(effects.begin(), effects.end(), [](const GLFXItem& fx) {
-            if (fx.type == FXType::TextFadeInOut)
-                return fx.progress >= 1.0f;
             if (fx.type == FXType::ColorFader && fx.progress >= 1.0f && !fx.restartOnExpire)
                 return true;
             if (fx.type == FXType::ParticleExplosion) {

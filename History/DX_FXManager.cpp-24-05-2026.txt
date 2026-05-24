@@ -3326,9 +3326,7 @@ int FXManager::ShowLoadingText(const std::wstring& text,
         }
 
         if (d.phase == TextFadePhase::FadeIn) {
-            // Record actual current color so FadeOut starts there, not at full endColor.
-            // If the effect was barely visible (alpha≈0), fadeOutStartColor≈transparent and
-            // RenderTextFadeInOut's existing 0.005 guard will skip drawing — no blip.
+            // Calculate the actual current rendered opacity so FadeOut starts from there
             float t = (d.fadeInDuration > 0.0f)
                       ? std::clamp(d.phaseTimer / d.fadeInDuration, 0.0f, 1.0f)
                       : 1.0f;
@@ -3338,11 +3336,19 @@ int FXManager::ShowLoadingText(const std::wstring& text,
                 d.startColor.z + (d.endColor.z - d.startColor.z) * t,
                 d.startColor.w + (d.endColor.w   - d.startColor.w) * t
             };
-            float remaining = d.fadeOutDuration;
+            if (d.fadeOutStartColor.w < 0.05f) {
+                // Barely visible — kill silently
+                d.immediateStop = true;
+                fx.progress = 1.0f;
+                continue;
+            }
+            // Scale fade-out duration proportionally so partially-visible text disappears quickly
+            float effectiveFadeOut = std::max(d.fadeOutDuration * d.fadeOutStartColor.w, 0.02f);
+            d.fadeOutDuration = effectiveFadeOut;
             d.phase      = TextFadePhase::FadeOut;
             d.phaseTimer = 0.0f;
-            if (remaining > maxRemainingFadeOut)
-                maxRemainingFadeOut = remaining;
+            if (effectiveFadeOut > maxRemainingFadeOut)
+                maxRemainingFadeOut = effectiveFadeOut;
         } else if (d.phase == TextFadePhase::Holding) {
             d.fadeOutStartColor = d.endColor;
             float remaining = d.fadeOutDuration;
@@ -3427,6 +3433,12 @@ void FXManager::StopLoadingText()
                 d.startColor.z + (d.endColor.z - d.startColor.z) * t,
                 d.startColor.w + (d.endColor.w   - d.startColor.w) * t
             };
+            if (d.fadeOutStartColor.w < 0.05f) {
+                d.immediateStop = true;
+                fx.progress = 1.0f;
+                continue;
+            }
+            d.fadeOutDuration = std::max(d.fadeOutDuration * d.fadeOutStartColor.w, 0.02f);
             d.phase      = TextFadePhase::FadeOut;
             d.phaseTimer = 0.0f;
         } else if (d.phase == TextFadePhase::Holding) {

@@ -443,10 +443,9 @@ void DX11Renderer::RenderFrame()
                                {
                                    myCamera.SetYawPitch(0.240f, -0.28f);
                                }
-                               else
-                               {
-                                   fxManager.RenderLoadingText();
-                               }
+                               // Always call — no-op when no effects active; lets graceful fade-outs
+                               // complete even after loading finishes
+                               fxManager.RenderLoadingText();
                                break;
                            }
 
@@ -455,7 +454,8 @@ void DX11Renderer::RenderFrame()
                                #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
                                    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Rendering gameplay 2D elements");
                                #endif
-                               if (!threadManager.threadVars.bLoaderTaskFinished.load())
+                               if (!threadManager.threadVars.bLoaderTaskFinished.load() ||
+                                   fxManager.HasActiveLoadingTextEffects())
                                {
                                    fxManager.RenderLoadingText();
                                }

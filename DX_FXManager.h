@@ -220,7 +220,8 @@ struct TextFadeData {
     TextRenderStyle   fontStyle;                                                // Full font attributes (name, size, bold, italic, underline, strikethrough)
     XMFLOAT4          startColor    = { 0.0f, 0.0f, 0.0f, 0.0f };             // Color / alpha at the start of FadeIn (usually fully transparent black)
     XMFLOAT4          endColor      = { 1.0f, 1.0f, 1.0f, 1.0f };             // Color / alpha at full visibility
-    XMFLOAT4          fadeOutColor  = { 0.0f, 0.0f, 0.0f, 0.0f };             // Color / alpha at end of FadeOut (usually fully transparent)
+    XMFLOAT4          fadeOutColor      = { 0.0f, 0.0f, 0.0f, 0.0f };         // Color / alpha at end of FadeOut (usually fully transparent)
+    XMFLOAT4          fadeOutStartColor = { 1.0f, 1.0f, 1.0f, 1.0f };         // Actual color at the moment FadeOut begins (handles mid-FadeIn transitions)
     float             posX          = 0.0f;                                    // Screen X position (-1 = auto-centre)
     float             posY          = 0.0f;                                    // Screen Y position (-1 = auto-centre)
     float             fadeInDuration  = 0.5f;                                  // Seconds for the fade-in
@@ -589,8 +590,9 @@ public:
                          XMFLOAT4 startColor     = { 0.0f, 0.0f, 0.0f, 0.0f },
                          float posX = -1.0f, float posY = -1.0f,
                          const TextRenderStyle* fontStyle = nullptr);
-    void StopLoadingText();                                                     // Immediately removes all TextFadeInOut effects
+    void StopLoadingText();                                                     // Gracefully fades out all TextFadeInOut effects (or kills unstarted ones)
     void RenderLoadingText();                                                   // Update + render TextFadeInOut effects; call from inside an active D2D draw context (RenderBackgroundImage)
+    bool HasActiveLoadingTextEffects() const;                                   // Returns true if any TextFadeInOut effect is still animating (use to extend render after load)
 
 private:
     // WarpDotTunnel private helpers
