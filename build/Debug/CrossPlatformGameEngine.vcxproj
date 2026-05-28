@@ -62,25 +62,25 @@
     <_ProjectFileVersion>10.0.20506.1</_ProjectFileVersion>
     <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">F:\Projects\C++\CPGE2026\build\Debug\Debug\</OutDir>
     <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">CrossPlatformGameEngine.dir\Debug\</IntDir>
-    <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">DXCPGE</TargetName>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">OpenGLCPGE</TargetName>
     <TargetExt Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">.exe</TargetExt>
     <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</LinkIncremental>
     <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</GenerateManifest>
     <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">F:\Projects\C++\CPGE2026\build\Debug\Release\</OutDir>
     <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">CrossPlatformGameEngine.dir\Release\</IntDir>
-    <TargetName Condition="'$(Configuration)|$(Platform)'=='Release|x64'">DXCPGE</TargetName>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Release|x64'">OpenGLCPGE</TargetName>
     <TargetExt Condition="'$(Configuration)|$(Platform)'=='Release|x64'">.exe</TargetExt>
     <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Release|x64'"></LinkIncremental>
     <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</GenerateManifest>
     <OutDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">F:\Projects\C++\CPGE2026\build\Debug\MinSizeRel\</OutDir>
     <IntDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">CrossPlatformGameEngine.dir\MinSizeRel\</IntDir>
-    <TargetName Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">DXCPGE</TargetName>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">OpenGLCPGE</TargetName>
     <TargetExt Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">.exe</TargetExt>
     <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkIncremental>
     <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">true</GenerateManifest>
     <OutDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">F:\Projects\C++\CPGE2026\build\Debug\RelWithDebInfo\</OutDir>
     <IntDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">CrossPlatformGameEngine.dir\RelWithDebInfo\</IntDir>
-    <TargetName Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">DXCPGE</TargetName>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">OpenGLCPGE</TargetName>
     <TargetExt Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">.exe</TargetExt>
     <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">true</LinkIncremental>
     <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">true</GenerateManifest>
@@ -227,10 +227,10 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <GenerateMapFile>true</GenerateMapFile>
       <IgnoreSpecificDefaultLibraries>LIBCMT;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
       <ImageHasSafeExceptionHandlers></ImageHasSafeExceptionHandlers>
-      <ImportLibrary>F:/Projects/C++/CPGE2026/build/Debug/Debug/DXCPGE.lib</ImportLibrary>
+      <ImportLibrary>F:/Projects/C++/CPGE2026/build/Debug/Debug/OpenGLCPGE.lib</ImportLibrary>
       <LinkErrorReporting></LinkErrorReporting>
       <MapFileName>F:/Projects/C++/CPGE2026/CrossPlatformGameEngine.map</MapFileName>
-      <ProgramDataBaseFile>F:/Projects/C++/CPGE2026/build/Debug/Debug/DXCPGE.pdb</ProgramDataBaseFile>
+      <ProgramDataBaseFile>F:/Projects/C++/CPGE2026/build/Debug/Debug/OpenGLCPGE.pdb</ProgramDataBaseFile>
       <RandomizedBaseAddress></RandomizedBaseAddress>
       <SubSystem>Windows</SubSystem>
     </Link>
@@ -383,10 +383,10 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <GenerateDebugInformation>false</GenerateDebugInformation>
       <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
       <ImageHasSafeExceptionHandlers></ImageHasSafeExceptionHandlers>
-      <ImportLibrary>F:/Projects/C++/CPGE2026/build/Debug/Release/DXCPGE.lib</ImportLibrary>
+      <ImportLibrary>F:/Projects/C++/CPGE2026/build/Debug/Release/OpenGLCPGE.lib</ImportLibrary>
       <LinkErrorReporting></LinkErrorReporting>
       <OptimizeReferences>true</OptimizeReferences>
-      <ProgramDataBaseFile>F:/Projects/C++/CPGE2026/build/Debug/Release/DXCPGE.pdb</ProgramDataBaseFile>
+      <ProgramDataBaseFile>F:/Projects/C++/CPGE2026/build/Debug/Release/OpenGLCPGE.pdb</ProgramDataBaseFile>
       <RandomizedBaseAddress></RandomizedBaseAddress>
       <SubSystem>Windows</SubSystem>
     </Link>
@@ -534,9 +534,9 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <GenerateDebugInformation>false</GenerateDebugInformation>
       <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
       <ImageHasSafeExceptionHandlers></ImageHasSafeExceptionHandlers>
-      <ImportLibrary>F:/Projects/C++/CPGE2026/build/Debug/MinSizeRel/DXCPGE.lib</ImportLibrary>
+      <ImportLibrary>F:/Projects/C++/CPGE2026/build/Debug/MinSizeRel/OpenGLCPGE.lib</ImportLibrary>
       <LinkErrorReporting></LinkErrorReporting>
-      <ProgramDataBaseFile>F:/Projects/C++/CPGE2026/build/Debug/MinSizeRel/DXCPGE.pdb</ProgramDataBaseFile>
+      <ProgramDataBaseFile>F:/Projects/C++/CPGE2026/build/Debug/MinSizeRel/OpenGLCPGE.pdb</ProgramDataBaseFile>
       <RandomizedBaseAddress></RandomizedBaseAddress>
       <SubSystem>Windows</SubSystem>
     </Link>
@@ -683,9 +683,9 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
       <ImageHasSafeExceptionHandlers></ImageHasSafeExceptionHandlers>
-      <ImportLibrary>F:/Projects/C++/CPGE2026/build/Debug/RelWithDebInfo/DXCPGE.lib</ImportLibrary>
+      <ImportLibrary>F:/Projects/C++/CPGE2026/build/Debug/RelWithDebInfo/OpenGLCPGE.lib</ImportLibrary>
       <LinkErrorReporting></LinkErrorReporting>
-      <ProgramDataBaseFile>F:/Projects/C++/CPGE2026/build/Debug/RelWithDebInfo/DXCPGE.pdb</ProgramDataBaseFile>
+      <ProgramDataBaseFile>F:/Projects/C++/CPGE2026/build/Debug/RelWithDebInfo/OpenGLCPGE.pdb</ProgramDataBaseFile>
       <RandomizedBaseAddress></RandomizedBaseAddress>
       <SubSystem>Windows</SubSystem>
     </Link>

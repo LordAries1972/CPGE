@@ -1,0 +1,13 @@
+OpenGLFXManager.cpp — 28-05-2026
+==================================
+
+BUG FIXED:
+----------
+FadeToImage (FadeToBackground subtype) always rendered a fully transparent overlay.
+Root cause: ApplyColorFader computed alpha as (progress * targetColor.w), but for
+FadeToBackground targetColor.w = 0, so alpha was always 0 — the fade-from-black
+intro effect never showed.
+
+Fix: For FadeToBackground subtype, alpha now uses (1.0 - progress) * fxItem.color.w,
+which correctly fades the overlay from opaque black (progress=0) to fully transparent
+(progress=1), revealing the scene beneath.

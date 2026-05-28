@@ -1,0 +1,33 @@
+OpenGL_IOStreamThread.cpp — 28-05-2026
+=======================================
+
+ROOT CAUSE FIX (Session 2):
+-----------------------------
+1. LoaderTaskThread() had no GL context current — all texture GL calls silently failed.
+   glGenTextures / glTexImage2D / glGenerateMipmap inside LoadAllKnownTextures() were
+   called on the loader thread with no GL context, so every call was a no-op, no
+   textures were ever stored GPU-side, tex.isLoaded stayed false, and every blit call
+   returned early — resulting in a completely black screen.
+
+   Fix: At the top of LoaderTaskThread() (after acquiring s_loaderMutex), call
+   wglMakeCurrent(m_glContext.deviceContext, m_loaderGLContext) under PLATFORM_WINDOWS
+   guard. The shared loader context (created in OpenGLRenderer::CreateOpenGLContext())
+   shares all GL objects with the render context so uploaded textures are immediately
+   visible to the render thread. At function exit: glFlush() then
+   wglMakeCurrent(nullptr, nullptr) to release the context cleanly.
+
+BUGS FIXED (Session 3):
+-----------------------
+2. wglMakeCurrent for the loader GL context had no error check.
+   If wglMakeCurrent(dc, m_loaderGLContext) returned FALSE, the loader thread
+   silently proceeded with no GL context. All glGenTextures / glTexImage2D calls
+   were no-ops, no texture was uploaded, and the screen showed nothing.
+   Fix: Added a BOOL return check with LOG_ERROR if acquisition fails, making the
+   failure immediately visible in the log ("wglMakeCurrent failed — texture uploads
+   will silently fail and screen will be blank").
+
+3. Missing glFlush() after LoadAllKnownTextures() in all scene cases.
+   Without glFlush(), texture upload commands could still be buffered in the loader
+   thread's driver queue when the render thread first reads slot.isLoaded and tries
+   to bind the texture. Added glFlush() before bLoaderTaskFinished.store(true) in
+   SCENE_INTRO, SCENE_GAMETITLE, and SCENE_GAMEPLAY.

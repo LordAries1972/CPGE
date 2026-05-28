@@ -55,6 +55,19 @@ void OpenGLRenderer::LoaderTaskThread()
     exceptionHandler.RecordFunctionCall("OpenGLRenderer::LoaderTaskThread");
     std::lock_guard<std::mutex> lock(s_loaderMutex);
 
+#if defined(PLATFORM_WINDOWS)
+    // Acquire the shared loader context so glGenTextures / glTexImage2D calls
+    // in LoadAllKnownTextures() have a valid GL context on this thread.
+    // The render thread owns m_glContext.renderingContext; both contexts
+    // share the same GL object namespace (textures, buffers, etc.).
+    if (m_loaderGLContext && m_glContext.deviceContext) {
+        if (!wglMakeCurrent(m_glContext.deviceContext, m_loaderGLContext)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR,
+                L"[LOADER] wglMakeCurrent failed — texture uploads will silently fail and screen will be blank");
+        }
+    }
+#endif
+
     ThreadStatus status = threadManager.GetThreadStatus(THREAD_LOADER);
     threadManager.threadVars.bLoaderTaskFinished.store(false);
 
@@ -99,6 +112,11 @@ void OpenGLRenderer::LoaderTaskThread()
                 threadManager.threadVars.b2DTexturesLoaded.store(false);
                 if (LoadAllKnownTextures())
                     threadManager.threadVars.b2DTexturesLoaded.store(true);
+
+                // Flush all pending GL commands before signalling the render thread.
+                // Without this, texture uploads might still be in the driver queue
+                // when the render thread first tries to use them.
+                glFlush();
 
                 threadManager.PauseThread(THREAD_LOADER);
                 threadManager.threadVars.bLoaderTaskFinished.store(true);
@@ -221,6 +239,7 @@ void OpenGLRenderer::LoaderTaskThread()
                     fxManager.CreateStarfield(100, 800.0f, 1000.0f, starOrigin, true);
                 }
 
+                glFlush();
                 threadManager.PauseThread(THREAD_LOADER);
                 threadManager.threadVars.bLoaderTaskFinished.store(true);
                 break;
@@ -310,6 +329,7 @@ void OpenGLRenderer::LoaderTaskThread()
                     }
                 }
 
+                glFlush();
                 threadManager.threadVars.bLoaderTaskFinished.store(true);
                 threadManager.PauseThread(THREAD_LOADER);
                 break;
@@ -332,6 +352,14 @@ void OpenGLRenderer::LoaderTaskThread()
 
     if (!threadManager.threadVars.bIsShuttingDown.load())
         wasResizing.store(false);
+
+#if defined(PLATFORM_WINDOWS)
+    // Flush all pending GL upload commands and release the loader context.
+    if (m_loaderGLContext) {
+        glFlush();
+        wglMakeCurrent(nullptr, nullptr);
+    }
+#endif
 
     debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene Loading Complete - Pausing Thread");
 }

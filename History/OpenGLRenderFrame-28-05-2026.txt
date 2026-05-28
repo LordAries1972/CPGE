@@ -1,0 +1,37 @@
+OpenGLRenderFrame.cpp — 28-05-2026
+===================================
+
+BUGS FIXED:
+-----------
+1. GL context thread ownership.
+   Added wglMakeCurrent at the very top of RenderFrame() (guarded by
+   RENDERER_IS_THREAD + Windows) so the render thread makes the context current before
+   any GL calls. Initialize() now releases it from the main thread first.
+
+PARITY FIXES (vs DXRenderFrame.cpp):
+--------------------------------------
+2. Added RenderBackgroundImage() call before the 3D scene switch — this was missing entirely,
+   meaning no background images or loading screens ever appeared.
+
+3. Added fxManager.RenderLoadingText() calls for SCENE_GAMETITLE and SCENE_GAMEPLAY,
+   matching the DX11 behaviour that shows animated loading text overlays.
+
+4. Debug OSD (bDebugOSDActive 5-second F2 notification) — was missing, added.
+
+5. Loading spinner now uses the BG_LOADER_CIRCLE animated texture (matching DX11) instead
+   of a plain text spinner.
+
+6. Renderer info overlay (bottom-right corner, USE_RENDERER_INFO flag) — added.
+
+7. ConsoleWindow.Render() for SCENE_GAMETITLE / SCENE_GAMEPLAY — was missing, added.
+
+8. Custom cursor (BLIT_ALWAYS_CURSOR texture) — was missing, added.
+
+9. REC blinking indicator — was missing, added.
+
+Session 2 fix:
+--------------
+10. RenderIntroMovie() uploaded movie frame to a local movieTexID but called
+    DrawTexture(0, ...) which looks up m_2dTextures[0] (always empty) instead of the
+    freshly uploaded texture. Replaced with DrawVideoFrame(..., movieTexID) so the
+    movie frame is actually presented on screen.

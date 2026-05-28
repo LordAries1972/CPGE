@@ -1,0 +1,24 @@
+SceneManager.cpp — 28-05-2026
+==============================
+
+BUG FIXED:
+----------
+C2228 compile error on OpenGL/Vulkan build path: "left of '.z' must have class/struct/union"
+
+Root cause: Two CACHE-WRITE debug log sites (ParseGLBScene and ParseGLTFScene) accessed
+vertices[0].position.z directly. For the DX11/DX12 path Vertex::position is XMFLOAT3
+(which has .x/.y/.z members). For the OpenGL/Vulkan path Vertex::position is float[3]
+(a plain C array), so .z is invalid.
+
+Fix: In both _DEBUG_SCENEMANAGER_ blocks (ParseGLBScene ~line 1160 and ParseGLTFScene
+~line 2063), extracted the z component into a local 'float vert0z' using a renderer
+guard:
+  #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+      float vert0z = models[modelSlot].m_modelInfo.vertices[0].position.z;
+  #else
+      float vert0z = models[modelSlot].m_modelInfo.vertices[0].position[2];
+  #endif
+
+Both debug log calls now pass vert0z. The two existing CACHE-RESTORE sites at ~line 408
+and ~line 1497 were already correctly guarded by
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__) and were not affected.

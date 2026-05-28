@@ -155,11 +155,11 @@ inline void OpenGLRenderer::RenderIntroMovie()
         }
         glBindTexture(GL_TEXTURE_2D, 0);
 
-        // Render full-screen using DrawTexture (index 0 reserved for movie)
-        DrawTexture(0,
+        DrawVideoFrame(
             Vector2(0.0f, 0.0f),
             Vector2(static_cast<float>(iOrigWidth), static_cast<float>(iOrigHeight)),
-            MyColor(255, 255, 255, 255), true);
+            MyColor(255, 255, 255, 255),
+            movieTexID);
     }
 #endif
 }
@@ -172,6 +172,15 @@ void OpenGLRenderer::RenderFrame()
     // ---- Safety guards ----
     if (bHasCleanedUp || m_glContext.renderingContext == nullptr)
         return;
+
+#if defined(RENDERER_IS_THREAD) && (defined(_WIN32) || defined(_WIN64))
+    // Make the OpenGL context current in THIS render thread.
+    // Initialize() released it from the main thread so we own it here.
+    if (!wglMakeCurrent(m_glContext.deviceContext, m_glContext.renderingContext)) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] wglMakeCurrent failed — render thread cannot acquire GL context");
+        return;
+    }
+#endif
 
     if (threadManager.threadVars.bIsShuttingDown.load() ||
         bIsMinimized.load()                             ||
@@ -257,6 +266,9 @@ void OpenGLRenderer::RenderFrame()
             glClearColor(clearR, clearG, clearB, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
+            // ---- Background images (scene-aware, before 3D) ----
+            RenderBackgroundImage();
+
             // ---- Scene-specific 3D rendering ----
             switch (scene.stSceneType)
             {
@@ -298,6 +310,12 @@ void OpenGLRenderer::RenderFrame()
                 case SceneType::SCENE_GAMETITLE:
                     if (threadManager.threadVars.bLoaderTaskFinished.load())
                         myCamera.SetYawPitch(0.240f, -0.28f);
+                    fxManager.RenderLoadingText();
+                    break;
+                case SceneType::SCENE_GAMEPLAY:
+                    if (!threadManager.threadVars.bLoaderTaskFinished.load() ||
+                        fxManager.HasActiveLoadingTextEffects())
+                        fxManager.RenderLoadingText();
                     break;
                 default: break;
             }
@@ -308,7 +326,7 @@ void OpenGLRenderer::RenderFrame()
             // ---- FX: 3D effects (fades, starfield, tunnel) ----
             fxManager.Render();
 
-            // ---- FPS display ----
+            // ---- FPS / debug info display ----
             if (USE_FPS_DISPLAY && config.myConfig.showDebugInfo)
             {
                 static auto lastFPSTime  = std::chrono::steady_clock::now();
@@ -317,12 +335,13 @@ void OpenGLRenderer::RenderFrame()
                 float       elapsed      = std::chrono::duration<float>(curTime - lastFPSTime).count();
                 ++frameCounter;
                 if (elapsed >= 1.0f) {
-                    fps         = static_cast<float>(frameCounter) / elapsed;
+                    fps          = static_cast<float>(frameCounter) / elapsed;
                     frameCounter = 0;
                     lastFPSTime  = curTime;
                 }
 #if defined(_WIN32) || defined(_WIN64)
                 glm::vec3 coords = myCamera.GetPosition();
+                const float dbgFontSize = std::clamp(static_cast<float>(renderH) / 108.0f, 8.0f, 12.0f);
                 std::wstring dbgText =
                     L"FPS: " + std::to_wstring(fps) +
                     L"\nMOUSE: x" + std::to_wstring(myMouseCoords.x) +
@@ -333,11 +352,26 @@ void OpenGLRenderer::RenderFrame()
                     L", Yaw: " + std::to_wstring(myCamera.m_yaw) +
                     L", Pitch: " + std::to_wstring(myCamera.m_pitch) + L"\n" +
                     L"Global Light Count: " + std::to_wstring(lightsManager.GetLightCount()) + L"\n";
-                DrawMyText(dbgText, Vector2(0.0f, 0.0f), MyColor(255, 255, 255, 255), 10.0f);
+                DrawMyText(dbgText, Vector2(0.0f, 0.0f), MyColor(255, 255, 255, 255), dbgFontSize);
 #endif
             }
 
-            // Loading indicator
+            // ---- Debug OSD (F2 toggle notification) ----
+            if (bDebugOSDActive)
+            {
+                float osdElapsed = std::chrono::duration<float>(
+                    std::chrono::steady_clock::now() - debugOSDStartTime).count();
+                if (osdElapsed < 5.0f) {
+                    std::wstring osdMsg = config.myConfig.showDebugInfo
+                        ? L"=> Debug Info: ENABLED"
+                        : L"=> Debug Info: DISABLED";
+                    DrawMyText(osdMsg, Vector2(10.0f, 80.0f), MyColor(255, 220, 0, 255), 14.0f);
+                } else {
+                    bDebugOSDActive = false;
+                }
+            }
+
+            // ---- Loading spinner (fallback when loading text effects are inactive) ----
             if (!threadManager.threadVars.bLoaderTaskFinished.load())
             {
                 delay++;
@@ -345,15 +379,71 @@ void OpenGLRenderer::RenderFrame()
                     loadIndex = (loadIndex + 1) % 4;
                     delay = 0;
                 }
-                static const wchar_t* spinner[] = { L"|", L"/", L"-", L"\\" };
-                DrawMyText(std::wstring(L"Loading... ") + spinner[loadIndex],
-                    Vector2(static_cast<float>(iOrigWidth  / 2 - 40),
-                            static_cast<float>(iOrigHeight / 2 - 10)),
-                    MyColor(255, 255, 255, 255), 14.0f);
+                // Animated circle texture (matches DX11 loader circle)
+                if (m_2dTextures[int(BlitObj2DIndexType::BG_LOADER_CIRCLE)].isLoaded) {
+                    iPosX = loadIndex << 5;
+                    Blit2DObjectAtOffset(BlitObj2DIndexType::BG_LOADER_CIRCLE,
+                        iOrigWidth - 34, iOrigHeight - 45, iPosX, 0, 32, 32);
+                }
             }
+
+            // ---- Renderer info overlay (bottom-right corner) ----
+#if defined(_WIN32) || defined(_WIN64)
+            if (USE_RENDERER_INFO && !scene.bSceneSwitching)
+            {
+                bool riShow = (scene.stSceneType == SceneType::SCENE_GAMETITLE ||
+                               scene.stSceneType == SceneType::SCENE_GAMEPLAY  ||
+                               scene.stSceneType == SceneType::SCENE_INTRO     ||
+                               scene.stSceneType == SceneType::SCENE_GAMEOVER);
+#if defined(_DEBUG)
+                riShow = riShow || (scene.stSceneType == SceneType::SCENE_EXPERIMENT);
+#endif
+                if (riShow) {
+                    const float riFontSize = std::clamp(
+                        static_cast<float>(iOrigHeight) / 72.0f, 10.0f, 16.0f);
+                    const std::wstring riText =
+                        std::wstring(GAME_NAME_W L" " PLATFORM_NAME_W L" " RENDERER_NAME_W);
+                    int tw = 0, th = 0;
+                    GLuint riTex = RenderTextToTexture(riText, L"Arial", riFontSize,
+                        MyColor(220, 220, 220, 255), tw, th);
+                    if (riTex) {
+                        Render2DQuad(riTex,
+                            iOrigWidth - tw - 4, iOrigHeight - th - 4,
+                            tw, th, 0, 0, tw, th, MyColor(255,255,255,255), false);
+                        glDeleteTextures(1, &riTex);
+                    }
+                }
+            }
+#endif
 
             // ---- GUI rendering ----
             guiManager.Render();
+
+            // ---- Console window (F8 toggle; GAMETITLE / GAMEPLAY only) ----
+            if (!scene.bSceneSwitching &&
+                (scene.stSceneType == SceneType::SCENE_GAMETITLE ||
+                 scene.stSceneType == SceneType::SCENE_GAMEPLAY))
+            {
+                consoleWindow.Render(this, renderW, renderH);
+            }
+
+            // ---- Custom cursor ----
+            if (m_2dTextures[int(BlitObj2DIndexType::BLIT_ALWAYS_CURSOR)].isLoaded)
+                Blit2DObject(BlitObj2DIndexType::BLIT_ALWAYS_CURSOR,
+                    static_cast<int>(myMouseCoords.x),
+                    static_cast<int>(myMouseCoords.y));
+
+            // ---- REC indicator (blinking) ----
+            if (screenRecorder.IsRecording())
+            {
+                static int recBlinkCounter = 0;
+                recBlinkCounter = (recBlinkCounter + 1) % 60;
+                if (recBlinkCounter < 30) {
+                    DrawMyText(L"● REC",
+                        Vector2(static_cast<float>(renderW) - 75.0f, 12.0f),
+                        MyColor::Red(), 18.0f);
+                }
+            }
 
             // ---- Present frame ----
 #if defined(_WIN32) || defined(_WIN64)
@@ -364,7 +454,7 @@ void OpenGLRenderer::RenderFrame()
             eglSwapBuffers(m_glContext.eglDisplay, m_glContext.eglSurface);
 #endif
 
-            // ---- Frame counter / FPS tracking ----
+            // ---- Frame counter ----
             ++frameCount;
 
 #ifdef RENDERER_IS_THREAD

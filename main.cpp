@@ -872,17 +872,17 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                             // Check if splash screen duration has elapsed and we haven't started scene switching yet
                             if ((sysUtils.CheckElapsedTime(7)) && (!scene.bSceneSwitching))
                             {
-                                #if defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)
+                                #if defined(RENDERER_IS_THREAD)
                                     // Mark that we are beginning the scene transition process
                                     scene.bSceneSwitching = true;
 
-                                    // Start fade to black effect with 1 second duration and small delay
+                                    // Fade to black; render thread handles the actual rendering
                                     fxManager.FadeToBlack(2.0f, 0.06f);
                                     while (fxManager.IsFadeActive())
                                     {
-                                        std::this_thread::sleep_for(std::chrono::milliseconds(10)); // Small delay to prevent CPU spinning
+                                        std::this_thread::sleep_for(std::chrono::milliseconds(10));
                                     }
-                                
+
                                     scene.bSceneSwitching = true;
                                 #endif
                                 
@@ -1577,10 +1577,19 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                 #endif
 
                 // --- Direct X 12 Rendering inline safety calls NON Threaded ---
-                               
+                #if !defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_12__)
+                    renderer->RenderFrame();
+                #endif
+
                 // --- OpenGL Rendering inline safety calls NON Threaded ---
+                #if !defined(RENDERER_IS_THREAD) && defined(__USE_OPENGL__)
+                    renderer->RenderFrame();
+                #endif
 
                 // --- Vulkan Rendering inline safety calls NON Threaded ---
+                #if !defined(RENDERER_IS_THREAD) && defined(__USE_VULKAN__)
+                    renderer->RenderFrame();
+                #endif
             }
         } // End of while (msg.message != WM_QUIT) 
     }

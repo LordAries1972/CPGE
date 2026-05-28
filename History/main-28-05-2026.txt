@@ -1,0 +1,32 @@
+main.cpp — 28-05-2026
+======================
+
+FIX (Session 2):
+----------------
+Added non-threaded RenderFrame calls for __USE_DIRECTX_12__, __USE_OPENGL__, and
+__USE_VULKAN__ in the main message loop. Previously only __USE_DIRECTX_11__ had
+the non-threaded guard. While RENDERER_IS_THREAD is currently defined (so these
+paths are inactive), this ensures correctness if the renderer is ever run
+single-threaded.
+
+FIX (Session 3):
+----------------
+SCENE_INTRO → SCENE_INTRO_MOVIE transition never fired for OpenGL (or any renderer
+other than DX11).
+
+Root cause: the block that sets scene.bSceneSwitching = true and starts the
+FadeToBlack was guarded by:
+
+    #if defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)
+
+For OpenGL + RENDERER_IS_THREAD, scene.bSceneSwitching was NEVER set to true, so
+the subsequent "if (scene.bSceneSwitching && !fxManager.IsFadeActive())" check was
+never true, and SwitchToMovieIntro() was never called. The app was permanently
+stuck on the splash screen — no movie, no load screen, no game title.
+
+Fix: Changed guard to:
+
+    #if defined(RENDERER_IS_THREAD)
+
+This makes the threaded scene transition path work for all renderers (OpenGL,
+DX12, Vulkan) and not just DX11.

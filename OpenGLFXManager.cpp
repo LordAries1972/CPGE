@@ -287,8 +287,17 @@ void GLFXManager::ApplyColorFader(GLFXItem& fxItem) {
         ? std::min(adjusted / fxItem.duration, 1.0f)
         : 1.0f;
 
-    XMFLOAT4 drawColor = fxItem.targetColor;
-    drawColor.w = fxItem.progress * fxItem.targetColor.w;
+    XMFLOAT4 drawColor;
+    if (fxItem.subtype == FXSubType::FadeToBackground) {
+        // FadeToImage: start opaque black (fxItem.color), fade to transparent.
+        // progress 0 → alpha = color.w (1.0), progress 1 → alpha = 0.
+        drawColor   = fxItem.color;
+        drawColor.w = (1.0f - fxItem.progress) * fxItem.color.w;
+    } else {
+        // FadeToBlack / FadeToWhite / FadeToTargetColor: fade in from transparent.
+        drawColor   = fxItem.targetColor;
+        drawColor.w = fxItem.progress * fxItem.targetColor.w;
+    }
 
     RenderFullScreenQuad(drawColor);
 

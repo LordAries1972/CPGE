@@ -192,7 +192,7 @@ GAME_NAME:STRING=CPGE
 GLSLANG_EXE:FILEPATH=D:/VulkanSDK/1.4.350.0/Bin/glslangValidator.exe
 
 //Active renderer (DX11, DX12, OpenGL, Vulkan)
-RENDERER:STRING=DX11
+RENDERER:STRING=OpenGL
 
 //Path to a program.
 Vulkan_GLSLANG_VALIDATOR_EXECUTABLE:FILEPATH=D:/VulkanSDK/1.4.350.0/Bin/glslangValidator.exe

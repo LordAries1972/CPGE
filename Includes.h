@@ -80,9 +80,9 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
         // define; changing it here is sufficient to switch the compiled backend.
         // Runtime rendererType in GameConfig.cfg selects between multiple compiled
         // renderers at runtime: 0=DX11  1=DX12  2=OpenGL  3=Vulkan
-        #define __USE_DIRECTX_11__
+//        #define __USE_DIRECTX_11__
 //        #define __USE_DIRECTX_12__
-//        #define __USE_OPENGL__
+        #define __USE_OPENGL__
 //        #define __USE_VULKAN__
 
         #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__) && !defined(__USE_OPENGL__) && !defined(__USE_VULKAN__)

@@ -128,12 +128,25 @@ void OpenGLRenderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
     iOrigWidth = winMetrics.clientWidth;                                        // Store original window width
     iOrigHeight = winMetrics.clientHeight;                                      // Store original window height
 
+#if defined(_WIN32) || defined(_WIN64)
+    // GDI+ must be started before any LoadTexture call (Gdiplus::Bitmap requires it)
+    if (!m_gdiplusToken) {
+        Gdiplus::GdiplusStartupInput gdiplusInput;
+        Gdiplus::GdiplusStartup(&m_gdiplusToken, &gdiplusInput, nullptr);
+    }
+#endif
+
 #if defined(_DEBUG_OPENGLRENDERER_) && defined(_DEBUG)
     debug.logDebugMessage(LogLevel::LOG_INFO, L"OpenGLRenderer: Initializing with dimensions %dx%d", iOrigWidth, iOrigHeight); // Log initialization parameters
 #endif
 
+    // Seed render-target dimensions before SetupViewport is called
+    m_renderTargetWidth  = iOrigWidth;
+    m_renderTargetHeight = iOrigHeight;
+
     // Initialize OpenGL Context and Extensions
     CreateOpenGLContext(hwnd);                                                  // Create platform-specific OpenGL context
+    SetupPlatformSpecificContext();                                             // Configure vsync and platform post-context state
     InitializeOpenGLExtensions();                                               // Initialize OpenGL extensions and function pointers
     CreateFramebufferObjects();                                                 // Create OpenGL framebuffer objects
     SetupViewport();                                                            // Setup OpenGL viewport configuration
@@ -191,6 +204,8 @@ void OpenGLRenderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
 
     sysUtils.DisableMouseCursor();                                              // Hide system mouse cursor for custom rendering
 
+    // Context stays current on the main thread until StartRendererThreads() transfers it.
+    // This allows fxManager.Initialize() to compile GL shaders on the main thread.
     bIsInitialized.store(true);                                                 // Mark renderer as initialized
     if (threadManager.threadVars.bIsResizing.load())                            // Check if currently resizing
     {
@@ -220,6 +235,11 @@ bool OpenGLRenderer::StartRendererThreads()
 
         // Initialize & start the renderer thread
 #ifdef RENDERER_IS_THREAD
+#if defined(_WIN32) || defined(_WIN64)
+        // Transfer GL context ownership from main thread to render thread.
+        // fxManager.Initialize() has already compiled its shaders on the main thread.
+        wglMakeCurrent(nullptr, nullptr);
+#endif
         threadManager.SetThread(THREAD_RENDERER, [this]() { RenderFrame(); }, true); // Set renderer thread with lambda function
         threadManager.StartThread(THREAD_RENDERER);                            // Start the renderer thread
 #endif
@@ -246,7 +266,8 @@ bool OpenGLRenderer::Resize(uint32_t width, uint32_t height)
     if (width == 0 || height == 0) return false;
     m_renderTargetWidth  = static_cast<int>(width);
     m_renderTargetHeight = static_cast<int>(height);
-    glViewport(0, 0, static_cast<GLsizei>(width), static_cast<GLsizei>(height));
+    // glViewport is called every frame at the top of RenderFrame() using these values.
+    // Calling it here would cross thread boundaries when RENDERER_IS_THREAD is defined.
     return true;
 }
 
@@ -265,16 +286,14 @@ void OpenGLRenderer::WaitToFinishThenPauseThread()
 void OpenGLRenderer::Blit2DColoredPixel(int x, int y, float pixelSize, const Vector4& color)
 {
     if (m_renderTargetHeight == 0) return;
-
-    // Convert from top-left origin to OpenGL bottom-left origin
-    float glX = static_cast<float>(x);
-    float glY = static_cast<float>(m_renderTargetHeight - y);
-
-    glColor4f(color.x, color.y, color.z, color.w);
-    glPointSize(pixelSize);
-    glBegin(GL_POINTS);
-        glVertex2f(glX, glY);
-    glEnd();
+    // Render as a small filled rectangle — glBegin/glEnd/glVertex are removed in core 3.3
+    int sz = static_cast<int>(std::max(pixelSize, 1.0f));
+    MyColor c(
+        static_cast<uint8_t>(std::clamp(color.x, 0.0f, 1.0f) * 255.0f),
+        static_cast<uint8_t>(std::clamp(color.y, 0.0f, 1.0f) * 255.0f),
+        static_cast<uint8_t>(std::clamp(color.z, 0.0f, 1.0f) * 255.0f),
+        static_cast<uint8_t>(std::clamp(color.w, 0.0f, 1.0f) * 255.0f));
+    Render2DQuad(0, x, y, sz, sz, 0, 0, 0, 0, c, false);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -483,6 +502,23 @@ bool OpenGLRenderer::CreateOpenGLContext(HWND hWnd)
         m_glContext.renderingContext = tempCtx;
     }
 
+    // Create a shared context for the loader thread so it can upload textures
+    // concurrently with the render thread (shared contexts share all GL objects).
+    if (WGLEW_ARB_create_context && m_glContext.renderingContext) {
+        int loaderAttribs[] = {
+            WGL_CONTEXT_MAJOR_VERSION_ARB, 3,
+            WGL_CONTEXT_MINOR_VERSION_ARB, 3,
+            WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
+            0
+        };
+        m_loaderGLContext = wglCreateContextAttribsARB(
+            m_glContext.deviceContext, m_glContext.renderingContext, loaderAttribs);
+        if (!m_loaderGLContext)
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[OpenGLRenderer] Shared loader context creation failed — textures must load on render thread");
+        else
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[OpenGLRenderer] Shared loader context created");
+    }
+
     debug.logLevelMessage(LogLevel::LOG_INFO, L"[OpenGLRenderer] OpenGL 3.3 Core context created");
     return true;
 #else
@@ -518,6 +554,10 @@ void OpenGLRenderer::SetupPlatformSpecificContext()
 void OpenGLRenderer::CleanupPlatformSpecificContext()
 {
 #if defined(_WIN32) || defined(_WIN64)
+    if (m_loaderGLContext) {
+        wglDeleteContext(m_loaderGLContext);
+        m_loaderGLContext = nullptr;
+    }
     if (m_glContext.renderingContext) {
         wglMakeCurrent(nullptr, nullptr);
         wglDeleteContext(m_glContext.renderingContext);
@@ -792,8 +832,11 @@ bool OpenGLRenderer::LoadTexture(int textureId, const std::wstring& filename, bo
     slot.height   = H;
     slot.format   = GL_RGBA;
     slot.target   = GL_TEXTURE_2D;
-    slot.isLoaded = true;
-    return true;
+    slot.isLoaded = (slot.textureID != 0);  // Only mark loaded if GL actually generated a texture
+    if (!slot.isLoaded)
+        debug.logLevelMessage(LogLevel::LOG_ERROR,
+            L"[OpenGLRenderer] LoadTexture: glGenTextures returned 0 (no current GL context?)");
+    return slot.isLoaded;
 #else
     debug.logLevelMessage(LogLevel::LOG_WARNING, L"[OpenGLRenderer] LoadTexture: platform not implemented");
     return false;
@@ -1245,10 +1288,65 @@ void OpenGLRenderer::ResumeLoader(bool isResizing)
 // ─────────────────────────────────────────────────────────────────────────────
 void OpenGLRenderer::RenderBackgroundImage()
 {
-    // Render an optional full-screen background texture (IMG_BACKGROUND slot).
-    int bgIdx = static_cast<int>(BlitObj2DIndexType::IMG_BACKGROUND);
-    if (bgIdx >= 0 && bgIdx < MAX_TEXTURE_BUFFERS && m_2dTextures[bgIdx].isLoaded)
-        Blit2DObjectToSize(BlitObj2DIndexType::IMG_BACKGROUND, 0, 0, iOrigWidth, iOrigHeight);
+    // Scene-aware background image rendering — mirrors DXRenderFrame::RenderBackgroundImage().
+    // Called before 3D scene rendering each frame.
+    switch (scene.stSceneType)
+    {
+        case SceneType::SCENE_GAMETITLE:
+        {
+            if (threadManager.threadVars.bLoaderTaskFinished.load())
+            {
+                // Game title background
+                if (m_2dTextures[int(BlitObj2DIndexType::IMG_GAMEINTRO1)].isLoaded)
+                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
+
+                // Company logo — half size, bottom-left corner
+                int logoIdx = int(BlitObj2DIndexType::IMG_COMPANYLOGO);
+                if (m_2dTextures[logoIdx].isLoaded) {
+                    int halfW = m_2dTextures[logoIdx].width  / 2;
+                    int halfH = m_2dTextures[logoIdx].height / 2;
+                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO,
+                                       0, iOrigHeight - halfH, halfW, halfH);
+                }
+            }
+            else
+            {
+                // Still loading: show loading screen background
+                if (m_2dTextures[int(BlitObj2DIndexType::IMG_LOADING)].isLoaded) {
+                    if (threadManager.threadVars.bInitiateFader.load()) {
+                        threadManager.threadVars.bInitiateFader.store(false);
+                        fxManager.FadeToImage(1.0f, 0.1f);
+                    }
+                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
+                }
+            }
+            break;
+        }
+
+        case SceneType::SCENE_GAMEPLAY:
+        {
+            if (!threadManager.threadVars.bLoaderTaskFinished.load())
+            {
+                if (m_2dTextures[int(BlitObj2DIndexType::IMG_LOADING)].isLoaded) {
+                    if (threadManager.threadVars.bInitiateFader.load()) {
+                        threadManager.threadVars.bInitiateFader.store(false);
+                        fxManager.FadeToImage(1.0f, 0.1f);
+                    }
+                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
+                }
+            }
+            break;
+        }
+
+#if defined(_DEBUG)
+        case SceneType::SCENE_EXPERIMENT:
+            // Black background; tunnel/starfield rendered via fxManager in RenderFrame
+            break;
+#endif
+
+        default:
+            break;
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

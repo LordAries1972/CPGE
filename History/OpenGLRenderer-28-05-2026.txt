@@ -1,0 +1,64 @@
+OpenGLRenderer.cpp / OpenGLRenderer.h — 28-05-2026
+====================================================
+
+BUGS FIXED (Session 2):
+-----------
+1. GDI+ not initialized before LoadTexture calls.
+   Added Gdiplus::GdiplusStartup at the start of Initialize() (Windows only, guarded by
+   #if defined(_WIN32)||defined(_WIN64)). Without this, every Gdiplus::Bitmap call
+   returned GenericError and all 2D textures failed to load silently, giving a black screen.
+
+2. OpenGL context owned by wrong thread when RENDERER_IS_THREAD is defined.
+   Added wglMakeCurrent(nullptr, nullptr) at the end of Initialize() (inside
+   #if defined(RENDERER_IS_THREAD)) so the main thread releases the context.
+   The render thread re-acquires it at the top of RenderFrame().
+
+3. Blit2DColoredPixel used deprecated immediate-mode GL (glBegin/glEnd/glColor4f/glVertex2f)
+   which are removed from OpenGL 3.3 Core Profile. Replaced with a Render2DQuad call that
+   draws a pixelSize×pixelSize filled rectangle using the existing 2D shader infrastructure.
+   This fixes the starfield and WarpDotTunnel effects.
+
+4. RenderBackgroundImage() was not scene-aware — it only checked the generic IMG_BACKGROUND
+   slot which is never populated. Rewrote to mirror DX11's RenderBackgroundImage() with
+   per-scene handling: SCENE_GAMETITLE renders IMG_GAMEINTRO1 + IMG_COMPANYLOGO when loaded,
+   or IMG_LOADING with FadeToImage trigger when still loading. SCENE_GAMEPLAY shows
+   IMG_LOADING while loading.
+
+ROOT CAUSE FIX — Nothing Ever Rendered (Session 2):
+----------------------------------------------------
+5. Loader thread had NO GL context — root cause of black screen.
+   LoaderTaskThread() calls LoadAllKnownTextures() → glGenTextures / glTexImage2D /
+   glGenerateMipmap on the loader thread. With RENDERER_IS_THREAD defined, the main
+   context belonged to the render thread — loader GL calls silently failed, no texture
+   was ever uploaded (isLoaded stayed false), every blit call early-returned, screen black.
+   Fix: Added m_loaderGLContext (HGLRC, Windows only) as a private member. Created it
+   in CreateOpenGLContext() via wglCreateContextAttribsARB with m_glContext.renderingContext
+   as the share context so texture objects are visible in both threads. LoaderTaskThread()
+   now calls wglMakeCurrent(dc, m_loaderGLContext) at entry, glFlush() +
+   wglMakeCurrent(nullptr,nullptr) on exit. CleanupPlatformSpecificContext() deletes it.
+
+6. m_renderTargetWidth / m_renderTargetHeight were 0 at SetupViewport time.
+   Set them from iOrigWidth / iOrigHeight in Initialize() before the SetupViewport()
+   call so the initial glViewport(0,0,W,H) uses real dimensions.
+
+7. SetupPlatformSpecificContext() (vsync) was never called on Windows.
+   Added the call in Initialize() immediately after CreateOpenGLContext().
+
+8. GL context released too early in Initialize() — fxManager.Initialize() ran without
+   a current GL context and could not compile fade shaders.
+   Removed the wglMakeCurrent(nullptr,nullptr) block from Initialize(); moved it to
+   StartRendererThreads() just before the render thread is started, so all main-thread
+   GL setup (fxManager shader compilation) completes first.
+
+9. Resize() called glViewport from the main thread while the render thread owns the
+   context (RENDERER_IS_THREAD mode). Removed the glViewport call from Resize();
+   the render loop sets the viewport at the top of every frame using m_renderTargetWidth/H.
+
+BUGS FIXED (Session 3):
+-----------------------
+10. LoadTexture set slot.isLoaded = true unconditionally, even when the loader GL context
+    was not current and glGenTextures returned 0. This caused Render2DQuad to be called
+    with textureID=0, rendering a solid white quad instead of the image. Splash, loading
+    screens and all other 2D images appeared as white or invisible.
+    Fix: slot.isLoaded is now only set true when slot.textureID != 0. Added an error log
+    when textureID is 0 to make GL context failures visible.

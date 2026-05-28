@@ -1158,11 +1158,16 @@ void SceneManager::ParseGLBNodeRecursive(const json& node, int nodeIndex, const 
                     scene_models[instanceIndex].m_modelInfo.iParentModelID, f4x4._41, f4x4._42, f4x4._43);
 
                 if (!models[modelSlot].m_modelInfo.vertices.empty())
+                {
+                    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                    float vert0z = models[modelSlot].m_modelInfo.vertices[0].position.z;
+                    #else
+                    float vert0z = models[modelSlot].m_modelInfo.vertices[0].position[2];
+                    #endif
                     debug.logDebugMessage(LogLevel::LOG_DEBUG,
                         L"[SceneManager] CACHE-WRITE '%ls' vert[0].z=%.4f world_tz=%.4f",
-                        primName.c_str(),
-                        models[modelSlot].m_modelInfo.vertices[0].position.z,
-                        f4x4._43);
+                        primName.c_str(), vert0z, f4x4._43);
+                }
             #endif
 
             ++instanceIndex;
@@ -2061,11 +2066,16 @@ void SceneManager::ParseGLTFNodeRecursive(const json& node, int nodeIndex, const
                     scene_models[instanceIndex].m_modelInfo.iParentModelID, f4x4._41, f4x4._42, f4x4._43);
 
                 if (!models[modelSlot].m_modelInfo.vertices.empty())
+                {
+                    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                    float vert0z = models[modelSlot].m_modelInfo.vertices[0].position.z;
+                    #else
+                    float vert0z = models[modelSlot].m_modelInfo.vertices[0].position[2];
+                    #endif
                     debug.logDebugMessage(LogLevel::LOG_DEBUG,
                         L"[SceneManager] CACHE-WRITE '%ls' vert[0].z=%.4f world_tz=%.4f",
-                        primName.c_str(),
-                        models[modelSlot].m_modelInfo.vertices[0].position.z,
-                        f4x4._43);
+                        primName.c_str(), vert0z, f4x4._43);
+                }
             #endif
 
             ++instanceIndex;

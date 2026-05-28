@@ -1157,6 +1157,132 @@ Once the base DirectX 11 implementation is complete, the project will be release
   - **Fix — `RemoveCompletedEffects` premature deletion (v0.0.1300–1301)** (`DX_FXManager.cpp`, `VULKAN_FXManager.cpp`, `OpenGLFXManager.cpp`): `TextFadeInOut` effects with `timeout=0` were removed by `RemoveCompletedEffects()` on the very first `Render()` call (elapsed time ≥ 0 is always true), killing them before the hold phase was ever visible. Added a dedicated guard in `RemoveCompletedEffects` for all three renderers: TextFadeInOut effects are now removed only when `fx.progress >= 1.0f` (i.e., when `UpdateTextFadeInOut` has explicitly moved them to `Stopped` or `immediateStop`). The timeout path is bypassed entirely. OpenGL additionally now correctly removes Stopped TextFadeInOut effects instead of leaking them in the vector forever. Combined with `displayDuration = -1.0f` (already set in `ShowLoadingText`), effects now fade in → hold at full colour indefinitely → fade out only on `StopLoadingText()` or a new `ShowLoadingText()` call, matching the intended behaviour.
 - *See: [`DXRenderFrame.cpp`](DXRenderFrame.cpp), [`IOStreamDX11Thread.cpp`](IOStreamDX11Thread.cpp), [`Renderer.h`](Renderer.h), [`DX11Renderer.cpp`](DX11Renderer.cpp), [`DX_FXManager.h`](DX_FXManager.h), [`DX_FXManager.cpp`](DX_FXManager.cpp), [`VULKAN_FXManager.h`](VULKAN_FXManager.h), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`OpenGLFXManager.h`](OpenGLFXManager.h), [`OpenGLFXManager.cpp`](OpenGLFXManager.cpp), [`BuildInfo.h`](BuildInfo.h)*
 
+**May 28, 2026** — OpenGL black-screen root-cause analysis and full DX11-parity pass (`OpenGLRenderer.cpp`, `OpenGLRenderFrame.cpp`, `OpenGLFXManager.cpp`, `main.cpp`):
+
+- **Bug fix — GL context owned by wrong thread (black screen root cause 1)**:
+  `Initialize()` runs on the main thread and made the WGL context current there. The render thread launched by `StartRendererThreads()` then called OpenGL functions without ever acquiring the context, producing a black screen on every frame.
+  - `Initialize()` now calls `wglMakeCurrent(nullptr, nullptr)` at the very end (just before `bIsInitialized.store(true)`), releasing the context from the main thread. Guarded by `#if defined(RENDERER_IS_THREAD) && (defined(_WIN32) || defined(_WIN64))`.
+  - `RenderFrame()` now calls `wglMakeCurrent(m_glContext.deviceContext, m_glContext.renderingContext)` at its very first line (before any safety guards), so the render thread acquires the context before any GL call. Returns immediately with a `LOG_ERROR` if acquisition fails.
+
+- **Bug fix — GDI+ not initialized before texture loads (black screen root cause 2)**:
+  `LoadTexture()` (called from `LoadAllKnownTextures()` in the IO stream thread) uses `Gdiplus::Bitmap`. Without `GdiplusStartup()`, every `Gdiplus::Bitmap` call returns `GenericError`, all 2D textures silently fail to load, and the screen stays black. Added `Gdiplus::GdiplusStartup` at the very start of `Initialize()` (Windows only, guarded by `#if defined(_WIN32) || defined(_WIN64)`), storing the token in the existing `m_gdiplusToken` member. The guard ensures `GdiplusStartup` is only called once per instance.
+
+- **Bug fix — `Blit2DColoredPixel` used removed immediate-mode GL (starfield/tunnel invisible)**:
+  `Blit2DColoredPixel` was implemented with `glBegin` / `glEnd` / `glColor4f` / `glVertex2f` — all removed from OpenGL 3.3 Core Profile. The calls were silently no-ops, making the Starfield and WarpDotTunnel effects completely invisible. Replaced with a `Render2DQuad()` call that draws a filled rectangle of `pixelSize × pixelSize` using the existing 2D shader infrastructure. `MyColor` conversion applies the same `clamp * 255` formula as all other 2D draw paths.
+
+- **Bug fix — `RenderBackgroundImage()` never showed any image (black screen root cause 3)**:
+  The original implementation only checked the generic `IMG_BACKGROUND` slot, which is never populated. No background image, loading screen, or company logo ever appeared. Rewrote `RenderBackgroundImage()` to mirror `DX11Renderer::RenderBackgroundImage()` exactly:
+  - `SCENE_GAMETITLE` (loader finished): renders `IMG_GAMEINTRO1` full-screen + `IMG_COMPANYLOGO` half-sized in the lower-left corner.
+  - `SCENE_GAMETITLE` (loading): renders `IMG_LOADING` full-screen; fires `fxManager.FadeToImage()` once via the `bInitiateFader` atomic flag.
+  - `SCENE_GAMEPLAY` (loading): renders `IMG_LOADING` full-screen with the same `bInitiateFader` one-shot trigger.
+  - All other scenes: no-op.
+
+- **Bug fix — `FadeToBackground` always rendered a fully transparent overlay**:
+  `ApplyColorFader()` in `OpenGLFXManager.cpp` computed overlay alpha as `progress * targetColor.w`. For the `FadeToBackground` subtype `targetColor.w = 0`, so alpha was always 0 — the fade-from-black intro effect was never visible. Fixed by adding a subtype branch: for `FadeToBackground`, alpha = `(1.0f - progress) * fxItem.color.w`, which correctly fades the overlay from opaque black at `progress=0` to fully transparent at `progress=1`, revealing the scene beneath.
+
+- **DX11-parity fixes — `OpenGLRenderFrame.cpp`** (features present in `DXRenderFrame.cpp` but missing from the OpenGL render loop):
+  - `RenderBackgroundImage()` call added before the 3D scene switch — was missing entirely, meaning no background images or loading screens ever appeared in the GL path.
+  - `fxManager.RenderLoadingText()` added for `SCENE_GAMETITLE` and `SCENE_GAMEPLAY`, matching the DX11 animated loading-text overlay behaviour.
+  - Debug OSD (`bDebugOSDActive` 5-second F2 notification) — was missing, added.
+  - Loading spinner now uses the `BG_LOADER_CIRCLE` animated texture (matching DX11) instead of a plain text spinner.
+  - Renderer info overlay (`USE_RENDERER_INFO` flag, bottom-right corner) — was missing, added.
+  - `consoleWindow.Render()` for `SCENE_GAMETITLE` and `SCENE_GAMEPLAY` — was missing, added.
+  - Custom cursor (`BLIT_ALWAYS_CURSOR` texture) — was missing, added.
+  - REC blinking indicator — was missing, added.
+
+- **Fix — non-threaded render guards missing for OpenGL, DX12, Vulkan in `main.cpp`**:
+  The main message loop had a `#if !defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)` guard calling `renderer->RenderFrame()`, but the equivalent guards for `__USE_DIRECTX_12__`, `__USE_OPENGL__`, and `__USE_VULKAN__` were absent. Added guards for all three. These paths are inactive while `RENDERER_IS_THREAD` is defined, but ensure correctness if the renderer is ever run single-threaded.
+
+- **Build fix — `SceneManager.cpp` C2228 error on OpenGL/Vulkan path (`vertices[0].position.z`)**:
+  Two `CACHE-WRITE` debug log sites (one in `ParseGLBScene`, one in `ParseGLTFScene`) accessed
+  `vertices[0].position.z` directly. For DX11/DX12 `Vertex::position` is `XMFLOAT3` (has `.z`);
+  for OpenGL/Vulkan it is `float[3]` (a plain C array), so `.z` is invalid — C2228 error.
+  Fixed by extracting the value into a renderer-conditional local variable `float vert0z`
+  (`position.z` for DX, `position[2]` for GL/Vulkan) before the log call in both sites.
+
+- *See: [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp), [`OpenGLFXManager.cpp`](OpenGLFXManager.cpp), [`main.cpp`](main.cpp), [`SceneManager.cpp`](SceneManager.cpp)*
+
+- **Root-cause fix — loader thread had NO GL context (nothing ever rendered)**:
+  `LoaderTaskThread()` calls `LoadAllKnownTextures()` → `glGenTextures` / `glTexImage2D` /
+  `glGenerateMipmap` on the I/O loader thread. With `RENDERER_IS_THREAD` defined, the main
+  GL context belongs exclusively to the render thread — loader GL calls were silent no-ops,
+  no texture was ever uploaded (all `slot.isLoaded` remained `false`), every blit call
+  early-returned, and the screen showed nothing.
+  - Added `HGLRC m_loaderGLContext = nullptr` (Windows-only) to `OpenGLRenderer.h` private section.
+  - `CreateOpenGLContext()` creates the shared loader context via
+    `wglCreateContextAttribsARB(dc, renderingContext, loaderAttribs)` after the main context
+    is established. Shared contexts share all GL object namespaces (textures, buffers), so
+    textures uploaded on the loader thread are immediately usable by the render thread.
+  - `LoaderTaskThread()` calls `wglMakeCurrent(dc, m_loaderGLContext)` at entry (under
+    `PLATFORM_WINDOWS` guard) and `glFlush() + wglMakeCurrent(nullptr, nullptr)` at exit.
+  - `CleanupPlatformSpecificContext()` deletes `m_loaderGLContext` before the main context.
+
+- **Root-cause fix — `fxManager.Initialize()` ran without a GL context (fade shaders never compiled)**:
+  `Initialize()` previously called `wglMakeCurrent(nullptr, nullptr)` before
+  `bIsInitialized.store(true)`, so `fxManager.Initialize()` (called after `Initialize()` in
+  `main.cpp`) tried to compile GLSL fade shaders with no context current — all `glCreateShader`
+  calls returned 0, `m_fadeShaderProgram` was 0, and `RenderFullScreenQuad()` silently did nothing.
+  - Removed the premature `wglMakeCurrent(nullptr, nullptr)` from `Initialize()` so the main
+    thread retains the context until `StartRendererThreads()`.
+  - `StartRendererThreads()` now calls `wglMakeCurrent(nullptr, nullptr)` immediately before
+    launching the render thread, transferring ownership at the correct moment.
+
+- **Fix — `m_renderTargetWidth/Height` were 0 at `SetupViewport()` time**:
+  Both members default to 0. `SetupViewport()` was called before they were seeded, producing
+  `glViewport(0, 0, 0, 0)`. Added `m_renderTargetWidth = iOrigWidth; m_renderTargetHeight = iOrigHeight`
+  in `Initialize()` before the `SetupViewport()` call.
+
+- **Fix — `SetupPlatformSpecificContext()` (vsync) was never called on Windows**:
+  `wglSwapIntervalEXT(1)` inside `SetupPlatformSpecificContext()` was never reached because the
+  function was never called. Added the call in `Initialize()` immediately after `CreateOpenGLContext()`.
+
+- **Fix — `Resize()` called `glViewport` from the main thread while the render thread owns the context**:
+  With `RENDERER_IS_THREAD` defined the GL context is on the render thread; calling GL from `Resize()`
+  (triggered on the main thread by `WM_SIZE`) is undefined behaviour. Removed `glViewport` from
+  `Resize()` — the dimension members are still updated, and `RenderFrame()` already calls
+  `glViewport(0, 0, renderW, renderH)` at the top of every frame.
+
+- **Fix — `RenderIntroMovie()` drew the wrong texture**:
+  The function uploaded the movie frame to a local `movieTexID` via `glTexImage2D` but then called
+  `DrawTexture(0, ...)` which looks up `m_2dTextures[0]` (always empty) — movie frame was discarded.
+  Replaced with `DrawVideoFrame(..., movieTexID)` so the uploaded texture is actually presented.
+
+- *See: [`OpenGLRenderer.h`](OpenGLRenderer.h), [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`OpenGL_IOStreamThread.cpp`](OpenGL_IOStreamThread.cpp), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp)*
+
+- **Bug fix — `SCENE_INTRO → SCENE_INTRO_MOVIE` transition never fired for OpenGL (scene permanently stuck on splash)**:
+  The block that sets `scene.bSceneSwitching = true` and starts the `FadeToBlack` on timer expiry was guarded by
+  `#if defined(RENDERER_IS_THREAD) && defined(__USE_DIRECTX_11__)`. For OpenGL + `RENDERER_IS_THREAD`,
+  `scene.bSceneSwitching` was **never** set to `true` — the subsequent
+  `if (scene.bSceneSwitching && !fxManager.IsFadeActive())` check was always false,
+  `SwitchToMovieIntro()` was never called, and the app was permanently stuck on the splash screen
+  with no movie, no load screen, and no game title screen visible.
+  Fixed by changing the guard to `#if defined(RENDERER_IS_THREAD)` so the threaded scene-transition
+  path works for all renderers (OpenGL, DX12, Vulkan), not just DX11.
+
+- **Bug fix — `wglMakeCurrent` failure in loader thread was silent (textures never loaded)**:
+  `LoaderTaskThread()` called `wglMakeCurrent(dc, m_loaderGLContext)` with no return-value check.
+  If the call failed, all subsequent `glGenTextures` / `glTexImage2D` calls were no-ops and the screen
+  remained black. Added a `BOOL` return check with a `LOG_ERROR` entry
+  ("wglMakeCurrent failed — texture uploads will silently fail and screen will be blank") so the
+  failure is immediately visible in the log.
+
+- **Bug fix — `LoadTexture` set `slot.isLoaded = true` unconditionally, masking GL upload failures**:
+  If the loader GL context was not current, `glGenTextures` returned 0 and no texture was stored GPU-side.
+  `slot.isLoaded` was still set to `true`, causing `Render2DQuad` to be called with `textureID = 0` —
+  which renders a solid-white fullscreen quad instead of the image (the `if (textureID)` branch is skipped
+  for 0, the shader falls back to `uColor = (1,1,1,1)`). The splash, loading screens, and all 2D images
+  appeared white or invisible.
+  Fixed: `slot.isLoaded = (slot.textureID != 0)`. Added a `LOG_ERROR` when `textureID == 0` so the root
+  cause ("no current GL context?") is visible in the log.
+
+- **Fix — missing `glFlush()` after texture loads in all loader-thread scene cases**:
+  Without a `glFlush()` call before `bLoaderTaskFinished.store(true)`, uploaded texture commands
+  could still be buffered in the loader thread's driver command queue when the render thread first
+  reads `slot.isLoaded` and tries to bind the texture. Added `glFlush()` before
+  `bLoaderTaskFinished.store(true)` in `SCENE_INTRO`, `SCENE_GAMETITLE`, and `SCENE_GAMEPLAY`.
+
+- *See: [`main.cpp`](main.cpp), [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`OpenGL_IOStreamThread.cpp`](OpenGL_IOStreamThread.cpp)*
+
 ---
 
 ## Future Development

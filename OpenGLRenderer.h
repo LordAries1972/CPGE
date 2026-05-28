@@ -353,6 +353,10 @@ private:
     // GDI+ token (Windows text / image loading)
     ULONG_PTR m_gdiplusToken = 0;                                               // GDI+ initialisation token
 
+#if defined(_WIN32) || defined(_WIN64)
+    HGLRC m_loaderGLContext = nullptr;                                          // Shared WGL context for loader-thread texture uploads
+#endif
+
     // Mutexes for thread safety
     static std::mutex s_loaderMutex;                                            // Static mutex for loader thread synchronization
 };
