@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1301 — May 24, 2026*
+*Current Build Version: v0.0.1336*
 
 ---
 
@@ -1157,6 +1157,60 @@ Once the base DirectX 11 implementation is complete, the project will be release
   - **Fix — `RemoveCompletedEffects` premature deletion (v0.0.1300–1301)** (`DX_FXManager.cpp`, `VULKAN_FXManager.cpp`, `OpenGLFXManager.cpp`): `TextFadeInOut` effects with `timeout=0` were removed by `RemoveCompletedEffects()` on the very first `Render()` call (elapsed time ≥ 0 is always true), killing them before the hold phase was ever visible. Added a dedicated guard in `RemoveCompletedEffects` for all three renderers: TextFadeInOut effects are now removed only when `fx.progress >= 1.0f` (i.e., when `UpdateTextFadeInOut` has explicitly moved them to `Stopped` or `immediateStop`). The timeout path is bypassed entirely. OpenGL additionally now correctly removes Stopped TextFadeInOut effects instead of leaking them in the vector forever. Combined with `displayDuration = -1.0f` (already set in `ShowLoadingText`), effects now fade in → hold at full colour indefinitely → fade out only on `StopLoadingText()` or a new `ShowLoadingText()` call, matching the intended behaviour.
 - *See: [`DXRenderFrame.cpp`](DXRenderFrame.cpp), [`IOStreamDX11Thread.cpp`](IOStreamDX11Thread.cpp), [`Renderer.h`](Renderer.h), [`DX11Renderer.cpp`](DX11Renderer.cpp), [`DX_FXManager.h`](DX_FXManager.h), [`DX_FXManager.cpp`](DX_FXManager.cpp), [`VULKAN_FXManager.h`](VULKAN_FXManager.h), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`OpenGLFXManager.h`](OpenGLFXManager.h), [`OpenGLFXManager.cpp`](OpenGLFXManager.cpp), [`BuildInfo.h`](BuildInfo.h)*
 
+**May 29, 2026** - cmake-build.bat: renderer + config argument support:
+
+- `cmake-build` now accepts `cmake-build <renderer> <Debug|Release>` syntax.
+  Renderer is the first argument; build config is the second (default: `Debug`).
+  Example: `cmake-build dx11 debug`, `cmake-build vulkan release`.
+- Accepted renderer tokens (case-insensitive): `dx11`, `dx12`, `opengl`, `vulkan`.
+  Each maps to the canonical `RENDERER` string consumed by `CMakeLists.txt`
+  (`DX11`, `DX12`, `OpenGL`, `Vulkan`) and is passed to CMake via
+  `-DRENDERER:STRING=<value>`.
+- Build directory is now per-renderer and per-config: `build\<Renderer>\<Config>`
+  (e.g. `build\DX11\Debug`, `build\Vulkan\Release`). Separating directories
+  prevents CMake cache collisions when switching between renderer targets.
+- Usage/help block printed when no arguments are supplied; unknown renderer
+  tokens produce a clear error and non-zero exit code.
+- Build banner line echoed before the CMake configure step confirms the active
+  renderer, config, and output directory.
+- `clean` command and `:killcompiler` subroutine unchanged.
+- **May 29, 2026 (update)** — OS detection and `Includes.h` renderer define auto-patch:
+  - OS detected via `%OS%` (`Windows_NT` → `Windows`); shown in the build banner alongside renderer, config, and output directory.
+  - Before cmake configure, a PowerShell inline command patches `Includes.h`: comments out all five Windows renderer `#define` lines (`__USE_DIRECTX_11__`, `__USE_DIRECTX_12__`, `__USE_OPENGL__`, `__USE_VULKAN__`, `__USE_RADEON__`), then uncomments exactly the one matching the requested renderer. Keeps `Includes.h` in sync with the active build automatically — no manual editing required.
+  - Regex discriminates the Windows block (8-space-indented `#define`) from Linux/Android/Apple blocks (`//#define` with no whitespace gap) so only the Windows renderer section is ever patched.
+  - DirectX 11 and 12 are blocked with an error if the detected OS is not Windows; OpenGL and Vulkan are permitted on all platforms.
+- *See: [`cmake-build.bat`](cmake-build.bat)*
+
+**May 29, 2026 (update)** — Debug call-stack log on crash (`ExceptionHandler.h`, `ExceptionHandler.cpp`, `Includes.h`):
+
+- **New: `CALLSTACK_LOG_FILENAME` define** (`Includes.h`):
+  Added `#define CALLSTACK_LOG_FILENAME "Except-CallStack.log"` with a comprehensive in-header
+  comment block describing usage, what the file contains, where it is written per platform,
+  and the `RECORD_FUNCTION_CALL()` macro. Located next to `MODELS_CACHE_FILENAME` in the file-table
+  section so all log-file names are in one place.
+
+- **New: `WriteCallStackLog()` + `GetCallStackLogPath()`** (`ExceptionHandler.cpp`, guarded by `#ifdef _DEBUG`):
+  Writes `Except-CallStack.log` immediately after any crash or unhandled exception in _DEBUG builds.
+  The log contains:
+  - Header: exception description, code (hex), fault address, thread ID, process ID, platform, arch, timestamp.
+  - Call-stack trace: up to 25 annotated frames from the fault address backwards, each showing
+    address, demangled function name + displacement, module, and source file/line when debug symbols are available.
+  - Breadcrumb trail: all non-empty `RECORD_FUNCTION_CALL()` entries from the 25-slot circular buffer,
+    oldest to newest.
+  Called automatically from `ProcessSEHException` (Windows), `ProcessSignalException` (Unix/Android/iOS),
+  `LogException`, and `LogCustomException` — no manual call needed for crash paths.
+
+- **Platform-safe file path** (`GetCallStackLogPath`):
+  Windows / Linux / macOS → current working directory (next to the exe).
+  Android → `/data/local/tmp/` (writable in debug builds without root).
+  iOS → `$TMPDIR` (app sandbox temp folder, guaranteed writable), fallback `/tmp/`.
+
+- **`LAST_CALLS_BUFFER_SIZE` expanded from 5 → 25** (`ExceptionHandler.h`):
+  Breadcrumb circular buffer now retains the last 25 `RECORD_FUNCTION_CALL()` entries, matching
+  the 25-frame maximum call-stack depth in the log.
+
+- *See: [`ExceptionHandler.h`](ExceptionHandler.h), [`ExceptionHandler.cpp`](ExceptionHandler.cpp), [`Includes.h`](Includes.h)*
+
 **May 28, 2026** — OpenGL black-screen root-cause analysis and full DX11-parity pass (`OpenGLRenderer.cpp`, `OpenGLRenderFrame.cpp`, `OpenGLFXManager.cpp`, `main.cpp`):
 
 - **Bug fix — GL context owned by wrong thread (black screen root cause 1)**:
@@ -1371,7 +1425,68 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - **Fix — shaderc link: switched to DLL import lib (`shaderc_shared`)** (`Includes.h`, `CMakeLists.txt`):
   All `shaderc_*` symbols were unresolved at link time. Initial attempts using `shaderc_combinedd.lib` (debug static) failed due to CRT mismatch (`/MDd` vs project `/MTd`); switching the project to `/MDd` then hit unresolved `__std_remove_8` / `__std_search_1` intrinsics in `shaderc_combinedd.lib` because it was compiled against a newer VS 2022 STL. Final fix: use `shaderc_sharedd.lib` (Debug) / `shaderc_shared.lib` (Release) DLL import libs — the import lib has only thunk stubs, so CRT version is irrelevant. Added POST_BUILD cmake step to copy `shaderc_sharedd.dll`/`shaderc_shared.dll` from the Vulkan SDK Bin directory to the exe output directory. Removed the `#pragma comment` from Includes.h (CMakeLists.txt is authoritative). **Build result: zero errors, `VulkanCPGE.exe` 6.3 MB produced.**
 
+- **Fix — Vulkan startup crash: atexit global destruction order** (`VULKAN_FXManager.h`, `VULKAN_FXManager.cpp`):
+  `VKFXManager::DestroyFadePipeline()` accessed the global `renderer` (`std::shared_ptr<Renderer>`, defined in `RendererFactory.cpp`) directly. Because `fxManager` (defined in `main.cpp`) and `renderer` are globals in different translation units, C++ does not guarantee their destruction order. On exit, `renderer`'s destructor ran first; the atexit destructor for `fxManager` then called `DestroyFadePipeline()`, which dereferenced the already-destroyed `renderer` shared_ptr → `0xC0000005` access violation at `VulkanRenderer::GetVkDevice`.
+  Fix: added a `std::weak_ptr<Renderer> m_weakRenderer` private member to `VKFXManager`. `Initialize()` sets `m_weakRenderer = renderer` while the renderer is guaranteed alive. `DestroyFadePipeline()` calls `m_weakRenderer.lock()` — if the renderer is already gone (atexit path), `lock()` returns null and the pipeline destroy is safely skipped; if it is still alive (normal explicit `CleanUp()` path), the pipelines are properly destroyed.
+
 - *See: [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`MoviePlayer.cpp`](MoviePlayer.cpp), [`Includes.h`](Includes.h), [`Models.h`](Models.h), [`Models.cpp`](Models.cpp), [`BlenderImports.h`](BlenderImports.h), [`BlenderImports.cpp`](BlenderImports.cpp), [`GLTFAnimator.cpp`](GLTFAnimator.cpp), [`Renderer.h`](Renderer.h), [`DX11Renderer.h`](DX11Renderer.h), [`CMakeLists.txt`](CMakeLists.txt), [`GUIManager.cpp`](GUIManager.cpp), [`KBHandlersCode.cpp`](KBHandlersCode.cpp), [`SceneManager.cpp`](SceneManager.cpp), [`VULKAN_FXManager.h`](VULKAN_FXManager.h), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp)*
+
+- **Root cause — atexit Access Violation in `ThreadManager::TryLock`**: `fileIO` (line 160) was declared before `threadManager` (line 177) in `main.cpp`. C++ destroys globals in reverse construction order, so `threadManager` was destroyed first. When `fileIO`'s atexit destructor then ran `FileIO::Cleanup()` → `FileIO::ClearQueue()` → `ThreadLockHelper` → `ThreadManager::TryLock()`, the `locks` unordered_map and `locksMutex` were already destroyed → `0xC0000005` access violation inside `std::_Hash::_Find_last`.
+- **Fix 1 — correct construction/destruction order** (`main.cpp`): Moved `ThreadManager threadManager;` to immediately before `FileIO fileIO;` (now line 160). `threadManager` is now constructed first and destroyed last among all globals that use it, so it is guaranteed alive for the lifetime of every other global's destructor.
+- **Fix 2 — defensive guard in `TryLock`** (`ThreadManager.cpp`): Added `if (IsDestroying) return false;` at the top of `ThreadManager::TryLock()` before any mutex or map access. This ensures that if any caller reaches `TryLock` during or after `ThreadManager::Cleanup()`, it gets a clean failure return rather than undefined behaviour.
+
+- *See: [`main.cpp`](main.cpp), [`ThreadManager.cpp`](ThreadManager.cpp)*
+
+- **Fix — device-layer violation removed** (`VULKAN_Renderer.cpp` `CreateLogicalDevice()`):
+  `VkDeviceCreateInfo` was being populated with `enabledLayerCount` and `ppEnabledLayerNames` from the validation-layer list. Device layers have been deprecated since Vulkan 1.0 and the spec requires `enabledLayerCount == 0` (`VUID-VkDeviceCreateInfo-enabledLayerCount-12384`). The validation layer was firing this error on every launch. Removed the offending `if (k_enableValidation)` block; instance layers (set on `VkInstanceCreateInfo` in `CreateInstance()`) are the correct and sufficient mechanism.
+
+- **Fix — null-dereference crash in `CreateOverlayResources()`** (`VULKAN_Renderer.cpp`):
+  All four COM factory calls (`CoCreateInstance`, `IWICImagingFactory::CreateBitmap`, `D2D1CreateFactory`, `IDWriteCreateFactory`) had no HRESULT check. If any call failed, the next line would dereference a null COM pointer — an access violation that bypasses C++ exception handling and terminates the process without logging. Fixed with `overlayOk` guard: each call is HRESULT-checked; on failure an error message is logged and subsequent COM steps are skipped. The Vulkan overlay texture and staging buffer are always created regardless of D2D/WIC success.
+
+- **Diagnostic — per-step logging added to `Initialize()`** (`VULKAN_Renderer.cpp`):
+  Added `LOG_DEBUG` breadcrumb (guarded by `#if defined(_DEBUG_VULKANRENDERER_)`) before each of the 11 post-swap-chain init calls. The last breadcrumb visible in the log on crash identifies the failing step precisely.
+
+- *See: [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp)*
+
+- **Root cause — `Insert_Into_Log_File` truncated the file before writing** (`Debug.cpp`):
+  The log used a read-truncate-rewrite pattern to keep entries newest-first. Opening with `std::ios::trunc` wiped the file to zero bytes immediately. The new entry was held in the C++ stream's internal buffer (RAM). On crash (`abort()`, access violation, `std::terminate`), the stream destructor never ran, the buffer was never flushed, and the file was left permanently empty — all session data lost.
+
+- **Fix — switched to `std::ios::app` (append) mode** (`Debug.cpp`):
+  Append mode never truncates the file. A crash can lose at most the single in-flight entry, not all prior output. The read-into-buffer step was also removed, making every write O(1) instead of O(file size). Entries are now written oldest-first (scroll to bottom for the most recent output). A `static bool s_sessionStarted` flag writes a timestamped banner (`=== SESSION START: ... ===`) on the first write per process, making each run easy to locate in the accumulated log.
+
+- *See: [`Debug.cpp`](Debug.cpp)*
+
+- **Root cause — `LoadAllShaders()` fell through to the HLSL path on Vulkan** (`ShaderLoaders.cpp`):
+  The function had an early-return guard for `__USE_OPENGL__` but not for Vulkan or any other non-DX renderer. The Vulkan build fell through to the `ShaderManager` HLSL block, tried to load `.hlsl` files from `ShadersDir`, failed for every shader in `MyShaders`, returned `false`, and the engine exited with `[CRITICAL]: [Initialization] Failed to load required shaders!`.
+
+- **Fix — renderer-safe guard** (`ShaderLoaders.cpp`):
+  Replaced `#if defined(__USE_OPENGL__)` with `#if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__)`. Only DX11/DX12 use the `ShaderManager` HLSL pipeline; OpenGL, Vulkan, Radeon, and any future renderer return immediately.
+
+- *See: [`ShaderLoaders.cpp`](ShaderLoaders.cpp)*
+
+- **Root cause — `vkQueuePresentKHR` not serialised with loader-thread submits**:
+  After the previous fix introduced `m_queueMutex`, `vkQueueSubmit` in `RenderFrame` was guarded
+  but `vkQueuePresentKHR` was not. On NVIDIA hardware (GTX 960M) the graphics and present queue
+  families are the same (family 0), so both calls resolve to the **same `VkQueue` handle**.
+  The Vulkan spec requires all queue operations (`vkQueueSubmit`, `vkQueuePresentKHR`,
+  `vkQueueWaitIdle`) to be externally synchronised. Without the mutex on present, the loader thread
+  could acquire `m_queueMutex` and call `vkQueueSubmit` while the render thread was concurrently
+  inside `vkQueuePresentKHR` — producing the `vkQueueSubmit(): THREADING ERROR` entries.
+
+- **Secondary fix — `const_cast` replaced by `mutable` mutex**:
+  `EndSingleTimeCommands` is a `const` method; the previous fix used
+  `const_cast<std::mutex&>(m_queueMutex)` to lock a non-`mutable` member. Changed
+  `m_queueMutex` to `mutable std::mutex` in `VULKAN_Renderer.h` and removed the `const_cast`.
+
+- **Fix applied**:
+  - `VULKAN_Renderer.h`: `std::mutex m_queueMutex` → `mutable std::mutex m_queueMutex`.
+  - `VULKAN_Renderer.cpp` `EndSingleTimeCommands()`: removed `const_cast`.
+  - `VULKAN_RenderFrame.cpp` `RenderFrame()`: merged `vkQueueSubmit` and `vkQueuePresentKHR`
+    into a single `lock_guard` scope so both operations are atomically serialised against any
+    concurrent loader-thread queue submission.
+
+- *See: [`VULKAN_Renderer.h`](VULKAN_Renderer.h), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp),
+  [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp)*
 
 ---
 
@@ -1406,6 +1521,7 @@ Since this is early-stage days of development (WIP), major reconstruction may oc
 **May 27, 2025** - Multi-renderer implementation:
 - OpenGL Renderer for Windows/Linux/MacOS/Android (WIP)
 - Vulkan Renderer for Windows/Linux/Android (WIP)
+- Radeon Renderer for Windows & Linux (For AMD Users (WIP))
 
 **March 16, 2025** - Platform integrations:
 - Steam Class implementation (WIP)

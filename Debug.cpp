@@ -24,33 +24,33 @@ void Debug::DebugLog(const std::string& message)
 void Debug::Insert_Into_Log_File(const std::wstring& filename, const std::wstring& lineMsg)
 {
     // Get current date/time
-    std::wostringstream timestampedMsg;
     std::time_t t = std::time(nullptr);
     std::tm tm;
     localtime_s(&tm, &t);
 
     wchar_t timeBuffer[100];
     wcsftime(timeBuffer, sizeof(timeBuffer) / sizeof(wchar_t), L"[%d-%m-%Y (AEST/AEDT) %H:%M:%S]: ", &tm);
-    timestampedMsg << timeBuffer << lineMsg << L"\n";
 
-    std::wstring newEntry = timestampedMsg.str();
+    // Append mode: never truncates the file, so a crash never wipes previous entries.
+    // Entries are written oldest-first; scroll to the bottom for the most recent output.
+    std::wofstream outFile(filename, std::ios::app);
+    if (!outFile.is_open()) return;
 
-    // Read existing contents
-    std::wifstream inFile(filename);
-    std::wstringstream buffer;
-    if (inFile.is_open())
+    // Write a session-start banner once per process lifetime so each run is easy to locate.
+    static bool s_sessionStarted = false;
+    if (!s_sessionStarted)
     {
-        buffer << inFile.rdbuf();
-        inFile.close();
+        s_sessionStarted = true;
+        wchar_t sessionTime[100];
+        wcsftime(sessionTime, sizeof(sessionTime) / sizeof(wchar_t),
+                 L"%d-%m-%Y (AEST/AEDT) %H:%M:%S", &tm);
+        outFile << L"================================================================================\n"
+                << L"=== SESSION START: " << sessionTime << L" ===\n"
+                << L"================================================================================\n";
     }
 
-    // Prepend the new line and write it back
-    std::wofstream outFile(filename, std::ios::trunc);
-    if (outFile.is_open())
-    {
-        outFile << newEntry << buffer.str();
-        outFile.close();
-    }
+    outFile << timeBuffer << lineMsg << L"\n";
+    outFile.close();
 }
 
 

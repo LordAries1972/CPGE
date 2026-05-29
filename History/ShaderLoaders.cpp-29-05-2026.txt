@@ -1,0 +1,29 @@
+ShaderLoaders.cpp — Changes 29-05-2026
+========================================
+
+1. FIX — LoadAllShaders(): added __USE_VULKAN__ to the early-return guard.
+
+   Root cause:
+   LoadAllShaders() had an early return for __USE_OPENGL__ (OpenGL manages its own
+   GLSL compilation) but NOT for __USE_VULKAN__. The Vulkan path fell through to the
+   DX11/HLSL ShaderManager block, which attempted to load .hlsl files via ShadersDir.
+   Those files are not present in the Vulkan build's shader directory (Assets/Shaders
+   contains .vert/.frag GLSL sources, not HLSL), so ShaderManager::LoadShader() failed
+   for every shader in the MyShaders vector, causing LoadAllShaders() to return false
+   and the engine to log:
+       [CRITICAL]: [Initialization] Failed to load required shaders!
+   and exit immediately after renderer initialisation.
+
+   Fix:
+   Replaced the per-renderer positive list with a negative DX-only guard:
+
+       #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__)
+           // Only DX11/DX12 use the ShaderManager HLSL pipeline.
+           return true;
+       #endif
+
+   This covers all current non-DX renderers (OpenGL, Vulkan, Radeon) and automatically
+   handles any future renderer additions without requiring changes to this file.
+
+   VulkanRenderer::CreateGraphicsPipelines() compiles its own inline GLSL via shaderc.
+   The ShaderManager HLSL pipeline is DX11/DX12-only.

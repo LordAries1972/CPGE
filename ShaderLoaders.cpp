@@ -148,9 +148,9 @@ private:
 
 bool LoadAllShaders()
 {
-#if defined(__USE_OPENGL__)
-    // OpenGL renderer compiles its own GLSL shaders inline in OpenGLRenderer::LoadShaders().
-    // The ShaderManager HLSL/GLSL path is not used for OpenGL builds.
+#if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__)
+    // Only DX11/DX12 use the ShaderManager HLSL pipeline.
+    // OpenGL, Vulkan, Radeon and any future renderers compile their own shaders internally.
     return true;
 #endif
 

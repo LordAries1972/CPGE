@@ -1,0 +1,54 @@
+cmake-build.bat - 29-05-2026
+=============================
+
+CHANGE 1: Renderer + config argument support (same session, earlier update)
+
+New syntax:
+  cmake-build <renderer> <debug|release>
+  cmake-build clean
+
+Renderers accepted (case-insensitive):
+  dx11    -> RENDERER=DX11
+  dx12    -> RENDERER=DX12
+  opengl  -> RENDERER=OpenGL
+  vulkan  -> RENDERER=Vulkan
+
+Config accepted (case-insensitive):
+  debug   -> Config=Debug   (default if omitted)
+  release -> Config=Release
+
+Build directory separated per renderer and config:
+  build\DX11\Debug
+  build\DX11\Release
+  build\Vulkan\Debug
+  etc.
+
+The RENDERER string is passed to CMake via -DRENDERER:STRING=<value>.
+
+--
+
+CHANGE 2: OS detection + Includes.h renderer define auto-patch
+
+OS detection:
+  %OS%==Windows_NT -> DETECTED_OS=Windows
+  Anything else    -> DETECTED_OS=Unknown (DX11/DX12 blocked)
+
+Includes.h auto-patch (PowerShell regex, runs before CMake configure):
+  1. Comments out ALL five Windows renderer defines
+     (__USE_DIRECTX_11__, __USE_DIRECTX_12__, __USE_OPENGL__,
+      __USE_VULKAN__, __USE_RADEON__)
+  2. Uncomments exactly the one matching the requested renderer.
+
+Regex pattern used (PowerShell):
+  Comment all:  (?m)^(?://)?([ \t]+#define __USE_<NAME>__)  -> //$1
+  Uncomment one: (?m)^//([ \t]+#define __USE_<NAME>__)      -> $1
+
+The [ \t]+ after optional // safely targets only the Windows block
+(8-space indent) and never touches the Linux/Android/Apple blocks
+which use //#define with no gap between // and #define.
+
+Renderer OS validation:
+  DX11/DX12 are blocked with an error if DETECTED_OS != Windows.
+  OpenGL/Vulkan are cross-platform and always allowed.
+
+Build banner now shows: OS + Renderer + Config + Dir.

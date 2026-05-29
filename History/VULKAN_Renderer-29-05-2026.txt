@@ -22,3 +22,23 @@ VULKAN_Renderer.cpp — Changes 29-05-2026
    - Added RENDERER_IS_THREAD guard around renderer-thread setup (matches DX11 pattern)
    - Added true (is_threadable) flag to all threadManager.SetThread() calls
    - Wrapped function body in try/catch for parity with DX11
+
+5. FIX — Removed enabledLayerCount from VkDeviceCreateInfo (CreateLogicalDevice):
+   Device layers have been deprecated since Vulkan 1.0. Setting enabledLayerCount to non-zero
+   violates VUID-VkDeviceCreateInfo-enabledLayerCount-12384 and caused a validation ERROR on
+   every launch. Removed the if (k_enableValidation) block that was setting device layer count/names.
+   Instance layers (set in CreateInstance on VkInstanceCreateInfo) are the correct mechanism.
+
+6. FIX — HRESULT checks in CreateOverlayResources (Windows COM path):
+   CoCreateInstance, IWICImagingFactory::CreateBitmap, D2D1CreateFactory, and DWriteCreateFactory
+   had no HRESULT checking. A failure would leave COM pointers null, causing an access violation
+   on the very next line that dereferences them — bypassing all C++ exception handlers, producing
+   a silent crash with no log output. Added overlayOk guard flag: each call is checked; on failure
+   an error is logged and subsequent COM steps are skipped. Vulkan overlay texture and staging
+   buffer are still created regardless of D2D/WIC success.
+
+7. DIAGNOSTIC — Per-step LOG_DEBUG breadcrumbs added to Initialize() post-swap-chain sequence:
+   Added a logLevelMessage(LOG_DEBUG) call (guarded by #if defined(_DEBUG_VULKANRENDERER_))
+   before each of the 11 init steps that follow CreateSwapChain (CreateImageViews through
+   CreateOverlayResources). The last breadcrumb visible in the log on a crash will identify
+   the failing step exactly. Guard matches the existing Debug.h _DEBUG_VULKANRENDERER_ convention.

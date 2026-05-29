@@ -1,0 +1,31 @@
+Debug.cpp — Changes 29-05-2026
+================================
+
+1. FIX — Insert_Into_Log_File: switched from trunc/prepend to append mode.
+
+   Root cause of data loss:
+   The previous implementation used a read-truncate-rewrite pattern to keep entries
+   newest-first on disk:
+     1. wifstream reads the entire existing file into a wstringstream buffer.
+     2. wofstream is opened with std::ios::trunc — the file is wiped to 0 bytes on disk
+        at this exact moment.
+     3. The new entry + old buffer are written to the C++ stream's internal buffer (RAM).
+     4. outFile.close() flushes the RAM buffer to disk.
+
+   On a crash (abort(), access violation, std::terminate, etc.) step 4 never runs.
+   The OS closes the file handle but does not flush the C++ stream buffer.
+   Result: the file is left as 0 bytes — all session data lost.
+
+   Fix applied:
+   - Removed the wifstream read and the wstringstream buffer entirely.
+   - Changed wofstream open mode from std::ios::trunc to std::ios::app.
+     Append mode never truncates the file, so a crash can only lose the single
+     in-flight entry, never the entries already written.
+   - Entries are now written oldest-first (scroll to bottom for most recent output).
+   - Added a static bool s_sessionStarted flag. On the very first write per process
+     lifetime, a banner:
+       ================================================================================
+       === SESSION START: dd-mm-YYYY (AEST/AEDT) HH:MM:SS ===
+       ================================================================================
+     is prepended to that write so each run is easily located in the accumulated log.
+   - Performance improvement: no more O(file-size) read+write per log call.

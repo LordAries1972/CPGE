@@ -1,12 +1,26 @@
 @echo off
 setlocal
 
-set CONFIG=%1
-if "%CONFIG%"=="" set CONFIG=Debug
+:: cmake-build <renderer> <Debug|Release>
+::   renderer : dx11 | dx12 | opengl | vulkan
+::   config   : debug | release  (default: Debug)
+::
+:: Examples:
+::   cmake-build dx11 debug
+::   cmake-build vulkan release
+::   cmake-build clean
+
+set ARG1=%1
+set ARG2=%2
 
 set CMAKE_EXE=D:\Programs\CMake\bin\cmake.exe
 
-if /i "%CONFIG%"=="clean" (
+:: --- Detect OS ---
+set DETECTED_OS=Unknown
+if /i "%OS%"=="Windows_NT" set DETECTED_OS=Windows
+
+:: --- Clean ---
+if /i "%ARG1%"=="clean" (
     echo Cleaning all build directories and compiled artifacts...
     if exist "build"              rmdir /s /q "build"
     if exist "x64"               rmdir /s /q "x64"
@@ -18,30 +32,108 @@ if /i "%CONFIG%"=="clean" (
     goto :end
 )
 
+:: --- Usage ---
+if "%ARG1%"=="" (
+    echo.
+    echo Usage: cmake-build ^<renderer^> [Debug^|Release]
+    echo   Renderers : dx11  dx12  opengl  vulkan
+    echo   Config    : debug  release  ^(default: Debug^)
+    echo.
+    echo Examples:
+    echo   cmake-build dx11 debug
+    echo   cmake-build vulkan release
+    echo   cmake-build clean
+    exit /b 1
+)
+
+:: --- Map renderer argument to CMake string and Includes.h define ---
+set RENDERER=
+set RENDERER_DEFINE=
+
+if /i "%ARG1%"=="dx11" (
+    set RENDERER=DX11
+    set RENDERER_DEFINE=__USE_DIRECTX_11__
+)
+if /i "%ARG1%"=="dx12" (
+    set RENDERER=DX12
+    set RENDERER_DEFINE=__USE_DIRECTX_12__
+)
+if /i "%ARG1%"=="opengl" (
+    set RENDERER=OpenGL
+    set RENDERER_DEFINE=__USE_OPENGL__
+)
+if /i "%ARG1%"=="vulkan" (
+    set RENDERER=Vulkan
+    set RENDERER_DEFINE=__USE_VULKAN__
+)
+
+if "%RENDERER%"=="" (
+    echo Unknown renderer: "%ARG1%"
+    echo Valid renderers: dx11  dx12  opengl  vulkan
+    exit /b 1
+)
+
+:: --- Validate renderer against OS ---
+:: DirectX 11 and 12 are Windows-only; OpenGL and Vulkan are cross-platform.
+if /i "%DETECTED_OS%"=="Windows" goto :renderer_ok
+if /i "%RENDERER%"=="DX11" (
+    echo ERROR: DirectX 11 is only supported on Windows. Detected OS: %DETECTED_OS%
+    exit /b 1
+)
+if /i "%RENDERER%"=="DX12" (
+    echo ERROR: DirectX 12 is only supported on Windows. Detected OS: %DETECTED_OS%
+    exit /b 1
+)
+:renderer_ok
+
+:: --- Config ---
+set CONFIG=Debug
+if /i "%ARG2%"=="release" set CONFIG=Release
+if /i "%ARG2%"=="debug"   set CONFIG=Debug
+
+:: --- Patch Includes.h ---
+:: Use PowerShell to comment out ALL Windows renderer #define lines, then
+:: uncomment only the one matching the requested renderer.
+:: Pattern: lines of the form [optional //][whitespace+]#define __USE_<X>__
+:: The Windows block uses 8 spaces; Linux/Android use //#define (no gap),
+:: so [ \t]+ after optional // safely targets only the Windows block.
+echo Patching Includes.h: enabling %RENDERER_DEFINE% on %DETECTED_OS% ...
+powershell -NoProfile -Command "& { $define='%RENDERER_DEFINE%'; $f='Includes.h'; $t=[IO.File]::ReadAllText($f); foreach ($d in @('DIRECTX_11','DIRECTX_12','OPENGL','VULKAN','RADEON')) { $t=$t -replace ('(?m)^(?://)?([ \t]+#define __USE_'+$d+'__)'), '//$1' }; $t=$t -replace ('(?m)^//([ \t]+#define '+$define+')'), '$1'; [IO.File]::WriteAllText($f,$t) }"
+if errorlevel 1 (
+    echo ERROR: Failed to patch Includes.h — build aborted.
+    exit /b 1
+)
+echo Includes.h patched.
+
+:: --- Kill stale compiler processes ---
 :: Release any file handles left by a previous cancelled or failed build
 :: before we start a new one. Ctrl+C cannot be trapped in batch so this
 :: "kill at start" is the primary guarantee.
 call :killcompiler
 
-set BUILD_DIR=build\%CONFIG%
+set BUILD_DIR=build\%RENDERER%\%CONFIG%
 
 if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
 
-"%CMAKE_EXE%" -S . -B "%BUILD_DIR%" -G "Visual Studio 17 2022" -A x64
+echo.
+echo Building: OS=%DETECTED_OS%  Renderer=%RENDERER%  Config=%CONFIG%  Dir=%BUILD_DIR%
+echo.
+
+"%CMAKE_EXE%" -S . -B "%BUILD_DIR%" -G "Visual Studio 17 2022" -A x64 -DRENDERER:STRING=%RENDERER%
 if errorlevel 1 goto :error
 
 "%CMAKE_EXE%" --build "%BUILD_DIR%" --config %CONFIG% --parallel
 if errorlevel 1 goto :error
 
 echo.
-echo Build succeeded: %CONFIG% -- %DATE%  %TIME%
+echo Build succeeded: %RENDERER% %CONFIG% -- %DATE%  %TIME%
 goto :end
 
 :error
 :: Release handles from the build that just failed or was cancelled
 call :killcompiler
 echo.
-echo Build FAILED: %CONFIG% -- %DATE%  %TIME%
+echo Build FAILED: %RENDERER% %CONFIG% -- %DATE%  %TIME%
 exit /b 1
 
 :end

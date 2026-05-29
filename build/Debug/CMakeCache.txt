@@ -191,7 +191,7 @@ GAME_NAME:STRING=CPGE
 //Vulkan GLSL → SPIR-V compiler
 GLSLANG_EXE:FILEPATH=D:/VulkanSDK/1.4.350.0/Bin/glslangValidator.exe
 
-//Active renderer (DX11, DX12, OpenGL, Vulkan)
+//Active renderer (DX11, DX12, OpenGL, Vulkan, Radeon)
 RENDERER:STRING=Vulkan
 
 //Path to a program.
