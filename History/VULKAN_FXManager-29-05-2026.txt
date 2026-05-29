@@ -1,0 +1,39 @@
+VULKAN_FXManager.h / VULKAN_FXManager.cpp - History - 29-05-2026
+================================================================
+
+NEW: DiscardSavedFXState()
+--------------------------
+Added method to VKFXManager that clears the scene-transition snapshot
+(m_sceneSavedEffects, m_sceneSavedStarfieldID, m_sceneSavedTunnelID,
+m_savedFXState) without restoring it. Called from KBHandlersCode.cpp
+when escaping the WarpDotTunnel back to game intro, after StopAllFX(),
+to prevent any stale snapshot from being accidentally restored.
+
+FIX: RenderFX / RenderStarfield signatures changed to glm::mat4
+---------------------------------------------------------------
+VulkanCamera returns GLM types on all platforms. The previous signatures
+used const XMMATRIX& which required conversion. Changed both to
+const glm::mat4& and added #include <glm/glm.hpp> to the PLATFORM_WINDOWS
+block in VULKAN_FXManager.h.
+
+FIX: RenderStarfield Windows+Vulkan block unified to GLM
+---------------------------------------------------------
+The PLATFORM_WINDOWS block called renderer->myCamera.GetViewMatrix() and
+assigned to XMMATRIX, then used XMVectorSet/XMVector3TransformCoord.
+Replaced with unified GLM path: glm::mat4 viewProj, glm::vec4 worldPos,
+clip divide via projPos / projPos.w.
+
+FIX: RenderWarpDotTunnel viewProj and dot projection
+-----------------------------------------------------
+Same issue: XMMATRIX viewProj = GetViewMatrix() * GetProjectionMatrix().
+Changed to glm::mat4. Dot projection loop replaced XMVectorSet/
+XMVector3TransformCoord/XMVectorGetX with glm::vec4 and clip division.
+
+FIX: SetTarget(XMFLOAT3) -> SetTarget(glm::vec3)
+-------------------------------------------------
+Two call sites in Init3DWarpDOTTunnel and UpdateWarpDotTunnel passed
+XMFLOAT3 to Camera::SetTarget(const glm::vec3&). Changed to glm::vec3
+(explicit field copy x, y, z for the smoothLookTarget; direct constructor
+for the fixed target).
+
+Files changed: VULKAN_FXManager.h, VULKAN_FXManager.cpp

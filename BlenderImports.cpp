@@ -152,7 +152,7 @@ XMFLOAT4 BlenderImports::ConvertQuat(XMFLOAT4 q, AxisFlipFlags f) noexcept
 // ============================================================
 // Full node-matrix conversion  (M_lh = F * M_rh * F)
 // ============================================================
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__) || (defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))
 XMMATRIX BlenderImports::ConvertNodeMatrix(const XMMATRIX& m, AxisFlipFlags f) noexcept
 {
     const float fx = (f & FLIP_X) ? -1.0f : 1.0f;
@@ -161,7 +161,7 @@ XMMATRIX BlenderImports::ConvertNodeMatrix(const XMMATRIX& m, AxisFlipFlags f) n
     const XMMATRIX F = XMMatrixScaling(fx, fy, fz);
     return F * m * F;
 }
-#elif defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+#elif defined(__USE_OPENGL__) || (defined(__USE_VULKAN__) && !defined(PLATFORM_WINDOWS))
 Matrix4x4 BlenderImports::ConvertNodeMatrix(const Matrix4x4& m, AxisFlipFlags f) noexcept
 {
     const float fx = (f & FLIP_X) ? -1.0f : 1.0f;

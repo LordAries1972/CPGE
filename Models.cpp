@@ -2148,7 +2148,9 @@ void Model::SetPBRProperties(float metallic, float roughness, float reflectionSt
 
 void Model::SetEnvironmentProperties(float intensity, XMFLOAT3 tint, float mipBias, float fresnel0) {
     m_modelInfo.envIntensity = intensity;
-    m_modelInfo.envTint = tint;
+    m_modelInfo.envTint.x = tint.x;
+    m_modelInfo.envTint.y = tint.y;
+    m_modelInfo.envTint.z = tint.z;
     m_modelInfo.mipLODBias = mipBias;
     m_modelInfo.fresnel0 = fresnel0;
 }

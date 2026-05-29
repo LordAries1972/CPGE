@@ -51,7 +51,8 @@
       "Bash(\"D:\\\\Programs\\\\CMake\\\\bin\\\\cmake.exe\" --build \"build\\\\Debug\" --config Debug --parallel)",
       "Bash(Get-ChildItem -Path \"f:\\\\Projects\\\\C++\\\\CPGE2026\" -Filter \"*.h\" -File)",
       "Bash(Select-Object Name, FullName)",
-      "Bash(cmake-build.bat Debug)"
+      "Bash(cmake-build.bat Debug)",
+      "PowerShell(Get-Content \"f:\\\\Projects\\\\C++\\\\CPGE2026\\\\build_output.txt\" | Where-Object { $_ -match \"error|Error|ERROR\" } | Select-Object -First 100)"
     ],
     "additionalDirectories": [
       "f:\\Projects\\C++\\CPGE2026\\.vs\\CrossPlatformGameEngine\\v17",

@@ -1,0 +1,24 @@
+VULKAN_Renderer.cpp — Changes 29-05-2026
+========================================
+
+1. LINKER FIX — Removed duplicate s_loaderMutex definition.
+   s_loaderMutex was defined both here and in VULKAN_IOStreamThread.cpp,
+   causing an ODR linker error when __USE_VULKAN__ is active.
+   Retained only s_renderMutex here; s_loaderMutex remains in VULKAN_IOStreamThread.cpp
+   (matching the DX11 pattern: IOStreamDX11Thread.cpp owns that definition).
+
+2. INIT FIX — Seeded m_renderTargetWidth/Height from config.myConfig.resolutionWidth/Height
+   instead of DEFAULT_WINDOW_WIDTH/HEIGHT constants.
+   DX11Renderer::Initialize() already does this; Vulkan was inconsistently
+   ignoring the user's configured resolution at startup.
+
+3. DX11 PARITY — Added post-init sequence to Initialize() to match DX11Renderer::Initialize():
+   - sysUtils.DisableMouseCursor() (PLATFORM_WINDOWS guard)
+   - Loader-thread restart logic: ResumeThread(THREAD_LOADER) when not resizing,
+     log message when resizing (resize path skips ResumeThread)
+   - threadManager.threadVars.bIsResizing.store(false) to clear the resize flag
+
+4. DX11 PARITY — Fixed StartRendererThreads():
+   - Added RENDERER_IS_THREAD guard around renderer-thread setup (matches DX11 pattern)
+   - Added true (is_threadable) flag to all threadManager.SetThread() calls
+   - Wrapped function body in try/catch for parity with DX11

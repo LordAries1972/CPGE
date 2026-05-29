@@ -168,8 +168,8 @@ endif()
 
 # ── Include directories ───────────────────────────────────────────────────────
 target_include_directories(CrossPlatformGameEngine PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    F:/Projects/C++/CPGE
     $<$<BOOL:${Vulkan_FOUND}>:${Vulkan_INCLUDE_DIRS}>
 )
 
@@ -179,6 +179,24 @@ target_link_directories(CrossPlatformGameEngine PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/steam/lib/win64
     $<$<BOOL:${Vulkan_FOUND}>:${_VK_LIB_DIR}>
 )
+
+# ── shaderc (GLSL→SPIR-V runtime compiler, bundled in Vulkan SDK) ────────────
+if(Vulkan_FOUND AND WIN32)
+    # Use the DLL import lib — avoids static-CRT mismatch with the combined libs
+    target_link_libraries(CrossPlatformGameEngine PRIVATE
+        $<$<CONFIG:Debug>:shaderc_sharedd>
+        $<$<NOT:$<CONFIG:Debug>>:shaderc_shared>
+    )
+    # Copy shaderc DLL to the output directory so the exe finds it at runtime
+    get_filename_component(_VK_BIN_DIR "${Vulkan_LIBRARIES}" DIRECTORY)
+    string(REPLACE "/Lib" "/Bin" _VK_BIN_DIR "${_VK_BIN_DIR}")
+    add_custom_command(TARGET CrossPlatformGameEngine POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<IF:$<CONFIG:Debug>,${_VK_BIN_DIR}/shaderc_sharedd.dll,${_VK_BIN_DIR}/shaderc_shared.dll>"
+            "$<TARGET_FILE_DIR:CrossPlatformGameEngine>"
+        COMMENT "Copying shaderc DLL to output directory"
+    )
+endif()
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 if(MSVC)
@@ -196,8 +214,8 @@ if(MSVC)
         /MP          # Multi-processor compilation
         /nologo
         /Zp16        # Struct member alignment 16 bytes
-        $<$<CONFIG:Debug>:/MTd /sdl>
-        $<$<CONFIG:Release>:/MT /sdl /Oi /Ob2 /GF /GT>
+        $<$<CONFIG:Debug>:/MDd /sdl>
+        $<$<CONFIG:Release>:/MD /sdl /Oi /Ob2 /GF /GT>
     )
 
     target_compile_definitions(CrossPlatformGameEngine PRIVATE

@@ -1,0 +1,33 @@
+CMakeLists.txt / Includes.h - History - 29-05-2026 (shaderc link final)
+========================================================================
+
+FIX: shaderc CRT mismatch — switched to shaderc DLL import lib.
+
+Problem chain
+-------------
+1. shaderc_combined.lib (release, /MD) vs project /MTd: LNK2038 RuntimeLibrary mismatch
+2. Switched project to /MDd; tried shaderc_combinedd.lib (debug, /MDd): matched CRT
+   but unresolved __std_remove_8, __std_search_1 etc. — shaderc debug lib was compiled
+   with a newer VS 2022 STL that added vectorized algorithm intrinsics not available
+   in the project's CRT linkage.
+3. Final fix: use shaderc_shared.lib / shaderc_sharedd.lib (DLL import libs).
+   The import lib only contains thunk stubs; all CRT symbols live inside the DLL
+   itself. No CRT mismatch possible.
+
+Changes
+-------
+CMakeLists.txt:
+  - Reverted to original /MTd (debug) / /MT (release) runtime library
+  - target_link_libraries uses:
+      $<$<CONFIG:Debug>:shaderc_sharedd>
+      $<$<NOT:$<CONFIG:Debug>>:shaderc_shared>
+  - Added POST_BUILD step to copy shaderc_sharedd.dll (or shaderc_shared.dll)
+    to the exe output directory so the runtime can find it.
+
+Includes.h:
+  - Removed #pragma comment(lib, ...) for shaderc — CMakeLists.txt is
+    authoritative for cmake builds; the pragma was conflicting.
+
+Result: clean zero-error build, VulkanCPGE.exe produced (6.3 MB debug).
+
+Files changed: CMakeLists.txt, Includes.h

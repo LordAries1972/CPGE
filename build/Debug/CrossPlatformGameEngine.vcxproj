@@ -62,32 +62,32 @@
     <_ProjectFileVersion>10.0.20506.1</_ProjectFileVersion>
     <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">F:\Projects\C++\CPGE2026\build\Debug\Debug\</OutDir>
     <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">CrossPlatformGameEngine.dir\Debug\</IntDir>
-    <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">OpenGLCPGE</TargetName>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">VulkanCPGE</TargetName>
     <TargetExt Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">.exe</TargetExt>
     <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</LinkIncremental>
     <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</GenerateManifest>
     <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">F:\Projects\C++\CPGE2026\build\Debug\Release\</OutDir>
     <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">CrossPlatformGameEngine.dir\Release\</IntDir>
-    <TargetName Condition="'$(Configuration)|$(Platform)'=='Release|x64'">OpenGLCPGE</TargetName>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Release|x64'">VulkanCPGE</TargetName>
     <TargetExt Condition="'$(Configuration)|$(Platform)'=='Release|x64'">.exe</TargetExt>
     <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Release|x64'"></LinkIncremental>
     <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</GenerateManifest>
     <OutDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">F:\Projects\C++\CPGE2026\build\Debug\MinSizeRel\</OutDir>
     <IntDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">CrossPlatformGameEngine.dir\MinSizeRel\</IntDir>
-    <TargetName Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">OpenGLCPGE</TargetName>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">VulkanCPGE</TargetName>
     <TargetExt Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">.exe</TargetExt>
     <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkIncremental>
     <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">true</GenerateManifest>
     <OutDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">F:\Projects\C++\CPGE2026\build\Debug\RelWithDebInfo\</OutDir>
     <IntDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">CrossPlatformGameEngine.dir\RelWithDebInfo\</IntDir>
-    <TargetName Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">OpenGLCPGE</TargetName>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">VulkanCPGE</TargetName>
     <TargetExt Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">.exe</TargetExt>
     <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">true</LinkIncremental>
     <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">true</GenerateManifest>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>F:\Projects\C++\CPGE2026\include;F:\Projects\C++\CPGE;D:\VulkanSDK\1.4.350.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>F:\Projects\C++\CPGE2026;F:\Projects\C++\CPGE2026\include;D:\VulkanSDK\1.4.350.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>%(AdditionalOptions) /Zc:__cplusplus</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
@@ -105,7 +105,7 @@
       <Optimization>Disabled</Optimization>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
-      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <SDLCheck>true</SDLCheck>
       <StructMemberAlignment>16Bytes</StructMemberAlignment>
       <SupportJustMyCode></SupportJustMyCode>
@@ -119,10 +119,10 @@
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;_CONSOLE;UNICODE;_UNICODE;GLEW_STATIC;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>F:\Projects\C++\CPGE2026\include;F:\Projects\C++\CPGE;D:\VulkanSDK\1.4.350.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>F:\Projects\C++\CPGE2026;F:\Projects\C++\CPGE2026\include;D:\VulkanSDK\1.4.350.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
-      <AdditionalIncludeDirectories>F:\Projects\C++\CPGE2026\include;F:\Projects\C++\CPGE;D:\VulkanSDK\1.4.350.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>F:\Projects\C++\CPGE2026;F:\Projects\C++\CPGE2026\include;D:\VulkanSDK\1.4.350.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -196,8 +196,17 @@ exit /b %1
 if %errorlevel% neq 0 goto :VCEnd</Command>
     </PreBuildEvent>
     <PostBuildEvent>
-      <Message>GLSL copy: ModelVertex.glsl	GLSL copy: ModelPixel.glsl</Message>
+      <Message>Copying shaderc DLL to output directory	GLSL copy: ModelVertex.glsl	GLSL copy: ModelPixel.glsl</Message>
       <Command>setlocal
+D:\Programs\CMake\bin\cmake.exe -E copy_if_different D:/VulkanSDK/1.4.350.0/Bin/shaderc_sharedd.dll F:/Projects/C++/CPGE2026/build/Debug/Debug
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
 D:\Programs\CMake\bin\cmake.exe -E copy_if_different F:/Projects/C++/CPGE2026/Assets/Shaders/ModelVertex.glsl F:/Projects/C++/CPGE2026/build/Debug/Debug/ModelVertex.glsl
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
@@ -217,7 +226,7 @@ exit /b %1
 if %errorlevel% neq 0 goto :VCEnd</Command>
     </PostBuildEvent>
     <Link>
-      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalDependencies>shaderc_sharedd.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>F:/Projects/C++/CPGE2026/lib;F:/Projects/C++/CPGE2026/lib/$(Configuration);F:/Projects/C++/CPGE2026/steam/lib/win64;F:/Projects/C++/CPGE2026/steam/lib/win64/$(Configuration);D:/VulkanSDK/1.4.350.0/Lib;D:/VulkanSDK/1.4.350.0/Lib/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64 /ignore:4099</AdditionalOptions>
       <AssemblyDebug>true</AssemblyDebug>
@@ -227,10 +236,10 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <GenerateMapFile>true</GenerateMapFile>
       <IgnoreSpecificDefaultLibraries>LIBCMT;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
       <ImageHasSafeExceptionHandlers></ImageHasSafeExceptionHandlers>
-      <ImportLibrary>F:/Projects/C++/CPGE2026/build/Debug/Debug/OpenGLCPGE.lib</ImportLibrary>
+      <ImportLibrary>F:/Projects/C++/CPGE2026/build/Debug/Debug/VulkanCPGE.lib</ImportLibrary>
       <LinkErrorReporting></LinkErrorReporting>
       <MapFileName>F:/Projects/C++/CPGE2026/CrossPlatformGameEngine.map</MapFileName>
-      <ProgramDataBaseFile>F:/Projects/C++/CPGE2026/build/Debug/Debug/OpenGLCPGE.pdb</ProgramDataBaseFile>
+      <ProgramDataBaseFile>F:/Projects/C++/CPGE2026/build/Debug/Debug/VulkanCPGE.pdb</ProgramDataBaseFile>
       <RandomizedBaseAddress></RandomizedBaseAddress>
       <SubSystem>Windows</SubSystem>
     </Link>
@@ -240,7 +249,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>F:\Projects\C++\CPGE2026\include;F:\Projects\C++\CPGE;D:\VulkanSDK\1.4.350.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>F:\Projects\C++\CPGE2026;F:\Projects\C++\CPGE2026\include;D:\VulkanSDK\1.4.350.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>%(AdditionalOptions) /Zc:__cplusplus</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
@@ -259,7 +268,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <Optimization>MaxSpeed</Optimization>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
-      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <SDLCheck>true</SDLCheck>
       <StringPooling>true</StringPooling>
       <StructMemberAlignment>16Bytes</StructMemberAlignment>
@@ -276,10 +285,10 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;_CONSOLE;UNICODE;_UNICODE;GLEW_STATIC;CMAKE_INTDIR=\"Release\"</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>F:\Projects\C++\CPGE2026\include;F:\Projects\C++\CPGE;D:\VulkanSDK\1.4.350.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>F:\Projects\C++\CPGE2026;F:\Projects\C++\CPGE2026\include;D:\VulkanSDK\1.4.350.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
-      <AdditionalIncludeDirectories>F:\Projects\C++\CPGE2026\include;F:\Projects\C++\CPGE;D:\VulkanSDK\1.4.350.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>F:\Projects\C++\CPGE2026;F:\Projects\C++\CPGE2026\include;D:\VulkanSDK\1.4.350.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -353,8 +362,17 @@ exit /b %1
 if %errorlevel% neq 0 goto :VCEnd</Command>
     </PreBuildEvent>
     <PostBuildEvent>
-      <Message>GLSL copy: ModelVertex.glsl	GLSL copy: ModelPixel.glsl</Message>
+      <Message>Copying shaderc DLL to output directory	GLSL copy: ModelVertex.glsl	GLSL copy: ModelPixel.glsl</Message>
       <Command>setlocal
+D:\Programs\CMake\bin\cmake.exe -E copy_if_different D:/VulkanSDK/1.4.350.0/Bin/shaderc_shared.dll F:/Projects/C++/CPGE2026/build/Debug/Release
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
 D:\Programs\CMake\bin\cmake.exe -E copy_if_different F:/Projects/C++/CPGE2026/Assets/Shaders/ModelVertex.glsl F:/Projects/C++/CPGE2026/build/Debug/Release/ModelVertex.glsl
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
@@ -374,7 +392,7 @@ exit /b %1
 if %errorlevel% neq 0 goto :VCEnd</Command>
     </PostBuildEvent>
     <Link>
-      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalDependencies>shaderc_shared.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>F:/Projects/C++/CPGE2026/lib;F:/Projects/C++/CPGE2026/lib/$(Configuration);F:/Projects/C++/CPGE2026/steam/lib/win64;F:/Projects/C++/CPGE2026/steam/lib/win64/$(Configuration);D:/VulkanSDK/1.4.350.0/Lib;D:/VulkanSDK/1.4.350.0/Lib/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64 /ignore:4099</AdditionalOptions>
       <DataExecutionPrevention></DataExecutionPrevention>
@@ -383,10 +401,10 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <GenerateDebugInformation>false</GenerateDebugInformation>
       <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
       <ImageHasSafeExceptionHandlers></ImageHasSafeExceptionHandlers>
-      <ImportLibrary>F:/Projects/C++/CPGE2026/build/Debug/Release/OpenGLCPGE.lib</ImportLibrary>
+      <ImportLibrary>F:/Projects/C++/CPGE2026/build/Debug/Release/VulkanCPGE.lib</ImportLibrary>
       <LinkErrorReporting></LinkErrorReporting>
       <OptimizeReferences>true</OptimizeReferences>
-      <ProgramDataBaseFile>F:/Projects/C++/CPGE2026/build/Debug/Release/OpenGLCPGE.pdb</ProgramDataBaseFile>
+      <ProgramDataBaseFile>F:/Projects/C++/CPGE2026/build/Debug/Release/VulkanCPGE.pdb</ProgramDataBaseFile>
       <RandomizedBaseAddress></RandomizedBaseAddress>
       <SubSystem>Windows</SubSystem>
     </Link>
@@ -396,7 +414,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>F:\Projects\C++\CPGE2026\include;F:\Projects\C++\CPGE;D:\VulkanSDK\1.4.350.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>F:\Projects\C++\CPGE2026;F:\Projects\C++\CPGE2026\include;D:\VulkanSDK\1.4.350.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>%(AdditionalOptions) /Zc:__cplusplus</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
@@ -428,10 +446,10 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;UNICODE;_UNICODE;GLEW_STATIC;CMAKE_INTDIR=\"MinSizeRel\"</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>F:\Projects\C++\CPGE2026\include;F:\Projects\C++\CPGE;D:\VulkanSDK\1.4.350.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>F:\Projects\C++\CPGE2026;F:\Projects\C++\CPGE2026\include;D:\VulkanSDK\1.4.350.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
-      <AdditionalIncludeDirectories>F:\Projects\C++\CPGE2026\include;F:\Projects\C++\CPGE;D:\VulkanSDK\1.4.350.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>F:\Projects\C++\CPGE2026;F:\Projects\C++\CPGE2026\include;D:\VulkanSDK\1.4.350.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -505,8 +523,17 @@ exit /b %1
 if %errorlevel% neq 0 goto :VCEnd</Command>
     </PreBuildEvent>
     <PostBuildEvent>
-      <Message>GLSL copy: ModelVertex.glsl	GLSL copy: ModelPixel.glsl</Message>
+      <Message>Copying shaderc DLL to output directory	GLSL copy: ModelVertex.glsl	GLSL copy: ModelPixel.glsl</Message>
       <Command>setlocal
+D:\Programs\CMake\bin\cmake.exe -E copy_if_different D:/VulkanSDK/1.4.350.0/Bin/shaderc_shared.dll F:/Projects/C++/CPGE2026/build/Debug/MinSizeRel
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
 D:\Programs\CMake\bin\cmake.exe -E copy_if_different F:/Projects/C++/CPGE2026/Assets/Shaders/ModelVertex.glsl F:/Projects/C++/CPGE2026/build/Debug/MinSizeRel/ModelVertex.glsl
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
@@ -526,7 +553,7 @@ exit /b %1
 if %errorlevel% neq 0 goto :VCEnd</Command>
     </PostBuildEvent>
     <Link>
-      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalDependencies>shaderc_shared.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>F:/Projects/C++/CPGE2026/lib;F:/Projects/C++/CPGE2026/lib/$(Configuration);F:/Projects/C++/CPGE2026/steam/lib/win64;F:/Projects/C++/CPGE2026/steam/lib/win64/$(Configuration);D:/VulkanSDK/1.4.350.0/Lib;D:/VulkanSDK/1.4.350.0/Lib/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64 /ignore:4099</AdditionalOptions>
       <DataExecutionPrevention></DataExecutionPrevention>
@@ -534,9 +561,9 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <GenerateDebugInformation>false</GenerateDebugInformation>
       <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
       <ImageHasSafeExceptionHandlers></ImageHasSafeExceptionHandlers>
-      <ImportLibrary>F:/Projects/C++/CPGE2026/build/Debug/MinSizeRel/OpenGLCPGE.lib</ImportLibrary>
+      <ImportLibrary>F:/Projects/C++/CPGE2026/build/Debug/MinSizeRel/VulkanCPGE.lib</ImportLibrary>
       <LinkErrorReporting></LinkErrorReporting>
-      <ProgramDataBaseFile>F:/Projects/C++/CPGE2026/build/Debug/MinSizeRel/OpenGLCPGE.pdb</ProgramDataBaseFile>
+      <ProgramDataBaseFile>F:/Projects/C++/CPGE2026/build/Debug/MinSizeRel/VulkanCPGE.pdb</ProgramDataBaseFile>
       <RandomizedBaseAddress></RandomizedBaseAddress>
       <SubSystem>Windows</SubSystem>
     </Link>
@@ -546,7 +573,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>F:\Projects\C++\CPGE2026\include;F:\Projects\C++\CPGE;D:\VulkanSDK\1.4.350.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>F:\Projects\C++\CPGE2026;F:\Projects\C++\CPGE2026\include;D:\VulkanSDK\1.4.350.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>%(AdditionalOptions) /Zc:__cplusplus</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
@@ -577,10 +604,10 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;UNICODE;_UNICODE;GLEW_STATIC;CMAKE_INTDIR=\"RelWithDebInfo\"</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>F:\Projects\C++\CPGE2026\include;F:\Projects\C++\CPGE;D:\VulkanSDK\1.4.350.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>F:\Projects\C++\CPGE2026;F:\Projects\C++\CPGE2026\include;D:\VulkanSDK\1.4.350.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
-      <AdditionalIncludeDirectories>F:\Projects\C++\CPGE2026\include;F:\Projects\C++\CPGE;D:\VulkanSDK\1.4.350.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>F:\Projects\C++\CPGE2026;F:\Projects\C++\CPGE2026\include;D:\VulkanSDK\1.4.350.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -654,8 +681,17 @@ exit /b %1
 if %errorlevel% neq 0 goto :VCEnd</Command>
     </PreBuildEvent>
     <PostBuildEvent>
-      <Message>GLSL copy: ModelVertex.glsl	GLSL copy: ModelPixel.glsl</Message>
+      <Message>Copying shaderc DLL to output directory	GLSL copy: ModelVertex.glsl	GLSL copy: ModelPixel.glsl</Message>
       <Command>setlocal
+D:\Programs\CMake\bin\cmake.exe -E copy_if_different D:/VulkanSDK/1.4.350.0/Bin/shaderc_shared.dll F:/Projects/C++/CPGE2026/build/Debug/RelWithDebInfo
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
 D:\Programs\CMake\bin\cmake.exe -E copy_if_different F:/Projects/C++/CPGE2026/Assets/Shaders/ModelVertex.glsl F:/Projects/C++/CPGE2026/build/Debug/RelWithDebInfo/ModelVertex.glsl
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
@@ -675,7 +711,7 @@ exit /b %1
 if %errorlevel% neq 0 goto :VCEnd</Command>
     </PostBuildEvent>
     <Link>
-      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalDependencies>shaderc_shared.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>F:/Projects/C++/CPGE2026/lib;F:/Projects/C++/CPGE2026/lib/$(Configuration);F:/Projects/C++/CPGE2026/steam/lib/win64;F:/Projects/C++/CPGE2026/steam/lib/win64/$(Configuration);D:/VulkanSDK/1.4.350.0/Lib;D:/VulkanSDK/1.4.350.0/Lib/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64 /ignore:4099</AdditionalOptions>
       <DataExecutionPrevention></DataExecutionPrevention>
@@ -683,9 +719,9 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
       <ImageHasSafeExceptionHandlers></ImageHasSafeExceptionHandlers>
-      <ImportLibrary>F:/Projects/C++/CPGE2026/build/Debug/RelWithDebInfo/OpenGLCPGE.lib</ImportLibrary>
+      <ImportLibrary>F:/Projects/C++/CPGE2026/build/Debug/RelWithDebInfo/VulkanCPGE.lib</ImportLibrary>
       <LinkErrorReporting></LinkErrorReporting>
-      <ProgramDataBaseFile>F:/Projects/C++/CPGE2026/build/Debug/RelWithDebInfo/OpenGLCPGE.pdb</ProgramDataBaseFile>
+      <ProgramDataBaseFile>F:/Projects/C++/CPGE2026/build/Debug/RelWithDebInfo/VulkanCPGE.pdb</ProgramDataBaseFile>
       <RandomizedBaseAddress></RandomizedBaseAddress>
       <SubSystem>Windows</SubSystem>
     </Link>

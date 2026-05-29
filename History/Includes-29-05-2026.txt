@@ -1,0 +1,59 @@
+Includes.h - History - 29-05-2026
+==================================
+
+FIX: C2872 ambiguous symbol cascade eliminated for Windows Vulkan builds
+
+Root cause
+----------
+The cross-platform math-stubs section was guarded only by:
+
+    #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__)
+
+When __USE_VULKAN__ is defined on Windows, that guard evaluates to TRUE.
+The Vulkan Windows block already includes <DirectXMath.h> and declares
+"using namespace DirectX;", so every XM* name (XMVECTOR, XMFLOAT3,
+XMFLOAT4, XMMATRIX, XMVECTOR, XMLoadFloat3, XMStoreFloat3, etc.) is
+already in global scope via the DirectX namespace.
+
+The stubs block then attempted to define identical type aliases and inline
+functions, producing dozens of C2872 'XMVECTOR': ambiguous symbol errors
+(and the same for every other XM* symbol in the stubs section).
+
+Fix applied
+-----------
+Changed the stubs guard from:
+
+    #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__)
+
+to:
+
+    #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__) \
+        && !(defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))
+
+Updated the matching #endif comment to reflect the new condition.
+
+Why this guard shape
+--------------------
+- Windows Vulkan: stubs EXCLUDED. DirectXMath supplies all XM* types natively.
+- Windows OpenGL:  stubs INCLUDED. OpenGL does not include DirectXMath.
+- Linux/Android Vulkan: stubs INCLUDED. No DirectXMath on these platforms;
+  VULKAN_FXManager.h provides GLM-based type aliases for that path instead.
+- Linux/Android OpenGL: stubs INCLUDED. Same rationale as Linux/Android Vulkan.
+
+FIX #2: Matrix4x4 alias added for Windows Vulkan builds
+---------------------------------------------------------
+After excluding the stubs, Models.h and BlenderImports.h code paths that use
+Matrix4x4 (the portable stub type used in #elif __USE_VULKAN__ branches) could
+no longer compile on Windows+Vulkan because Matrix4x4 was undefined.
+
+Added, immediately after "using namespace DirectX;" in the __USE_VULKAN__ Windows
+block:
+
+    using Matrix4x4 = XMFLOAT4X4;
+
+XMFLOAT4X4 has an identical float m[4][4] memory layout to the stub Matrix4x4
+struct, so all code that accesses .m[row][col] fields compiles and works correctly.
+This alias is only defined for Windows+Vulkan; all other platforms define Matrix4x4
+via the stubs block as before.
+
+Files changed: Includes.h, Models.h, BlenderImports.h, BlenderImports.cpp

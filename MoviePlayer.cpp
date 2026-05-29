@@ -11,7 +11,9 @@
 #include "Includes.h"
 #include "MathPrecalculation.h"
 #include "MoviePlayer.h"
-#include "DX11Renderer.h"
+#if defined(__USE_DIRECTX_11__)
+    #include "DX11Renderer.h"
+#endif
 #include <mfapi.h>
 #include <mfidl.h>
 #include <mfreadwrite.h>

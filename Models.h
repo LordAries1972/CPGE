@@ -150,7 +150,11 @@ public:
     bool CreateSolidColorTexture(uint32_t width, uint32_t height, const Vector4& color);
 #elif defined(__USE_VULKAN__)
     VkImageView GetImageView() const { return imageView; }
-    bool CreateSolidColorTexture(uint32_t width, uint32_t height, const Vector4& color);
+    #if defined(PLATFORM_WINDOWS)
+        bool CreateSolidColorTexture(uint32_t width, uint32_t height, const XMFLOAT4& color);
+    #else
+        bool CreateSolidColorTexture(uint32_t width, uint32_t height, const Vector4& color);
+    #endif
 #endif
 
 private:
@@ -262,11 +266,12 @@ struct ModelInfo {
     XMFLOAT3 animLocalScale         = { 1.0f, 1.0f, 1.0f };
 
     // --- Platform-specific transformation matrices ---
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+    // Windows+Vulkan uses DirectXMath (same as DX11/DX12); other Vulkan/OpenGL use Matrix4x4.
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__) || (defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))
     XMMATRIX worldMatrix;
     XMMATRIX viewMatrix;
     XMMATRIX projectionMatrix;
-#elif defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+#elif defined(__USE_OPENGL__) || (defined(__USE_VULKAN__) && !defined(PLATFORM_WINDOWS))
     Matrix4x4 worldMatrix;
     Matrix4x4 viewMatrix;
     Matrix4x4 projectionMatrix;
@@ -424,9 +429,15 @@ public:
     void Render(ID3D11DeviceContext* deviceContext, float deltaTime);
     HRESULT CompileShaderFromFile(const std::wstring& filePath, const std::string& entryPoint,
                                   const std::string& shaderModel, ID3DBlob** blobOut);
-    XMMATRIX GetWorldMatrix() const { return m_modelInfo.worldMatrix; }
 #elif defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
     void Render(float deltaTime);
+#endif
+
+    // GetWorldMatrix: returns XMMATRIX on DX11/DX12 and Windows Vulkan (DirectXMath available);
+    // returns Matrix4x4 on OpenGL and non-Windows Vulkan (portable stub type).
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__) || (defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))
+    XMMATRIX GetWorldMatrix() const { return m_modelInfo.worldMatrix; }
+#elif defined(__USE_OPENGL__) || (defined(__USE_VULKAN__) && !defined(PLATFORM_WINDOWS))
     Matrix4x4 GetWorldMatrix() const { return m_modelInfo.worldMatrix; }
 #endif
 
@@ -439,9 +450,9 @@ public:
     void UpdateEnvironmentBuffer();
     void SetPBRProperties(float metallic, float roughness, float reflectionStrength);
 
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__) || (defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))
     void SetEnvironmentProperties(float intensity, XMFLOAT3 tint, float mipBias, float fresnel0);
-#elif defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+#elif defined(__USE_OPENGL__) || (defined(__USE_VULKAN__) && !defined(PLATFORM_WINDOWS))
     void SetEnvironmentProperties(float intensity, Vector3 tint, float mipBias, float fresnel0);
 #endif
 

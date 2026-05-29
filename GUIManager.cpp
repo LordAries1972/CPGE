@@ -22,7 +22,7 @@ Dependencies: Includes.h, Renderer.h, DX11Renderer.h, DX12Renderer.h, VulkanRend
     #elif defined(__USE_DIRECTX_12__)
     #include "DX12Renderer.h"
     #elif defined(__USE_VULKAN__)
-    #include "VulkanRenderer.h"
+    #include "VULKAN_Renderer.h"
     #elif defined(__USE_OPENGL__)
     #include "OpenGLRenderer.h"
     #endif

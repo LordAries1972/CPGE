@@ -1,0 +1,9 @@
+MoviePlayer.cpp — Changes 29-05-2026
+=====================================
+
+1. PLATFORM GUARD — #include "DX11Renderer.h" was unconditional.
+   Wrapped in #if defined(__USE_DIRECTX_11__) so the header is only
+   processed when DX11 is the active renderer.
+   DX11Renderer.h guards its own class definition with the same macro, so
+   the include was benign but redundant and inconsistent with the Vulkan/OpenGL
+   compilation paths where DX11Renderer is never needed.

@@ -107,6 +107,25 @@ const int MAX_SCREEN_MONITORS = 4;
 const bool USE_FPS_DISPLAY   = true;
 const bool USE_RENDERER_INFO = true;    // Bottom-right renderer name + version overlay; set false to hide
 
+// Screen-mode enumeration structs — shared by all renderer backends.
+struct AvailModes {
+    bool InUse;
+    int iWidth;
+    int iHeight;
+    int iBPP;
+    int iRefreshRate;
+    int iMonitor;
+    int iNumerator;
+    int iDenominator;
+    int iScaling;
+    int iScanLineOrdering;
+};
+
+struct AvailScreenModes {
+    int iAdapter = 0;
+    std::vector<AvailModes> modes;
+};
+
 const int MAX_2D_IMG_QUEUE_OBJS = 512;
 const LPCWSTR FontName = L"MayaCulpa";
 
@@ -360,11 +379,9 @@ public:
         // Blitting Functions
         virtual void Blit2DWrappedObjectAtOffset(BlitObj2DIndexType iIndex, int iBlitX, int iBlitY, int iXOffset, int iYOffset, int iTileSizeX, int iTileSizeY) = 0;
     #endif
-    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-        // Draws a single X x Y sized pixel at the specified position with the given RGBA color (DX11/12 only).
+    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__) || (defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))
         virtual void Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 color) = 0;
-    #elif defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
-        // Draws a single X x Y sized pixel at the specified position with the given RGBA color (OpenGL/Vulkan).
+    #elif defined(__USE_OPENGL__) || (defined(__USE_VULKAN__) && !defined(PLATFORM_WINDOWS))
         virtual void Blit2DColoredPixel(int x, int y, float pixelSize, const Vector4& color) = 0;
     #endif
 

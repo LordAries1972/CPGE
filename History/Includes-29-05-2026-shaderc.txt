@@ -1,0 +1,39 @@
+Includes.h / CMakeLists.txt - History - 29-05-2026 (shaderc link fix)
+=====================================================================
+
+FIX: shaderc_combined.lib not linked for Vulkan builds.
+
+Symptoms
+--------
+LNK2019 unresolved external symbols for all shaderc_* functions:
+  shaderc_compiler_initialize, shaderc_compiler_release,
+  shaderc_compile_options_initialize, shaderc_compile_into_spv,
+  shaderc_result_release, etc.
+
+Root cause
+----------
+Includes.h already includes <shaderc/shaderc.hpp> via #if __has_include(...)
+but no #pragma comment(lib, ...) was added to pull in the shaderc static
+library. The Vulkan SDK lib directory (D:\VulkanSDK\1.4.350.0\Lib) was
+already in AdditionalLibraryDirectories, so the fix was simply to add the
+pragma.
+
+Fix
+---
+Inside #if __has_include(<shaderc/shaderc.hpp>) in Includes.h:
+  #ifdef _DEBUG
+      #pragma comment(lib, "shaderc_combinedd.lib")   // debug static lib
+  #else
+      #pragma comment(lib, "shaderc_combined.lib")    // release static lib
+  #endif
+
+Using shaderc_combined.lib (not shaderc.lib) because _combined bundles all
+shaderc dependencies (glslang, spirv-tools) into one lib, avoiding further
+unresolved-external errors.
+
+CMakeLists.txt: Added target_link_libraries block for cmake builds:
+  $<$<CONFIG:Debug>:shaderc_combinedd>
+  $<$<NOT:$<CONFIG:Debug>>:shaderc_combined>
+  (only when Vulkan_FOUND AND WIN32)
+
+Files changed: Includes.h, CMakeLists.txt

@@ -79,23 +79,7 @@ typedef struct {
     DWORD dwReserved2;
 } DDS_HEADER;
 
-struct AvailModes {										                                // Details of Available Screen Resolution Mode from Enumeration of device.
-    bool InUse;
-    int iWidth;
-    int iHeight;
-    int iBPP;
-    int iRefreshRate;
-    int iMonitor;
-    int iNumerator;
-    int iDenominator;
-    int iScaling;
-    int iScanLineOrdering;
-};
-
-struct AvailScreenModes {
-    int iAdapter = 0;
-    std::vector<AvailModes> modes;                                                      // Dynamic storage
-}; 
+// AvailModes / AvailScreenModes moved to Renderer.h (shared by all renderer backends).
 
 // DELTA TIME SMOOTHING IMPLEMENTATION - Add this to DX11Renderer.h private section
 class DeltaTimeSmoothing

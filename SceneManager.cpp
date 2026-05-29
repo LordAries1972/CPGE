@@ -37,7 +37,13 @@ extern Debug debug;
 extern LightsManager lightsManager;
 extern ThreadManager threadManager;
 extern SystemUtils sysUtils;
-extern FXManager fxManager;
+#if defined(__USE_VULKAN__)
+extern VKFXManager  fxManager;
+#elif defined(__USE_OPENGL__)
+extern GLFXManager  fxManager;
+#else
+extern FXManager    fxManager;
+#endif
 
 // Abstract Renderer Pointer
 extern std::shared_ptr<Renderer> renderer;
@@ -2909,9 +2915,15 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
                 const Vertex& v1 = model.m_modelInfo.vertices[(size_t)i1]; // Vertex 1.
                 const Vertex& v2 = model.m_modelInfo.vertices[(size_t)i2]; // Vertex 2.
 
-                XMVECTOR p0 = XMLoadFloat3(&v0.position); // Load position 0.
-                XMVECTOR p1 = XMLoadFloat3(&v1.position); // Load position 1.
-                XMVECTOR p2 = XMLoadFloat3(&v2.position); // Load position 2.
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                XMVECTOR p0 = XMLoadFloat3(&v0.position);
+                XMVECTOR p1 = XMLoadFloat3(&v1.position);
+                XMVECTOR p2 = XMLoadFloat3(&v2.position);
+#else
+                XMVECTOR p0 = XMLoadFloat3(reinterpret_cast<const XMFLOAT3*>(v0.position));
+                XMVECTOR p1 = XMLoadFloat3(reinterpret_cast<const XMFLOAT3*>(v1.position));
+                XMVECTOR p2 = XMLoadFloat3(reinterpret_cast<const XMFLOAT3*>(v2.position));
+#endif
 
 #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
                 float du1 = v1.texCoord.x - v0.texCoord.x;
@@ -2943,9 +2955,15 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
 
             for (size_t i = 0; i < model.m_modelInfo.vertices.size(); ++i)
             {
-                XMVECTOR tan = XMLoadFloat3(&tangentAccum[i]); // Load accumulated tangent.
-                tan = XMVector3Normalize(tan);                 // Normalize tangent.
-                XMStoreFloat3(&model.m_modelInfo.vertices[i].tangent, tan); // Store to vertex.
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                XMVECTOR tan = XMLoadFloat3(&tangentAccum[i]);
+                tan = XMVector3Normalize(tan);
+                XMStoreFloat3(&model.m_modelInfo.vertices[i].tangent, tan);
+#else
+                XMVECTOR tan = XMLoadFloat3(reinterpret_cast<const XMFLOAT3*>(&tangentAccum[i]));
+                tan = XMVector3Normalize(tan);
+                XMStoreFloat3(reinterpret_cast<XMFLOAT3*>(model.m_modelInfo.vertices[i].tangent), tan);
+#endif
             }
         }
 
@@ -3751,7 +3769,7 @@ void SceneManager::AutoFrameSceneToCamera(float fovYRadians, float padding)
 #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
             XMVECTOR pos = XMLoadFloat3(&v.position);
 #else
-            XMVECTOR pos = XMVECTOR(v.position[0], v.position[1], v.position[2], 0.0f);
+            XMVECTOR pos = XMVectorSet(v.position[0], v.position[1], v.position[2], 0.0f);
 #endif
             pos = XMVector3TransformCoord(pos, wm);
             XMFLOAT3 worldPos;

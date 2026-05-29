@@ -22,6 +22,8 @@
 #if defined(PLATFORM_WINDOWS)
     #include <vulkan/vulkan_win32.h>
     #include <DirectXMath.h>
+    #include <glm/glm.hpp>                  // VulkanCamera returns glm types on all platforms
+    #include <glm/gtc/matrix_transform.hpp>
     using namespace DirectX;
 #elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
     #include <glm/glm.hpp>
@@ -328,8 +330,9 @@ public:
     void Render();         // 3D fullscreen effects (fades, starfield via Vulkan pipeline)
     void Render2D();       // 2D overlay effects (particles, text scrollers, tile scrollers)
 
-    // Per-effect Vulkan render — cmd is the active command buffer inside the render pass
-    void RenderFX(int effectID, VkCommandBuffer cmd, const XMMATRIX& worldMatrix);
+    // Per-effect Vulkan render — cmd is the active command buffer inside the render pass.
+    // viewMatrix is glm::mat4 because VulkanCamera returns GLM types on all platforms.
+    void RenderFX(int effectID, VkCommandBuffer cmd, const glm::mat4& viewMatrix);
 
     // Starfield
     int  starfieldID = 0;
@@ -337,11 +340,12 @@ public:
                          XMFLOAT3 startPos = { 0,0,0 }, bool reverse = false);
     void StopStarfield();
     void UpdateStarfield(float deltaTime);
-    void RenderStarfield(VKFXItem& fxItem, VkCommandBuffer cmd, const XMMATRIX& viewMatrix);
+    void RenderStarfield(VKFXItem& fxItem, VkCommandBuffer cmd, const glm::mat4& viewMatrix);
 
     // WarpDotTunnel
     int  tunnelID = 0;
     void StopAllFX();
+    void DiscardSavedFXState();  // Clears the scene-transition snapshot without restoring it
     void SaveAndSuspendFXForScene();
     void RestoreFXAfterScene();
     void Init3DWarpDOTTunnel(float x, float y, float z,

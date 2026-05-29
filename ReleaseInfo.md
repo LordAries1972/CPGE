@@ -1283,6 +1283,96 @@ Once the base DirectX 11 implementation is complete, the project will be release
 
 - *See: [`main.cpp`](main.cpp), [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`OpenGL_IOStreamThread.cpp`](OpenGL_IOStreamThread.cpp)*
 
+**May 29, 2026** — Vulkan pipeline DX11-parity pass and conditional safeguards (`VULKAN_Renderer.cpp`, `VULKAN_RenderFrame.cpp`, `MoviePlayer.cpp`):
+
+- **Linker fix — duplicate `s_loaderMutex` definition** (`VULKAN_Renderer.cpp`):
+  `VULKAN_Renderer.cpp` defined `std::mutex VulkanRenderer::s_loaderMutex` and so did `VULKAN_IOStreamThread.cpp`, producing an ODR linker error whenever `__USE_VULKAN__` was active. Removed the duplicate from `VULKAN_Renderer.cpp`; `VULKAN_IOStreamThread.cpp` remains the canonical definition (mirrors DX11 pattern: `IOStreamDX11Thread.cpp` owns `DX11Renderer::s_loaderMutex`). Only `s_renderMutex` is now defined in `VULKAN_Renderer.cpp`.
+
+- **Init fix — render-target seeded from config, not hardcoded constants** (`VULKAN_Renderer.cpp`):
+  `Initialize()` was writing `DEFAULT_WINDOW_WIDTH` / `DEFAULT_WINDOW_HEIGHT` (800×600) into `m_renderTargetWidth/Height` instead of `config.myConfig.resolutionWidth/Height`. All subsequent Vulkan resource creation used the wrong resolution. Now matches the DX11 pattern.
+
+- **DX11 parity — `Initialize()` post-init sequence** (`VULKAN_Renderer.cpp`):
+  Three steps present in `DX11Renderer::Initialize()` were missing from the Vulkan path:
+  - `sysUtils.DisableMouseCursor()` (wrapped in `#if defined(PLATFORM_WINDOWS)`)
+  - Loader-thread restart: `threadManager.ResumeThread(THREAD_LOADER)` when `bIsResizing` is false (fresh start path); log-only when `bIsResizing` is true (resize path leaves threads in place)
+  - `threadManager.threadVars.bIsResizing.store(false)` to clear the resize flag on exit
+
+- **DX11 parity — `StartRendererThreads()`** (`VULKAN_Renderer.cpp`):
+  - Added `#ifdef RENDERER_IS_THREAD` guard around renderer-thread setup so the function works correctly in both threaded and non-threaded configurations
+  - Added `true` (is_threadable) flag to all `threadManager.SetThread()` calls (DX11 already passes this)
+  - Wrapped function body in try/catch and returns `bool result` on failure — matching the DX11 pattern
+
+- **Platform guards — includes** (`VULKAN_RenderFrame.cpp`):
+  `#include "WinSystem.h"` and `#include "ScreenRecorder.h"` were unconditional inside the `__USE_VULKAN__` block. Wrapped both in `#if defined(PLATFORM_WINDOWS)` so Linux/Android builds are not broken by Windows-only headers.
+
+- **Platform guards — extern declarations** (`VULKAN_RenderFrame.cpp`):
+  Five extern declarations referencing Windows-only objects (`HWND hwnd`, `HINSTANCE hInst`, `SystemUtils sysUtils`, `WindowMetrics winMetrics`, `ScreenRecorder screenRecorder`) were unconditional. Wrapped in `#if defined(PLATFORM_WINDOWS)`. Cross-platform externs (GUIManager, Debug, ExceptionHandler, SceneManager, ThreadManager, VKFXManager, etc.) left unguarded.
+
+- **Platform guard — `MoviePlayer.cpp`**:
+  `#include "DX11Renderer.h"` was unconditional. Wrapped in `#if defined(__USE_DIRECTX_11__)`. The header guards its own class definition with the same macro, so this was benign but inconsistent and unnecessarily processed during Vulkan/OpenGL compilation.
+
+- **Fix — C2872 ambiguous symbol cascade in Vulkan builds** (`Includes.h`):
+  The cross-platform math-stubs block (type aliases `using XMVECTOR = Vector4`, `using XMFLOAT3 = Vector3`, etc. and all inline XM* function stubs) was guarded only by `#if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__)`. That guard is `true` when `__USE_VULKAN__` is active, but the Vulkan Windows path already includes `<DirectXMath.h>` and `using namespace DirectX;`, making every XM* name doubly visible (once from DirectXMath, once from the stubs). Result: dozens of `C2872: 'XMVECTOR': ambiguous symbol` errors.
+  Fixed by adding `&& !(defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))` to the guard so the stubs are skipped for Windows Vulkan builds (which get all XM types from DirectXMath), while remaining active for OpenGL builds and non-Windows Vulkan builds that do not include DirectXMath.
+  Added `using Matrix4x4 = XMFLOAT4X4;` inside the Windows Vulkan block so shared `#elif __USE_VULKAN__` code paths (Models.h, BlenderImports.h) that reference `Matrix4x4` continue to compile — `XMFLOAT4X4` has the identical `float m[4][4]` layout.
+
+- **Fix — `ModelInfo` matrix storage and `GetWorldMatrix()` for Windows+Vulkan** (`Models.h`):
+  `worldMatrix`, `viewMatrix`, `projectionMatrix` were declared as `Matrix4x4` in the OpenGL/Vulkan branch. On Windows+Vulkan every assignment site (Models.cpp, GLTFAnimator.cpp, SceneManager.cpp) produces `XMMATRIX` values, which are not implicitly assignable to `XMFLOAT4X4`. `VULKAN_RenderFrame.cpp` also does `XMMATRIX world = m.GetWorldMatrix()` which failed when `GetWorldMatrix()` returned `XMFLOAT4X4`.
+  Fixed: matrix storage and `GetWorldMatrix()` now use `XMMATRIX` when `(__USE_VULKAN__ && PLATFORM_WINDOWS)` is true, and `Matrix4x4` for OpenGL and non-Windows Vulkan. `Render()` guard is unchanged.
+
+- **Fix — `BlenderImports::ConvertNodeMatrix()` for Windows+Vulkan** (`BlenderImports.h`, `BlenderImports.cpp`):
+  The caller in `SceneManager.cpp` passes an `XMMATRIX` loaded via `XMLoadFloat4x4`. The OpenGL/Vulkan branch accepted `const Matrix4x4&` (= `const XMFLOAT4X4&` on Windows Vulkan), causing a type-mismatch error. Updated both the declaration and implementation to include `(defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))` in the `XMMATRIX` overload guard.
+
+- **Fix — `nlohmann/json.hpp` not found after include-path cleanup** (`CMakeLists.txt`, `build/Debug/CrossPlatformGameEngine.vcxproj`):
+  After removing the stale `F:/Projects/C++/CPGE` include path, `nlohmann/json.hpp` (which lives at the project root `F:/Projects/C++/CPGE2026/nlohmann/json.hpp`) could no longer be found — the project root itself was not an include directory, only `./include/`. Added `${CMAKE_CURRENT_SOURCE_DIR}` (the project root) as the first entry in `target_include_directories` in CMakeLists.txt and prepended it to every `AdditionalIncludeDirectories` in the vcxproj.
+
+- **Fix — stale `F:/Projects/C++/CPGE` include path** (`CMakeLists.txt`, `build/Debug/CrossPlatformGameEngine.vcxproj`):
+  The old pre-CPGE2026 project directory was listed as an additional include path. Every TU therefore included headers from BOTH the current project and the old one. The old `Includes.h` and `Vectors.h` were processed after the new ones, redefining `Matrix4x4` as a struct over the new alias and re-running the un-fixed stubs section — causing another full cascade of C2872/C2011 errors across GUIManager.cpp, GUIWindows.cpp, and others. Removed the stale path from both files.
+
+- **Fix — GLTFAnimator.cpp local math stubs for Windows+Vulkan** (`GLTFAnimator.cpp`):
+  GLTFAnimator.cpp defines its own local XM* stubs under `#if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__)`. On Windows+Vulkan this compiled alongside DirectXMath, making `XMMatrixScaling`, `XMMatrixTranslation`, `XMVectorSet`, and `XMFLOAT4X4` all ambiguous. Extended the guard with `&& !(defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))`.
+
+- **Fix — `AvailModes` / `AvailScreenModes` moved to `Renderer.h`** (`Renderer.h`, `DX11Renderer.h`):
+  Both structs were defined only in `DX11Renderer.h` but used by `VULKAN_Renderer.h` and `DX12Renderer.h`, causing `C3646 'AvailScreenModes': unknown override specifier` in any TU that included the Vulkan/DX12 renderer without DX11. Moved both structs to `Renderer.h` (after `MAX_SCREEN_MONITORS`), which is already included by every renderer header.
+
+- **Fix — `Blit2DColoredPixel` virtual signature mismatch** (`Renderer.h`):
+  Base class declared `Blit2DColoredPixel(..., const Vector4& color)` in the OpenGL/Vulkan branch. `VULKAN_Renderer.h` declared the override with `XMFLOAT4 color`. On Windows+Vulkan, `XMFLOAT4 = DirectX::XMFLOAT4` (not `Vector4`), so the signatures did not match, producing `C3668 'did not override any base class methods'`. Applied the standard Windows+Vulkan guard split so the base class uses `XMFLOAT4` for DX11/DX12/Windows-Vulkan and `const Vector4&` for OpenGL/non-Windows-Vulkan.
+
+- **Fix — `GUIManager.cpp` wrong renderer include** (`GUIManager.cpp`):
+  `#include "VulkanRenderer.h"` → `#include "VULKAN_Renderer.h"` (typo in filename).
+
+- **Fix — `VKFXManager::DiscardSavedFXState()` implemented** (`VULKAN_FXManager.h`, `VULKAN_FXManager.cpp`):
+  `KBHandlersCode.cpp` called `fxManager.DiscardSavedFXState()` to clear the scene-transition FX snapshot after `StopAllFX()` when escaping the WarpDotTunnel. The method was missing from `VKFXManager`. Implemented: clears `m_sceneSavedEffects`, `m_sceneSavedStarfieldID`, `m_sceneSavedTunnelID`, and `m_savedFXState` under the effects mutex.
+
+- **Fix — `Models.h` CreateSolidColorTexture / SetEnvironmentProperties guards** (`Models.h`):
+  Both methods used `const Vector4& color` / `Vector3 tint` in the `#elif __USE_VULKAN__` branch. Windows+Vulkan uses DirectXMath so implementations and call sites pass `XMFLOAT4`/`XMFLOAT3`. Applied `PLATFORM_WINDOWS` guard to use the DirectXMath overloads on Windows and the portable `Vector4`/`Vector3` overloads elsewhere.
+
+- **Fix — `SceneManager.cpp` extern fxManager type** (`SceneManager.cpp`):
+  `extern FXManager fxManager` was always the DX11 type regardless of renderer. Guarded to use `VKFXManager` for Vulkan, `GLFXManager` for OpenGL, and `FXManager` for DirectX.
+
+- **Fix — `SceneManager.cpp` XMLoadFloat3 / XMStoreFloat3 for `float[3]` positions** (`SceneManager.cpp`):
+  Tangent-computation loop called `XMLoadFloat3(&v0.position)` where `Vertex::position` is `float[3]` in the Vulkan/OpenGL vertex layout. DirectXMath's `XMLoadFloat3` takes `const XMFLOAT3*`; the stubs had a `float(*)[3]` overload that no longer exists on Windows+Vulkan. Guarded DX11/DX12 path with `&v.position` and Vulkan/OpenGL path with `reinterpret_cast<const XMFLOAT3*>(v.position)`. Same fix for `XMStoreFloat3`. Also fixed `XMVECTOR pos = XMVECTOR(...)` → `XMVectorSet(...)`.
+
+- **Fix — Camera type mismatch across Vulkan render files** (`VULKAN_RenderFrame.cpp`, `VULKAN_FXManager.h`, `VULKAN_FXManager.cpp`):
+  `VulkanCamera` returns `glm::vec3`/`glm::mat4` on ALL platforms including Windows. The Windows+Vulkan render and FXManager code was written expecting DirectXMath camera types (`XMFLOAT3`/`XMMATRIX`) that don't exist on `VulkanCamera`. Systematic fix:
+  - `VULKAN_FXManager.h`: added `#include <glm/glm.hpp>` for Windows; changed `RenderFX`/`RenderStarfield` parameters from `const XMMATRIX&` to `const glm::mat4&`.
+  - `VULKAN_RenderFrame.cpp`: unified camera section to GLM (`GetPositionGLM()`, `GetViewMatrixGLM()`, `glm::perspective`, `glm::transpose`+`memcpy` for UBO upload); removed `PLATFORM_WINDOWS` camera split.
+  - `VULKAN_FXManager.cpp`: `RenderStarfield`/`RenderWarpDotTunnel` projection loops converted from DirectXMath (`XMVectorSet`, `XMVector3TransformCoord`) to GLM (`glm::vec4`, perspective divide). Camera `SetTarget(XMFLOAT3)` calls changed to `SetTarget(glm::vec3)`.
+
+- **Fix — VulkanCamera method names corrected** (`VULKAN_RenderFrame.cpp`, `VULKAN_FXManager.cpp`):
+  Methods `GetPositionGLM()` and `GetViewMatrixGLM()` do not exist on `Camera` (VulkanCamera.h). The actual method names are `GetPosition()` (→ `glm::vec3`) and `GetViewMatrix()` (→ `glm::mat4`). All `*GLM` suffixed calls replaced with the correct names.
+
+- **Fix — `glm::perspective` template deduction error** (`VULKAN_RenderFrame.cpp`):
+  Ternary expression in the FOV argument produced an ambiguous type. Changed to `glm::perspective<float>(glm::radians<float>(...), ...)` to pin all template arguments as `float`.
+
+- **Fix — `SetEnvironmentProperties` envTint field assignment** (`Models.cpp`):
+  `m_modelInfo.envTint = tint` failed because `envTint` is `Vector3` but `tint` is `DirectX::XMFLOAT3` on Windows+Vulkan — no implicit conversion. Changed to field-wise copy (`envTint.x = tint.x` etc.) which compiles for all builds since both types expose `.x/.y/.z` float fields.
+
+- **Fix — shaderc link: switched to DLL import lib (`shaderc_shared`)** (`Includes.h`, `CMakeLists.txt`):
+  All `shaderc_*` symbols were unresolved at link time. Initial attempts using `shaderc_combinedd.lib` (debug static) failed due to CRT mismatch (`/MDd` vs project `/MTd`); switching the project to `/MDd` then hit unresolved `__std_remove_8` / `__std_search_1` intrinsics in `shaderc_combinedd.lib` because it was compiled against a newer VS 2022 STL. Final fix: use `shaderc_sharedd.lib` (Debug) / `shaderc_shared.lib` (Release) DLL import libs — the import lib has only thunk stubs, so CRT version is irrelevant. Added POST_BUILD cmake step to copy `shaderc_sharedd.dll`/`shaderc_shared.dll` from the Vulkan SDK Bin directory to the exe output directory. Removed the `#pragma comment` from Includes.h (CMakeLists.txt is authoritative). **Build result: zero errors, `VulkanCPGE.exe` 6.3 MB produced.**
+
+- *See: [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`MoviePlayer.cpp`](MoviePlayer.cpp), [`Includes.h`](Includes.h), [`Models.h`](Models.h), [`Models.cpp`](Models.cpp), [`BlenderImports.h`](BlenderImports.h), [`BlenderImports.cpp`](BlenderImports.cpp), [`GLTFAnimator.cpp`](GLTFAnimator.cpp), [`Renderer.h`](Renderer.h), [`DX11Renderer.h`](DX11Renderer.h), [`CMakeLists.txt`](CMakeLists.txt), [`GUIManager.cpp`](GUIManager.cpp), [`KBHandlersCode.cpp`](KBHandlersCode.cpp), [`SceneManager.cpp`](SceneManager.cpp), [`VULKAN_FXManager.h`](VULKAN_FXManager.h), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp)*
+
 ---
 
 ## Future Development

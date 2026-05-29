@@ -76,6 +76,13 @@
 #endif // end of OPENGL Debug flags 
 
 // ----------------------------------------------------------------------------------------------
+// VULKAN Debug flags.
+// ----------------------------------------------------------------------------------------------
+#if defined(__USE_VULKAN__)
+    #define _DEBUG_VULKANRENDERER_                                          // Define this line, to show all debug output for the VulkanRenderer class.
+#endif // end of VULKAN Debug flags 
+
+// ----------------------------------------------------------------------------------------------
 // Define MACROS for error handling and reporting
 // ----------------------------------------------------------------------------------------------
 #define THROW_IF_FAILED(hr, msg) \

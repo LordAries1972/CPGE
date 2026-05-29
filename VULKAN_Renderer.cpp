@@ -48,9 +48,9 @@ extern std::atomic<bool>  bFullScreenTransition;
 
 // ---------------------------------------------------------------------------------------------------------------
 // Static member definitions
+// s_loaderMutex is defined in VULKAN_IOStreamThread.cpp (mirrors DX11 pattern: IOStreamDX11Thread.cpp owns it)
 // ---------------------------------------------------------------------------------------------------------------
 std::mutex VulkanRenderer::s_renderMutex;
-std::mutex VulkanRenderer::s_loaderMutex;
 
 // ---------------------------------------------------------------------------------------------------------------
 // Validation layer list (debug builds only)
@@ -142,8 +142,8 @@ void VulkanRenderer::Initialize(HWND hwnd, HINSTANCE hInstance)
 #if defined(PLATFORM_WINDOWS)
     m_hwnd  = hwnd;
     m_hInst = hInstance;
-    m_renderTargetWidth  = DEFAULT_WINDOW_WIDTH;
-    m_renderTargetHeight = DEFAULT_WINDOW_HEIGHT;
+    m_renderTargetWidth  = config.myConfig.resolutionWidth;
+    m_renderTargetHeight = config.myConfig.resolutionHeight;
 #elif defined(PLATFORM_LINUX)
     // hwnd carries xcb_window_t, hInstance carries xcb_connection_t*
     m_xcbWindow     = static_cast<xcb_window_t>(reinterpret_cast<uintptr_t>(hwnd));
@@ -172,7 +172,22 @@ void VulkanRenderer::Initialize(HWND hwnd, HINSTANCE hInstance)
     CreateOverlayResources(static_cast<uint32_t>(m_renderTargetWidth),
                            static_cast<uint32_t>(m_renderTargetHeight));
 
+#if defined(PLATFORM_WINDOWS)
+    sysUtils.DisableMouseCursor();
+#endif
+
     bIsInitialized.store(true);
+
+    if (threadManager.threadVars.bIsResizing.load())
+    {
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[VulkanRenderer] Initialized and Activated.");
+    }
+    else
+    {
+        threadManager.ResumeThread(THREAD_LOADER);
+    }
+    threadManager.threadVars.bIsResizing.store(false);
+
     debug.logLevelMessage(LogLevel::LOG_INFO, L"[VulkanRenderer] Initialized successfully.");
 }
 
@@ -1241,12 +1256,21 @@ bool VulkanRenderer::Resize(uint32_t width, uint32_t height)
 // ---------------------------------------------------------------------------------------------------------------
 bool VulkanRenderer::StartRendererThreads()
 {
-    threadManager.SetThread(THREAD_RENDERER, [this]() { RenderFrame(); });
-    threadManager.StartThread(THREAD_RENDERER);
-    threadManager.SetThread(THREAD_LOADER, [this]() { LoaderTaskThread(); });
-    threadManager.StartThread(THREAD_LOADER);
-    return threadManager.DoesThreadExist(THREAD_RENDERER) &&
-           threadManager.DoesThreadExist(THREAD_LOADER);
+    bool result = true;
+    try
+    {
+        threadManager.SetThread(THREAD_LOADER, [this]() { LoaderTaskThread(); }, true);
+        threadManager.StartThread(THREAD_LOADER);
+#ifdef RENDERER_IS_THREAD
+        threadManager.SetThread(THREAD_RENDERER, [this]() { RenderFrame(); }, true);
+        threadManager.StartThread(THREAD_RENDERER);
+#endif
+    }
+    catch (const std::exception&)
+    {
+        result = false;
+    }
+    return result;
 }
 
 void VulkanRenderer::ResumeLoader(bool isResizing)

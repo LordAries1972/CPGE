@@ -562,7 +562,7 @@ void VKFXManager::Render2D() {
 // ---------------------------------------------------------------------------------------------------------------
 // RenderFX  (per-effect, called with explicit command buffer and world matrix)
 // ---------------------------------------------------------------------------------------------------------------
-void VKFXManager::RenderFX(int effectID, VkCommandBuffer cmd, const XMMATRIX& worldMatrix) {
+void VKFXManager::RenderFX(int effectID, VkCommandBuffer cmd, const glm::mat4& viewMatrix) {
     if (!cmd || effectID < 0) return;
 
     for (VKFXItem& fx : effects) {
@@ -577,7 +577,7 @@ void VKFXManager::RenderFX(int effectID, VkCommandBuffer cmd, const XMMATRIX& wo
 
         switch (fx.type) {
         case FXType::ColorFader:   ApplyColorFader(fx);                              break;
-        case FXType::Starfield:    UpdateStarfield(dt); RenderStarfield(fx, cmd, worldMatrix); break;
+        case FXType::Starfield:    UpdateStarfield(dt); RenderStarfield(fx, cmd, viewMatrix); break;
         case FXType::WarpDotTunnel: RenderWarpDotTunnel(fx, cmd);                   break;
         default: break;
         }
@@ -1044,31 +1044,16 @@ void VKFXManager::UpdateStarfield(float deltaTime) {
     }
 }
 
-void VKFXManager::RenderStarfield(VKFXItem& fxItem, VkCommandBuffer cmd, const XMMATRIX& viewMatrix) {
+void VKFXManager::RenderStarfield(VKFXItem& fxItem, VkCommandBuffer cmd, const glm::mat4& viewMatrix) {
     if (fxItem.type != FXType::Starfield || cmd == VK_NULL_HANDLE || !renderer) return;
 
-#if defined(PLATFORM_WINDOWS)
-    XMMATRIX viewProj = renderer->myCamera.GetViewMatrix() * renderer->myCamera.GetProjectionMatrix();
-#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
-    // GLM: viewProj = proj * view
+    // VulkanCamera returns GLM types on all platforms
     glm::mat4 viewProj = renderer->myCamera.GetProjectionMatrix() * renderer->myCamera.GetViewMatrix();
-#endif
 
     for (auto& p : fxItem.particles) {
         if (p.completed) continue;
 
-#if defined(PLATFORM_WINDOWS)
-        XMVECTOR worldPos = XMVectorSet(p.x, p.y, p.angle, 1.0f);
-        XMVECTOR projPos  = XMVector3TransformCoord(worldPos, viewProj);
-
-        if (XMVectorGetZ(projPos) > 1.0f  ||
-            XMVectorGetX(projPos) < -1.0f || XMVectorGetX(projPos) > 1.0f ||
-            XMVectorGetY(projPos) < -1.0f || XMVectorGetY(projPos) > 1.0f)
-            continue;
-
-        float screenX = (XMVectorGetX(projPos) + 1.0f) * 0.5f * renderer->iOrigWidth;
-        float screenY = (1.0f - XMVectorGetY(projPos)) * 0.5f * renderer->iOrigHeight;
-#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+        // viewProj is glm::mat4 on all platforms (VulkanCamera always returns GLM)
         glm::vec4 worldPos(p.x, p.y, p.angle, 1.0f);
         glm::vec4 projPos = viewProj * worldPos;
         if (projPos.w <= 0.0f) continue;
@@ -1078,7 +1063,6 @@ void VKFXManager::RenderStarfield(VKFXItem& fxItem, VkCommandBuffer cmd, const X
         if (ndcZ > 1.0f || ndcX < -1.0f || ndcX > 1.0f || ndcY < -1.0f || ndcY > 1.0f) continue;
         float screenX = (ndcX + 1.0f) * 0.5f * renderer->iOrigWidth;
         float screenY = (1.0f - ndcY) * 0.5f * renderer->iOrigHeight;
-#endif
 
         float sizeScale  = 1.0f + (fxItem.depthMultiplier - p.angle) / fxItem.depthMultiplier * 3.0f;
         float displaySize = p.radius * sizeScale;
@@ -1502,6 +1486,16 @@ void VKFXManager::StopAllFX()
     debug.logLevelMessage(LogLevel::LOG_INFO, L"[VKFXManager] StopAllFX: all effects cleared.");
 }
 
+void VKFXManager::DiscardSavedFXState()
+{
+    std::lock_guard<std::mutex> lock(m_effectsMutex);
+    m_sceneSavedEffects.clear();
+    m_sceneSavedStarfieldID = 0;
+    m_sceneSavedTunnelID    = 0;
+    m_savedFXState          = VKActiveFXState{};
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[VKFXManager] DiscardSavedFXState: saved snapshot cleared.");
+}
+
 void VKFXManager::SaveAndSuspendFXForScene()
 {
     if (!m_sceneSavedEffects.empty() || m_sceneSavedStarfieldID > 0)
@@ -1608,7 +1602,7 @@ void VKFXManager::Init3DWarpDOTTunnel(float x, float y, float z,
     if (renderer)
     {
         renderer->myCamera.SetPosition(x, y, data.nearZ);
-        renderer->myCamera.SetTarget(XMFLOAT3(x, y, data.farZ));
+        renderer->myCamera.SetTarget(glm::vec3(x, y, data.farZ));
         renderer->myCamera.SetYawPitch(0.0f, 0.0f);
     }
 
@@ -1714,7 +1708,8 @@ void VKFXManager::UpdateWarpDotTunnel(VKFXItem& fx, float deltaTime)
         data.smoothLookTarget.y += (lookRing.cy   - data.smoothLookTarget.y) * alpha;
         data.smoothLookTarget.z += (lookRing.zPos - data.smoothLookTarget.z) * alpha;
 
-        renderer->myCamera.SetTarget(data.smoothLookTarget);
+        renderer->myCamera.SetTarget(glm::vec3(
+            data.smoothLookTarget.x, data.smoothLookTarget.y, data.smoothLookTarget.z));
     }
 }
 
@@ -1723,7 +1718,8 @@ void VKFXManager::RenderWarpDotTunnel(VKFXItem& fx, VkCommandBuffer cmd)
     const VKWarpTunnelData& data = fx.warpTunnelData;
     if (data.rings.empty()) return;
 
-    XMMATRIX viewProj = renderer->myCamera.GetViewMatrix() * renderer->myCamera.GetProjectionMatrix();
+    // VulkanCamera returns GLM types on all platforms
+    glm::mat4 viewProj = renderer->myCamera.GetProjectionMatrix() * renderer->myCamera.GetViewMatrix();
 
     const float angleStep = XM_2PI / static_cast<float>(data.dotsPerCircle);
     const float halfW     = static_cast<float>(renderer->iOrigWidth)  * 0.5f;
@@ -1764,17 +1760,17 @@ void VKFXManager::RenderWarpDotTunnel(VKFXItem& fx, VkCommandBuffer cmd)
             float sinA, cosA;
             FAST_MATH.FastSinCos(dotAngle, sinA, cosA);
 
-            XMVECTOR worldPos = XMVectorSet(
+            glm::vec4 worldPos(
                 ring.cx + cosA * ringRadius,
                 ring.cy + sinA * ringRadius,
                 ring.zPos,
                 1.0f
             );
-
-            XMVECTOR proj = XMVector3TransformCoord(worldPos, viewProj);
-            float ndcX = XMVectorGetX(proj);
-            float ndcY = XMVectorGetY(proj);
-            float ndcZ = XMVectorGetZ(proj);
+            glm::vec4 clip = viewProj * worldPos;
+            if (clip.w <= 0.0f) continue;
+            float ndcX = clip.x / clip.w;
+            float ndcY = clip.y / clip.w;
+            float ndcZ = clip.z / clip.w;
 
             if (ndcZ <= 0.0f || ndcZ > 1.0f) continue;
             if (ndcX < -1.0f || ndcX > 1.0f) continue;

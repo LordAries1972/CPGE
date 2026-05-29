@@ -1,0 +1,44 @@
+Renderer.h / DX11Renderer.h - History - 29-05-2026
+====================================================
+
+FIX: AvailModes and AvailScreenModes moved from DX11Renderer.h to Renderer.h.
+
+Problem
+-------
+AvailModes and AvailScreenModes were defined only in DX11Renderer.h.
+Both DX12Renderer.h and VULKAN_Renderer.h declare:
+    AvailScreenModes screenModes[MAX_SCREEN_MONITORS];
+without including DX11Renderer.h, producing C3646 'unknown override specifier'
+errors whenever those headers were compiled in non-DX11 translation units
+(e.g. GLTFAnimator.cpp, GUIManager.cpp, GUIWindows.cpp).
+
+Fix
+---
+Both structs added to Renderer.h immediately after MAX_SCREEN_MONITORS, with a
+comment marking them as shared by all renderer backends. The duplicate definitions
+removed from DX11Renderer.h (replaced by a brief comment).
+
+Since Renderer.h is already included by every renderer header
+(DX11Renderer.h, DX12Renderer.h, VULKAN_Renderer.h, OpenGLRenderer.h), no
+additional includes are required anywhere.
+
+FIX 2: Blit2DColoredPixel virtual signature updated for Windows+Vulkan.
+--------------------------------------------------------
+The base class declared:
+  #elif defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+      virtual void Blit2DColoredPixel(..., const Vector4& color) = 0;
+
+For Windows+Vulkan, XMFLOAT4 is now DirectX::XMFLOAT4 (not Vector4), so
+VULKAN_Renderer.h's override signature (XMFLOAT4 color) no longer matched the
+base class (const Vector4& color), producing C3668 'did not override any base
+class methods'.
+
+Fixed the conditional to:
+  #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+      || (defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))
+      virtual void Blit2DColoredPixel(..., XMFLOAT4 color) = 0;
+  #elif defined(__USE_OPENGL__)
+      || (defined(__USE_VULKAN__) && !defined(PLATFORM_WINDOWS))
+      virtual void Blit2DColoredPixel(..., const Vector4& color) = 0;
+
+Files changed: Renderer.h, DX11Renderer.h

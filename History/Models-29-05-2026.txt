@@ -1,0 +1,17 @@
+Models.h / Models.cpp - History - 29-05-2026
+============================================
+
+FIX 1: XMMATRIX/Matrix4x4 matrix storage and GetWorldMatrix() properly scoped
+for Windows+Vulkan vs. non-Windows-Vulkan/OpenGL builds.
+(Details in first entry from earlier today - see history file context)
+
+FIX 2: SetEnvironmentProperties envTint field-wise assignment.
+Models.cpp SetEnvironmentProperties used "m_modelInfo.envTint = tint" where
+envTint is Vector3 but tint is XMFLOAT3 (DirectX::XMFLOAT3 on Windows+Vulkan).
+No implicit conversion operator exists. Fixed by field-wise copy:
+    m_modelInfo.envTint.x = tint.x;
+    m_modelInfo.envTint.y = tint.y;
+    m_modelInfo.envTint.z = tint.z;
+Works for all builds since both Vector3 and XMFLOAT3 expose .x/.y/.z float fields.
+
+Files changed: Models.h, Models.cpp

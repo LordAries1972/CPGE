@@ -1,0 +1,28 @@
+CMakeLists.txt / CrossPlatformGameEngine.vcxproj - History - 29-05-2026
+========================================================================
+
+FIX 1: Removed stale F:/Projects/C++/CPGE include path.
+FIX 2: Added project root (${CMAKE_CURRENT_SOURCE_DIR}) as include directory.
+
+FIX 1 details
+-------------
+F:/Projects/C++/CPGE (the old, pre-2026 project directory) was listed in
+target_include_directories. This caused the old Includes.h, Vectors.h, etc.
+from the wrong project to be included alongside the current CPGE2026 files,
+producing type-redefinition and ambiguous-symbol cascades.
+Removed from CMakeLists.txt and from all 12 AdditionalIncludeDirectories
+entries in the generated vcxproj.
+
+FIX 2 details
+-------------
+After removing the stale path, nlohmann/json.hpp (at
+F:/Projects/C++/CPGE2026/nlohmann/json.hpp) could no longer be found because
+only F:/Projects/C++/CPGE2026/include/ was an include path, not the project
+root itself. The old CPGE path had coincidentally also contained nlohmann.
+
+Added ${CMAKE_CURRENT_SOURCE_DIR} (= F:/Projects/C++/CPGE2026) as the first
+entry in target_include_directories and in all vcxproj AdditionalIncludeDirectories
+entries, so #include <nlohmann/json.hpp> resolves to the correct file in the
+project root.
+
+Files changed: CMakeLists.txt, build/Debug/CrossPlatformGameEngine.vcxproj

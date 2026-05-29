@@ -111,9 +111,11 @@ public:
     static XMFLOAT4 ConvertQuat(XMFLOAT4 q, AxisFlipFlags f) noexcept;
 
     // Full 4×4 node matrix conversion.
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+    // Windows+Vulkan uses DirectXMath (XMMATRIX) same as DX11/DX12.
+    // Non-Windows Vulkan and OpenGL use the portable Matrix4x4 stub type.
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__) || (defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))
     static XMMATRIX ConvertNodeMatrix(const XMMATRIX& m, AxisFlipFlags f) noexcept;
-#elif defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+#elif defined(__USE_OPENGL__) || (defined(__USE_VULKAN__) && !defined(PLATFORM_WINDOWS))
     static Matrix4x4 ConvertNodeMatrix(const Matrix4x4& m, AxisFlipFlags f) noexcept;
 #endif
 

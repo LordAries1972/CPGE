@@ -1,0 +1,18 @@
+VULKAN_RenderFrame.cpp — Changes 29-05-2026
+===========================================
+
+1. PLATFORM GUARDS — #include "WinSystem.h" and #include "ScreenRecorder.h"
+   wrapped in #if defined(PLATFORM_WINDOWS). Extern declarations for Windows-only
+   objects also wrapped.
+
+2. CAMERA SECTION — rewritten to use GLM consistently (29-05-2026 second pass).
+   VulkanCamera returns GLM types on all platforms. The original PLATFORM_WINDOWS
+   block called myCamera.GetPosition()/GetViewMatrix() expecting XMFLOAT3/XMMATRIX
+   but these always return glm::vec3/glm::mat4.
+   - Unified to: glm::vec3 camPos / glm::mat4 view / glm::mat4 proj (all platforms)
+   - Y-flip: proj[1][1] *= -1.0f (was XMVectorNegate on proj.r[1])
+   - UBO upload: world matrix uses XMStoreFloat4x4+memcpy (Windows DirectXMath);
+     view/proj use memcpy from glm::value_ptr(glm::transpose(...))
+   - FPS coords: unified to glm::vec3 (was platform-split struct)
+   - RenderFX call: GetViewMatrix() (correct method name)
+   - glm::perspective<float>() to fix template deduction ambiguity

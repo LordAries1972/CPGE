@@ -1,0 +1,42 @@
+BlenderImports.h / BlenderImports.cpp - History - 29-05-2026
+=============================================================
+
+FIX: ConvertNodeMatrix() now uses XMMATRIX for Windows+Vulkan builds.
+
+Problem
+-------
+ConvertNodeMatrix was declared and implemented as:
+  #elif defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+      Matrix4x4 ConvertNodeMatrix(const Matrix4x4& m, ...) noexcept;
+
+The caller in SceneManager.cpp passes an XMMATRIX loaded via XMLoadFloat4x4:
+  XMMATRIX loaded = XMLoadFloat4x4(&mtx);
+  return BlenderImports::ConvertNodeMatrix(loaded, cfg.flipAxes);
+
+For Windows+Vulkan, XMMATRIX = DirectX::XMMATRIX and Matrix4x4 = XMFLOAT4X4
+(alias from Includes.h). These are incompatible types — XMMATRIX cannot be
+implicitly converted to const XMFLOAT4X4& — causing a compiler error.
+
+Fix
+---
+Updated both the declaration (BlenderImports.h) and the implementation
+(BlenderImports.cpp) to include Windows+Vulkan in the DX11/DX12 branch:
+
+  Before:
+    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+        ... XMMATRIX overload ...
+    #elif defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        ... Matrix4x4 overload ...
+
+  After:
+    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__) \
+        || (defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))
+        ... XMMATRIX overload ...
+    #elif defined(__USE_OPENGL__) \
+        || (defined(__USE_VULKAN__) && !defined(PLATFORM_WINDOWS))
+        ... Matrix4x4 overload ...
+
+The XMMATRIX implementation body (F * m * F using XMMatrixScaling) already uses
+DirectXMath correctly and needs no changes.
+
+Files changed: BlenderImports.h, BlenderImports.cpp

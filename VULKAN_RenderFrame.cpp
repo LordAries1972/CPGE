@@ -25,7 +25,6 @@
 #include "VULKAN_Renderer.h"
 #include "Debug.h"
 #include "ExceptionHandler.h"
-#include "WinSystem.h"
 #include "Configuration.h"
 #include "VULKAN_FXManager.h"
 #include "GUIManager.h"
@@ -34,18 +33,26 @@
 #include "SceneManager.h"
 #include "ShaderManager.h"
 #include "MoviePlayer.h"
-#include "ScreenRecorder.h"
 #include "ThreadManager.h"
+
+#if defined(PLATFORM_WINDOWS)
+    #include "WinSystem.h"
+    #include "ScreenRecorder.h"
+#endif
 
 // ---------------------------------------------------------------------------------------------------------------
 // Externals (same external references as DXRenderFrame.cpp)
 // ---------------------------------------------------------------------------------------------------------------
+#if defined(PLATFORM_WINDOWS)
 extern HWND                  hwnd;
 extern HINSTANCE             hInst;
+extern SystemUtils           sysUtils;
+extern WindowMetrics         winMetrics;
+extern ScreenRecorder        screenRecorder;
+#endif
 extern GUIManager            guiManager;
 extern Debug                 debug;
 extern ExceptionHandler      exceptionHandler;
-extern SystemUtils           sysUtils;
 extern SceneManager          scene;
 extern ThreadManager         threadManager;
 extern VKFXManager           fxManager;
@@ -53,8 +60,6 @@ extern Vector2               myMouseCoords;
 extern Model                 models[MAX_MODELS];
 extern LightsManager         lightsManager;
 extern MoviePlayer           moviePlayer;
-extern WindowMetrics         winMetrics;
-extern ScreenRecorder        screenRecorder;
 extern Configuration         config;
 extern std::atomic<bool>     bResizeInProgress;
 extern std::atomic<bool>     bFullScreenTransition;
@@ -82,29 +87,14 @@ inline void VulkanRenderer::RenderGamePlay(float deltaTime)
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_3dPipeline);
 
-    // Camera matrices
-#if defined(PLATFORM_WINDOWS)
-    // Use DirectXMath (available on Windows regardless of renderer)
-    using namespace DirectX;
-    XMFLOAT3 camPos = myCamera.GetPosition();
-    XMMATRIX view   = myCamera.GetViewMatrix();
-    XMMATRIX proj   = XMMatrixPerspectiveFovLH(
-        XMConvertToRadians(config.myConfig.fov > 0.0f ? config.myConfig.fov : 60.0f),
+    // Camera matrices — VulkanCamera returns GLM types on all platforms.
+    glm::vec3 camPos = myCamera.GetPosition();
+    glm::mat4 view   = myCamera.GetViewMatrix();
+    glm::mat4 proj   = glm::perspective<float>(
+        glm::radians<float>(config.myConfig.fov > 0.0f ? config.myConfig.fov : 60.0f),
         static_cast<float>(m_renderTargetWidth) / static_cast<float>(m_renderTargetHeight),
         0.1f, 5000.0f);
-
-    // Flip Y for Vulkan NDC (Vulkan Y-down vs DirectX Y-up convention)
-    proj.r[1] = XMVectorNegate(proj.r[1]);
-#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
-    // Use GLM on Linux/Android
-    glm::mat4 view = myCamera.GetViewMatrixGLM();
-    glm::mat4 proj = glm::perspective(
-        glm::radians(config.myConfig.fov > 0.0f ? config.myConfig.fov : 60.0f),
-        static_cast<float>(m_renderTargetWidth) / static_cast<float>(m_renderTargetHeight),
-        0.1f, 5000.0f);
-    proj[1][1] *= -1.0f; // Vulkan Y-flip
-    glm::vec3 camPos = myCamera.GetPositionGLM();
-#endif
+    proj[1][1] *= -1.0f; // Vulkan Y-flip (NDC Y-down)
 
     // Render each scene model
     if (!threadManager.threadVars.bLoaderTaskFinished.load()) return;
@@ -114,21 +104,20 @@ inline void VulkanRenderer::RenderGamePlay(float deltaTime)
         Model& m = models[i];
         if (!m.IsActive() || !m.HasGeometry()) continue;
 
-        // Build world matrix
+        // Build world matrix and fill UBO
+        VKCameraUBO ubo{};
 #if defined(PLATFORM_WINDOWS)
+        // World: DirectXMath XMMATRIX (row-major) → store transposed into the float[16] UBO field
         XMMATRIX world = m.GetWorldMatrix();
-        // UBO push  (model, view, proj as row-major float arrays)
-        VKCameraUBO ubo{};
-        XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(ubo.model), XMMatrixTranspose(world));
-        XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(ubo.view),  XMMatrixTranspose(view));
-        XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(ubo.proj),  XMMatrixTranspose(proj));
-#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
-        glm::mat4 world = m.GetWorldMatrixGLM();
-        VKCameraUBO ubo{};
-        std::memcpy(ubo.model, glm::value_ptr(glm::transpose(world)), sizeof(ubo.model));
-        std::memcpy(ubo.view,  glm::value_ptr(glm::transpose(view)),  sizeof(ubo.view));
-        std::memcpy(ubo.proj,  glm::value_ptr(glm::transpose(proj)),  sizeof(ubo.proj));
+        XMFLOAT4X4 worldF;
+        XMStoreFloat4x4(&worldF, XMMatrixTranspose(world));
+        std::memcpy(ubo.model, &worldF, sizeof(ubo.model));
+#else
+        std::memcpy(ubo.model, glm::value_ptr(glm::transpose(m.GetWorldMatrixGLM())), sizeof(ubo.model));
 #endif
+        // View and proj always come from VulkanCamera (GLM, column-major) → transpose for UBO
+        std::memcpy(ubo.view, glm::value_ptr(glm::transpose(view)), sizeof(ubo.view));
+        std::memcpy(ubo.proj, glm::value_ptr(glm::transpose(proj)), sizeof(ubo.proj));
 
         // Light push constant
         auto lights = lightsManager.GetAllLights();
@@ -342,12 +331,7 @@ void VulkanRenderer::RenderFrame()
                         fpsCounter   = 0;
                         lastFPSTime  = currentTime;
                     }
-#if defined(PLATFORM_WINDOWS)
-                    XMFLOAT3 coords = myCamera.GetPosition();
-#else
-                    glm::vec3 glmCoords = myCamera.GetPositionGLM();
-                    struct { float x, y, z; } coords{ glmCoords.x, glmCoords.y, glmCoords.z };
-#endif
+                    glm::vec3 coords = myCamera.GetPosition();
                     std::wstring fpsText =
                         L"FPS: " + std::to_wstring(m_fps) +
                         L"\nMOUSE: x" + std::to_wstring(myMouseCoords.x) + L", y" + std::to_wstring(myMouseCoords.y) +

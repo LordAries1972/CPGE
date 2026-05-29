@@ -82,8 +82,8 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
         // renderers at runtime: 0=DX11  1=DX12  2=OpenGL  3=Vulkan
 //        #define __USE_DIRECTX_11__
 //        #define __USE_DIRECTX_12__
-        #define __USE_OPENGL__
-//        #define __USE_VULKAN__
+//        #define __USE_OPENGL__
+        #define __USE_VULKAN__
 
         #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__) && !defined(__USE_OPENGL__) && !defined(__USE_VULKAN__)
             #error "Includes.h: no renderer selected for Windows — uncomment exactly one __USE_*__ define above."
@@ -194,6 +194,10 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
             #pragma comment(lib, "winmm.lib")
 
             using namespace DirectX;
+            // Matrix4x4 storage alias — shared OpenGL/Vulkan code paths (Models.h,
+            // BlenderImports.h, etc.) use Matrix4x4 instead of XMMATRIX. XMFLOAT4X4
+            // has the same float m[4][4] layout so no data conversion is needed.
+            using Matrix4x4 = XMFLOAT4X4;
         #endif
     #endif // !PLATFORM_WINDOWS
 #elif defined(__linux__)
@@ -301,7 +305,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 // math types to the engine's built-in Vector
 // classes so shared headers compile cleanly.
 //------------------------------------------
-#if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__)
+#if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__) && !(defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))
     #include "Vectors.h"    // Vector2, Vector3, Vector4
 
     // Minimal 4x4 float matrix — identity by default, row-major to match XMMATRIX.
@@ -530,7 +534,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
     // Empty DirectX namespace stub — lets "using namespace DirectX;" in shared
     // headers compile without pulling in any DX symbols.
     namespace DirectX {}
-#endif // !__USE_DIRECTX_11__ && !__USE_DIRECTX_12__
+#endif // !__USE_DIRECTX_11__ && !__USE_DIRECTX_12__ && !(VULKAN && PLATFORM_WINDOWS)
 
 //------------------------------------------
 // XM / MP3 Modules

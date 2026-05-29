@@ -8,7 +8,8 @@
 // When building without DX11/DX12, supply minimal XM-function equivalents so
 // the animation code compiles unchanged.  On DX builds the real functions from
 // DirectXMath.h take precedence because this block is compiled away.
-#if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__)
+// Windows+Vulkan also uses DirectXMath, so exclude those builds too.
+#if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__) && !(defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))
 #include <cmath>
 
 struct XMFLOAT4X4 {
@@ -71,7 +72,7 @@ inline Matrix4x4 operator*(const Matrix4x4& a, const Matrix4x4& b) {
 inline void XMStoreFloat4x4(XMFLOAT4X4* d, const Matrix4x4& s) {
     for(int i=0;i<4;i++) for(int j=0;j<4;j++) d->m[i][j]=s.m[i][j];
 }
-#endif // !__USE_DIRECTX_11__ && !__USE_DIRECTX_12__
+#endif // !__USE_DIRECTX_11__ && !__USE_DIRECTX_12__ && !(VULKAN && PLATFORM_WINDOWS)
 
 // External references
 extern Debug debug;

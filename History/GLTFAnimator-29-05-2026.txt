@@ -1,0 +1,39 @@
+GLTFAnimator.cpp - History - 29-05-2026
+========================================
+
+FIX: Local math stubs guard extended to exclude Windows+Vulkan builds.
+
+Problem
+-------
+GLTFAnimator.cpp defines CPGE_MATH_STUBS_DEFINED before including Includes.h
+to suppress the global stubs and use its own minimal local stubs instead. Those
+local stubs were compiled under:
+
+    #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__)
+
+For Windows+Vulkan this guard was TRUE, so the local stubs were compiled.
+But DirectXMath is also active on Windows+Vulkan (via Includes.h), making every
+XM* name ambiguous:
+  - Local XMMatrixScaling(float,float,float) → Matrix4x4
+  - DirectX::XMMatrixScaling(float,float,float) → XMMATRIX
+  - Local XMVectorSet(float,float,float,float) → Vector4
+  - DirectX::XMVectorSet(float,float,float,float) → XMVECTOR
+  - Local XMFLOAT4X4 struct vs DirectX::XMFLOAT4X4 (via using namespace DirectX)
+
+Fix
+---
+Guard extended from:
+
+    #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__)
+
+to:
+
+    #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__) \
+        && !(defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))
+
+Matching #endif comment updated.
+
+For Windows+Vulkan, the local stubs block is now skipped. DirectXMath provides
+all XM* types and functions natively, same as DX11/DX12 builds.
+
+Files changed: GLTFAnimator.cpp
