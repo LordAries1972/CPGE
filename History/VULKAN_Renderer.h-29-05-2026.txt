@@ -471,6 +471,7 @@ private:
 
     void CleanupSwapChain();
     void RecreateSwapChain(uint32_t width, uint32_t height);
+    void RecreateSurface();
 
     // ------------------------------------------
     // Vulkan utility helpers

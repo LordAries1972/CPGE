@@ -12,8 +12,8 @@ extern Configuration config;
 #if defined(PLATFORM_WINDOWS)
     #pragma comment(lib, "dsound.lib")
     #pragma comment(lib, "dxguid.lib")
-    #pragma comment(lib, "winmm.lib")
 #endif
+#pragma comment(lib, "winmm.lib")
 
 void XMMODPlayer::Shutdown() {
 #if defined(_DEBUG_XMPlayer_)    

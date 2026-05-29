@@ -1,31 +1,236 @@
-Debug.cpp — Changes 29-05-2026
-================================
+#include "Includes.h"
+#include "Debug.h"
+#ifdef _DEBUG
+#include "ConsoleWindow.h"
+extern ConsoleWindow consoleWindow;
+#endif
 
-1. FIX — Insert_Into_Log_File: switched from trunc/prepend to append mode.
+// -----------------------------------------
+// Debug Logging Function
+// -----------------------------------------
+void Debug::DebugLog(const std::string& message)
+{
+    std::ostringstream oss;
+    oss << "[INFO]: " << message << "\n";
+    OutputDebugStringA(oss.str().c_str());
+#ifdef _DEBUG
+    {
+        std::wstring w(message.begin(), message.end());
+        consoleWindow.AddLine(L"[INFO]: " + w, ConsoleLineColor::Normal);
+    }
+#endif
+}
 
-   Root cause of data loss:
-   The previous implementation used a read-truncate-rewrite pattern to keep entries
-   newest-first on disk:
-     1. wifstream reads the entire existing file into a wstringstream buffer.
-     2. wofstream is opened with std::ios::trunc — the file is wiped to 0 bytes on disk
-        at this exact moment.
-     3. The new entry + old buffer are written to the C++ stream's internal buffer (RAM).
-     4. outFile.close() flushes the RAM buffer to disk.
+void Debug::Insert_Into_Log_File(const std::wstring& filename, const std::wstring& lineMsg)
+{
+    // Mutex prevents interleaved writes when multiple threads log simultaneously.
+    // Static initialisation is thread-safe (C++11), so the mutex is always valid
+    // by the time the lock_guard executes.
+    static std::mutex s_logMutex;
+    std::lock_guard<std::mutex> lock(s_logMutex);
 
-   On a crash (abort(), access violation, std::terminate, etc.) step 4 never runs.
-   The OS closes the file handle but does not flush the C++ stream buffer.
-   Result: the file is left as 0 bytes — all session data lost.
+    std::time_t t = std::time(nullptr);
+    std::tm tm;
+    localtime_s(&tm, &t);
 
-   Fix applied:
-   - Removed the wifstream read and the wstringstream buffer entirely.
-   - Changed wofstream open mode from std::ios::trunc to std::ios::app.
-     Append mode never truncates the file, so a crash can only lose the single
-     in-flight entry, never the entries already written.
-   - Entries are now written oldest-first (scroll to bottom for most recent output).
-   - Added a static bool s_sessionStarted flag. On the very first write per process
-     lifetime, a banner:
-       ================================================================================
-       === SESSION START: dd-mm-YYYY (AEST/AEDT) HH:MM:SS ===
-       ================================================================================
-     is prepended to that write so each run is easily located in the accumulated log.
-   - Performance improvement: no more O(file-size) read+write per log call.
+    wchar_t timeBuffer[100];
+    wcsftime(timeBuffer, sizeof(timeBuffer) / sizeof(wchar_t), L"[%d-%m-%Y (AEST/AEDT) %H:%M:%S]: ", &tm);
+
+    // Build the full output as a wide string, then convert to UTF-8 in one pass.
+    // Writing a single byte block via WriteFile(FILE_APPEND_DATA) is atomic and
+    // avoids the codecvt \r\n translation issues of std::wofstream in binary mode.
+    std::wstring output;
+
+    static bool s_sessionStarted = false;
+    if (!s_sessionStarted)
+    {
+        s_sessionStarted = true;
+        wchar_t sessionTime[100];
+        wcsftime(sessionTime, sizeof(sessionTime) / sizeof(wchar_t),
+                 L"%d-%m-%Y (AEST/AEDT) %H:%M:%S", &tm);
+        output  = L"================================================================================\r\n";
+        output += L"=== SESSION START: ";
+        output += sessionTime;
+        output += L" ===\r\n";
+        output += L"================================================================================\r\n";
+    }
+    output += timeBuffer;
+    output += lineMsg;
+    output += L"\r\n";
+
+    // Convert wide → UTF-8 bytes (all log messages are ASCII, so output is 1 byte/char)
+    int byteCount = WideCharToMultiByte(CP_UTF8, 0,
+                                         output.c_str(), static_cast<int>(output.size()),
+                                         nullptr, 0, nullptr, nullptr);
+    if (byteCount <= 0) return;
+    std::string narrow(byteCount, '\0');
+    WideCharToMultiByte(CP_UTF8, 0,
+                         output.c_str(), static_cast<int>(output.size()),
+                         narrow.data(), byteCount, nullptr, nullptr);
+
+    // FILE_APPEND_DATA: OS positions the write pointer at EOF before each WriteFile call,
+    // giving correct append semantics even across multiple processes/handles.
+    HANDLE hFile = CreateFileW(filename.c_str(),
+                                FILE_APPEND_DATA,
+                                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                nullptr,
+                                OPEN_ALWAYS,
+                                FILE_ATTRIBUTE_NORMAL,
+                                nullptr);
+    if (hFile == INVALID_HANDLE_VALUE) return;
+    DWORD written = 0;
+    WriteFile(hFile, narrow.c_str(), static_cast<DWORD>(narrow.size()), &written, nullptr);
+    CloseHandle(hFile);
+}
+
+
+void Debug::logDebugMessage(LogLevel level, const wchar_t* format, ...)
+{
+    if (int(level) >= int(currentLogLevel))
+    {
+        wchar_t buffer[2048];
+
+        va_list args;
+        va_start(args, format);
+        vswprintf_s(buffer, format, args);
+        va_end(args);
+
+        std::wstring message(buffer);
+        logLevelMessage(level, message); // logLevelMessage already writes the tagged message to the log file
+    }
+}
+
+void Debug::logLevelMessage(LogLevel level, const std::wstring& message)
+{
+    if (level >= currentLogLevel)
+    {
+        std::wstring taggedMessage;
+        std::wostringstream woss;
+
+        switch (level)
+        {
+        case LogLevel::LOG_DEBUG:
+            taggedMessage = L"[DEBUG]: " + message;
+            break;
+        case LogLevel::LOG_INFO:
+            taggedMessage = L"[INFO]: " + message;
+            break;
+        case LogLevel::LOG_WARNING:
+            taggedMessage = L"[WARNING]: " + message;
+            break;
+        case LogLevel::LOG_ERROR:
+            taggedMessage = L"[ERROR]: " + message;
+            break;
+        case LogLevel::LOG_CRITICAL:
+            taggedMessage = L"[CRITICAL]: " + message;
+            break;
+        case LogLevel::LOG_TERMINATION:
+            taggedMessage = L"[TERMINATION]: " + message;
+            break;
+        }
+
+        // Always add newline for console output
+        woss << taggedMessage << L"\n";
+        OutputDebugStringW(woss.str().c_str());
+
+#ifdef _DEBUG
+        {
+            ConsoleLineColor clr = ConsoleLineColor::Normal;
+            if (level == LogLevel::LOG_WARNING)
+                clr = ConsoleLineColor::Warning;
+            else if (level == LogLevel::LOG_ERROR || level == LogLevel::LOG_CRITICAL)
+                clr = ConsoleLineColor::Error;
+            consoleWindow.AddLine(taggedMessage, clr);
+        }
+#endif
+
+        // Write unmodified (but tagged) message to the log file
+        #if (!defined(NO_DEBUGFILE_OUTPUT))
+            Insert_Into_Log_File(LOG_FILE_NAME, taggedMessage);
+        #endif
+
+        if (level == LogLevel::LOG_CRITICAL)
+        {
+            #if !defined(_DEBUG) && !defined(DEBUG)
+                throw std::runtime_error("Fatal Critical Error Has Occurred!");
+
+                // Terminate the application.
+                PostQuitMessage(0);
+//            DebugBreak();
+            #endif
+        }
+    }
+}
+
+bool Debug::LOG_IF_FAILED(HRESULT hr, const LPCWSTR msg)
+{
+    if (FAILED(hr)) {
+        std::wostringstream woss;
+        woss << msg << L" (HRESULT: 0x" << std::hex << hr << L")\n";
+
+        // Convert std::wstring to std::string for logging
+        std::wstring wstr = woss.str();
+        std::string str(wstr.begin(), wstr.end());
+
+        logLevelMessage(LogLevel::LOG_ERROR, wstr);
+        return false;
+    }
+
+    return true;
+}
+
+void Debug::Log(const std::string& message)
+{
+    #ifdef _DEBUG
+        OutputDebugStringA(("[INFO]: " + message).c_str());
+        {
+            std::wstring w(message.begin(), message.end());
+            consoleWindow.AddLine(L"[INFO]: " + w, ConsoleLineColor::Normal);
+        }
+    #endif
+}
+
+void Debug::LogWarning(const std::string& message)
+{
+    #ifdef _DEBUG
+        OutputDebugStringA(("[WARNING]: " + message + "\n").c_str());
+        {
+            std::wstring w(message.begin(), message.end());
+            consoleWindow.AddLine(L"[WARNING]: " + w, ConsoleLineColor::Warning);
+        }
+    #endif
+}
+
+void Debug::LogError(const std::string& message)
+{
+    #ifdef _DEBUG
+        OutputDebugStringA(("[ERROR]: " + message + "\n").c_str());
+        {
+            std::wstring w(message.begin(), message.end());
+            consoleWindow.AddLine(L"[ERROR]: " + w, ConsoleLineColor::Error);
+        }
+    #endif
+}
+
+void Debug::LogFunction(const std::string& functionName, const std::string& message)
+{
+    std::string fullMessage = "[Function: " + functionName + "] " + message;
+    #ifdef _DEBUG
+        OutputDebugStringA(fullMessage.c_str());
+        {
+            std::wstring w(fullMessage.begin(), fullMessage.end());
+            consoleWindow.AddLine(w, ConsoleLineColor::Normal);
+        }
+    #endif
+}
+
+void Debug::DebugBreak() {
+    // Causes the debugger to break into the code at this point
+    #ifdef _DEBUG
+        __debugbreak(); // Will break if debugging is enabled
+    #endif
+}
+
+void Debug::SetLogLevel(LogLevel level) {
+	currentLogLevel = level;
+}

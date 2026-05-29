@@ -268,7 +268,8 @@ void VulkanRenderer::RenderFrame()
                 m_device, m_swapchain, UINT64_MAX,
                 fd.imageAvailable, VK_NULL_HANDLE, &imageIndex);
 
-            if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR) {
+            if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR ||
+                acquireResult == VK_ERROR_SURFACE_LOST_KHR) {
                 RecreateSwapChain(static_cast<uint32_t>(m_renderTargetWidth),
                                   static_cast<uint32_t>(m_renderTargetHeight));
                 threadManager.threadVars.bIsRendering.store(false);
@@ -557,7 +558,9 @@ void VulkanRenderer::RenderFrame()
                 presentResult = vkQueuePresentKHR(m_presentQueue, &present);
             }
 
-            if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR) {
+            if (presentResult == VK_ERROR_OUT_OF_DATE_KHR ||
+                presentResult == VK_SUBOPTIMAL_KHR          ||
+                presentResult == VK_ERROR_SURFACE_LOST_KHR) {
                 RecreateSwapChain(static_cast<uint32_t>(m_renderTargetWidth),
                                   static_cast<uint32_t>(m_renderTargetHeight));
             }

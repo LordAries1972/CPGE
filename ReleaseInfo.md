@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1336*
+*Current Build Version: v0.0.1347*
 
 ---
 
@@ -1488,6 +1488,154 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - *See: [`VULKAN_Renderer.h`](VULKAN_Renderer.h), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp),
   [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp)*
 
+**May 29, 2026 (update 2)** — Vulkan swapchain stability: surface-lost recovery, depth double-free fix, zero-extent guard, `VK_ERROR_SURFACE_LOST_KHR` handling; config renderer auto-correct persisted to disk (`VULKAN_Renderer.h`, `VULKAN_Renderer.cpp`, `VULKAN_RenderFrame.cpp`, `Configuration.cpp`):
+
+- **Bug fix — double-free crash on consecutive RecreateSwapChain calls** (`VULKAN_Renderer.cpp` `CleanupSwapChain()`):
+  `m_depthImageView`, `m_depthImage`, and `m_depthImageMemory` were destroyed but their handles were never nulled. If `CleanupSwapChain` ran a second time (e.g. the first `CreateSwapChain` threw and the render loop retried), the validation layer reported `vkDestroyImageView / vkDestroyImage / vkFreeMemory: Couldn't find Object` and the Access Violation SEH crash followed immediately.
+  Fixed: each destroy call is now followed by assigning the handle to `VK_NULL_HANDLE`, consistent with how `m_renderPass` and `m_swapchain` were already handled.
+
+- **Bug fix — zeroed capabilities crash after movie stop** (`VULKAN_Renderer.cpp` `QuerySwapChainSupport()`):
+  `vkGetPhysicalDeviceSurfaceCapabilitiesKHR` return value was discarded. When the surface is lost (typically during the SCENE_INTRO_MOVIE → SCENE_GAMETITLE transition), the call returns `VK_ERROR_SURFACE_LOST_KHR` and leaves `capabilities` entirely zeroed: `currentTransform = 0`, `currentExtent = {0,0}`, `minImageCount = 0`. The subsequent `CreateSwapChain` passed these invalid values directly to `vkCreateSwapchainKHR`, producing the four validation errors (`preTransform is zero`, `imageExtent = 0×0`, `minImageCount < 2`, `preTransform not supported`) and an access violation crash. Fixed: the return code is now checked; any non-`VK_SUCCESS` result throws `std::runtime_error` so the caller can handle surface loss.
+
+- **Bug fix — swapchain creation with zero extent** (`VULKAN_Renderer.cpp` `CreateSwapChain()`):
+  Added early-throw guard: if `ChooseSwapExtent` returns `{0,0}` (window minimized or surface not yet ready), `CreateSwapChain` throws before calling `vkCreateSwapchainKHR`. Previously the Vulkan spec violation fired and the function proceeded with undefined behaviour.
+
+- **New: surface-lost recovery path** (`VULKAN_Renderer.h`, `VULKAN_Renderer.cpp`):
+  Added `RecreateSurface()` private method: destroys the old `VkSurfaceKHR` via `vkDestroySurfaceKHR` and calls the platform-dispatched `CreateSurface()` again using the stored `m_hwnd` / `m_xcbWindow`. `RecreateSwapChain()` now wraps `CreateSwapChain` in a try-catch; if the exception message indicates surface loss, `RecreateSurface()` is called and `CreateSwapChain` is retried once. `RecreateSwapChain` also now returns immediately when width or height is zero.
+
+- **Bug fix — `VK_ERROR_SURFACE_LOST_KHR` not handled in acquire/present** (`VULKAN_RenderFrame.cpp`):
+  `vkAcquireNextImageKHR` returning `VK_ERROR_SURFACE_LOST_KHR` fell through to the generic failure branch (silent continue). `vkQueuePresentKHR` returning `VK_ERROR_SURFACE_LOST_KHR` was not checked at all. Both sites now treat `VK_ERROR_SURFACE_LOST_KHR` identically to `VK_ERROR_OUT_OF_DATE_KHR` — triggering `RecreateSwapChain` which will rebuild the surface via the new recovery path.
+
+- **Bug fix — config `rendererType` mismatch not persisted** (`Configuration.cpp` `loadConfig()`):
+  `ValidateRendererForPlatform` corrected the in-memory `rendererType` to match the compiled binary, but the config file was only written at shutdown via `saveConfig()`. If the app crashed (which it did), the file kept the wrong renderer type for the next launch. Now: when `ValidateRendererForPlatform` returns a different value than what was stored, `saveConfig()` is called immediately so the file always reflects the correct renderer for this executable.
+
+- *See: [`VULKAN_Renderer.h`](VULKAN_Renderer.h), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp),
+  [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`Configuration.cpp`](Configuration.cpp)*
+
+**May 29, 2026 (update 3)** — Debug log line-ending fix and `VulkanRenderer::LoadTexture` COM + safety overhaul (`Debug.cpp`, `VULKAN_Renderer.cpp`):
+
+- **Bug fix — DebugLog.txt lines merging (Windows line endings)** (`Debug.cpp`):
+  `Insert_Into_Log_File` opened the log with `std::wofstream(filename, std::ios::app)` and wrote `L"\n"`. The C++ text-mode `\n`→`\r\n` translation is locale- and platform-dependent on `std::wofstream`; in practice under MSVC with the default "C" locale the translation was unreliable, producing LF-only output. Viewers that expect CRLF (including older Notepad and many log monitors) displayed consecutive entries on the same line — the symptom was most visible on `[WARNING]` messages from the rapid-fire texture-load loop.
+  Fixed: opened the stream in `std::ios::app | std::ios::binary` mode and replaced every `L"\n"` with explicit `L"\r\n"` (session-start banner and per-entry line). Binary mode disables all runtime `\n` translation so the explicit `\r\n` writes are preserved verbatim, giving correct Windows CRLF regardless of locale.
+
+- **Bug fix — `VulkanRenderer::LoadTexture` silently failing: COM not initialised on loader thread** (`VULKAN_Renderer.cpp`):
+  `main.cpp` calls `CoInitializeEx(nullptr, COINIT_MULTITHREADED)` on the **main** thread only. The loader worker thread (`LoaderTaskThread`) never called `CoInitializeEx` for the texture-loading scene cases (`SCENE_INTRO`, `SCENE_GAMETITLE`, `SCENE_GAMEPLAY`, `SCENE_EXPERIMENT`). Every `CoCreateInstance(CLSID_WICImagingFactory2, ...)` inside `LoadTexture` therefore returned `CO_E_NOTINITIALIZED`, the function returned `false`, and all 19 textures (backgrounds, cursor, UI panels, etc.) silently failed to load. The game rendered a blank scene through which the fader FX was visible — the fader works because it uses only a pipeline, not textures.
+  Fixed: `LoadTexture` now calls `CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED)` at entry. `S_OK` means this thread had no prior COM state; `S_FALSE` means COM was already active on this thread — both require a matching `CoUninitialize()` call. `RPC_E_CHANGED_MODE` means a different apartment type is in force; COM is still usable, no uninit needed. The `needCoUninit` flag tracks which case applies. `CoUninitialize()` is called unconditionally on all exit paths through the function (including error breaks).
+
+- **Safety guards added to `LoadTexture`** (`VULKAN_Renderer.cpp`):
+  - **Bounds check**: `textureId` validated against `MAX_TEXTURE_BUFFERS` (2D) or `MAX_TEXTURE_BUFFERS_3D` (3D) before any array access; logs `LOG_ERROR` and returns `false` on violation.
+  - **Empty filename guard**: returns `false` immediately for empty filenames (matches OpenGL renderer pattern).
+  - **Device validity guard**: returns `LOG_ERROR` + `false` if `m_device == VK_NULL_HANDLE`.
+  - **Full WIC HRESULT chain**: every WIC call (`CreateFormatConverter`, `Initialize`, `GetSize`, `CopyPixels`) now checks its `HRESULT` and logs a specific `LOG_ERROR` message on failure — previously these were unchecked, so any mid-pipeline WIC failure silently wrote garbage pixels or corrupted the texture slot.
+  - **Platform fallback**: added `#else` block after the Linux/Android branch that logs `LOG_WARNING` and returns `false` for any future unsupported platform (previously the function would fall off the end without a `return` statement, causing undefined behaviour).
+
+- **`LoadAllKnownTextures` — skip empty filename slots** (`VULKAN_Renderer.cpp`):
+  Added `if (texFilename[i].empty()) continue;` to match the OpenGL renderer's pattern and avoid passing an empty string to `LoadTexture`.
+
+- *See: [`Debug.cpp`](Debug.cpp), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp)*
+
+**May 30, 2026** — `Insert_Into_Log_File` thread-safety and atomic-write overhaul (`Debug.cpp`):
+
+- **Root cause — log lines merging: concurrent thread writes interleaving** (`Debug.cpp`):
+  After the previous `\r\n` fix, lines were still merging. The runtime log showed entries like
+  `[WARNING]: Surface lost â[timestamp]: [DEBUG]: CleanUp()` all on one line, with a corrupt `â`
+  byte where the CRLF should have been. The root cause: `logLevelMessage` is called from the
+  render thread, the loader thread, and the main thread simultaneously. `Insert_Into_Log_File`
+  opened a new `wofstream` per call; in append mode each open positions the write pointer at EOF,
+  but the C++ stream buffers data internally and may issue multiple `WriteFile` calls to flush it.
+  Between Thread A's partial flush and its `close()`, Thread B could open the same file, get the
+  same EOF position, and write its bytes — interleaving both entries on a single line. The `â`
+  byte was a corrupted partial `\r\n` sequence produced by `wofstream`'s codecvt being interrupted
+  mid-conversion by the OS scheduler.
+
+- **Fix — mutex + single `WriteFile` per entry** (`Debug.cpp`):
+  `Insert_Into_Log_File` is now fully serialised by a `static std::mutex s_logMutex` (C++11
+  static init is thread-safe). The `std::wofstream` is replaced entirely:
+  - The full output (optional session banner + timestamp + message + `\r\n`) is assembled as a
+    `std::wstring` inside the lock.
+  - `WideCharToMultiByte(CP_UTF8, ...)` converts the entire wide string to a UTF-8 byte block in
+    one call — no per-character codecvt, no partial state.
+  - `CreateFile(FILE_APPEND_DATA)` + `WriteFile` writes the byte block as a single OS call. The
+    `FILE_APPEND_DATA` flag makes each `WriteFile` atomic at the OS level (the kernel moves the
+    write pointer to EOF before writing), so even without the mutex the write would land intact.
+    Together they provide belt-and-suspenders safety: the mutex serialises the log formatting logic
+    and `s_sessionStarted`, while `FILE_APPEND_DATA` guarantees the bytes hit the file atomically.
+
+- *See: [`Debug.cpp`](Debug.cpp)*
+
+**May 30, 2026 (update 2)** — Vulkan semaphore-reuse fix; `m_d2dTextures` + full `Blit2D` implementation; `RenderBackgroundImage` (`VULKAN_Renderer.h`, `VULKAN_Renderer.cpp`, `VULKAN_RenderFrame.cpp`):
+
+- **Bug fix — `VUID-vkQueueSubmit-pSignalSemaphores-00067` semaphore reuse** (`VULKAN_Renderer.h`, `VULKAN_Renderer.cpp`, `VULKAN_RenderFrame.cpp`):
+  `renderFinished` was a member of `VulkanFrameData`, so it was indexed by `currentFrame % VK_MAX_FRAMES_IN_FLIGHT`. With a 3-image swapchain and 2 frames in flight, the semaphore for `currentFrame=0` was signalled in frame N, used by `vkQueuePresentKHR` to present image 1, then reused to signal again in frame N+2 before the presentation engine had finished with it. Validation layer: `Swapchain image 1 was presented but was not re-acquired`.
+  Fix: removed `renderFinished` from `VulkanFrameData`; added `std::vector<VkSemaphore> m_renderFinishedSemaphores` (one per swapchain image). `CreateSyncObjects` sizes the vector to `m_swapchainImages.size()`. `CleanupSwapChain` destroys and clears the vector. `RecreateSwapChain` rebuilds them after the new swapchain is created. `RenderFrame` uses `m_renderFinishedSemaphores[imageIndex]` — now the presentation engine always gets the semaphore that belongs to that specific swapchain image, and we never reuse a semaphore until that image is re-acquired.
+
+- **Root cause — blank screen: `Blit2D` functions were stubs** (`VULKAN_Renderer.cpp`):
+  `Blit2DObject`, `Blit2DObjectToSize`, `Blit2DObjectAtOffset`, and `Blit2DWrappedObjectAtOffset` all just set `m_overlayDirty = true` and returned without drawing anything. `RenderBackgroundImage` set `m_overlayDirty = true` if a texture was valid but drew nothing. The D2D render target was blanked by `Clear()` each frame, producing a fully transparent overlay — the GPU rendered nothing to the screen except the clear colour and FX effects (which explain why the fader was visible).
+
+- **Fix — `m_d2dTextures[MAX_TEXTURE_BUFFERS]` added** (`VULKAN_Renderer.h`, `VULKAN_Renderer.cpp`):
+  Added `ComPtr<ID2D1Bitmap> m_d2dTextures[MAX_TEXTURE_BUFFERS]` to `VulkanRenderer` (inside `PLATFORM_WINDOWS` guard), mirroring DX11's texture storage. `LoadTexture` now creates two resources per 2D texture: the `VulkanTexture` (GPU, RGBA) for 3D use, and an `ID2D1Bitmap` (PBGRA, via a second WIC `IWICFormatConverter` + `CreateBitmapFromWicBitmap`) for D2D overlay drawing. `UnloadTexture` resets both. `CleanUp` releases the full `m_d2dTextures` array. `SecureZeroMemory` initialises the array in the constructor.
+
+- **Fix — `Blit2DObject` / `Blit2DObjectToSize` / `Blit2DObjectAtOffset`** (`VULKAN_Renderer.cpp`):
+  All three now snapshot `m_d2dTextures[idx]` and `m_d2dRenderTarget` as `ComPtr` (race-safe), return early if either is null, then call `rt->DrawBitmap(...)` with the correct destination and source rectangles — identical pattern to `DX11Renderer`. `Blit2DWrappedObjectAtOffset` delegates to `Blit2DObjectAtOffset` rather than being a no-op.
+
+- **Fix — `RenderBackgroundImage`** (`VULKAN_Renderer.cpp`):
+  Implemented the scene-specific background logic from DX11's `RenderBackgroundImage`: `SCENE_GAMETITLE` draws `IMG_GAMEINTRO1` fullscreen + company logo half-size bottom-left (or `IMG_LOADING` while loading with fader trigger); `SCENE_GAMEPLAY` draws `IMG_LOADING` while the loader is in progress. Safety guards (shutting down, minimised, resizing, not initialised) match DX11. The function does NOT call `BeginDraw`/`EndDraw` itself since it is invoked from within the existing `BeginDraw`/`EndDraw` block in `VULKAN_RenderFrame.cpp`.
+
+- **Fix — `RenderFrame` D2D guards** (`VULKAN_RenderFrame.cpp`):
+  Changed three guards from `m_textures2D[...].isValid` to `m_d2dTextures[...]` (SPLASH1, BG_LOADER_CIRCLE, BLIT_ALWAYS_CURSOR). The Blit2D functions draw through the D2D bitmap, not the Vulkan GPU texture, so the correct validity check is the D2D bitmap pointer.
+
+- **Fix — `RenderIntroMovie`** (`VULKAN_RenderFrame.cpp`):
+  Replaced the no-op stub with a call to `moviePlayer.UpdateFrame()` each render tick. `MoviePlayer` decodes frames via Media Foundation using a D3D11 video surface — Vulkan has no D3D11 device, so visual video output cannot be composited until a CPU-side RGBA read-back path is added to `MoviePlayer`. The `UpdateFrame()` call keeps the MF decoder pipeline and audio playback advancing correctly in the meantime.
+
+- *See: [`VULKAN_Renderer.h`](VULKAN_Renderer.h), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp)*
+
+**May 30, 2026 (update 3)** — Y-axis flip fix; `SetupModelForRendering` Vulkan GPU buffers; `MoviePlayer` CPU frame path for Vulkan video (`VULKAN_Renderer.cpp`, `VULKAN_Renderer.h`, `VULKAN_RenderFrame.cpp`, `Models.cpp`, `Models.h` (getters), `SceneManager.cpp`, `MoviePlayer.h`, `MoviePlayer.cpp`):
+
+- **Bug fix — 2D overlay rendered upside-down; mouse Y reversed** (`VULKAN_Renderer.cpp` `k_glsl2DVert`):
+  The 2D vertex shader contained `ndcPos.y = -ndcPos.y;` (line 750). The pixel-to-NDC formula `((y / screenH) * 2 - 1)` already maps correctly for Vulkan (Y=-1 = top of screen, Y=+1 = bottom), so the extra negation flipped the entire overlay — every background image, sprite, and UI element was rendered upside-down. Because the D2D canvas itself also renders cursor position at the (now-inverted) screen Y, moving the mouse down caused the cursor to move up on screen (the reversed-mouse symptom). Fix: removed the `ndcPos.y = -ndcPos.y;` line entirely. One-line change; comment added explaining why the negation must NOT be present for Vulkan 2D.
+
+- **Bug fix — `[CRITICAL]: SetupModelForRendering: DirectX 11 is not enabled.`** (`Models.cpp`, `VULKAN_Renderer.h`, `SceneManager.cpp`):
+  `SetupModelForRendering()` ended with `#else LOG_CRITICAL return false`. Under Vulkan, every call from `SceneManager::ParseGLTFScene` and the cache-reload path hit this branch, logging CRITICAL (which throws in release builds) and returning `false`. Since `bGpuReady` was never set, the `gpuRebuildNeeded` check in SceneManager fired every frame, spamming the log with criticals.
+  Fix 1 (Models.cpp): Added `#elif defined(__USE_VULKAN__)` block that dynamic-casts `renderer` to `VulkanRenderer`, extracts device/physDevice/loaderCommandPool/graphicsQueue via new getters, converts `Vertex` (pos+normal+uv+tangent, 11 floats) to `VkVertex3D` (pos+normal+uv, 8 floats) inline, and calls `VulkanModelUtils::UploadVertexBuffer` + `UploadIndexBuffer` to create device-local GPU buffers. Also assigns `m_3dPipeline`/`m_3dPipelineLayout` via new getters so future draw code has them.
+  Fix 2 (VULKAN_Renderer.h): Added four new getters: `GetGraphicsQueue()`, `GetLoaderCommandPool()`, `GetGraphicsPipeline3D()`, `GetGraphicsPipelineLayout3D()`.
+  Fix 3 (SceneManager.cpp): Changed the Vulkan `gpuRebuildNeeded` check to gate on `!bGpuReady` — once `SetupModelForRendering` succeeds and SceneManager sets `bGpuReady=true`, no further rebuild is attempted. Removed the `pipeline == VK_NULL_HANDLE` condition since the pipeline may still be null while 3D draw is being implemented.
+
+- **Fix — MoviePlayer Vulkan video rendering** (`MoviePlayer.h`, `MoviePlayer.cpp`, `VULKAN_Renderer.h`, `VULKAN_RenderFrame.cpp`):
+  `MoviePlayer::UpdateVideoTexture` was entirely guarded by `#if !defined(__USE_DIRECTX_11__) return false`. Under Vulkan, `UpdateFrame()` called `UpdateVideoTexture()` which immediately returned false — audio advanced but no video frames were decoded or stored. `GetCurrentFrameRGBA` returned a nullptr stub.
+  - **`UpdateVideoTexture`**: redirects non-DX11 builds to `UpdateVideoTextureCPU()` via `#if !defined(__USE_DIRECTX_11__) return UpdateVideoTextureCPU();` before any D3D11 code is reached. The D3D11 texture validity check is now inside the `#else` branch.
+  - **`UpdateVideoTextureCPU()`** (new): locks the `IMFSample` buffer via `IMF2DBuffer::Lock2D` (planar surfaces) or `IMFMediaBuffer::Lock` (contiguous), copies decoded BGRA bytes row-by-row into `m_cpuFrameBuffer`, sets `m_cpuFrameWidth/Height`. Works with any MF-decoded format that the source reader has already converted to BGRA32.
+  - **`GetCurrentFrameRGBA()`** (new impl): returns `m_cpuFrameBuffer.data()` + width/height, or nullptr if no frame is available.
+  - **`RenderIntroMovie`** (`VULKAN_RenderFrame.cpp`): now calls `moviePlayer.UpdateFrame()` + `GetCurrentFrameRGBA()`. Creates `m_videoBitmap` (`ID2D1Bitmap` BGRA pre-multiplied) on first frame or on size change via `CreateBitmap`; reuses and updates in-place via `CopyFromMemory` on subsequent frames. Draws fullscreen with `DrawBitmap`. The `m_videoBitmap` + `m_videoBitmapWidth/Height` members were added to `VulkanRenderer` (PLATFORM_WINDOWS overlay section); `CleanUp` resets the bitmap.
+
+- *See: [`VULKAN_Renderer.h`](VULKAN_Renderer.h), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`Models.cpp`](Models.cpp), [`SceneManager.cpp`](SceneManager.cpp), [`MoviePlayer.h`](MoviePlayer.h), [`MoviePlayer.cpp`](MoviePlayer.cpp)*
+
+**May 30, 2026 (update 4)** — Vulkan rendering complete pass: 3D draw calls, color format fix, audio guards, loading screen text, camera verification (`VULKAN_Renderer.h`, `VULKAN_Renderer.cpp`, `VULKAN_RenderFrame.cpp`, `Models.h`, `Models.cpp`, `VULKAN_IOStreamThread.cpp`, `SoundManager.h`, `SoundManager.cpp`, `XMMODPlayer.cpp`):
+
+- **Bug fix — D2D overlay colour channels swapped (red↔blue)** (`VULKAN_Renderer.cpp`):
+  `CreateOverlayResources` created the overlay `VulkanTexture` with `VK_FORMAT_R8G8B8A8_SRGB`. Direct2D's WIC bitmap (`m_wicBitmap`) is created with `GUID_WICPixelFormat32bppPBGRA` — a BGRA format. Uploading BGRA bytes into an RGBA Vulkan image causes the red and blue channels to swap: white backgrounds appeared correct (R=B=255), but coloured UI, icons, and the company logo had inverted hue. Added `VkFormat format = VK_FORMAT_R8G8B8A8_SRGB` parameter to `CreateTextureFromRGBA` (default unchanged for regular textures). `CreateOverlayResources` now passes `VK_FORMAT_B8G8R8A8_SRGB` so the overlay texture format matches the D2D BGRA output exactly.
+
+- **Feature — 3D model draw calls implemented in `RenderGamePlay`** (`VULKAN_RenderFrame.cpp`, `Models.h`, `Models.cpp`, `VULKAN_Renderer.h`, `VULKAN_Renderer.cpp`):
+  The `RenderGamePlay` function had a `TODO` placeholder that discarded the built UBO and never issued draw calls. Now that `SetupModelForRendering` creates per-model vertex/index buffers, the following was added:
+  - **`Models.h`**: Added `uniformBuffer`, `uniformBufferMemory`, `uniformBufferMapped` (persistent map) to `ModelInfo` Vulkan section for per-model UBO storage.
+  - **`VULKAN_Renderer.h`**: Added getters `GetDescriptorPool()`, `GetUniformDescSetLayout()`, `GetTextureDescSetLayout()`. Added `m_defaultTexture` (1×1 white) + `m_defaultTextureDescSet` for models without a loaded diffuse texture.
+  - **`VULKAN_Renderer.cpp`**: Default texture created during `Initialize()` after sync objects; descriptor set allocated from `m_textureDescSetLayout` and updated with the white sampler. Destroyed in `CleanUp()`.
+  - **`Models.cpp` `SetupModelForRendering` (Vulkan)**: Creates 192-byte host-visible uniform buffer (3×mat4), maps it persistently, allocates a descriptor set from `m_uniformDescSetLayout` (set=1), and binds the buffer to binding 0 via `vkUpdateDescriptorSets`.
+  - **`VULKAN_RenderFrame.cpp` `RenderGamePlay`**: Copies current UBO (model+view+proj) into the model's mapped buffer, binds set=0 (default white texture or model texture), binds set=1 (model UBO), binds vertex/index buffers, calls `vkCmdDrawIndexed`.
+
+- **Bug fix — SoundManager and XMMODPlayer silent under Vulkan/OpenGL builds** (`SoundManager.h`, `SoundManager.cpp`, `XMMODPlayer.cpp`):
+  All DirectSound initialization and playback code (`DirectSoundCreate8`, `SetCooperativeLevel`, `CreateSoundBuffer`, secondary buffer play, `FillAudioBuffer`, `SilenceBuffer`, `Shutdown` buffer release) was guarded by `#if defined(__USE_DIRECTX_11__)`. Under Vulkan, none of the DirectSound infrastructure was created, so all sounds and music were silent. DirectSound is a Windows platform API, not a DirectX 11 API — it must work with any renderer running on Windows.
+  Fix: replaced all `#if defined(__USE_DIRECTX_11__)` guards in `SoundManager.cpp`, `SoundManager.h` (buffer member), and `XMMODPlayer.cpp` with `#if defined(PLATFORM_WINDOWS)`. This preserves future Linux/Android cross-platform behaviour (no DirectSound on those platforms) while enabling audio for all Windows renderers.
+
+- **Bug fix — loading screen text absent during scene transitions** (`VULKAN_IOStreamThread.cpp`):
+  The `SCENE_GAMETITLE` case in the Vulkan loader thread had no `fxManager.ShowLoadingText()` calls — only the DX11 thread called `showStage()`. As a result, the loading screen showed the background image (`IMG_LOADING`) but none of the text ("Loading textures...", "Initialising lighting...", "Parsing scene...", "Loading audio..."). Added the identical `showStage` lambda and calls before each long-running operation, mirroring the DX11 thread exactly.
+
+- **Verified — `Camera myCamera` uses `VulkanCamera` in Vulkan builds**: `Renderer.h` includes `VulkanCamera.h` under `#elif defined(__USE_VULKAN__)`. The `Camera` type alias resolves to `VulkanCamera` (GLM-based, Y-flip projection, [0,1] depth range) for Vulkan builds. All `myCamera.*` calls in `VULKAN_RenderFrame.cpp` and `VULKAN_FXManager.cpp` correctly use `GetPosition()` → `glm::vec3` and `GetViewMatrix()` → `glm::mat4`. No changes required.
+
+- **Build fix — `LPDIRECTSOUNDBUFFER` undefined in non-DX11 TUs** (`SoundManager.h`):
+  After changing the buffer member guard from `__USE_DIRECTX_11__` to `PLATFORM_WINDOWS`, TUs compiled under Vulkan (e.g. `GUIWindows.cpp`, `GUIManager.cpp`, `KBHandlersCode.cpp`) that include `SoundManager.h` but never pull in DX11 headers received C3646/C2059 errors because `LPDIRECTSOUNDBUFFER` was undeclared. Added `#include <dsound.h>` + `#pragma comment(lib, "dsound.lib"/"dxguid.lib")` at the top of `SoundManager.h` inside `#if defined(PLATFORM_WINDOWS)` so the type is always visible on Windows regardless of renderer.
+
+- *See: [`VULKAN_Renderer.h`](VULKAN_Renderer.h), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`Models.h`](Models.h), [`Models.cpp`](Models.cpp), [`VULKAN_IOStreamThread.cpp`](VULKAN_IOStreamThread.cpp), [`SoundManager.h`](SoundManager.h), [`SoundManager.cpp`](SoundManager.cpp), [`XMMODPlayer.cpp`](XMMODPlayer.cpp)*
+
 ---
 
 ## Future Development
@@ -1508,6 +1656,41 @@ The DirectX 11 system is nearing **GAMING PRODUCTION READINESS** for Windows 10 
 - **Issue Reporting**: Email `https://ultimanium.com/index.php?action=contact-development` with subject "CPGE Problem - [Brief Description]"
 - **Debug Information**: Include compile/runtime logs from DEBUG builds
 - **License**: Perpetual MIT License with lifetime updates
+
+**May 30, 2026 (update 5)** — Vulkan GPU lifecycle fixes: `vkDestroyPipeline` in-flight crash, 294 leaked model objects, loading screen flag, version overlay (`VULKAN_FXManager.cpp`, `Models.cpp`, `Models.h`, `VULKAN_IOStreamThread.cpp`, `VULKAN_RenderFrame.cpp`):
+
+- **Critical fix — `vkDestroyPipeline` called on in-flight pipeline** (`VULKAN_FXManager.cpp`):
+  `VKFXManager::DestroyFadePipeline()` called `vkDestroyPipeline(m_fadePipeline)` without waiting for the GPU. The render thread submits a command buffer that records `vkCmdBindPipeline(m_fadePipeline)` then returns — but the submitted work may still be executing when the next scene transition calls `CleanUp()` → `DestroyFadePipeline()`, producing `VUID-vkDestroyPipeline-pipeline-00765`. Added `vkDeviceWaitIdle(device)` immediately before the destroy calls; this is exclusively a cleanup/transition path, never the hot render loop, so the stall is acceptable.
+
+- **Critical fix — 294 leaked Vulkan objects at `vkDestroyDevice`** (`Models.cpp`, `Models.h`):
+  `Model::DestroyModel()` had no Vulkan cleanup path. The 294 leaked objects were exactly 49 scene models × 6 Vulkan handles each: `vertexBuffer`, `vertexBufferMemory`, `indexBuffer`, `indexBufferMemory`, `uniformBuffer`, `uniformBufferMemory`. Added `#if defined(__USE_VULKAN__)` block in `DestroyModel()` that casts `renderer` to `VulkanRenderer`, unpersists the mapped UBO pointer (`vkUnmapMemory`), and destroys all six Vulkan objects via `vkDestroyBuffer` + `vkFreeMemory`. Descriptor set is returned to the pool (handle nulled). Pipeline/pipelineLayout handles are nulled — they are owned by the renderer, not the model.
+
+- **Critical fix — renderer's shared `m_3dPipeline` stored in `m_modelInfo.pipeline`** (`Models.cpp`):
+  `SetupModelForRendering` assigned `m_modelInfo.pipeline = vkr->GetGraphicsPipeline3D()`. If any future model cleanup code calls `vkDestroyPipeline` on that field, it would destroy the renderer's shared pipeline. Changed to `VK_NULL_HANDLE` — `RenderGamePlay` uses `m_3dPipeline` directly from the renderer and does not need the handle duplicated in each model.
+
+- **Fix — loading screen not shown during scene transitions** (`VULKAN_IOStreamThread.cpp`):
+  `bLoaderTaskFinished` was set to `false` only once at thread startup. When the loader thread resumed for `SCENE_GAMETITLE` or `SCENE_GAMEPLAY` it still carried `true` from the previous scene — `RenderBackgroundImage` immediately showed the game-intro background rather than the loading screen. Added `threadManager.threadVars.bLoaderTaskFinished.store(false)` at the top of every scene case that performs real loading work (`SCENE_INTRO`, `SCENE_GAMETITLE`, `SCENE_GAMEPLAY`), before any other operations. This ensures the render frame sees the loading state as soon as the loader thread starts working on the new scene.
+
+- **Feature — version overlay** (`VULKAN_RenderFrame.cpp`):
+  Added the bottom-right renderer info overlay that was present in DX11 but missing in Vulkan. Mirrors `DXRenderFrame.cpp` exactly: uses `IDWriteTextLayout` to measure text width/height, positions at `(iOrigWidth - textWidth, iOrigHeight - textHeight)`, draws "CPGE Windows Vulkan v0.0.XXXX" in light grey using `USE_RENDERER_INFO` / `scene.bSceneSwitching` guards and the same scene type filter (SCENE_GAMETITLE, SCENE_GAMEPLAY, SCENE_INTRO, SCENE_GAMEOVER).
+
+- *See: [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp), [`Models.cpp`](Models.cpp), [`Models.h`](Models.h), [`VULKAN_IOStreamThread.cpp`](VULKAN_IOStreamThread.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp)*
+
+**May 30, 2026 (update 6)** — Vulkan VkQueue threading race fix: loader thread vs render thread simultaneous queue submission (`VULKAN_Renderer.h`, `VulkanModels.h`, `VulkanModels.cpp`, `Models.cpp`, `VULKAN_RenderFrame.cpp`):
+
+- **Critical fix — VkQueue threading race → VK_ERROR_DEVICE_LOST → lockup** (`VulkanModels.cpp`, `Models.cpp`):
+  During scene loading the loader thread called `SetupModelForRendering()` → `VulkanModelUtils::UploadVertexBuffer/UploadIndexBuffer()` → `VulkanModelUtils::CopyBuffer()`, which submitted to `m_graphicsQueue` via bare `vkQueueSubmit` with no synchronisation. The render thread simultaneously submitted to the same `VkQueue` handle inside `RenderFrame()` using `m_queueMutex`. Vulkan's external synchronisation requirement on `VkQueue` was violated, producing `THREADING ERROR : object of type VkQueue is simultaneously used` errors for every model upload (48 primitives × 2 submits = 96 races). This triggered `VK_ERROR_DEVICE_LOST`, after which every frame attempt cascaded into `vkAcquireNextImageKHR: Semaphore must not have any pending operations` + `vkResetFences: pFences[0] is in use` + `vkResetCommandBuffer: is in use` + `vkBeginCommandBuffer: active before completed` + `vkQueueSubmit: command buffer already in use` — looping until lockup.
+
+- **Fix — `VulkanModelUtils::CopyBuffer` now accepts `std::mutex* queueMutex`** (`VulkanModels.h`, `VulkanModels.cpp`):
+  Added `std::mutex* queueMutex = nullptr` parameter to `CopyBuffer`, `UploadVertexBuffer`, `UploadIndexBuffer`, and `VulkanModelBuffers::Upload`. When non-null the mutex is locked via `std::lock_guard` around `vkQueueSubmit` + `vkQueueWaitIdle`, serialising the loader-thread submit against the render-thread submit. Default `nullptr` keeps the calls safe without a mutex for any future non-racing context.
+
+- **Fix — `GetQueueMutex()` accessor exposed on `VulkanRenderer`** (`VULKAN_Renderer.h`):
+  Added `std::mutex& GetQueueMutex() const { return m_queueMutex; }` to the public extended API. Called from `SetupModelForRendering()` (`Models.cpp`) to obtain the renderer's queue mutex and pass it to the upload helpers.
+
+- **Defensive — `VK_ERROR_DEVICE_LOST` guard on `vkWaitForFences`** (`VULKAN_RenderFrame.cpp`):
+  Added return-value check on `vkWaitForFences`. If it returns `VK_ERROR_DEVICE_LOST`, the render loop logs an error and returns/breaks immediately, stopping the infinite cascade of validation errors rather than blindly continuing into `vkResetFences` / `vkBeginCommandBuffer` etc.
+
+- *See: [`VULKAN_Renderer.h`](VULKAN_Renderer.h), [`VulkanModels.h`](VulkanModels.h), [`VulkanModels.cpp`](VulkanModels.cpp), [`Models.cpp`](Models.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp)*
 
 ---
 

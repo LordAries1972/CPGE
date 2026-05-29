@@ -41,9 +41,9 @@ extern int              textScrollerEffectID;
 extern bool             Load_Music();
 
 #if defined(PLATFORM_WINDOWS)
-    extern SystemUtils  sysUtils;
-    extern ShaderManager shaderManager;
-    extern WindowMetrics winMetrics;
+extern SystemUtils  sysUtils;
+extern ShaderManager shaderManager;
+extern WindowMetrics winMetrics;
 #endif
 
 std::mutex VulkanRenderer::s_loaderMutex;
@@ -64,9 +64,9 @@ void VulkanRenderer::LoaderTaskThread()
            (!threadManager.threadVars.bIsShuttingDown.load()) &&
            (status != ThreadStatus::Stopped))
     {
-        #if defined(PLATFORM_WINDOWS)
-            sysUtils.ProcessMessages();
-        #endif
+#if defined(PLATFORM_WINDOWS)
+        sysUtils.ProcessMessages();
+#endif
 
         status = threadManager.GetThreadStatus(THREAD_LOADER);
         if (status == ThreadStatus::Paused)
@@ -122,9 +122,9 @@ void VulkanRenderer::LoaderTaskThread()
                     // Title-screen sun light
                     showStage(L"Initialising lighting...");
                     LightStruct sunLight{};
-                    #if defined(PLATFORM_WINDOWS)
-                        SecureZeroMemory(&sunLight, sizeof(LightStruct));
-                    #endif
+#if defined(PLATFORM_WINDOWS)
+                    SecureZeroMemory(&sunLight, sizeof(LightStruct));
+#endif
                     sunLight.active        = true;
                     sunLight.position      = XMFLOAT3(0.0f, 5.0f, -150.0f);
                     sunLight.direction     = XMFLOAT3(0.0f, -0.2425f, -0.9701f);
@@ -181,19 +181,19 @@ void VulkanRenderer::LoaderTaskThread()
             case SceneType::SCENE_LOAD_MP3:
             {
                 try {
-                    #if defined(__USE_MP3PLAYER__) && defined(PLATFORM_WINDOWS)
-                        CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
-                        auto fileName = AssetsDir / SingleMP3Filename;
-                        if (player.loadFile(fileName)) {
-                            debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: MP3 loaded.");
-                            player.play();
-                            player.fadeIn(5000);
-                        }
-                        else {
-                            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[LOADER]: Failed to load MP3.");
-                        }
-                        sysUtils.GetMessageAndProcess();
-                    #endif
+#if defined(__USE_MP3PLAYER__) && defined(PLATFORM_WINDOWS)
+                    CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+                    auto fileName = AssetsDir / SingleMP3Filename;
+                    if (player.loadFile(fileName)) {
+                        debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: MP3 loaded.");
+                        player.play();
+                        player.fadeIn(5000);
+                    }
+                    else {
+                        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[LOADER]: Failed to load MP3.");
+                    }
+                    sysUtils.GetMessageAndProcess();
+#endif
                 }
                 catch (const std::exception& e) {
                     exceptionHandler.LogException(e, "[LOADER THREAD] SceneType::SCENE_LOAD_MP3");
@@ -203,9 +203,9 @@ void VulkanRenderer::LoaderTaskThread()
 
                 threadManager.PauseThread(THREAD_LOADER);
                 threadManager.threadVars.bLoaderTaskFinished.store(true);
-                #if defined(PLATFORM_WINDOWS) && defined(__USE_MP3PLAYER__)
-                    CoUninitialize();
-                #endif
+#if defined(PLATFORM_WINDOWS) && defined(__USE_MP3PLAYER__)
+                CoUninitialize();
+#endif
                 break;
             }
 
@@ -222,9 +222,9 @@ void VulkanRenderer::LoaderTaskThread()
                 if (!wasResizing.load())
                 {
                     LightStruct sunLight{};
-                    #if defined(PLATFORM_WINDOWS)
-                        SecureZeroMemory(&sunLight, sizeof(LightStruct));
-                    #endif
+#if defined(PLATFORM_WINDOWS)
+                    SecureZeroMemory(&sunLight, sizeof(LightStruct));
+#endif
                     sunLight.active        = true;
                     sunLight.position      = XMFLOAT3(10.0f, -3.0f, -100.0f);
                     sunLight.direction     = XMFLOAT3(0.0f, 1.0f, 0.0f);
@@ -253,9 +253,9 @@ void VulkanRenderer::LoaderTaskThread()
                     try
                     {
                         Load_Music();
-                        #if defined(PLATFORM_WINDOWS)
-                            sysUtils.ProcessMessages();
-                        #endif
+#if defined(PLATFORM_WINDOWS)
+                        sysUtils.ProcessMessages();
+#endif
                     }
                     catch (const std::exception& e) {
                         exceptionHandler.LogException(e, "[LOADER THREAD] SceneType::GAMEPLAY");
