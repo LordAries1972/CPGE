@@ -2116,8 +2116,43 @@ void VulkanRenderer::DrawMyTextCentered(const std::wstring& text, const Vector2&
                                          const float FontSize, float controlWidth, float controlHeight)
 {
 #if defined(PLATFORM_WINDOWS)
-    if (!m_d2dRenderTarget) return;
-    DrawTextD2D(text, position, Vector2(0,0), color, FontSize, FontName, true, controlWidth, controlHeight);
+    if (!m_d2dRenderTarget || !m_dwriteFactory) return;
+    if (text.empty() || FontSize <= 0.0f) return;
+
+    // Create a fresh (uncached) format so SetTextAlignment does not pollute the shared cache.
+    // Matches DX11Renderer::DrawMyTextCentered exactly.
+    ComPtr<IDWriteTextFormat> textFormat;
+    HRESULT hr = m_dwriteFactory->CreateTextFormat(
+        FontName, nullptr,
+        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+        FontSize, L"en-us", &textFormat);
+    if (FAILED(hr) || !textFormat) return;
+
+    textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
+    ComPtr<IDWriteTextLayout> textLayout;
+    hr = m_dwriteFactory->CreateTextLayout(
+        text.c_str(), static_cast<UINT32>(text.size()),
+        textFormat.Get(), 1000.0f, 1000.0f, &textLayout);
+    if (FAILED(hr) || !textLayout) return;
+
+    DWRITE_TEXT_METRICS textMetrics{};
+    textLayout->GetMetrics(&textMetrics);
+
+    float centeredX = position.x + (controlWidth  / 2.0f) - (textMetrics.width  / 2.0f);
+    float centeredY = position.y + (controlHeight / 2.0f) - (textMetrics.height / 2.0f);
+
+    float fr = color.r / 255.0f, fg = color.g / 255.0f, fb = color.b / 255.0f, fa = color.a / 255.0f;
+    ComPtr<ID2D1SolidColorBrush> brush;
+    m_d2dRenderTarget->CreateSolidColorBrush(D2D1::ColorF(fr, fg, fb, fa), &brush);
+    if (!brush) return;
+
+    m_d2dRenderTarget->DrawText(
+        text.c_str(), static_cast<UINT32>(text.size()), textFormat.Get(),
+        D2D1::RectF(centeredX, centeredY,
+                    centeredX + textMetrics.width, centeredY + textMetrics.height),
+        brush.Get());
     m_overlayDirty = true;
 #elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
     (void)text; (void)position; (void)color; (void)FontSize; (void)controlWidth; (void)controlHeight;
@@ -2155,9 +2190,22 @@ void VulkanRenderer::DrawMyTextStyled(const std::wstring& text, const Vector2& p
         &fmt);
     if (FAILED(hr) || !fmt) return;
 
+    // style.centered: centre text horizontally across the full render-target width
+    // (matches DX11Renderer::DrawMyTextStyled — used for loading-screen messages)
+    float    layoutWidth = 2000.0f;
+    float    drawX       = position.x;
+    if (style.centered) {
+        float rtWidth = (m_renderTargetWidth > 0)
+                        ? static_cast<float>(m_renderTargetWidth)
+                        : 1920.0f;
+        fmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        layoutWidth = rtWidth;
+        drawX       = 0.0f;
+    }
+
     UINT32 textLen = static_cast<UINT32>(text.size());
     ComPtr<IDWriteTextLayout> layout;
-    hr = m_dwriteFactory->CreateTextLayout(text.c_str(), textLen, fmt.Get(), 2000.0f, 500.0f, &layout);
+    hr = m_dwriteFactory->CreateTextLayout(text.c_str(), textLen, fmt.Get(), layoutWidth, 500.0f, &layout);
     if (FAILED(hr) || !layout) return;
 
     DWRITE_TEXT_RANGE all{ 0, textLen };
@@ -2169,7 +2217,7 @@ void VulkanRenderer::DrawMyTextStyled(const std::wstring& text, const Vector2& p
     m_d2dRenderTarget->CreateSolidColorBrush(dc, &brush);
     if (!brush) return;
 
-    m_d2dRenderTarget->DrawTextLayout(D2D1::Point2F(position.x, position.y), layout.Get(), brush.Get());
+    m_d2dRenderTarget->DrawTextLayout(D2D1::Point2F(drawX, position.y), layout.Get(), brush.Get());
     m_overlayDirty = true;
 #elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
     (void)text; (void)position; (void)color; (void)style;

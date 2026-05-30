@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1347*
+*Current Build Version: v0.0.1349*
 
 ---
 
@@ -1691,6 +1691,64 @@ The DirectX 11 system is nearing **GAMING PRODUCTION READINESS** for Windows 10 
   Added return-value check on `vkWaitForFences`. If it returns `VK_ERROR_DEVICE_LOST`, the render loop logs an error and returns/breaks immediately, stopping the infinite cascade of validation errors rather than blindly continuing into `vkResetFences` / `vkBeginCommandBuffer` etc.
 
 - *See: [`VULKAN_Renderer.h`](VULKAN_Renderer.h), [`VulkanModels.h`](VulkanModels.h), [`VulkanModels.cpp`](VulkanModels.cpp), [`Models.cpp`](Models.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp)*
+
+**May 30, 2026 (update 7)** — Vulkan render parity: F8 console, starfield render, button-caption centering, loading text centering, loading text stop (`VULKAN_RenderFrame.cpp`, `VULKAN_Renderer.cpp`, `VULKAN_IOStreamThread.cpp`):
+
+- **Bug fix — F8 console window not rendering under Vulkan** (`VULKAN_RenderFrame.cpp`):
+  `consoleWindow.Render()` was called in `DXRenderFrame.cpp` but completely absent from `VULKAN_RenderFrame.cpp`. The F8 key correctly toggled `consoleWindow.bIsVisible` (via `KBHandlersCode.cpp`) but nothing ever drew the panel.
+  Fix: added `#include "ConsoleWindow.h"` + `extern ConsoleWindow consoleWindow` (inside `PLATFORM_WINDOWS` guard) and called `consoleWindow.Render(this, iOrigWidth, iOrigHeight)` after `guiManager.Render()` inside the D2D block, matching the DX11 condition (`!scene.bSceneSwitching && (SCENE_GAMETITLE || SCENE_GAMEPLAY)`).
+
+- **Bug fix — Starfield FX invisible on SCENE_GameTitle under Vulkan** (`VULKAN_RenderFrame.cpp`):
+  `DXRenderFrame.cpp` explicitly calls `fxManager.RenderFX(fxManager.starfieldID, ...)` to project starfield particles via `Blit2DColoredPixel` onto the D2D overlay. `VULKAN_RenderFrame.cpp` had the equivalent tunnel call but was missing the starfield call entirely — particles were updated each frame but never drawn.
+  Fix: added `if (fxManager.starfieldID > 0) fxManager.RenderFX(fxManager.starfieldID, cmd, myCamera.GetViewMatrix())` inside the D2D block, immediately before the tunnel call. The particles now project to screen space and blit through D2D exactly as they do in the DX11 path.
+
+- **Bug fix — Button caption text not horizontally centred under Vulkan** (`VULKAN_Renderer.cpp`):
+  `VulkanRenderer::DrawMyTextCentered` called the cached `DrawTextD2D` helper with `centered=true`, creating a layout rect from the pre-computed `textX` position with full control width. This caused D2D to re-centre within a rect that was already offset, shifting text visually to the right.
+  Fix: rewrote `DrawMyTextCentered` to exactly match `DX11Renderer::DrawMyTextCentered`:
+  1. Creates a fresh (uncached) `IDWriteTextFormat` with `DWRITE_TEXT_ALIGNMENT_CENTER` to avoid polluting the shared format cache.
+  2. Creates a 1000×1000 layout and reads actual `DWRITE_TEXT_METRICS`.
+  3. Computes `centeredX = position.x + controlWidth/2 − metrics.width/2`, `centeredY = position.y + controlHeight/2 − metrics.height/2`.
+  4. Draws with a tight rect around the measured text. Button captions now align identically to the DX11 renderer.
+
+- **Bug fix — Loading text not horizontally centred under Vulkan** (`VULKAN_Renderer.cpp`):
+  `DrawMyTextStyled` ignored the `TextRenderStyle::centered` flag entirely — it always drew at the supplied X position. The DX11 renderer handles this by setting `DWRITE_TEXT_ALIGNMENT_CENTER`, using the full render-target width as the layout width, and drawing from `x=0.0f` so DirectWrite centres natively.
+  Fix: added the same centering branch to the Vulkan `DrawMyTextStyled`:
+  - When `style.centered` is true: call `fmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)`, set `layoutWidth = iOrigWidth` (fallback 1920), set `drawX = 0.0f`.
+  - When false: unchanged (draw at `position.x` with `layoutWidth=2000`).
+  Loading-screen stage messages (which pass `s.centered = true`) are now centred on screen.
+
+- **Bug fix — Loading text fader not stopping when loading completes under Vulkan** (`VULKAN_IOStreamThread.cpp`):
+  The Vulkan loader thread set `bLoaderTaskFinished.store(true)` for `SCENE_GAMETITLE` and `SCENE_GAMEPLAY` without ever calling `fxManager.StopLoadingText()`. TextFadeInOut effects remain in Holding phase indefinitely (`displayDuration = -1.0f`), so they never transition to FadeOut and `HasActiveLoadingTextEffects()` never returned false after loading finished. Loading-screen text persisted over the game title screen.
+  Fix: added `fxManager.StopLoadingText()` immediately before each `bLoaderTaskFinished.store(true)` call in both `SCENE_GAMETITLE` and `SCENE_GAMEPLAY` cases, matching the pattern already established in `IOStreamDX11Thread.cpp`.
+
+- *See: [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`VULKAN_IOStreamThread.cpp`](VULKAN_IOStreamThread.cpp)*
+
+**May 30, 2026 (update 8)** — Vulkan runtime crash fix, starfield coordinate correction, button-text centering, Experimental scene, VulkanModels texture overhaul (`Models.cpp`, `VULKAN_FXManager.cpp`, `GUIManager.cpp`, `VULKAN_IOStreamThread.cpp`, `VulkanModels.cpp`):
+
+- **Critical fix — `vkUnmapMemory` access violation on GAMEPLAY scene switch** (`Models.cpp`):
+  Clicking "Game Play" called `SwitchToGamePlay()` → `threadManager.PauseThread(THREAD_RENDERER)` → `scene.CleanUp()` → `Model::DestroyModel()`. The render thread was paused at the OS level but the GPU was still executing the last submitted command buffer referencing the model's vertex/index/uniform buffers. `vkUnmapMemory` then received a `VkDeviceMemory` handle still in GPU use, triggering validation errors and an `nvoglv64.dll` access violation (0xC0000005) SEH crash.
+  Fix: added `vkDeviceWaitIdle(device)` at the top of the Vulkan cleanup block in `DestroyModel()`, before any `vkUnmapMemory` / `vkDestroyBuffer` / `vkFreeMemory` call. Scene-transition path only — stall is acceptable.
+  Secondary fix: `SetupModelForRendering` freed `uniformBufferMemory` but left the handle non-null, risking a double-free on re-setup. Added `m_modelInfo.uniformBufferMemory = VK_NULL_HANDLE` after the free.
+
+- **Bug fix — starfield appearing in bottom-right instead of top-left** (`VULKAN_FXManager.cpp`):
+  Two coordinate inversions combined: (1) GLM right-handed `lookAt` maps world +X to view -X (opposite of DX11 left-handed `lookAtLH`), so world left projects to screen right. (2) The Vulkan projection's `proj[1][1] *= -1` Y-flip means CPU-computed NDC Y is inverted: world +Y (up) → NDC Y- → `(1 − ndcY) × 0.5 × H` = bottom of screen.
+  Fix: changed NDC→screen conversion in both `RenderStarfield` and `RenderWarpDotTunnel` from `screenX=(ndcX+1)×halfW, screenY=(1−ndcY)×halfH` to `screenX=(1−ndcX)×halfW, screenY=(ndcY+1)×halfH`. Both inversions are now compensated so particle positions match the DX11 renderer exactly.
+
+- **Bug fix — button caption text not centred on SCENE_GameTitle** (`GUIManager.cpp`):
+  Two bugs: (1) textured-button path used `textX = (pos.x + (size.x − textWidth) / lblFontSize) − textWidth/2`, dividing by `lblFontSize` (16) instead of 2.0f — wildly off-centre. (2) both paths passed a pre-computed textX (already an offset position) to `DrawMyTextCentered`, which then re-centred by adding `controlWidth/2 − metrics.width/2`, double-applying centering.
+  Fix: both textured-button and plain-background paths now pass `control.position` (button top-left corner) directly to `DrawMyTextCentered`. The function performs the single authoritative centering via DirectWrite metrics — correct for DX11 and Vulkan. Shadow offset uses `(position.x+2, position.y+2)`. Pre-computed textX/textY calculations removed.
+
+- **Bug fix — Experimental button: starfield not stopped, WarpDotTunnel not starting** (`VULKAN_IOStreamThread.cpp`):
+  The Vulkan loader thread had no `SCENE_EXPERIMENT` case — `default:` only set `bLoaderTaskFinished` without suspending FX or starting the tunnel. Added `#if defined(_DEBUG) case SceneType::SCENE_EXPERIMENT` matching `IOStreamDX11Thread.cpp` exactly: loads 2D textures, calls `fxManager.SaveAndSuspendFXForScene()` (suspends and saves starfield), calls `fxManager.Init3DWarpDOTTunnel(0,0,1000, 10,200, Clockwise, 100, false, 24, 100)`, then `fxManager.FadeToImage(1.0f, 0.08f)`.
+
+- **Fix — `VulkanModels::LoadTextureFromMemory` broken placeholder** (`VulkanModels.cpp`):
+  Function contained `CopyBuffer(stagingBuf, stagingBuf, ...)` — copying a buffer to itself (a no-op / driver crash) instead of the correct image layout transitions + `vkCmdCopyBufferToImage`. Any texture loaded through this path contained garbage.
+  Fix: rewrote using new private helper `UploadPixelsToImage` that transitions UNDEFINED → TRANSFER_DST_OPTIMAL, copies staging buffer → image via `vkCmdCopyBufferToImage`, then transitions to SHADER_READ_ONLY_OPTIMAL. Two new internal helpers (`TransitionImageLayout`, `CopyBufferToImage`) added, both using one-shot command buffers with optional queue-mutex serialisation.
+
+- **Fix — `CreateSolidColourTexture` incorrectly passing raw RGBA bytes to stbi** (`VulkanModels.cpp`):
+  Called `LoadTextureFromMemory` with 4 raw bytes. `stbi_load_from_memory` expects image-file data (PNG/JPEG header), not raw pixels — always fails silently. Fixed by routing directly through `UploadPixelsToImage` with a 1×1 pixel array, bypassing stbi entirely.
+
+- *See: [`Models.cpp`](Models.cpp), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp), [`GUIManager.cpp`](GUIManager.cpp), [`VULKAN_IOStreamThread.cpp`](VULKAN_IOStreamThread.cpp), [`VulkanModels.cpp`](VulkanModels.cpp)*
 
 ---
 

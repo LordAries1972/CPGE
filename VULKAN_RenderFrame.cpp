@@ -38,6 +38,7 @@
 #if defined(PLATFORM_WINDOWS)
     #include "WinSystem.h"
     #include "ScreenRecorder.h"
+    #include "ConsoleWindow.h"
 #endif
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -49,6 +50,7 @@ extern HINSTANCE             hInst;
 extern SystemUtils           sysUtils;
 extern WindowMetrics         winMetrics;
 extern ScreenRecorder        screenRecorder;
+extern ConsoleWindow         consoleWindow;
 #endif
 extern GUIManager            guiManager;
 extern Debug                 debug;
@@ -513,6 +515,11 @@ void VulkanRenderer::RenderFrame()
                 // FX 2D effects (scrollers, particles)
                 try { fxManager.Render2D(); } catch (...) {}
 
+                // 3D starfield (projects to 2D overlay via Blit2DColoredPixel — mirrors DXRenderFrame)
+                if (fxManager.starfieldID > 0) {
+                    try { fxManager.RenderFX(fxManager.starfieldID, cmd, myCamera.GetViewMatrix()); } catch (...) {}
+                }
+
                 // 3D warp dot tunnel (projects to 2D overlay via Blit2DColoredPixel)
                 if (fxManager.tunnelID > 0) {
                     try { fxManager.RenderFX(fxManager.tunnelID, cmd, myCamera.GetViewMatrix()); } catch (...) {}
@@ -520,6 +527,17 @@ void VulkanRenderer::RenderFrame()
 
                 // GUI windows
                 try { guiManager.Render(); } catch (...) {}
+
+                // F8 debug console — only in GAMETITLE/GAMEPLAY and not during scene transitions
+                // (mirrors DXRenderFrame.cpp behaviour exactly)
+#if defined(PLATFORM_WINDOWS)
+                if (!scene.bSceneSwitching &&
+                    (scene.stSceneType == SceneType::SCENE_GAMETITLE ||
+                     scene.stSceneType == SceneType::SCENE_GAMEPLAY))
+                {
+                    try { consoleWindow.Render(this, iOrigWidth, iOrigHeight); } catch (...) {}
+                }
+#endif
 
                 // Cursor
                 if (m_d2dTextures[int(BlitObj2DIndexType::BLIT_ALWAYS_CURSOR)])

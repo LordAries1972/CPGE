@@ -286,40 +286,147 @@ namespace VulkanModelUtils
 #endif
     }
 
-    VkImageView LoadTextureFromMemory(VkDevice device, VkPhysicalDevice physDevice,
-                                      VkCommandPool cmdPool, VkQueue queue,
-                                      const uint8_t* data, size_t size,
-                                      VkImage& outImage, VkDeviceMemory& outMemory)
+    // -----------------------------------------------------------------------
+    // Internal helper: transition an image layout via a single-time command buffer.
+    // -----------------------------------------------------------------------
+    static void TransitionImageLayout(VkDevice device, VkCommandPool cmdPool, VkQueue queue,
+                                      VkImage image,
+                                      VkImageLayout oldLayout, VkImageLayout newLayout,
+                                      std::mutex* queueMutex = nullptr)
     {
-#if defined(STBI_NOT_AVAILABLE)
-        (void)device; (void)physDevice; (void)cmdPool; (void)queue;
-        (void)data; (void)size; (void)outImage; (void)outMemory;
-        return VK_NULL_HANDLE;
-#else
-        int w = 0, h = 0, ch = 0;
-        uint8_t* pixels = stbi_load_from_memory(data, (int)size, &w, &h, &ch, STBI_rgb_alpha);
-        if (!pixels) return VK_NULL_HANDLE;
+        VkCommandBufferAllocateInfo allocInfo{};
+        allocInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocInfo.commandPool        = cmdPool;
+        allocInfo.commandBufferCount = 1;
 
-        VkDeviceSize imgSize = (VkDeviceSize)(w * h * 4);
+        VkCommandBuffer cmd = VK_NULL_HANDLE;
+        vkAllocateCommandBuffers(device, &allocInfo, &cmd);
 
-        // Upload via staging buffer
-        VkBuffer stagingBuf; VkDeviceMemory stagingMem;
-        CreateBuffer(device, physDevice, imgSize,
-                     VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                     stagingBuf, stagingMem);
+        VkCommandBufferBeginInfo bi{};
+        bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(cmd, &bi);
+
+        VkImageMemoryBarrier barrier{};
+        barrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout           = oldLayout;
+        barrier.newLayout           = newLayout;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image               = image;
+        barrier.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+        VkPipelineStageFlags srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        VkPipelineStageFlags dstStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+
+        if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
+            newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+        {
+            barrier.srcAccessMask = 0;
+            barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        }
+        else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&
+                 newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+        {
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        }
+
+        vkCmdPipelineBarrier(cmd, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+        vkEndCommandBuffer(cmd);
+
+        VkSubmitInfo si{};
+        si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        si.commandBufferCount = 1;
+        si.pCommandBuffers    = &cmd;
+        if (queueMutex) {
+            std::lock_guard<std::mutex> qlock(*queueMutex);
+            vkQueueSubmit(queue, 1, &si, VK_NULL_HANDLE);
+            vkQueueWaitIdle(queue);
+        } else {
+            vkQueueSubmit(queue, 1, &si, VK_NULL_HANDLE);
+            vkQueueWaitIdle(queue);
+        }
+        vkFreeCommandBuffers(device, cmdPool, 1, &cmd);
+    }
+
+    // -----------------------------------------------------------------------
+    // Internal helper: copy a buffer into a 2D VkImage via a single-time CB.
+    // -----------------------------------------------------------------------
+    static void CopyBufferToImage(VkDevice device, VkCommandPool cmdPool, VkQueue queue,
+                                   VkBuffer buffer, VkImage image,
+                                   uint32_t width, uint32_t height,
+                                   std::mutex* queueMutex = nullptr)
+    {
+        VkCommandBufferAllocateInfo allocInfo{};
+        allocInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocInfo.commandPool        = cmdPool;
+        allocInfo.commandBufferCount = 1;
+
+        VkCommandBuffer cmd = VK_NULL_HANDLE;
+        vkAllocateCommandBuffers(device, &allocInfo, &cmd);
+
+        VkCommandBufferBeginInfo bi{};
+        bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(cmd, &bi);
+
+        VkBufferImageCopy region{};
+        region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+        region.imageExtent      = { width, height, 1 };
+        vkCmdCopyBufferToImage(cmd, buffer, image,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+        vkEndCommandBuffer(cmd);
+
+        VkSubmitInfo si{};
+        si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        si.commandBufferCount = 1;
+        si.pCommandBuffers    = &cmd;
+        if (queueMutex) {
+            std::lock_guard<std::mutex> qlock(*queueMutex);
+            vkQueueSubmit(queue, 1, &si, VK_NULL_HANDLE);
+            vkQueueWaitIdle(queue);
+        } else {
+            vkQueueSubmit(queue, 1, &si, VK_NULL_HANDLE);
+            vkQueueWaitIdle(queue);
+        }
+        vkFreeCommandBuffers(device, cmdPool, 1, &cmd);
+    }
+
+    // -----------------------------------------------------------------------
+    // Internal helper: upload raw RGBA pixels to a new VkImage.
+    // -----------------------------------------------------------------------
+    static VkImageView UploadPixelsToImage(VkDevice device, VkPhysicalDevice physDevice,
+                                            VkCommandPool cmdPool, VkQueue queue,
+                                            const uint8_t* pixels, uint32_t w, uint32_t h,
+                                            VkImage& outImage, VkDeviceMemory& outMemory,
+                                            std::mutex* queueMutex = nullptr)
+    {
+        VkDeviceSize imgSize = static_cast<VkDeviceSize>(w) * h * 4;
+
+        VkBuffer       stagingBuf = VK_NULL_HANDLE;
+        VkDeviceMemory stagingMem = VK_NULL_HANDLE;
+        if (!CreateBuffer(device, physDevice, imgSize,
+                          VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                          stagingBuf, stagingMem))
+            return VK_NULL_HANDLE;
 
         void* mapped = nullptr;
         vkMapMemory(device, stagingMem, 0, imgSize, 0, &mapped);
-        memcpy(mapped, pixels, (size_t)imgSize);
+        std::memcpy(mapped, pixels, static_cast<size_t>(imgSize));
         vkUnmapMemory(device, stagingMem);
-        stbi_image_free(pixels);
 
-        // Create VkImage
         VkImageCreateInfo imgInfo{};
         imgInfo.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         imgInfo.imageType     = VK_IMAGE_TYPE_2D;
-        imgInfo.extent        = { (uint32_t)w, (uint32_t)h, 1 };
+        imgInfo.extent        = { w, h, 1 };
         imgInfo.mipLevels     = 1;
         imgInfo.arrayLayers   = 1;
         imgInfo.format        = VK_FORMAT_R8G8B8A8_SRGB;
@@ -343,16 +450,28 @@ namespace VulkanModelUtils
         allocInfo.allocationSize  = memReq.size;
         allocInfo.memoryTypeIndex = FindMemoryType(physDevice, memReq.memoryTypeBits,
                                                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-        vkAllocateMemory(device, &allocInfo, nullptr, &outMemory);
+        if (allocInfo.memoryTypeIndex == UINT32_MAX ||
+            vkAllocateMemory(device, &allocInfo, nullptr, &outMemory) != VK_SUCCESS)
+        {
+            vkDestroyImage(device, outImage, nullptr);
+            outImage = VK_NULL_HANDLE;
+            vkDestroyBuffer(device, stagingBuf, nullptr);
+            vkFreeMemory(device, stagingMem, nullptr);
+            return VK_NULL_HANDLE;
+        }
         vkBindImageMemory(device, outImage, outMemory, 0);
 
-        // (Transition + copy omitted for brevity; real code inserts image layout barriers)
-        CopyBuffer(device, cmdPool, queue, stagingBuf, stagingBuf /* placeholder */, imgSize);
+        TransitionImageLayout(device, cmdPool, queue, outImage,
+                              VK_IMAGE_LAYOUT_UNDEFINED,
+                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, queueMutex);
+        CopyBufferToImage(device, cmdPool, queue, stagingBuf, outImage, w, h, queueMutex);
+        TransitionImageLayout(device, cmdPool, queue, outImage,
+                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, queueMutex);
 
         vkDestroyBuffer(device, stagingBuf, nullptr);
         vkFreeMemory(device, stagingMem, nullptr);
 
-        // Create VkImageView
         VkImageViewCreateInfo viewInfo{};
         viewInfo.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         viewInfo.image                           = outImage;
@@ -365,7 +484,36 @@ namespace VulkanModelUtils
         viewInfo.subresourceRange.layerCount     = 1;
 
         VkImageView view = VK_NULL_HANDLE;
-        vkCreateImageView(device, &viewInfo, nullptr, &view);
+        if (vkCreateImageView(device, &viewInfo, nullptr, &view) != VK_SUCCESS)
+        {
+            vkDestroyImage(device, outImage, nullptr); outImage = VK_NULL_HANDLE;
+            vkFreeMemory(device, outMemory, nullptr);  outMemory = VK_NULL_HANDLE;
+        }
+        return view;
+    }
+
+    VkImageView LoadTextureFromMemory(VkDevice device, VkPhysicalDevice physDevice,
+                                      VkCommandPool cmdPool, VkQueue queue,
+                                      const uint8_t* data, size_t size,
+                                      VkImage& outImage, VkDeviceMemory& outMemory)
+    {
+#if defined(STBI_NOT_AVAILABLE)
+        (void)device; (void)physDevice; (void)cmdPool; (void)queue;
+        (void)data; (void)size; (void)outImage; (void)outMemory;
+        return VK_NULL_HANDLE;
+#else
+        int w = 0, h = 0, ch = 0;
+        uint8_t* pixels = stbi_load_from_memory(data, (int)size, &w, &h, &ch, STBI_rgb_alpha);
+        if (!pixels)
+        {
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[VulkanModels] stbi_load_from_memory failed.");
+            return VK_NULL_HANDLE;
+        }
+
+        VkImageView view = UploadPixelsToImage(device, physDevice, cmdPool, queue,
+                                               pixels, (uint32_t)w, (uint32_t)h,
+                                               outImage, outMemory);
+        stbi_image_free(pixels);
         return view;
 #endif
     }
@@ -375,14 +523,16 @@ namespace VulkanModelUtils
                                           const Vector4& colour,
                                           VkImage& outImage, VkDeviceMemory& outMemory)
     {
+        // Build a 1×1 RGBA pixel directly — do NOT pass these 4 bytes through stbi
+        // because stbi expects image file data (PNG/JPEG header), not raw RGBA.
         uint8_t rgba[4] = {
-            (uint8_t)(colour.x * 255.0f),
-            (uint8_t)(colour.y * 255.0f),
-            (uint8_t)(colour.z * 255.0f),
-            (uint8_t)(colour.w * 255.0f)
+            static_cast<uint8_t>(std::clamp(colour.x, 0.0f, 1.0f) * 255.0f),
+            static_cast<uint8_t>(std::clamp(colour.y, 0.0f, 1.0f) * 255.0f),
+            static_cast<uint8_t>(std::clamp(colour.z, 0.0f, 1.0f) * 255.0f),
+            static_cast<uint8_t>(std::clamp(colour.w, 0.0f, 1.0f) * 255.0f)
         };
-        return LoadTextureFromMemory(device, physDevice, cmdPool, queue,
-                                     rgba, 4, outImage, outMemory);
+        return UploadPixelsToImage(device, physDevice, cmdPool, queue,
+                                   rgba, 1, 1, outImage, outMemory);
     }
 }
 
