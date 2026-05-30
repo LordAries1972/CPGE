@@ -51,7 +51,7 @@ With our First Release, you can now create a full working 2D game using the 2D /
 - Randomizer (RNG System) & 
 - Custom Windows and Controls. 
 
-Basically everything you need to create a standard 2D Based Looking Gamimg system on the Windows 10 SP1 / 11 64bit Operating Systems.  Please note that Win32 is not supported!
+Basically everything you need to create a standard 2D & 3D Based Looking Gamimg system on the Windows 10 SP1 / 11 64bit Operating Systems.  Please note that Win32 is not supported!
 
 - We are now using scenes which consist of all models (including textures, bumps etc), Camera and lighting within a 3D Project.  For you to use this successfully, consider using a 3D Modeller package that can export GLTF 2.0 formats.  I, myself, uses Blender v4.3 and above which is also free to use.  You can find it under the 'Important Links' section above.
 
