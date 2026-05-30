@@ -204,6 +204,7 @@ void VulkanRenderer::LoaderTaskThread()
             case SceneType::SCENE_LOAD_MP3:
             {
                 try {
+                    threadManager.threadVars.b2DTexturesLoaded.store(false);
                     #if defined(__USE_MP3PLAYER__) && defined(PLATFORM_WINDOWS)
                         CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
                         auto fileName = AssetsDir / SingleMP3Filename;
@@ -298,6 +299,7 @@ void VulkanRenderer::LoaderTaskThread()
             // ----------------------------------------------------------------
             case SceneType::SCENE_GAMEOVER:
             {
+                threadManager.threadVars.b2DTexturesLoaded.store(false);
                 debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene Game Over.");
                 threadManager.threadVars.bLoaderTaskFinished.store(true);
                 break;

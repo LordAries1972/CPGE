@@ -98,6 +98,31 @@ void SceneManager::CleanUp()
             #endif
         }
     }
+
+#if defined(__USE_VULKAN__)
+    // Vulkan: DestroyModel() frees GPU buffers from scene_models[] and nulls their handles,
+    // but the models[] cache entries that were CopyFrom'd still hold the same now-freed handles.
+    // On the next scene load the fast-path cache restore (CopyFrom → bGpuReady check) would
+    // copy those stale handles into scene_models[] and use them in draw calls → crash.
+    // Reset all Vulkan GPU handles and bGpuReady on every models[] entry that was GPU-ready
+    // so the next ParseGLTFScene always calls SetupModelForRendering to create fresh buffers.
+    for (int mi = 0; mi < MAX_MODELS; ++mi)
+    {
+        if (!models[mi].m_modelInfo.bGpuReady) continue;
+        models[mi].m_modelInfo.vertexBuffer        = VK_NULL_HANDLE;
+        models[mi].m_modelInfo.vertexBufferMemory  = VK_NULL_HANDLE;
+        models[mi].m_modelInfo.indexBuffer         = VK_NULL_HANDLE;
+        models[mi].m_modelInfo.indexBufferMemory   = VK_NULL_HANDLE;
+        models[mi].m_modelInfo.uniformBuffer       = VK_NULL_HANDLE;
+        models[mi].m_modelInfo.uniformBufferMemory = VK_NULL_HANDLE;
+        models[mi].m_modelInfo.uniformBufferMapped = nullptr;
+        models[mi].m_modelInfo.descriptorSet       = VK_NULL_HANDLE;
+        models[mi].m_modelInfo.pipeline            = VK_NULL_HANDLE;
+        models[mi].m_modelInfo.pipelineLayout      = VK_NULL_HANDLE;
+        models[mi].m_modelInfo.bGpuReady           = false;
+    }
+#endif
+
     #if defined(_DEBUG_SCENEMANAGER_)
         if (_destroyCount > 0)
             debug.logDebugMessage(LogLevel::LOG_DEBUG,
@@ -330,6 +355,9 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
                         }
 
                         // --- GPU rebuild check: all renderers ---
+                        // Vulkan: check actual handle validity — do NOT rely on bGpuReady.
+                        // bGpuReady can be true on a models[] entry whose handles were freed
+                        // by a prior CleanUp() (stale-after-free crash on next scene visit).
                         bool gpuRebuildNeeded = false;
 #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
                         if (!scene_models[idx].m_modelInfo.vertexBuffer  ||
@@ -337,9 +365,9 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
                             !scene_models[idx].m_modelInfo.constantBuffer)
                             gpuRebuildNeeded = true;
 #elif defined(__USE_VULKAN__)
-                        if (!scene_models[idx].m_modelInfo.bGpuReady &&
-                            (scene_models[idx].m_modelInfo.vertexBuffer == VK_NULL_HANDLE ||
-                             scene_models[idx].m_modelInfo.indexBuffer  == VK_NULL_HANDLE))
+                        if (scene_models[idx].m_modelInfo.vertexBuffer  == VK_NULL_HANDLE ||
+                            scene_models[idx].m_modelInfo.indexBuffer   == VK_NULL_HANDLE ||
+                            scene_models[idx].m_modelInfo.uniformBuffer == VK_NULL_HANDLE)
                             gpuRebuildNeeded = true;
 #elif defined(__USE_OPENGL__)
                         if (scene_models[idx].m_modelInfo.VAO == 0 ||
@@ -361,13 +389,16 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
                             models[m].m_modelInfo.textureSRVs         = scene_models[idx].m_modelInfo.textureSRVs;
                             models[m].m_modelInfo.normalMapSRVs       = scene_models[idx].m_modelInfo.normalMapSRVs;
 #elif defined(__USE_VULKAN__)
-                            models[m].m_modelInfo.vertexBuffer       = scene_models[idx].m_modelInfo.vertexBuffer;
-                            models[m].m_modelInfo.vertexBufferMemory = scene_models[idx].m_modelInfo.vertexBufferMemory;
-                            models[m].m_modelInfo.indexBuffer        = scene_models[idx].m_modelInfo.indexBuffer;
-                            models[m].m_modelInfo.indexBufferMemory  = scene_models[idx].m_modelInfo.indexBufferMemory;
-                            models[m].m_modelInfo.pipeline           = scene_models[idx].m_modelInfo.pipeline;
-                            models[m].m_modelInfo.pipelineLayout     = scene_models[idx].m_modelInfo.pipelineLayout;
-                            models[m].m_modelInfo.descriptorSet      = scene_models[idx].m_modelInfo.descriptorSet;
+                            models[m].m_modelInfo.vertexBuffer        = scene_models[idx].m_modelInfo.vertexBuffer;
+                            models[m].m_modelInfo.vertexBufferMemory  = scene_models[idx].m_modelInfo.vertexBufferMemory;
+                            models[m].m_modelInfo.indexBuffer         = scene_models[idx].m_modelInfo.indexBuffer;
+                            models[m].m_modelInfo.indexBufferMemory   = scene_models[idx].m_modelInfo.indexBufferMemory;
+                            models[m].m_modelInfo.uniformBuffer       = scene_models[idx].m_modelInfo.uniformBuffer;
+                            models[m].m_modelInfo.uniformBufferMemory = scene_models[idx].m_modelInfo.uniformBufferMemory;
+                            models[m].m_modelInfo.uniformBufferMapped = scene_models[idx].m_modelInfo.uniformBufferMapped;
+                            models[m].m_modelInfo.pipeline            = scene_models[idx].m_modelInfo.pipeline;
+                            models[m].m_modelInfo.pipelineLayout      = scene_models[idx].m_modelInfo.pipelineLayout;
+                            models[m].m_modelInfo.descriptorSet       = scene_models[idx].m_modelInfo.descriptorSet;
 #elif defined(__USE_OPENGL__)
                             models[m].m_modelInfo.VAO           = scene_models[idx].m_modelInfo.VAO;
                             models[m].m_modelInfo.VBO           = scene_models[idx].m_modelInfo.VBO;
@@ -1423,6 +1454,9 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
                         }
 
                         // --- GPU rebuild check: all renderers ---
+                        // Vulkan: check actual handle validity — do NOT rely on bGpuReady.
+                        // bGpuReady can be true on a models[] entry whose handles were freed
+                        // by a prior CleanUp() (stale-after-free crash on next scene visit).
                         bool gpuRebuildNeeded = false;
 #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
                         if (!scene_models[idx].m_modelInfo.vertexBuffer  ||
@@ -1430,9 +1464,9 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
                             !scene_models[idx].m_modelInfo.constantBuffer)
                             gpuRebuildNeeded = true;
 #elif defined(__USE_VULKAN__)
-                        if (!scene_models[idx].m_modelInfo.bGpuReady &&
-                            (scene_models[idx].m_modelInfo.vertexBuffer == VK_NULL_HANDLE ||
-                             scene_models[idx].m_modelInfo.indexBuffer  == VK_NULL_HANDLE))
+                        if (scene_models[idx].m_modelInfo.vertexBuffer  == VK_NULL_HANDLE ||
+                            scene_models[idx].m_modelInfo.indexBuffer   == VK_NULL_HANDLE ||
+                            scene_models[idx].m_modelInfo.uniformBuffer == VK_NULL_HANDLE)
                             gpuRebuildNeeded = true;
 #elif defined(__USE_OPENGL__)
                         if (scene_models[idx].m_modelInfo.VAO == 0 ||
@@ -1454,13 +1488,16 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
                             models[m].m_modelInfo.textureSRVs         = scene_models[idx].m_modelInfo.textureSRVs;
                             models[m].m_modelInfo.normalMapSRVs       = scene_models[idx].m_modelInfo.normalMapSRVs;
 #elif defined(__USE_VULKAN__)
-                            models[m].m_modelInfo.vertexBuffer       = scene_models[idx].m_modelInfo.vertexBuffer;
-                            models[m].m_modelInfo.vertexBufferMemory = scene_models[idx].m_modelInfo.vertexBufferMemory;
-                            models[m].m_modelInfo.indexBuffer        = scene_models[idx].m_modelInfo.indexBuffer;
-                            models[m].m_modelInfo.indexBufferMemory  = scene_models[idx].m_modelInfo.indexBufferMemory;
-                            models[m].m_modelInfo.pipeline           = scene_models[idx].m_modelInfo.pipeline;
-                            models[m].m_modelInfo.pipelineLayout     = scene_models[idx].m_modelInfo.pipelineLayout;
-                            models[m].m_modelInfo.descriptorSet      = scene_models[idx].m_modelInfo.descriptorSet;
+                            models[m].m_modelInfo.vertexBuffer        = scene_models[idx].m_modelInfo.vertexBuffer;
+                            models[m].m_modelInfo.vertexBufferMemory  = scene_models[idx].m_modelInfo.vertexBufferMemory;
+                            models[m].m_modelInfo.indexBuffer         = scene_models[idx].m_modelInfo.indexBuffer;
+                            models[m].m_modelInfo.indexBufferMemory   = scene_models[idx].m_modelInfo.indexBufferMemory;
+                            models[m].m_modelInfo.uniformBuffer       = scene_models[idx].m_modelInfo.uniformBuffer;
+                            models[m].m_modelInfo.uniformBufferMemory = scene_models[idx].m_modelInfo.uniformBufferMemory;
+                            models[m].m_modelInfo.uniformBufferMapped = scene_models[idx].m_modelInfo.uniformBufferMapped;
+                            models[m].m_modelInfo.pipeline            = scene_models[idx].m_modelInfo.pipeline;
+                            models[m].m_modelInfo.pipelineLayout      = scene_models[idx].m_modelInfo.pipelineLayout;
+                            models[m].m_modelInfo.descriptorSet       = scene_models[idx].m_modelInfo.descriptorSet;
 #elif defined(__USE_OPENGL__)
                             models[m].m_modelInfo.VAO           = scene_models[idx].m_modelInfo.VAO;
                             models[m].m_modelInfo.VBO           = scene_models[idx].m_modelInfo.VBO;

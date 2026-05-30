@@ -1,0 +1,24 @@
+History for: Linux/cmake-build-android.sh
+Date: 30-05-2026
+
+NEW FILE — Linux/cmake-build-android.sh
+Android NDK build script — produces a shared library (.so) for APK packaging.
+
+Usage:
+  ./cmake-build-android.sh opengl                        # arm64-v8a, Debug
+  ./cmake-build-android.sh vulkan release arm64-v8a      # arm64-v8a, Release
+  ./cmake-build-android.sh vulkan debug x86_64           # x86_64 emulator build
+  ./cmake-build-android.sh clean
+
+Features:
+- Renderer argument: opengl | vulkan
+- Config argument: debug | release (default: debug)
+- ABI argument: arm64-v8a | x86_64 | armeabi-v7a | x86 (default: arm64-v8a)
+- NDK auto-discovery from ANDROID_NDK, ANDROID_NDK_HOME, or ANDROID_HOME env vars
+- Clear error message with setup instructions if NDK is not found
+- ANDROID_PLATFORM env var respected (default: android-24 = Android 7.0)
+- Passes NDK toolchain file to CMake: $NDK/build/cmake/android.toolchain.cmake
+- STL: c++_shared (full C++17 standard library, shared runtime)
+- Patches Includes.h Android section via inline Python3 (same pattern as cmake-build.sh)
+- Build output goes to Linux/build-android/<ABI>/<Renderer>/<Config>/
+- Post-build: reports .so location and prints NativeActivity integration steps

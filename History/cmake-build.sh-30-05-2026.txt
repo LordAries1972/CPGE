@@ -1,0 +1,23 @@
+History for: Linux/cmake-build.sh
+Date: 30-05-2026
+
+NEW FILE — Linux/cmake-build.sh
+Linux counterpart to the Windows cmake-build.bat build script.
+
+Usage:
+  ./cmake-build.sh opengl           # Debug build, OpenGL renderer
+  ./cmake-build.sh vulkan release   # Release build, Vulkan renderer
+  ./cmake-build.sh clean            # Remove all Linux build directories
+
+Features:
+- Renderer argument: opengl | vulkan (dx11/dx12 rejected with clear error message)
+- Config argument: debug | release (defaults to debug)
+- clean subcommand removes build/ under Linux/
+- Validates cmake is on PATH with install instructions for apt/dnf/pacman
+- Patches Includes.h Linux renderer block via inline Python3 one-liner
+  (comments all renderer defines, uncomments the selected one)
+  so IDEs on Linux show the active renderer; non-fatal if python3 absent
+- Passes -DRENDERER to CMake so the define is always set even without patching
+- Parallel build via --parallel $(nproc)
+- Clean set -euo pipefail error handling; exits non-zero on cmake or build failure
+- Build output goes to Linux/build/<Renderer>/<Config>/

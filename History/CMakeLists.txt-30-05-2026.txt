@@ -1,0 +1,25 @@
+History for: Linux/CMakeLists.txt
+Date: 30-05-2026
+
+NEW FILE — Linux/CMakeLists.txt
+Created as the primary CMake build file for Linux and Android platform builds.
+
+Key differences from the root Windows CMakeLists.txt:
+- Project language: CXX only (no RC — Windows resource compiler not available on Linux)
+- Renderer: OpenGL and Vulkan only; DirectX is excluded (Windows-only API)
+- Source list: excludes all Windows-only files:
+    DX11Renderer, DX12Renderer, DXCamera, DXRenderFrame, DX_FXManager,
+    IOStreamDX11Thread, IOStreamDX12Thread, WinMediaPlayer, WinSystem,
+    CrossPlatformGameEngine.rc, MySteam (deferred to release)
+- add_executable on Linux; add_library(SHARED) on Android (NativeActivity pattern)
+- Renderer define injected via target_compile_definitions rather than patching Includes.h
+- GCC/Clang compile options replace MSVC /W3 /MP etc.
+- find_package(OpenGL), find_package(GLEW), find_package(glm) for Linux desktop
+- GLES3/EGL/android/log linked for Android
+- find_package(Vulkan) with actionable FATAL_ERROR message listing apt install instructions
+- shaderc library discovered via find_library from VULKAN_SDK/lib or system paths
+- glslangValidator discovered for offline SPIR-V compilation; falls back to GLSL source copy
+- ALSA linked for SoundManager on Linux desktop
+- stdc++fs linked explicitly for GCC < 9 (std::filesystem TS)
+- Dead-code strip (-Wl,--gc-sections) on Linux Release
+- Shared cmake/IncrementVersion.cmake script reused from root (SRC_DIR/..)
