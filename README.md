@@ -23,20 +23,20 @@ If you like to know more about me and my history, please goto my website at http
 
 ## Features
 
-- Support for multiple platforms (Windows (DirectX 11 & DirectX 12), macOS, iOS, Linux & Android)
+- Support for multiple platforms (Windows (DirectX 11, DirectX 12, OpenGL, Vulkan, Radeon), macOS & iOS (OpenGL), Linux & Android (Vulkan, OpenGL & Radeon (Linux only) ))
 - High-performance rendering
 - Flexible and modular architecture
 - Extensive documentation and tutorials
 
 ## What you could achieve with CPGE so far!
-With our First Release, you can now create a full working 2D game using the 2D Rendering system via DirectX 11 (DirectX 12 will be soon).  
+With our First Release, you can now create a full working 2D game using the 2D / 3D Rendering system via DirectX 11 & Vulkan (DirectX 12, OpenGL and Radeon will be soon) under the Windows Platform.  
 
 - Game Configuration Management, 
-- Multiple Renderer Support (DirectX11, DirectX12, OpenGL & Vulkan (DirectX11 confirmed and working) ),
+- Multiple Render Support Pipelines (DirectX11, DirectX12, OpenGL, Vulkan & Radeon (DirectX11 & Vulkan confirmed and working) ),
 - Various Debug and Console options (F8 Key) / debug.h
 - In System Configuration Window (Allows you to modify startup/runtime options),
 - Music & Sounds Management System, 
-- Faders, 2D Partical Explosion, 3D Starfield, 3D Warp Tunnel, Various Text Scrollers,
+- Faders, 2D Partical Explosion, 3D Starfield, 3D Warp Tunnel, Various Text Scrollers, Parallax Scroller
 - File Loader System & FileIO Management system, 
 - Threading and Thread Safety Management, 
 - Mouse input, Joystick/Gamepad & Keyboard, 
@@ -53,7 +53,7 @@ With our First Release, you can now create a full working 2D game using the 2D R
 
 Basically everything you need to create a standard 2D Based Looking Gamimg system on the Windows 10 SP1 / 11 64bit Operating Systems.  Please note that Win32 is not supported!
 
-- We are now using scenes which consist of all models (including textures, bumps etc), Camera and lighting within a 3D Project.  For you to use this successfully, consider using a 3D Modeller package that can export GLTF 2.0 formats (Free to use system).  I, myself, uses Blender v4 and above which is also free to use.  You can find it above under the Important Links section above.
+- We are now using scenes which consist of all models (including textures, bumps etc), Camera and lighting within a 3D Project.  For you to use this successfully, consider using a 3D Modeller package that can export GLTF 2.0 formats.  I, myself, uses Blender v4.3 and above which is also free to use.  You can find it under the 'Important Links' section above.
 
 ## Documentation
 - Documents and example usages to this project can be found within the Docs folder.
@@ -64,9 +64,7 @@ Update 22nd May, 2026: I will be adding demo videos soon to my website and YouTu
 ## Known Issues 22nd May, 2026:
 These are the following known issues and will be resolved as humanly possible.
 
-1) Fader Transition in the FXManager (Possiblably broken due to OpenGL Implementation - Currently looking into it!)
-2) Scene Cacheing is now working as expected (but keeping a close eye out for any other possible mishaps).
-3) Models are still not been fully imported right (Investigating as it maybe possible I am not doing exports properly with Blender).
+1) Models are still not been fully imported right (Investigating as it maybe possible I am not doing exports properly with Blender).
 
 ## Getting Started
 
