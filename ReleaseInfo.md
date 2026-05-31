@@ -97,7 +97,7 @@ The **Cross Platform Gaming Engine (CPGE)** is designed for cross-platform funct
 - **Graphics Features:**
   - Textures, lighting, shading, blending
   - Shadowing and specular effects
-  - Multiple rendering backends (DirectX 11/12, OpenGL, Vulkan)
+  - Multiple rendering backends (DirectX 11/12, OpenGL, Vulkan, Radeon)
 
 - **Input Systems:**
   - Keyboard and joystick handling
@@ -2042,9 +2042,10 @@ Since this is early-stage days of development (WIP), major reconstruction may oc
 #### May 27, 2025
 
 Multi-renderer implementation:
-- OpenGL Renderer for Windows/Linux/MacOS/Android (WIP)
-- Vulkan Renderer for Windows/Linux/Android (WIP)
-- Radeon Renderer for Windows & Linux (For AMD Users (WIP))
+- DirectX 12 Renderer for Windows (Partially implemented) (WIP)
+- OpenGL Renderer for Windows/Linux/MacOS/Android (Partially implemented) (WIP)
+- Vulkan Renderer for Windows/Linux/Android (Near Working) (WIP)
+- Radeon Renderer for Windows & Linux (For AMD Users (Not Started) (WIP))
 
 #### March 16, 2025
 
@@ -2067,9 +2068,9 @@ Sub-Systems Extending:
 ## Technical Requirements
 
 - **Operating System**: Windows 10 SP1+ (64-bit), Linux, Android, iOS or MacOS (will fill this in more when I know more on certainty!)
-- **Development Environment**: Visual Studio 2019/2022 / CMAKE / VSCode
+- **Development Environment**: Visual Studio 2019/2022 / CMAKE (Win & Linux) / VSCode
 - **Language Standard**: C++17 Compliant
-- **Graphics APIs**: DirectX 11/12, OpenGL, Vulkan with a minimum or equivilant NVIDIA GTX-960M card.
+- **Graphics APIs**: DirectX 11/12, OpenGL, Radeon or Vulkan with a minimum or equivilant NVIDIA GTX-960M card.
 - **Architecture**: Win x64, Linux, Android, iOS and MacOS only for now!
 
 ---
