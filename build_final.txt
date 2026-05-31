@@ -1,0 +1,98 @@
+Patching Includes.h: enabling __USE_OPENGL__ on Windows ...
+Includes.h patched.
+
+Building: OS=Windows  Renderer=OpenGL  Config=Release  Dir=build\OpenGL\Release
+
+-- Selecting Windows SDK version 10.0.26100.0 to target Windows 10.0.22631.
+-- Game name  : CPGE
+-- Renderer   : OpenGL  (define: __USE_OPENGL__)
+-- Output exe : OpenGLCPGE
+-- Vulkan SDK include : D:/VulkanSDK/1.4.350.0/include
+-- Vulkan SDK lib dir : D:/VulkanSDK/1.4.350.0/Lib
+-- Shader compiler: D:/Windows Kits/10/bin/10.0.22621.0/x64/fxc.exe
+-- [Shaders] DirectX: fxc.exe compiling HLSL shaders
+-- [Shaders] OpenGL: GLSL source files copied to output dir (loaded at runtime)
+-- [Shaders] Vulkan: glslangValidator compiling ModelVertex.vert
+-- [Shaders] Vulkan: glslangValidator compiling ModelPixel.frag
+-- Configuring done (0.8s)
+-- Generating done (0.6s)
+-- Build files have been written to: F:/Projects/C++/CPGE2026/build/OpenGL/Release
+MSBuild version 17.14.40+3e7442088 for .NET Framework
+
+  FXC: DefaultVertex.hlsl -^> VertexShader.cso	FXC: DefaultPixel.hlsl -^> PixelShader.cso	FXC: ModelVertex.hlsl -^> ModelVShader.cso	FXC: ModelPixel.hlsl -^> ModelPShader.cso	glslangValidator: ModelVertex.vert -^> ModelVertex.vert.spv	glslangValidator: ModelPixel.frag -^> ModelPixel.frag.spv	Incrementing build version
+  compilation object save succeeded; see F:\Projects\C++\CPGE2026\build\OpenGL\Release\Release\VertexShader.cso
+  compilation object save succeeded; see F:\Projects\C++\CPGE2026\build\OpenGL\Release\Release\PixelShader.cso
+  compilation object save succeeded; see F:\Projects\C++\CPGE2026\build\OpenGL\Release\Release\ModelVShader.cso
+  compilation object save succeeded; see F:\Projects\C++\CPGE2026\build\OpenGL\Release\Release\ModelPShader.cso
+  F:/Projects/C++/CPGE2026/Assets/Shaders/ModelVertex.vert
+  F:/Projects/C++/CPGE2026/Assets/Shaders/ModelPixel.frag
+  -- ----------------------------------------
+  -- VERSION UPDATE: v0.0.1376
+  -- Previous: v0.0.1375
+  -- Current:  v0.0.1376
+  --   BuildInfo.h:    CURRENT_BUILD = 1376
+  --   ReleaseInfo.md: updated
+  -- ----------------------------------------
+  BlenderImports.cpp
+  Configuration.cpp
+  ConsoleWindow.cpp
+  DX11Renderer.cpp
+  DX12Renderer.cpp
+  DXCamera.cpp
+  DXRenderFrame.cpp
+  DX_FXManager.cpp
+  Debug.cpp
+  ExceptionHandler.cpp
+  FileIO.cpp
+  GLTFAnimator.cpp
+  GUIConfigWindow.cpp
+  GUIManager.cpp
+  GUIWindows.cpp
+  GamePlayer.cpp
+  GamingAI.cpp
+  IOStreamDX11Thread.cpp
+  Joystick.cpp
+  KBHandlersCode.cpp
+  KeyboardHandler.cpp
+  Lights.cpp
+  MathPrecalculation.cpp
+  Models.cpp
+  MoviePlayer.cpp
+  MyRandomizer.cpp
+  NetworkManager.cpp
+  OpenGLCamera.cpp
+  OpenGLFXManager.cpp
+  OpenGLModels.cpp
+  OpenGLRenderFrame.cpp
+  OpenGLRenderer.cpp
+  OpenGL_IOStreamThread.cpp
+  PUNPack.cpp
+  Physics.cpp
+  RendererFactory.cpp
+  SceneManager.cpp
+  ScreenRecorder.cpp
+  ShaderLoaders.cpp
+  ShaderManager.cpp
+  SoundManager.cpp
+  TTSManager.cpp
+  ThreadManager.cpp
+  VULKAN_FXManager.cpp
+  VULKAN_IOStreamThread.cpp
+  VULKAN_RenderFrame.cpp
+  VULKAN_Renderer.cpp
+  VulkanCamera.cpp
+  VulkanModels.cpp
+  WinMediaPlayer.cpp
+  WinSystem.cpp
+  XMMODPlayer.cpp
+  main.cpp
+LINK : warning LNK4098: defaultlib 'LIBCMT' conflicts with use of other libs; use /NODEFAULTLIB:library [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+  Generating code
+  6 of 15097 functions (<0.1%) were compiled, the rest were copied from previous compilation.
+    0 functions were new in current compilation
+    24 functions had inline decision re-evaluated but remain unchanged
+  Finished generating code
+  CrossPlatformGameEngine.vcxproj -> F:\Projects\C++\CPGE2026\build\OpenGL\Release\Release\OpenGLCPGE.exe
+  Copying shaderc DLL to output directory	GLSL copy: ModelVertex.glsl	GLSL copy: ModelPixel.glsl
+
+Build succeeded: OpenGL Release -- Mon 01/06/2026   1:45:39.68

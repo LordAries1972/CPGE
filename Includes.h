@@ -89,8 +89,8 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
         // renderers at runtime: 0=DX11  1=DX12  2=OpenGL  3=Vulkan  4=RADEON
 //        #define __USE_DIRECTX_11__
 //        #define __USE_DIRECTX_12__
-//        #define __USE_OPENGL__
-        #define __USE_VULKAN__
+        #define __USE_OPENGL__
+//        #define __USE_VULKAN__
 //        #define __USE_RADEON__
 
         #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__) && !defined(__USE_OPENGL__) && !defined(__USE_VULKAN__)
@@ -244,7 +244,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
         #define PLATFORM_IOS
     #endif // !PLATFORM_IOS
     // iOS — OpenGL only
-//    #define __USE_OPENGL__
+    #define __USE_OPENGL__
 #endif // !PLATFORM_WINDOWS, PLATFORM_LINUX, PLATFORM_ANDROID, PLATFORM_APPLE, PLATFORM_IOS
 
 // ---------------------------------------------------------------------------

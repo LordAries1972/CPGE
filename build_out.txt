@@ -1,2 +1,156 @@
-'cmake-build.bat' is not recognized as an internal or external command,
-operable program or batch file.
+Patching Includes.h: enabling __USE_OPENGL__ on Windows ...
+Includes.h patched.
+
+Building: OS=Windows  Renderer=OpenGL  Config=Release  Dir=build\OpenGL\Release
+
+-- Selecting Windows SDK version 10.0.26100.0 to target Windows 10.0.22631.
+-- The CXX compiler identification is MSVC 19.38.33145.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: D:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.38.33130/bin/Hostx64/x64/cl.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Game name  : CPGE
+-- Renderer   : OpenGL  (define: __USE_OPENGL__)
+-- Output exe : OpenGLCPGE
+-- Vulkan SDK include : D:/VulkanSDK/1.4.350.0/include
+-- Vulkan SDK lib dir : D:/VulkanSDK/1.4.350.0/Lib
+-- Shader compiler: D:/Windows Kits/10/bin/10.0.22621.0/x64/fxc.exe
+-- [Shaders] DirectX: fxc.exe compiling HLSL shaders
+-- [Shaders] OpenGL: GLSL source files copied to output dir (loaded at runtime)
+-- [Shaders] Vulkan: glslangValidator compiling ModelVertex.vert
+-- [Shaders] Vulkan: glslangValidator compiling ModelPixel.frag
+-- Configuring done (15.1s)
+-- Generating done (6.7s)
+-- Build files have been written to: F:/Projects/C++/CPGE2026/build/OpenGL/Release
+MSBuild version 17.14.40+3e7442088 for .NET Framework
+
+  1>Checking Build System
+  FXC: DefaultVertex.hlsl -^> VertexShader.cso	FXC: DefaultPixel.hlsl -^> PixelShader.cso	FXC: ModelVertex.hlsl -^> ModelVShader.cso	FXC: ModelPixel.hlsl -^> ModelPShader.cso	glslangValidator: ModelVertex.vert -^> ModelVertex.vert.spv	glslangValidator: ModelPixel.frag -^> ModelPixel.frag.spv	Incrementing build version
+  compilation object save succeeded; see F:\Projects\C++\CPGE2026\build\OpenGL\Release\Release\VertexShader.cso
+  compilation object save succeeded; see F:\Projects\C++\CPGE2026\build\OpenGL\Release\Release\PixelShader.cso
+  compilation object save succeeded; see F:\Projects\C++\CPGE2026\build\OpenGL\Release\Release\ModelVShader.cso
+  compilation object save succeeded; see F:\Projects\C++\CPGE2026\build\OpenGL\Release\Release\ModelPShader.cso
+  F:/Projects/C++/CPGE2026/Assets/Shaders/ModelVertex.vert
+  F:/Projects/C++/CPGE2026/Assets/Shaders/ModelPixel.frag
+  -- ----------------------------------------
+  -- VERSION UPDATE: v0.0.1374
+  -- Previous: v0.0.1373
+  -- Current:  v0.0.1374
+  --   BuildInfo.h:    CURRENT_BUILD = 1374
+  --   ReleaseInfo.md: updated
+  -- ----------------------------------------
+  Building Custom Rule F:/Projects/C++/CPGE2026/CMakeLists.txt
+  BlenderImports.cpp
+  Configuration.cpp
+  ConsoleWindow.cpp
+  Debug.cpp
+  DX11Renderer.cpp
+  DX12Renderer.cpp
+  DXCamera.cpp
+  DXRenderFrame.cpp
+  DX_FXManager.cpp
+  ExceptionHandler.cpp
+  FileIO.cpp
+  GamePlayer.cpp
+  GamingAI.cpp
+  GLTFAnimator.cpp
+  GUIConfigWindow.cpp
+  GUIManager.cpp
+  GUIWindows.cpp
+  IOStreamDX11Thread.cpp
+  IOStreamDX12Thread.cpp
+  Joystick.cpp
+  KBHandlersCode.cpp
+  KeyboardHandler.cpp
+  Lights.cpp
+  main.cpp
+  MathPrecalculation.cpp
+  Models.cpp
+  MoviePlayer.cpp
+  MyRandomizer.cpp
+  NetworkManager.cpp
+  OpenGLCamera.cpp
+  OpenGLModels.cpp
+  OpenGLRenderer.cpp
+  OpenGLFXManager.cpp
+  OpenGLRenderFrame.cpp
+F:\Projects\C++\CPGE2026\Models.cpp(1582,17): error C2027: use of undefined type 'FXManager' [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+      F:\Projects\C++\CPGE2026\OpenGLRenderer.h(100,7):
+      see declaration of 'FXManager'
+  
+F:\Projects\C++\CPGE2026\Models.cpp(1584,5): error C2065: 'effects': undeclared identifier [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+F:\Projects\C++\CPGE2026\Models.cpp(1584,34): error C2065: 'effects': undeclared identifier [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+F:\Projects\C++\CPGE2026\Models.cpp(1584,51): error C2065: 'effects': undeclared identifier [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+F:\Projects\C++\CPGE2026\Models.cpp(1585,32): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+F:\Projects\C++\CPGE2026\Models.cpp(1585,32): error C2143: syntax error: missing ',' before '&' [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+F:\Projects\C++\CPGE2026\Models.cpp(1585,47): error C2065: 'fx': undeclared identifier [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+F:\Projects\C++\CPGE2026\Models.cpp(1584,24): error C2672: 'std::remove_if': no matching overloaded function found [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+      D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\algorithm(4156,30):
+      could be '_FwdIt std::remove_if(_ExPo &&,_FwdIt,_FwdIt,_Pr) noexcept'
+          F:\Projects\C++\CPGE2026\Models.cpp(1584,24):
+          '_FwdIt std::remove_if(_ExPo &&,_FwdIt,_FwdIt,_Pr) noexcept': expects 4 arguments - 2 provided
+      D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\xmemory(2233,43):
+      or       '_FwdIt std::remove_if(_FwdIt,const _FwdIt,_Pr)'
+          F:\Projects\C++\CPGE2026\Models.cpp(1584,24):
+          '_FwdIt std::remove_if(_FwdIt,const _FwdIt,_Pr)': expects 3 arguments - 2 provided
+  
+F:\Projects\C++\CPGE2026\Models.cpp(1586,9): error C2065: 'effects': undeclared identifier [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+F:\Projects\C++\CPGE2026\Models.cpp(1589,17): error C2027: use of undefined type 'FXManager' [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+      F:\Projects\C++\CPGE2026\OpenGLRenderer.h(100,7):
+      see declaration of 'FXManager'
+  
+F:\Projects\C++\CPGE2026\Models.cpp(1591,10): error C2065: 'FXItem': undeclared identifier [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+F:\Projects\C++\CPGE2026\Models.cpp(1591,18): error C2065: 'fx': undeclared identifier [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+F:\Projects\C++\CPGE2026\Models.cpp(1591,21): error C2143: syntax error: missing ';' before ':' [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+F:\Projects\C++\CPGE2026\Models.cpp(1591,23): error C2065: 'effects': undeclared identifier [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+F:\Projects\C++\CPGE2026\Models.cpp(1591,30): error C2143: syntax error: missing ';' before ')' [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+F:\Projects\C++\CPGE2026\Models.cpp(1593,13): error C2065: 'fx': undeclared identifier [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+F:\Projects\C++\CPGE2026\Models.cpp(1595,13): error C2065: 'fx': undeclared identifier [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+F:\Projects\C++\CPGE2026\Models.cpp(1601,17): error C2027: use of undefined type 'FXManager' [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+      F:\Projects\C++\CPGE2026\OpenGLRenderer.h(100,7):
+      see declaration of 'FXManager'
+  
+F:\Projects\C++\CPGE2026\Models.cpp(1603,10): error C2065: 'FXItem': undeclared identifier [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+F:\Projects\C++\CPGE2026\Models.cpp(1603,18): error C2065: 'fx': undeclared identifier [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+F:\Projects\C++\CPGE2026\Models.cpp(1603,21): error C2143: syntax error: missing ';' before ':' [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+F:\Projects\C++\CPGE2026\Models.cpp(1603,23): error C2065: 'effects': undeclared identifier [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+F:\Projects\C++\CPGE2026\Models.cpp(1603,30): error C2143: syntax error: missing ';' before ')' [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+F:\Projects\C++\CPGE2026\Models.cpp(1605,13): error C2065: 'fx': undeclared identifier [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+F:\Projects\C++\CPGE2026\Models.cpp(1607,13): error C2065: 'fx': undeclared identifier [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+F:\Projects\C++\CPGE2026\Models.cpp(2127,42): error C2248: 'OpenGLRenderer::m_3dShaderProgram': cannot access private member declared in class 'OpenGLRenderer' [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+      F:\Projects\C++\CPGE2026\OpenGLRenderer.h(347,25):
+      see declaration of 'OpenGLRenderer::m_3dShaderProgram'
+      F:\Projects\C++\CPGE2026\OpenGLRenderer.h(185,7):
+      see declaration of 'OpenGLRenderer'
+  
+  OpenGL_IOStreamThread.cpp
+  VulkanCamera.cpp
+  VulkanModels.cpp
+F:\Projects\C++\CPGE2026\OpenGLRenderFrame.cpp(75,27): error C2248: 'OpenGLRenderer::CachedUniforms3D': cannot access private struct declared in class 'OpenGLRenderer' [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+      F:\Projects\C++\CPGE2026\OpenGLRenderer.h(351,12):
+      see declaration of 'OpenGLRenderer::CachedUniforms3D'
+      F:\Projects\C++\CPGE2026\GUIManager.h(19,7):
+      see declaration of 'OpenGLRenderer'
+  
+  VULKAN_Renderer.cpp
+F:\Projects\C++\CPGE2026\OpenGLRenderer.cpp(252,34): warning C4101: 'e': unreferenced local variable [F:\Projects\C++\CPGE2026\build\OpenGL\Release\CrossPlatformGameEngine.vcxproj]
+  VULKAN_RenderFrame.cpp
+  VULKAN_FXManager.cpp
+  VULKAN_IOStreamThread.cpp
+  Physics.cpp
+  PUNPack.cpp
+  RendererFactory.cpp
+  SceneManager.cpp
+  ScriptManager.cpp
+  ScreenRecorder.cpp
+  ShaderLoaders.cpp
+  ShaderManager.cpp
+  SoundManager.cpp
+  ThreadManager.cpp
+  TTSManager.cpp
+  WinMediaPlayer.cpp
+  WinSystem.cpp
+  XMMODPlayer.cpp
+
+Build FAILED: OpenGL Release -- Mon 01/06/2026   1:31:48.75

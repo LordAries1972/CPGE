@@ -83,6 +83,10 @@ public:
     void CaptureFrame(ID3D11Device*        device,
                       ID3D11DeviceContext* context,
                       IDXGISwapChain1*     swapChain);
+#elif defined(__USE_OPENGL__) && defined(PLATFORM_WINDOWS)
+    // Capture the current OpenGL back-buffer via glReadPixels.
+    // Call BEFORE SwapBuffers so the fully-composed frame is read.
+    void CaptureFrame(UINT width, UINT height);
 #elif defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS)
     // Capture the presented swap chain image into the MF video stream.
     // Call this AFTER vkWaitForFences (GPU render done) and BEFORE vkQueuePresentKHR.
@@ -135,9 +139,14 @@ private:
     DWORD                   m_videoStreamIndex;
     DWORD                   m_audioStreamIndex;
 
-    // ---- D3D11 staging texture ----
+    // ---- Renderer-specific capture resources ----
 #if defined(__USE_DIRECTX_11__)
     ComPtr<ID3D11Texture2D> m_stagingTexture;
+#elif defined(__USE_OPENGL__) && defined(PLATFORM_WINDOWS)
+    // glReadPixels pixel buffer — resized lazily inside CaptureFrame
+    std::vector<BYTE> m_glPixelBuffer;
+    UINT              m_glCaptureWidth  = 0;
+    UINT              m_glCaptureHeight = 0;
 #elif defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS)
     VkBuffer        m_vkStagingBuffer  = VK_NULL_HANDLE;
     VkDeviceMemory  m_vkStagingMemory  = VK_NULL_HANDLE;

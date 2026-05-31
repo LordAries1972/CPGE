@@ -1,60 +1,61 @@
 ================================================================================
   EXCEPTION CALL-STACK LOG
-  Generated  : 2026-05-31 21:34:58
+  Generated  : 2026-06-01 01:49:10
 ================================================================================
   Exception  : Access Violation - Invalid memory access
   Code       : 0xC0000005
-  Address    : 0x00007FF735126EDD
-  Thread ID  : 10728
-  Process ID : 1660
+  Address    : 0x00007FFD41D548DB
+  Thread ID  : 17888
+  Process ID : 8568
   Platform   : Windows x64  [DEBUG BUILD]
 ================================================================================
-  CALL STACK TRACE (8 of 8 frames captured, showing up to 25)
+  CALL STACK TRACE (10 of 10 frames captured, showing up to 25)
 ================================================================================
-  #00  Address  : 0x00007FF735126EDD
-       Function : GUIManager::HandleAllInput  +0x6BD
-       Module   : VulkanCPGE.exe
-       Source   : F:\Projects\C++\CPGE2026\GUIManager.cpp  Line 292
+  #00  Address  : 0x00007FFD41D548DB
+       Function : 0x7FFD41D548DB
+       Module   : nvoglv64.dll
        --------
-  #01  Address  : 0x00007FF73516EF6F
-       Function : WinMain  +0x140F
-       Module   : VulkanCPGE.exe
-       Source   : F:\Projects\C++\CPGE2026\main.cpp  Line 1088
+  #01  Address  : 0x000000000000CE04
+       Function : 0xCE04
+       Module   : Unknown
        --------
-  #02  Address  : 0x00007FF735390D02
-       Function : invoke_main  +0x32
-       Module   : VulkanCPGE.exe
-       Source   : D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_common.inl  Line 107
+  #02  Address  : 0x0000000000000004
+       Function : 0x4
+       Module   : Unknown
        --------
-  #03  Address  : 0x00007FF735390BAE
-       Function : __scrt_common_main_seh  +0x12E
-       Module   : VulkanCPGE.exe
-       Source   : D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_common.inl  Line 288
+  #03  Address  : 0x0000017E8185EFD4
+       Function : 0x17E8185EFD4
+       Module   : Unknown
        --------
-  #04  Address  : 0x00007FF735390A6E
-       Function : __scrt_common_main  +0xE
-       Module   : VulkanCPGE.exe
-       Source   : D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_common.inl  Line 331
+  #04  Address  : 0x0000017E817E0000
+       Function : 0x17E817E0000
+       Module   : Unknown
        --------
-  #05  Address  : 0x00007FF735390D9E
-       Function : WinMainCRTStartup  +0xE
-       Module   : VulkanCPGE.exe
-       Source   : D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_winmain.cpp  Line 17
+  #05  Address  : 0x0000003D663FE210
+       Function : 0x3D663FE210
+       Module   : Unknown
        --------
-  #06  Address  : 0x00007FFDE9DA259D
-       Function : BaseThreadInitThunk  +0x1D
-       Module   : KERNEL32.DLL
+  #06  Address  : 0x0000017E9E0E1368
+       Function : 0x17E9E0E1368
+       Module   : Unknown
        --------
-  #07  Address  : 0x00007FFDEBB6AF78
-       Function : RtlUserThreadStart  +0x28
-       Module   : ntdll.dll
+  #07  Address  : 0x0000017E9E0E1368
+       Function : 0x17E9E0E1368
+       Module   : Unknown
+       --------
+  #08  Address  : 0x0000017E8182C268
+       Function : 0x17E8182C268
+       Module   : Unknown
+       --------
+  #09  Address  : 0x0000003D663FE1F0
+       Function : 0x3D663FE1F0
+       Module   : Unknown
 ================================================================================
   BREADCRUMB TRAIL  (last RECORD_FUNCTION_CALL() entries — oldest to newest)
 ================================================================================
-  22.  WinMain
-  23.  VulkanRenderer::Initialize
-  24.  VulkanRenderer::LoaderTaskThread
-  25.  VulkanRenderer::RenderFrame
+  23.  WinMain
+  24.  OpenGLRenderer::LoaderTaskThread
+  25.  OpenGLRenderer::RenderFrame
 ================================================================================
   END OF CALL-STACK LOG
 ================================================================================

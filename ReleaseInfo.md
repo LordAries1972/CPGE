@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1367*
+*Current Build Version: v0.0.1377*
 
 ---
 
@@ -54,6 +54,8 @@ lets make this Engine great!
 
 #### 2026
 
+- [June 2026](#june-2026---opengl-pipeline-fixes)
+  - [01](#june-01-2026)
 - [May 2026](#may-2026---more-major-updates-and-fixes)
   - [02](#may-02-2026) · [03-04](#may-03-04-2026) · [06](#may-06-2026) · [08](#may-08-2026) · [10](#may-10-2026) · [11](#may-11-2026) · [14](#may-14-2026) · [15](#may-15-2026) · [16](#may-16-2026) · [17](#may-17-2026) · [18](#may-18-2026) · [19](#may-19-2026) · [20](#may-20-2026) · [21](#may-21-2026) · [22](#may-22-2026) · [23](#may-23-2026) · [24](#may-24-2026) · [28](#may-28-2026) · [29](#may-29-2026) · [30](#may-30-2026) · [31](#may-31-2026)
 - [April 2026](#april-2026---bug-fixes-and-updates)
@@ -572,6 +574,61 @@ More updates and fixes:
 `  See here now for live updates on exactly whats been changed! - But this file will always be the basis of updates
    Please see the "History" folder for actual file updates, old and redundant files will be removed! - Saves me updating
    this file all time when I do not have too; especially versioning!
+
+### June 2026 - OpenGL Pipeline Fixes
+
+#### June 01, 2026
+
+OpenGL complete pipeline parity — black screen root-cause fix, texture loading overhaul, face culling, FOV and near/far from config, BackCulling setting, loader-text stages, screen recorder, version overlay (`OpenGLRenderer.cpp`, `OpenGLRenderFrame.cpp`):
+
+- **Critical fix — completely black screen: all 2D quads silently culled** (`OpenGLRenderer.cpp`):
+  `SetupRenderStates()` enables `GL_CULL_FACE` with `GL_BACK` + `glFrontFace(GL_CCW)`. The Y-flip in the orthographic matrix (`−2/H` Y component) maps screen Y=0 (top) to NDC Y=+1, making screen-space quad vertices wind **clockwise** in window coordinates (negative signed area). OpenGL classifies CW faces as back faces and silently discards them. Every call to `Render2DQuad` — which handles all `Blit2D*`, `DrawMyText`, `DrawRectangle`, `DrawTexture`, `DrawVideoFrame`, and cursor rendering — rendered nothing. Only the black clear color and the fade shader's pre-computed CCW triangle (not affected by culling) were visible.
+  Fix: added `glDisable(GL_CULL_FACE)` immediately before `glDrawArrays` in `Render2DQuad` and `glEnable(GL_CULL_FACE)` after, restoring the 3D state for the next `RenderGamePlay` call. Added a `w <= 0 || h <= 0` early return guard and an explicit `GL_CLAMP_TO_EDGE` restore for the non-wrap path so texture state is consistent. Also guards `W <= 0 || H <= 0` in the ortho computation.
+
+- **Fix — `glGetTexLevelParameteriv` called even when not needed** (`OpenGLRenderer.cpp`):
+  Previously `Render2DQuad` unconditionally queried GL texture dimensions via `glGetTexLevelParameteriv` for any non-zero `srcW/srcH`, including full-texture blits where `srcX=0, srcY=0` and the UV is simply [0,1]. Now the GL query runs only when `srcX > 0 || srcY > 0` (sprite-sheet tile offsets that genuinely require the texture width/height as denominator). Full-texture calls (`srcX=0, srcY=0`) use `srcW/srcH` directly as the denominator, eliminating the per-frame round-trip for every splash/logo/cursor/background blit.
+
+- **Fix — `RenderGamePlay` hardcoded near/far planes, ignored config and camera** (`OpenGLRenderFrame.cpp`):
+  `glm::perspective(fovRad, aspect, 0.1f, 5000.0f)` was rebuilt from scratch every frame, ignoring `config.myConfig.nearPlane` (0.1), `config.myConfig.farPlane` (1000.0), and the pre-computed camera projection. Now calls `myCamera.GetProjectionMatrix()` directly — the same matrix `SetupDefaultCamera` builds from the full config (FOV, near/far, aspect). FOV from `GameConfig.cfg` (`fov: 60.0`) and near/far planes are therefore always in effect.
+
+- **Feature — `config.myConfig.BackCulling` respected in 3D rendering** (`OpenGLRenderFrame.cpp`):
+  `RenderGamePlay` unconditionally enabled back-face culling. Now checks `config.myConfig.BackCulling` (loaded from `GameConfig.cfg`, currently `true`) and calls `glEnable(GL_CULL_FACE)` / `glDisable(GL_CULL_FACE)` accordingly, matching the DX11 rasterizer-state behaviour.
+
+- *See: [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp)*
+
+---
+
+**OpenGL Render Pipeline — Major Overhaul (Session 2)** (`OpenGLRenderer.cpp`, `OpenGLRenderer.h`, `OpenGLRenderFrame.cpp`, `OpenGLCamera.cpp`, `OpenGLFXManager.cpp`, `Models.cpp`, `MoviePlayer.cpp`, `OpenGL_IOStreamThread.cpp`, `Lights.h`):
+
+- **OpenGL 3D shaders rebuilt** (`OpenGLRenderer.cpp`): Vertex shader now accepts tangent attribute (location 3) and outputs a TBN matrix for normal mapping. Fragment shader rewritten with Blinn-Phong + PBR approximation supporting up to 8 lights (directional/point/spot) with attenuation, spot-cone falloff, emissive, metallic/roughness parameters, and diffuse/normal-map texture sampling. Legacy single-light fallback uniforms retained for simpler custom shaders.
+
+- **Models now actually render in OpenGL** (`Models.cpp`, `OpenGLRenderFrame.cpp`): `SetupModelForRendering()` was returning `true` without creating any GPU buffers on the OpenGL path — models were invisible. Added `#elif defined(__USE_OPENGL__)` branch that creates VAO/VBO/EBO via `OpenGLModelBuffers::Upload()`, loads textures via `OpenGLModelUtils`, and assigns the renderer's built-in shader. Added `glBindVertexArray` + `glDrawElements` in `RenderGamePlay` for each model with a valid VAO. Per-model world matrix now uploaded as `uModel` uniform each frame.
+
+- **Uniform location caching** (`OpenGLRenderer.h/.cpp`, `OpenGLRenderFrame.cpp`): All `glGetUniformLocation` calls for the built-in 3D shader are performed once at shader link time and stored in `CachedUniforms3D m_uniforms3D`. The render loop uses pre-cached locations (zero driver calls per draw); custom per-model shaders fall back to the dynamic path.
+
+- **OpenGLCamera — Left-Handed coordinate system** (`OpenGLCamera.cpp`): All `glm::lookAt` calls replaced with `glm::lookAtLH`; all `glm::perspective` calls replaced with `glm::perspectiveLH_NO` (LH, standard OpenGL -1..1 depth range). `SetupDefaultCamera` now validates FOV/near/far inputs before building the projection. `SetNearFar` simplified with proper input guards. This matches the DirectX camera convention so DX-authored models appear correctly oriented.
+
+- **RenderGamePlay — front-face winding corrected for LH** (`OpenGLRenderFrame.cpp`): Changed `glFrontFace(GL_CCW)` to `glFrontFace(GL_CW)` to match DirectX clockwise front-face convention used by the LH camera.
+
+- **3D Starfield fixed — "garbage" appearance resolved** (`OpenGLFXManager.cpp`): `RenderStarfield` used hardcoded `400/300` for screen centre and `1000/depth` as an ad-hoc scale, producing stars crammed into the centre and exploding to infinity near `z=0`. Now uses actual `iOrigWidth`/`iOrigHeight`, a FOV-derived focal length (`focal = (screenH/2) / tan(30°)`), and proper `-(y*focal/depth)+cy` Y-flip. Stars are culled outside the viewport and sized proportionally by depth. `CreateStarfield` initialises `farZ` in `warpTunnelData` and spawns stars at a minimum depth of 50 units. `UpdateStarfield` resets stars to the minimum depth (not `z=0`) to prevent the infinity-projection spike.
+
+- **MoviePlayer — RGBA output for OpenGL** (`MoviePlayer.cpp`): `UpdateVideoTextureCPU()` now swaps BGRA→RGBA (byte-swap of channels 0↔2) when compiled for OpenGL, so `GetCurrentFrameRGBA()` returns genuine RGBA. `RenderIntroMovie` in `OpenGLRenderFrame.cpp` reverted to `GL_RGBA` upload format. Added `GL_CLAMP_TO_EDGE` wrap modes on first allocation.
+
+- **Window resize — projection matrix updated** (`OpenGL_IOStreamThread.cpp`): Both `SCENE_GAMETITLE` and `SCENE_GAMEPLAY` resize branches now call `myCamera.UpdateResolution(camW, camH, aspect)` after `SetupDefaultCamera` to synchronise the cached aspect ratio and projection matrix private members.
+
+- **OpenGLRenderer::Resize() — iOrigWidth/Height updated** (`OpenGLRenderer.cpp`): `Resize()` previously only updated `m_renderTargetWidth/Height`, leaving `iOrigWidth/iOrigHeight` stale. Now both pairs are updated so 2D `Blit*` coordinate calculations remain correct after a resize.
+
+- **Version string — smaller for OpenGL** (`OpenGLRenderFrame.cpp`): Renderer info overlay font size changed from `clamp(H/72, 10, 16)` to `clamp(H/86, 8, 12)` so the OpenGL version string appears slightly smaller than the DX11/Vulkan renderers.
+
+- **Models.cpp — DirectX-only FXManager methods guarded** (`Models.cpp`): `FXManager::CancelEffect`, `RestartEffect`, `ChainEffect` wrapped in `#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)` guards; their `#include "DX_FXManager.h"` and `#include "DXCamera.h"` headers likewise conditionalised. OpenGL builds no longer see the DX FXManager type.
+
+- **Lights.h — OpenGL header guard cleanup** (`Lights.h`): `using namespace DirectX` and `#include "ConstantBuffer.h"` consolidated into a single `#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)` block with a comment clarifying that `XMFLOAT3` is aliased from `Includes.h` on OpenGL/Vulkan paths.
+
+- **DestroyModel — OpenGL GPU buffer cleanup** (`Models.cpp`): Added `#if defined(__USE_OPENGL__)` cleanup block that deletes VAO/VBO/EBO and texture IDs and clears the `textureIDs`/`normalMapIDs` vectors before the geometry clear.
+
+- *See: [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`OpenGLRenderer.h`](OpenGLRenderer.h), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp), [`OpenGLCamera.cpp`](OpenGLCamera.cpp), [`OpenGLFXManager.cpp`](OpenGLFXManager.cpp), [`Models.cpp`](Models.cpp), [`MoviePlayer.cpp`](MoviePlayer.cpp), [`OpenGL_IOStreamThread.cpp`](OpenGL_IOStreamThread.cpp), [`Lights.h`](Lights.h)*
+
+---
 
 ### May 2026 - More major updates and fixes
 
@@ -2054,6 +2111,81 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
   2. **Double swapchain destruction** (`vkDestroySwapchainKHR: Invalid VkSwapchainKHR`): `Resize()` called `RecreateSwapChain`, AND the render thread independently called `RecreateSwapChain` in response to `VK_ERROR_OUT_OF_DATE_KHR`/`VK_SUBOPTIMAL_KHR` returned from `vkAcquireNextImageKHR` or `vkQueuePresentKHR`. Both paths destroyed and recreated the swapchain simultaneously, producing invalid-handle errors and a leaked swapchain at device destruction. Fix: guarded both `RecreateSwapChain` calls inside `RenderFrame` with `if (!threadManager.threadVars.bIsResizing.load())` — the resize path owns swapchain recreation when `bIsResizing` is true.
 
 - *See: [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp)*
+
+#### June 1, 2026
+
+- **Full OpenGL pipeline parity pass — complete port from DirectX 11** (`OpenGLRenderFrame.cpp`, `OpenGLRenderer.cpp`, `OpenGL_IOStreamThread.cpp`, `ScreenRecorder.h`, `ScreenRecorder.cpp`):
+  Audited every feature in the DX11 pipeline (`DXRenderFrame.cpp`, `IOStreamDX11Thread.cpp`) and ported all missing or stub-only functionality to the OpenGL renderer:
+
+  1. **`RenderGamePlay` — scene model loop rewritten** (`OpenGLRenderFrame.cpp`):
+     The loop iterated over `models[MAX_MODELS]` (the raw pre-scene array) and contained only a TODO comment instead of a draw call. Replaced with the correct `scene.scene_models[MAX_SCENE_MODELS]` loop matching DX11 exactly: skip `!m_isLoaded` and `bIsTransformProxy` entries, set `fxActive=false`, copy view/proj (GLM column-major → Matrix4x4 row-major) and `cameraPosition` into `m_modelInfo`, push all camera uniforms into the model's shader (or the renderer's built-in 3D shader as fallback), call `scene.scene_models[i].Render(deltaTime)`.
+
+  2. **`RenderGamePlay` — all scene lights uploaded** (`OpenGLRenderFrame.cpp`):
+     Only the first light was pushed as three separate uniforms (`uLightDir/uLightColor/uAmbient`). Now uploads the complete `GlobalLightBuffer` to each model shader via `uLights[]` array uniforms (direction, color, ambient, intensity, position, type) with a single-light fallback for simpler shaders — mirrors DX11's `m_d3dContext->PSSetConstantBuffers(SLOT_GLOBAL_LIGHT_BUFFER, …)` upload before the model draw loop.
+
+  3. **`RenderGamePlay` — wireframe toggle** (`OpenGLRenderFrame.cpp`):
+     `glPolygonMode(GL_FRONT_AND_BACK, GL_LINE/GL_FILL)` driven by `bWireframeMode` inside `#if defined(_DEBUG_RENDER_WIREFRAME_)`, mirroring DX11's `RSSetState(m_wireframeState/m_rasterizerState)`.
+
+  4. **`RenderIntroMovie` — UpdateFrame, skip, logo** (`OpenGLRenderFrame.cpp`):
+     Added `moviePlayer.UpdateFrame()` call (was missing; DX11 calls it every frame). Added spacebar-skip block identical to DX11: `moviePlayer.Stop()`, `scene.bSceneSwitching = true`, `fxManager.FadeToBlack(1.0f, 0.06f)`. Added company logo overlay at half size, bottom-left corner, matching DX11 `RenderIntroMovie`.
+
+  5. **`RenderBackgroundImage` — safety guard + starfield/tunnel** (`OpenGLRenderer.cpp`):
+     Added the DX11 entry guard (`bIsShuttingDown / bIsMinimized / bIsResizing / !bIsInitialized`). In `SCENE_GAMETITLE` after loading: added `fxManager.RenderFX(fxManager.starfieldID, myCamera.GetViewMatrix())` and `fxManager.RenderFX(fxManager.tunnelID, …)` calls — missing previously, so starfield and tunnel never appeared on the title screen. In `SCENE_EXPERIMENT` (debug only): added matching tunnel render, identical to DX11 path.
+
+  6. **Screen recording — OpenGL `CaptureFrame`** (`ScreenRecorder.h`, `ScreenRecorder.cpp`, `OpenGLRenderFrame.cpp`):
+     `ScreenRecorder::CaptureFrame` existed only for DX11 and Vulkan. Added `#elif defined(__USE_OPENGL__) && defined(PLATFORM_WINDOWS)` overload taking `(UINT width, UINT height)`:
+     - Same QPC-based FPS throttle (`m_framePeriod`) as DX11/Vulkan paths.
+     - `glReadPixels(GL_BGRA_EXT, GL_UNSIGNED_BYTE)` into a lazily resized `m_glPixelBuffer`.
+     - Row-flip (OpenGL origin bottom-left → MF top-left) into a temporary buffer.
+     - Delegates to existing `WriteVideoFrame()`.
+     - Private members `m_glPixelBuffer`, `m_glCaptureWidth`, `m_glCaptureHeight` added inside `#elif __USE_OPENGL__` guard.
+     Called in `OpenGLRenderFrame.cpp` before `SwapBuffers` when `screenRecorder.IsRecording()`.
+
+  7. **VSync/frame-rate control — per-frame dynamic toggle** (`OpenGLRenderFrame.cpp`):
+     VSync was set once at context creation (`wglSwapIntervalEXT(1)`). Now tracks `config.myConfig.enableVSync` per-frame via a static `lastVSync` sentinel; calls `wglSwapIntervalEXT(0/1)` only when the setting changes. When VSync is off, applies a ~60 FPS software cap via `std::this_thread::sleep_for` after `SwapBuffers` — mirrors DX11's `Present(0,0)` + `sleep_for(targetFrame - frameTime)` logic.
+
+  8. **Loader thread — loading-stage announcements** (`OpenGL_IOStreamThread.cpp`):
+     `SCENE_GAMETITLE` and `SCENE_GAMEPLAY` were missing the `ShowLoadingText` stage messages (`"Loading textures…"`, `"Initialising lighting…"`, `"Parsing scene…"`, `"Loading audio…"`, `"Building interface…"`, `"Almost ready…"`, `"Updating display…"`) that DX11's `IOStreamDX11Thread.cpp` displays during the loading sequence. Added matching `showStage` lambda and calls at the same points in both scenes and their resize branches. Added `fxManager.StopLoadingText()` before `FadeToImage` in the fresh-load path (mirrors DX11).
+
+  9. **Loader thread — GAMEPLAY resize camera** (`OpenGL_IOStreamThread.cpp`):
+     The `SCENE_GAMEPLAY` resize branch (`wasResizing.load() == true`) had no camera or GUI update. DX11 calls `SetupDefaultCamera(camW, camH)` and `guiManager.OnWindowResize(iOrigWidth, iOrigHeight)` on resize. Added identical resize branch to the OpenGL GAMEPLAY loader: display-mode-aware `camW`/`camH` lookup, `myCamera.SetupDefaultCamera`, `guiManager.OnWindowResize`, `fxManager.StopLoadingText()`.
+
+- *See: [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp), [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`OpenGL_IOStreamThread.cpp`](OpenGL_IOStreamThread.cpp), [`ScreenRecorder.h`](ScreenRecorder.h), [`ScreenRecorder.cpp`](ScreenRecorder.cpp)*
+
+- **Fix — C2664: `glm::mat4` incompatible with `XMMATRIX` in `RenderFX` call sites** (`OpenGLRenderer.cpp`):
+  `RenderBackgroundImage` passed `myCamera.GetViewMatrix()` (returns `glm::mat4`) directly to `GLFXManager::RenderFX(int, const XMMATRIX &)`. On the Windows OpenGL build, `XMMATRIX` is aliased to the custom `Matrix4x4` stub in `Includes.h` (row-major `float m[4][4]`) — not `glm::mat4`. No implicit conversion exists.
+  Fix: at each of the three call sites (starfield + tunnel in `SCENE_GAMETITLE`; tunnel in `SCENE_EXPERIMENT`), convert explicitly via `viewXM.m[r][c] = glmView[c][r]` for all 16 elements before passing. Correct GLM column-major → `Matrix4x4` row-major conversion.
+- *See: [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp)*
+
+- **Feature — OpenGL `LoadTexture` overhauled for full OpenGL pipeline correctness** (`OpenGLRenderer.cpp`):
+  Previous implementation had three correctness gaps; all fixed:
+  1. **No bounds check**: `textureId` was used to index `m_2dTextures[]`/`m_3dTextures[]` without validating it was in range. Added explicit check against `MAX_TEXTURE_BUFFERS` and `MAX_TEXTURE_BUFFERS_3D` before any array access.
+  2. **No wrap-mode set at load time**: Default OpenGL wrap mode is `GL_REPEAT`. For 2D UI textures, this causes edge bleeding on scaled blits. Now sets `GL_CLAMP_TO_EDGE` for 2D (UI) textures and `GL_REPEAT` for 3D (scene) textures at upload time. `Render2DQuad` still overrides wrap mode to `GL_REPEAT` for explicit wrapped-scroll calls.
+  3. **Non-Windows platform stub**: Non-Windows `LoadTexture` returned `false` unconditionally. Now delegates to `OpenGLModelUtils::LoadGLTextureFromFile()` (stb_image) on Linux/Android/iOS/macOS, then applies the same filter/wrap/mipmap setup as the Windows path.
+  Additional improvements: anisotropic filtering applied to 3D textures when `GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT` > 1; `GL_RGBA8` used as the explicit sized internal format (avoids driver choosing a compressed variant); `glGetError()` checked after `glTexImage2D` to catch silent upload failures; `GDI+ LockBits` return code checked; zero-dimension images rejected early; `#include "OpenGLModels.h"` added to `OpenGLRenderer.cpp`.
+
+- **Feature — `LoadAllKnownTextures` per-texture progress logging** (`OpenGLRenderer.cpp`):
+  Added per-slot `LOG_INFO` message naming the texture being loaded, failed-count tracking, and a summary line `"N loaded, M failed (total slots: P)"`. Continues loading remaining slots even if one fails (previously the function would leave subsequent slots unloaded with no indication).
+
+- **Feature — OpenGL renderer version string overlay matches DX11 format** (`OpenGLRenderFrame.cpp`):
+  The bottom-right renderer info overlay previously showed only `"CPGE Windows OpenGL"` — no build number. Added `BuildInfo.h` include and extended the text to `"CPGE Windows OpenGL v<VERSION>.<SUBVERSION>.<BUILD>"` (e.g. `"CPGE Windows OpenGL v0.0.1370"`). Identical format and `std::to_wstring` construction as `DXRenderFrame.cpp`; font size, position (4 px inset from bottom-right), and scene-type filter unchanged.
+- *See: [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp)*
+
+- **Fix — Vulkan `RenderGamePlay` FOV/near/far hardcoded, ignoring `GameConfig.cfg`** (`VULKAN_RenderFrame.cpp`):
+  `RenderGamePlay` built its projection matrix from scratch every frame using `nearZ = 0.1f, farZ = 5000.0f` (hardcoded). While `fovY` read `config.myConfig.fov` correctly, the near and far planes did not use `config.myConfig.nearPlane` (0.1) / `config.myConfig.farPlane` (1000.0), and the manual projection formula was duplicating the work already done by `VulkanCamera::SetupDefaultCamera`. Replaced the entire manual `glm::mat4 proj{...}` block with `myCamera.GetProjectionMatrix()` — the camera already builds the correct Vulkan LH ZO Y-flipped projection using all three config values.
+
+- **Fix — Vulkan screen recorder: command pool race condition causes recording failure** (`VULKAN_RenderFrame.cpp`):
+  `CaptureFrame` was passed `m_loaderCommandPool` for allocating the one-shot capture command buffer. Vulkan command pools are **not thread-safe** — the loader thread also uses `m_loaderCommandPool` for texture uploads during scene loading. If recording starts while loading is still active, both threads allocate/free from the same pool concurrently, causing undefined behaviour and Vulkan validation errors that silently abort the capture. Fix: changed the argument to `m_commandPool` (the render thread's exclusive command pool), which is never touched by any other thread during `CaptureFrame`.
+
+- **Fix — Vulkan recording start dimensions wrong on DPI-scaled displays** (`main.cpp`):
+  `StartRecording` for Vulkan called `GetClientRect` for frame dimensions. On per-monitor-DPI setups, `GetClientRect` returns logical pixels while the Vulkan swapchain operates in physical pixels. Mismatch between `StartRecording` dimensions (logical) and `CaptureFrame` dimensions (physical) produces garbled or truncated video. Added a `#elif defined(__USE_VULKAN__)` block that casts to `VulkanRenderer*` and calls `GetSwapchainExtent()` to get exact physical dimensions; falls back to `GetClientRect` only if the extent is unavailable.
+
+- **Fix — console window and GUI occluded by 3D models in Vulkan** (`VULKAN_RenderFrame.cpp`):
+  The D2D overlay composite (containing GUI windows, F8 console, FPS overlay, starfield, tunnel, cursor, REC badge) was drawn **before** `RenderGamePlay`, so 3D geometry rendered on top of every UI element including the console. Moved the overlay composite (`vkCmdDraw` of `m_overlayTexture`) to **after** `RenderGamePlay` and before `fxManager.Render()`. The background GPU-texture blit (IMG_GAMEINTRO1) remains before 3D so the background image stays behind scene geometry. New render order: background → 3D models → D2D overlay (UI, console, starfield) → FX fades.
+
+- **Fix — console window and GUI occluded by fade effects in OpenGL; fxManager.Render() relocated** (`OpenGLRenderFrame.cpp`):
+  `fxManager.Render()` (fullscreen fades, starfield, tunnel) was called immediately after `fxManager.Render2D()`, placing it before `guiManager.Render()` and `consoleWindow.Render()`. This meant fade-to-black overlays appeared behind the console (console was visible during a supposed fade). Moved `fxManager.Render()` to **after** the console, cursor, and REC indicator — matching DX11 where `fxManager.Render()` executes after `D2D EndDraw` (which contains all GUI/console content). New OpenGL render order: background → 3D models → 2D overlays → FX 2D → FPS/OSD/HUD → GUI → console → cursor → REC → FX fades → present.
+- *See: [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`main.cpp`](main.cpp), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp)*
 
 ---
 
