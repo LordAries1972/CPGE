@@ -1,4 +1,4 @@
-# DirectX 11 & 12, OpenGL & Vulkan Game Engine
+﻿# DirectX 11 & 12, OpenGL & Vulkan Game Engine
 
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
@@ -55,22 +55,30 @@ lets make this Engine great!
 #### 2026
 
 - [May 2026](#may-2026---more-major-updates-and-fixes)
+  - [02](#may-02-2026) · [03-04](#may-03-04-2026) · [06](#may-06-2026) · [08](#may-08-2026) · [10](#may-10-2026) · [11](#may-11-2026) · [14](#may-14-2026) · [15](#may-15-2026) · [16](#may-16-2026) · [17](#may-17-2026) · [18](#may-18-2026) · [19](#may-19-2026) · [20](#may-20-2026) · [21](#may-21-2026) · [22](#may-22-2026) · [23](#may-23-2026) · [24](#may-24-2026) · [28](#may-28-2026) · [29](#may-29-2026) · [30](#may-30-2026) · [31](#may-31-2026)
 - [April 2026](#april-2026---bug-fixes-and-updates)
+  - [18](#april-18-2026) · [19](#april-19-2026) · [20](#april-20-2026) · [21](#april-21-2026) · [22](#april-22-2026) · [26-27](#april-26-27-2026)
 
 #### 2025
 - July 2025 -> Took time here to work on some of my Blender Add-ons so the 3D work can start.
 
 - [June 2025](#june-2025---ai-and-data-systems)
+  - [1](#june-1-2025) · [2](#june-2-2025) · [3](#june-3-2025) · [5](#june-5-2025) · [6](#june-6-2025) · [7](#june-7-2025) · [8](#june-8-2025) · [09-10](#june-09-10-2025) · [15](#june-15-2025) · [17](#june-17-2025)
 - [May 2025](#may-2025---advanced-features)
+  - [5](#may-5-2025) · [12](#may-12-2025) · [16](#may-16-2025) · [17](#may-17-2025) · [18](#may-18-2025) · [21](#may-21-2025) · [23](#may-23-2025) · [25](#may-25-2025) · [27](#may-27-2025) · [30](#may-30-2025) · [31](#may-31-2025)
 - [April 2025](#april-2025---3d-rendering-breakthrough)
+  - [1](#april-1-2025) · [3](#april-3-2025) · [4](#april-4-2025) · [5](#april-5-2025) · [9](#april-9-2025) · [15](#april-15-2025) · [16](#april-16-2025) · [17](#april-17-2025) · [18](#april-18-2025) · [24](#april-24-2025) · [26](#april-26-2025) · [29](#april-29-2025) · [30](#april-30-2025)
 - [March 2025](#march-2025---core-development)
+  - [11](#march-11-2025) · [12](#march-12-2025) · [14](#march-14-2025) · [15](#march-15-2025) · [16](#march-16-2025) · [17](#march-17-2025) · [18](#march-18-2025) · [21](#march-21-2025) · [25](#march-25-2025) · [26](#march-26-2025) · [27](#march-27-2025) · [28](#march-28-2025) · [29](#march-29-2025) · [30](#march-30-2025)
 - [January 2025](#january-2025---major-restructuring-start)
+  - [1](#january-1-2025) · [7](#january-7-2025)
 
 #### 2024
 - June 2024 => Dec 2024 - Initial Project started, various modules where created, but with not fully carefully thinking out the development plan, I decided to do a clean restart of the project again, whilst maintaining what I had already developed and could be used.
 
 #### 2023
 - [September 2023](#september-2023---project-foundation)
+  - [11](#september-11-2023)
 
 ### [Future Development](#future-development)
 ### [Technical Requirements](#technical-requirements)
@@ -115,24 +123,38 @@ Once the base DirectX 11 implementation is complete, the project will be release
 ## Development History
 
 ### September 2023 - Project Foundation
-**September 11, 2023** - Original Conceptional Idea and Project started with focus on building just core interface class modules.
+#### September 11, 2023
+
+Original Conceptional Idea and Project started with focus on building just core interface class modules.
 
 ### January 2025 - Major Restructuring Start
 
-**January 1, 2025** - Complete project restart with improved architecture and efficiency  
-**January 7, 2025** - XM Module Player and Class implementation began  
+#### January 1, 2025
+
+Complete project restart with improved architecture and efficiency  
+#### January 7, 2025
+
+XM Module Player and Class implementation began  
 
 ### March 2025 - Core Development
 
-**March 11, 2025** - Debug Class implementation for Visual Studio 2019/2022 output window integration
+#### March 11, 2025
 
-**March 12, 2025** - ThreadManager Class creation for safe thread management  
+Debug Class implementation for Visual Studio 2019/2022 output window integration
+
+#### March 12, 2025
+
+ThreadManager Class creation for safe thread management  
 *See: [`ThreadManager.h/.cpp`](ThreadManager.h)*
 
-**March 14, 2025** - DirectX Camera class object implementation  
+#### March 14, 2025
+
+DirectX Camera class object implementation  
 *See: [`DXCamera.h/.cpp`](DXCamera.h)*
 
-**March 15, 2025** - Core rendering functionality achieved:
+#### March 15, 2025
+
+Core rendering functionality achieved:
 - FPS display and mouse cursor rendering
 - Loader Thread (LoaderTaskThread) startup, processing, and closure
 - Render Thread (RenderFrame) startup, processing, and closure
@@ -143,7 +165,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - 2D object blitting with transparency
 - SteamWorks Class & SDK integration (not yet implemented)
 
-**March 16, 2025** - Audio and input systems:
+#### March 16, 2025
+
+Audio and input systems:
 - Full functional MP3 Player (threaded) using WindowsMedia API  
   *See: [`WinMediaPlayer.h`](WinMediaPlayer.h)*
 - Complete joystick/gamepad handler with mapping save/load functionality
@@ -152,52 +176,80 @@ Once the base DirectX 11 implementation is complete, the project will be release
   *See: [`WinSystem.h`](WinSystem.h)*
 - Windows 10+ system requirements enforcement
 
-**March 17, 2025** - GPU detection implementation
+#### March 17, 2025
 
-**March 18, 2025** - MP3Player enhancements:
+GPU detection implementation
+
+#### March 18, 2025
+
+MP3Player enhancements:
 - Playlist support
 - Auto-restart for single song playback
 
-**March 21, 2025** - ThreadManager Class improvements  
+#### March 21, 2025
+
+ThreadManager Class improvements  
 *See: [`ThreadManager.h`](ThreadManager.h)*
 
-**March 25, 2025** - GUIManager system implementation:
+#### March 25, 2025
+
+GUIManager system implementation:
 - Custom window creation with control support
 - Input handling and event management
 - 2D draw/image support
 
-**March 26, 2025** - GUIManager enhancements  
+#### March 26, 2025
+
+GUIManager enhancements  
 *See: [`GUIManager.h/.cpp`](GUIManager.h)*
 
-**March 27, 2025** - Documentation improvements with usage examples in individual .cpp files
+#### March 27, 2025
 
-**March 28, 2025** - SoundManager system implementation  
+Documentation improvements with usage examples in individual .cpp files
+
+#### March 28, 2025
+
+SoundManager system implementation  
 *See: [`SoundManager.h/.cpp`](SoundManager.h)*
 
-**March 29, 2025** - FX Manager implementation with screen fading routines  
+#### March 29, 2025
+
+FX Manager implementation with screen fading routines  
 *See: [`FXManager.h/.cpp`](FXManager.h)*
 
-**March 30, 2025** - FX Manager scrolling effects for tiled images
+#### March 30, 2025
+
+FX Manager scrolling effects for tiled images
 
 ### April 2025 - 3D Rendering Breakthrough
 
-**April 1, 2025** - Major restructuring milestone:
+#### April 1, 2025
+
+Major restructuring milestone:
 1. **XMMODPlayer Class** - Fully functional DirectX Sound playback  
 	*See: [`XMMODPlayer.h/.cpp`](XMMODPlayer.h), [`Docs/XMMODPlayer-Example-Usage.md`](Docs/XMMODPlayer-Example-Usage.md)*
 2. **Cross-platform preparation** - Major restructuring for multi-platform support
 
-**April 3, 2025** - Rendering system simplification:
+#### April 3, 2025
+
+Rendering system simplification:
 - Enhanced renderer abstraction  
   *See: [`main.cpp`](main.cpp), [`Renderer.h`](Renderer.h), [`RendererMacros.h`](RendererMacros.h), [`RendererFactory.cpp`](RendererFactory.cpp)*
 - SoundManager rework: XAudio2 → DirectSound transition
 
-**April 4, 2025** - Core functionality improvements:
+#### April 4, 2025
+
+Core functionality improvements:
 - Full window resizing implementation
 - XMMODPlayer Class enhancements
 
-**April 5, 2025** - Documentation expansion in [`/Docs`](Docs/) folder
+#### April 5, 2025
 
-**April 9, 2025** - 3D rendering breakthrough:
+Documentation expansion in [`/Docs`](Docs/) folder
+
+#### April 9, 2025
+
+3D rendering breakthrough:
 - 3D OBJ model rendering with textures, normal maps, lighting, and shading
 - Manual model loading for educational purposes.
 - Pixel shader debugging capabilities  
@@ -207,127 +259,177 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - Basic model animation implementation
 - Atomic operations corrections
 
-**April 15, 2025** - Wireframe mode toggle (F2 key)
+#### April 15, 2025
 
-**April 16, 2025** - Scene Manager development (75% complete)  
+Wireframe mode toggle (F2 key)
+
+#### April 16, 2025
+
+Scene Manager development (75% complete)  
 *GLTF/.bin 2.0 format support*
 
-**April 17, 2025** - Debug system enhancements:
+#### April 17, 2025
+
+Debug system enhancements:
 - `logLevelMessage()` and `logDebugMessage()` file output
 - Date/time stamping implementation  
 *See: [`Debug.h/.cpp`](Debug.h)*
 
-**April 18, 2025** - Camera system overhaul:
+#### April 18, 2025
+
+Camera system overhaul:
 - Complete DXCamera rework  
 *See: [`DXCamera.h/.cpp`](DXCamera.h)*
 - Cursor key navigation implementation
 - Mouse right-button yaw/pitch control
 - Mouse wheel zoom functionality
 
-**April 24, 2025** - **STABLE RELEASE**: Basic GLTF 2.0 scene model parsing and rendering
+#### April 24, 2025
+
+**STABLE RELEASE**: Basic GLTF 2.0 scene model parsing and rendering
 - Functional wireframe mode
 - Pixel shader optimization pending
 
-**April 26, 2025** - **STABLE RELEASE**: GLTF 2.0 Parser optimization:
+#### April 26, 2025
+
+**STABLE RELEASE**: GLTF 2.0 Parser optimization:
 - Full functionality achievement
 - Basic lighting support  
 *See: [`SceneManager.h/.cpp`](SceneManager.h), [`Models.h/.cpp`](Models.h)*
 
-**April 29, 2025** - Window management improvements:
+#### April 29, 2025
+
+Window management improvements:
 - Resize functionality
 - Scene data reloading/re-initialization
 - Clean exit implementation
 
-**April 30, 2025** - **STABLE RELEASE**: Enhanced user experience:
+#### April 30, 2025
+
+**STABLE RELEASE**: Enhanced user experience:
 - Camera position preservation during resize
 - Loader-ring animation bug fixes
 
 ### May 2025 - Advanced Features
 
-**May 5, 2025** - Sketchfab integration and effects:
+#### May 5, 2025
+
+Sketchfab integration and effects:
 - Sketchfab GLTF parsing support
 - 2D Particle explosion (fireworks) effects in FXManager  
 *See: [`DX_FXManager.h/.cpp`](DX_FXManager.h)*
 
-**May 12, 2025** - **100% FUNCTIONAL**: Gamepad/Joystick integration:
+#### May 12, 2025
+
+**100% FUNCTIONAL**: Gamepad/Joystick integration:
 - Complete 2D and 3D scenario support
 - Camera movement integration
 
-**May 16, 2025** - **STABLE RELEASE**: Thread-safe video rendering:
+#### May 16, 2025
+
+**STABLE RELEASE**: Thread-safe video rendering:
 - .AVI/.MP4 file support
 - Video streaming without sound (by design)
 - External audio track overlay capability  
 *See: [`MoviePlayer.h/.cpp`](MoviePlayer.h)*
 
-**May 17, 2025** - Scene sequencing implementation:
+#### May 17, 2025
+
+Scene sequencing implementation:
 - Splash screen → Intro movie → Game intro flow
 - 3D Starfield effect in FXManager
 
-**May 18, 2025** - Display management:
+#### May 18, 2025
+
+Display management:
 - Exclusive fullscreen implementation
 - Scene-specific rendering stages (FUSI - Fully Utilize Scene Implementation)
 
-**May 21, 2025** - ThreadManager locking enhancements:
+#### May 21, 2025
+
+ThreadManager locking enhancements:
 - Lock/Unlock functionality
 - CheckLock/TryLock functions  
 *See: [`ThreadManager.h/.cpp`](ThreadManager.h)*
 
-**May 23, 2025** - Text effects and mathematics:
+#### May 23, 2025
+
+Text effects and mathematics:
 - FXManager text scroller routines (LTOR, RTOL, Consistent, Movie)  
 *See: [`DX_FXManager.h/.cpp`](DX_FXManager.h), [`Docs/FXManager-TextScrollers-Example-Usage.md`](Docs/FXManager-TextScrollers-Example-Usage.md)*
 - MathPrecalculation Class introduction  
 *See: [`MathPrecalculation.h/.cpp`](MathPrecalculation.h), [`Docs/MathPrecalculation-Example-Usage.md`](Docs/MathPrecalculation-Example-Usage.md)*
 
-**May 25, 2025** - Fullscreen mode completion:
+#### May 25, 2025
+
+Fullscreen mode completion:
 - Screen mode selection (width, height)
 - Smooth transitions
 - Default RELEASE build behavior
 - Threaded renderer stability improvements
 
-**May 27, 2025** - **[IN PROGRESS]**: Multi-renderer integration:
+#### May 27, 2025
+
+**[IN PROGRESS]**: Multi-renderer integration:
 - OpenGL & DirectX 12 implementation analysis
 - Cross-platform renderer support architecture
 - Runtime renderer selection capability
 - Future: Vulkan & Android support
 
-**May 30, 2025** - Platform verification and TTS implementation:
+#### May 30, 2025
+
+Platform verification and TTS implementation:
 - DirectX11 renderer compilation verification
 - TTSManager (Text To Speech) implementation  
 *See: [`TTSManager.h/.cpp`](TTSManager.h), [`Docs/TTSManager-Example-Usage.md`](Docs/TTSManager-Example-Usage.md)*
 
-**May 31, 2025** - Network infrastructure:
+#### May 31, 2025
+
+Network infrastructure:
 - Threaded TCP/UDP Network Manager for Windows  
 *See: [`NetworkManager.h/.cpp`](NetworkManager.h), [`Docs/NetworkManager-Example-Usage.md`](Docs/NetworkManager-Example-Usage.md)*
 
 ### June 2025 - AI and Data Systems
 
-**June 1, 2025** - Data management and player systems:
+#### June 1, 2025
+
+Data management and player systems:
 - **PUNPack Class**: Compression/decompression with checksum support  
 *See: [`PUNPack.h/.cpp`](PUNPack.h), [`Docs/PUNPack-Example-Usage.md`](Docs/PUNPack-Example-Usage.md)*
 - **GamePlayer, GameAccount & GameStatus Classes**: Complete player management  
 *See: [`GamePlayer.h/.cpp`](GamePlayer.h), [`Docs/GamePlayer-Example-Usage.md`](Docs/GamePlayer-Example-Usage.md)*
 
-**June 2, 2025** - AI system implementation:
+#### June 2, 2025
+
+AI system implementation:
 - **GamingAI Class**: Player strategy learning and adaptation  
 *See: [`GamingAI.h/.cpp`](GamingAI.h), [`Docs/GamingAI-Example-Usage.md`](Docs/GamingAI-Example-Usage.md)*
 
-**June 3, 2025** - File operations and random generation:
+#### June 3, 2025
+
+File operations and random generation:
 - **Thread-Safe FileIO Class**: Cross-platform file operations  
 *See: [`FileIO.h/.cpp`](FileIO.h), [`Docs/FileIO-Example-Usage.md`](Docs/FileIO-Example-Usage.md)*
 - **MyRandomizer Class**: Gaming-focused random number generation  
 *See: [`MyRandomizer.h/.cpp`](MyRandomizer.h), [`Docs/MyRandomizer-Example-Usage.md`](Docs/MyRandomizer-Example-Usage.md)*
 
-**June 5, 2025** - Exception handling:
+#### June 5, 2025
+
+Exception handling:
 - **ExceptionHandler Class**: Comprehensive exception capture and logging  
 *See: [`ExceptionHandler.h/.cpp`](ExceptionHandler.h), [`Docs/ExceptionHandler-Example-Usage.md`](Docs/ExceptionHandler-Example-Usage.md)*
 
-**June 6, 2025** - **STABLE**: Shader management system:
+#### June 6, 2025
+
+**STABLE**: Shader management system:
 - **ShaderManager Class**: Multi-platform shader support (HLSL, GLSL, SPIR-V)  
 *See: [`ShaderManager.h/.cpp`](ShaderManager.h), [`Docs/ShaderManager-Example-Usage.md`](Docs/ShaderManager-Example-Usage.md)*
 - Models.cpp and main.cpp integration
 - RenderFrame() relocated to seperate file [`DXRenderFrame.cpp`](DXRenderFrame.cpp) as all master rendering should be place here.
 
-**June 7, 2025** - **STABLE**: Cleaning up and Documentation Conversion to Mark Down
+#### June 7, 2025
+
+**STABLE**: Cleaning up and Documentation Conversion to Mark Down
 - **ShaderManager Class**: Some basic rework and removed non-needed functionality for Windows Platform.  
 - Fixed a couple of bugs/reworked a couple of things in main.cpp file.
 - Existing Documents in [`Docs/`](/Docs) have been converted to Mark Down format for easier reading and referencing via GitHUB.
@@ -339,7 +441,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - Created Example usage file for [`Lighting`](Docs/Light-Example-Usage.md)
 - Created Example usage file for [`Models`](Docs/Model-Example-Usage.md)
 
-**June 8, 2025** - **STABLE**: DirectX Camera Management System:
+#### June 8, 2025
+
+**STABLE**: DirectX Camera Management System:
 - **Camera Class**: Implemented Camera Animation, Jump & Rotate functions with options for speed & target focusing.
                     Which is now also compliant for both DirectX 11 & 12 platforms.
 - *See: [`DXCamera.h/.cpp`](DXCamera.h), [`Docs/DXCamera-Example-Usage.md`](Docs/DXCamera-Example-Usage.md)*
@@ -347,7 +451,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - **KeyboardHandler Class**: Implemented Keyboard Handler Class that supports various functionality for all supporting OS Platforms.
 - *See: [`KeyboardHandler.h/.cpp`](KeyboardHandler.h), [`Docs/KeyboardHandler-Example-Usage.md`](Docs/KeyboardHandler-Example-Usage.md)*
 
-**June 09-10, 2025** - Implementation: Comprehensive Physics Class Implementation:
+#### June 09-10, 2025
+
+Implementation: Comprehensive Physics Class Implementation:
 
 - Physics Class: Complete physics simulation system with 10 major physics laws implemented
 - MathPrecalculation Integration: Added 8 new physics optimization methods with lookup tables
@@ -356,7 +462,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - Some bug fixes for the DXCamera
 - *See: [`Physics.h/.cpp`](Physics.h), [`Docs/Physics-Example-Usage.md`](Docs/Physics-Example-Usage.md)*
 
-**June 15, 2025** - Implementation: SceneManager Enhancements:
+#### June 15, 2025
+
+Implementation: SceneManager Enhancements:
 
 - Implemented ParseGLBScene() which now imports GLB 2.0 format files.
 - GLTFAnimator Class: Complete Animation system that are parsed via ParseGLTFScene() or ParseGLBScene() in SceneManager class.
@@ -364,7 +472,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - Created the SceneManager & Animator Documentation.
 - *See: [`GLTFAnimator.h/.cpp`](GLTFAnimator.h), [`Docs/SceneManager-Example-Usage.md`](Docs/SceneManager-Example-Usage.md)*
 
-**June 17, 2025** - Bug Fixes & Corrections: SceneManager & GLTFAnimator:
+#### June 17, 2025
+
+Bug Fixes & Corrections: SceneManager & GLTFAnimator:
 
 - Fixed various issues in the Scene Managers ParseGLTFScene() & ParseGLBScene() functionality for diverse compatibility with Blender v4.4
 - GLTFAnimator Class: Corrected various problems in regards to Animations, playback is now smooth and with looping.
@@ -374,7 +484,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
 
 ### April 2026 - Bug fixes and Updates
 
-**April 18, 2026** - Bug Fixes & Corrections: SceneManager, GLTFAnimator and Screen & Audio Recorder:
+#### April 18, 2026
+
+Bug Fixes & Corrections: SceneManager, GLTFAnimator and Screen & Audio Recorder:
 
 - Fixed various issues in the Scene Managers ParseGLTFScene() & ParseGLBScene() functionality for diverse compatibility from version 4 and including up-to with Blender v5.1
 - Model animation playback is now working as expected.
@@ -382,14 +494,18 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - Created Example usage file for [`ScreenRecorder`](Docs/ScreenRecorder-Example-Usage.md)
 - After initial release, found ScreenRecording with sound was not syncing correctly - FIXED! (Home Key to toggle recording modes)
 
-**April 19, 2026** - Fixed and add new features to the Screen Recording System:
+#### April 19, 2026
+
+Fixed and add new features to the Screen Recording System:
 
 - Added the Ability to record Microphone and volume settings using the num_keypad + and - keys for volume adjustment.
 - Added an OSD when the microphone volume settings have changed and is displayed for 10 seconds after change.
 - All sounds are NOW properly in sync regardless of what fps we are recording at.
 - Movie Playback now supports Sound Output and can be played at said given base Frame Rate.
 
-**April 20, 2026** - Fixed DX11 Screen Resizing Issues:
+#### April 20, 2026
+
+Fixed DX11 Screen Resizing Issues:
 
 - Fixed Screen Resizing Issues.
 - Fixed Render Bug in GUIManager.cpp
@@ -397,7 +513,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - Optimisation of code.
 - Clean Exit (0) {8-)
 
-**April 21, 2026** - More updates and fixes:
+#### April 21, 2026
+
+More updates and fixes:
 
 - More Screen Resizing Issues found and fixed (Out to kill this mofo of a bug!) - so some very thorough testing going on over here!
 - Added Pre Background (1st) Image before rendering for 3D and post 2D Images to the render pipeline - See RenderBackgroundImage().
@@ -422,7 +540,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
   thank you everybody who does as this is an FOSS project and your support is always welcomed!  How about you get onboard yeah and turn this
   to magic and have your name be recognised within the community!
   
-**April 22, 2026** - More updates and fixes:
+#### April 22, 2026
+
+More updates and fixes:
 
 - Joystick/Gamepad reads configuration sensitivity settings and is maintained.
 - Version stamping to the configuration file is now stamped and maintained.
@@ -433,7 +553,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - CMAKE Support and now can compile with it, Linux support will be added soon for compiling, but cmake can be used on linux right!?.
     Use "cmake-build.bat debug" or "cmake-build.bat release"
 
-**April 26-27, 2026** - More updates and fixes:
+#### April 26-27, 2026
+
+More updates and fixes:
 
 - Added a loading screen during loading phase so its clear to users that data is been loaded in.
 - Fixed Lighting Ordering.
@@ -453,7 +575,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
 
 ### May 2026 - More major updates and fixes
 
-**May 02, 2026** - More major updates and fixes:
+#### May 02, 2026
+
+More major updates and fixes:
 
 - Real Time in runtime configuration management system (GUIConfigWindow.cpp) - This is your panel for 
   Game configuruation and must reflect with your Configuration.h/cpp file, bring to life now the real 
@@ -467,7 +591,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - No more highlighting of text in the config panel, do not what I was thinking, lot of copying and paste in the errors - 
   Just goes to show, shortcuts never pay off!
 
-**May 03-04, 2026** - Display mode and mouse cursor system now fully config-driven:
+#### May 03-04, 2026
+
+Display mode and mouse cursor system now fully config-driven:
 
 - Startup display mode now reads `displayMode` from the configuration file (0=Windowed, 1=Borderless, 2=Full Screen) rather than being hard-coded by debug/release build type.
 - **Windowed mode**: Windows cursor is visible on the title bar and resize borders so the user can drag and resize the window; hidden inside the client area where the engine renders its own cursor.
@@ -478,7 +604,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - `StartRendererThreads()` is now called immediately after the display mode switch so the loader ring is visible throughout the entire remaining init sequence (sound, movie, joystick, callbacks) for all modes.
 - **Fix — loader ring invisible after display mode change:** `SetWindowPos` calls for Windowed and Borderless modes were firing `WM_SIZE` synchronously before `StartRendererThreads()`, which triggered `Resize()` → `Clean2DTextures()` → `m_d2dRenderTarget.Reset()` and wiped all D2D texture state before the loader thread could load `BG_LOADER_CIRCLE`. Fix: flag-setting and `SetWindowLong` (borderless style) remain in the startup switch; all `SetWindowPos` geometry calls are now deferred until immediately after `StartRendererThreads()` returns, so any subsequent `WM_SIZE` executes through the designed resize path with the loader already active.
 
-**May 06, 2026** - MoviePlayer A/V sync overhaul — audio no longer advances ahead of video:
+#### May 06, 2026
+
+MoviePlayer A/V sync overhaul — audio no longer advances ahead of video:
 
 - Fixed sync clock miscalibration: old formula compared `(videoPTS − firstVideoPTS)` against
   `SamplesPlayed / sampleRate`, which only held when both streams shared the same file start PTS.
@@ -536,7 +664,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
   [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp), [`VULKAN_IOStreamThread.h`](VULKAN_IOStreamThread.h),
   [`VULKAN_IOStreamThread.cpp`](VULKAN_IOStreamThread.cpp), [`Includes.h`](Includes.h)*
 
-**May 08, 2026** - 3D Warp Dot Tunnel FX system (`Init3DWarpDOTTunnel`):
+#### May 08, 2026
+
+3D Warp Dot Tunnel FX system (`Init3DWarpDOTTunnel`):
 
 - Added a new `FXType::WarpDotTunnel` effect — a Doctor Who–style 3D rotating dot-circle tunnel
   with full perspective projection, density-based ring spawning, and sine-path XY drift.
@@ -572,7 +702,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
   [`VULKAN_FXManager.h`](VULKAN_FXManager.h), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp),
   [`DXRenderFrame.cpp`](DXRenderFrame.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp)*
 
-**May 10, 2026** - WarpDotTunnel fly-through camera overhaul and straight-tunnel redesign:
+#### May 10, 2026
+
+WarpDotTunnel fly-through camera overhaul and straight-tunnel redesign:
 
 - **Straight tunnel geometry** — removed the sine-path XY winding from both `Init3DWarpDOTTunnel`
   and `UpdateWarpDotTunnel`. Ring centres no longer drift up to 300 world units from the tunnel
@@ -634,7 +766,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - *See: [`ScriptManager.h`](ScriptManager.h), [`ScriptManager.cpp`](ScriptManager.cpp),
   [`Scripts/`](Scripts/), [`Docs/Scripting-Example-Usage.md`](Docs/Scripting-Example-Usage.md)*
 
-**May 11, 2026** - Bug fixes, hardcoded resolution audit, and ScriptManager pipeline integration:
+#### May 11, 2026
+
+Bug fixes, hardcoded resolution audit, and ScriptManager pipeline integration:
 
 - **Bug fix — full-screen quarter-screen rendering**: `DX11Renderer::SetupViewport()` had hardcoded
   `DEFAULT_WINDOW_WIDTH` (800) and `DEFAULT_WINDOW_HEIGHT` (600). On a 1600×1200 display those values
@@ -691,7 +825,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
   - *See: [`main.cpp`](main.cpp), [`DXRenderFrame.cpp`](DXRenderFrame.cpp),
     [`ScriptManager.h`](ScriptManager.h), [`ScriptManager.cpp`](ScriptManager.cpp)*
 
-**May 14, 2026** - ScriptManager v1.1 — Variables and FOR loop support added:
+#### May 14, 2026
+
+ScriptManager v1.1 — Variables and FOR loop support added:
 
 - **VAR directive** — typed global variable declarations added to the script language.
   Four types supported: `int` (C++ `int`), `bool` (C++ `bool`), `float` (C++ `float`),
@@ -737,7 +873,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
   [`CMakeLists.txt`](CMakeLists.txt), [`CrossPlatformGameEngine.vcxproj`](CrossPlatformGameEngine.vcxproj),
   [`Docs/Scripting-Example-Usage.md`](Docs/Scripting-Example-Usage.md)*
 
-**May 14, 2026** - SCENE_EXPERIMENT black screen fix — WarpDotTunnel not rendering:
+#### May 14, 2026
+
+SCENE_EXPERIMENT black screen fix — WarpDotTunnel not rendering:
 
 - **Bug fix — SCENE_EXPERIMENT rendered a pure black screen with no tunnel visible**: `RenderBackgroundImage()`
   had no case for `SCENE_EXPERIMENT` in its scene switch, so it fell through to `default: break` every frame.
@@ -786,7 +924,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
   paths read current live values regardless of when the loader thread runs.
 - *See: [`IOStreamDX11Thread.cpp`](IOStreamDX11Thread.cpp)*
 
-**May 14, 2026** - Renderer selection added to configuration system:
+#### May 14, 2026
+
+Renderer selection added to configuration system:
 
 - `config.myConfig.rendererType` (int) added to `MyConfig` — persisted to `GameConfig.cfg` as
   `"rendererType"`. Not included in the checksum (consistent with all other display settings).
@@ -811,7 +951,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
   [`Includes.h`](Includes.h), [`RendererFactory.cpp`](RendererFactory.cpp),
   [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp), [`Renderer.h`](Renderer.h)*
 
-**May 15, 2026** - WarpDotTunnel speed profile overhaul:
+#### May 15, 2026
+
+WarpDotTunnel speed profile overhaul:
 
 - **WarpDotTunnel — forward direction quadratic acceleration**: Ring travel speed now uses a
   quadratic curve instead of a linear ramp. Rings are very slow far from the camera and
@@ -841,7 +983,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
     alongside `SetMicMonitorGain`, keeping monitor and record gain permanently in sync.
 - *See: [`ScreenRecorder.h`](ScreenRecorder.h), [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp), [`main.cpp`](main.cpp)*
 
-**May 16, 2026** - Console Output Window, WarpDotTunnel enhancements and spin fix:
+#### May 16, 2026
+
+Console Output Window, WarpDotTunnel enhancements and spin fix:
 
 **Console Output Window (F8 toggle):**
 
@@ -863,7 +1007,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - **Bug fix — reverse-mode spin direction inverted**: spin delta negated when `reverseTravel = true` (`spinDelta = (reverseTravel ? -spinSpeed : spinSpeed) * dt`). `Clockwise`/`AntiClockwise` now consistent regardless of travel direction. Applied identically in DX and VK.
 - *See: [`DX_FXManager.h`](DX_FXManager.h), [`DX_FXManager.cpp`](DX_FXManager.cpp), [`VULKAN_FXManager.h`](VULKAN_FXManager.h), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp)*
 
-**May 17, 2026** - Full multi-renderer implementation pass — OpenGL/Vulkan infrastructure, build system fixes, and zero-error OpenGL build achieved (v0.0.1219):
+#### May 17, 2026
+
+Full multi-renderer implementation pass — OpenGL/Vulkan infrastructure, build system fixes, and zero-error OpenGL build achieved (v0.0.1219):
 
 - **GUIManager Z-order input routing**: `GUIWindow::zOrder` auto-assigned from a monotonic counter at `CreateMyWindow`. Render snapshot sorted ascending; input routed to topmost window only; occluded windows have hover flags cleared; in-progress drags continue receiving `HandleMouseMove` until release.
 
@@ -887,7 +1033,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
 
 - *See: [`GUIManager.h`](GUIManager.h), [`GUIManager.cpp`](GUIManager.cpp), [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp), [`Configuration.cpp`](Configuration.cpp), [`Includes.h`](Includes.h), [`CMakeLists.txt`](CMakeLists.txt), [`CrossPlatformGameEngine.vcxproj`](CrossPlatformGameEngine.vcxproj), [`OpenGLRenderer.h`](OpenGLRenderer.h), [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`OpenGLFXManager.h`](OpenGLFXManager.h), [`OpenGLFXManager.cpp`](OpenGLFXManager.cpp), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp), [`OpenGL_IOStreamThread.h`](OpenGL_IOStreamThread.h), [`OpenGL_IOStreamThread.cpp`](OpenGL_IOStreamThread.cpp), [`OpenGLCamera.h`](OpenGLCamera.h), [`OpenGLCamera.cpp`](OpenGLCamera.cpp), [`VulkanCamera.h`](VulkanCamera.h), [`VulkanCamera.cpp`](VulkanCamera.cpp), [`OpenGLModels.h`](OpenGLModels.h), [`OpenGLModels.cpp`](OpenGLModels.cpp), [`VulkanModels.h`](VulkanModels.h), [`VulkanModels.cpp`](VulkanModels.cpp), [`Models.h`](Models.h), [`Renderer.h`](Renderer.h), [`SceneManager.cpp`](SceneManager.cpp), [`GUIWindows.cpp`](GUIWindows.cpp), [`KBHandlersCode.cpp`](KBHandlersCode.cpp), [`ScreenRecorder.cpp`](ScreenRecorder.cpp), [`MoviePlayer.h`](MoviePlayer.h), [`cmake-build.bat`](cmake-build.bat), [`Directory.Build.targets`](Directory.Build.targets), [`RendererFactory.cpp`](RendererFactory.cpp), [`main.cpp`](main.cpp)*
 
-**May 18, 2026** - Multi-renderer build hardening, feature additions, and OpenGL runtime fixes (v0.0.1246):
+#### May 18, 2026
+
+Multi-renderer build hardening, feature additions, and OpenGL runtime fixes (v0.0.1246):
 
 **Build fixes:**
 
@@ -1007,7 +1155,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - *See: [`Configuration.cpp`](Configuration.cpp), [`ShaderLoaders.cpp`](ShaderLoaders.cpp),
   [`MoviePlayer.cpp`](MoviePlayer.cpp)*
 
-**May 19, 2026** - SceneManager cache, models disk cache, version overlay, window client-area fix, renderer selection centralised (v0.0.1262):
+#### May 19, 2026
+
+SceneManager cache, models disk cache, version overlay, window client-area fix, renderer selection centralised (v0.0.1262):
 
 **SceneManager — geometry pre-cache and bug fixes:**
 
@@ -1059,7 +1209,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - **Fix — `build/Debug/CrossPlatformGameEngine.vcxproj`**: stripped the stale `;__USE_DIRECTX_11__` entry from all four configuration `PreprocessorDefinitions` blocks in the currently generated file so VS builds are clean immediately. This file is regenerated on every `cmake-build.bat` run; the CMakeLists.txt change ensures future regenerations are also correct.
 - *See: [`CMakeLists.txt`](CMakeLists.txt), [`build/Debug/CrossPlatformGameEngine.vcxproj`](build/Debug/CrossPlatformGameEngine.vcxproj)*
 
-**May 20, 2026 — Shutdown fix, repeated-message guards, comprehensive cache-restore verification, texture reload on disk-cache restore, cache.dat write-once guard, unconditional cache revalidation, full cache-restore correctness overhaul all renderers (v0.0.1269–1273):**
+#### May 20, 2026
+
+Shutdown fix, repeated-message guards, comprehensive cache-restore verification, texture reload on disk-cache restore, cache.dat write-once guard, unconditional cache revalidation, full cache-restore correctness overhaul all renderers (v0.0.1269–1273):
 
 - **Shutdown deadlock / continued rendering after fade**: `bIsShuttingDown` was being set *after* `RemoveWindow`, meaning the render thread could still compose and present frames during window teardown. Moved `threadManager.threadVars.bIsShuttingDown.store(true)` to immediately after the fade-wait completes (and before `RemoveWindow`). The render loop's existing early-exit guard (`if (bIsShuttingDown) return;`) now fires on the very next frame after the fade, so no frames are rendered during or after GUI teardown.
 - **Repeated debug messages — `FindParentModelID`**: Warning `"Model not found in scene_models array"` was emitted every render frame when `SplashShipName` / `ShipName1` were temporarily absent from `scene_models[]` (common during scene transitions). Replaced the unconditional `logDebugMessage` with a `static std::unordered_set<std::wstring>` once-guard so each unique model name produces at most one warning per session.
@@ -1075,12 +1227,16 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - **Cache-restore correctness overhaul — all renderers** (`v0.0.1273`): The GLB and GLTF cache fast-paths had three structural defects that caused wrong geometry flip, broken animations, and missing textures on every reload: (1) The GLB file was re-read AFTER models were restored from cache, meaning `m_blenderConfig` (axis flip/winding), exporter detection, camera, and lights were all stale when models were written into `scene_models[]`. Fixed by restructuring both paths to parse the document FIRST — `DetectGLTFExporter`, `BlenderImports::BuildConfig`, `ParseGLTFCamera`, `ParseGLTFLights`, `ParseMaterialsFromGLTF`, and `ParseAnimationsFromGLTF` are all called before any `scene_models[]` entry is touched, exactly matching the first-load order. (2) GPU rebuild (vertex/index/constant buffer null-check → `SetupModelForRendering`) and texture write-back to `models[]` were wrapped in `#if defined(__USE_DIRECTX_11__)`, leaving Vulkan and OpenGL completely unguarded — a Vulkan reload never rebuilt missing `VkBuffer`/`VkPipeline` handles and never rebound descriptor sets; an OpenGL reload never checked `VAO`/`VBO`/`EBO`. Expanded to renderer-specific `#if` chains: DX11/DX12 check ComPtr nullness, Vulkan checks `VK_NULL_HANDLE`, OpenGL checks zero handles; write-back mirrors each renderer's GPU fields. (3) The silent `catch (...)` that swallowed all JSON parse exceptions is replaced with a logged `LOG_ERROR` + fallthrough to the full parse so errors are visible and the scene still loads correctly. The GLTF path had an additional bug: it only ran the mini-parse when `!bAnimationsLoaded || texturesNeedReload` — permanently skipping on same-session reloads. Both paths now: parse document first, fail safely to full parse if JSON is corrupt, and always rebind materials/textures for all renderers unconditionally.
 - *See: [`SceneManager.cpp`](SceneManager.cpp), [`BuildInfo.h`](BuildInfo.h)*
 
-**May 21, 2026 — Cache-restore animation fix: ClearAllAnimations before re-parse, startup guard matches full-parse path (v0.0.1274–1276):**
+#### May 21, 2026
+
+Cache-restore animation fix: ClearAllAnimations before re-parse, startup guard matches full-parse path (v0.0.1274–1276):
 
 - **Cache-restore animations not playing** (`v0.0.1274–1276`): After the v0.0.1273 cache-restore overhaul textures and materials restored correctly but animations never fired. Two defects fixed: (1) `gltfAnimator.ClearAllAnimations()` was not called before `ParseAnimationsFromGLTF` in either cache fast-path (GLB and GLTF). Without this, stale `m_animationInstances` from previous scene loads survived the re-parse, leaving the animator in an inconsistent state on every reload. (2) The cache fast-path's Step 5 did not check the return value of `CreateAnimationInstance` before calling `ForceAnimationReset` / `StartAnimation`, diverging from the full-parse startup path which guards those calls with `if (created)`. Both cache fast-paths now call `ClearAllAnimations()` before `ParseAnimationsFromGLTF` and mirror the full-parse startup exactly. Diagnostic logging added to Step 5 under `_DEBUG_SCENEMANAGER_` to trace `bAnimationsLoaded`, `GetAnimationCount()`, and per-animation `parentID` from `FindParentModelIDForAnimation`.
 - *See: [`SceneManager.cpp`](SceneManager.cpp), [`BuildInfo.h`](BuildInfo.h)*
 
-**May 22, 2026 — Cache-restore: bLoadedFromCache flag, GLTF .bin reload fix, unconditional animation debug, animLocal reset to base pose; renderer-prefixed output EXE naming (v0.0.1277–1279):**
+#### May 22, 2026
+
+Cache-restore: bLoadedFromCache flag, GLTF .bin reload fix, unconditional animation debug, animLocal reset to base pose; renderer-prefixed output EXE naming (v0.0.1277–1279):
 
 - **VS2022 project — BUILD IDENTITY banner** (`CrossPlatformGameEngine.vcxproj`): The `PrintSDKDiagnostics` MSBuild target (runs `BeforeTargets="ClCompile"`) now opens with a `BUILD IDENTITY` section showing the active renderer, its define symbol, the output `.exe` filename, the output directory, and the active `Configuration|Platform`. Renderer detection uses an inline PowerShell one-liner that reads `Includes.h` at build-time and extracts the first non-commented `__USE_DIRECTX_11__` / `__USE_DIRECTX_12__` / `__USE_OPENGL__` / `__USE_VULKAN__` define — mapping it to a human-readable name (`DirectX 11`, `DirectX 12`, `OpenGL`, `Vulkan`). This fires on every build so the Output window always confirms the correct renderer and output path before any source file is compiled.
 - **VS2022 project — renderer-prefixed output EXE** (`CrossPlatformGameEngine.vcxproj`): `PrintSDKDiagnostics` detects the renderer and sets `_RendererPrefix` (`DX` / `DX12` / `OpenGL` / `Vulkan`). A `CopyRendererExe` target (`AfterTargets="Link"`) copies the primary linker output (`CPGE.exe`) to a renderer-prefixed copy (`DXCPGE.exe` / `DX12CPGE.exe` / `OpenGLCPGE.exe` / `VulkanCPGE.exe`) in the same output directory. Both files exist after each build: VS2022 uses `CPGE.exe` (the static `$(TargetPath)`) for its debugger launch, so F5/Ctrl+F5 continues to work without configuration changes; the prefixed copy is the distributable / renderer-identified binary. Note: VS2022 evaluates `$(TargetPath)` at project-load time (static), so the linker output name cannot be changed dynamically without breaking the VS2022 debugger — the copy approach is the only design that satisfies both requirements simultaneously.
@@ -1092,7 +1248,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - **Unconditional animation debug output** (both cache paths, Step 5): All animation-related logging in the cache-path Step 5 was behind `#if defined(_DEBUG_SCENEMANAGER_)`, meaning animation binding results were invisible unless that define was active. Replaced with `logLevelMessage` calls (always active): Step 5 header now logs `bAnimationsLoaded`, `GetAnimationCount()`, and `instanceIndex`; per-animation logs report `parentID` from `FindParentModelIDForAnimation` and whether `CreateAnimationInstance` succeeded or failed. `gltfAnimator.DebugPrintAnimationInfo()` is now called in both cache paths after `ParseAnimationsFromGLTF` (matching the full-parse path), so animation definitions and instances are always dumped to the log on cache reload.
 - *See: [`SceneManager.h`](SceneManager.h), [`SceneManager.cpp`](SceneManager.cpp), [`BuildInfo.h`](BuildInfo.h)*
 
-**May 23, 2026 — ConsoleWindow: live keyboard input, ScriptManager dispatch, full-height layout, command line bar, 500-line buffer, scrollbar refinements, position/size constants; TextFadeInOut loading-screen text effect across all renderers/platforms; FXManager-Example-Usage.md updated with TextFadeInOut documentation (v0.0.1285–1288):**
+#### May 23, 2026
+
+ConsoleWindow: live keyboard input, ScriptManager dispatch, full-height layout, command line bar, 500-line buffer, scrollbar refinements, position/size constants; TextFadeInOut loading-screen text effect across all renderers/platforms; FXManager-Example-Usage.md updated with TextFadeInOut documentation (v0.0.1285–1288):
 
 - **Live keyboard input** (`main.cpp`, `KBHandlersCode.cpp`): `WM_CHAR` case added to `WindowProc` — routes translated Unicode characters to `consoleWindow.HandleChar()` while the console is visible, consuming the message so the game loop never sees it. `KEY_BACKSPACE` and `KEY_ENTER` cases added to `SetKeyUpHandler` in `KBHandlersCode.cpp`, calling `HandleBackspace()` and `HandleEnter()` respectively. Printable WM_CHAR values (≥ 32, ≠ DEL) are appended to `m_cmdLine`; control characters sent by WM_CHAR for Backspace/Enter are filtered by the existing `c >= 32` guard so they never double-fire.
 - **ScriptManager command dispatch** (`ScriptManager.h/.cpp`, `main.cpp`): New public `ExecuteCommandLine(const std::string&)` method on `ScriptManager` — parses a single command line via the existing `ParseLine()` / `DispatchCommand()` pipeline, with guards for uninitialized state and concurrent async execution (both log to console and return safely). After `scriptManager.Initialize()` in `main.cpp`, a lambda is registered via `consoleWindow.SetCommandCallback()` that narrows the `wstring` and calls `ExecuteCommandLine`. Guarded by `#ifdef __USE_SCRIPT_MANAGER__`. When the macro is absent, `HandleEnter()` still echoes the command to the output area but no dispatch fires.
@@ -1137,7 +1295,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - **Fix 2 — defensive guard in both fast-paths** (`ParseGLBScene` and `ParseGLTFScene`): after `CopyFrom(models[m])` inside the `bGpuReady` branch, a `#if defined(__USE_DIRECTX_11__)` guard checks `!constantBuffer && !vertices.empty()`. If true (GPU resources absent despite `bGpuReady`), `SetupModelForRendering(idx)` is called immediately and all resulting GPU handles are written back into `models[m]` so subsequent same-session reloads find valid resources in the fast-path.
 - *See: [`SceneManager.cpp`](SceneManager.cpp)*
 
-**May 24, 2026 — TextFader loading-screen stage messages: progressive stage text via ShowLoadingText in GAMETITLE and GAMEPLAY loader threads; RenderLoadingText moved to second D2D overlay block; StopLoadingText before scene transition; horizontal centering and cross-fade timing fixes; TextFadeInOut blip fix and graceful fade-out; TextFadeInOut hold-until-stopped behaviour fix (v0.0.1295–1301):**
+#### May 24, 2026
+
+TextFader loading-screen stage messages: progressive stage text via ShowLoadingText in GAMETITLE and GAMEPLAY loader threads; RenderLoadingText moved to second D2D overlay block; StopLoadingText before scene transition; horizontal centering and cross-fade timing fixes; TextFadeInOut blip fix and graceful fade-out; TextFadeInOut hold-until-stopped behaviour fix (v0.0.1295–1301):
 
 - **Progressive loading-stage text** (`IOStreamDX11Thread.cpp`): `ShowLoadingText()` calls added at each major loading stage in `SCENE_GAMETITLE` and `SCENE_GAMEPLAY` loader paths — "Loading textures...", "Initialising lighting...", "Parsing scene...", "Loading audio...", "Building interface...", "Almost ready..." — using a per-case `showStage` lambda (Segoe UI 20pt, white, horizontally centred at Y=392, 0.4 s fade-in / 0.25 s fade-out with cross-fade between stages). Resize path gets "Updating display..." stage message.
 - **RenderLoadingText moved to second D2D overlay block** (`DXRenderFrame.cpp`): `RenderLoadingText()` removed from `RenderBackgroundImage()` (first D2D pass — image-only layer). It is now called in the scene-specific section of the second D2D overlay block for `SCENE_GAMETITLE` and `SCENE_GAMEPLAY` when `!bLoaderTaskFinished`. The second D2D block executes after the background blit, so text is correctly layered on top. The `IsFadeActive()` guard was dropped — the `ColorFader` D3D fullscreen quad (rendered via `fxManager.Render()` after `EndDraw()`) naturally covers text while the fade is active; once the fade completes the stage text is fully visible.
@@ -1157,7 +1317,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
   - **Fix — `RemoveCompletedEffects` premature deletion (v0.0.1300–1301)** (`DX_FXManager.cpp`, `VULKAN_FXManager.cpp`, `OpenGLFXManager.cpp`): `TextFadeInOut` effects with `timeout=0` were removed by `RemoveCompletedEffects()` on the very first `Render()` call (elapsed time ≥ 0 is always true), killing them before the hold phase was ever visible. Added a dedicated guard in `RemoveCompletedEffects` for all three renderers: TextFadeInOut effects are now removed only when `fx.progress >= 1.0f` (i.e., when `UpdateTextFadeInOut` has explicitly moved them to `Stopped` or `immediateStop`). The timeout path is bypassed entirely. OpenGL additionally now correctly removes Stopped TextFadeInOut effects instead of leaking them in the vector forever. Combined with `displayDuration = -1.0f` (already set in `ShowLoadingText`), effects now fade in → hold at full colour indefinitely → fade out only on `StopLoadingText()` or a new `ShowLoadingText()` call, matching the intended behaviour.
 - *See: [`DXRenderFrame.cpp`](DXRenderFrame.cpp), [`IOStreamDX11Thread.cpp`](IOStreamDX11Thread.cpp), [`Renderer.h`](Renderer.h), [`DX11Renderer.cpp`](DX11Renderer.cpp), [`DX_FXManager.h`](DX_FXManager.h), [`DX_FXManager.cpp`](DX_FXManager.cpp), [`VULKAN_FXManager.h`](VULKAN_FXManager.h), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`OpenGLFXManager.h`](OpenGLFXManager.h), [`OpenGLFXManager.cpp`](OpenGLFXManager.cpp), [`BuildInfo.h`](BuildInfo.h)*
 
-**May 29, 2026** - cmake-build.bat: renderer + config argument support:
+#### May 29, 2026
+
+cmake-build.bat: renderer + config argument support:
 
 - `cmake-build` now accepts `cmake-build <renderer> <Debug|Release>` syntax.
   Renderer is the first argument; build config is the second (default: `Debug`).
@@ -1180,8 +1342,6 @@ Once the base DirectX 11 implementation is complete, the project will be release
   - Regex discriminates the Windows block (8-space-indented `#define`) from Linux/Android/Apple blocks (`//#define` with no whitespace gap) so only the Windows renderer section is ever patched.
   - DirectX 11 and 12 are blocked with an error if the detected OS is not Windows; OpenGL and Vulkan are permitted on all platforms.
 - *See: [`cmake-build.bat`](cmake-build.bat)*
-
-**May 29, 2026 (update)** — Debug call-stack log on crash (`ExceptionHandler.h`, `ExceptionHandler.cpp`, `Includes.h`):
 
 - **New: `CALLSTACK_LOG_FILENAME` define** (`Includes.h`):
   Added `#define CALLSTACK_LOG_FILENAME "Except-CallStack.log"` with a comprehensive in-header
@@ -1211,7 +1371,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
 
 - *See: [`ExceptionHandler.h`](ExceptionHandler.h), [`ExceptionHandler.cpp`](ExceptionHandler.cpp), [`Includes.h`](Includes.h)*
 
-**May 28, 2026** — OpenGL black-screen root-cause analysis and full DX11-parity pass (`OpenGLRenderer.cpp`, `OpenGLRenderFrame.cpp`, `OpenGLFXManager.cpp`, `main.cpp`):
+#### May 28, 2026
+
+OpenGL black-screen root-cause analysis and full DX11-parity pass (`OpenGLRenderer.cpp`, `OpenGLRenderFrame.cpp`, `OpenGLFXManager.cpp`, `main.cpp`):
 
 - **Bug fix — GL context owned by wrong thread (black screen root cause 1)**:
   `Initialize()` runs on the main thread and made the WGL context current there. The render thread launched by `StartRendererThreads()` then called OpenGL functions without ever acquiring the context, producing a black screen on every frame.
@@ -1336,8 +1498,6 @@ Once the base DirectX 11 implementation is complete, the project will be release
   `bLoaderTaskFinished.store(true)` in `SCENE_INTRO`, `SCENE_GAMETITLE`, and `SCENE_GAMEPLAY`.
 
 - *See: [`main.cpp`](main.cpp), [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`OpenGL_IOStreamThread.cpp`](OpenGL_IOStreamThread.cpp)*
-
-**May 29, 2026** — Vulkan pipeline DX11-parity pass and conditional safeguards (`VULKAN_Renderer.cpp`, `VULKAN_RenderFrame.cpp`, `MoviePlayer.cpp`):
 
 - **Linker fix — duplicate `s_loaderMutex` definition** (`VULKAN_Renderer.cpp`):
   `VULKAN_Renderer.cpp` defined `std::mutex VulkanRenderer::s_loaderMutex` and so did `VULKAN_IOStreamThread.cpp`, producing an ODR linker error whenever `__USE_VULKAN__` was active. Removed the duplicate from `VULKAN_Renderer.cpp`; `VULKAN_IOStreamThread.cpp` remains the canonical definition (mirrors DX11 pattern: `IOStreamDX11Thread.cpp` owns `DX11Renderer::s_loaderMutex`). Only `s_renderMutex` is now defined in `VULKAN_Renderer.cpp`.
@@ -1488,8 +1648,6 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - *See: [`VULKAN_Renderer.h`](VULKAN_Renderer.h), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp),
   [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp)*
 
-**May 29, 2026 (update 2)** — Vulkan swapchain stability: surface-lost recovery, depth double-free fix, zero-extent guard, `VK_ERROR_SURFACE_LOST_KHR` handling; config renderer auto-correct persisted to disk (`VULKAN_Renderer.h`, `VULKAN_Renderer.cpp`, `VULKAN_RenderFrame.cpp`, `Configuration.cpp`):
-
 - **Bug fix — double-free crash on consecutive RecreateSwapChain calls** (`VULKAN_Renderer.cpp` `CleanupSwapChain()`):
   `m_depthImageView`, `m_depthImage`, and `m_depthImageMemory` were destroyed but their handles were never nulled. If `CleanupSwapChain` ran a second time (e.g. the first `CreateSwapChain` threw and the render loop retried), the validation layer reported `vkDestroyImageView / vkDestroyImage / vkFreeMemory: Couldn't find Object` and the Access Violation SEH crash followed immediately.
   Fixed: each destroy call is now followed by assigning the handle to `VK_NULL_HANDLE`, consistent with how `m_renderPass` and `m_swapchain` were already handled.
@@ -1512,8 +1670,6 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - *See: [`VULKAN_Renderer.h`](VULKAN_Renderer.h), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp),
   [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`Configuration.cpp`](Configuration.cpp)*
 
-**May 29, 2026 (update 3)** — Debug log line-ending fix and `VulkanRenderer::LoadTexture` COM + safety overhaul (`Debug.cpp`, `VULKAN_Renderer.cpp`):
-
 - **Bug fix — DebugLog.txt lines merging (Windows line endings)** (`Debug.cpp`):
   `Insert_Into_Log_File` opened the log with `std::wofstream(filename, std::ios::app)` and wrote `L"\n"`. The C++ text-mode `\n`→`\r\n` translation is locale- and platform-dependent on `std::wofstream`; in practice under MSVC with the default "C" locale the translation was unreliable, producing LF-only output. Viewers that expect CRLF (including older Notepad and many log monitors) displayed consecutive entries on the same line — the symptom was most visible on `[WARNING]` messages from the rapid-fire texture-load loop.
   Fixed: opened the stream in `std::ios::app | std::ios::binary` mode and replaced every `L"\n"` with explicit `L"\r\n"` (session-start banner and per-entry line). Binary mode disables all runtime `\n` translation so the explicit `\r\n` writes are preserved verbatim, giving correct Windows CRLF regardless of locale.
@@ -1534,7 +1690,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
 
 - *See: [`Debug.cpp`](Debug.cpp), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp)*
 
-**May 30, 2026** — Major Vulkan pipeline pass: debug logging, 2D overlay, 3D model rendering, audio, threading, crash fixes, Linux/Android CMake build system (`Debug.cpp`, `VULKAN_Renderer.h`, `VULKAN_Renderer.cpp`, `VULKAN_RenderFrame.cpp`, `Models.h`, `Models.cpp`, `SceneManager.cpp`, `MoviePlayer.h`, `MoviePlayer.cpp`, `SoundManager.h`, `SoundManager.cpp`, `XMMODPlayer.cpp`, `VULKAN_IOStreamThread.cpp`, `VULKAN_FXManager.cpp`, `VulkanModels.h`, `VulkanModels.cpp`, `GUIManager.cpp`, `Linux/CMakeLists.txt`, `Linux/cmake-build.sh`, `Linux/cmake-build-android.sh`, `Linux/toolchain-android.cmake`):
+#### May 30, 2026
+
+Major Vulkan pipeline pass: debug logging, 2D overlay, 3D model rendering, audio, threading, crash fixes, Linux/Android CMake build system (`Debug.cpp`, `VULKAN_Renderer.h`, `VULKAN_Renderer.cpp`, `VULKAN_RenderFrame.cpp`, `Models.h`, `Models.cpp`, `SceneManager.cpp`, `MoviePlayer.h`, `MoviePlayer.cpp`, `SoundManager.h`, `SoundManager.cpp`, `XMMODPlayer.cpp`, `VULKAN_IOStreamThread.cpp`, `VULKAN_FXManager.cpp`, `VulkanModels.h`, `VulkanModels.cpp`, `GUIManager.cpp`, `Linux/CMakeLists.txt`, `Linux/cmake-build.sh`, `Linux/cmake-build-android.sh`, `Linux/toolchain-android.cmake`):
 
 - **Root cause — log lines merging: concurrent thread writes interleaving** (`Debug.cpp`):
   After the previous `\r\n` fix, lines were still merging. The runtime log showed entries like
@@ -1718,7 +1876,9 @@ Once the base DirectX 11 implementation is complete, the project will be release
 
 - *See: [`Debug.cpp`](Debug.cpp), [`VULKAN_Renderer.h`](VULKAN_Renderer.h), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`Models.h`](Models.h), [`Models.cpp`](Models.cpp), [`SceneManager.cpp`](SceneManager.cpp), [`MoviePlayer.h`](MoviePlayer.h), [`MoviePlayer.cpp`](MoviePlayer.cpp), [`SoundManager.h`](SoundManager.h), [`SoundManager.cpp`](SoundManager.cpp), [`XMMODPlayer.cpp`](XMMODPlayer.cpp), [`VULKAN_IOStreamThread.cpp`](VULKAN_IOStreamThread.cpp), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp), [`VulkanModels.h`](VulkanModels.h), [`VulkanModels.cpp`](VulkanModels.cpp), [`GUIManager.cpp`](GUIManager.cpp), [`Linux/CMakeLists.txt`](Linux/CMakeLists.txt), [`Linux/cmake-build.sh`](Linux/cmake-build.sh), [`Linux/cmake-build-android.sh`](Linux/cmake-build-android.sh), [`Linux/toolchain-android.cmake`](Linux/toolchain-android.cmake)*
 
-**May 31, 2026** — Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU upload, `Model::Render`, light animation, screen recording, `Lights.h`/`VulkanModels` guards; `XM_2PI` DirectXMath dependency removed; UBO matrix transpose bug fixed (models now visible); SCENE_INTRO fade draw-order fixed; SCENE_INTRO_MOVIE version overlay and spacebar skip added (`Lights.h`, `Lights.cpp`, `VulkanModels.h`, `VulkanModels.cpp`, `Models.cpp`, `ScreenRecorder.h`, `ScreenRecorder.cpp`, `VULKAN_RenderFrame.cpp`):
+#### May 31, 2026
+
+Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU upload, `Model::Render`, light animation, screen recording, `Lights.h`/`VulkanModels` guards; `XM_2PI` DirectXMath dependency removed; UBO matrix transpose bug fixed (models now visible); SCENE_INTRO fade draw-order fixed; SCENE_INTRO_MOVIE version overlay and spacebar skip added (`Lights.h`, `Lights.cpp`, `VulkanModels.h`, `VulkanModels.cpp`, `Models.cpp`, `ScreenRecorder.h`, `ScreenRecorder.cpp`, `VULKAN_RenderFrame.cpp`):
 
 - **Confirmed — model rendering already implemented in `RenderGamePlay`** (`VULKAN_RenderFrame.cpp`):
   `RenderGamePlay()` already iterates `scene.scene_models[]`, skips transform-proxy nodes, builds the per-model `VKCameraUBO`, binds diffuse texture descriptor set (set=0), binds UBO descriptor set (set=1), binds vertex/index buffers, and issues `vkCmdDrawIndexed`. No code was missing from the draw path itself.
@@ -1796,8 +1956,6 @@ Once the base DirectX 11 implementation is complete, the project will be release
 
 - *See: [`Lights.h`](Lights.h), [`Lights.cpp`](Lights.cpp), [`VulkanModels.h`](VulkanModels.h), [`VulkanModels.cpp`](VulkanModels.cpp), [`Models.cpp`](Models.cpp), [`ScreenRecorder.h`](ScreenRecorder.h), [`ScreenRecorder.cpp`](ScreenRecorder.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`VULKAN_IOStreamThread.cpp`](VULKAN_IOStreamThread.cpp), [`SceneManager.cpp`](SceneManager.cpp)*
 
-**May 31, 2026 (update)** — Vulkan X-position flip fixed; full PBR material pipeline implemented; material logging improved (`BlenderImports.h`, `BlenderImports.cpp`, `VULKAN_Renderer.h`, `VULKAN_Renderer.cpp`, `VULKAN_RenderFrame.cpp`, `Models.h`, `Models.cpp`, `SceneManager.cpp`):
-
 - **Fix — GLTF→Vulkan axis flip was FLIP_Y instead of FLIP_Z** (`BlenderImports.h`):
   `GLTF_DEFAULT_FLIP` was set to `FLIP_Y` for all Vulkan builds. On Windows, Vulkan uses DirectXMath (left-handed Y-up world space — same as DX11/DX12). The Y-down clip space convention is handled entirely by `proj[1][1] *= -1.0f` in the renderer, not by modifying vertex data. Using FLIP_Y caused model X-axis rotation/orientation to be incorrectly reflected. Fixed: `GLTF_DEFAULT_FLIP = FLIP_Z` for all Vulkan builds (matching DX11/DX12). Log message updated: "GLTF→Vulkan Z-flip active" (removed the incorrect "GLTF→DX Z-flip" wording).
 
@@ -1816,8 +1974,6 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - **Feature — Informative material logging in `ParseMaterialsFromGLTF`** (`SceneManager.cpp`):
   The `Material[N]` debug log now always emits the material name, base colour factor, metallic/roughness values, alpha mode, and which texture slots (diffuse/normal/ORM/AO) are present — on a single line. Previously these details were only printed when individual property blocks existed, resulting in bare `Material[N]` lines for many materials.
 
-**May 31, 2026 (update 2)** — Vulkan X-axis mirror fixed (root cause: RH lookAt in LH world); LH ZO projection; movie spacebar-skip now fades before stopping (`VulkanCamera.cpp`, `VULKAN_RenderFrame.cpp`, `VULKAN_Renderer.h`):
-
 - **Critical fix — Vulkan X-axis mirror: VulkanCamera used glm::lookAt (RH) in a LH world** (`VulkanCamera.cpp`):
   `glm::lookAt` computes the camera right vector as `cross(forward, worldUp)`. With the camera looking in +Z (LH convention), this yields `cross(+Z, +Y) = −X` — so the camera's right vector pointed LEFT. Every model appeared mirror-flipped on the X axis.
   Fix: Replaced ALL 15 `glm::lookAt` calls with `glm::lookAtLH` throughout `VulkanCamera.cpp`. `glm::lookAtLH` computes right as `cross(worldUp, forward) = cross(+Y, +Z) = +X`. Models now appear on the correct side of the screen.
@@ -1830,8 +1986,6 @@ Once the base DirectX 11 implementation is complete, the project will be release
   Previous behaviour: Space immediately called `moviePlayer.Stop()` + `bSceneSwitching = true` then started the fade — an abrupt hard cut. New behaviour: Space triggers `FadeToBlack(1.0, 0.06)` only. Frame counter `m_movieSkipFrames` counts from 0; after 30 frames (≥ fade duration at 60fps) `moviePlayer.Stop()` and `scene.bSceneSwitching = true` are set. The movie continues playing (silently fading) until the screen is black.
 
 - *See: [`BlenderImports.h`](BlenderImports.h), [`BlenderImports.cpp`](BlenderImports.cpp), [`VULKAN_Renderer.h`](VULKAN_Renderer.h), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`Models.h`](Models.h), [`Models.cpp`](Models.cpp), [`SceneManager.cpp`](SceneManager.cpp), [`VulkanCamera.h`](VulkanCamera.h), [`VulkanCamera.cpp`](VulkanCamera.cpp)*
-
-**May 31, 2026 (update 3)** — Vulkan rendering corrections: missing faces restored, starfield X flip corrected, Config Window DWrite crash fixed, movie skip fade timing extended (`VULKAN_Renderer.cpp`, `VULKAN_FXManager.cpp`, `VULKAN_RenderFrame.cpp`):
 
 - **Fix — Missing model faces** (`VULKAN_Renderer.cpp`):
   After correcting the camera to LH (`glm::lookAtLH`), the 3D pipeline's backface culling (`VK_CULL_MODE_BACK_BIT`) began hiding faces that were previously shown by the old inverted-camera bug. Changed to `VK_CULL_MODE_NONE` to render all faces unconditionally. Proper per-material doubleSided support will be implemented in a future pass; disabling culling is the safe interim state.
@@ -1846,6 +2000,14 @@ Once the base DirectX 11 implementation is complete, the project will be release
   Fade speed reduced from 0.06 to 0.04 (completes in ~25 frames at 60fps instead of 17), and the post-fade wait counter increased from 30 to 50 frames. This ensures the screen is visually fully black before `moviePlayer.Stop()` and `scene.bSceneSwitching = true` are set.
 
 - *See: [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp)*
+
+**ReleaseInfo.md — Navigation and consolidation improvements:**
+
+- All date entries converted from bold paragraph text (`**Date**`) to Markdown `####` headings, enabling direct GitHub-linkable anchors with no HTML required.
+- Table of Contents expanded: every month entry now lists all its date entries as inline links (e.g. `[31](#may-31-2026)`) so any date can be reached in one click from the TOC.
+- Consolidated **May 29, 2026** same-day entries (cmake-build, debug call-stack log, OpenGL black-screen fixes, Vulkan DX11-parity pass, Vulkan swapchain stability, LoadTexture overhaul) into one block under a single heading.
+- Consolidated **May 31, 2026** same-day entries (model rendering confirmed, PBR materials, axis/projection fixes, starfield fix, Config Window DWrite crash, recording, movie skip) into one block under a single heading.
+- *See: [`ReleaseInfo.md`](ReleaseInfo.md)*
 
 ---
 
@@ -1877,20 +2039,28 @@ Since this is early-stage days of development (WIP), major reconstruction may oc
 
 ### **📋 Current Priority Tasks**
 
-**May 27, 2025** - Multi-renderer implementation:
+#### May 27, 2025
+
+Multi-renderer implementation:
 - OpenGL Renderer for Windows/Linux/MacOS/Android (WIP)
 - Vulkan Renderer for Windows/Linux/Android (WIP)
 - Radeon Renderer for Windows & Linux (For AMD Users (WIP))
 
-**March 16, 2025** - Platform integrations:
+#### March 16, 2025
+
+Platform integrations:
 - Steam Class implementation (WIP)
 - GooglePlay interface for Android (WIP)
 - AppStore interface for iOS (WIP)
 
-**May 25, 2025** - Optimization:
+#### May 25, 2025
+
+Optimization:
 - Code optimizations and refactoring
 
-**June 7, 2025** - Sub-Systems Extending:
+#### June 7, 2025
+
+Sub-Systems Extending:
 - Some System Classes need more work to suit other platforms.
 ---
 
