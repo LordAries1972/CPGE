@@ -68,13 +68,16 @@ extern std::atomic<bool>     bFullScreenTransition;
 extern bool                  bResizing;
 
 // ---------------------------------------------------------------------------------------------------------------
-// UBO layout matching the 3D vertex shader
+// UBO layout matching the 3D vertex shader (set=0, binding=0)
+// Fields: model(mat4) + view(mat4) + proj(mat4) + camPos(vec4) + scale(vec4) = 224 bytes
 // ---------------------------------------------------------------------------------------------------------------
 struct VKCameraUBO
 {
-    float model[16];
-    float view[16];
-    float proj[16];
+    float model[16];   // 64 bytes
+    float view[16];    // 64 bytes
+    float proj[16];    // 64 bytes
+    float camPos[4];   // 16 bytes (xyz + pad)
+    float scale[4];    // 16 bytes (xyz + pad)
 };
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -96,13 +99,25 @@ inline void VulkanRenderer::RenderGamePlay(float deltaTime)
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_3dPipeline);
 
     // Camera matrices — VulkanCamera returns GLM types on all platforms.
+    // View: VulkanCamera uses glm::lookAtLH — right-vector = +X for a camera looking in +Z (LH world).
+    // Projection: left-handed, depth [0,1] (Vulkan ZO), Y-flipped for Vulkan Y-down NDC.
+    //   Computed manually: glm::perspectiveLH_ZO may need GLM ext headers; this is self-contained.
+    //   LH ZO formula: w_clip = +z_view, so front objects (z_view > 0) have positive w → correct divide.
     glm::vec3 camPos = myCamera.GetPosition();
     glm::mat4 view   = myCamera.GetViewMatrix();
-    glm::mat4 proj   = glm::perspective<float>(
-        glm::radians<float>(config.myConfig.fov > 0.0f ? config.myConfig.fov : 60.0f),
-        static_cast<float>(m_renderTargetWidth) / static_cast<float>(m_renderTargetHeight),
-        0.1f, 5000.0f);
-    proj[1][1] *= -1.0f; // Vulkan Y-flip (NDC Y-down)
+    glm::mat4 proj;
+    {
+        float fovY    = glm::radians<float>(config.myConfig.fov > 0.0f ? config.myConfig.fov : 60.0f);
+        float aspect  = static_cast<float>(m_renderTargetWidth) / static_cast<float>(m_renderTargetHeight);
+        const float nearZ = 0.1f, farZ = 5000.0f;
+        float tanHalf = std::tan(fovY * 0.5f);
+        proj = glm::mat4(0.0f);
+        proj[0][0] =  1.0f / (aspect * tanHalf);
+        proj[1][1] = -1.0f / tanHalf;   // 1/tanHalf * -1 for Vulkan Y-down NDC
+        proj[2][2] =  farZ / (farZ - nearZ);
+        proj[2][3] =  1.0f;             // w_clip = z_view (LH convention)
+        proj[3][2] = -(farZ * nearZ) / (farZ - nearZ);
+    }
 
     if (!threadManager.threadVars.bLoaderTaskFinished.load()) return;
 
@@ -110,14 +125,13 @@ inline void VulkanRenderer::RenderGamePlay(float deltaTime)
     lightsManager.AnimateLights(deltaTime);
 
     // ---- Light push constant (computed once per frame, pushed before draw loop) ----
-    // Vulkan uses a push constant for scene lighting; the layout matches the 3D fragment shader.
+    // Matches the 3D fragment shader push_constant block: lightDir+intensity+lightColor+ambient = 32 bytes.
+    // Camera position is now in the transform UBO (camPos field), so viewPos is removed here.
     struct VKLightPC {
         float lightDir[3];
         float intensity;
         float lightColor[3];
         float ambientStrength;
-        float viewPos[3];
-        float _pad;
     } lpc{};
 
     {
@@ -127,14 +141,17 @@ inline void VulkanRenderer::RenderGamePlay(float deltaTime)
             lpc.lightDir[0]     = sun.direction.x;
             lpc.lightDir[1]     = sun.direction.y;
             lpc.lightDir[2]     = sun.direction.z;
-            lpc.intensity       = sun.intensity;
+            lpc.intensity       = sun.intensity > 0.0f ? sun.intensity : 1.0f;
             lpc.lightColor[0]   = sun.color.x;
             lpc.lightColor[1]   = sun.color.y;
             lpc.lightColor[2]   = sun.color.z;
-            lpc.ambientStrength = sun.ambient.x;
-            lpc.viewPos[0]      = camPos.x;
-            lpc.viewPos[1]      = camPos.y;
-            lpc.viewPos[2]      = camPos.z;
+            lpc.ambientStrength = sun.ambient.x > 0.0f ? sun.ambient.x : 0.1f;
+        } else {
+            // Default sunlight if no lights are configured
+            lpc.lightDir[0] = -0.3f; lpc.lightDir[1] = -1.0f; lpc.lightDir[2] = -0.3f;
+            lpc.intensity       = 1.0f;
+            lpc.lightColor[0]   = 1.0f; lpc.lightColor[1] = 1.0f; lpc.lightColor[2] = 1.0f;
+            lpc.ambientStrength = 0.1f;
         }
     }
     vkCmdPushConstants(cmd, m_3dPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -151,69 +168,54 @@ inline void VulkanRenderer::RenderGamePlay(float deltaTime)
 
         m.m_modelInfo.fxActive = false; // mirrors DX11 RenderGamePlay
 
-        // ---- Build per-model UBO (world / view / proj matrices) ----
+        // ---- Build per-model transform UBO (set=0, binding=0) ----
+        // Layout: model(mat4) + view(mat4) + proj(mat4) + camPos(vec4) + scale(vec4) = 224 bytes
         VKCameraUBO ubo{};
 #if defined(PLATFORM_WINDOWS)
-        // DirectXMath stores matrices row-major.  When GLSL reads 16 floats as a
-        // column-major mat4 it implicitly sees the transpose of the DirectX matrix,
-        // which is exactly the column-vector form the shader needs.  Do NOT call
-        // XMMatrixTranspose here — that would double-invert and send the wrong matrix.
-        XMMATRIX world = m.GetWorldMatrix();
+        // DirectXMath stores matrices row-major. GLSL reads them column-major: the byte
+        // layout is automatically the correct transpose, so do NOT call XMMatrixTranspose.
+        XMMATRIX world;
+        if (m.m_modelInfo.bHasBaseLocalTRS)
+        {
+            world = m.GetWorldMatrix();
+        }
+        else
+        {
+            world = XMMatrixScaling(m.m_modelInfo.scale.x, m.m_modelInfo.scale.y, m.m_modelInfo.scale.z)
+                  * XMMatrixRotationRollPitchYaw(m.m_modelInfo.rotation.x, m.m_modelInfo.rotation.y, m.m_modelInfo.rotation.z)
+                  * XMMatrixTranslation(m.m_modelInfo.position.x, m.m_modelInfo.position.y, m.m_modelInfo.position.z);
+        }
         XMFLOAT4X4 worldF;
         XMStoreFloat4x4(&worldF, world);
         std::memcpy(ubo.model, &worldF, sizeof(ubo.model));
 #else
         std::memcpy(ubo.model, glm::value_ptr(m.GetWorldMatrix()), sizeof(ubo.model));
 #endif
-        // GLM matrices are already column-major — upload directly, no transpose.
         std::memcpy(ubo.view, glm::value_ptr(view), sizeof(ubo.view));
         std::memcpy(ubo.proj, glm::value_ptr(proj), sizeof(ubo.proj));
+        ubo.camPos[0] = camPos.x; ubo.camPos[1] = camPos.y;
+        ubo.camPos[2] = camPos.z; ubo.camPos[3] = 0.0f;
+        // Scale is baked into the world matrix for GLTF nodes; supply (1,1,1) so the
+        // vertex shader's "scaledPos = inPos * ubo.scale.xyz" has no extra effect.
+        ubo.scale[0] = 1.0f; ubo.scale[1] = 1.0f; ubo.scale[2] = 1.0f; ubo.scale[3] = 0.0f;
 
         if (m.m_modelInfo.uniformBufferMapped)
             std::memcpy(m.m_modelInfo.uniformBufferMapped, &ubo, sizeof(ubo));
 
-        // ---- Bind texture (set=0): per-model diffuse if loaded, else 1×1 white fallback ----
-        VkDescriptorSet texSet = m_defaultTextureDescSet;
-        if (!m.m_modelInfo.textures.empty() && m.m_modelInfo.textures[0])
-        {
-            VkImageView modelView = m.m_modelInfo.textures[0]->GetImageView();
-            if (modelView != VK_NULL_HANDLE && m_defaultTexture.sampler != VK_NULL_HANDLE)
-            {
-                VkDescriptorSetAllocateInfo dsai{};
-                dsai.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-                dsai.descriptorPool     = m_descriptorPool;
-                dsai.descriptorSetCount = 1;
-                dsai.pSetLayouts        = &m_textureDescSetLayout;
-                VkDescriptorSet modelTexSet = VK_NULL_HANDLE;
-                if (vkAllocateDescriptorSets(m_device, &dsai, &modelTexSet) == VK_SUCCESS)
-                {
-                    VkDescriptorImageInfo imgInfo{};
-                    imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                    imgInfo.imageView   = modelView;
-                    imgInfo.sampler     = m_defaultTexture.sampler;
-                    VkWriteDescriptorSet write{};
-                    write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                    write.dstSet          = modelTexSet;
-                    write.dstBinding      = 0;
-                    write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                    write.descriptorCount = 1;
-                    write.pImageInfo      = &imgInfo;
-                    vkUpdateDescriptorSets(m_device, 1, &write, 0, nullptr);
-                    texSet = modelTexSet;
-                    // Defer free until this frame slot's fence signals on the next iteration.
-                    m_frames[m_currentFrame].pendingFreeSets.push_back(modelTexSet);
-                }
-            }
-        }
-        if (texSet != VK_NULL_HANDLE)
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                    m_3dPipelineLayout, 0, 1, &texSet, 0, nullptr);
-
-        // ---- Bind UBO (set=1) ----
+        // ---- Bind set=0 (transform UBO + material UBO) ----
         if (m.m_modelInfo.descriptorSet != VK_NULL_HANDLE)
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                    m_3dPipelineLayout, 1, 1,
+                                    m_3dPipelineLayout, 0, 1,
                                     &m.m_modelInfo.descriptorSet, 0, nullptr);
+
+        // ---- Bind set=1 (diffuse/normal/ORM/AO textures) ----
+        // Use the per-model texture descriptor set if available; else the global 4-slot fallback.
+        VkDescriptorSet texSet = (m.m_modelInfo.textureDescriptorSet != VK_NULL_HANDLE)
+                                 ? m.m_modelInfo.textureDescriptorSet
+                                 : m_defaultTexSetDescSet;
+        if (texSet != VK_NULL_HANDLE)
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    m_3dPipelineLayout, 1, 1, &texSet, 0, nullptr);
 
         // ---- Draw indexed geometry ----
         if (m.m_modelInfo.vertexBuffer != VK_NULL_HANDLE &&
@@ -281,12 +283,24 @@ inline void VulkanRenderer::RenderIntroMovie()
     m_d2dRenderTarget->DrawBitmap(m_videoBitmap.Get(), dest, 1.0f,
                                    D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
 
-    // Spacebar skips the movie — mirrors DX11 RenderIntroMovie() exactly.
-    if (GetAsyncKeyState(' ') & 0x8000)
+    // Spacebar: fade to black FIRST, then stop the movie once the screen is fully black.
+    // m_movieSkipFrames == -1 → not skipping; >= 0 → frame counter since fade started.
+    // FadeToBlack(1.0, 0.04) takes ~25 frames at 60fps to reach full black.
+    // We wait 50 frames before stopping to ensure the fade visually completes.
+    if ((GetAsyncKeyState(' ') & 0x8000) && m_movieSkipFrames < 0)
     {
-        moviePlayer.Stop();
-        scene.bSceneSwitching = true;
-        fxManager.FadeToBlack(1.0f, 0.06f);
+        fxManager.FadeToBlack(1.0f, 0.04f);
+        m_movieSkipFrames = 0;
+    }
+    if (m_movieSkipFrames >= 0)
+    {
+        m_movieSkipFrames++;
+        if (m_movieSkipFrames >= 50)
+        {
+            moviePlayer.Stop();
+            scene.bSceneSwitching = true;
+            m_movieSkipFrames = -1;
+        }
     }
 
 #elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
@@ -544,7 +558,7 @@ void VulkanRenderer::RenderFrame()
                     if (m_d2dTextures[int(BlitObj2DIndexType::BG_LOADER_CIRCLE)]) {
                         m_iPosX = m_loadIndex << 5;
                         Blit2DObjectAtOffset(BlitObj2DIndexType::BG_LOADER_CIRCLE,
-                                             iOrigWidth - 34, iOrigHeight - 34,
+                                             iOrigWidth - 34, iOrigHeight - 45,
                                              m_iPosX, 0, 32, 32);
                     }
                 }
@@ -592,7 +606,7 @@ void VulkanRenderer::RenderFrame()
                     static int recBlink = 0;
                     recBlink = (recBlink + 1) % 60;
                     if (recBlink < 30)
-                        DrawMyText(L"● REC",
+                        DrawMyText(L"* REC",
                                    Vector2(static_cast<float>(m_renderTargetWidth) - 75.0f, 12.0f),
                                    MyColor::Red(), 18.0f);
                 }
@@ -645,23 +659,79 @@ void VulkanRenderer::RenderFrame()
             VkRect2D scissor{ { 0, 0 }, m_swapchainExtent };
             vkCmdSetScissor(cmd, 0, 1, &scissor);
 
+            // ---- Scene background: rendered BEFORE 3D models so geometry appears in front ----
+            // In DX11 the render order is: D2D overlay first, then 3D geometry draws OVER it.
+            // In Vulkan the D2D overlay composites AFTER 3D, so a fullscreen background blit
+            // via D2D would hide the models.  Fix: draw the background GPU texture as the first
+            // quad in the render pass via the 2D pipeline, then let the 3D pipeline render on top.
+            // D2D carries only UI elements (company logo, HUD, cursor) on a transparent canvas.
+            if (m_2dPipeline != VK_NULL_HANDLE && m_2dPipelineLayout != VK_NULL_HANDLE)
+            {
+                int bgIdx = -1;
+                if (scene.stSceneType == SceneType::SCENE_GAMETITLE &&
+                    threadManager.threadVars.bLoaderTaskFinished.load())
+                    bgIdx = int(BlitObj2DIndexType::IMG_GAMEINTRO1);
+
+                if (bgIdx >= 0 && bgIdx < MAX_TEXTURE_BUFFERS && m_textures2D[bgIdx].isValid)
+                {
+                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_2dPipeline);
+
+                    VkDescriptorSetAllocateInfo bgDsai{};
+                    bgDsai.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+                    bgDsai.descriptorPool     = m_descriptorPool;
+                    bgDsai.descriptorSetCount = 1;
+                    bgDsai.pSetLayouts        = &m_textureDescSetLayout;
+                    VkDescriptorSet bgSet = VK_NULL_HANDLE;
+                    if (vkAllocateDescriptorSets(m_device, &bgDsai, &bgSet) == VK_SUCCESS)
+                    {
+                        VkDescriptorImageInfo bgImg{};
+                        bgImg.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                        bgImg.imageView   = m_textures2D[bgIdx].view;
+                        bgImg.sampler     = m_textures2D[bgIdx].sampler;
+                        VkWriteDescriptorSet bgWr{};
+                        bgWr.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                        bgWr.dstSet          = bgSet;
+                        bgWr.dstBinding      = 0;
+                        bgWr.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                        bgWr.descriptorCount = 1;
+                        bgWr.pImageInfo      = &bgImg;
+                        vkUpdateDescriptorSets(m_device, 1, &bgWr, 0, nullptr);
+
+                        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                                m_2dPipelineLayout, 0, 1, &bgSet, 0, nullptr);
+                        float bgPc[7] = {
+                            static_cast<float>(m_renderTargetWidth),
+                            static_cast<float>(m_renderTargetHeight),
+                            0.0f, 0.0f,
+                            static_cast<float>(m_renderTargetWidth),
+                            static_cast<float>(m_renderTargetHeight),
+                            1.0f
+                        };
+                        vkCmdPushConstants(cmd, m_2dPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT,
+                                           0, sizeof(bgPc), bgPc);
+                        VkBuffer     bgVB[]  = { m_quadVertexBuffer };
+                        VkDeviceSize bgOff[] = { 0 };
+                        vkCmdBindVertexBuffers(cmd, 0, 1, bgVB, bgOff);
+                        vkCmdDraw(cmd, 4, 1, 0, 0);
+                        fd.pendingFreeSets.push_back(bgSet);
+                    }
+                }
+            }
+
             // ---- 3D scene rendering (RenderGamePlay) ----
+            // UpdateAnimations is called unconditionally: it computes world matrices for
+            // static GLTF base-poses as well as animated clips, so models have correct
+            // hierarchy-composed transforms regardless of whether a clip is playing.
             switch (scene.stSceneType) {
                 case SceneType::SCENE_GAMETITLE:
-                    if (threadManager.threadVars.bLoaderTaskFinished.load()) {
-                        int modelID = scene.FindParentModelID(SplashShipName);
-                        if (scene.gltfAnimator.IsAnimationPlaying(modelID))
-                            scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS);
-                    }
-                    RenderGamePlay(deltaTime);
-                    break;
-                case SceneType::SCENE_GAMEPLAY: {
-                    int modelID = scene.FindParentModelID(ShipName1);
-                    if (scene.gltfAnimator.IsAnimationPlaying(modelID))
+                    if (threadManager.threadVars.bLoaderTaskFinished.load())
                         scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS);
                     RenderGamePlay(deltaTime);
                     break;
-                }
+                case SceneType::SCENE_GAMEPLAY:
+                    scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS);
+                    RenderGamePlay(deltaTime);
+                    break;
                 default: break;
             }
 

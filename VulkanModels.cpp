@@ -401,13 +401,14 @@ namespace VulkanModelUtils
     }
 
     // -----------------------------------------------------------------------
-    // Internal helper: upload raw RGBA pixels to a new VkImage.
+    // Upload raw RGBA pixels to a new VkImage (public — called by Models.cpp
+    // when WIC has already decoded the image bytes on Windows Vulkan builds).
     // -----------------------------------------------------------------------
-    static VkImageView UploadPixelsToImage(VkDevice device, VkPhysicalDevice physDevice,
+    VkImageView UploadPixelsToImage(VkDevice device, VkPhysicalDevice physDevice,
                                             VkCommandPool cmdPool, VkQueue queue,
                                             const uint8_t* pixels, uint32_t w, uint32_t h,
                                             VkImage& outImage, VkDeviceMemory& outMemory,
-                                            std::mutex* queueMutex = nullptr)
+                                            std::mutex* queueMutex)
     {
         VkDeviceSize imgSize = static_cast<VkDeviceSize>(w) * h * 4;
 

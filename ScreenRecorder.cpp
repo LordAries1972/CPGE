@@ -85,7 +85,7 @@ bool ScreenRecorder::StartRecording(UINT width, UINT height,
     if (fpsVal != 30 && fpsVal != 60 && fpsVal != 120)
     {
         debug.logLevelMessage(LogLevel::LOG_WARNING,
-            L"ScreenRecorder: Unsupported fps " + std::to_wstring(fpsVal) + L" – defaulting to 60");
+            L"ScreenRecorder: Unsupported fps " + std::to_wstring(fpsVal) + L" – defaulting to 60fps");
         fpsVal = 60; fps = RecordFPS::FPS_60;
     }
 

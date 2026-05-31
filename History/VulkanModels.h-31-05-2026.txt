@@ -84,6 +84,14 @@ namespace VulkanModelUtils
                                           std::mutex* queueMutex = nullptr,
                                           uint32_t width = 1, uint32_t height = 1);
 
+    // Upload decoded RGBA8 pixel data directly to a new VkImage.
+    // Use this when you have already decoded the image bytes (e.g. via WIC on Windows).
+    VkImageView UploadPixelsToImage(VkDevice device, VkPhysicalDevice physDevice,
+                                     VkCommandPool cmdPool, VkQueue queue,
+                                     const uint8_t* pixels, uint32_t width, uint32_t height,
+                                     VkImage& outImage, VkDeviceMemory& outMemory,
+                                     std::mutex* queueMutex = nullptr);
+
     // Destroy a texture image/memory/view triplet and zero the handles.
     void DestroyTexture(VkDevice device,
                         VkImage& image, VkDeviceMemory& memory, VkImageView& view);

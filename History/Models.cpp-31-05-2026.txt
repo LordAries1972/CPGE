@@ -255,10 +255,45 @@ bool Texture::LoadFromFile(const std::wstring& path)
         vkFreeMemory(dev, memory, nullptr);          memory    = VK_NULL_HANDLE;
     }
 
+#if defined(PLATFORM_WINDOWS)
+    // Decode via WIC — same decoder the DX11 path uses, avoids stb_image dependency.
+    {
+        if (!std::filesystem::exists(path)) return false;
+        IWICImagingFactory*    wicFac  = nullptr;
+        IWICBitmapDecoder*     decoder = nullptr;
+        IWICBitmapFrameDecode* frame   = nullptr;
+        IWICFormatConverter*   conv    = nullptr;
+        HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr,
+                                       CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wicFac));
+        if (FAILED(hr) || !wicFac) return false;
+        hr = wicFac->CreateDecoderFromFilename(path.c_str(), nullptr,
+                 GENERIC_READ, WICDecodeMetadataCacheOnLoad, &decoder);
+        if (SUCCEEDED(hr) && decoder) hr = decoder->GetFrame(0, &frame);
+        if (SUCCEEDED(hr) && frame)   hr = wicFac->CreateFormatConverter(&conv);
+        if (SUCCEEDED(hr) && conv)
+            hr = conv->Initialize(frame, GUID_WICPixelFormat32bppRGBA,
+                                   WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom);
+        UINT w = 0, h = 0;
+        if (SUCCEEDED(hr)) conv->GetSize(&w, &h);
+        std::vector<uint8_t> px;
+        if (SUCCEEDED(hr) && w > 0 && h > 0) {
+            px.resize(static_cast<size_t>(w) * h * 4);
+            hr = conv->CopyPixels(nullptr, w * 4, static_cast<UINT>(px.size()), px.data());
+        }
+        if (conv)    conv->Release();
+        if (frame)   frame->Release();
+        if (decoder) decoder->Release();
+        if (wicFac)  wicFac->Release();
+        if (FAILED(hr) || px.empty()) return false;
+        imageView = VulkanModelUtils::UploadPixelsToImage(dev, phys, pool, queue,
+                                                           px.data(), w, h, image, memory, &queueMtx);
+    }
+#else
     imageView = VulkanModelUtils::LoadTextureFromFile(dev, phys, pool, queue,
                                                        path, image, memory, &queueMtx);
+#endif
     if (imageView == VK_NULL_HANDLE) {
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[Texture] Vulkan: LoadTextureFromFile failed: " + path);
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[Texture] Vulkan: texture file load failed: " + path);
         return false;
     }
     return true;
@@ -420,8 +455,47 @@ bool Texture::LoadFromMemory(const uint8_t* data, size_t size)
         vkFreeMemory(dev, memory, nullptr);          memory    = VK_NULL_HANDLE;
     }
 
+#if defined(PLATFORM_WINDOWS)
+    // Decode via WIC from in-memory image buffer — avoids stb_image dependency.
+    {
+        IWICImagingFactory*    wicFac  = nullptr;
+        IWICStream*            strm    = nullptr;
+        IWICBitmapDecoder*     decoder = nullptr;
+        IWICBitmapFrameDecode* frame   = nullptr;
+        IWICFormatConverter*   conv    = nullptr;
+        HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr,
+                                       CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wicFac));
+        if (SUCCEEDED(hr) && wicFac) hr = wicFac->CreateStream(&strm);
+        if (SUCCEEDED(hr) && strm)
+            hr = strm->InitializeFromMemory(const_cast<BYTE*>(data), static_cast<DWORD>(size));
+        if (SUCCEEDED(hr) && strm)
+            hr = wicFac->CreateDecoderFromStream(strm, nullptr,
+                     WICDecodeMetadataCacheOnLoad, &decoder);
+        if (SUCCEEDED(hr) && decoder) hr = decoder->GetFrame(0, &frame);
+        if (SUCCEEDED(hr) && frame)   hr = wicFac->CreateFormatConverter(&conv);
+        if (SUCCEEDED(hr) && conv)
+            hr = conv->Initialize(frame, GUID_WICPixelFormat32bppRGBA,
+                                   WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom);
+        UINT w = 0, h = 0;
+        if (SUCCEEDED(hr)) conv->GetSize(&w, &h);
+        std::vector<uint8_t> px;
+        if (SUCCEEDED(hr) && w > 0 && h > 0) {
+            px.resize(static_cast<size_t>(w) * h * 4);
+            hr = conv->CopyPixels(nullptr, w * 4, static_cast<UINT>(px.size()), px.data());
+        }
+        if (conv)    conv->Release();
+        if (frame)   frame->Release();
+        if (decoder) decoder->Release();
+        if (strm)    strm->Release();
+        if (wicFac)  wicFac->Release();
+        if (FAILED(hr) || px.empty()) return false;
+        imageView = VulkanModelUtils::UploadPixelsToImage(dev, phys, pool, queue,
+                                                           px.data(), w, h, image, memory, &queueMtx);
+    }
+#else
     imageView = VulkanModelUtils::LoadTextureFromMemory(dev, phys, pool, queue,
                                                          data, size, image, memory, &queueMtx);
+#endif
     return imageView != VK_NULL_HANDLE;
 }
 #else
@@ -686,6 +760,16 @@ void Model::DestroyModel()
                 m_modelInfo.uniformBuffer       = VK_NULL_HANDLE;
                 m_modelInfo.uniformBufferMemory = VK_NULL_HANDLE;
             }
+            if (m_modelInfo.materialUniformBufferMapped) {
+                vkUnmapMemory(device, m_modelInfo.materialUniformBufferMemory);
+                m_modelInfo.materialUniformBufferMapped = nullptr;
+            }
+            if (m_modelInfo.materialUniformBuffer != VK_NULL_HANDLE) {
+                vkDestroyBuffer(device, m_modelInfo.materialUniformBuffer, nullptr);
+                vkFreeMemory(device, m_modelInfo.materialUniformBufferMemory, nullptr);
+                m_modelInfo.materialUniformBuffer       = VK_NULL_HANDLE;
+                m_modelInfo.materialUniformBufferMemory = VK_NULL_HANDLE;
+            }
             if (m_modelInfo.vertexBuffer != VK_NULL_HANDLE) {
                 vkDestroyBuffer(device, m_modelInfo.vertexBuffer, nullptr);
                 vkFreeMemory(device, m_modelInfo.vertexBufferMemory, nullptr);
@@ -698,8 +782,10 @@ void Model::DestroyModel()
                 m_modelInfo.indexBuffer         = VK_NULL_HANDLE;
                 m_modelInfo.indexBufferMemory   = VK_NULL_HANDLE;
             }
-            // descriptor set is freed with the pool — just null the handle
-            m_modelInfo.descriptorSet = VK_NULL_HANDLE;
+            // Descriptor sets are freed when the pool is destroyed — just null the handles.
+            // textureDescriptorSet and descriptorSet are both pool-managed.
+            m_modelInfo.descriptorSet        = VK_NULL_HANDLE;
+            m_modelInfo.textureDescriptorSet = VK_NULL_HANDLE;
             // pipeline/pipelineLayout are owned by the renderer, NOT the model
             m_modelInfo.pipeline       = VK_NULL_HANDLE;
             m_modelInfo.pipelineLayout = VK_NULL_HANDLE;
@@ -1801,15 +1887,15 @@ lightDesc.Usage = D3D11_USAGE_DYNAMIC;
         return false;
     }
 
-    // Convert engine Vertex (pos+normal+uv+tangent) → VkVertex3D (pos+normal+uv)
-    // The 3D pipeline only consumes 8 floats per vertex; tangent is dropped here.
-    struct VkVertex3D { float x,y,z, nx,ny,nz, u,v; };
+    // Convert engine Vertex (pos+normal+uv+tangent) → VkVertex3D (pos+normal+uv+tangent)
+    struct VkVertex3D { float x,y,z, nx,ny,nz, u,v, tx,ty,tz; };
     std::vector<VkVertex3D> vkVerts;
     vkVerts.reserve(m_modelInfo.vertices.size());
     for (const auto& v : m_modelInfo.vertices) {
         vkVerts.push_back({ v.position[0], v.position[1], v.position[2],
                             v.normal[0],   v.normal[1],   v.normal[2],
-                            v.texCoord[0], v.texCoord[1] });
+                            v.texCoord[0], v.texCoord[1],
+                            v.tangent[0],  v.tangent[1],  v.tangent[2] });
     }
 
     // Destroy any existing buffers before (re)creating
@@ -1855,9 +1941,9 @@ lightDesc.Usage = D3D11_USAGE_DYNAMIC;
     m_modelInfo.pipeline       = VK_NULL_HANDLE;
     m_modelInfo.pipelineLayout = VK_NULL_HANDLE;
 
-    // Per-model uniform buffer: model + view + proj matrices (3 × mat4 = 192 bytes)
-    // Host-visible + coherent so we can update it every frame without explicit flushes.
-    const VkDeviceSize uboSize = 3 * 64;
+    // Transform UBO (set=0 binding=0): model(mat4)+view(mat4)+proj(mat4)+camPos(vec4)+scale(vec4)
+    // = 3×64 + 2×16 = 224 bytes. Updated every frame via persistent map.
+    const VkDeviceSize uboSize = 224;
     if (m_modelInfo.uniformBuffer != VK_NULL_HANDLE) {
         if (m_modelInfo.uniformBufferMapped) {
             vkUnmapMemory(device, m_modelInfo.uniformBufferMemory);
@@ -1868,36 +1954,111 @@ lightDesc.Usage = D3D11_USAGE_DYNAMIC;
         m_modelInfo.uniformBuffer       = VK_NULL_HANDLE;
         m_modelInfo.uniformBufferMemory = VK_NULL_HANDLE;
     }
-    if (VulkanModelUtils::CreateBuffer(device, physDev, uboSize,
-            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            m_modelInfo.uniformBuffer, m_modelInfo.uniformBufferMemory))
-    {
+    VulkanModelUtils::CreateBuffer(device, physDev, uboSize,
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        m_modelInfo.uniformBuffer, m_modelInfo.uniformBufferMemory);
+    if (m_modelInfo.uniformBuffer != VK_NULL_HANDLE)
         vkMapMemory(device, m_modelInfo.uniformBufferMemory, 0, uboSize, 0,
                     &m_modelInfo.uniformBufferMapped);
 
-        // Allocate per-model descriptor set for the UBO (set=1 in the 3D shader)
-        VkDescriptorSetLayout uboLayout = vkr->GetUniformDescSetLayout();
-        if (uboLayout != VK_NULL_HANDLE) {
-            VkDescriptorSetAllocateInfo dsai{};
-            dsai.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-            dsai.descriptorPool     = vkr->GetDescriptorPool();
-            dsai.descriptorSetCount = 1;
-            dsai.pSetLayouts        = &uboLayout;
-            if (vkAllocateDescriptorSets(device, &dsai, &m_modelInfo.descriptorSet) == VK_SUCCESS) {
-                VkDescriptorBufferInfo bufInfo{};
-                bufInfo.buffer = m_modelInfo.uniformBuffer;
-                bufInfo.offset = 0;
-                bufInfo.range  = uboSize;
-                VkWriteDescriptorSet write{};
-                write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write.dstSet          = m_modelInfo.descriptorSet;
-                write.dstBinding      = 0;
-                write.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-                write.descriptorCount = 1;
-                write.pBufferInfo     = &bufInfo;
-                vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+    // Material UBO (set=0 binding=1): Kd(3)+metallic(1)+Ka(3)+roughness(1)+emissive(3)+emissiveStr(1)+flags(4)
+    // = 4×16 = 64 bytes. Set once when the material is bound; defaults shown below.
+    const VkDeviceSize matUboSize = 64;
+    if (m_modelInfo.materialUniformBuffer != VK_NULL_HANDLE) {
+        if (m_modelInfo.materialUniformBufferMapped) {
+            vkUnmapMemory(device, m_modelInfo.materialUniformBufferMemory);
+            m_modelInfo.materialUniformBufferMapped = nullptr;
+        }
+        vkDestroyBuffer(device, m_modelInfo.materialUniformBuffer, nullptr);
+        vkFreeMemory(device, m_modelInfo.materialUniformBufferMemory, nullptr);
+        m_modelInfo.materialUniformBuffer       = VK_NULL_HANDLE;
+        m_modelInfo.materialUniformBufferMemory = VK_NULL_HANDLE;
+    }
+    VulkanModelUtils::CreateBuffer(device, physDev, matUboSize,
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        m_modelInfo.materialUniformBuffer, m_modelInfo.materialUniformBufferMemory);
+    if (m_modelInfo.materialUniformBuffer != VK_NULL_HANDLE) {
+        vkMapMemory(device, m_modelInfo.materialUniformBufferMemory, 0, matUboSize, 0,
+                    &m_modelInfo.materialUniformBufferMapped);
+        // Default material: white diffuse, no metallic, mid roughness, no normal/ORM/AO
+        struct MatUBO { float Kd[3]; float metallic;
+                        float Ka[3]; float roughness;
+                        float emissive[3]; float emissiveStrength;
+                        float normalScale; float useNormal; float useORM; float useAO; };
+        MatUBO defaults{ {1,1,1}, 0.0f, {0.15f,0.15f,0.15f}, 0.5f, {0,0,0}, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f };
+        std::memcpy(m_modelInfo.materialUniformBufferMapped, &defaults, sizeof(defaults));
+    }
+
+    // Allocate per-model descriptor set (set=0): both UBOs from m_3dUboSetLayout
+    VkDescriptorSetLayout ubo3DLayout = vkr->Get3dUboSetLayout();
+    if (ubo3DLayout != VK_NULL_HANDLE &&
+        m_modelInfo.uniformBuffer != VK_NULL_HANDLE &&
+        m_modelInfo.materialUniformBuffer != VK_NULL_HANDLE)
+    {
+        VkDescriptorSetAllocateInfo dsai{};
+        dsai.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        dsai.descriptorPool     = vkr->GetDescriptorPool();
+        dsai.descriptorSetCount = 1;
+        dsai.pSetLayouts        = &ubo3DLayout;
+        if (vkAllocateDescriptorSets(device, &dsai, &m_modelInfo.descriptorSet) == VK_SUCCESS) {
+            VkDescriptorBufferInfo transformBuf{};
+            transformBuf.buffer = m_modelInfo.uniformBuffer;
+            transformBuf.offset = 0;
+            transformBuf.range  = uboSize;
+            VkDescriptorBufferInfo materialBuf{};
+            materialBuf.buffer = m_modelInfo.materialUniformBuffer;
+            materialBuf.offset = 0;
+            materialBuf.range  = matUboSize;
+            std::array<VkWriteDescriptorSet, 2> writes{};
+            writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writes[0].dstSet          = m_modelInfo.descriptorSet;
+            writes[0].dstBinding      = 0;
+            writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            writes[0].descriptorCount = 1;
+            writes[0].pBufferInfo     = &transformBuf;
+            writes[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writes[1].dstSet          = m_modelInfo.descriptorSet;
+            writes[1].dstBinding      = 1;
+            writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            writes[1].descriptorCount = 1;
+            writes[1].pBufferInfo     = &materialBuf;
+            vkUpdateDescriptorSets(device, 2, writes.data(), 0, nullptr);
+        }
+    }
+
+    // Allocate per-model texture descriptor set (set=1) with fallback textures.
+    // BindGLTFMaterialTexturesToModel overwrites the bindings with real textures later.
+    VkDescriptorSetLayout tex3DLayout = vkr->Get3dTexSetLayout();
+    if (tex3DLayout != VK_NULL_HANDLE && m_modelInfo.textureDescriptorSet == VK_NULL_HANDLE) {
+        VkDescriptorSetAllocateInfo dsai{};
+        dsai.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        dsai.descriptorPool     = vkr->GetDescriptorPool();
+        dsai.descriptorSetCount = 1;
+        dsai.pSetLayouts        = &tex3DLayout;
+        if (vkAllocateDescriptorSets(device, &dsai, &m_modelInfo.textureDescriptorSet) == VK_SUCCESS) {
+            VkSampler sampler = vkr->GetDefaultSampler();
+            VkImageView fallbackViews[4] = {
+                vkr->GetDefaultDiffuseView(), // diffuse  — 1×1 white
+                vkr->GetDefaultNormalView(),  // normal   — 1×1 flat normal
+                vkr->GetDefaultOrmView(),     // ORM      — no metallic, mid roughness
+                vkr->GetDefaultAoView()       // AO       — 1×1 white
+            };
+            std::array<VkWriteDescriptorSet, 4> texWrites{};
+            std::array<VkDescriptorImageInfo,  4> texImgInfos{};
+            for (uint32_t b = 0; b < 4; ++b) {
+                texImgInfos[b].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                texImgInfos[b].imageView   = fallbackViews[b];
+                texImgInfos[b].sampler     = sampler;
+                texWrites[b].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                texWrites[b].dstSet          = m_modelInfo.textureDescriptorSet;
+                texWrites[b].dstBinding      = b;
+                texWrites[b].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                texWrites[b].descriptorCount = 1;
+                texWrites[b].pImageInfo      = &texImgInfos[b];
             }
+            vkUpdateDescriptorSets(device, 4, texWrites.data(), 0, nullptr);
         }
     }
 

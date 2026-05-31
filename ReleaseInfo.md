@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1354*
+*Current Build Version: v0.0.1360*
 
 ---
 
@@ -1770,7 +1770,82 @@ Once the base DirectX 11 implementation is complete, the project will be release
 - **Feature — spacebar skips intro movie in Vulkan** (`VULKAN_RenderFrame.cpp`):
   `VulkanRenderer::RenderIntroMovie()` had no spacebar-skip logic. The DX11 path checks `GetAsyncKeyState(' ')`, stops the movie, sets `scene.bSceneSwitching = true`, and calls `fxManager.FadeToBlack(1.0f, 0.06f)`. Added the identical block to the Vulkan `RenderIntroMovie()`, allowing the user to press Space to skip the intro movie as documented in `main.cpp`.
 
-- *See: [`Lights.h`](Lights.h), [`Lights.cpp`](Lights.cpp), [`VulkanModels.h`](VulkanModels.h), [`VulkanModels.cpp`](VulkanModels.cpp), [`Models.cpp`](Models.cpp), [`ScreenRecorder.h`](ScreenRecorder.h), [`ScreenRecorder.cpp`](ScreenRecorder.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp)*
+- **Critical fix — background image was covering 3D models (root cause of invisible ship)** (`VULKAN_RenderFrame.cpp`, `VULKAN_Renderer.cpp`):
+  In DX11, render order is D2D first then 3D over it (shared DXGI surface). In Vulkan, the D2D overlay composites as a fullscreen quad AFTER 3D geometry — so the fullscreen `IMG_GAMEINTRO1` blit in D2D completely covered the ship every frame.
+  Fix (`VULKAN_Renderer.cpp` `RenderBackgroundImage`): For SCENE_GAMETITLE when loaded, do NOT blit `IMG_GAMEINTRO1` into D2D. Only the company logo (a UI overlay element) stays in D2D.
+  Fix (`VULKAN_RenderFrame.cpp` render pass): Added background rendering at the START of the render pass using the 2D pipeline and the `m_textures2D[IMG_GAMEINTRO1]` GPU texture: background first → 3D ship on top → D2D UI (transparent canvas) on top → FX fades last.
+
+- **Critical fix — GLTF world matrices never computed for static or non-animating models** (`VULKAN_RenderFrame.cpp`):
+  `UpdateAnimations` was gated on `IsAnimationPlaying(modelID)`. For models not playing an animation clip the gate prevented the call, leaving all GLTF nodes with identity world matrices regardless of scene position. `UpdateAnimations` also computes static base-pose world matrices for every node. Removed the gate; `UpdateAnimations` is now called unconditionally for SCENE_GAMETITLE and SCENE_GAMEPLAY every frame.
+
+- **Fix — world matrix source: GLTF hierarchy vs OBJ TRS** (`VULKAN_RenderFrame.cpp` `RenderGamePlay`):
+  For GLTF nodes (`bHasBaseLocalTRS=true`): use the hierarchy-composed worldMatrix from `UpdateAnimations`. For OBJ/non-GLTF models (`bHasBaseLocalTRS=false`): rebuild every frame from `position` / `scale` / `rotation`, mirroring DX11 `UpdateConstantBuffer()`.
+
+- **Fix — camera not positioned to view ship on SCENE_GAMETITLE** (`VULKAN_IOStreamThread.cpp`):
+  DX11 loader sets `myCamera.SetPosition(-5.0f, 2.0f, -20.0f)` + `SetYawPitch(0.0f, 0.0f)` after `SetupDefaultCamera`. Vulkan loader only called `SetupDefaultCamera`, leaving the camera at the origin looking in the wrong direction. Added the explicit position and orientation calls for both the fresh-load and resize paths, matching `IOStreamDX11Thread.cpp` exactly.
+
+- **Critical fix — model textures not loading on Windows Vulkan (ship rendered untextured)** (`VulkanModels.h`, `VulkanModels.cpp`, `Models.cpp`):
+  `stb_image.h` is not present in this project. `VulkanModelUtils::LoadTextureFromFile/Memory` both fall through to `#define STBI_NOT_AVAILABLE` → return `VK_NULL_HANDLE`. Every per-model texture load silently failed, leaving the ship rendering with the 1×1 default white texture.
+  Fix: For `PLATFORM_WINDOWS`, `Texture::LoadFromFile` and `Texture::LoadFromMemory` now decode image data with WIC (same library the DX11 path uses) then upload via a newly public `VulkanModelUtils::UploadPixelsToImage()`. Non-Windows retains the stb_image path. `UploadPixelsToImage` promoted from `static` to a public namespace function in `VulkanModels.h/.cpp`.
+
+- **Fix — Vulkan cache-restore texture accumulation and missing write-back** (`SceneManager.cpp`):
+  Step 4 texture-rebind (GLB and GLTF cache-restore paths): DX11 cleared `textures` before `BindGLTFMaterialTexturesToModel`; Vulkan did not, causing duplicate texture entries on every scene revisit. Added `scene_models[ti].m_modelInfo.textures.clear()` to the Vulkan guard. Also added `models[m2].m_modelInfo.textures = scene_models[ti].m_modelInfo.textures` to the Vulkan write-back block — without it the freshly loaded Vulkan textures were never cached in `models[]`, so subsequent scene visits unnecessarily reloaded from disk.
+
+- **Fix — C2572 redefinition of default argument in `UploadPixelsToImage`** (`VulkanModels.cpp`):
+  `VulkanModelUtils::UploadPixelsToImage` carried `std::mutex* queueMutex = nullptr` in both the header declaration (`VulkanModels.h:93`) and the out-of-class definition (`VulkanModels.cpp:411`). C++ only allows a default argument in one place; having it in both causes C2572. Removed the redundant `= nullptr` from the definition — the header declaration is the canonical location.
+
+- *See: [`Lights.h`](Lights.h), [`Lights.cpp`](Lights.cpp), [`VulkanModels.h`](VulkanModels.h), [`VulkanModels.cpp`](VulkanModels.cpp), [`Models.cpp`](Models.cpp), [`ScreenRecorder.h`](ScreenRecorder.h), [`ScreenRecorder.cpp`](ScreenRecorder.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`VULKAN_IOStreamThread.cpp`](VULKAN_IOStreamThread.cpp), [`SceneManager.cpp`](SceneManager.cpp)*
+
+**May 31, 2026 (update)** — Vulkan X-position flip fixed; full PBR material pipeline implemented; material logging improved (`BlenderImports.h`, `BlenderImports.cpp`, `VULKAN_Renderer.h`, `VULKAN_Renderer.cpp`, `VULKAN_RenderFrame.cpp`, `Models.h`, `Models.cpp`, `SceneManager.cpp`):
+
+- **Fix — GLTF→Vulkan axis flip was FLIP_Y instead of FLIP_Z** (`BlenderImports.h`):
+  `GLTF_DEFAULT_FLIP` was set to `FLIP_Y` for all Vulkan builds. On Windows, Vulkan uses DirectXMath (left-handed Y-up world space — same as DX11/DX12). The Y-down clip space convention is handled entirely by `proj[1][1] *= -1.0f` in the renderer, not by modifying vertex data. Using FLIP_Y caused model X-axis rotation/orientation to be incorrectly reflected. Fixed: `GLTF_DEFAULT_FLIP = FLIP_Z` for all Vulkan builds (matching DX11/DX12). Log message updated: "GLTF→Vulkan Z-flip active" (removed the incorrect "GLTF→DX Z-flip" wording).
+
+- **Feature — Full PBR material pipeline for Vulkan 3D models** (`VULKAN_Renderer.h`, `VULKAN_Renderer.cpp`, `VULKAN_RenderFrame.cpp`, `Models.h`, `Models.cpp`, `SceneManager.cpp`):
+  Previous pipeline bound only a single diffuse texture with basic Blinn-Phong lighting from a push constant. Full PBR now implemented end-to-end:
+  - **Descriptor layouts**: Added `m_3dUboSetLayout` (set=0: binding 0=transform UBO [model/view/proj/camPos/scale, 224 bytes], binding 1=material UBO [Kd/Ka/metallic/roughness/emissive/flags, 64 bytes]) and `m_3dTexSetLayout` (set=1: bindings 0-3 = diffuse/normal/ORM/AO samplers).
+  - **Inline PBR shaders** (replacing simple Blinn-Phong): Vertex shader now outputs TBN vectors (requires tangent attribute, location 3). Fragment shader implements GGX BRDF with normal mapping, ORM texture support (R=AO, G=roughness, B=metallic), emissive, Reinhard tone mapping + gamma correction.
+  - **Fallback textures**: 1×1 white (diffuse/AO), 1×1 flat normal (128,128,255), 1×1 default ORM (AO=1, roughness=0.5, metallic=0) created at startup. Default 4-slot descriptor set (`m_defaultTexSetDescSet`) covers models without materials.
+  - **VkVertex3D**: Added `tx, ty, tz` tangent field (was 8 floats, now 11). `SetupModelForRendering` now includes tangent from the engine Vertex struct.
+  - **Per-model material UBO**: Created in `SetupModelForRendering` with default PBR values; overwritten with actual parsed material values in `BindGLTFMaterialTexturesToModel`.
+  - **Per-model texture descriptor set**: Allocated in `SetupModelForRendering` using fallback textures; updated with real textures in `BindGLTFMaterialTexturesToModel`.
+  - **Descriptor pool**: Increased from 512/64 to 4096/1024 (samplers/UBOs) + maxSets 4096 to support full per-model material sets.
+  - **RenderGamePlay**: `VKCameraUBO` extended with `camPos[4]` and `scale[4]`. Binds set=0 (transform+material UBOs) then set=1 (4-texture set) per model. Push constant simplified to 32 bytes (removed `viewPos` — now in UBO; added default sunlight fallback when no lights configured). Per-frame texture descriptor alloc/free loop eliminated (stable per-model sets used instead).
+  - **Material UBO data log**: Full UBO values logged at `LOG_DEBUG` for each material bind.
+
+- **Feature — Informative material logging in `ParseMaterialsFromGLTF`** (`SceneManager.cpp`):
+  The `Material[N]` debug log now always emits the material name, base colour factor, metallic/roughness values, alpha mode, and which texture slots (diffuse/normal/ORM/AO) are present — on a single line. Previously these details were only printed when individual property blocks existed, resulting in bare `Material[N]` lines for many materials.
+
+**May 31, 2026 (update 2)** — Vulkan X-axis mirror fixed (root cause: RH lookAt in LH world); LH ZO projection; movie spacebar-skip now fades before stopping (`VulkanCamera.cpp`, `VULKAN_RenderFrame.cpp`, `VULKAN_Renderer.h`):
+
+- **Critical fix — Vulkan X-axis mirror: VulkanCamera used glm::lookAt (RH) in a LH world** (`VulkanCamera.cpp`):
+  `glm::lookAt` computes the camera right vector as `cross(forward, worldUp)`. With the camera looking in +Z (LH convention), this yields `cross(+Z, +Y) = −X` — so the camera's right vector pointed LEFT. Every model appeared mirror-flipped on the X axis.
+  Fix: Replaced ALL 15 `glm::lookAt` calls with `glm::lookAtLH` throughout `VulkanCamera.cpp`. `glm::lookAtLH` computes right as `cross(worldUp, forward) = cross(+Y, +Z) = +X`. Models now appear on the correct side of the screen.
+
+- **Critical fix — Projection must also be LH to match LH view** (`VULKAN_RenderFrame.cpp`, `VulkanCamera.cpp`):
+  With a LH view matrix, front objects have positive z_view. The old `glm::perspective` (RH) computes `w_clip = −z_view`, giving negative w for front objects → perspective divide flips sign → geometry at wrong depth/side.
+  Fix: `RenderGamePlay` now builds a left-handed zero-to-one perspective matrix directly (formula: `w_clip = +z_view`, depth [0,1] for Vulkan). `proj[1][1]` is negated inline for Vulkan Y-down NDC. `VulkanCamera::MakeVulkanProjection` updated with the same formula. Self-contained: no dependency on `glm::perspectiveLH_ZO` availability.
+
+- **Feature — Spacebar movie skip fades screen to black before stopping playback** (`VULKAN_RenderFrame.cpp`, `VULKAN_Renderer.h`):
+  Previous behaviour: Space immediately called `moviePlayer.Stop()` + `bSceneSwitching = true` then started the fade — an abrupt hard cut. New behaviour: Space triggers `FadeToBlack(1.0, 0.06)` only. Frame counter `m_movieSkipFrames` counts from 0; after 30 frames (≥ fade duration at 60fps) `moviePlayer.Stop()` and `scene.bSceneSwitching = true` are set. The movie continues playing (silently fading) until the screen is black.
+
+- *See: [`BlenderImports.h`](BlenderImports.h), [`BlenderImports.cpp`](BlenderImports.cpp), [`VULKAN_Renderer.h`](VULKAN_Renderer.h), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`Models.h`](Models.h), [`Models.cpp`](Models.cpp), [`SceneManager.cpp`](SceneManager.cpp), [`VulkanCamera.h`](VulkanCamera.h), [`VulkanCamera.cpp`](VulkanCamera.cpp)*
+
+**May 31, 2026 (update 3)** — Vulkan rendering corrections: missing faces restored, starfield X flip corrected, Config Window DWrite crash fixed, movie skip fade timing extended (`VULKAN_Renderer.cpp`, `VULKAN_FXManager.cpp`, `VULKAN_RenderFrame.cpp`):
+
+- **Fix — Missing model faces** (`VULKAN_Renderer.cpp`):
+  After correcting the camera to LH (`glm::lookAtLH`), the 3D pipeline's backface culling (`VK_CULL_MODE_BACK_BIT`) began hiding faces that were previously shown by the old inverted-camera bug. Changed to `VK_CULL_MODE_NONE` to render all faces unconditionally. Proper per-material doubleSided support will be implemented in a future pass; disabling culling is the safe interim state.
+
+- **Fix — Starfield and WarpDotTunnel X-axis flip** (`VULKAN_FXManager.cpp`):
+  `RenderStarfield` and `RenderWarpDotTunnel` both used `(1.0f − ndcX) * 0.5f * width` to compensate for the old wrong RH camera where `camera-right = world -X`. With the corrected LH camera (`camera-right = world +X`), this compensation inverted X. Changed to the standard NDC-to-screen formula `(1.0f + ndcX) * 0.5f * width`. Depth validity check extended to also cull `ndcZ < 0.0f` (ensures particles behind the near plane are discarded under the LH [0,1] depth range).
+
+- **Fix — Config Window crash: removed DX11/DWrite API from Vulkan text measurement** (`VULKAN_Renderer.cpp`):
+  `GetCharacterWidth`, `CalculateTextWidth`, and `CalculateTextHeight` were all calling `IDWriteTextLayout::CreateTextLayout` — a DirectWrite API that belongs in the DX11 renderer, not the Vulkan renderer. DWrite crashed on empty strings (size=0) with a `memcpy` fault in `DWrite.dll`. All three functions are now fully replaced with a proportional character-width table (`VKCharWidth`): narrow chars (i,l,|,.,space) ≈ 0.28–0.32×FontSize, average chars ≈ 0.55×FontSize, wide chars (m,w,M,W) ≈ 0.75×FontSize. `CalculateTextWidth` returns the width of the longest line; `CalculateTextHeight` counts `\n` characters with 1.20× line spacing. No platform-specific APIs used.
+
+- **Fix — Movie spacebar-skip fade too short / exits early** (`VULKAN_RenderFrame.cpp`):
+  Fade speed reduced from 0.06 to 0.04 (completes in ~25 frames at 60fps instead of 17), and the post-fade wait counter increased from 30 to 50 frames. This ensures the screen is visually fully black before `moviePlayer.Stop()` and `scene.bSceneSwitching = true` are set.
+
+- *See: [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp)*
 
 ---
 
