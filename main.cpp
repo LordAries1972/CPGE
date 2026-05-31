@@ -2042,6 +2042,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                         case SceneType::SCENE_GAMEPLAY:
                         case SceneType::SCENE_GAMETITLE:
                         case SceneType::SCENE_INTRO_MOVIE:
+#if defined(_DEBUG)
+                        case SceneType::SCENE_EXPERIMENT:
+#endif
                         {
                             #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
                                 debug.logDebugMessage(LogLevel::LOG_INFO, L"[WM_SIZE] Processing resize for scene type: %d", static_cast<int>(scene.stSceneType));

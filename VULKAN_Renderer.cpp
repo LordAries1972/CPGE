@@ -1553,6 +1553,13 @@ bool VulkanRenderer::Resize(uint32_t width, uint32_t height)
 
     wasResizing.store(true);
     threadManager.threadVars.bIsResizing.store(true);
+
+    // bIsResizing=true causes the render thread to skip new frames. Spin-wait here until
+    // it finishes its current frame and sets bIsRendering=false so the queue is idle before
+    // we call vkDeviceWaitIdle — prevents the threading error from concurrent queue access.
+    for (int i = 0; i < 500 && threadManager.threadVars.bIsRendering.load(); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
     WaitForGPUToFinish();
 
     m_renderTargetWidth  = static_cast<int>(width);

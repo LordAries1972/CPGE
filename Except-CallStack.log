@@ -1,0 +1,60 @@
+================================================================================
+  EXCEPTION CALL-STACK LOG
+  Generated  : 2026-05-31 21:34:58
+================================================================================
+  Exception  : Access Violation - Invalid memory access
+  Code       : 0xC0000005
+  Address    : 0x00007FF735126EDD
+  Thread ID  : 10728
+  Process ID : 1660
+  Platform   : Windows x64  [DEBUG BUILD]
+================================================================================
+  CALL STACK TRACE (8 of 8 frames captured, showing up to 25)
+================================================================================
+  #00  Address  : 0x00007FF735126EDD
+       Function : GUIManager::HandleAllInput  +0x6BD
+       Module   : VulkanCPGE.exe
+       Source   : F:\Projects\C++\CPGE2026\GUIManager.cpp  Line 292
+       --------
+  #01  Address  : 0x00007FF73516EF6F
+       Function : WinMain  +0x140F
+       Module   : VulkanCPGE.exe
+       Source   : F:\Projects\C++\CPGE2026\main.cpp  Line 1088
+       --------
+  #02  Address  : 0x00007FF735390D02
+       Function : invoke_main  +0x32
+       Module   : VulkanCPGE.exe
+       Source   : D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_common.inl  Line 107
+       --------
+  #03  Address  : 0x00007FF735390BAE
+       Function : __scrt_common_main_seh  +0x12E
+       Module   : VulkanCPGE.exe
+       Source   : D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_common.inl  Line 288
+       --------
+  #04  Address  : 0x00007FF735390A6E
+       Function : __scrt_common_main  +0xE
+       Module   : VulkanCPGE.exe
+       Source   : D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_common.inl  Line 331
+       --------
+  #05  Address  : 0x00007FF735390D9E
+       Function : WinMainCRTStartup  +0xE
+       Module   : VulkanCPGE.exe
+       Source   : D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_winmain.cpp  Line 17
+       --------
+  #06  Address  : 0x00007FFDE9DA259D
+       Function : BaseThreadInitThunk  +0x1D
+       Module   : KERNEL32.DLL
+       --------
+  #07  Address  : 0x00007FFDEBB6AF78
+       Function : RtlUserThreadStart  +0x28
+       Module   : ntdll.dll
+================================================================================
+  BREADCRUMB TRAIL  (last RECORD_FUNCTION_CALL() entries — oldest to newest)
+================================================================================
+  22.  WinMain
+  23.  VulkanRenderer::Initialize
+  24.  VulkanRenderer::LoaderTaskThread
+  25.  VulkanRenderer::RenderFrame
+================================================================================
+  END OF CALL-STACK LOG
+================================================================================

@@ -1,0 +1,25 @@
+// ---------------------------------------------------------------------------------------------------------------
+// CHANGES — 31-05-2026
+// ---------------------------------------------------------------------------------------------------------------
+// Fix: Window resize under Vulkan while in SCENE_EXPERIMENT fell to the 'default' branch of the
+//   WM_SIZE scene-type switch and did nothing — leaving the swap chain out of sync with the
+//   new window dimensions. Added SCENE_EXPERIMENT (under _DEBUG guard) to the existing case
+//   group so the same RecreateSwapChain / overlay recreation / loader-resume path runs.
+//
+// Changed section (main.cpp, WM_SIZE handler):
+//
+//   switch (scene.stSceneType)
+//   {
+//       case SceneType::SCENE_INTRO:
+//       case SceneType::SCENE_GAMEPLAY:
+//       case SceneType::SCENE_GAMETITLE:
+//       case SceneType::SCENE_INTRO_MOVIE:
+//   #if defined(_DEBUG)
+//       case SceneType::SCENE_EXPERIMENT:   // NEW
+//   #endif
+//       {
+//           ... resize body (unchanged) ...
+//       }
+//       default: ...
+//   }
+// ---------------------------------------------------------------------------------------------------------------

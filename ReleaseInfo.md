@@ -1,9 +1,9 @@
-﻿# DirectX 11 & 12, OpenGL & Vulkan Game Engine
+﻿# DirectX 11 & 12, OpenGL, Radeon & Vulkan Game Engine
 
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1360*
+*Current Build Version: v0.0.1367*
 
 ---
 
@@ -1930,6 +1930,13 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
 - **Feature — spacebar skips intro movie in Vulkan** (`VULKAN_RenderFrame.cpp`):
   `VulkanRenderer::RenderIntroMovie()` had no spacebar-skip logic. The DX11 path checks `GetAsyncKeyState(' ')`, stops the movie, sets `scene.bSceneSwitching = true`, and calls `fxManager.FadeToBlack(1.0f, 0.06f)`. Added the identical block to the Vulkan `RenderIntroMovie()`, allowing the user to press Space to skip the intro movie as documented in `main.cpp`.
 
+- **Fix — Vulkan material + texture pipeline correctness pass** (`ModelVertex.vert`, `ModelPixel.frag`, `VULKAN_RenderFrame.cpp`, `SceneManager.cpp`):
+  Audited the full Vulkan material and texture rendering pipeline and corrected four issues:
+  1. **`ModelVertex.vert` clip-space bugs**: the external GLSL source was manually applying `clipPos.y = -clipPos.y` and `clipPos.z = (clipPos.z + clipPos.w) * 0.5` on top of the renderer's LH ZO projection matrix, which already bakes in the Y-flip (`proj[1][1] = -1/tanHalf`) and produces [0,1] depth. The double Y-flip would render models upside-down; the Z remap would clamp near-plane depth to 0.5, breaking depth testing for the nearest 50% of the depth range. Both lines removed; clip position is now `gl_Position = cb.uProjection * cb.uView * worldPos` with no manual fixup.
+  2. **`ModelPixel.frag` descriptor-layout mismatch**: the external fragment shader declared six UBO bindings (ConstantBuffer, LightBuffer, DebugBuffer, GlobalLightBuffer, MaterialBuffer, EnvBuffer) and six texture bindings including a cubemap at set=1. The pipeline's `m_3dUboSetLayout` only exposes two bindings (TransformUBO at 0, MaterialUBO at 1) and `m_3dTexSetLayout` exposes four (diffuse/normal/ORM/AO). Using the old file with pipeline creation would have triggered Vulkan validation errors and produced a null pipeline. Rewrote the shader to exactly match the runtime descriptor layout: TransformUBO (binding 0), MaterialUBO (binding 1), four 2D texture samplers (set=1 bindings 0-3), push-constant directional light — identical to the inline `k_glsl3DFrag` but with full PBR math including GLTF-correct normal-map Y-flip.
+  3. **`VULKAN_RenderFrame.cpp` draw safety guard**: `vkCmdDrawIndexed` was guarded only on vertex/index buffer validity. If `SetupModelForRendering` had not yet run for a model slot (e.g. fast-path cache restore), the draw would execute with `descriptorSet == VK_NULL_HANDLE`, leaving set=0 in undefined state (Vulkan validation error). Added `m.m_modelInfo.descriptorSet != VK_NULL_HANDLE` to the draw condition.
+  4. **`SceneManager.cpp` ORM/AO Vulkan guard clarity**: the metallic-roughness and AO texture blocks had two separate `#if DX11` guards for the same pair of assignments. Consolidated into single `#if DX11 ... #elif VULKAN` blocks with an explicit Vulkan comment explaining where each value is consumed, eliminating the duplicate preprocessor checks and making the Vulkan path self-documenting.
+
 - **Critical fix — background image was covering 3D models (root cause of invisible ship)** (`VULKAN_RenderFrame.cpp`, `VULKAN_Renderer.cpp`):
   In DX11, render order is D2D first then 3D over it (shared DXGI surface). In Vulkan, the D2D overlay composites as a fullscreen quad AFTER 3D geometry — so the fullscreen `IMG_GAMEINTRO1` blit in D2D completely covered the ship every frame.
   Fix (`VULKAN_Renderer.cpp` `RenderBackgroundImage`): For SCENE_GAMETITLE when loaded, do NOT blit `IMG_GAMEINTRO1` into D2D. Only the company logo (a UI overlay element) stays in D2D.
@@ -1999,7 +2006,31 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
 - **Fix — Movie spacebar-skip fade too short / exits early** (`VULKAN_RenderFrame.cpp`):
   Fade speed reduced from 0.06 to 0.04 (completes in ~25 frames at 60fps instead of 17), and the post-fade wait counter increased from 30 to 50 frames. This ensures the screen is visually fully black before `moviePlayer.Stop()` and `scene.bSceneSwitching = true` are set.
 
-- *See: [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp)*
+- **Fix — Company logo not blitted during Vulkan intro movie** (`VULKAN_RenderFrame.cpp`):
+  `VulkanRenderer::RenderIntroMovie()` rendered the video frame fullscreen but never composited the company logo. DX11 always draws the logo at half size in the bottom-left corner via `Blit2DObjectToSize(IMG_COMPANYLOGO, ...)` after `DrawBitmap`. Added the identical 4-line logo-blit block immediately after `DrawBitmap` in the Vulkan path.
+
+- **Critical fix — GLTF/GLB material UBO and texture descriptor set silently skipped on initial load** (`SceneManager.cpp`):
+  `BindGLTFMaterialTexturesToModel` was called inside `LoadGLTFMeshPrimitives` targeting `models[modelSlot]` before `SetupModelForRendering` had run. Because `materialUniformBufferMapped` was null and `textureDescriptorSet` was `VK_NULL_HANDLE` at that point, both the material UBO write and the texture descriptor update silently no-opped. `SetupModelForRendering` then created the GPU buffers on `scene_models[instanceIndex]` with white-diffuse defaults — permanently discarding the parsed material data. Fix: added a `#if defined(__USE_VULKAN__)` block directly after `SetupModelForRendering` in both `ParseGLBNodeRecursive` and `ParseGLTFNodeRecursive` that reads the primitive's material index from the JSON doc and calls `BindGLTFMaterialTexturesToModel` on `scene_models[instanceIndex]`, now that its GPU buffers are valid. The cache write-back (`models[modelSlot].CopyFrom`) that follows preserves the correctly-materialised state.
+
+- *See: [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`SceneManager.cpp`](SceneManager.cpp)*
+
+- **Critical fix — C2065 compile error: `cmd` undeclared in `RenderBackgroundImage()`** (`VULKAN_Renderer.cpp`):
+  `RenderBackgroundImage()` called `fxManager.RenderFX(fxManager.starfieldID, cmd, ...)` where `cmd` is a local variable declared inside `RenderFrame()` and is not in scope in `VULKAN_Renderer.cpp`. Fixed by replacing `cmd` with `GetCurrentCommandBuffer()`.
+
+- **Fix — Gray background during Vulkan loading-screen fade-in** (`VULKAN_RenderFrame.cpp`):
+  Root cause: the swapchain format is `VK_FORMAT_B8G8R8A8_SRGB`. The debug render-pass clear colour was `{{ 0.01f, 0.01f, 0.01f, 1.0f }}` (linear). Converting through sRGB gamma: `pow(0.01, 1/2.2) ≈ 0.14` — approximately 14% gray, visually distinct from black wherever the D2D overlay was transparent (e.g. during the fade-in animation when the loading image was not yet blitted). Removed the `#if defined(_DEBUG)` / `#else` branch entirely; both debug and release now clear to pure `{{ 0.0f, 0.0f, 0.0f, 1.0f }}`.
+
+- **Fix — Memory leak: 720+ VkDeviceMemory objects leaked at vkDestroyDevice** (`SceneManager.cpp`):
+  Root cause: `models[]` is a program-lifetime global array. `Texture::~Texture()` frees Vulkan GPU resources by casting the global `renderer` shared_ptr to `VulkanRenderer`. However, `Model::~Model()` (which calls `DestroyModel()` → frees textures) fires at program exit — after `renderer` has been destroyed and the `VkDevice` is no longer valid. `scene_models[i].DestroyModel()` called from `CleanUp()` already reduced each `shared_ptr<Texture>` ref-count by 1, but `models[]` still held the remaining reference, deferring destruction until exit.
+  Fix: In `SceneManager::CleanUp()` Vulkan section, immediately after processing each GPU-ready `models[mi]` entry, also call `models[mi].m_modelInfo.textures.clear()` and `models[mi].m_materials.clear()`. This drops the final `shared_ptr<Texture>` reference while the renderer and VkDevice are still alive, allowing `Texture::~Texture()` to call `vkFreeMemory` / `vkDestroyImage` / `vkDestroyImageView` successfully.
+
+- **Fix — Starfield visible between FadeOut completion and loader calling SaveAndSuspendFXForScene()** (`GUIWindows.cpp`):
+  When pressing the Experimental button the FadeToBlack completed (screen fully black), but the starfield continued rendering until the loader thread ran `SaveAndSuspendFXForScene()`. During the main-thread operations between the fade wait loop and `renderer->ResumeLoader()` (RemoveWindow, SetGotoScene, InitiateScene) the starfield drew to the D2D overlay producing a brief visible flash. Added `fxManager.StopStarfield()` immediately after the fade wait loop, while the screen is still black, before any other operations.
+
+- **Fix — Window resize ignored in SCENE_EXPERIMENT** (`main.cpp`):
+  The WM_SIZE resize switch only handled `SCENE_INTRO`, `SCENE_GAMEPLAY`, `SCENE_GAMETITLE`, `SCENE_INTRO_MOVIE`. For `SCENE_EXPERIMENT` (debug builds only) the resize fell to `default` and did nothing — the swapchain remained at the old dimensions. Added `#if defined(_DEBUG)` / `case SceneType::SCENE_EXPERIMENT:` / `#endif` to the existing case group so the full Resize → ResumeLoader path runs correctly.
+
+- *See: [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`SceneManager.cpp`](SceneManager.cpp), [`GUIWindows.cpp`](GUIWindows.cpp), [`main.cpp`](main.cpp)*
 
 **ReleaseInfo.md — Navigation and consolidation improvements:**
 
@@ -2008,6 +2039,21 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
 - Consolidated **May 29, 2026** same-day entries (cmake-build, debug call-stack log, OpenGL black-screen fixes, Vulkan DX11-parity pass, Vulkan swapchain stability, LoadTexture overhaul) into one block under a single heading.
 - Consolidated **May 31, 2026** same-day entries (model rendering confirmed, PBR materials, axis/projection fixes, starfield fix, Config Window DWrite crash, recording, movie skip) into one block under a single heading.
 - *See: [`ReleaseInfo.md`](ReleaseInfo.md)*
+
+- **Fix — 3D starfield never rendered and appeared in front of models in Vulkan** (`VULKAN_RenderFrame.cpp`):
+  Two related issues resolved:
+  1. `fxManager.RenderFX(fxManager.starfieldID, ...)` was not called anywhere in `RenderFrame()`. The tunnel had an explicit call in the D2D section, but the starfield did not. Added matching call immediately after the tunnel render so starfield particles are projected into the D2D overlay each frame.
+  2. The D2D overlay composite quad was drawn **after** `RenderGamePlay` (3D models). `RenderStarfield` uses `Blit2DColoredPixel` to write into the D2D overlay — compositing the overlay after the models placed the starfield on top of them. In DX11, the D2D overlay is rendered first and 3D geometry draws over it. Fixed by moving the overlay composite to **before** `RenderGamePlay`, so the starfield and all D2D content are behind the 3D scene geometry — matching DX11 draw order exactly.
+
+- **Fix — Yaw and Pitch missing from Vulkan debug overlay** (`VULKAN_RenderFrame.cpp`):
+  The `fpsText` debug string in the Vulkan render frame displayed FPS, mouse coords, camera X/Y/Z, and light count, but omitted Yaw and Pitch. The DX11 render frame (`DXRenderFrame.cpp`) includes `myCamera.m_yaw` and `myCamera.m_pitch` on the camera line. `VulkanCamera.h` exposes the same public members. Added `, Yaw: ...  Pitch: ...` to the Vulkan camera line to match DX11 parity.
+
+- **Fix — Resize causes threading error and double swapchain destruction** (`VULKAN_RenderFrame.cpp`, `VULKAN_Renderer.cpp`):
+  Two race conditions on window resize:
+  1. **Threading error** (`THREADING ERROR: VkQueue simultaneously used`): `Resize()` set `bIsResizing=true` then immediately called `vkDeviceWaitIdle`. The render thread could be mid-frame (inside `vkQueueSubmit` or `vkQueuePresentKHR`) while `vkDeviceWaitIdle` internally accessed the same VkQueue — undefined behaviour. Fix: added a spin-wait loop (up to 500ms, 1ms steps) in `Resize()` that waits for `bIsRendering` to become false before calling `WaitForGPUToFinish()`. Since `bIsResizing=true` causes the render thread to skip new frames, it is guaranteed to exit its current frame and not start another during the wait.
+  2. **Double swapchain destruction** (`vkDestroySwapchainKHR: Invalid VkSwapchainKHR`): `Resize()` called `RecreateSwapChain`, AND the render thread independently called `RecreateSwapChain` in response to `VK_ERROR_OUT_OF_DATE_KHR`/`VK_SUBOPTIMAL_KHR` returned from `vkAcquireNextImageKHR` or `vkQueuePresentKHR`. Both paths destroyed and recreated the swapchain simultaneously, producing invalid-handle errors and a leaked swapchain at device destruction. Fix: guarded both `RecreateSwapChain` calls inside `RenderFrame` with `if (!threadManager.threadVars.bIsResizing.load())` — the resize path owns swapchain recreation when `bIsResizing` is true.
+
+- *See: [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp)*
 
 ---
 

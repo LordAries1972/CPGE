@@ -1,0 +1,16 @@
+// ---------------------------------------------------------------------------------------------------------------
+// CHANGES — 31-05-2026
+// ---------------------------------------------------------------------------------------------------------------
+// Fix: Starfield was still rendering between FadeOut completing and the loader thread calling
+//   SaveAndSuspendFXForScene(), causing a brief visible flash when pressing the Experimental button.
+//   Added fxManager.StopStarfield() immediately after the fade wait loop (while screen is black)
+//   in the experimentalButton.onMouseBtnDown handler in CreateGameMenuWindow().
+//
+// Changed section (GUIWindows.cpp, experimentalButton.onMouseBtnDown lambda):
+//
+//   // After fade wait loop:
+//   fxManager.StopStarfield();   // NEW — stops starfield while screen is black
+//   RemoveWindow(windowName);
+//   scene.SetGotoScene(SCENE_EXPERIMENT);
+//   ...
+// ---------------------------------------------------------------------------------------------------------------

@@ -7,12 +7,12 @@
 // Pipeline order (mirrors DXRenderFrame.cpp):
 //   1) Safety guards, acquire exclusive lock
 //   2) Acquire swap chain image, begin command buffer
-//   3) Begin render pass, set viewport/scissor
+//   3) D2D overlay draw (starfield, tunnel, HUD, GUI — into CPU bitmap)
 //   4) Upload D2D overlay to Vulkan texture (Windows)
-//   5) 3D scene rendering per scene type (RenderGamePlay)
-//   6) 2D overlay composite (full-screen quad)
-//   7) FX rendering
-//   8) GUI rendering
+//   5) Begin render pass: background image quad
+//   6) 2D overlay composite (starfield/HUD behind 3D models — mirrors DX11 draw order)
+//   7) 3D scene rendering per scene type (RenderGamePlay)
+//   8) FX fullscreen effects (ColorFader/fades — always on top)
 //   9) End render pass, submit, present
 //
 // Platform guards:
@@ -218,8 +218,10 @@ inline void VulkanRenderer::RenderGamePlay(float deltaTime)
                                     m_3dPipelineLayout, 1, 1, &texSet, 0, nullptr);
 
         // ---- Draw indexed geometry ----
-        if (m.m_modelInfo.vertexBuffer != VK_NULL_HANDLE &&
-            m.m_modelInfo.indexBuffer  != VK_NULL_HANDLE &&
+        // Guard on descriptorSet so we never draw with an uninitialised UBO binding.
+        if (m.m_modelInfo.descriptorSet  != VK_NULL_HANDLE &&
+            m.m_modelInfo.vertexBuffer   != VK_NULL_HANDLE &&
+            m.m_modelInfo.indexBuffer    != VK_NULL_HANDLE &&
             !m.m_modelInfo.indices.empty())
         {
             VkBuffer     vbufs[]   = { m.m_modelInfo.vertexBuffer };
@@ -282,6 +284,14 @@ inline void VulkanRenderer::RenderIntroMovie()
                                     static_cast<float>(iOrigHeight));
     m_d2dRenderTarget->DrawBitmap(m_videoBitmap.Get(), dest, 1.0f,
                                    D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+
+    // Company logo overlay at half size, bottom-left corner (mirrors DX11 RenderIntroMovie)
+    if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]) {
+        D2D1_SIZE_F logoSz = m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]->GetSize();
+        int halfW = static_cast<int>(logoSz.width  * 0.5f);
+        int halfH = static_cast<int>(logoSz.height * 0.5f);
+        Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - halfH, halfW, halfH);
+    }
 
     // Spacebar: fade to black FIRST, then stop the movie once the screen is fully black.
     // m_movieSkipFrames == -1 → not skipping; >= 0 → frame counter since fade started.
@@ -403,8 +413,9 @@ void VulkanRenderer::RenderFrame()
 
             if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR ||
                 acquireResult == VK_ERROR_SURFACE_LOST_KHR) {
-                RecreateSwapChain(static_cast<uint32_t>(m_renderTargetWidth),
-                                  static_cast<uint32_t>(m_renderTargetHeight));
+                if (!threadManager.threadVars.bIsResizing.load())
+                    RecreateSwapChain(static_cast<uint32_t>(m_renderTargetWidth),
+                                      static_cast<uint32_t>(m_renderTargetHeight));
                 threadManager.threadVars.bIsRendering.store(false);
 #ifdef RENDERER_IS_THREAD
                 continue;
@@ -454,7 +465,7 @@ void VulkanRenderer::RenderFrame()
                         break;
                     case SceneType::SCENE_GAMETITLE:
                         if (threadManager.threadVars.bLoaderTaskFinished.load())
-                            myCamera.SetYawPitch(0.240f, -0.28f);
+                            myCamera.SetYawPitch(0.200f, -0.28f);
                         break;
                     case SceneType::SCENE_GAMEPLAY:
                         break;
@@ -479,6 +490,7 @@ void VulkanRenderer::RenderFrame()
                         L"\nMOUSE: x" + std::to_wstring(myMouseCoords.x) + L", y" + std::to_wstring(myMouseCoords.y) +
                         L"\nCamera X: " + std::to_wstring(coords.x) + L", Y: " + std::to_wstring(coords.y) +
                         L", Z: " + std::to_wstring(coords.z) +
+                        L", Yaw: " + std::to_wstring(myCamera.m_yaw) + L", Pitch: " + std::to_wstring(myCamera.m_pitch) +
                         L"\nGlobal Lights: " + std::to_wstring(lightsManager.GetLightCount());
                     DrawMyText(fpsText, Vector2(0.0f, 0.0f), MyColor(255, 255, 255, 255), 10.0f);
                 }
@@ -572,14 +584,14 @@ void VulkanRenderer::RenderFrame()
                 // FX 2D effects (scrollers, particles)
                 try { fxManager.Render2D(); } catch (...) {}
 
-                // 3D starfield (projects to 2D overlay via Blit2DColoredPixel — mirrors DXRenderFrame)
-                if (fxManager.starfieldID > 0) {
-                    try { fxManager.RenderFX(fxManager.starfieldID, cmd, myCamera.GetViewMatrix()); } catch (...) {}
-                }
-
                 // 3D warp dot tunnel (projects to 2D overlay via Blit2DColoredPixel)
                 if (fxManager.tunnelID > 0) {
                     try { fxManager.RenderFX(fxManager.tunnelID, cmd, myCamera.GetViewMatrix()); } catch (...) {}
+                }
+
+                // 3D starfield (projects to 2D overlay via Blit2DColoredPixel — mirrors DX11 draw order)
+                if (fxManager.starfieldID > 0) {
+                    try { fxManager.RenderFX(fxManager.starfieldID, cmd, myCamera.GetViewMatrix()); } catch (...) {}
                 }
 
                 // GUI windows
@@ -628,11 +640,7 @@ void VulkanRenderer::RenderFrame()
 
             // ---- Begin render pass ----
             VkClearValue clearValues[2];
-#if defined(_DEBUG)
-            clearValues[0].color = {{ 0.01f, 0.01f, 0.01f, 1.0f }};
-#else
             clearValues[0].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }};
-#endif
             clearValues[1].depthStencil = { 1.0f, 0 };
 
             VkRenderPassBeginInfo rpBegin{};
@@ -718,24 +726,9 @@ void VulkanRenderer::RenderFrame()
                 }
             }
 
-            // ---- 3D scene rendering (RenderGamePlay) ----
-            // UpdateAnimations is called unconditionally: it computes world matrices for
-            // static GLTF base-poses as well as animated clips, so models have correct
-            // hierarchy-composed transforms regardless of whether a clip is playing.
-            switch (scene.stSceneType) {
-                case SceneType::SCENE_GAMETITLE:
-                    if (threadManager.threadVars.bLoaderTaskFinished.load())
-                        scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS);
-                    RenderGamePlay(deltaTime);
-                    break;
-                case SceneType::SCENE_GAMEPLAY:
-                    scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS);
-                    RenderGamePlay(deltaTime);
-                    break;
-                default: break;
-            }
-
-            // ---- 2D overlay composite (textured fullscreen quad alpha-blended on top) ----
+            // ---- 2D overlay composite — drawn BEFORE 3D models to mirror DX11 draw order ----
+            // DX11 renders D2D content first (starfield, tunnel, HUD) then 3D geometry draws on top.
+            // This composite places the overlay behind all 3D scene geometry as intended.
             if (m_2dPipeline != VK_NULL_HANDLE && m_overlayTexture.isValid) {
                 vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_2dPipeline);
 
@@ -782,6 +775,23 @@ void VulkanRenderer::RenderFrame()
                     // Defer free until the fence for this frame signals on the next iteration
                     fd.pendingFreeSets.push_back(ds);
                 }
+            }
+
+            // ---- 3D scene rendering (RenderGamePlay) — renders on top of overlay and starfield ----
+            // UpdateAnimations is called unconditionally: it computes world matrices for
+            // static GLTF base-poses as well as animated clips, so models have correct
+            // hierarchy-composed transforms regardless of whether a clip is playing.
+            switch (scene.stSceneType) {
+                case SceneType::SCENE_GAMETITLE:
+                    if (threadManager.threadVars.bLoaderTaskFinished.load())
+                        scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS);
+                    RenderGamePlay(deltaTime);
+                    break;
+                case SceneType::SCENE_GAMEPLAY:
+                    scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS);
+                    RenderGamePlay(deltaTime);
+                    break;
+                default: break;
             }
 
             // ---- FX fullscreen effects (fades, etc.) — drawn last so they overlay everything ----
@@ -849,8 +859,9 @@ void VulkanRenderer::RenderFrame()
             if (presentResult == VK_ERROR_OUT_OF_DATE_KHR ||
                 presentResult == VK_SUBOPTIMAL_KHR          ||
                 presentResult == VK_ERROR_SURFACE_LOST_KHR) {
-                RecreateSwapChain(static_cast<uint32_t>(m_renderTargetWidth),
-                                  static_cast<uint32_t>(m_renderTargetHeight));
+                if (!threadManager.threadVars.bIsResizing.load())
+                    RecreateSwapChain(static_cast<uint32_t>(m_renderTargetWidth),
+                                      static_cast<uint32_t>(m_renderTargetHeight));
             }
 
             // Advance frame index

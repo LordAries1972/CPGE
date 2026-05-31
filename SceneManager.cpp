@@ -106,9 +106,20 @@ void SceneManager::CleanUp()
     // copy those stale handles into scene_models[] and use them in draw calls → crash.
     // Reset all Vulkan GPU handles and bGpuReady on every models[] entry that was GPU-ready
     // so the next ParseGLTFScene always calls SetupModelForRendering to create fresh buffers.
+    //
+    // ALSO: Release Texture shared_ptrs from models[] cache NOW, while the renderer (and
+    // therefore the VkDevice) is still alive.  scene_models[i].DestroyModel() above already
+    // reduced the Texture ref-count by 1, but models[] is a program-lifetime global whose
+    // destructor fires AFTER main() returns — at that point the VkDevice is gone, so
+    // Texture::~Texture() cannot call vkFreeMemory/vkDestroyImage, producing the 720+
+    // VkDeviceMemory leaks reported by the validation layer.  Clearing here drops the final
+    // reference while the device is valid and lets the Texture destructors clean up correctly.
     for (int mi = 0; mi < MAX_MODELS; ++mi)
     {
         if (!models[mi].m_modelInfo.bGpuReady) continue;
+        // Release embedded texture GPU resources (Texture::~Texture fires here while device alive)
+        models[mi].m_modelInfo.textures.clear();
+        models[mi].m_materials.clear();
         models[mi].m_modelInfo.vertexBuffer        = VK_NULL_HANDLE;
         models[mi].m_modelInfo.vertexBufferMemory  = VK_NULL_HANDLE;
         models[mi].m_modelInfo.indexBuffer         = VK_NULL_HANDLE;
@@ -1192,6 +1203,24 @@ void SceneManager::ParseGLBNodeRecursive(const json& node, int nodeIndex, const 
             scene_models[instanceIndex].m_modelInfo.name = primName;
 
             scene_models[instanceIndex].SetupModelForRendering(instanceIndex);
+#if defined(__USE_VULKAN__)
+            // SetupModelForRendering created the material UBO and texture descriptor set with defaults.
+            // Now that those GPU buffers exist, upload the real GLTF material data into them.
+            // BindGLTFMaterialTexturesToModel was called earlier inside LoadGLTFMeshPrimitives but
+            // silently no-oped because materialUniformBufferMapped was null at that point.
+            if (doc.contains("meshes") && meshIndex < (int)doc["meshes"].size())
+            {
+                const auto& glbPrims = doc["meshes"][meshIndex]["primitives"];
+                if (glbPrims.is_array() && primIdx < (int)glbPrims.size())
+                {
+                    int glbMatIdx = glbPrims[primIdx].value("material", -1);
+                    if (glbMatIdx >= 0)
+                        BindGLTFMaterialTexturesToModel(glbMatIdx,
+                            scene_models[instanceIndex].m_modelInfo,
+                            scene_models[instanceIndex], doc);
+                }
+            }
+#endif
             scene_models[instanceIndex].ApplyDefaultLightingFromManager(lightsManager);
             scene_models[instanceIndex].m_isLoaded = true;
 
@@ -2115,6 +2144,24 @@ void SceneManager::ParseGLTFNodeRecursive(const json& node, int nodeIndex, const
             scene_models[instanceIndex].m_modelInfo.name = primName;
 
             scene_models[instanceIndex].SetupModelForRendering(instanceIndex);
+#if defined(__USE_VULKAN__)
+            // SetupModelForRendering created the material UBO and texture descriptor set with defaults.
+            // Now that those GPU buffers exist, upload the real GLTF material data into them.
+            // BindGLTFMaterialTexturesToModel was called earlier inside LoadGLTFMeshPrimitives but
+            // silently no-oped because materialUniformBufferMapped was null at that point.
+            if (doc.contains("meshes") && meshIndex < (int)doc["meshes"].size())
+            {
+                const auto& gltfPrims = doc["meshes"][meshIndex]["primitives"];
+                if (gltfPrims.is_array() && primIdx < (int)gltfPrims.size())
+                {
+                    int gltfMatIdx = gltfPrims[primIdx].value("material", -1);
+                    if (gltfMatIdx >= 0)
+                        BindGLTFMaterialTexturesToModel(gltfMatIdx,
+                            scene_models[instanceIndex].m_modelInfo,
+                            scene_models[instanceIndex], doc);
+                }
+            }
+#endif
             scene_models[instanceIndex].ApplyDefaultLightingFromManager(lightsManager);
             scene_models[instanceIndex].m_isLoaded = true;
 
@@ -3355,10 +3402,12 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
 #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
                         info.metallicMap     = tex;
                         info.roughnessMap    = tex;
-#endif
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
                         info.metallicMapSRV  = tex->GetSRV();
                         info.roughnessMapSRV = tex->GetSRV();
+#elif defined(__USE_VULKAN__)
+                        // Vulkan: texture view is resolved from newMat.metallicMap in
+                        // the BindGLTFMaterialTexturesToModel Vulkan section below.
+                        // useMetallicMap/useRoughnessMap drive matData.useORM in the material UBO.
 #endif
                         info.useMetallicMap  = true;
                         info.useRoughnessMap = true;
@@ -3461,9 +3510,11 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
                     info.textures.push_back(tex);
 #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
                     info.aoMap    = tex;
-#endif
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
                     info.aoMapSRV = tex->GetSRV();
+#elif defined(__USE_VULKAN__)
+                    // Vulkan: texture view is resolved from newMat.aoMap in the
+                    // BindGLTFMaterialTexturesToModel Vulkan section below.
+                    // useAOMap drives matData.useAO in the material UBO.
 #endif
                     info.useAOMap = true;
                     newMat.aoMap  = tex;

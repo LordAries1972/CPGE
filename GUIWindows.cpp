@@ -561,6 +561,11 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
                 fadeTimeout++;
             }
 
+            // Screen is now black — stop the starfield immediately so it doesn't
+            // flicker visible between the FadeOut completing and the loader thread
+            // calling SaveAndSuspendFXForScene().
+            fxManager.StopStarfield();
+
             RemoveWindow(windowName);
 
             // Screen is black — hand off to the loader thread which owns all
