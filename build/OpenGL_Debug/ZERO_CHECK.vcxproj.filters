@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="F:\Projects\C++\CPGE2026\build\OpenGL_Debug\CMakeFiles\af9c24ff61b90646746db9d70fbe252c\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{D945F287-2B99-32D1-876B-B3FEEDF947B4}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

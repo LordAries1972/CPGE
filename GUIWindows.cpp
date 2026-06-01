@@ -29,6 +29,9 @@ extern ThreadManager threadManager;
 extern SceneManager scene;
 extern Debug debug;
 extern std::shared_ptr<Renderer> renderer;
+#if defined(_WIN32) || defined(_WIN64)
+extern HWND hwnd;  // main window handle — PostMessage(hwnd, WM_CLOSE) reaches WndProc on the main thread
+#endif
 
 extern void SwitchToGameIntro();
 
@@ -203,7 +206,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
         GUIWindowType::Dialog,                                              // Window type (Dialog)
         Vector2(renderer->iOrigWidth - 305, 0),                             // Position (x, y) - right side of screen
         Vector2(300, renderer->iOrigHeight),                                // Size (width, height) - full height
-        MyColor(0, 0, 0, 0),                                                // Background color (transparent black)
+        MyColor(0, 0, 0, 0),                                                // Background color (transparent — controls provide all visual substance)
         int(BlitObj2DIndexType::NONE)                                       // No background texture ID
     );
 
@@ -248,7 +251,11 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     configButton.useShadowedText = true;                                                                     // Enable text shadowing
     configButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);                                       // Button up texture
     configButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);                                // Button hover texture
-    configButton.label = L"      CONFIGURATION";                                                             // Button label text
+    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        configButton.label = L"CONFIGURATION";                                                             // Button label text
+    #elif defined(__USE_DX11__) || defined(__USE_DX12__)
+        configButton.label = L"      CONFIGURATION";                                                             // Button label text
+    #endif
     configButton.lblFontSize = 16.0f;                                                                        // Font size for button text
     configButton.isVisible = true;                                                                           // Make button visible
 
@@ -293,7 +300,11 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     gameplayButton.useShadowedText = true;                                                                      // Enable text shadowing
     gameplayButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);                                        // Button up texture
     gameplayButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);                                 // Button hover texture
-    gameplayButton.label = L"        GAME PLAY";                                                                // Button label text
+    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        gameplayButton.label = L"GAME PLAY";
+    #elif defined(__USE_DX11__) || defined(__USE_DX12__)
+        gameplayButton.label = L"        GAME PLAY";
+    #endif
     gameplayButton.lblFontSize = 16.0f;                                                                         // Font size for button text
     gameplayButton.isVisible = true;                                                                            // Make button visible
 
@@ -356,7 +367,12 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     hiscoresButton.useShadowedText = true;                                                                      // Enable text shadowing
     hiscoresButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);                                        // Button up texture
     hiscoresButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);                                 // Button hover texture
-    hiscoresButton.label = L"       HIGH SCORES";                                                               // Button label text
+    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        hiscoresButton.label = L"HIGH SCORES";                                                               // Button label text
+    #elif defined(__USE_DX11__) || defined(__USE_DX12__)
+        hiscoresButton.label = L"       HIGH SCORES";                                                               // Button label text
+    #endif
+    
     hiscoresButton.lblFontSize = 16.0f;                                                                         // Font size for button text
     hiscoresButton.isVisible = true;                                                                            // Make button visible
 
@@ -406,7 +422,11 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     creditsButton.useShadowedText = true;                                                                      // Enable text shadowing
     creditsButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);                                        // Button up texture
     creditsButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);                                 // Button hover texture
-    creditsButton.label = L"    SHOW CREDITS";                                                                 // Button label text
+    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        creditsButton.label = L"SHOW CREDITS";                                                                 // Button label text
+    #elif defined(__USE_DX11__) || defined(__USE_DX12__)
+        creditsButton.label = L"    SHOW CREDITS";                                                                 // Button label text
+    #endif
     creditsButton.lblFontSize = 16.0f;                                                                         // Font size for button text
     creditsButton.isVisible = true;                                                                            // Make button visible
 
@@ -474,55 +494,41 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
         }
         };
 
-    // Fixed onMouseBtnDown handler with proper shutdown sequence and error handling
+    // Quit button: start a fade-to-black then shut down inside the callback.
+    // The callback fires from fxManager.Render() (render thread) once progress>=1,
+    // so we never block the render thread with Sleep — the fade is fully visible.
     quitButton.onMouseBtnDown = [this, windowName = std::string(WINDOW_NAME)]()
     {
         try {
-            debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Quit button clicked, initiating shutdown sequence");
-
-            // Play sound effect safely
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Quit button clicked, starting fade-out shutdown sequence");
             soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
 
-            // Initiate fade to black effect with proper timing
-            fxManager.FadeToBlack(1.0f, 0.06f);
-
-            // Wait for fade effect to complete with proper timeout to prevent infinite loop
-            int fadeTimeout = 0;
-            const int MAX_FADE_TIMEOUT = 300; // 3 seconds maximum wait time (300 * 10ms)
-            while (fxManager.IsFadeActive() && fadeTimeout < MAX_FADE_TIMEOUT) {
-                Sleep(10); // Sleep for 10 milliseconds
-                fadeTimeout++;
-            }
-
-            // Log fade completion status
-            if (fadeTimeout >= MAX_FADE_TIMEOUT) {
-                debug.logDebugMessage(LogLevel::LOG_WARNING, L"CreateGameMenuWindow - Fade effect timeout reached, proceeding with shutdown");
-            }
-            else {
-                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"CreateGameMenuWindow - Fade effect completed successfully");
-            }
-
-            // Halt rendering immediately — no further frames after fade completes.
-            // Must be set BEFORE RemoveWindow so the render thread sees it and exits
-            // before any window/resource teardown begins.
-            threadManager.threadVars.bIsShuttingDown.store(true);
-
-            // Remove the game menu window safely before application shutdown
-            RemoveWindow(windowName);
-
-            // Post quit message to initiate clean application shutdown
-            debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Posting quit message for application shutdown");
-            PostQuitMessage(0);
-
+            fxManager.FadeOutThenCallback(
+                { 0.0f, 0.0f, 0.0f, 1.0f }, 1.0f, 0.06f,
+                [windowName]() {
+                    // Set shutdown flag so the render thread exits its loop.
+                    threadManager.threadVars.bIsShuttingDown.store(true);
+                    debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Fade complete, signalling main thread to close");
+#if defined(_WIN32) || defined(_WIN64)
+                    // PostMessage routes WM_CLOSE through WndProc on the main thread,
+                    // which calls DestroyWindow → PostQuitMessage, terminating WinMain.
+                    // PostQuitMessage(0) here would post to the render thread's queue
+                    // and never reach the main message loop.
+                    PostMessage(hwnd, WM_CLOSE, 0, 0);
+#else
+                    PostQuitMessage(0);
+#endif
+                });
         }
         catch (const std::exception& e) {
             debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"CreateGameMenuWindow - Exception in quit button handler: %s",
                 std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
-
-            // Emergency shutdown if exception occurs
-            debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"CreateGameMenuWindow - Emergency shutdown initiated due to exception");
             threadManager.threadVars.bIsShuttingDown.store(true);
-            PostQuitMessage(0); // Exit with error code
+#if defined(_WIN32) || defined(_WIN64)
+            PostMessage(hwnd, WM_CLOSE, 0, 0);
+#else
+            PostQuitMessage(0);
+#endif
         }
     };
 
@@ -540,8 +546,13 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     experimentalButton.useShadowedText = true;
     experimentalButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);
     experimentalButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);
-    experimentalButton.label = L"   ** EXPERIMENTAL **";
+    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        experimentalButton.label = L"** EXPERIMENTAL **";
+    #elif defined(__USE_DX11__) || defined(__USE_DX12__)
+        experimentalButton.label = L"   ** EXPERIMENTAL **";
+    #endif
     experimentalButton.lblFontSize = 16.0f;
+
     experimentalButton.isVisible = true;
 
     experimentalButton.onMouseBtnDown = [this, windowName = std::string(WINDOW_NAME)]() {

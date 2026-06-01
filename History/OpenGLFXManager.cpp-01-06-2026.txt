@@ -170,17 +170,27 @@ void GLFXManager::DestroyFadeShaderProgram() {
 // RenderFullScreenQuad
 // ---------------------------------------------------------------------------------------------------------------
 void GLFXManager::RenderFullScreenQuad(const XMFLOAT4& color) {
+    // Lazy shader creation: fxManager.Initialize() runs before wglMakeCurrent transfers
+    // the GL context to the render thread, so glCreateShader silently returns 0 there.
+    // Create the fade program here instead — this function is always called from the
+    // render thread which has the context current.
+    if (!m_fadeShaderProgram || !m_fadeVAO) {
+        if (!CreateFadeShaderProgram()) return;
+    }
     if (!m_fadeShaderProgram || !m_fadeVAO) return;
 
     // Save and set blend state
     GLboolean blendWasEnabled = glIsEnabled(GL_BLEND);
-    GLint srcBlend = 0, dstBlend = 0;
-    glGetIntegerv(GL_BLEND_SRC_ALPHA, &srcBlend);
-    glGetIntegerv(GL_BLEND_DST_ALPHA, &dstBlend);
+    GLboolean cullWasEnabled  = glIsEnabled(GL_CULL_FACE);
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDisable(GL_DEPTH_TEST);
+    // RenderGamePlay sets glFrontFace(GL_CW) for the DirectX-convention 3D scene and
+    // never restores it. The fade triangle is CCW in NDC, so with GL_CW it becomes a
+    // back face and GL_CULL_FACE silently discards it — making the fade invisible.
+    // Disable culling here (same pattern as Render2DQuad) and restore below.
+    glDisable(GL_CULL_FACE);
 
     glUseProgram(m_fadeShaderProgram);
     if (m_fadeColorUniform >= 0)
@@ -194,12 +204,14 @@ void GLFXManager::RenderFullScreenQuad(const XMFLOAT4& color) {
     // Restore state
     glEnable(GL_DEPTH_TEST);
     if (!blendWasEnabled) glDisable(GL_BLEND);
+    if (cullWasEnabled)   glEnable(GL_CULL_FACE);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
 // AddEffect
 // ---------------------------------------------------------------------------------------------------------------
 void GLFXManager::AddEffect(const GLFXItem& fxItem) {
+    std::lock_guard<std::recursive_mutex> lk(m_effectsMutex);
     GLFXItem newEffect = fxItem;
     newEffect.startTime  = std::chrono::steady_clock::now();
     newEffect.lastUpdate = newEffect.startTime;
@@ -210,6 +222,7 @@ void GLFXManager::AddEffect(const GLFXItem& fxItem) {
 // IsFadeActive
 // ---------------------------------------------------------------------------------------------------------------
 bool GLFXManager::IsFadeActive() const {
+    std::lock_guard<std::recursive_mutex> lk(m_effectsMutex);
     for (const auto& fx : effects)
         if (fx.type == FXType::ColorFader && fx.progress < 1.0f)
             return true;
@@ -340,14 +353,37 @@ void GLFXManager::ApplyScroller(GLFXItem& fxItem) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Render  —  3D effects (fades, starfield, tunnel)
+// RenderBackground  —  update + render starfield ONLY, called BEFORE 3D models.
+// Must be called once per frame before RenderGamePlay so that stars are drawn first
+// and 3D geometry is rendered on top.  Render() below skips Starfield effects so
+// stars are never drawn twice.
+// ---------------------------------------------------------------------------------------------------------------
+void GLFXManager::RenderBackground() {
+    if (m_isRendering.exchange(true)) return;
+    std::lock_guard<std::recursive_mutex> lk(m_effectsMutex);
+
+    auto now = std::chrono::steady_clock::now();
+    for (auto& fx : effects) {
+        if (fx.type != FXType::Starfield) continue;
+        float dt = std::chrono::duration<float>(now - fx.lastUpdate).count();
+        UpdateStarfield(dt);
+        XMMATRIX identity = XMMatrixIdentity();
+        RenderStarfield(fx, identity);
+        fx.lastUpdate = now;
+    }
+
+    m_isRendering.store(false);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Render  —  fades, tunnel and callbacks (skips Starfield — already done in RenderBackground)
 // ---------------------------------------------------------------------------------------------------------------
 void GLFXManager::Render() {
     if (m_isRendering.exchange(true)) return;
+    std::lock_guard<std::recursive_mutex> lk(m_effectsMutex);
 
     try {
         auto now = std::chrono::steady_clock::now();
-        float deltaTime = 0.016f;
 
         for (auto& fx : effects) {
             switch (fx.type) {
@@ -355,14 +391,9 @@ void GLFXManager::Render() {
                     ApplyColorFader(fx);
                     break;
                 case FXType::Starfield:
-                {
-                    float dt = std::chrono::duration<float>(now - fx.lastUpdate).count();
-                    UpdateStarfield(dt);
-                    XMMATRIX identity = XMMatrixIdentity();
-                    RenderStarfield(fx, identity);
-                    fx.lastUpdate = now;
+                    // Rendered in RenderBackground() before 3D models — skip here
+                    // so stars are not drawn again on top of the scene.
                     break;
-                }
                 case FXType::WarpDotTunnel:
                 {
                     float dt = std::chrono::duration<float>(now - fx.lastUpdate).count();
@@ -407,6 +438,7 @@ void GLFXManager::Render() {
 // Render2D  —  2D overlay effects (particles, text scrollers, tile scrollers)
 // ---------------------------------------------------------------------------------------------------------------
 void GLFXManager::Render2D() {
+    std::lock_guard<std::recursive_mutex> lk(m_effectsMutex);
     for (auto& fx : effects) {
         switch (fx.type) {
             case FXType::Scroller:      ApplyScroller(fx);     break;
@@ -431,6 +463,7 @@ void GLFXManager::Render2D() {
 // RenderFX  —  per-effect render (called from scene render loop)
 // ---------------------------------------------------------------------------------------------------------------
 void GLFXManager::RenderFX(int effectID, const XMMATRIX& worldMatrix) {
+    std::lock_guard<std::recursive_mutex> lk(m_effectsMutex);
     for (auto& fx : effects) {
         if (fx.fxID != effectID) continue;
         switch (fx.type) {
@@ -446,6 +479,7 @@ void GLFXManager::RenderFX(int effectID, const XMMATRIX& worldMatrix) {
 // RemoveCompletedEffects
 // ---------------------------------------------------------------------------------------------------------------
 void GLFXManager::RemoveCompletedEffects() {
+    std::lock_guard<std::recursive_mutex> lk(m_effectsMutex);
     effects.erase(
         std::remove_if(effects.begin(), effects.end(), [](const GLFXItem& fx) {
             if (fx.type == FXType::TextFadeInOut)
@@ -467,6 +501,7 @@ void GLFXManager::RemoveCompletedEffects() {
 // StopAllFX
 // ---------------------------------------------------------------------------------------------------------------
 void GLFXManager::StopAllFX() {
+    std::lock_guard<std::recursive_mutex> lk(m_effectsMutex);
     SafelyClearAllEffects();
     starfieldID = 0;
     tunnelID    = 0;
@@ -476,6 +511,7 @@ void GLFXManager::StopAllFX() {
 // SaveAndSuspendFXForScene / RestoreFXAfterScene / DiscardSavedFXState
 // ---------------------------------------------------------------------------------------------------------------
 void GLFXManager::SaveAndSuspendFXForScene() {
+    std::lock_guard<std::recursive_mutex> lk(m_effectsMutex);
     m_sceneSavedEffects       = effects;
     m_sceneSavedStarfieldID   = starfieldID;
     m_sceneSavedTunnelID      = tunnelID;
@@ -484,6 +520,7 @@ void GLFXManager::SaveAndSuspendFXForScene() {
 }
 
 void GLFXManager::RestoreFXAfterScene() {
+    std::lock_guard<std::recursive_mutex> lk(m_effectsMutex);
     StopAllFX();
     effects    = m_sceneSavedEffects;
     starfieldID = m_sceneSavedStarfieldID;
@@ -542,16 +579,35 @@ void GLFXManager::FadeToImage(float duration, float delay) {
 // ---------------------------------------------------------------------------------------------------------------
 void GLFXManager::FadeOutThenCallback(XMFLOAT4 color, float duration, float delay,
                                        std::function<void()> callback) {
-    GLFXItem fx;
-    fx.fxID        = static_cast<int>(effects.size()) + 1;
-    fx.type        = FXType::ColorFader;
-    fx.subtype     = FXSubType::FadeToTargetColor;
-    fx.targetColor = color;
-    fx.duration    = duration;
-    fx.delay       = delay;
-    fx.progress    = 0.0f;
-    AddEffect(fx);
-    m_pendingCallbacks.emplace_back(fx.fxID, std::move(callback));
+    if (!callback || duration <= 0.0f || delay < 0.0f) return;
+
+    if (std::isnan(color.x) || std::isnan(color.y) || std::isnan(color.z) || std::isnan(color.w) ||
+        std::isinf(color.x) || std::isinf(color.y) || std::isinf(color.z) || std::isinf(color.w)) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[GLFXManager] FadeOutThenCallback: Invalid color values - operation aborted");
+        return;
+    }
+
+    std::lock_guard<std::recursive_mutex> lk(m_effectsMutex);
+    try {
+        GLFXItem fx;
+        fx.fxID        = static_cast<int>(effects.size()) + 1000;
+        fx.type        = FXType::ColorFader;
+        fx.subtype     = FXSubType::FadeToTargetColor;
+        fx.targetColor = color;
+        fx.duration    = duration;
+        fx.delay       = delay;
+        fx.progress    = 0.0f;
+
+        for (const auto& e : effects)
+            if (e.fxID == fx.fxID) { fx.fxID = static_cast<int>(effects.size()) + static_cast<int>(m_pendingCallbacks.size()) + 2000; break; }
+
+        AddEffect(fx);
+        m_pendingCallbacks.emplace_back(fx.fxID, std::move(callback));
+    }
+    catch (const std::exception& e) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[GLFXManager] Exception in FadeOutThenCallback: " +
+            std::wstring(e.what(), e.what() + strlen(e.what())));
+    }
 }
 
 void GLFXManager::FadeOutInSequence(XMFLOAT4 fadeOutColor, XMFLOAT4 fadeInColor,
@@ -567,6 +623,7 @@ void GLFXManager::FadeOutInSequence(XMFLOAT4 fadeOutColor, XMFLOAT4 fadeInColor,
 // CancelEffect / RestartEffect / ChainEffect
 // ---------------------------------------------------------------------------------------------------------------
 void GLFXManager::CancelEffect(int effectID) {
+    std::lock_guard<std::recursive_mutex> lk(m_effectsMutex);
     effects.erase(
         std::remove_if(effects.begin(), effects.end(),
             [effectID](const GLFXItem& fx) { return fx.fxID == effectID; }),
@@ -574,6 +631,7 @@ void GLFXManager::CancelEffect(int effectID) {
 }
 
 void GLFXManager::RestartEffect(int effectID) {
+    std::lock_guard<std::recursive_mutex> lk(m_effectsMutex);
     for (auto& fx : effects) {
         if (fx.fxID == effectID) {
             fx.progress  = 0.0f;
@@ -585,6 +643,7 @@ void GLFXManager::RestartEffect(int effectID) {
 }
 
 void GLFXManager::ChainEffect(int fromEffectID, int toEffectID) {
+    std::lock_guard<std::recursive_mutex> lk(m_effectsMutex);
     for (auto& fx : effects)
         if (fx.fxID == fromEffectID) { fx.nextEffectIDv = toEffectID; break; }
 }
@@ -608,6 +667,7 @@ void GLFXManager::StartScrollEffect(BlitObj2DIndexType textureIndex, FXSubType d
 }
 
 void GLFXManager::StopScrollEffect(BlitObj2DIndexType textureIndex) {
+    std::lock_guard<std::recursive_mutex> lk(m_effectsMutex);
     effects.erase(
         std::remove_if(effects.begin(), effects.end(),
             [textureIndex](const GLFXItem& fx) {
@@ -617,24 +677,28 @@ void GLFXManager::StopScrollEffect(BlitObj2DIndexType textureIndex) {
 }
 
 void GLFXManager::UpdateScrollSpeed(BlitObj2DIndexType textureIndex, int newSpeed) {
+    std::lock_guard<std::recursive_mutex> lk(m_effectsMutex);
     for (auto& fx : effects)
         if (fx.type == FXType::Scroller && fx.textureIndex == textureIndex)
             { fx.scrollSpeed = newSpeed; break; }
 }
 
 void GLFXManager::PauseScroll(BlitObj2DIndexType textureIndex) {
+    std::lock_guard<std::recursive_mutex> lk(m_effectsMutex);
     for (auto& fx : effects)
         if (fx.type == FXType::Scroller && fx.textureIndex == textureIndex)
             { fx.isPaused = true; break; }
 }
 
 void GLFXManager::ResumeScroll(BlitObj2DIndexType textureIndex) {
+    std::lock_guard<std::recursive_mutex> lk(m_effectsMutex);
     for (auto& fx : effects)
         if (fx.type == FXType::Scroller && fx.textureIndex == textureIndex)
             { fx.isPaused = false; break; }
 }
 
 void GLFXManager::SetScrollDirection(BlitObj2DIndexType textureIndex, FXSubType newDirection) {
+    std::lock_guard<std::recursive_mutex> lk(m_effectsMutex);
     for (auto& fx : effects)
         if (fx.type == FXType::Scroller && fx.textureIndex == textureIndex)
             { fx.subtype = newDirection; break; }
@@ -693,35 +757,46 @@ void GLFXManager::CreateStarfield(int numStars, float circularRadius, float rese
     fx.fxID             = static_cast<int>(effects.size()) + 1;
     fx.type             = FXType::Starfield;
     fx.duration         = FLT_MAX;
+    fx.depthMultiplier  = resetDepthPos;   // mirrors DX11: depthMultiplier = resetDepthPos
     fx.starfieldOrigin  = startPos;
     fx.starfieldReverse = reverse;
-
-    // Store far-Z for use by UpdateStarfield and RenderStarfield
-    fx.warpTunnelData.farZ  = resetDepthPos;
-    fx.warpTunnelData.nearZ = 50.0f;
-
-    constexpr float kMinSpawnDepth = 50.0f;
-
-    std::mt19937 rng(static_cast<unsigned>(std::chrono::steady_clock::now().time_since_epoch().count()));
-    std::uniform_real_distribution<float> distAngle(0.0f, 6.2831853f);
-    std::uniform_real_distribution<float> distR(0.0f, circularRadius);
-    std::uniform_real_distribution<float> distDepth(kMinSpawnDepth, resetDepthPos);
-    std::uniform_real_distribution<float> distBright(0.5f, 1.0f);
-    std::uniform_real_distribution<float> distSize(1.0f, 4.0f);
-    std::uniform_real_distribution<float> distSpeed(0.5f, 2.5f);
+    fx.warpTunnelData.farZ = resetDepthPos;
 
     fx.stars.resize(numStars);
     for (int i = 0; i < numStars; ++i) {
-        float angle  = distAngle(rng);
-        float r      = distR(rng);
-        float bright = distBright(rng);
-        fx.stars[i].position = { startPos.x + r * cosf(angle),
-                                  startPos.y + r * sinf(angle),
-                                  distDepth(rng) };
-        fx.stars[i].color    = { bright, bright, bright, 1.0f };
-        fx.stars[i].size     = distSize(rng);
-        fx.stars[i].speed    = distSpeed(rng);
-        fx.stars[i].active   = true;
+        GLStar& s = fx.stars[i];
+        float angle = (static_cast<float>(rand()) / RAND_MAX) * 6.2831853f;
+        float dist  = (0.1f + (static_cast<float>(rand()) / RAND_MAX) * 0.9f) * circularRadius;
+        float spreadX = cosf(angle) * dist;
+        float spreadY = sinf(angle) * dist;
+
+        if (!reverse) {
+            // Default: stars spawn far and fly toward the camera (z decreases)
+            s.position.x = startPos.x + spreadX;
+            s.position.y = startPos.y + spreadY;
+            s.position.z = startPos.z + resetDepthPos * (0.1f + 0.9f * (static_cast<float>(rand()) / RAND_MAX));
+            s.vx = 0.0f; s.vy = 0.0f;
+        } else {
+            // Reverse: stars spawn near camera and travel away, converging toward startPos
+            float startZ   = 5.0f + (static_cast<float>(rand()) / RAND_MAX) * (resetDepthPos * 0.1f);
+            float fraction = 1.0f - (startZ / resetDepthPos);
+            s.vx = spreadX;
+            s.vy = spreadY;
+            s.position.z = startZ;
+            s.position.x = startPos.x + s.vx * fraction;
+            s.position.y = startPos.y + s.vy * fraction;
+        }
+
+        s.speed     = 80.0f + (static_cast<float>(rand()) / RAND_MAX) * 120.0f;  // 80–200 units/s (matches DX11 visual pace)
+        s.size      = 1.0f  + (static_cast<float>(rand()) / RAND_MAX) * 2.0f;
+        s.maxRadius = resetDepthPos;
+
+        float bright = 0.7f + (static_cast<float>(rand()) / RAND_MAX) * 0.3f;
+        s.color = { bright,
+                    bright * (0.85f + (static_cast<float>(rand()) / RAND_MAX) * 0.15f),
+                    bright * (0.9f  + (static_cast<float>(rand()) / RAND_MAX) * 0.1f),
+                    1.0f };
+        s.active = true;
     }
 
     starfieldID = fx.fxID;
@@ -736,29 +811,60 @@ void GLFXManager::StopStarfield() {
 }
 
 void GLFXManager::UpdateStarfield(float deltaTime) {
-    constexpr float kMinResetDepth = 50.0f; // minimum safe depth on spawn/reset
+    std::lock_guard<std::recursive_mutex> lk(m_effectsMutex);
 
     for (auto& fx : effects) {
         if (fx.type != FXType::Starfield) continue;
-        // Derive far-Z from the tunnel data farZ field (it's repurposed for star range)
-        float farZ = fx.warpTunnelData.farZ > 0.0f ? fx.warpTunnelData.farZ : 1000.0f;
 
-        for (auto& star : fx.stars) {
-            if (!star.active) continue;
-            if (fx.starfieldReverse) {
-                // Stars fly away from viewer (z grows)
-                star.position.z += star.speed * deltaTime * 200.0f;
-                if (star.position.z > farZ) {
-                    // Reset to a safe near-plane distance, not z=0
-                    star.position.z = kMinResetDepth;
-                    star.position.x = fx.starfieldOrigin.x;
-                    star.position.y = fx.starfieldOrigin.y;
+        float     resetDepth = fx.depthMultiplier;
+        bool      reverse    = fx.starfieldReverse;
+        XMFLOAT3  origin     = fx.starfieldOrigin;
+        float     clampedDt  = std::min(deltaTime, 0.1f);
+
+        for (auto& s : fx.stars) {
+            if (!s.active) continue;
+
+            if (!reverse) {
+                // Default: stars fly toward camera (z decreases), mirrors DX11 non-reverse path
+                s.position.z -= s.speed * clampedDt;
+                float distRatio = s.position.z / resetDepth;
+                s.color.w = std::max(0.0f, std::min(1.0f, distRatio * 1.2f));
+
+                if (s.position.z <= 5.0f) {
+                    // Reset far away — respawn in a tight cluster
+                    float angle = (static_cast<float>(rand()) / RAND_MAX) * 6.2831853f;
+                    float dist  = (0.1f + (static_cast<float>(rand()) / RAND_MAX) * 0.9f) * (resetDepth * 0.1f);
+                    s.position.x = origin.x + cosf(angle) * dist;
+                    s.position.y = origin.y + sinf(angle) * dist;
+                    s.position.z = origin.z + resetDepth * (0.9f + 0.1f * (static_cast<float>(rand()) / RAND_MAX));
+                    s.speed      = 80.0f + (static_cast<float>(rand()) / RAND_MAX) * 120.0f;
+                    s.size       = 1.0f  + (static_cast<float>(rand()) / RAND_MAX) * 1.2f;
+                    s.color.w    = 1.0f;
                 }
             } else {
-                // Stars fly toward viewer (z shrinks)
-                star.position.z -= star.speed * deltaTime * 200.0f;
-                if (star.position.z < kMinResetDepth) {
-                    star.position.z = farZ;
+                // Reverse: stars travel away from camera, x/y converge toward origin
+                // Mirrors DX11 FXManager::UpdateStarfield reverse branch exactly.
+                s.position.z += s.speed * clampedDt;
+
+                if (s.position.z >= resetDepth) {
+                    // Reset near camera — new spread direction, near z
+                    float angle  = (static_cast<float>(rand()) / RAND_MAX) * 6.2831853f;
+                    float dist   = (0.1f + (static_cast<float>(rand()) / RAND_MAX) * 0.9f) * s.maxRadius;
+                    s.vx         = cosf(angle) * dist;
+                    s.vy         = sinf(angle) * dist;
+                    s.position.z = 5.0f + (static_cast<float>(rand()) / RAND_MAX) * (resetDepth * 0.1f);
+                    float frac   = 1.0f - (s.position.z / resetDepth);
+                    s.position.x = origin.x + s.vx * frac;
+                    s.position.y = origin.y + s.vy * frac;
+                    s.speed      = 80.0f + (static_cast<float>(rand()) / RAND_MAX) * 120.0f;
+                    s.size       = 1.0f  + (static_cast<float>(rand()) / RAND_MAX) * 1.2f;
+                    s.color.w    = 1.0f;
+                } else {
+                    // Converge x,y toward origin as z increases
+                    float frac   = 1.0f - (s.position.z / resetDepth);
+                    s.position.x = origin.x + s.vx * frac;
+                    s.position.y = origin.y + s.vy * frac;
+                    s.color.w    = std::max(0.0f, std::min(1.0f, frac * 1.2f));
                 }
             }
         }
@@ -768,54 +874,54 @@ void GLFXManager::UpdateStarfield(float deltaTime) {
 void GLFXManager::RenderStarfield(GLFXItem& fxItem, const XMMATRIX& viewMatrix) {
     if (!renderer) return;
 
-    // Determine actual screen dimensions for correct perspective calculation
-    int screenW = 800, screenH = 600;
-    if (auto* r = dynamic_cast<OpenGLRenderer*>(renderer.get())) {
-        screenW = r->iOrigWidth;
-        screenH = r->iOrigHeight;
-    }
+    auto* r = dynamic_cast<OpenGLRenderer*>(renderer.get());
+    if (!r) return;
+
+    int screenW = r->iOrigWidth;
+    int screenH = r->iOrigHeight;
     if (screenW <= 0) screenW = 800;
     if (screenH <= 0) screenH = 600;
 
-    const float cx = static_cast<float>(screenW) * 0.5f;
-    const float cy = static_cast<float>(screenH) * 0.5f;
+    // Build view-projection exactly as DX11 RenderStarfield does, using camera matrices.
+    // GLM is column-major: combined = proj * view (right-to-left application order).
+    glm::mat4 view = r->myCamera.GetViewMatrix();
+    glm::mat4 proj = r->myCamera.GetProjectionMatrix();
+    glm::mat4 viewProj = proj * view;
 
-    // Focal length from a 60-degree vertical half-FOV (matches default camera FOV)
-    // focal = (screenH / 2) / tan(halfFOV_rad)
-    constexpr float kHalfFOV = 0.5235988f; // 30 degrees in radians (half of 60)
-    const float focal = cy / tanf(kHalfFOV);
+    float resetDepth = fxItem.depthMultiplier;
 
-    // Minimum depth to prevent stars from exploding to infinite screen coords
-    constexpr float kMinDepth = 20.0f;
+    for (const auto& s : fxItem.stars) {
+        if (!s.active) continue;
 
-    for (const auto& star : fxItem.stars) {
-        if (!star.active) continue;
+        // Transform world position through view-projection (mirrors DX11 XMVector3TransformCoord)
+        glm::vec4 worldPos(s.position.x, s.position.y, s.position.z, 1.0f);
+        glm::vec4 clip = viewProj * worldPos;
 
-        // Skip stars that are too close to the camera plane
-        if (star.position.z < kMinDepth) continue;
+        if (clip.w <= 0.0f) continue;  // behind camera
 
-        float depth   = star.position.z;
-        // Project from world/camera space to screen space using focal-length perspective
-        float screenX =  (star.position.x * focal / depth) + cx;
-        float screenY = -(star.position.y * focal / depth) + cy; // Y flipped for screen coords
+        float ndcX = clip.x / clip.w;
+        float ndcY = clip.y / clip.w;
+        float ndcZ = clip.z / clip.w;
 
-        // Cull stars outside the visible viewport (with a small margin)
-        if (screenX < -4.0f || screenX > static_cast<float>(screenW) + 4.0f) continue;
-        if (screenY < -4.0f || screenY > static_cast<float>(screenH) + 4.0f) continue;
+        // glm::perspectiveLH_NO maps depth to [-1, 1]; cull outside NDC box
+        if (ndcZ < -1.0f || ndcZ > 1.0f) continue;
+        if (ndcX < -1.0f || ndcX > 1.0f) continue;
+        if (ndcY < -1.0f || ndcY > 1.0f) continue;
 
-        // Size inversely proportional to depth (perspective size)
-        float size = std::clamp(star.size * (focal / depth), 0.5f, 8.0f);
+        // NDC → screen coords (matches DX11: screenX = (X+1)*0.5*W, screenY = (1-Y)*0.5*H)
+        float screenX = (ndcX + 1.0f) * 0.5f * static_cast<float>(screenW);
+        float screenY = (1.0f - ndcY) * 0.5f * static_cast<float>(screenH);
 
-        // Fade brightness by depth: stars far away are dimmer
-        float depthFade = std::clamp(depth / fxItem.warpTunnelData.farZ, 0.0f, 1.0f);
-        if (fxItem.warpTunnelData.farZ <= 0.0f) depthFade = 1.0f;
-        float alpha = star.color.w * (0.3f + 0.7f * (1.0f - depthFade * 0.5f));
+        // Size scales with depth proximity (matches DX11 sizeScale formula)
+        float sizeScale  = 1.0f + (resetDepth > 0.0f ? (resetDepth - s.position.z) / resetDepth * 3.0f : 0.0f);
+        float displaySize = std::clamp(s.size * sizeScale, 0.5f, 8.0f);
 
-        XMFLOAT4 col(star.color.x, star.color.y, star.color.z, std::clamp(alpha, 0.0f, 1.0f));
+        XMFLOAT4 col(s.color.x, s.color.y, s.color.z,
+                     std::clamp(s.color.w, 0.0f, 1.0f));
         renderer->Blit2DColoredPixel(
             static_cast<int>(screenX),
             static_cast<int>(screenY),
-            size,
+            displaySize,
             col);
     }
 }
@@ -1201,6 +1307,7 @@ int GLFXManager::ShowLoadingText(const std::wstring& text,
                                   const TextRenderStyle* fontStyle)
 {
     if (bHasCleanedUp) return -1;
+    std::lock_guard<std::recursive_mutex> lk(m_effectsMutex);
 
     float maxRemainingFadeOut = 0.0f;
     for (auto& fx : effects) {
@@ -1263,6 +1370,7 @@ int GLFXManager::ShowLoadingText(const std::wstring& text,
 
 void GLFXManager::StopLoadingText()
 {
+    std::lock_guard<std::recursive_mutex> lk(m_effectsMutex);
     for (auto& fx : effects) {
         if (fx.type != FXType::TextFadeInOut) continue;
         if (fx.textFadeData.immediateStop) continue;
@@ -1290,6 +1398,7 @@ void GLFXManager::StopLoadingText()
 void GLFXManager::RenderLoadingText()
 {
     if (bHasCleanedUp || !renderer) return;
+    std::lock_guard<std::recursive_mutex> lk(m_effectsMutex);
     static auto lastRLT = std::chrono::steady_clock::now();
     auto  now      = std::chrono::steady_clock::now();
     float deltaTime = std::min(std::chrono::duration<float>(now - lastRLT).count(), 0.1f);
@@ -1373,6 +1482,7 @@ void GLFXManager::RenderTextFadeInOut(GLFXItem& fx)
 
 bool GLFXManager::HasActiveLoadingTextEffects() const
 {
+    std::lock_guard<std::recursive_mutex> lk(m_effectsMutex);
     for (const auto& fx : effects) {
         if (fx.type != FXType::TextFadeInOut) continue;
         if (fx.textFadeData.immediateStop) continue;

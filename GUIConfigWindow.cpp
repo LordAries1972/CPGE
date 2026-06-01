@@ -3,7 +3,14 @@
 #include <shellapi.h>
 #include <thread>
 
+#if defined(__USE_OPENGL__)
+#include "OpenGLFXManager.h"
+#elif defined(__USE_VULKAN__)
+#include "VULKAN_FXManager.h"
+#else
 #include "DX_FXManager.h"
+#endif
+
 #include "ThreadManager.h"
 #include "SoundManager.h"
 #include "GUIManager.h"
@@ -13,7 +20,13 @@
 
 extern std::shared_ptr<Renderer> renderer;
 extern SoundManager soundManager;
+#if defined(__USE_OPENGL__)
+extern GLFXManager fxManager;
+#elif defined(__USE_VULKAN__)
+extern VKFXManager fxManager;
+#else
 extern FXManager fxManager;
+#endif
 extern ThreadManager threadManager;
 
 // Forward-declared in main.cpp (no longer static)
@@ -159,7 +172,7 @@ void GUIManager::CreateConfigWindow()
 
     CreateMyWindow(WIN_NAME, GUIWindowType::Dialog,
         Vector2(WX, WY), Vector2(WW, WH),
-        MyColor(0, 0, 0, 128),
+        MyColor(0, 0, 0, 220),   // semi-opaque: was 128 (50% transparent), raised so 3D scene doesn't bleed through
         int(BlitObj2DIndexType::NONE));
 
     auto configWindow = GetWindow(WIN_NAME);
@@ -405,7 +418,7 @@ void GUIManager::CreateConfigWindow()
         bevel.type = GUIControlType::TextArea;  bevel.id = "container";
         bevel.position = Vector2(WX, CONT_Y);
         bevel.size     = Vector2(WW, CONT_H);
-        bevel.bgColor  = MyColor(15, 15, 25, 128);
+        bevel.bgColor  = MyColor(15, 15, 25, 220);   // raised from 128 to match window background
         bevel.bgTextureId = bevel.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BEVEL1);
         bevel.label = L"";  bevel.isVisible = true;
         configWindow->AddControl(bevel);
@@ -739,7 +752,7 @@ void GUIManager::CreateConfigWindow()
     const float BTM_Y = CONT_Y + CONT_H + 8.0f;
 
     // CLOSE — discard all changes, revert live audio
-    addButton("btn_close", WX + 10.0f, BTM_Y, 140.0f, 34.0f, L"     Close", 14.0f, true,
+    addButton("btn_close", WX + 10.0f, BTM_Y, 140.0f, 34.0f, L"Close", 14.0f, true,
         [this, WIN_NAME, revertCfg]() {
             soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
             config.myConfig = *revertCfg;
@@ -749,7 +762,7 @@ void GUIManager::CreateConfigWindow()
 
     // SAVE — write config to disk, revert live audio to reverted state only
     // if video settings changed, show the 10-second restart notification.
-    addButton("btn_save", WX + 165.0f, BTM_Y, 140.0f, 34.0f, L"      Save", 14.0f, true,
+    addButton("btn_save", WX + 165.0f, BTM_Y, 140.0f, 34.0f, L"Save", 14.0f, true,
         [this, WIN_NAME, needsVideoRestart]() {
             soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
             config.saveConfig();
@@ -902,7 +915,7 @@ void GUIManager::CreateConfigWindow()
         });
 
     // RESTART GAME — saves and immediately restarts (no notification needed)
-    addButton("btn_restart", WX + 320.0f, BTM_Y, 170.0f, 34.0f, L"    Restart Game", 13.0f, true,
+    addButton("btn_restart", WX + 320.0f, BTM_Y, 170.0f, 34.0f, L"Restart Game", 13.0f, true,
         [this, WIN_NAME]() {
             soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
             config.saveConfig();

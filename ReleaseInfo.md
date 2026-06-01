@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1377*
+*Current Build Version: v0.0.1394*
 
 ---
 
@@ -598,6 +598,49 @@ OpenGL complete pipeline parity — black screen root-cause fix, texture loading
 
 ---
 
+**OpenGL SCENE_GAMETITLE crash fix and GUI/Console/Config verification** (`OpenGLFXManager.h`, `OpenGLFXManager.cpp`):
+
+- **Critical crash fix — access violation in nvoglv64.dll during SCENE_GAMETITLE** (`OpenGLFXManager.h`, `OpenGLFXManager.cpp`):
+  Root cause: `GLFXManager::m_effectsMutex` (`std::mutex`) was declared in the class header but never acquired by any method. The loader thread called `CreateStarfield()` → `AddEffect()` → `effects.push_back()`, which triggered a vector reallocation while the render thread was simultaneously iterating `effects` inside `Render()` → `RenderStarfield()` → `Blit2DColoredPixel()` → `Render2DQuad()` → `glBindVertexArray()`. The dangling iterator caused the NVIDIA OpenGL driver (`nvoglv64.dll`) to receive a garbage VAO handle, producing a fatal access violation (0xC0000005) in thread 2012.
+  Fix: changed `m_effectsMutex` to `mutable std::recursive_mutex` (needed for `const` methods and re-entrant call chains). Added `std::lock_guard<std::recursive_mutex>` to every method that reads or writes the `effects` vector: `AddEffect`, `IsFadeActive`, `Render`, `Render2D`, `RenderFX`, `RemoveCompletedEffects`, `StopAllFX`, `SaveAndSuspendFXForScene`, `RestoreFXAfterScene`, `CancelEffect`, `RestartEffect`, `ChainEffect`, `StopScrollEffect`, `UpdateScrollSpeed`, `PauseScroll`, `ResumeScroll`, `SetScrollDirection`, `UpdateStarfield`, `ShowLoadingText`, `StopLoadingText`, `RenderLoadingText`, `HasActiveLoadingTextEffects`, and the three inline private helpers (`CollectActiveTextScrollerIDs`, `HasActiveFadeEffects`, `SafelyClearAllEffects`). `std::recursive_mutex` is required because `RestoreFXAfterScene` → `StopAllFX` → `SafelyClearAllEffects` forms a same-thread lock chain, and `Render` → `RemoveCompletedEffects` / `UpdateStarfield` are all called while the lock is held.
+
+- **GUIManager, Configuration Window and Console Window — OpenGL render path verified**: All three UI systems render exclusively through the virtual `Renderer*` interface (`DrawRectangle`, `DrawMyText`, `DrawMyTextCentered`, `DrawTexture`, `CalculateTextWidth/Height`). Every method is fully implemented in `OpenGLRenderer.cpp`. Input handling is wired through `WndProc` / `KeyboardHandler` (renderer-independent). F8 console toggle, mouse-click handling, and config window creation all confirmed functional for the OpenGL path. No renderer-specific code changes required.
+
+- *See: [`OpenGLFXManager.h`](OpenGLFXManager.h), [`OpenGLFXManager.cpp`](OpenGLFXManager.cpp)*
+
+---
+
+**`GLFXManager::FadeOutThenCallback` — thread safety and parity fix** (`OpenGLFXManager.cpp`):
+
+- **Race condition fix — `m_pendingCallbacks` written without mutex**: `FadeOutThenCallback` called `m_pendingCallbacks.emplace_back` after releasing `m_effectsMutex` (via `AddEffect`), while `Render()` iterates and erases the same vector under that mutex. This was a real data race if a button click and a render call overlapped. Fix: the entire operation (collision check, `AddEffect`, `emplace_back`) now runs under a single `std::lock_guard<std::recursive_mutex>(m_effectsMutex)` — matching the pattern used by `Render()`. The recursive mutex handles the nested re-lock inside `AddEffect`.
+
+- **fxID collision check added**: Previous ID scheme (`effects.size() + 1`) could produce duplicate IDs when multiple effects were active. Now uses `+1000` with a fallback to `size + pendingCallbacks.size() + 2000`, matching DX11 and Vulkan.
+
+- **Input validation added**: Null-callback guard, NaN/Inf color check, and `duration <= 0 / delay < 0` guard added — matching DX11 and Vulkan behaviour.
+
+- **Exception handling added**: try/catch block added so a throw inside the effect setup is caught and logged without crashing the calling thread.
+
+- **Critical rendering fix — `RenderFullScreenQuad` fade triangle silently culled** (`OpenGLFXManager.cpp`):
+  `RenderGamePlay` sets `glFrontFace(GL_CW)` at the top of its 3D render pass (to match DirectX left-hand convention) and never restores it. `fxManager.Render()` runs AFTER `guiManager.Render()` at the end of the frame, so `glFrontFace(GL_CW)` is still in effect when the fade overlay draws. The full-screen fade triangle has CCW winding in NDC; with `GL_CW` as the front-face convention it is classified as a back face and silently discarded by `GL_CULL_FACE`. Result: the fade overlay is completely invisible on every frame after `RenderGamePlay` ran (SCENE_GAMETITLE / SCENE_GAMEPLAY once loading completes).
+  Fix: `glDisable(GL_CULL_FACE)` added before `glDrawArrays` in `RenderFullScreenQuad`, with the previous cull state restored after — identical to the pattern used in `Render2DQuad`.
+
+- *See: [`OpenGLFXManager.cpp`](OpenGLFXManager.cpp)*
+
+---
+
+**OpenGL SCENE_GAMETITLE crash — definitive root-cause fix + LoaderRing animation** (`OpenGLRenderer.cpp`, `OpenGLRenderFrame.cpp`):
+
+- **Root cause of nvoglv64.dll crash identified and fixed** (`OpenGLRenderer.cpp`):
+  The earlier mutex fix addressed iterator safety but was NOT the root cause. The actual crash was a GPU-level race condition: `LoadTexture()` on the loader thread called `glGenerateMipmap(GL_TEXTURE_2D)` on the shared loader context immediately after `glTexImage2D`. Because the render thread was concurrently sampling those textures with `GL_LINEAR_MIPMAP_LINEAR` min filter (which requires mipmap levels 1+), the NVIDIA driver accessed mipmap data that the loader context was still writing → access violation at `0x7FFD38746630` (nvoglv64.dll) with corrupt stack frame (`0x1`). The `GdipDisposeImage` crash in session 2 was a secondary effect of heap corruption caused by the same race.
+  Fix: 2D UI textures no longer use mipmaps. `glGenerateMipmap` is now guarded by `!is2D`. The min filter for `is2D = true` is changed from `GL_LINEAR_MIPMAP_LINEAR` to `GL_LINEAR`. UI textures are rendered at or near native resolution so mipmapping provides no visual benefit, and eliminating it removes the concurrent write/read race entirely. 3D scene textures retain `glGenerateMipmap` + `GL_LINEAR_MIPMAP_LINEAR` — they are only accessed by the render thread after `bLoaderTaskFinished` is true (loader is paused), so no race exists for them.
+
+- **LoaderRing animation cycle corrected** (`OpenGLRenderFrame.cpp`):
+  The loading ring sprite sheet (`loadingring.png`) is 320×32 px — 10 frames of 32×32. DX11 and Vulkan both cycle through 10 frames (indices 0..9). OpenGL incorrectly used `% 4`, showing only the first 4 frames. One frame in the sheet is corrupt/invalid; the correct cycle count for OpenGL is now `% 9` (frames 0..8, skipping the corrupt frame 9 at pixel offset 288).
+
+- *See: [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp)*
+
+---
+
 **OpenGL Render Pipeline — Major Overhaul (Session 2)** (`OpenGLRenderer.cpp`, `OpenGLRenderer.h`, `OpenGLRenderFrame.cpp`, `OpenGLCamera.cpp`, `OpenGLFXManager.cpp`, `Models.cpp`, `MoviePlayer.cpp`, `OpenGL_IOStreamThread.cpp`, `Lights.h`):
 
 - **OpenGL 3D shaders rebuilt** (`OpenGLRenderer.cpp`): Vertex shader now accepts tangent attribute (location 3) and outputs a TBN matrix for normal mapping. Fragment shader rewritten with Blinn-Phong + PBR approximation supporting up to 8 lights (directional/point/spot) with attenuation, spot-cone falloff, emissive, metallic/roughness parameters, and diffuse/normal-map texture sampling. Legacy single-light fallback uniforms retained for simpler custom shaders.
@@ -627,6 +670,99 @@ OpenGL complete pipeline parity — black screen root-cause fix, texture loading
 - **DestroyModel — OpenGL GPU buffer cleanup** (`Models.cpp`): Added `#if defined(__USE_OPENGL__)` cleanup block that deletes VAO/VBO/EBO and texture IDs and clears the `textureIDs`/`normalMapIDs` vectors before the geometry clear.
 
 - *See: [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`OpenGLRenderer.h`](OpenGLRenderer.h), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp), [`OpenGLCamera.cpp`](OpenGLCamera.cpp), [`OpenGLFXManager.cpp`](OpenGLFXManager.cpp), [`Models.cpp`](Models.cpp), [`MoviePlayer.cpp`](MoviePlayer.cpp), [`OpenGL_IOStreamThread.cpp`](OpenGL_IOStreamThread.cpp), [`Lights.h`](Lights.h)*
+
+---
+
+**OpenGL crash fix (VAO cross-context), XM double-load, loader text centering, build system improvements** (`OpenGLModels.cpp`, `OpenGLRenderFrame.cpp`, `OpenGLRenderer.cpp`, `main.cpp`, `cmake-build.bat`, `CMakeLists.txt`):
+
+- **Critical crash fix — access violation in nvoglv64.dll at SCENE_GAMETITLE load** (`OpenGLModels.cpp`, `OpenGLRenderFrame.cpp`):
+  Root cause: `OpenGLModelBuffers::Upload()` (called from the loader thread via `SetupModelForRendering()`) was creating a VAO with `glGenVertexArrays` while the shared loader GL context (`m_loaderGLContext`) was current. OpenGL VAOs are **not shared** between contexts — only buffer objects (VBOs/EBOs), textures, and programs are shared. When the render thread subsequently called `glBindVertexArray(mi.VAO)` with the render context current, the NVIDIA driver (`nvoglv64.dll`) dereferenced an object that did not exist in that context, producing an access violation (0xC0000005) at `0x7FFD38DD48DB`.
+  Fix: `Upload()` now creates only VBO and EBO (both are shared buffer objects, safe to create on the loader context) and leaves `VAO = 0`. `RenderGamePlay` in `OpenGLRenderFrame.cpp` performs lazy VAO creation on the render thread: the first time a model with `VAO == 0` and `VBO != 0` is encountered, the VAO is generated and its attribute pointers are set up against the already-uploaded VBO/EBO. All subsequent frames use the VAO directly.
+
+- **Fix — XM Tracker Module loading twice on every scene load** (`main.cpp`):
+  `Load_Music()` called `xmPlayer.Initialize(fileName)` followed by `xmPlayer.Play(fileName)`. `Play()` internally calls `Initialize()`, which calls `LoadXMFile()` — causing the XM file to be parsed and loaded twice in sequence (both loads logged at identical timestamps). Removed the redundant explicit `xmPlayer.Initialize()` calls for `SCENE_GAMETITLE` and `SCENE_GAMEPLAY`; `Play()` now handles initialisation as designed.
+
+- **Fix — Loader text not horizontally centered in OpenGL** (`OpenGLRenderer.cpp`):
+  `DrawMyTextStyled` for the OpenGL path (GDI rasterisation route) ignored `style.centered` and always rendered at the literal `position.x` value passed in. The DX11/Vulkan paths use `IDWriteTextFormat::SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)` with `drawX = 0` when `style.centered` is true. The OpenGL equivalent now computes `renderX = (m_renderTargetWidth - tw) / 2` after the GDI `DT_CALCRECT` pass (which gives us `tw`), and uses `renderX` instead of `position.x` when `style.centered` is set. Loading stage messages are now horizontally centred across the full viewport.
+
+- **Fix — syntax error `||)` in renderer info overlay** (`OpenGLRenderFrame.cpp`):
+  Trailing `||` before `)` on the `SCENE_GAMEOVER` line of the `riShow` boolean expression caused a compile error. Removed the spurious operator.
+
+- **Build — cmake-build.bat: cmake no longer hardcoded to `D:\Programs\CMake\bin\cmake.exe`** (`cmake-build.bat`):
+  CMake is now located by probing `PATH` first (`for %%X in (cmake.exe) do set CMAKE_EXE=%%~$PATH:X`). Falls back to the original local path only if cmake is not found in PATH. This makes the script portable across developer machines and prepares it for Linux/macOS CI runners where cmake ships via system package managers.
+
+- **Build — CMakeLists.txt: OpenGL and Vulkan SDK versions reported at configure time** (`CMakeLists.txt`):
+  The OpenGL version is derived by scanning the bundled `include/GL/glew.h` for the highest `GLEW_VERSION_X_Y` define (e.g. `GLEW_VERSION_4_6`). This works identically on Windows and Linux because the GLEW header is part of the project repo — no reliance on `OPENGL_INCLUDE_DIR` (which CMake often leaves empty for the Windows implicit `opengl32`). On Linux/macOS, `pkg-config gl` and `pkg-config glew` are also queried for the installed package versions. The existing Vulkan SDK block extracts the version from `VULKAN_SDK` env var or the include path component.
+
+- **Fix — loader ring spin counter wrong variable names** (`OpenGLRenderFrame.cpp`):
+  Loading spinner used `m_delay`/`m_loadIndex` (undeclared); members are `delay`/`loadIndex` in `OpenGLRenderer.h`. Corrected, resolving two C2065 errors.
+
+- *See: [`OpenGLModels.cpp`](OpenGLModels.cpp), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp), [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`main.cpp`](main.cpp), [`cmake-build.bat`](cmake-build.bat), [`CMakeLists.txt`](CMakeLists.txt)*
+
+---
+
+**OpenGL SCENE_GAMETITLE: starfield, menu transparency, quit fade, loader ring** (`OpenGLFXManager.h`, `OpenGLFXManager.cpp`, `OpenGLRenderer.cpp`, `OpenGLRenderFrame.cpp`, `GUIWindows.cpp`):
+
+- **Starfield completely rewritten to match DX11 pipeline** (`OpenGLFXManager.h`, `OpenGLFXManager.cpp`):
+  The previous OpenGL starfield used a manual focal-length perspective that ignored the camera view matrix, and reverse-mode stars had no x/y convergence. The DX11 starfield transforms each star's world position through `viewProj = view * proj`, then converts NDC→screen. Reverse stars store `vx/vy` spread vectors and reduce `fraction = 1 - z/resetDepth` each frame so x/y converge toward the starfield origin as z increases.
+  Fix: Added `vx`, `vy`, `maxRadius` fields to `GLStar`. `CreateStarfield` now uses the same DX11 spawn logic (non-reverse spawns far; reverse spawns near with spread direction). `UpdateStarfield` matches DX11's convergence math. `RenderStarfield` builds `viewProj = proj * view` (GLM column-major) from the camera matrices and transforms each star via `glm::mat4 * glm::vec4`, then converts NDC to screen with `(ndcX+1)*0.5*W` and `(1-ndcY)*0.5*H` — identical to the DX11 path.
+
+- **Game menu buttons no longer transparent** (`GUIManager.cpp`):
+  The window background remains transparent (intentional — DX11/D2D compositing masks it; OpenGL shows the 3D scene through it by design). The actual problem was the non-hovered button tint: `MyColor(128,128,128,128)` gave alpha=0.5 — the 2D shader computes `fragColor = texture * uColor`, so texture alpha was halved. In OpenGL with alpha blending against the 3D framebuffer, buttons appeared see-through. In DX11 with D2D compositing the 50% alpha blended against a dark overlay and was barely noticeable. Changed non-hovered button tint to `MyColor(255,255,255,255)` (fully opaque white, unchanged from hovered state) so buttons render at full opacity on all renderers.
+
+- **Quit-to-Desktop fade works and no longer hangs** (`GUIWindows.cpp`):
+  Two bugs corrected: (1) `Sleep(10)` polling loop blocked the render thread (the button handler runs on the render thread since `GUIManager::Render()` is called from `RenderFrame()`), preventing `fxManager.Render()` from advancing the fade — app exited without visual. Replaced with `FadeOutThenCallback`; callback fires from `fxManager.Render()` once progress≥1. (2) `PostQuitMessage(0)` from the render thread posts `WM_QUIT` to the render thread's message queue; `WinMain`'s `GetMessage/PeekMessage` reads only the main thread's queue, so it never terminates — app hung forever. Fixed by using `PostMessage(hwnd, WM_CLOSE, 0, 0)` which routes through `WndProc` on the main thread, triggering `DestroyWindow` → `PostQuitMessage` on the main thread. Added `extern HWND hwnd` to `GUIWindows.cpp`.
+
+- **Starfield renders before 3D models; speed increased 4×** (`OpenGLFXManager.h`, `OpenGLFXManager.cpp`, `OpenGLRenderFrame.cpp`):
+  The starfield was rendered by `fxManager.Render()` after the GUI — on top of everything including models. Added `GLFXManager::RenderBackground()` which updates and renders only Starfield effects; `Render()` now skips Starfield (already done). `RenderBackground()` is called in `RenderFrame()` immediately after `RenderBackgroundImage()` and before `RenderGamePlay()`, so the 3D scene draws on top of stars. Star speed increased from `20+rand*40` (20–60 u/s) to `80+rand*120` (80–200 u/s) to match the DX11 visual pace.
+
+- **Loader ring animation: UV correct for frame 0, cycle capped at 9** (`OpenGLRenderer.cpp`, `OpenGLRenderFrame.cpp`):
+  `Render2DQuad` skipped the `glGetTexLevelParameteriv` query when `srcX=0, srcY=0`, assuming `srcW/srcH` equalled the full texture dimensions. For the 320×32 sprite sheet with 32-pixel tiles, frame 0 (`srcX=0`) got UV `u1=32/32=1.0` instead of `32/320=0.1` — showing the entire sheet squished into one tile. Fixed by always querying actual texture dims when a sub-rectangle is specified. Also corrected `% 10` → `% 9` to exclude corrupt frame 9 (offset 288px in the sheet).
+
+- *See: [`OpenGLFXManager.h`](OpenGLFXManager.h), [`OpenGLFXManager.cpp`](OpenGLFXManager.cpp), [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp), [`GUIWindows.cpp`](GUIWindows.cpp), [`GUIManager.cpp`](GUIManager.cpp)*
+
+---
+
+**OpenGL pipeline: GLTF Z-flip, text shadows, lighting, GUI, quit-fade** (`BlenderImports.h`, `OpenGLRenderer.cpp`, `OpenGLFXManager.cpp`, `main.cpp`, `GUIConfigWindow.cpp`, `GUIManager.cpp`, `OpenGLRenderFrame.cpp`):
+
+- **Critical fix — OpenGL model lighting/geometry completely wrong** (`BlenderImports.h`):
+  `GLTF_DEFAULT_FLIP` was `FLIP_NONE` for OpenGL under the assumption that GLTF (RH Y-up) and OpenGL (standard RH) share the same handedness. This was wrong: the engine's OpenGL renderer uses `glm::lookAtLH` / `glm::perspectiveLH_NO` — a **left-handed** coordinate system identical to DX11. Without `FLIP_Z`: (1) all model normals point in the wrong Z direction → lighting calculates against the back of every surface → dark/wrong illumination; (2) winding order is not reversed → triangles are back-faces under `glFrontFace(GL_CW)` → geometry culled or rendered inside-out; (3) model geometry is mirrored along Z. Changed `GLTF_DEFAULT_FLIP` to `FLIP_Z` for all renderers (removed the `#if` branch — all paths use the same LH world space).
+
+- **Text shadows and dark-colored text always invisible** (`OpenGLRenderer.cpp`):
+  `RenderTextToTexture` and `DrawMyTextStyled` both called `SetTextColor(RGB(color.r,color.g,color.b))` then derived alpha as `(r+g+b)/3` (luminance). For black text `(0,0,0,255)` — the default shadow color — luminance = 0 → alpha = 0 → texture entirely transparent → shadows invisible. For any dark color the effect was the same. Fix: always rasterize the GDI glyph in **white** (`SetTextColor(255,255,255)`), then in the pixel loop override RGB to the requested color while using the white-glyph luminance as alpha. Result: every text color (including pure black) now produces correctly alpha-masked glyphs.
+
+- *See previous entry below for remaining GUI / quit-fade fixes*
+
+- **Critical fix — fade-to-black never rendered; quit-to-desktop hung forever** (`OpenGLFXManager.cpp`, `main.cpp`):
+  Two separate root causes. (1) `fxManager.Initialize()` is called in `main.cpp` after `renderer->Initialize()` returns, but `wglMakeCurrent(nullptr,nullptr)` happens *inside* `renderer->Initialize()` — the GL context is already on the render thread by the time `Initialize()` returns. Every `glCreateShader` call in `CreateFadeShaderProgram()` ran without a current context, silently returning 0. `m_fadeShaderProgram` remained 0 → `RenderFullScreenQuad` bailed on its null guard every frame → no fade was ever visible. Fix: lazy-create the fade shader on first call to `RenderFullScreenQuad` (which is always on the render thread). (2) The quit-button callback set `bIsShuttingDown=true` before posting `WM_CLOSE`. WM_DESTROY's guard `if (!bIsShuttingDown) PostQuitMessage(0)` then suppressed `PostQuitMessage` → WinMain's `while(msg.message != WM_QUIT)` looped forever. Fix: removed the guard; WM_DESTROY always calls `PostQuitMessage(0)`. Duplicate calls (from the ESC path) are harmless — the loop exits on the first WM_QUIT.
+
+- **Config window transparent in OpenGL** (`GUIConfigWindow.cpp`):
+  Window background `MyColor(0,0,0,128)` (alpha 50%) and content panel `MyColor(15,15,25,128)` (alpha 50%) caused the 3D scene to show through. Raised both to alpha 220 (~86% opaque).
+
+- **DrawTexture fallback: controls invisible when texture not loaded** (`OpenGLRenderer.cpp`):
+  `DrawTexture` returned early when a texture ID was not in the loaded texture array. For the OpenGL build, many GUI textures (title bar, button, bevel) are not loaded — all those controls rendered as nothing at all, leaving white space that showed the 3D scene. Added a fallback: when the texture is not loaded, `DrawRectangle(position, size, tintColor)` is called instead, giving every control a solid coloured background.
+
+- **Title bar nearly invisible (25% brightness tint)** (`GUIManager.cpp`):
+  Non-hovered title bars used tint `MyColor(64,64,64,255)` — 25% brightness when multiplied through the texture shader (`fragColor = texture * uColor`). Against the dark 3D background, the title bar was effectively invisible. Changed to `MyColor(200,200,200,255)`.
+
+- **Ambient lighting too dark on 3D models** (`OpenGLRenderFrame.cpp`):
+  The hardcoded `uKa = 0.1` gave very low ambient illumination, making models appear as dark silhouettes when directional diffuse was oblique. Raised to `uKa = 0.35` for consistent base visibility.
+
+- *See: [`OpenGLFXManager.cpp`](OpenGLFXManager.cpp), [`main.cpp`](main.cpp), [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp), [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`GUIManager.cpp`](GUIManager.cpp), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp)*
+
+---
+
+**OpenGL Lighting — LH coordinate system corrections** (`OpenGLRenderer.cpp`):
+
+- **Fix — bitangent computed with RH convention** (`OpenGLRenderer.cpp`):
+  The inline 3D vertex shader (`k_3dVertGLSL`) computed the TBN bitangent as `B = cross(N, T)` — the standard right-handed OpenGL convention. The engine uses a left-handed world space (GLTF Z-flip applied at import, `glm::lookAtLH`, `glFrontFace(GL_CW)`). After the Z-flip, the cross-product handedness reverses; the correct LH bitangent is `B = cross(T, N)` (matching the DX11 HLSL vertex shader comment: "Bitangent corrected for GLTF Z-flip handedness"). Using the wrong operand order flips the bitangent direction, causing normal-mapped surfaces to appear with inverted tangential shading (light/shadow bands crossing the wrong axis).
+  Fix: changed `vec3 B = cross(N, T)` to `vec3 B = cross(T, N)` in `k_3dVertGLSL`.
+
+- **Fix — normal map G-channel not flipped for DX/Blender convention** (`OpenGLRenderer.cpp`):
+  The inline 3D fragment shader (`k_3dFragGLSL`) decoded the normal map as `nm = texture * 2 - 1` but did not invert the Y channel. The DX11 HLSL shader applies `normalTS.y = -normalTS.y` ("DirectX→OpenGL G-channel correction") because Blender can export DirectX-convention normal maps (G = −Y in tangent space). Without the flip, normals on normal-mapped geometry are inverted along the tangent-perpendicular axis relative to DX11, causing banding artefacts and incorrect diffuse/specular highlights on normal-mapped models.
+  Fix: added `nm.y = -nm.y` in `k_3dFragGLSL` after the `rgb * 2.0 - 1.0` decode, matching the DX11 LH convention.
+
+- *See: [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp)*
 
 ---
 
@@ -2186,6 +2322,18 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
 - **Fix — console window and GUI occluded by fade effects in OpenGL; fxManager.Render() relocated** (`OpenGLRenderFrame.cpp`):
   `fxManager.Render()` (fullscreen fades, starfield, tunnel) was called immediately after `fxManager.Render2D()`, placing it before `guiManager.Render()` and `consoleWindow.Render()`. This meant fade-to-black overlays appeared behind the console (console was visible during a supposed fade). Moved `fxManager.Render()` to **after** the console, cursor, and REC indicator — matching DX11 where `fxManager.Render()` executes after `D2D EndDraw` (which contains all GUI/console content). New OpenGL render order: background → 3D models → 2D overlays → FX 2D → FPS/OSD/HUD → GUI → console → cursor → REC → FX fades → present.
 - *See: [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`main.cpp`](main.cpp), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp)*
+
+- **Fix — Button text not pixel-perfectly centred in OpenGL pipeline** (`OpenGLRenderer.cpp`):
+  `DrawMyTextCentered` rendered text into a small text-sized GDI texture (measured via `DT_CALCRECT`) then computed a manual `cx/cy` offset to position that texture centred within the button bounds. Two subtle flaws: (1) the GDI `DrawTextW` call used `DT_LEFT`, so any leading/trailing spaces in the label shifted the visible glyphs away from the texture centre; (2) GDI measurement can include sub-pixel overhang the manual formula did not account for, producing a 1-2px drift.
+  Fix: replaced the approach with a control-sized GDI bitmap (`controlWidth × controlHeight`) drawn via `DT_CENTER | DT_VCENTER | DT_SINGLELINE`, then uploaded as a GL texture and blitted at the control's own position and size. GDI now handles all glyph placement internally — identical semantics to DX11 and Vulkan which use `DWRITE_TEXT_ALIGNMENT_CENTER + DWRITE_PARAGRAPH_ALIGNMENT_CENTER`. Non-Windows path retains the previous text-sized-texture + offset fallback.
+- *See: [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp)*
+
+- **Fix — Configuration window broken/failed to compile in OpenGL pipeline** (`GUIConfigWindow.cpp`):
+  `GUIConfigWindow.cpp` hardcoded `#include "DX_FXManager.h"` and `extern FXManager fxManager;` regardless of the active renderer. In an OpenGL build the actual global is `GLFXManager fxManager` (declared in `main.cpp`), making this a type mismatch that caused a linker error and prevented the configuration window from being accessible at all. Applied the same conditional-include pattern already used by `GUIWindows.cpp`:
+  - Include guard: `#if defined(__USE_OPENGL__)` → `OpenGLFXManager.h` / `#elif defined(__USE_VULKAN__)` → `VULKAN_FXManager.h` / `#else` → `DX_FXManager.h`
+  - Extern guard: `#if defined(__USE_OPENGL__)` → `GLFXManager` / `#elif defined(__USE_VULKAN__)` → `VKFXManager` / `#else` → `FXManager`
+  All five tabs (Game Play, Audio, Video, Controls, Key Mapping), all sliders, toggles, display-mode enumeration, restart notification, and bottom buttons are fully functional in the OpenGL build.
+- *See: [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp)*
 
 ---
 

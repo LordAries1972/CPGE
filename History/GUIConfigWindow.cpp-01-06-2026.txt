@@ -1,0 +1,30 @@
+
+#include "Includes.h"
+#include <shellapi.h>
+#include <thread>
+
+#if defined(__USE_OPENGL__)
+#include "OpenGLFXManager.h"
+#elif defined(__USE_VULKAN__)
+#include "VULKAN_FXManager.h"
+#else
+#include "DX_FXManager.h"
+#endif
+
+#include "ThreadManager.h"
+#include "SoundManager.h"
+#include "GUIManager.h"
+#include "WinSystem.h"
+#include "Debug.h"
+#include "Configuration.h"
+
+extern std::shared_ptr<Renderer> renderer;
+extern SoundManager soundManager;
+#if defined(__USE_OPENGL__)
+extern GLFXManager fxManager;
+#elif defined(__USE_VULKAN__)
+extern VKFXManager fxManager;
+#else
+extern FXManager fxManager;
+#endif
+extern ThreadManager threadManager;

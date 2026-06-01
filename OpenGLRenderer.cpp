@@ -363,7 +363,7 @@ void main() {
     vec3 N = normalize(normalMatrix * aNormal);
     vec3 T = normalize(normalMatrix * aTangent);
     T = normalize(T - dot(T, N) * N);       // Gram-Schmidt re-orthogonalise
-    vec3 B = cross(N, T);
+    vec3 B = cross(T, N);                  // LH after GLTF Z-flip: swap operands vs RH
     vTBN    = mat3(T, B, N);
     vNormal = N;
 }
@@ -436,6 +436,7 @@ void main() {
     vec3 N;
     if (uHasNormalMap) {
         vec3 nm = texture(uNormalMap, vUV).rgb * 2.0 - 1.0;
+        nm.y    = -nm.y;                   // DX/Blender G-channel flip to match LH DX11 convention
         nm.xy   *= uNormalScale;
         N = normalize(vTBN * nm);
     } else {
@@ -865,16 +866,18 @@ void OpenGLRenderer::Render2DQuad(GLuint textureID, int x, int y, int w, int h,
     // So (u0,v0)=(0,0) at screen TL correctly maps to the image's top-left pixel.
     float u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f;
     if (textureID && (srcW > 0 || srcH > 0)) {
-        GLint tw = srcW, th = srcH;   // default: assume srcW/srcH = full texture
-        if (srcX > 0 || srcY > 0) {
-            // Sprite-sheet offset: need actual texture dims to compute correct UVs.
-            glBindTexture(GL_TEXTURE_2D, textureID);
-            glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH,  &tw);
-            glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &th);
-            glBindTexture(GL_TEXTURE_2D, 0);
-            if (tw <= 0) tw = srcW;
-            if (th <= 0) th = srcH;
-        }
+        // Always query actual texture dimensions for sub-rect blits.
+        // The old "skip query when srcX==0, srcY==0" optimisation was wrong: it
+        // assumed srcW/srcH equalled the full texture width/height, breaking every
+        // frame-0 sprite-sheet blit (e.g. loader ring animation circle, frame 0
+        // has srcX=0 but the sheet is 320px wide, not 32px).
+        GLint tw = 0, th = 0;
+        glBindTexture(GL_TEXTURE_2D, textureID);
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH,  &tw);
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &th);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        if (tw <= 0) tw = srcW;
+        if (th <= 0) th = srcH;
         if (tw > 0 && th > 0) {
             u0 = static_cast<float>(srcX)        / static_cast<float>(tw);
             v0 = static_cast<float>(srcY)        / static_cast<float>(th);
@@ -1057,18 +1060,24 @@ bool OpenGLRenderer::LoadTexture(int textureId, const std::wstring& filename, bo
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, W, H, 0, GL_BGRA_EXT, GL_UNSIGNED_BYTE, bd.Scan0);
     bmp.UnlockBits(&bd);
 
-    // Mip-map generation and filtering
-    glGenerateMipmap(GL_TEXTURE_2D);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
     if (is2D) {
-        // 2D UI textures: clamp to edge so blits don't bleed at tile seams.
-        // Render2DQuad overrides this with GL_REPEAT on wrapped-scroll calls.
+        // 2D UI textures — no mipmaps. glGenerateMipmap on the shared loader
+        // context races with the render thread sampling the same texture on the
+        // main context (mipmap levels 1+ being written while the render thread
+        // samples them via GL_LINEAR_MIPMAP_LINEAR → nvoglv64 access violation).
+        // UI textures are always rendered at or near native resolution so
+        // GL_LINEAR is identical in quality and avoids the race entirely.
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     } else {
-        // 3D scene textures: repeat wrap for tiling surfaces
+        // 3D scene textures — mipmaps needed for textures at grazing angles.
+        // Mipmap generation is safe here because 3D textures are only used by
+        // the render thread after bLoaderTaskFinished is true (loader is paused).
+        glGenerateMipmap(GL_TEXTURE_2D);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
@@ -1280,7 +1289,14 @@ void OpenGLRenderer::DrawTexture(int textureId, const Vector2& position, const V
     else if (!is2D && textureId < MAX_TEXTURE_BUFFERS_3D && m_3dTextures[textureId].isLoaded)
         texID = m_3dTextures[textureId].textureID;
 
-    if (!texID) return;
+    if (!texID) {
+        // Fallback: texture not loaded — draw a solid rectangle with the tint colour
+        // so controls are never invisible when their texture isn't present (e.g. the
+        // GUI textures that DX11 loaded but OpenGL did not).  This ensures title bars,
+        // buttons and content panels always have a visible background.
+        DrawRectangle(position, size, tintColor, is2D);
+        return;
+    }
     Render2DQuad(texID,
         static_cast<int>(position.x), static_cast<int>(position.y),
         static_cast<int>(size.x),     static_cast<int>(size.y),
@@ -1334,25 +1350,29 @@ GLuint OpenGLRenderer::RenderTextToTexture(const std::wstring& text,
     FillRect(memDC, &fill, black);
     DeleteObject(black);
 
-    // Draw text
+    // Draw text — always rasterize in WHITE so (r+g+b)/3 yields correct luminance-as-alpha
+    // for every requested color.  Dark/black text rasterized in its own color produces
+    // luminance=0 → alpha=0 everywhere (invisible).  We override the pixel RGB to the
+    // requested color AFTER extraction so the final texture carries the right color AND
+    // the right alpha regardless of how dark the color is.
     SetBkMode(memDC, TRANSPARENT);
-    SetTextColor(memDC, RGB(color.r, color.g, color.b));
+    SetTextColor(memDC, RGB(255, 255, 255));   // always white in GDI
     RECT draw = { 1, 1, outW - 1, outH - 1 };
     DrawTextW(memDC, text.c_str(), -1, &draw, DT_WORDBREAK | DT_LEFT);
 
-    // Convert BGRA→RGBA and set alpha from text color
+    // Convert BGRA→RGBA: use white-glyph luminance as alpha, override RGB with requested color.
     uint8_t* pixels = reinterpret_cast<uint8_t*>(bits);
     for (int py = 0; py < outH; ++py) {
         for (int px = 0; px < outW; ++px) {
-            int    base = (py * outW + px) * 4;
-            uint8_t b = pixels[base + 0];
-            uint8_t g = pixels[base + 1];
-            uint8_t r = pixels[base + 2];
-            uint8_t a = static_cast<uint8_t>((r + g + b) / 3);
-            pixels[base + 0] = r;
-            pixels[base + 1] = g;
-            pixels[base + 2] = b;
-            pixels[base + 3] = static_cast<uint8_t>(a * color.a / 255);
+            int     base      = (py * outW + px) * 4;
+            uint8_t b         = pixels[base + 0];   // GDI stores BGR
+            uint8_t g         = pixels[base + 1];
+            uint8_t r         = pixels[base + 2];
+            uint8_t luminance = static_cast<uint8_t>((r + g + b) / 3);
+            pixels[base + 0]  = color.r;            // override to requested color
+            pixels[base + 1]  = color.g;
+            pixels[base + 2]  = color.b;
+            pixels[base + 3]  = static_cast<uint8_t>((uint32_t)luminance * color.a / 255);
         }
     }
 
@@ -1457,22 +1477,22 @@ void OpenGLRenderer::DrawMyTextStyled(const std::wstring& text, const Vector2& p
         DeleteObject(black);
 
         SetBkMode(memDC, TRANSPARENT);
-        SetTextColor(memDC, RGB(color.r, color.g, color.b));
+        SetTextColor(memDC, RGB(255, 255, 255));   // always white — see RenderTextToTexture for rationale
         RECT draw = { 1, 1, tw - 1, th - 1 };
         DrawTextW(memDC, text.c_str(), -1, &draw, DT_WORDBREAK | DT_LEFT);
 
         uint8_t* pixels = reinterpret_cast<uint8_t*>(bits);
         for (int py = 0; py < th; ++py) {
             for (int px = 0; px < tw; ++px) {
-                int base = (py * tw + px) * 4;
-                uint8_t b2 = pixels[base + 0];
-                uint8_t g2 = pixels[base + 1];
-                uint8_t r2 = pixels[base + 2];
-                uint8_t a2 = static_cast<uint8_t>((r2 + g2 + b2) / 3);
-                pixels[base + 0] = r2;
-                pixels[base + 1] = g2;
-                pixels[base + 2] = b2;
-                pixels[base + 3] = static_cast<uint8_t>(a2 * color.a / 255);
+                int     base      = (py * tw + px) * 4;
+                uint8_t b2        = pixels[base + 0];
+                uint8_t g2        = pixels[base + 1];
+                uint8_t r2        = pixels[base + 2];
+                uint8_t luminance = static_cast<uint8_t>((r2 + g2 + b2) / 3);
+                pixels[base + 0]  = color.r;
+                pixels[base + 1]  = color.g;
+                pixels[base + 2]  = color.b;
+                pixels[base + 3]  = static_cast<uint8_t>((uint32_t)luminance * color.a / 255);
             }
         }
 
@@ -1484,8 +1504,17 @@ void OpenGLRenderer::DrawMyTextStyled(const std::wstring& text, const Vector2& p
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glBindTexture(GL_TEXTURE_2D, 0);
 
+        // Horizontal centering: when style.centered is set, ignore posX and derive it
+        // from the render-target width so the text is centred across the full viewport
+        // (mirrors DX11/Vulkan DrawMyTextStyled centring behaviour).
+        int renderX = static_cast<int>(position.x);
+        if (style.centered) {
+            int rtW = m_renderTargetWidth > 0 ? m_renderTargetWidth : iOrigWidth;
+            renderX = (rtW - tw) / 2;
+        }
+
         Render2DQuad(texID,
-            static_cast<int>(position.x), static_cast<int>(position.y),
+            renderX, static_cast<int>(position.y),
             tw, th, 0, 0, tw, th, MyColor(255, 255, 255, 255), false);
         glDeleteTextures(1, &texID);
 
@@ -1510,13 +1539,88 @@ void OpenGLRenderer::DrawMyTextCentered(const std::wstring& text, const Vector2&
     const MyColor& color, const float fontSize, float controlWidth, float controlHeight)
 {
     if (text.empty()) return;
+#if defined(_WIN32) || defined(_WIN64)
+    // Render text into a bitmap that is exactly the size of the control and let GDI
+    // place the glyphs at the centre via DT_CENTER | DT_VCENTER | DT_SINGLELINE.
+    // This matches DX11 / Vulkan (DWRITE_TEXT_ALIGNMENT_CENTER + DWRITE_PARAGRAPH_ALIGNMENT_CENTER)
+    // and eliminates the text-sized-texture + manual-offset approach that misaligned when
+    // button labels contained leading spaces or had unusual glyph extents.
+    int cw = std::max(1, static_cast<int>(controlWidth));
+    int ch = std::max(1, static_cast<int>(controlHeight));
+
+    HDC memDC = CreateCompatibleDC(nullptr);
+    if (!memDC) return;
+
+    int ptSize = static_cast<int>(fontSize * 1.333f);
+    HFONT hFont = CreateFontW(-ptSize, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
+    HFONT oldFont = reinterpret_cast<HFONT>(SelectObject(memDC, hFont));
+
+    BITMAPINFO bmi{};
+    bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth       = cw;
+    bmi.bmiHeader.biHeight      = -ch;   // top-down
+    bmi.bmiHeader.biPlanes      = 1;
+    bmi.bmiHeader.biBitCount    = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+    void* bits = nullptr;
+    HBITMAP hBmp = CreateDIBSection(memDC, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!hBmp) {
+        SelectObject(memDC, oldFont); DeleteObject(hFont); DeleteDC(memDC);
+        return;
+    }
+    HBITMAP oldBmp = reinterpret_cast<HBITMAP>(SelectObject(memDC, hBmp));
+
+    memset(bits, 0, static_cast<size_t>(cw) * ch * 4);  // clear to transparent black
+
+    // Draw centred in the full control rect — identical vertical/horizontal alignment to DX11.
+    SetBkMode(memDC, TRANSPARENT);
+    SetTextColor(memDC, RGB(255, 255, 255));   // always white; colour applied via pixel loop
+    RECT draw = { 0, 0, cw, ch };
+    DrawTextW(memDC, text.c_str(), -1, &draw, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+    // Convert GDI BGRA (white glyph) → RGBA with luminance as alpha; override RGB with requested colour.
+    uint8_t* pixels = reinterpret_cast<uint8_t*>(bits);
+    int total = cw * ch;
+    for (int i = 0; i < total; ++i) {
+        uint8_t b   = pixels[i * 4 + 0];
+        uint8_t g   = pixels[i * 4 + 1];
+        uint8_t r   = pixels[i * 4 + 2];
+        uint8_t lum = static_cast<uint8_t>((r + g + b) / 3);
+        pixels[i * 4 + 0] = color.r;
+        pixels[i * 4 + 1] = color.g;
+        pixels[i * 4 + 2] = color.b;
+        pixels[i * 4 + 3] = static_cast<uint8_t>(static_cast<uint32_t>(lum) * color.a / 255);
+    }
+
+    GLuint texID = 0;
+    glGenTextures(1, &texID);
+    glBindTexture(GL_TEXTURE_2D, texID);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, cw, ch, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    SelectObject(memDC, oldBmp); SelectObject(memDC, oldFont);
+    DeleteObject(hBmp); DeleteObject(hFont); DeleteDC(memDC);
+
+    Render2DQuad(texID,
+        static_cast<int>(position.x), static_cast<int>(position.y),
+        cw, ch, 0, 0, cw, ch, MyColor(255, 255, 255, 255), false);
+    glDeleteTextures(1, &texID);
+#else
+    // Non-Windows: fall back to the text-sized texture + offset approach.
     int tw = 0, th = 0;
     GLuint texID = RenderTextToTexture(text, L"Arial", fontSize, color, tw, th);
     if (!texID) return;
     int cx = static_cast<int>(position.x + (controlWidth  - tw) * 0.5f);
     int cy = static_cast<int>(position.y + (controlHeight - th) * 0.5f);
-    Render2DQuad(texID, cx, cy, tw, th, 0, 0, tw, th, MyColor(255,255,255,255), false);
+    Render2DQuad(texID, cx, cy, tw, th, 0, 0, tw, th, MyColor(255, 255, 255, 255), false);
     glDeleteTextures(1, &texID);
+#endif
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

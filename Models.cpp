@@ -19,17 +19,17 @@ static inline UINT Align16(UINT value)
 }
 
 #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-#include "DX_FXManager.h"
-#include "DXCamera.h"
+    #include "DX_FXManager.h"
+    #include "DXCamera.h"
 #endif
 
 #ifdef __USE_DIRECTX_11__
-#include <d3d11.h>
-#include <wincodec.h>
-#include <d3dcompiler.h>
-#pragma comment(lib, "d3dcompiler.lib")
-#pragma comment(lib, "windowscodecs.lib")
-using namespace DirectX;
+    #include <d3d11.h>
+    #include <wincodec.h>
+    #include <d3dcompiler.h>
+    #pragma comment(lib, "d3dcompiler.lib")
+    #pragma comment(lib, "windowscodecs.lib")
+    using namespace DirectX;
 #endif
 
 #if defined(__USE_VULKAN__)
@@ -52,7 +52,7 @@ extern Configuration config;
 extern ShaderManager shaderManager;
 
 #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-extern FXManager fxManager;
+    extern FXManager fxManager;
 #endif
 
 //==============================================================================

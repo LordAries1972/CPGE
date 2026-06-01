@@ -110,7 +110,7 @@ static void UploadModelUniformsCached(
 
     // Material
     if (u.uKd  >= 0) glUniform3f(u.uKd,  1.0f, 1.0f, 1.0f);
-    if (u.uKa  >= 0) glUniform3f(u.uKa,  0.1f, 0.1f, 0.1f);
+    if (u.uKa  >= 0) glUniform3f(u.uKa,  0.35f, 0.35f, 0.35f);
     if (u.uKs  >= 0) glUniform3f(u.uKs,  0.5f, 0.5f, 0.5f);
     if (u.uNs  >= 0) glUniform1f(u.uNs,  32.0f);
     if (u.uMetallic    >= 0) glUniform1f(u.uMetallic,    mi.metallic);
@@ -251,6 +251,24 @@ inline void OpenGLRenderer::RenderGamePlay(float deltaTime)
             UploadModelUniformsCached(m_uniforms3D, view, proj, camPos, mi.worldMatrix, allLights, lightCount, mi);
         else
             UploadModelUniformsDynamic(prog, view, proj, camPos, mi.worldMatrix, allLights, lightCount, mi);
+
+        // Lazy VAO creation: Upload() leaves VAO=0 so that the VAO is built here
+        // on the render thread (render context). VAOs are NOT shared between GL
+        // contexts; creating them on the loader context causes an access violation
+        // in nvoglv64.dll when the render thread calls glBindVertexArray.
+        // VBO/EBO are buffer objects and ARE shared — safe to use here directly.
+        if (mi.VAO == 0 && mi.VBO != 0 && !mi.indices.empty()) {
+            constexpr GLsizei kStride = (3 + 3 + 2 + 3) * sizeof(float); // 44 bytes
+            glGenVertexArrays(1, &mi.VAO);
+            glBindVertexArray(mi.VAO);
+            glBindBuffer(GL_ARRAY_BUFFER,         mi.VBO);
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mi.EBO);
+            glEnableVertexAttribArray(0); glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, kStride, (void*)0);
+            glEnableVertexAttribArray(1); glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, kStride, (void*)(3 * sizeof(float)));
+            glEnableVertexAttribArray(2); glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, kStride, (void*)(6 * sizeof(float)));
+            glEnableVertexAttribArray(3); glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, kStride, (void*)(8 * sizeof(float)));
+            glBindVertexArray(0);
+        }
 
         // Bind model's geometry buffers and issue draw call
         if (mi.VAO != 0 && !mi.indices.empty()) {
@@ -440,6 +458,9 @@ void OpenGLRenderer::RenderFrame()
             // ---- Background images (scene-aware, before 3D) ----
             RenderBackgroundImage();
 
+            // ---- Starfield background pass (before 3D models so geometry renders on top) ----
+            fxManager.RenderBackground();
+
             // ---- Scene-specific 3D rendering ----
             switch (scene.stSceneType)
             {
@@ -543,15 +564,13 @@ void OpenGLRenderer::RenderFrame()
             if (!threadManager.threadVars.bLoaderTaskFinished.load())
             {
                 delay++;
-                if (delay > 3) {
-                    loadIndex = (loadIndex + 1) % 4;
-                    delay = 0;
-                }
-                // Animated circle texture (matches DX11 loader circle)
+                if (delay > 3) { loadIndex = (loadIndex + 1) % 9; delay = 0; }
+                // Animated circle texture (sprite sheet: 9 valid frames of 32x32,
+                // frame 9 skipped — one frame in the sheet is corrupt/invalid).
                 if (m_2dTextures[int(BlitObj2DIndexType::BG_LOADER_CIRCLE)].isLoaded) {
                     iPosX = loadIndex << 5;
                     Blit2DObjectAtOffset(BlitObj2DIndexType::BG_LOADER_CIRCLE,
-                        iOrigWidth - 34, iOrigHeight - 45, iPosX, 0, 32, 32);
+                        iOrigWidth - 34, iOrigHeight - 49, iPosX, 0, 32, 32);
                 }
             }
 
@@ -560,9 +579,10 @@ void OpenGLRenderer::RenderFrame()
 #if defined(_WIN32) || defined(_WIN64)
             if (USE_RENDERER_INFO && !scene.bSceneSwitching)
             {
-                bool riShow = (scene.stSceneType == SceneType::SCENE_GAMETITLE ||
-                               scene.stSceneType == SceneType::SCENE_GAMEPLAY  ||
-                               scene.stSceneType == SceneType::SCENE_INTRO     ||
+                bool riShow = (scene.stSceneType == SceneType::SCENE_GAMETITLE  ||
+                               scene.stSceneType == SceneType::SCENE_GAMEPLAY   ||
+                               scene.stSceneType == SceneType::SCENE_INTRO      ||
+                               scene.stSceneType == SceneType::SCENE_INTRO_MOVIE||
                                scene.stSceneType == SceneType::SCENE_GAMEOVER);
 #if defined(_DEBUG)
                 riShow = riShow || (scene.stSceneType == SceneType::SCENE_EXPERIMENT);
