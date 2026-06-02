@@ -1,0 +1,21 @@
+// OpenGL_IOStreamThread.cpp — change log 02-06-2026
+// Added SCENE_INTRO_MOVIE case.  The FadeOutThenCallback registered in main.cpp's
+// SCENE_INTRO handler calls renderer->ResumeLoader() after the fade, waking this
+// thread into the new case.  Textures already in VRAM from SCENE_INTRO; movie
+// already started by OpenMovieAndPlay() in the callback.
+
+case SceneType::SCENE_INTRO_MOVIE:
+{
+    threadManager.threadVars.bLoaderTaskFinished.store(false);
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene Intro Movie.");
+
+    // All 2D textures are already in VRAM from SCENE_INTRO; no reload needed.
+    // The movie has been opened and started by the FadeOutThenCallback (OpenMovieAndPlay()).
+    // FadeToImage is already running from the callback — the render frame will pick it
+    // up via RenderIntroMovie() once the fade completes.
+    glFlush();
+
+    threadManager.threadVars.bLoaderTaskFinished.store(true);
+    threadManager.PauseThread(THREAD_LOADER);
+    break;
+}

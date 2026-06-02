@@ -1784,6 +1784,32 @@ bool OpenGLRenderer::SetWindowedScreen()
 #endif
 }
 
+// DrawMyText(text, position, size, color, fontSize) — updated 02-06-2026
+// Changed blit from (size.x × size.y) to (min(tw,size.x) × th).
+// 'size' is a clipping rect hint matching DX11/Vulkan DirectWrite semantics, not a stretch target.
+// Prevents all config-window label text from being stretched to fill the window width.
+
+// RenderTextToTexture — updated 02-06-2026 (CRASH ROOT-CAUSE CORRECTED)
+// Root cause: CreateCompatibleDC(nullptr) starts with a 1×1 MONOCHROME (1 BPP) bitmap.
+// DrawTextW with ANTIALIASED/CLEARTYPE fonts on a 1 BPP DC crashes inside USER32.dll
+// because GDI's antialiasing path reads the DC bit depth, finds 1 BPP, and faults
+// accessing subpixel tables that don't exist for monochrome surfaces.
+// Fix: select a throwaway 1×1 32-bit DIB into the DC BEFORE font selection and
+// DrawTextW(DT_CALCRECT), making the DC 32 BPP (colour-capable) throughout.
+// Swap the real render bitmap in after measurement and delete the stub.
+
+// RenderTextToTexture, GetCharacterWidth, CalculateTextWidth — updated 01-06-2026
+// CLEARTYPE_QUALITY → ANTIALIASED_QUALITY; added NULL guards for hFont, hBmp, dc.
+// (Note: ANTIALIASED_QUALITY was not the actual fix — the real fix is the 32-bit stub
+//  bitmap above. Keeping ANTIALIASED_QUALITY as a safe default vs CLEARTYPE.)
+
+// DrawMyTextCentered — updated 02-06-2026 (same stub-bitmap fix as RenderTextToTexture)
+// GDI records antialiasing metrics against the DC's bit depth at SelectObject(font) time.
+// Original code selected the font on a 1 BPP monochrome DC → GDI set no-antialiasing →
+// subsequent DrawTextW crashed (DrawTextW +0x143 in USER32.dll, same address as before).
+// Fix: select a 1×1 32-bit stub DIB BEFORE the font, then swap in the real cw×ch bitmap
+// after font selection — identical pattern to the RenderTextToTexture fix.
+
 // DrawMyTextCentered — updated 01-06-2026
 // Replaced text-sized-texture + manual offset with control-sized texture + DT_CENTER|DT_VCENTER|DT_SINGLELINE.
 // Now matches DX11 / Vulkan (DWRITE_TEXT_ALIGNMENT_CENTER + DWRITE_PARAGRAPH_ALIGNMENT_CENTER) exactly.

@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1394*
+*Current Build Version: v0.0.1401*
 
 ---
 
@@ -55,7 +55,7 @@ lets make this Engine great!
 #### 2026
 
 - [June 2026](#june-2026---opengl-pipeline-fixes)
-  - [01](#june-01-2026)
+  - [01](#june-01-2026) · [02](#june-02-2026)
 - [May 2026](#may-2026---more-major-updates-and-fixes)
   - [02](#may-02-2026) · [03-04](#may-03-04-2026) · [06](#may-06-2026) · [08](#may-08-2026) · [10](#may-10-2026) · [11](#may-11-2026) · [14](#may-14-2026) · [15](#may-15-2026) · [16](#may-16-2026) · [17](#may-17-2026) · [18](#may-18-2026) · [19](#may-19-2026) · [20](#may-20-2026) · [21](#may-21-2026) · [22](#may-22-2026) · [23](#may-23-2026) · [24](#may-24-2026) · [28](#may-28-2026) · [29](#may-29-2026) · [30](#may-30-2026) · [31](#may-31-2026)
 - [April 2026](#april-2026---bug-fixes-and-updates)
@@ -2323,10 +2323,9 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
   `fxManager.Render()` (fullscreen fades, starfield, tunnel) was called immediately after `fxManager.Render2D()`, placing it before `guiManager.Render()` and `consoleWindow.Render()`. This meant fade-to-black overlays appeared behind the console (console was visible during a supposed fade). Moved `fxManager.Render()` to **after** the console, cursor, and REC indicator — matching DX11 where `fxManager.Render()` executes after `D2D EndDraw` (which contains all GUI/console content). New OpenGL render order: background → 3D models → 2D overlays → FX 2D → FPS/OSD/HUD → GUI → console → cursor → REC → FX fades → present.
 - *See: [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`main.cpp`](main.cpp), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp)*
 
-- **Fix — Button text not pixel-perfectly centred in OpenGL pipeline** (`OpenGLRenderer.cpp`):
-  `DrawMyTextCentered` rendered text into a small text-sized GDI texture (measured via `DT_CALCRECT`) then computed a manual `cx/cy` offset to position that texture centred within the button bounds. Two subtle flaws: (1) the GDI `DrawTextW` call used `DT_LEFT`, so any leading/trailing spaces in the label shifted the visible glyphs away from the texture centre; (2) GDI measurement can include sub-pixel overhang the manual formula did not account for, producing a 1-2px drift.
-  Fix: replaced the approach with a control-sized GDI bitmap (`controlWidth × controlHeight`) drawn via `DT_CENTER | DT_VCENTER | DT_SINGLELINE`, then uploaded as a GL texture and blitted at the control's own position and size. GDI now handles all glyph placement internally — identical semantics to DX11 and Vulkan which use `DWRITE_TEXT_ALIGNMENT_CENTER + DWRITE_PARAGRAPH_ALIGNMENT_CENTER`. Non-Windows path retains the previous text-sized-texture + offset fallback.
-- *See: [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp)*
+---
+
+#### June 02, 2026
 
 - **Fix — Configuration window broken/failed to compile in OpenGL pipeline** (`GUIConfigWindow.cpp`):
   `GUIConfigWindow.cpp` hardcoded `#include "DX_FXManager.h"` and `extern FXManager fxManager;` regardless of the active renderer. In an OpenGL build the actual global is `GLFXManager fxManager` (declared in `main.cpp`), making this a type mismatch that caused a linker error and prevented the configuration window from being accessible at all. Applied the same conditional-include pattern already used by `GUIWindows.cpp`:
@@ -2335,12 +2334,36 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
   All five tabs (Game Play, Audio, Video, Controls, Key Mapping), all sliders, toggles, display-mode enumeration, restart notification, and bottom buttons are fully functional in the OpenGL build.
 - *See: [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp)*
 
+- **Feature — OpenGL SCENE_INTRO uses FadeOutThenCallback to transition to SCENE_INTRO_MOVIE** (`main.cpp`, `OpenGL_IOStreamThread.cpp`):
+  Previously the SCENE_INTRO 7-second timeout used `FadeToBlack(2s)` + a blocking spin-wait on the main thread, then called `SwitchToMovieIntro()`. For the OpenGL pipeline (threaded renderer), this blocked the main message loop during the fade. Replaced with `FadeOutThenCallback({0,0,0,1}, 2s, 0.06)` — non-blocking, fires from the render thread when the fade completes. Callback calls `scene.InitiateScene(SCENE_INTRO_MOVIE)`, `OpenMovieAndPlay()`, `fxManager.FadeToImage(3s)`, and `renderer->ResumeLoader()`. The `SwitchToMovieIntro()` block is guarded with `#if !defined(__USE_OPENGL__)` to avoid a double-transition. Added `SCENE_INTRO_MOVIE` case to the OpenGL loader thread: `glFlush()`, `bLoaderTaskFinished = true`, pause — textures already in VRAM from SCENE_INTRO, movie already running via callback.
+- *See: [`main.cpp`](main.cpp), [`OpenGL_IOStreamThread.cpp`](OpenGL_IOStreamThread.cpp)*
+
+- **Fix — all text in Configuration window stretched horizontally in OpenGL pipeline** (`OpenGLRenderer.cpp`, `GUIManager.cpp`):
+  Two related issues:
+  1. **`DrawMyText(text, position, size, color, fontSize)` stretched text** (`OpenGLRenderer.cpp`): The size-overload passed `size.x × size.y` as the `Render2DQuad` blit dimensions, so a 150px label texture was stretched to fill the full 700px window width. In DX11 and Vulkan, `size` is a DirectWrite clipping rect — text renders at natural glyph dimensions, never scaled. Fixed: now blits at natural `tw × th` with horizontal clip to `min(tw, size.x)`.
+  2. **ToggleSlider ON/OFF text was stretched and off-centre** (`GUIManager.cpp`): `DrawMyText` passed `control.size.x − knobW − 8` as the blit width, stretching the small glyph texture to fill the non-knob area. Fixed: replaced with `DrawMyTextCentered` on each non-knob half so the renderer handles centering natively (DX11/Vulkan: `DWRITE_TEXT_ALIGNMENT_CENTER`; OpenGL: `DT_CENTER|DT_VCENTER|DT_SINGLELINE`). Font size reduced 11 pt → 9 pt.
+- *See: [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`GUIManager.cpp`](GUIManager.cpp)*
+
+- **Fix — Button text not pixel-perfectly centred in OpenGL pipeline** (`OpenGLRenderer.cpp`):
+  `DrawMyTextCentered` rendered text into a small text-sized GDI texture (measured via `DT_CALCRECT`) then computed a manual `cx/cy` offset to position that texture centred within the button bounds. Two subtle flaws: (1) the GDI `DrawTextW` call used `DT_LEFT`, so any leading/trailing spaces in the label shifted the visible glyphs away from the texture centre; (2) GDI measurement can include sub-pixel overhang the manual formula did not account for, producing a 1-2px drift.
+  Fix: replaced the approach with a control-sized GDI bitmap (`controlWidth × controlHeight`) drawn via `DT_CENTER | DT_VCENTER | DT_SINGLELINE`, then uploaded as a GL texture and blitted at the control's own position and size. GDI now handles all glyph placement internally — identical semantics to DX11 and Vulkan which use `DWRITE_TEXT_ALIGNMENT_CENTER + DWRITE_PARAGRAPH_ALIGNMENT_CENTER`. Non-Windows path retains the previous text-sized-texture + offset fallback.
+- *See: [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp)*
+
+- **Crash fix (root cause corrected) — Access Violation in DrawTextW `RenderTextToTexture` (OpenGL)** (`OpenGLRenderer.cpp`):
+  **Root cause:** `CreateCompatibleDC(nullptr)` starts with a **1×1 monochrome (1 BPP) bitmap** selected. `DrawTextW(DT_CALCRECT)` with any antialiased font on a 1 BPP DC crashes inside USER32.dll because GDI's antialiasing path reads DC bit depth, gets 1 BPP, and access-violates accessing subpixel-rendering tables that don't exist for monochrome surfaces. The earlier `CLEARTYPE_QUALITY` → `ANTIALIASED_QUALITY` change did not address this — font quality is irrelevant when the DC is monochrome.
+  **Fix in `RenderTextToTexture`:** before font selection and measurement, a throwaway 1×1 32-bit DIB section is created and selected into the memory DC (making it 32 BPP). `DrawTextW(DT_CALCRECT)` then runs safely. After measurement the stub is swapped out and the real render bitmap is selected.
+- *See: [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp)*
+
+- **Crash fix — same 1 BPP monochrome bug in `DrawMyTextCentered` (OpenGL)** (`OpenGLRenderer.cpp`):
+  After `RenderTextToTexture` was fixed, the same crash (`DrawTextW +0x143`) reappeared via `DrawMyTextCentered` called for Button rendering. GDI records the font's antialiasing capability against the DC's **bit depth at `SelectObject(font)` time**, not at `DrawTextW` time. `DrawMyTextCentered` selected the font before the 32-bit render bitmap, so GDI cached the font as no-antialiasing-capable and the subsequent `DrawTextW(DT_CENTER|DT_VCENTER|DT_SINGLELINE)` crashed. The real 32-bit bitmap selection later did not retroactively fix it. Applied the same stub bitmap fix: 1×1 32-bit DIB selected **before** `SelectObject(font)`, then real `cw×ch` bitmap swapped in after font selection.
+- *See: [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp)*
+
 ---
 
 ## Future Development
 
 ### **PRODUCTION READINESS APPROACHING**
-The DirectX 11 system is nearing **GAMING PRODUCTION READINESS** for Windows 10 SP1+ 64-bit systems.
+The DirectX 11 & Vulkan Render Pipelines are nearing **GAMING PRODUCTION READINESS** for Windows 10 SP1+ 64-bit systems.
 
 ### **Project Mission Statement**
 

@@ -1315,24 +1315,57 @@ GLuint OpenGLRenderer::RenderTextToTexture(const std::wstring& text,
     HDC memDC = CreateCompatibleDC(nullptr);
     if (!memDC) return 0;
 
-    int ptSize = static_cast<int>(fontSize * 1.333f); // px → pt approximation
+    // Root cause of AV: CreateCompatibleDC(nullptr) starts with a 1×1 MONOCHROME
+    // (1 BPP) bitmap selected.  DrawTextW with any antialiased font on a 1 BPP DC
+    // crashes inside USER32.dll because GDI's antialiasing path reads the DC bit depth,
+    // finds 1, and faults accessing subpixel-rendering tables that don't exist for
+    // monochrome surfaces.  GetDC(nullptr) (used by CalculateTextWidth) returns the
+    // 32-bit screen DC, which is why those calls never crash.
+    //
+    // Fix: select a throwaway 1×1 32-bit DIB into the DC BEFORE font selection and
+    // measurement, making it a colour-capable DC throughout.  Swap the real bitmap in
+    // after measurement.
+
+    // --- Throwaway 32-bit colour surface (makes DC colour-capable before font select) ---
+    BITMAPINFO stubBmi{};
+    stubBmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+    stubBmi.bmiHeader.biWidth       = 1;
+    stubBmi.bmiHeader.biHeight      = -1;
+    stubBmi.bmiHeader.biPlanes      = 1;
+    stubBmi.bmiHeader.biBitCount    = 32;
+    stubBmi.bmiHeader.biCompression = BI_RGB;
+    void* stubBits = nullptr;
+    HBITMAP stubBmp = CreateDIBSection(memDC, &stubBmi, DIB_RGB_COLORS, &stubBits, nullptr, 0);
+    HBITMAP preMeasBmp = stubBmp
+        ? reinterpret_cast<HBITMAP>(SelectObject(memDC, stubBmp))
+        : nullptr;
+
+    int ptSize = std::max(1, static_cast<int>(fontSize * 1.333f));
     HFONT hFont = CreateFontW(-ptSize, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
+        ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
         fontName.empty() ? L"Arial" : fontName.c_str());
+    if (!hFont) {
+        if (stubBmp) { SelectObject(memDC, preMeasBmp); DeleteObject(stubBmp); }
+        DeleteDC(memDC); return 0;
+    }
     HFONT oldFont = reinterpret_cast<HFONT>(SelectObject(memDC, hFont));
 
-    // Measure text
+    // Measure text — safe now; the DC is 32 BPP
     RECT rc = { 0, 0, 4096, 4096 };
     DrawTextW(memDC, text.c_str(), -1, &rc, DT_CALCRECT | DT_WORDBREAK);
     outW = rc.right  + 2;
     outH = rc.bottom + 2;
-    if (outW <= 0 || outH <= 0) {
+
+    // Swap out the stub bitmap; deselect before deleting
+    if (stubBmp) { SelectObject(memDC, preMeasBmp); DeleteObject(stubBmp); }
+
+    if (outW <= 2 || outH <= 2) {
         SelectObject(memDC, oldFont); DeleteObject(hFont); DeleteDC(memDC);
         return 0;
     }
 
-    // Create RGBA bitmap
+    // Create the real RGBA render bitmap
     BITMAPINFO bmi = {};
     bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
     bmi.bmiHeader.biWidth       = outW;
@@ -1342,6 +1375,10 @@ GLuint OpenGLRenderer::RenderTextToTexture(const std::wstring& text,
     bmi.bmiHeader.biCompression = BI_RGB;
     void* bits = nullptr;
     HBITMAP hBmp = CreateDIBSection(memDC, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!hBmp || !bits) {
+        SelectObject(memDC, oldFont); DeleteObject(hFont); DeleteDC(memDC);
+        return 0;
+    }
     HBITMAP oldBmp = reinterpret_cast<HBITMAP>(SelectObject(memDC, hBmp));
 
     // Fill black background (transparent)
@@ -1413,10 +1450,14 @@ void OpenGLRenderer::DrawMyText(const std::wstring& text, const Vector2& positio
     int tw = 0, th = 0;
     GLuint texID = RenderTextToTexture(text, L"Arial", fontSize, color, tw, th);
     if (!texID) return;
+    // 'size' is a clipping hint (matches DX11/Vulkan DirectWrite rect semantics).
+    // Render at natural glyph dimensions — NEVER stretch the texture to fill size.
+    // Clip to size.x so text cannot overflow its container; height is always natural.
+    int clipW = (size.x > 0.0f) ? std::min(tw, static_cast<int>(size.x)) : tw;
     Render2DQuad(texID,
         static_cast<int>(position.x), static_cast<int>(position.y),
-        static_cast<int>(size.x), static_cast<int>(size.y),
-        0, 0, tw, th, MyColor(255, 255, 255, 255), false);
+        clipW, th,
+        0, 0, clipW, th, MyColor(255, 255, 255, 255), false);
     glDeleteTextures(1, &texID);
 }
 
@@ -1551,11 +1592,36 @@ void OpenGLRenderer::DrawMyTextCentered(const std::wstring& text, const Vector2&
     HDC memDC = CreateCompatibleDC(nullptr);
     if (!memDC) return;
 
-    int ptSize = static_cast<int>(fontSize * 1.333f);
+    // Select a throwaway 1×1 32-bit DIB BEFORE the font so GDI records antialiasing
+    // metrics against a colour-capable (32 BPP) surface.  CreateCompatibleDC starts
+    // with a 1×1 monochrome bitmap; SelectObject(font) on a 1 BPP DC makes GDI mark
+    // the font as no-antialiasing, and the subsequent DrawTextW crashes inside
+    // USER32.dll at the exact same address as the RenderTextToTexture bug.
+    BITMAPINFO stubBmi{};
+    stubBmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+    stubBmi.bmiHeader.biWidth       = 1;
+    stubBmi.bmiHeader.biHeight      = -1;
+    stubBmi.bmiHeader.biPlanes      = 1;
+    stubBmi.bmiHeader.biBitCount    = 32;
+    stubBmi.bmiHeader.biCompression = BI_RGB;
+    void* stubBits = nullptr;
+    HBITMAP stubBmp = CreateDIBSection(memDC, &stubBmi, DIB_RGB_COLORS, &stubBits, nullptr, 0);
+    HBITMAP preStubBmp = stubBmp
+        ? reinterpret_cast<HBITMAP>(SelectObject(memDC, stubBmp))
+        : nullptr;
+
+    int ptSize = std::max(1, static_cast<int>(fontSize * 1.333f));
     HFONT hFont = CreateFontW(-ptSize, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
+        ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
+    if (!hFont) {
+        if (stubBmp) { SelectObject(memDC, preStubBmp); DeleteObject(stubBmp); }
+        DeleteDC(memDC); return;
+    }
     HFONT oldFont = reinterpret_cast<HFONT>(SelectObject(memDC, hFont));
+
+    // Swap stub out, create and select the real cw×ch render bitmap
+    if (stubBmp) { SelectObject(memDC, preStubBmp); DeleteObject(stubBmp); }
 
     BITMAPINFO bmi{};
     bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
@@ -1566,7 +1632,7 @@ void OpenGLRenderer::DrawMyTextCentered(const std::wstring& text, const Vector2&
     bmi.bmiHeader.biCompression = BI_RGB;
     void* bits = nullptr;
     HBITMAP hBmp = CreateDIBSection(memDC, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
-    if (!hBmp) {
+    if (!hBmp || !bits) {
         SelectObject(memDC, oldFont); DeleteObject(hFont); DeleteDC(memDC);
         return;
     }
@@ -1636,11 +1702,13 @@ float OpenGLRenderer::GetCharacterWidth(wchar_t character, float fontSize,
 {
 #if defined(_WIN32) || defined(_WIN64)
     HDC dc = GetDC(nullptr);
-    int ptSize = static_cast<int>(fontSize * 1.333f);
+    if (!dc) return fontSize * 0.6f;
+    int ptSize = std::max(1, static_cast<int>(fontSize * 1.333f));
     HFONT hFont = CreateFontW(-ptSize, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
+        ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
         fontName.empty() ? L"Arial" : fontName.c_str());
+    if (!hFont) { ReleaseDC(nullptr, dc); return fontSize * 0.6f; }
     HFONT old = reinterpret_cast<HFONT>(SelectObject(dc, hFont));
     SIZE sz = {};
     GetTextExtentPoint32W(dc, &character, 1, &sz);
@@ -1659,10 +1727,12 @@ float OpenGLRenderer::CalculateTextWidth(const std::wstring& text, float fontSiz
 #if defined(_WIN32) || defined(_WIN64)
     if (text.empty()) return 0.0f;
     HDC dc = GetDC(nullptr);
-    int ptSize = static_cast<int>(fontSize * 1.333f);
+    if (!dc) return static_cast<float>(text.size()) * fontSize * 0.6f;
+    int ptSize = std::max(1, static_cast<int>(fontSize * 1.333f));
     HFONT hFont = CreateFontW(-ptSize, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
+        ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
+    if (!hFont) { ReleaseDC(nullptr, dc); return static_cast<float>(text.size()) * fontSize * 0.6f; }
     HFONT old = reinterpret_cast<HFONT>(SelectObject(dc, hFont));
     SIZE sz = {};
     GetTextExtentPoint32W(dc, text.c_str(), static_cast<int>(text.size()), &sz);

@@ -122,6 +122,28 @@ void OpenGLRenderer::LoaderTaskThread()
 
                 threadManager.PauseThread(THREAD_LOADER);
                 threadManager.threadVars.bLoaderTaskFinished.store(true);
+                // The main-loop 7-second timer fires FadeOutThenCallback which:
+                //   1. Fades to black over 2 seconds on the render thread
+                //   2. Calls scene.InitiateScene(SCENE_INTRO_MOVIE)
+                //   3. Calls OpenMovieAndPlay() + renderer->ResumeLoader()
+                // → loader wakes and processes SCENE_INTRO_MOVIE below.
+                break;
+            }
+
+            case SceneType::SCENE_INTRO_MOVIE:
+            {
+                threadManager.threadVars.bLoaderTaskFinished.store(false);
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene Intro Movie.");
+
+                // All 2D textures are already in VRAM from SCENE_INTRO; no reload needed.
+                // The movie has been opened and started by the FadeOutThenCallback (OpenMovieAndPlay()).
+                // FadeToImage is already running from the callback — the render frame will pick it
+                // up via RenderIntroMovie() once the fade completes.
+                // Flush any outstanding GL commands so the render thread sees a clean state.
+                glFlush();
+
+                threadManager.threadVars.bLoaderTaskFinished.store(true);
+                threadManager.PauseThread(THREAD_LOADER);
                 break;
             }
 
@@ -155,7 +177,7 @@ void OpenGLRenderer::LoaderTaskThread()
                     SecureZeroMemory(&sunLight, sizeof(LightStruct));
 #endif
                     sunLight.active        = true;
-                    sunLight.position      = XMFLOAT3(0.0f, 5.0f, -150.0f);
+                    sunLight.position      = XMFLOAT3(0.0f, 5.0f, 100.0f);
                     sunLight.direction     = XMFLOAT3(0.0f, -0.2425f, -0.9701f);
                     sunLight.color         = XMFLOAT3(1.0f, 0.95f, 0.85f);
                     sunLight.ambient       = XMFLOAT3(0.32f, 0.32f, 0.38f);
@@ -337,7 +359,7 @@ void OpenGLRenderer::LoaderTaskThread()
                     SecureZeroMemory(&sunLight, sizeof(LightStruct));
 #endif
                     sunLight.active        = true;
-                    sunLight.position      = XMFLOAT3(10.0f, -3.0f, -100.0f);
+                    sunLight.position      = XMFLOAT3(10.0f, -3.0f, 100.0f);
                     sunLight.direction     = XMFLOAT3(0.0f, 1.0f, 0.0f);
                     sunLight.color         = XMFLOAT3(1.0f, 1.0f, 1.0f);
                     sunLight.ambient       = XMFLOAT3(0.2f, 0.2f, 0.2f);
@@ -416,9 +438,10 @@ void OpenGLRenderer::LoaderTaskThread()
                             camW / std::max(camH, 1.0f));
                     }
                     guiManager.OnWindowResize(iOrigWidth, iOrigHeight);
-                    fxManager.StopLoadingText();
                 }
 
+                fxManager.StopLoadingText();
+                fxManager.FadeToImage(1.0f, 0.08f);
                 glFlush();
                 threadManager.threadVars.bLoaderTaskFinished.store(true);
                 threadManager.PauseThread(THREAD_LOADER);

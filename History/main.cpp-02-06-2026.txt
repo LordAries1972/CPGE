@@ -1,0 +1,31 @@
+// main.cpp — change log 02-06-2026
+// SCENE_INTRO timeout handler: add __USE_OPENGL__ branch that uses FadeOutThenCallback
+// instead of FadeToBlack + blocking spin.  Guard SwitchToMovieIntro() to skip for OpenGL.
+
+// Changed section (case SceneType::SCENE_INTRO, inside RENDERER_IS_THREAD block):
+
+#if defined(RENDERER_IS_THREAD)
+    scene.bSceneSwitching = true;
+    #if defined(__USE_OPENGL__)
+    fxManager.FadeOutThenCallback(
+        { 0.0f, 0.0f, 0.0f, 1.0f }, 2.0f, 0.06f,
+        []() {
+            scene.SetGotoScene(SCENE_INTRO_MOVIE);
+            scene.InitiateScene();
+            scene.SetGotoScene(SCENE_NONE);
+            fxManager.FadeToImage(3.0f, 0.06f);
+            OpenMovieAndPlay();
+            renderer->ResumeLoader();
+        });
+    #else
+    fxManager.FadeToBlack(2.0f, 0.06f);
+    while (fxManager.IsFadeActive())
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    scene.bSceneSwitching = true;
+    #endif
+#endif
+
+// SwitchToMovieIntro() block wrapped in #if !defined(__USE_OPENGL__) ... #endif
+// (OpenGL callback already handles the scene switch; main loop must not call it again.)

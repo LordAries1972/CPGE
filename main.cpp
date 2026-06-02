@@ -873,17 +873,31 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                             if ((sysUtils.CheckElapsedTime(7)) && (!scene.bSceneSwitching))
                             {
                                 #if defined(RENDERER_IS_THREAD)
-                                    // Mark that we are beginning the scene transition process
                                     scene.bSceneSwitching = true;
-
-                                    // Fade to black; render thread handles the actual rendering
-                                    fxManager.FadeToBlack(2.0f, 0.06f);
-                                    while (fxManager.IsFadeActive())
-                                    {
-                                        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                                    }
-
-                                    scene.bSceneSwitching = true;
+                                    #if defined(__USE_OPENGL__)
+                                    // OpenGL: non-blocking fade — render thread drives it.
+                                    // Callback fires when the fade completes and transitions
+                                    // directly to SCENE_INTRO_MOVIE without blocking the main loop.
+                                    fxManager.FadeOutThenCallback(
+                                        { 0.0f, 0.0f, 0.0f, 1.0f }, 2.0f, 0.06f,
+                                        []() {
+                                            scene.SetGotoScene(SCENE_INTRO_MOVIE);
+                                            scene.InitiateScene();
+                                            scene.SetGotoScene(SCENE_NONE);             // Queue next scene to ensure smooth transition after movie
+                                            fxManager.FadeToImage(3.0f, 0.06f);
+                                            OpenMovieAndPlay();
+                                            renderer->ResumeLoader();
+                                        });
+                                    #else
+                                        // DX11 / Vulkan / DX12: blocking fade on the main thread.
+                                        // SwitchToMovieIntro() is called below once IsFadeActive() clears.
+                                        fxManager.FadeToBlack(2.0f, 0.06f);
+                                        while (fxManager.IsFadeActive())
+                                        {
+                                            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                                        }
+                                        scene.bSceneSwitching = true;
+                                    #endif
                                 #endif
                                 
                                 #if defined(_DEBUG_SCENE_TRANSITION_)
@@ -930,7 +944,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
                             }
 
-                            // Check if we are in scene switching mode and fade has completed
+                            // Check if we are in scene switching mode and fade has completed.
+                            // OpenGL: the FadeOutThenCallback callback already called
+                            // InitiateScene(SCENE_INTRO_MOVIE) + ResumeLoader — skip here.
+                            #if !defined(__USE_OPENGL__)
                             if (scene.bSceneSwitching && !fxManager.IsFadeActive())
                             {
                                 try {
@@ -976,6 +993,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                                     scene.bSceneSwitching = false;                                 // Reset flag to prevent hanging
                                 }
                             }
+                            #endif // !__USE_OPENGL__
                         }
                         catch (const std::exception& e) {
                             debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SCENE] Exception in SCENE_GAMETITLE: " +

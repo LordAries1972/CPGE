@@ -606,7 +606,7 @@ void OpenGLRenderer::RenderFrame()
                         // Align to bottom-right corner, 4 px inset from each edge
                         Render2DQuad(riTex,
                             iOrigWidth  - tw - 4,
-                            iOrigHeight - th - 4,
+                            iOrigHeight - th - 2,
                             tw, th, 0, 0, tw, th, MyColor(255, 255, 255, 255), false);
                         glDeleteTextures(1, &riTex);
                     }
@@ -639,8 +639,8 @@ void OpenGLRenderer::RenderFrame()
                 static int recBlinkCounter = 0;
                 recBlinkCounter = (recBlinkCounter + 1) % 60;
                 if (recBlinkCounter < 30) {
-                    DrawMyText(L"● REC",
-                        Vector2(static_cast<float>(renderW) - 75.0f, 12.0f),
+                    DrawMyText(L"* REC",
+                        Vector2(static_cast<float>(renderW) - 80.0f, 9.0f),
                         MyColor::Red(), 18.0f);
                 }
             }

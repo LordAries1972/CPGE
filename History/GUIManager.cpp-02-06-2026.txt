@@ -1,0 +1,25 @@
+// GUIManager.cpp — change log 02-06-2026
+// ToggleSlider ON/OFF text: replaced DrawMyText + manual position with DrawMyTextCentered
+// on the non-knob half of the slider. Font reduced 11pt → 9pt.
+// Centring is now handled by the renderer natively (DX11/Vulkan via DirectWrite
+// DWRITE_TEXT_ALIGNMENT_CENTER; OpenGL via DT_CENTER|DT_VCENTER|DT_SINGLELINE GDI bitmap).
+
+// Changed section (GUIWindow::Render, case GUIControlType::ToggleSlider):
+
+                // State text — centred within the non-knob half via DrawMyTextCentered
+                const std::wstring stateText = on ? L"ON" : L"OFF";
+                MyColor textCol = on
+                    ? MyColor(115, 255, 130, 210) : MyColor(195, 105, 100, 200);
+                constexpr float kToggleFontSize = 9.0f;
+                if (on) {
+                    float areaW = knobX - control.position.x - 2.0f;
+                    r->DrawMyTextCentered(stateText,
+                        Vector2(control.position.x + 1.0f, control.position.y),
+                        textCol, kToggleFontSize, areaW, control.size.y);
+                } else {
+                    float areaX = control.position.x + knobW + 2.0f;
+                    float areaW = control.size.x - knobW - 4.0f;
+                    r->DrawMyTextCentered(stateText,
+                        Vector2(areaX, control.position.y),
+                        textCol, kToggleFontSize, areaW, control.size.y);
+                }

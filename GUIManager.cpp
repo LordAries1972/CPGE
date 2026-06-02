@@ -825,19 +825,26 @@ void GUIWindow::Render() {
                     ? control.position.x + control.size.x - knobW - 2.0f
                     : control.position.x + 2.0f;
 
-                // State text on the non-knob side
+                // State text — centred within the non-knob half via DrawMyTextCentered
+                // so all renderers (DX11, Vulkan, OpenGL) produce identical layout.
                 const std::wstring stateText = on ? L"ON" : L"OFF";
                 MyColor textCol = on
                     ? MyColor(115, 255, 130, 210) : MyColor(195, 105, 100, 200);
-                float textX = on
-                    ? control.position.x + 4.0f
-                    : control.position.x + knobW + 6.0f;
-                float textH    = r->CalculateTextHeight(stateText, 11.0f, control.size.y);
-                float centredY = control.position.y + (control.size.y - textH) / 2.0f;
-                r->DrawMyText(stateText,
-                    Vector2(textX, centredY),
-                    Vector2(control.size.x - knobW - 8.0f, control.size.y),
-                    textCol, 11.0f);
+                constexpr float kToggleFontSize = 9.0f;
+                if (on) {
+                    // Knob on RIGHT → text centred in the LEFT portion
+                    float areaW = knobX - control.position.x - 2.0f;
+                    r->DrawMyTextCentered(stateText,
+                        Vector2(control.position.x + 1.0f, control.position.y),
+                        textCol, kToggleFontSize, areaW, control.size.y);
+                } else {
+                    // Knob on LEFT → text centred in the RIGHT portion
+                    float areaX = control.position.x + knobW + 2.0f;
+                    float areaW = control.size.x - knobW - 4.0f;
+                    r->DrawMyTextCentered(stateText,
+                        Vector2(areaX, control.position.y),
+                        textCol, kToggleFontSize, areaW, control.size.y);
+                }
 
                 // Knob drop-shadow
                 r->DrawRectangle(
