@@ -1,9 +1,0 @@
-
-  様様様様様様様様様様様様様様様様様様様様
-  VERSION UPDATE: v0.0.969
-  Previous: v0.0.968
-  Current:  v0.0.969
-  様様様様様様様様様様様様様様様様様様様様
-  IOStreamDX11Thread.cpp
-  BlenderImports.cpp
-  CrossPlatformGameEngine.vcxproj -> f:\Projects\C++\CPGE2026\x64\Debug\CrossPlatformGameEngine.exe

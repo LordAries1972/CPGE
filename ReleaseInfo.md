@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1401*
+*Current Build Version: v0.0.1403*
 
 ---
 
@@ -2357,6 +2357,31 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
 - **Crash fix — same 1 BPP monochrome bug in `DrawMyTextCentered` (OpenGL)** (`OpenGLRenderer.cpp`):
   After `RenderTextToTexture` was fixed, the same crash (`DrawTextW +0x143`) reappeared via `DrawMyTextCentered` called for Button rendering. GDI records the font's antialiasing capability against the DC's **bit depth at `SelectObject(font)` time**, not at `DrawTextW` time. `DrawMyTextCentered` selected the font before the 32-bit render bitmap, so GDI cached the font as no-antialiasing-capable and the subsequent `DrawTextW(DT_CENTER|DT_VCENTER|DT_SINGLELINE)` crashed. The real 32-bit bitmap selection later did not retroactively fix it. Applied the same stub bitmap fix: 1×1 32-bit DIB selected **before** `SelectObject(font)`, then real `cw×ch` bitmap swapped in after font selection.
 - *See: [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp)*
+
+- **Fix — Config window "System Configuration" caption not vertically centred in OpenGL pipeline** (`OpenGLRenderer.cpp`):
+  `CalculateTextHeight` returned `fontSize × 1.2` (19.2 px for font size 16), but GDI rasterises the title text at approximately 26 px. `GUIManager.cpp` uses `textY = position.y + (size.y − textHeight) / 2 + 2` to vertically centre the label in the 28 px title bar; with the underestimate, `textY` was placed 3–5 px below true centre. Fixed `CalculateTextHeight` to use `DT_CALCRECT | DT_WORDBREAK` measurement (same as `RenderTextToTexture`) plus the same +2 px padding, so the reported height exactly matches the rendered texture height.
+- *See: [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp)*
+
+- **Fix — VSync/Vertical Blank option ignored at startup in OpenGL pipeline** (`OpenGLRenderer.cpp`):
+  `SetupPlatformSpecificContext` hardcoded `wglSwapIntervalEXT(1)` regardless of the user's "Vertical Sync" toggle in the Video config tab. The toggle was writing `config.myConfig.enableVSync` and flagging a video restart correctly, but the restart always re-enabled VSync. Fixed: now passes `config.myConfig.enableVSync ? 1 : 0`.
+- *See: [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp)*
+
+- **Perf — OpenGL render pipeline critical optimisation** (`OpenGLRenderer.cpp`, `OpenGLRenderer.h`, `OpenGLRenderFrame.cpp`, `OpenGLFXManager.cpp`, `OpenGLFXManager.h`):
+  Five targeted optimisations eliminating the main per-frame CPU/GPU overhead:
+  1. **Text texture cache** — `DrawMyText*` and `DrawMyTextCentered` ran full GDI rasterisation + pixel-loop + `glGenTextures` + `glTexImage2D` + `glDeleteTextures` every frame. Added `AcquireTextTexture` (key = text + font + size + colour + control dims) backed by an `unordered_map`. Cache hit costs only a map lookup. Frame-based LRU eviction: evict after 120 frames disuse, scan every 60 frames, cap at 256 entries. `DrawMyTextCentered`'s GDI path extracted to `RenderTextCenteredToTexture` so both natural-size and centred paths share the cache.
+  2. **2D uniform location caching** — `Render2DQuad` called `glGetUniformLocation` 4× per quad per frame. Added `CachedUniforms2D m_uniforms2D` struct, populated once in `LoadShaders()`. Eliminates 4 string-hash lookups per draw call.
+  3. **Ortho matrix caching** — `Render2DQuad` rebuilt the 16-element ortho matrix every call. Cached in `m_cachedOrtho[16]`; rebuilt only on screen-dimension change.
+  4. **Starfield speed increase** — Star travel raised from 80–200 units/s to 150–350 units/s (at `resetDepthPos = 1000`) to match DX11/Vulkan visual pace.
+  5. **WarpTunnel ring-sort buffer** — `UpdateWarpDotTunnel` heap-allocated `std::vector<int> order` every frame for camera look-ahead sort. Replaced with `m_tunnelSortBuf` member, resized in-place.
+- *See: [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`OpenGLRenderer.h`](OpenGLRenderer.h), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp), [`OpenGLFXManager.cpp`](OpenGLFXManager.cpp), [`OpenGLFXManager.h`](OpenGLFXManager.h)*
+
+- **Fix — 3D WarpDotTunnel non-functional in OpenGL pipeline** (`OpenGLFXManager.cpp`):
+  The OpenGL WarpTunnel implementation had drifted significantly from the DX11/Vulkan reference. Four functions were rewritten to match full parity:
+  - **`Init3DWarpDOTTunnel`**: Fixed incorrect `totalDistance`/`nearZ`/`farZ` (was using `z` as total distance; correct is `800.0f`, `nearZ=z`, `farZ=z+800`). Replaced flat ring spawn with circular stagger (`bornCx/Y = startX/Y + kSideWaveRadius * sin/cos(fraction * 2π)`) so the tunnel looks correct from frame 1. Fixed `colorStep` from `(i*kGraySteps)/density` to `i%kGraySteps`. Added input validation (`max`/`clamp`), correct `spinSpeed = travelSpeed * 0.05f`, camera setup (`SetPosition`/`SetTarget`/`SetYawPitch`), mutex lock, and improved log output.
+  - **`StopWarpDotTunnel`**: Added early-out guard (`tunnelID <= 0`), erase-by-type+ID pattern, and log message matching Vulkan.
+  - **`UpdateWarpDotTunnel`**: Replaced constant-speed movement with quartic speed factor (`1 + t⁴ × 10` forward / `× 6` reverse) for the warp-rush acceleration. Added `dt` clamping to 50ms. Fixed wrap conditions to be separate forward/reverse branches. Added `ring.cx = ring.bornCx` straight-line travel. Replaced single `spinAngle += spinSpeed * dt` with a `spinCycle` switch (Clockwise/AntiClockwise/None) and `fmodf` normalisation. Added exponential-smoothed camera look-ahead (aim at ring 20 positions ahead, alpha = `1 - exp(-kCameraSmooth * dt)`).
+  - **`RenderWarpDotTunnel`**: Replaced fake `scale = 300/depth` perspective with a proper `proj * view` matrix transform. Radius now grows linearly with `pathT` (far→near) from `minRadius` to `maxRadius`. Alpha uses edge-fade ramp (`edgeFade = 0.08`) instead of `zPos/farZ`. Gray ramp corrected to match DX11/Vulkan (`0.08…1.0`). Dot size now scales with depth (`1 + pathT * 3`). Uses `FAST_MATH.FastSinCos`. NDC culling uses OpenGL `[-1,1]` depth convention; Y-flip uses `(1.0f - ndcY)` to match `perspectiveLH_NO`.
+- *See: [`OpenGLFXManager.cpp`](OpenGLFXManager.cpp)*
 
 ---
 

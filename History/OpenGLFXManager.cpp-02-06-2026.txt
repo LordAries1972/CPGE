@@ -787,7 +787,7 @@ void GLFXManager::CreateStarfield(int numStars, float circularRadius, float rese
             s.position.y = startPos.y + s.vy * fraction;
         }
 
-        s.speed     = 150.0f + (static_cast<float>(rand()) / RAND_MAX) * 200.0f;  // 150–350 units/s
+        s.speed     = 80.0f + (static_cast<float>(rand()) / RAND_MAX) * 120.0f;  // 80–200 units/s (matches DX11 visual pace)
         s.size      = 1.0f  + (static_cast<float>(rand()) / RAND_MAX) * 2.0f;
         s.maxRadius = resetDepthPos;
 
@@ -837,7 +837,7 @@ void GLFXManager::UpdateStarfield(float deltaTime) {
                     s.position.x = origin.x + cosf(angle) * dist;
                     s.position.y = origin.y + sinf(angle) * dist;
                     s.position.z = origin.z + resetDepth * (0.9f + 0.1f * (static_cast<float>(rand()) / RAND_MAX));
-                    s.speed      = 150.0f + (static_cast<float>(rand()) / RAND_MAX) * 200.0f;
+                    s.speed      = 80.0f + (static_cast<float>(rand()) / RAND_MAX) * 120.0f;
                     s.size       = 1.0f  + (static_cast<float>(rand()) / RAND_MAX) * 1.2f;
                     s.color.w    = 1.0f;
                 }
@@ -856,7 +856,7 @@ void GLFXManager::UpdateStarfield(float deltaTime) {
                     float frac   = 1.0f - (s.position.z / resetDepth);
                     s.position.x = origin.x + s.vx * frac;
                     s.position.y = origin.y + s.vy * frac;
-                    s.speed      = 150.0f + (static_cast<float>(rand()) / RAND_MAX) * 200.0f;
+                    s.speed      = 80.0f + (static_cast<float>(rand()) / RAND_MAX) * 120.0f;
                     s.size       = 1.0f  + (static_cast<float>(rand()) / RAND_MAX) * 1.2f;
                     s.color.w    = 1.0f;
                 } else {
@@ -1076,15 +1076,16 @@ void GLFXManager::UpdateWarpDotTunnel(GLFXItem& fx, float deltaTime) {
         const int ringCount = static_cast<int>(td.rings.size());
         const int lookIdx   = std::min(19, ringCount - 1);
 
-        m_tunnelSortBuf.resize(ringCount);
-        for (int ri = 0; ri < ringCount; ++ri) m_tunnelSortBuf[ri] = ri;
-        std::sort(m_tunnelSortBuf.begin(), m_tunnelSortBuf.end(), [&td](int a, int b) {
+        std::vector<int> order;
+        order.reserve(ringCount);
+        for (int ri = 0; ri < ringCount; ++ri) order.push_back(ri);
+        std::sort(order.begin(), order.end(), [&td](int a, int b) {
             float ptA = (td.farZ - td.rings[a].zPos) / td.totalDistance;
             float ptB = (td.farZ - td.rings[b].zPos) / td.totalDistance;
             return ptA > ptB;
         });
 
-        const GLTunnelRing& lookRing = td.rings[m_tunnelSortBuf[lookIdx]];
+        const GLTunnelRing& lookRing = td.rings[order[lookIdx]];
 
         const float alpha = 1.0f - expf(-GLWarpTunnelData::kCameraSmooth * dt);
         td.smoothLookTarget.x += (lookRing.cx   - td.smoothLookTarget.x) * alpha;
