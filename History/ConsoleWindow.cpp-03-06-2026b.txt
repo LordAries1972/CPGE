@@ -80,23 +80,6 @@ void ConsoleWindow::Toggle()
     bIsVisible = !bIsVisible;
 
     if (m_guiMgr) {
-        // When showing, immediately correct the GUIWindow bounds from the renderer
-        // so hit-testing is accurate on the very first input frame after Toggle().
-        // (RenderContent also updates bounds each render frame, but the first
-        //  HandleAllInput call may arrive before the first render if the user
-        //  clicks immediately after pressing F8.)
-        if (bIsVisible) {
-            if (auto win = m_guiWin.lock()) {
-                if (win->myRenderer) {
-                    Renderer* r = win->myRenderer;
-                    win->position = Vector2(CONSOLE_WIN_X, CONSOLE_WIN_Y);
-                    win->size.x   = std::clamp(static_cast<float>(r->iOrigWidth)  * CONSOLE_WIN_W_PCT,
-                                               CONSOLE_WIN_W_MIN, CONSOLE_WIN_W_MAX);
-                    win->size.y   = static_cast<float>(r->iOrigHeight) - CONSOLE_WIN_H_MARGIN;
-                }
-            }
-        }
-
         m_guiMgr->SetWindowVisibility("ConsoleWindow", bIsVisible);
         if (bIsVisible)
             m_guiMgr->BringWindowToFront("ConsoleWindow");

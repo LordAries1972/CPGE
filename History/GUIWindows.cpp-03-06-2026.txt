@@ -204,7 +204,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     CreateMyWindow(
         WINDOW_NAME,                                                        // Window name
         GUIWindowType::Dialog,                                              // Window type (Dialog)
-        Vector2(renderer->iOrigWidth - 305, 0),                             // Position (x, y) - right side of screen
+        Vector2(renderer->iOrigWidth - 300, 0),                             // Position (x, y) - right side of screen (screenWidth - menuWidth)
         Vector2(300, renderer->iOrigHeight),                                // Size (width, height) - full height
         MyColor(0, 0, 0, 0),                                                // Background color (transparent — controls provide all visual substance)
         int(BlitObj2DIndexType::NONE)                                       // No background texture ID
@@ -212,7 +212,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
 
     // Log successful window creation with dimensions
     debug.logDebugMessage(LogLevel::LOG_DEBUG, L"CreateGameMenuWindow - Window created at position (%d, %d) with size (%d, %d)",
-        renderer->iOrigWidth - 305, 0, 300, renderer->iOrigHeight);
+        renderer->iOrigWidth - 300, 0, 300, renderer->iOrigHeight);
 
     // Get the created window with proper error checking
     std::shared_ptr<GUIWindow> gameMenuWindow = GetWindow(WINDOW_NAME);
@@ -251,11 +251,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     configButton.useShadowedText = true;                                                                     // Enable text shadowing
     configButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);                                       // Button up texture
     configButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);                                // Button hover texture
-    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
-        configButton.label = L"CONFIGURATION";                                                             // Button label text
-    #elif defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-        configButton.label = L"      CONFIGURATION";                                                             // Button label text
-    #endif
+    configButton.label = L"CONFIGURATION";                                                             // Button label text
     configButton.lblFontSize = 16.0f;                                                                        // Font size for button text
     configButton.isVisible = true;                                                                           // Make button visible
 
@@ -300,11 +296,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     gameplayButton.useShadowedText = true;                                                                      // Enable text shadowing
     gameplayButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);                                        // Button up texture
     gameplayButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);                                 // Button hover texture
-    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
-        gameplayButton.label = L"GAME PLAY";
-    #elif defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-        gameplayButton.label = L"        GAME PLAY";
-    #endif
+    gameplayButton.label = L"GAME PLAY";
     gameplayButton.lblFontSize = 16.0f;                                                                         // Font size for button text
     gameplayButton.isVisible = true;                                                                            // Make button visible
 
@@ -367,11 +359,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     hiscoresButton.useShadowedText = true;                                                                      // Enable text shadowing
     hiscoresButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);                                        // Button up texture
     hiscoresButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);                                 // Button hover texture
-    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
-        hiscoresButton.label = L"HIGH SCORES";                                                               // Button label text
-    #elif defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-        hiscoresButton.label = L"       HIGH SCORES";                                                               // Button label text
-    #endif
+    hiscoresButton.label = L"HIGH SCORES";                                                               // Button label text
     
     hiscoresButton.lblFontSize = 16.0f;                                                                         // Font size for button text
     hiscoresButton.isVisible = true;                                                                            // Make button visible
@@ -422,11 +410,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     creditsButton.useShadowedText = true;                                                                      // Enable text shadowing
     creditsButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);                                        // Button up texture
     creditsButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);                                 // Button hover texture
-    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
-        creditsButton.label = L"SHOW CREDITS";                                                                 // Button label text
-    #elif defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-        creditsButton.label = L"    SHOW CREDITS";                                                                 // Button label text
-    #endif
+    creditsButton.label = L"SHOW CREDITS";                                                                 // Button label text
     creditsButton.lblFontSize = 16.0f;                                                                         // Font size for button text
     creditsButton.isVisible = true;                                                                            // Make button visible
 
@@ -476,7 +460,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     quitButton.useShadowedText = true;                                                                      // Enable text shadowing
     quitButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);                                        // Button up texture
     quitButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);                                 // Button hover texture
-    quitButton.label = L"    QUIT TO DESKTOP";                                                              // Button label text
+    quitButton.label = L"QUIT TO DESKTOP";                                                              // Button label text
     quitButton.lblFontSize = 16.0f;                                                                         // Font size for button text
     quitButton.isVisible = true;                                                                            // Make button visible
 
@@ -546,11 +530,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     experimentalButton.useShadowedText = true;
     experimentalButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);
     experimentalButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);
-    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
-        experimentalButton.label = L"** EXPERIMENTAL **";
-    #elif defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-        experimentalButton.label = L"   ** EXPERIMENTAL **";
-    #endif
+    experimentalButton.label = L"** EXPERIMENTAL **";
     experimentalButton.lblFontSize = 16.0f;
 
     experimentalButton.isVisible = true;

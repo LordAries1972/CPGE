@@ -160,7 +160,7 @@ void OpenGLRenderer::LoaderTaskThread()
                         XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f),
                         0.2f, 0.05f,
                         XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f),
-                        0.0f, 392.0f, &s);
+                        0.0f, -1.0f, &s);  // -1 = auto: renderer->iOrigHeight * LOADER_TEXT_Y_RATIO
                 };
 
                 threadManager.threadVars.b2DTexturesLoaded.store(false);
@@ -343,7 +343,7 @@ void OpenGLRenderer::LoaderTaskThread()
                         XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f),
                         0.2f, 0.05f,
                         XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f),
-                        0.0f, 392.0f, &s);
+                        0.0f, -1.0f, &s);  // -1 = auto: renderer->iOrigHeight * LOADER_TEXT_Y_RATIO
                 };
 
                 debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene GAMEPLAY Initialising.");

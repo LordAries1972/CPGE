@@ -204,7 +204,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     CreateMyWindow(
         WINDOW_NAME,                                                        // Window name
         GUIWindowType::Dialog,                                              // Window type (Dialog)
-        Vector2(renderer->iOrigWidth - 305, 0),                             // Position (x, y) - right side of screen
+        Vector2(renderer->iOrigWidth - 300, 0),                             // Position (x, y) - right side of screen (screenWidth - menuWidth)
         Vector2(300, renderer->iOrigHeight),                                // Size (width, height) - full height
         MyColor(0, 0, 0, 0),                                                // Background color (transparent — controls provide all visual substance)
         int(BlitObj2DIndexType::NONE)                                       // No background texture ID
@@ -212,7 +212,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
 
     // Log successful window creation with dimensions
     debug.logDebugMessage(LogLevel::LOG_DEBUG, L"CreateGameMenuWindow - Window created at position (%d, %d) with size (%d, %d)",
-        renderer->iOrigWidth - 305, 0, 300, renderer->iOrigHeight);
+        renderer->iOrigWidth - 300, 0, 300, renderer->iOrigHeight);
 
     // Get the created window with proper error checking
     std::shared_ptr<GUIWindow> gameMenuWindow = GetWindow(WINDOW_NAME);

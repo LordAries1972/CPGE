@@ -642,14 +642,8 @@ void OpenGLRenderer::RenderFrame()
             // Rendered after 3D so windows always appear in front of scene geometry.
             guiManager.Render();
 
-            // ---- Console window (F8 toggle; GAMETITLE / GAMEPLAY only) ----
-            // Rendered after 3D and GUI — console must be topmost UI element (mirrors DX11/Vulkan).
-            if (!scene.bSceneSwitching &&
-                (scene.stSceneType == SceneType::SCENE_GAMETITLE ||
-                 scene.stSceneType == SceneType::SCENE_GAMEPLAY))
-            {
-                consoleWindow.Render(this, renderW, renderH);
-            }
+            // Console window rendering is now handled by GUIManager::Render()
+            // via the GUIWindow::onCustomRender callback set in ConsoleWindow::CreateInGUIManager().
 
             // ---- Custom cursor ----
             if (m_2dTextures[int(BlitObj2DIndexType::BLIT_ALWAYS_CURSOR)].isLoaded)

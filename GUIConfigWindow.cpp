@@ -141,11 +141,12 @@ static std::wstring CfgFmtInt(int val) { return std::to_wstring(val); }
 //     restart-notification window is shown; the game restarts automatically
 //     unless the user clicks "Cancel Restart".
 //
-// Layout (screen pixels, window anchored at 25, 51):
-//   TitleBar      : (25,  51)  700 x 28  (full width — no close-X)
-//   Tab buttons   : (25,  79)  140 x 26 each, 5 tabs
-//   Bevel content : (25, 105)  700 x 370
-//   Bottom buttons: (35, 483)
+// Layout (screen pixels, window centered on screen):
+//   WW = 620, WH = 480  (centered horizontally and vertically)
+//   TitleBar      : (WX, WY)          620 x 28  (full width — no close-X)
+//   Tab buttons   : (WX, WY+28)       124 x 26 each, 5 tabs
+//   Bevel content : (WX, WY+54)       620 x 370
+//   Bottom buttons: (WX+10, WY+432)
 //
 // Control id prefixes:
 //   tbn0..tbn4  -> tab nav buttons
@@ -167,8 +168,9 @@ void GUIManager::CreateConfigWindow()
         return;
     }
 
-    const float WX = 25.0f, WY = 36.0f;
-    const float WW = 700.0f, WH = 505.0f;
+    const float WW = 620.0f, WH = 480.0f;
+    const float WX = (static_cast<float>(myRenderer->iOrigWidth)  - WW) / 2.0f;
+    const float WY = (static_cast<float>(myRenderer->iOrigHeight) - WH) / 2.0f;
 
     CreateMyWindow(WIN_NAME, GUIWindowType::Dialog,
         Vector2(WX, WY), Vector2(WW, WH),
@@ -760,7 +762,7 @@ void GUIManager::CreateConfigWindow()
             config.myConfig = *revertCfg;
             config.applyLive();
             RemoveWindow(WIN_NAME);
-        }, 51);
+        }, 102);
 
     // SAVE — write config to disk, revert live audio to reverted state only
     // if video settings changed, show the 10-second restart notification.
@@ -786,8 +788,8 @@ void GUIManager::CreateConfigWindow()
             // access closure captures after RemoveWindow.
             const std::string NOTIFY_WIN = "restart_notify";
             const float NW = 440.0f, NH = 170.0f;
-            const float NX = (25.0f + 700.0f / 2.0f) - NW / 2.0f;
-            const float NY = (36.0f + 505.0f / 2.0f) - NH / 2.0f;
+            const float NX = (static_cast<float>(self->myRenderer->iOrigWidth)  - NW) / 2.0f;
+            const float NY = (static_cast<float>(self->myRenderer->iOrigHeight) - NH) / 2.0f;
 
             self->CreateMyWindow(NOTIFY_WIN, GUIWindowType::Dialog,
                 Vector2(NX, NY), Vector2(NW, NH),
@@ -847,7 +849,7 @@ void GUIManager::CreateConfigWindow()
                 c.type = GUIControlType::Button;  c.id = "n_btn_now";
                 c.position = Vector2(NX + 12.0f, NY + TITLEBAR_HEIGHT + 86.0f);
                 c.size     = Vector2(160.0f, 32.0f);
-                c.bgColor  = MyColor(20, 20, 35, 255);
+                c.bgColor  = MyColor(20, 20, 35, 102);
                 c.hoverColor = MyColor(60, 60, 90, 255);
                 c.bgTextureId = c.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTONUP1);
                 c.txtColor = MyColor(210, 210, 210, 255);
@@ -872,7 +874,7 @@ void GUIManager::CreateConfigWindow()
                 c.type = GUIControlType::Button;  c.id = "n_btn_cancel";
                 c.position = Vector2(NX + 188.0f, NY + TITLEBAR_HEIGHT + 86.0f);
                 c.size     = Vector2(160.0f, 32.0f);
-                c.bgColor  = MyColor(20, 20, 35, 255);
+                c.bgColor  = MyColor(20, 20, 35, 102);
                 c.hoverColor = MyColor(60, 60, 90, 255);
                 c.bgTextureId = c.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTONUP1);
                 c.txtColor = MyColor(210, 210, 210, 255);
@@ -914,7 +916,7 @@ void GUIManager::CreateConfigWindow()
                 if (wchar_t* s2 = wcsrchr(ed, L'\\')) *s2 = L'\0';
                 ShellExecuteW(NULL, L"open", ep, NULL, ed, SW_SHOWNORMAL);
             }).detach();
-        }, 51);
+        }, 102);
 
     // RESTART GAME — saves and immediately restarts (no notification needed)
     addButton("btn_restart", WX + 320.0f, BTM_Y, 170.0f, 34.0f, L"Restart Game", 13.0f, true,
@@ -929,7 +931,7 @@ void GUIManager::CreateConfigWindow()
             wcscpy_s(ed, ep);
             if (wchar_t* s = wcsrchr(ed, L'\\')) *s = L'\0';
             ShellExecuteW(NULL, L"open", ep, NULL, ed, SW_SHOWNORMAL);
-        }, 51);
+        }, 102);
 
     // ===================================================================
     // Activate tab 0

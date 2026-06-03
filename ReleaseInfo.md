@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1418*
+*Current Build Version: v0.0.1431*
 
 ---
 
@@ -2453,6 +2453,39 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
 - **Fix — Game Menu button labels: removed per-renderer leading-space hacks (DX11 vertical centering)** (`GUIWindows.cpp`):
   All six Game Menu buttons (CONFIGURATION, GAME PLAY, HIGH SCORES, SHOW CREDITS, QUIT TO DESKTOP, \*\* EXPERIMENTAL \*\*) previously used renderer-conditional `#if defined(__USE_DIRECTX_11__)` blocks to prepend extra spaces, faking horizontal alignment. These hacks were removed; all buttons now share one plain label string. Horizontal and vertical centering for DX11 is already handled by `DX11Renderer::DrawMyTextCentered` via `DWRITE_TEXT_ALIGNMENT_CENTER` + `DWRITE_PARAGRAPH_ALIGNMENT_CENTER` within the full control rect — identical to the Vulkan path.
 - *See: [`GUIWindows.cpp`](GUIWindows.cpp)*
+
+- **Feature — GUIManager exclusive focused-window input model (all render pipelines)** (`GUIManager.h`, `GUIManager.cpp`):
+  Previously `HandleAllInput` routed mouse events to whichever window physically contained the cursor, allowing background windows to receive input even when a foreground window was open. Replaced with a focused-window exclusive model: the topmost visible window (highest `zOrder`) holds input focus and is the **only** window that may process hover, click, drag, and slider events. Clicking on any background window raises it to the front (increments its `zOrder` to `m_nextZOrder++`) without firing its controls — matching standard OS focus-click semantics. In-progress drags and slider interactions on the focused window continue to receive `HandleMouseMove` updates when the cursor leaves bounds. All background windows have hover states cleared every frame and stale `isDragging`/`isPressed` interactions cancelled on release. Modal windows retain existing exclusive-input override behaviour.
+  **Fix — raise-to-front click bleed**: `WM_MOUSEMOVE` re-enters `HandleAllInput` with `isLeftClick=true` before `WM_LBUTTONUP` arrives. After a raise-to-front, the newly-focused window would fire its button callbacks on the very next mouse-move event (same physical press). Added `bool m_raisedDuringCurrentPress` to `GUIManager`: set when any background window is raised; cleared when `!isLeftClick`. While set, `HandleMouseClick` is called with `effectiveClick=false` so `onMouseBtnDown` callbacks are suppressed — drag and release cleanup still run normally. The flag clears on the first `WM_LBUTTONUP` so the next independent press fires buttons as expected.
+- *See: [`GUIManager.h`](GUIManager.h), [`GUIManager.cpp`](GUIManager.cpp)*
+
+- **Feature — ConsoleWindow fully integrated into GUIManager (all render pipelines)** (`GUIManager.h`, `GUIManager.cpp`, `ConsoleWindow.h`, `ConsoleWindow.cpp`, `DXRenderFrame.cpp`, `OpenGLRenderFrame.cpp`, `VULKAN_RenderFrame.cpp`, `main.cpp`, `KBHandlersCode.cpp`):
+  `ConsoleWindow` was a standalone OSD class that rendered, received input, and managed its own lifecycle entirely outside `GUIManager` — making it invisible to the z-order / exclusive-focus system and allowing background GUI windows to fire controls through it. Full integration: `ConsoleWindow::CreateInGUIManager(GUIManager&)` registers a proper `GUIWindow` with GUIManager (hidden on creation). `Toggle()` shows/hides the window and calls `GUIManager::BringWindowToFront` so the console always holds exclusive input focus when visible. All rendering is now driven by `GUIWindow::onCustomRender` — the original layout code (border, title bar, text area with greedy word-wrap, scrollbar thumb, command-line bar) is preserved intact in the private `RenderContent(Renderer*)` callback, which also updates the `GUIWindow` bounds each frame so hit-testing always matches the visual draw. Scrollbar click handling uses the new `onCustomMouseInput` callback; keyboard events (`WM_CHAR`, backspace, enter) and scroll wheel are dispatched via `GUIManager::HandleChar`, `HandleBackspace`, `HandleEnter`, and `HandleMouseWheel` — five new methods that route to the focused window's registered callbacks (`onCharInput`, `onBackspace`, `onEnter`, `onMouseWheel`). The `GetFocusedWindow()` private helper finds the highest-zOrder visible window for routing. Standalone `consoleWindow.Render()` calls removed from all three renderer render-frame files; `consoleWindow.HandleMouseClick` removed from `WM_LBUTTONDOWN`; `WM_CHAR` routed through `guiManager.HandleChar`; `WM_MOUSEWHEEL` through `guiManager.HandleMouseWheel`. Backspace and enter in `KBHandlersCode.cpp` updated to `guiManager.HandleBackspace/HandleEnter`. All temporary `!consoleWindow.bIsVisible` guards on `HandleAllInput` call sites removed — the z-order system now handles exclusivity correctly.
+- *See: [`GUIManager.h`](GUIManager.h), [`GUIManager.cpp`](GUIManager.cpp), [`ConsoleWindow.h`](ConsoleWindow.h), [`ConsoleWindow.cpp`](ConsoleWindow.cpp), [`DXRenderFrame.cpp`](DXRenderFrame.cpp), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`main.cpp`](main.cpp), [`KBHandlersCode.cpp`](KBHandlersCode.cpp)*
+
+- **Fix — GUIManager strict exclusive focus: no raise-to-front, clicks outside focused window silently absorbed (all render pipelines)** (`GUIManager.h`, `GUIManager.cpp`, `ConsoleWindow.cpp`):
+  The previous raise-to-front mechanism caused background windows to fire their controls: when the console window's GUIManager bounds were still placeholder values (`570×600`) before the first `RenderContent` frame, a click within the visual console area but outside the stored bounds triggered raise-to-front on the config window, making it the new focused window and firing its close button on the very next `HandleAllInput` call. Removed raise-to-front entirely. The topmost (highest `zOrder`) window now holds **strictly exclusive** input — clicks outside the focused window's bounds are silently absorbed; no other window receives any input. Background windows are cleared of hover and stale press/drag states each frame. The `m_raisedDuringCurrentPress` member and all associated logic are removed. `ConsoleWindow::Toggle()` now updates the `GUIWindow` bounds from the renderer immediately on show (before `RenderContent` has a chance to run) so hit-testing is correct from the very first input frame after F8.
+
+- **Fix — Game Menu position: `screenWidth - menuWidth` (all render pipelines)** (`GUIWindows.cpp`, `GUIManager.cpp`):
+  The game menu (300px wide) was positioned at `screenWidth - 305`, leaving a 5px gap at the right screen edge. Changed to `screenWidth - 300` in both `CreateGameMenuWindow` (creation) and `GUIManager::OnWindowResize` (resize) so the menu's right edge is flush with the screen on all pipelines.
+- *See: [`GUIManager.h`](GUIManager.h), [`GUIManager.cpp`](GUIManager.cpp), [`ConsoleWindow.cpp`](ConsoleWindow.cpp), [`GUIWindows.cpp`](GUIWindows.cpp)*
+
+- **Fix — Loader text Y-position scaled to 70% of screen height (all pipelines)** (`Includes.h`, `DX_FXManager.cpp`, `OpenGLFXManager.cpp`, `VULKAN_FXManager.cpp`):
+  The loading-screen `TextFadeInOut` text was placed at a hardcoded pixel position (`fDEFAULT_WINDOW_HEIGHT − 50` for DX, `550.0f` for OpenGL/Vulkan) which broke on non-600px-tall screens. A single constant `LOADER_TEXT_Y_RATIO = 0.70f` added to `Includes.h` (alongside `fDEFAULT_WINDOW_HEIGHT`) replaces all three hardcoded defaults. Each `ShowLoadingText` auto-position path now computes `renderer->iOrigHeight × LOADER_TEXT_Y_RATIO` (with `fDEFAULT_WINDOW_HEIGHT × LOADER_TEXT_Y_RATIO` as a null-renderer fallback), placing text at exactly 70% down the screen on every resolution and render pipeline. Explicitly passed `posY` values are unchanged.
+- *See: [`Includes.h`](Includes.h), [`DX_FXManager.cpp`](DX_FXManager.cpp), [`OpenGLFXManager.cpp`](OpenGLFXManager.cpp), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp)*
+
+- **Fix — Config window: centered, width 700→620, height 505→480, buttons 60% transparent (all pipelines)** (`GUIConfigWindow.cpp`):
+  The configuration window was anchored at a fixed pixel offset (25, 36) and sized 700×505. Changes made:
+  1. **Centered positioning** — `WX`/`WY` = `(myRenderer->iOrigWidth − WW) / 2` and `(myRenderer->iOrigHeight − WH) / 2`.
+  2. **Width reduced 700→620** — fits within a 640px-wide display; slider width `SLR_W = 305px`; tab width 124px each.
+  3. **Height reduced 505→480** (−25pt total across both sessions).
+  4. **Bottom buttons 60% transparent** — Close, Save, Restart Game: `bgAlpha 51→102`; video-change popup "Restart Now" / "Cancel Restart": `bgColor.a 255→102`.
+  The restart-notification popup `NX`/`NY` centres on screen via `self->myRenderer->iOrigWidth/iOrigHeight`.
+- *See: [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp)*
+
+- **Fix — Loader text Y-position: LOADER_TEXT_Y_RATIO wired to all callers (all pipelines)** (`IOStreamDX11Thread.cpp`, `OpenGL_IOStreamThread.cpp`, `VULKAN_IOStreamThread.cpp`):
+  All `showStage` lambdas were passing explicit `posY = 392.0f`, bypassing the `renderer->iOrigHeight × LOADER_TEXT_Y_RATIO` auto-position logic in the FXManagers. Changed to `posY = -1.0f` so the FXManager places loader text at exactly 70% of the actual screen height on every pipeline and resolution.
+- *See: [`IOStreamDX11Thread.cpp`](IOStreamDX11Thread.cpp), [`OpenGL_IOStreamThread.cpp`](OpenGL_IOStreamThread.cpp), [`VULKAN_IOStreamThread.cpp`](VULKAN_IOStreamThread.cpp)*
 
 ---
 

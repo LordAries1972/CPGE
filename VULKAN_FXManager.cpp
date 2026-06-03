@@ -1870,8 +1870,9 @@ int VKFXManager::ShowLoadingText(const std::wstring& text,
     d.phase           = TextFadePhase::FadeIn;
     d.phaseTimer      = 0.0f;
     d.immediateStop   = false;
-    d.posX = (posX < 0.0f) ? 20.0f   : posX;
-    d.posY = (posY < 0.0f) ? 550.0f  : posY;
+    d.posX = (posX < 0.0f) ? 20.0f : posX;
+    d.posY = (posY < 0.0f) ? (renderer ? static_cast<float>(renderer->iOrigHeight) * LOADER_TEXT_Y_RATIO
+                                        : fDEFAULT_WINDOW_HEIGHT * LOADER_TEXT_Y_RATIO) : posY;
     if (fontStyle) d.fontStyle = *fontStyle;
 
     effects.push_back(std::move(fx));

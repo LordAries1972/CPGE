@@ -127,23 +127,7 @@ public:
     void CalculateScrollbarRange(float FontSize);
     std::wstring WrapText(const std::wstring& text, float maxWidth, float FontSize);
     void MoveWindow(const Vector2& newPosition, const std::unordered_map<std::string, std::shared_ptr<GUIWindow>>& allWindows);
-
-    // Custom rendering callback — invoked at the end of Render() for windows whose
-    // content (e.g. scrollable text, command line) is drawn outside the GUIControl set.
-    std::function<void(Renderer*)>        onCustomRender;
-
-    // Keyboard and wheel callbacks — dispatched by GUIManager::HandleChar /
-    // HandleBackspace / HandleEnter / HandleMouseWheel to the focused window.
-    std::function<void(wchar_t)>          onCharInput;
-    std::function<void()>                 onBackspace;
-    std::function<void()>                 onEnter;
-    std::function<void(int)>              onMouseWheel;
-
-    // Custom mouse hit-test extension — called when a left-click lands inside the
-    // window bounds but was not consumed by any registered GUIControl (e.g. a
-    // custom scrollbar implemented outside the control system).
-    std::function<void(float, float)>     onCustomMouseInput;
-
+    
     friend class GUIManager;                                                // Allow GUIManager access to internals
 
 private:
@@ -170,15 +154,6 @@ public:
     void HandleInput(const std::string& windowName, const Vector2& mousePosition, bool& isLeftClick);
     void HandleAllInput(const Vector2& mousePosition, bool& isLeftClick);
     void SetWindowVisibility(const std::string& name, bool isVisible);
-    void BringWindowToFront(const std::string& name);
-
-    // Keyboard and scroll-wheel routing — dispatched to the currently focused
-    // (highest-zOrder visible) window that has registered the matching callback.
-    void HandleChar(wchar_t c);
-    void HandleBackspace();
-    void HandleEnter();
-    void HandleMouseWheel(int delta);
-
     std::shared_ptr<GUIWindow> GetWindow(const std::string& name);
     std::unordered_map<std::string, std::shared_ptr<GUIWindow>> windows;
 
@@ -199,10 +174,11 @@ private:
     bool IsClickCoolingDown() const;
     void AcquireClickLock();
 
+    // True from the moment a raise-to-front occurs until the mouse button is released.
+    // Prevents the newly-focused window from firing button callbacks on the same press
+    // that raised it (WM_MOUSEMOVE re-enters HandleAllInput with isLeftClick=true).
+    bool m_raisedDuringCurrentPress = false;
 
     friend class GUIWindow;
-
-    // Returns the visible, non-destroyed window with the highest zOrder (the focused window).
-    std::shared_ptr<GUIWindow> GetFocusedWindow();
 };
 

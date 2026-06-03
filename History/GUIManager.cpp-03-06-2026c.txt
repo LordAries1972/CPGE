@@ -180,8 +180,8 @@ void GUIManager::OnWindowResize(int newWidth, int newHeight)
     auto menu = GetWindow("GameMenuWindow");
     if (!menu || menu->bWindowDestroy) return;
 
-    // Move to correct right-edge position (screenWidth - menuWidth); MoveWindow applies delta to all controls.
-    float newX = static_cast<float>(newWidth - 300);
+    // Move to correct right-edge position; MoveWindow applies the delta to all controls.
+    float newX = static_cast<float>(newWidth - 305);
     menu->MoveWindow(Vector2(newX, 0.0f), windows);
 
     // Update full-height panel to match new client height.
@@ -259,15 +259,20 @@ void GUIManager::HandleAllInput(const Vector2& mousePosition, bool& isLeftClick)
 
     if (validWindows.empty()) return;
 
-    // --- Strict focused-window exclusive input model ---
-    // The topmost (highest zOrder) visible window holds exclusive input focus.
-    // ALL other windows receive NO input whatsoever — no hover, no clicks, no
-    // callbacks.  Clicks outside the focused window's bounds are silently absorbed:
-    // there is NO raise-to-front mechanism.  A window gains focus only when it is
-    // created (CreateMyWindow assigns m_nextZOrder++) or explicitly brought to front
-    // via BringWindowToFront() (e.g. ConsoleWindow::Toggle).  This guarantees that
-    // no control on a background window can ever fire while a foreground window is
-    // open, on ALL render pipelines.
+    // On mouse release, reset the raise-during-press suppressor so the next
+    // independent press can fire buttons normally on the focused window.
+    if (!isLeftClick) m_raisedDuringCurrentPress = false;
+
+    // --- Focused-window exclusive input model ---
+    // The topmost (highest zOrder) window holds input focus and is the ONLY window
+    // that may process hover, click, and drag events.  Clicking a background window
+    // raises it to the front (making it the new focused window) without firing its
+    // controls — equivalent to standard OS focus-click behaviour.
+    //
+    // m_raisedDuringCurrentPress guards against WM_MOUSEMOVE re-entering
+    // HandleAllInput with isLeftClick=true after a raise-to-front: the newly-
+    // focused window must not fire buttons until the mouse button is released
+    // and re-pressed.
 
     auto& focusedWin = *validWindows[0].second;
 
@@ -277,23 +282,48 @@ void GUIManager::HandleAllInput(const Vector2& mousePosition, bool& isLeftClick)
         mousePosition.y >= focusedWin.position.y &&
         mousePosition.y <= focusedWin.position.y + focusedWin.size.y;
 
-    // Continue feeding mouse-move to the focused window during an in-progress drag
-    // or slider interaction so the gesture does not freeze when the cursor leaves.
+    // A click outside the focused window: raise whichever background window was hit.
+    bool clickConsumed = false;
+    if (isLeftClick && !mouseInFocused) {
+        for (size_t i = 1; i < validWindows.size(); ++i) {
+            auto& candidate = *validWindows[i].second;
+            bool inBounds =
+                mousePosition.x >= candidate.position.x &&
+                mousePosition.x <= candidate.position.x + candidate.size.x &&
+                mousePosition.y >= candidate.position.y &&
+                mousePosition.y <= candidate.position.y + candidate.size.y;
+            if (inBounds) {
+                std::unique_lock<std::timed_mutex> raiseLock(mutex, std::chrono::milliseconds(8));
+                if (raiseLock.owns_lock())
+                    candidate.zOrder = m_nextZOrder++;
+                // Suppress button fires on the raised window until the user
+                // releases and re-presses — WM_MOUSEMOVE will re-enter with
+                // isLeftClick=true before WM_LBUTTONUP clears the flag.
+                m_raisedDuringCurrentPress = true;
+                clickConsumed = true;
+                break;
+            }
+        }
+    }
+
+    // Determine whether an in-progress drag or slider interaction is active on the
+    // focused window (so we can continue feeding it mouse-move events even when the
+    // cursor wanders outside its bounds — without this, drags freeze mid-gesture).
     bool hasActiveInteraction = focusedWin.isDragging;
     if (!hasActiveInteraction)
         for (const auto& ctrl : focusedWin.controls)
             if (ctrl.isPressed) { hasActiveInteraction = true; break; }
 
+    // Route input exclusively to the focused window.
+    // When m_raisedDuringCurrentPress is set we pass effectiveClick=false so that
+    // button onMouseBtnDown callbacks are suppressed on the newly-raised window for
+    // the remainder of the current press.  Drag/release cleanup still runs normally.
     if (mouseInFocused || hasActiveInteraction) {
         try {
-            bool clickConsumed = false;
-            focusedWin.HandleMouseClick(mousePosition, isLeftClick, this, clickConsumed);
-
-            // Custom hit-test extension (e.g. console scrollbar) — called for clicks
-            // in bounds that no registered GUIControl consumed.
-            if (isLeftClick && mouseInFocused && focusedWin.onCustomMouseInput)
-                focusedWin.onCustomMouseInput(mousePosition.x, mousePosition.y);
-
+            if (!clickConsumed) {
+                bool effectiveClick = isLeftClick && !m_raisedDuringCurrentPress;
+                focusedWin.HandleMouseClick(mousePosition, effectiveClick, this, clickConsumed);
+            }
             focusedWin.HandleMouseMove(mousePosition, windows);
         }
         catch (const std::exception& e) {
@@ -303,8 +333,7 @@ void GUIManager::HandleAllInput(const Vector2& mousePosition, bool& isLeftClick)
                 std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
         }
     } else {
-        // Mouse is outside the focused window with no active interaction.
-        // Clear hover and release stale states; the click is absorbed — nothing fires.
+        // Mouse is outside the focused window and no active interaction is in progress.
         for (auto& ctrl : focusedWin.controls)
             ctrl.isHovered = false;
         if (!isLeftClick) {
@@ -314,8 +343,7 @@ void GUIManager::HandleAllInput(const Vector2& mousePosition, bool& isLeftClick)
         }
     }
 
-    // Background windows: strip all hover and release stale interactions.
-    // They receive zero input — guaranteed.
+    // Clear hover states and release any stale interactions on all background windows.
     for (size_t i = 1; i < validWindows.size(); ++i) {
         if (!validWindows[i].second || validWindows[i].second->bWindowDestroy) continue;
         auto& bgWin = *validWindows[i].second;
@@ -359,51 +387,6 @@ std::shared_ptr<GUIWindow> GUIManager::GetWindow(const std::string& name) {
     }
     std::snprintf(buffer, sizeof(buffer), "Window '%s' not found.\n", name.c_str());
     return std::shared_ptr<GUIWindow>();
-}
-
-std::shared_ptr<GUIWindow> GUIManager::GetFocusedWindow() {
-    std::unique_lock<std::timed_mutex> lock(mutex, std::chrono::milliseconds(8));
-    if (!lock.owns_lock()) return nullptr;
-    std::shared_ptr<GUIWindow> focused;
-    int maxZ = -1;
-    for (const auto& [name, win] : windows) {
-        if (win && !win->bWindowDestroy && win->isVisible && win->zOrder > maxZ) {
-            maxZ = win->zOrder;
-            focused = win;
-        }
-    }
-    return focused;
-}
-
-void GUIManager::BringWindowToFront(const std::string& name) {
-    std::lock_guard<std::timed_mutex> lock(mutex);
-    auto it = windows.find(name);
-    if (it != windows.end() && it->second && !it->second->bWindowDestroy)
-        it->second->zOrder = m_nextZOrder++;
-}
-
-void GUIManager::HandleChar(wchar_t c) {
-    auto focused = GetFocusedWindow();
-    if (focused && focused->onCharInput)
-        focused->onCharInput(c);
-}
-
-void GUIManager::HandleBackspace() {
-    auto focused = GetFocusedWindow();
-    if (focused && focused->onBackspace)
-        focused->onBackspace();
-}
-
-void GUIManager::HandleEnter() {
-    auto focused = GetFocusedWindow();
-    if (focused && focused->onEnter)
-        focused->onEnter();
-}
-
-void GUIManager::HandleMouseWheel(int delta) {
-    auto focused = GetFocusedWindow();
-    if (focused && focused->onMouseWheel)
-        focused->onMouseWheel(delta);
 }
 
 void GUIWindow::HandleMouseMove(const Vector2& mousePosition, const std::unordered_map<std::string, std::shared_ptr<GUIWindow>>& allWindows) {
@@ -1015,12 +998,5 @@ void GUIWindow::Render() {
                 break;
             }
         }
-    }
-
-    // Custom rendering extension — drawn on top of all controls; used by windows
-    // (e.g. ConsoleWindow) that require content beyond the generic GUIControl set.
-    if (onCustomRender) {
-        try { onCustomRender(r); }
-        catch (...) {}
     }
 }

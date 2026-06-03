@@ -606,16 +606,8 @@ void VulkanRenderer::RenderFrame()
                 // GUI windows
                 try { guiManager.Render(); } catch (...) {}
 
-                // F8 debug console — only in GAMETITLE/GAMEPLAY and not during scene transitions
-                // (mirrors DXRenderFrame.cpp behaviour exactly)
-#if defined(PLATFORM_WINDOWS)
-                if (!scene.bSceneSwitching &&
-                    (scene.stSceneType == SceneType::SCENE_GAMETITLE ||
-                     scene.stSceneType == SceneType::SCENE_GAMEPLAY))
-                {
-                    try { consoleWindow.Render(this, iOrigWidth, iOrigHeight); } catch (...) {}
-                }
-#endif
+                // Console window rendering is now handled by GUIManager::Render()
+                // via the GUIWindow::onCustomRender callback set in ConsoleWindow::CreateInGUIManager().
 
                 // Cursor
                 if (m_d2dTextures[int(BlitObj2DIndexType::BLIT_ALWAYS_CURSOR)])

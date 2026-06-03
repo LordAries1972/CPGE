@@ -640,11 +640,6 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
         // Initialise our GUI Manager
         guiManager.Initialize(renderer.get());
-
-        // Integrate the console window into GUIManager so it participates in the
-        // z-order / exclusive-focus system alongside all other GUI windows.
-        consoleWindow.CreateInGUIManager(guiManager);
-
         // Initialise our FX Manager
         fxManager.Initialize();
 
@@ -1105,7 +1100,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                     // Game Title / Main Menu screen
                     case SceneType::SCENE_GAMETITLE:
                     {
-                        guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
+                        // Guard: do not process GUI input if the config window is not yet open
+                        // and there are no visible GUI windows to interact with.
+                        // ConsoleWindow is a separate OSD overlay; suppress GUI clicks while it is visible.
+                        { bool guiClick = isLeftClicked && !consoleWindow.bIsVisible; guiManager.HandleAllInput(myMouseCoords, guiClick); }
                         break;
                     }
 
@@ -1124,7 +1122,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                         }
 
                         // Handle events for all our Windows.
-                        guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
+                        // ConsoleWindow is a separate OSD overlay; suppress GUI clicks while it is visible.
+                        { bool guiClick = isLeftClicked && !consoleWindow.bIsVisible; guiManager.HandleAllInput(myMouseCoords, guiClick); }
 
                         // Process joystick input only when at least one controller is active.
                         if (js.HasActiveControllers()) {
@@ -1835,7 +1834,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 SetCursorPos(cursorPos.x, cursorPos.y);
             }
 
-            guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
+            // ConsoleWindow is a separate OSD overlay; suppress GUI clicks while it is visible.
+            { bool guiClick = isLeftClicked && !consoleWindow.bIsVisible; guiManager.HandleAllInput(myMouseCoords, guiClick); }
 
             switch (scene.stSceneType)
             {
@@ -1885,7 +1885,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             }
 
             isLeftClicked = true;
-            guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
+            // ConsoleWindow is a separate OSD overlay; suppress all GUI input while it is visible.
+            if (!consoleWindow.bIsVisible)
+                guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
+            consoleWindow.HandleMouseClick(myMouseCoords.x, myMouseCoords.y);
             return 0;
 
         case WM_RBUTTONDOWN:
@@ -2191,9 +2194,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
         case WM_CHAR:
         {
-            // Route keyboard characters through GUIManager to the focused window.
-            // The console window registers onCharInput; other windows ignore it.
-            guiManager.HandleChar(static_cast<wchar_t>(wParam));
+            if (consoleWindow.bIsVisible)
+                consoleWindow.HandleChar(static_cast<wchar_t>(wParam));
             return 0;
         }
 
@@ -2204,13 +2206,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 return 0;
             }
 
-            // Route scroll wheel through GUIManager to the focused window (e.g. console scroll).
-            guiManager.HandleMouseWheel(GET_WHEEL_DELTA_WPARAM(wParam));
-
-            // Console is the topmost GUIManager window when visible; absorb the wheel
-            // event so it does not also move the game camera.
+            // Console window takes priority — absorb wheel when visible
             if (consoleWindow.bIsVisible)
+            {
+                consoleWindow.HandleMouseWheel(GET_WHEEL_DELTA_WPARAM(wParam));
                 return 0;
+            }
 
             switch (scene.stSceneType)
             {
