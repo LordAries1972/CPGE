@@ -31,6 +31,7 @@ If you like to know more about me and my history, please goto my website at http
 ## What you could achieve with CPGE so far!
 With our First Release, you can now create a full working 2D game using the 2D / 3D Rendering system via DirectX 11 & Vulkan (DirectX 12, OpenGL and Radeon will be soon) under the Windows Platform.  
 
+- CMAKE & VS2022 compiling are supported (GCC soon),
 - Game Configuration Management, 
 - Multiple Render Support Pipelines (DirectX11, DirectX12, OpenGL, Vulkan & Radeon (DirectX11 & Vulkan confirmed and working) ),
 - Various Debug and Console options (F8 Key) / debug.h
@@ -51,7 +52,7 @@ With our First Release, you can now create a full working 2D game using the 2D /
 - Randomizer (RNG System) & 
 - Custom Windows and Controls. 
 
-Basically everything you need to create a standard 2D & 3D Based Looking Gamimg system on the Windows 10 SP1 / 11 64bit Operating Systems.  Please note that Win32 is not supported!
+Basically everything you need to create a standard 2D & 3D Based Looking Gamimg system on the Windows 10 SP1 / 11 64bit Operating Systems.  Please note that Win32 is not supported (Well not by me anyways)!
 
 - We are now using scenes which consist of all models (including textures, bumps etc), Camera and lighting within a 3D Project.  For you to use this successfully, consider using a 3D Modeller package that can export GLTF 2.0 formats.  I, myself, uses Blender v4.3 and above which is also free to use.  You can find it under the 'Important Links' section above.
 
@@ -61,10 +62,11 @@ Basically everything you need to create a standard 2D & 3D Based Looking Gamimg 
 ## Demos
 Update 22nd May, 2026: I will be adding demo videos soon to my website and YouTube for public viewing so you can see the full power of the CPGE Engine.
 
-## Known Issues 22nd May, 2026:
+## Known Issues 03rd June, 2026:
 These are the following known issues and will be resolved as humanly possible.
 
 1) Models are still not been fully imported right (Investigating as it maybe possible I am not doing exports properly with Blender).
+2) Lighting in OpenGL Pipeline is not working correctly as expected (Investigating).
 
 ## Getting Started
 
