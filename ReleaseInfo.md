@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1416*
+*Current Build Version: v0.0.1418*
 
 ---
 
@@ -2449,6 +2449,10 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
 - **Fix — ExceptionHandler call-stack log separator width** (`ExceptionHandler.cpp`):
   `WriteCallStackLog` separator lines shortened from 80 characters (`================...`) to 59 characters. Prevents line wrapping in narrow log viewers and terminal windows without changing the log's structural layout.
 - *See: [`ExceptionHandler.cpp`](ExceptionHandler.cpp)*
+
+- **Fix — Game Menu button labels: removed per-renderer leading-space hacks (DX11 vertical centering)** (`GUIWindows.cpp`):
+  All six Game Menu buttons (CONFIGURATION, GAME PLAY, HIGH SCORES, SHOW CREDITS, QUIT TO DESKTOP, \*\* EXPERIMENTAL \*\*) previously used renderer-conditional `#if defined(__USE_DIRECTX_11__)` blocks to prepend extra spaces, faking horizontal alignment. These hacks were removed; all buttons now share one plain label string. Horizontal and vertical centering for DX11 is already handled by `DX11Renderer::DrawMyTextCentered` via `DWRITE_TEXT_ALIGNMENT_CENTER` + `DWRITE_PARAGRAPH_ALIGNMENT_CENTER` within the full control rect — identical to the Vulkan path.
+- *See: [`GUIWindows.cpp`](GUIWindows.cpp)*
 
 ---
 

@@ -1317,7 +1317,7 @@ void ExceptionHandler::WriteCallStackLog(const char* exceptionDescription,
     fprintf(f, "  Thread ID  : %u\n", threadId);
     fprintf(f, "  Process ID : %u\n", processId);
     fprintf(f, "  Platform   : %s %s  [DEBUG BUILD]\n", platformStr, archStr);
-    fprintf(f, "===========================================================\n");
+    fprintf(f, "===============================================================\n");
 
     // ================================================================
     //  CALL STACK TRACE  (max 25 frames from fault address)
@@ -1332,7 +1332,7 @@ void ExceptionHandler::WriteCallStackLog(const char* exceptionDescription,
     } else {
         fprintf(f, " (no frames captured)\n");
     }
-    fprintf(f, "===========================================================\n");
+    fprintf(f, "===============================================================\n");
 
     if (logFrames > 0) {
         for (int i = 0; i < logFrames; ++i) {
@@ -1368,9 +1368,9 @@ void ExceptionHandler::WriteCallStackLog(const char* exceptionDescription,
     // ================================================================
     //  BREADCRUMB TRAIL
     // ================================================================
-    fprintf(f, "===========================================================\n");
-    fprintf(f, "  BREADCRUMB TRAIL  (last RECORD_FUNCTION_CALL() entries — oldest to newest)\n");
-    fprintf(f, "===========================================================\n");
+    fprintf(f, "========================================================\n");
+    fprintf(f, "  BREADCRUMB TRAIL  (last RECORD_FUNCTION_CALL() entries\n");
+    fprintf(f, "========================================================\n");
 
     // Accessed without locking: we are in a fatal handler; the mutex is not signal-safe
     // and the process is terminating, so a torn read is acceptable here.
@@ -1385,10 +1385,6 @@ void ExceptionHandler::WriteCallStackLog(const char* exceptionDescription,
     if (!hasValidCalls) {
         fprintf(f, "  (None recorded — add RECORD_FUNCTION_CALL() to key functions)\n");
     }
-
-    fprintf(f, "===========================================================\n");
-    fprintf(f, "  END OF CALL-STACK LOG\n");
-    fprintf(f, "===========================================================\n");
 
     fclose(f);
 

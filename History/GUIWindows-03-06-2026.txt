@@ -1,0 +1,32 @@
+
+#include "Includes.h"
+
+#include "DX_FXManager.h"
+#include "ThreadManager.h"
+#include "SoundManager.h"
+#include "GUIManager.h"
+#include "WinSystem.h"
+#include "Debug.h"
+#include "SceneManager.h"
+
+extern Vector2 myMouseCoords;
+extern SoundManager soundManager;
+extern WindowMetrics winMetrics;
+extern FXManager fxManager;
+extern ThreadManager threadManager;
+extern SceneManager scene;
+extern Debug debug;
+extern std::shared_ptr<Renderer> renderer;
+
+extern void SwitchToGameIntro();
+
+// ── 03 June 2026 ────────────────────────────────────────────────────────────
+// Fix: Game Menu button labels — removed all per-renderer leading-space hacks.
+// All six buttons (CONFIGURATION, GAME PLAY, HIGH SCORES, SHOW CREDITS,
+// QUIT TO DESKTOP, ** EXPERIMENTAL **) now use plain labels with no leading
+// spaces and no #if defined(__USE_DIRECTX_11__) / __USE_OPENGL__ / __USE_VULKAN__
+// conditional blocks.  Horizontal and vertical centering is handled by
+// DX11Renderer::DrawMyTextCentered() via DWRITE_TEXT_ALIGNMENT_CENTER +
+// DWRITE_PARAGRAPH_ALIGNMENT_CENTER within the full control rect, identical to
+// the Vulkan pipeline.
+// ────────────────────────────────────────────────────────────────────────────
