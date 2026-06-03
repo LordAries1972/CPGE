@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1403*
+*Current Build Version: v0.0.1416*
 
 ---
 
@@ -55,7 +55,7 @@ lets make this Engine great!
 #### 2026
 
 - [June 2026](#june-2026---opengl-pipeline-fixes)
-  - [01](#june-01-2026) · [02](#june-02-2026)
+  - [01](#june-01-2026) · [02](#june-02-2026) · [03](#june-03-2026)
 - [May 2026](#may-2026---more-major-updates-and-fixes)
   - [02](#may-02-2026) · [03-04](#may-03-04-2026) · [06](#may-06-2026) · [08](#may-08-2026) · [10](#may-10-2026) · [11](#may-11-2026) · [14](#may-14-2026) · [15](#may-15-2026) · [16](#may-16-2026) · [17](#may-17-2026) · [18](#may-18-2026) · [19](#may-19-2026) · [20](#may-20-2026) · [21](#may-21-2026) · [22](#may-22-2026) · [23](#may-23-2026) · [24](#may-24-2026) · [28](#may-28-2026) · [29](#may-29-2026) · [30](#may-30-2026) · [31](#may-31-2026)
 - [April 2026](#april-2026---bug-fixes-and-updates)
@@ -2382,6 +2382,73 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
   - **`UpdateWarpDotTunnel`**: Replaced constant-speed movement with quartic speed factor (`1 + t⁴ × 10` forward / `× 6` reverse) for the warp-rush acceleration. Added `dt` clamping to 50ms. Fixed wrap conditions to be separate forward/reverse branches. Added `ring.cx = ring.bornCx` straight-line travel. Replaced single `spinAngle += spinSpeed * dt` with a `spinCycle` switch (Clockwise/AntiClockwise/None) and `fmodf` normalisation. Added exponential-smoothed camera look-ahead (aim at ring 20 positions ahead, alpha = `1 - exp(-kCameraSmooth * dt)`).
   - **`RenderWarpDotTunnel`**: Replaced fake `scale = 300/depth` perspective with a proper `proj * view` matrix transform. Radius now grows linearly with `pathT` (far→near) from `minRadius` to `maxRadius`. Alpha uses edge-fade ramp (`edgeFade = 0.08`) instead of `zPos/farZ`. Gray ramp corrected to match DX11/Vulkan (`0.08…1.0`). Dot size now scales with depth (`1 + pathT * 3`). Uses `FAST_MATH.FastSinCos`. NDC culling uses OpenGL `[-1,1]` depth convention; Y-flip uses `(1.0f - ndcY)` to match `perspectiveLH_NO`.
 - *See: [`OpenGLFXManager.cpp`](OpenGLFXManager.cpp)*
+
+#### June 03, 2026
+
+- **Fix — OpenGL lighting coordinate system aligned with DX11/Vulkan pipeline** (`OpenGL_IOStreamThread.cpp`, `OpenGLRenderer.h`, `OpenGLRenderer.cpp`, `OpenGLRenderFrame.cpp`):
+  In the OpenGL pipeline the title-scene and gameplay-scene directional lights had their Z positions set to **positive** values (`+100`, `+100`) while DX11 and Vulkan correctly used **negative** Z (`-150`, `-100`). All three renderers share the same left-handed world space (`glm::lookAtLH` / `XMMatrixLookAtLH`), so light positions must use the same sign convention. Positive Z placed the light source on the far side of the ship (behind it from the camera's perspective), causing the visible face to appear unlit and the lighting to appear "behind the ship".
+  Four changes made:
+  1. **`OpenGL_IOStreamThread.cpp`** — Title scene light position corrected to `(0, 5, -150)` (from `+100`); gameplay scene corrected to `(10, -3, -100)` (from `+100`). Direction vectors unchanged — both scenes already matched DX11/Vulkan.
+  2. **`OpenGLRenderer.h`** — Added `GLSL_BINDING_*` constants (`GLSL_BINDING_CONSTANT_BUFFER=0`, `GLSL_BINDING_GLOBAL_LIGHT=3`, etc.) that map exactly to the `layout(std140, binding=N)` declarations in `ModelPixel.glsl`. The existing `UNIFORM_*` constants are array indices into `m_uniformBuffers[]`; they were incorrectly being used as UBO binding points, misrouting the GlobalLightBuffer to slot 5 instead of slot 3.
+  3. **`OpenGLRenderer.cpp`** — `glBindBufferBase` calls updated to use `GLSL_BINDING_CONSTANT_BUFFER` (0) and `GLSL_BINDING_GLOBAL_LIGHT` (3) so the ConstantBuffer and GlobalLightBuffer UBOs are visible to the PBR shader at the correct binding points.
+  4. **`OpenGLRenderFrame.cpp`** — Added a per-frame `GlobalLightBuffer` UBO upload block *before* the model draw loop, mirroring the DX11 render frame's approach. The buffer data is written via `glBufferSubData` and the UBO is re-bound to `GLSL_BINDING_GLOBAL_LIGHT` (3) so models using `ModelPixel.glsl` (the full PBR shader) see correct scene light data on every frame — previously the UBO was allocated at init but never updated.
+- *See: [`OpenGL_IOStreamThread.cpp`](OpenGL_IOStreamThread.cpp), [`OpenGLRenderer.h`](OpenGLRenderer.h), [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp)*
+
+- **Fix — Vulkan config window crash: null brush guard in DrawTextD2D / DrawRectangleD2D** (`VULKAN_Renderer.cpp`):
+  Opening the configuration window on the Vulkan pipeline triggered an access violation (`0xC0000005`) inside `DWrite.dll` during `ID2D1RenderTarget::DrawTextW`. Root cause: `CreateSolidColorBrush` returns a failure HRESULT (and leaves the `ComPtr<ID2D1SolidColorBrush>` null) when the D2D render target is in an error state — a window that has never been drawn before or is opened during a resource-recreation cycle. Both `DrawTextD2D` and `DrawRectangleD2D` were missing the null brush guard that `DrawLineD2D` and `DrawMyTextCentered` already carried. Adding `if (!brush) return;` immediately after the `CreateSolidColorBrush` call in both functions eliminates the dereference. The equivalent guard was already present in `DrawRectangleD2D` (DrawLine path) and `DrawMyTextCentered`.
+- *See: [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp)*
+
+- **Fix — Console text wrap at scrollbar boundary (all render pipelines)** (`ConsoleWindow.cpp`):
+  Console text lines were drawn with the 4-param `DrawMyText` overload (no width constraint), allowing long entries to run over the scrollbar. Two changes made:
+  1. **Renderer-agnostic word-wrap** — before rendering, each buffer entry is split into display rows using a greedy word-wrap algorithm (approximate chars-per-line = `textAreaW / (fontSize × 0.60)`, where `textAreaW = winW − CONSOLE_SCROLLBAR_W − CONSOLE_PADDING`). No per-renderer text-measurement calls are made; the estimate is conservative (prefers wrapping slightly early over overflowing). Each display row is stored in a local `DisplayRow` list.
+  2. **Size-constrained draw** — every display row is rendered via the 5-param `DrawMyText(text, pos, Vector2(textAreaW, lineHeight), color, fontSize)` overload, which clips/wraps within the rect for all backends (DWrite word-wraps; OpenGL clips). The next entry always starts cleanly on the row following the last wrapped sub-line of the previous entry.
+- *See: [`ConsoleWindow.cpp`](ConsoleWindow.cpp)*
+
+- **Fix — Vulkan SCENE_GAMETITLE starfield renders behind 3D models** (`VULKAN_Renderer.h`, `VULKAN_Renderer.cpp`, `VULKAN_RenderFrame.cpp`):
+  In the Vulkan pipeline, all 2D content (starfield, GUI, console) was written to a single D2D WIC-bitmap overlay and composited as a fullscreen quad **after** 3D geometry. This placed starfield dots in front of the 3D ship on `SCENE_GAMETITLE`, opposite to the DX11 pipeline where D2D draws to the DXGI backbuffer first and 3D renders on top. Fix: introduced a dedicated *background overlay* (`m_bgWicBitmap` / `m_bgD2dRenderTarget` / `m_bgOverlayTexture` + staging buffer), identical in dimensions to the main overlay. A `m_drawToBackground` flag in `DrawRectangleD2D` / `Blit2DColoredPixel` redirects draws to this bitmap when set. In `VULKAN_RenderFrame.cpp`, the starfield is rendered **inline within the main D2D block** (preserving its original timing relative to `Render2D`/`Render()`) into the bg bitmap via a nested `BeginDraw`/`EndDraw` on `m_bgD2dRenderTarget` — the two D2D targets are independent WIC bitmaps and can be open simultaneously. Both overlays are uploaded via `UploadBgOverlayToVulkan` + `UploadOverlayToVulkan`, and the bg overlay is composited in the render pass **before** `RenderGamePlay`. (**Crash fix 2026-06-03**: an earlier attempt rendered the starfield in a pre-D2D block, shifting `UpdateStarfield` timing before `Render2D()` and exposing an FX manager race; moving the call back inside the D2D block fixes the `RemoveCompletedEffects` access violation.)
+- *See: [`VULKAN_Renderer.h`](VULKAN_Renderer.h), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp)*
+
+- **Fix — TitleBar text vertical centering + Game Menu bold text on Vulkan** (`GUIManager.cpp`, `VULKAN_Renderer.cpp`, `GUIConfigWindow.cpp`, `GUIWindows.cpp`):
+  Two related issues fixed:
+  1. **TitleBar vertical centering** (`GUIManager.cpp`): Both code paths (textured and solid-background TitleBar) previously used `DrawMyText` with a manually computed Y based on `CalculateTextHeight`, which was imprecise. Both paths now call `DrawMyTextCentered(label, position, color, fontSize, size.x, size.y)`, delegating both H and V centering to DWrite's `PARAGRAPH_ALIGNMENT_CENTER` + `TEXT_ALIGNMENT_CENTER` within the full control rect. Leading-space labels in `GUIConfigWindow.cpp` (`"   System Configuration"` → `"System Configuration"`) and `GUIWindows.cpp` (`"   Alert Status!"` → `"Alert Status!"`) were stripped since centering is now handled by DWrite.
+  2. **Game Menu button bold text on Vulkan** (`VULKAN_Renderer.cpp`): `DrawMyTextCentered` now creates text formats with `DWRITE_FONT_WEIGHT_BOLD` (was `DWRITE_FONT_WEIGHT_NORMAL`). The Vulkan renderer uses an off-screen WIC bitmap (96 DPI) which renders glyphs thinner than DX11's DXGI backbuffer; bold compensates so Game Menu text reads at the same visual weight as the DX11 pipeline. Simplified by removing the unused `IDWriteTextLayout`/`GetMetrics` centering path in favour of DWrite-managed layout centering.
+- *See: [`GUIManager.cpp`](GUIManager.cpp), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp), [`GUIWindows.cpp`](GUIWindows.cpp)*
+
+- **Fix — Vulkan `vkDeviceWaitIdle` threading error** (`VULKAN_Renderer.cpp`):
+  Validation layer reported: *"object of type VkQueue is simultaneously used in current thread N and thread M"*. Root cause: `WaitForGPUToFinish()` (and the two direct `vkDeviceWaitIdle` call sites in `Cleanup()` and `RecreateSwapChain()`) did not hold `m_queueMutex`, allowing the loader or render thread to be mid-`vkQueueSubmit` / `vkQueueWaitIdle` when the wait was issued. Fix: `WaitForGPUToFinish()` now acquires `m_queueMutex` before calling `vkDeviceWaitIdle`, matching the guard already used by all `vkQueueSubmit` call sites. Both `Cleanup()` and `RecreateSwapChain()` now go through `WaitForGPUToFinish()` for consistent protection.
+- *See: [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp)*
+
+- **Fix — Config window: left-aligned title text, window 15px higher (all pipelines)** (`GUIManager.h`, `GUIManager.cpp`, `GUIConfigWindow.cpp`):
+  Added `bool lblCenterH = true` to `GUIControl`. When `false`, the TitleBar renders with left-aligned text (6px left padding) and manual vertical centering (`pos.y + (size.y − fontSize×1.25)/2`) instead of `DrawMyTextCentered`. The config window title bar sets `tb.lblCenterH = false` so `"System Configuration"` is left-aligned. Window origin changed `WY: 51 → 36` (15px higher); the restart-notification window's hardcoded position updated accordingly (`51.0f + 530.0f/2 → 36.0f + 505.0f/2`).
+- *See: [`GUIManager.h`](GUIManager.h), [`GUIManager.cpp`](GUIManager.cpp), [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp)*
+
+- **Feature — Config window bottom buttons: 20% opacity default / fully solid on hover (all pipelines)** (`GUIManager.cpp`, `GUIConfigWindow.cpp`):
+  `addButton` lambda gained a `uint8_t bgAlpha = 255` parameter. Close, Save, and Restart Game buttons pass `bgAlpha = 51` (≈20% of 255). In `GUIManager.cpp` Button rendering, the non-hover texture blit now uses `MyColor(255, 255, 255, control.bgColor.a)` as the tint colour instead of hardcoded `MyColor(255, 255, 255, 255)`, so any button with a reduced `bgColor.a` renders semi-transparent in its default state. Hover uses `MyColor(255, 255, 255, 255)` (fully opaque), unchanged.
+- *See: [`GUIManager.cpp`](GUIManager.cpp), [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp)*
+
+- **Feature — `cmake-build all debug / all release` builds every render pipeline in one command** (`cmake-build.bat`, `Linux/cmake-build.sh`):
+  Added an `all` renderer target to both the Windows batch file and the Linux shell script. On Windows, `cmake-build all debug` (or `all release`) iterates over `dx11 → dx12 → opengl → vulkan` via `call "%~f0" <renderer> <config>` self-recursion so every pipeline goes through the same Includes.h patching, OS validation, CMake configure, and parallel build. DirectX targets are skipped automatically on non-Windows. On Linux, `./cmake-build.sh all debug` iterates `opengl → vulkan` using `"${BASH_SOURCE[0]}"` self-recursion; `if command` suppresses `set -e` so a failing pipeline doesn't abort the remaining ones. Both scripts print a pass/fail summary and exit with status 1 if any individual build failed. Usage help and header comments updated on both files.
+- *See: [`cmake-build.bat`](cmake-build.bat), [`Linux/cmake-build.sh`](Linux/cmake-build.sh)*
+
+- **Fix — DX11 `DrawMyTextCentered`: bold weight + full-rect DWrite centering (Game Menu)** (`DX11Renderer.cpp`):
+  Matches the equivalent Vulkan fix from the same session. Changed font weight to `DWRITE_FONT_WEIGHT_BOLD` and switched from manual metric-based placement to passing the full control rect `(position.x, position.y, position.x+controlWidth, position.y+controlHeight)` with `PARAGRAPH_ALIGNMENT_CENTER` + `TEXT_ALIGNMENT_CENTER`, letting DWrite handle both H and V centering accurately. Removed the now-unnecessary `IDWriteTextLayout`/`GetMetrics` code path.
+- *See: [`DX11Renderer.cpp`](DX11Renderer.cpp)*
+
+- **Fix — DX12 `DrawMyTextCentered`: bold weight (Game Menu parity)** (`DX12Renderer.cpp`):
+  Applied the identical bold-weight change to the DX12 pipeline `DrawMyTextCentered`: `DWRITE_FONT_WEIGHT_NORMAL` → `DWRITE_FONT_WEIGHT_BOLD`. All three hardware-accelerated pipelines (DX11, DX12, Vulkan) now use the same font weight for Game Menu button text, ensuring visual parity across renderers.
+- *See: [`DX12Renderer.cpp`](DX12Renderer.cpp)*
+
+- **Fix — Vulkan `AddEffect` thread-safety: missing `m_effectsMutex` lock** (`VULKAN_FXManager.cpp`):
+  `AddEffect()` pushed onto the `effects` vector (triggering possible reallocation that copy-constructs every element) without holding `m_effectsMutex`. A concurrent `CreateStarfield`, `StopStarfield`, or another `AddEffect` call on a different thread could race with the reallocation and crash inside `VKFXItem`'s copy constructor while vector members were in a partially-moved state. Fix: `std::lock_guard<std::mutex>` on `m_effectsMutex` added at the top of `AddEffect()`, consistent with the protection already applied to `Render()` and all other vector-mutating methods.
+- *See: [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp)*
+
+- **Feature — Vulkan starfield density increased 100 → 150 stars** (`VULKAN_IOStreamThread.cpp`):
+  `CreateStarfield` star count raised from 100 to 150 in both the `SCENE_GAMETITLE` and `SCENE_GAMEPLAY` loader branches. Produces a denser, visually richer starfield that better fills the title screen background.
+- *See: [`VULKAN_IOStreamThread.cpp`](VULKAN_IOStreamThread.cpp)*
+
+- **Fix — ExceptionHandler call-stack log separator width** (`ExceptionHandler.cpp`):
+  `WriteCallStackLog` separator lines shortened from 80 characters (`================...`) to 59 characters. Prevents line wrapping in narrow log viewers and terminal windows without changing the log's structural layout.
+- *See: [`ExceptionHandler.cpp`](ExceptionHandler.cpp)*
 
 ---
 

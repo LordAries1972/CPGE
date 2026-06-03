@@ -938,28 +938,20 @@ void DX11Renderer::DrawMyTextCentered(const std::wstring& text, const Vector2& p
     if (!m_d2dRenderTarget || !m_dwriteFactory) return;
     if (text.empty() || FontSize <= 0.0f) return;
 
-    // This format is modified (alignment), so it cannot safely be shared with the cache.
+    // Bold weight matches the Vulkan pipeline treatment and compensates for
+    // DWrite rendering at the DXGI backbuffer DPI vs off-screen bitmaps.
+    // Full-rect centering: pass the entire control rect and let DWrite centre
+    // both axes via PARAGRAPH_ALIGNMENT_CENTER + TEXT_ALIGNMENT_CENTER —
+    // more accurate than manual metric math and consistent with VulkanRenderer.
     ComPtr<IDWriteTextFormat> textFormat;
     HRESULT hr = m_dwriteFactory->CreateTextFormat(
-        FontName, nullptr, DWRITE_FONT_WEIGHT_NORMAL,
+        FontName, nullptr, DWRITE_FONT_WEIGHT_BOLD,
         DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
         FontSize, L"en-us", &textFormat);
     if (FAILED(hr)) return;
 
     textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-
-    ComPtr<IDWriteTextLayout> textLayout;
-    hr = m_dwriteFactory->CreateTextLayout(
-        text.c_str(), static_cast<UINT32>(text.size()),
-        textFormat.Get(), 1000.0f, 1000.0f, &textLayout);
-    if (FAILED(hr)) return;
-
-    DWRITE_TEXT_METRICS textMetrics;
-    textLayout->GetMetrics(&textMetrics);
-
-    float centeredX = position.x + (controlWidth  / 2.0f) - (textMetrics.width  / 2.0f);
-    float centeredY = position.y + (controlHeight / 2.0f) - (textMetrics.height / 2.0f);
 
     float r = color.r / 255.0f, g = color.g / 255.0f, b = color.b / 255.0f, a = color.a / 255.0f;
     if (!m_pixelBrush)
@@ -969,7 +961,8 @@ void DX11Renderer::DrawMyTextCentered(const std::wstring& text, const Vector2& p
 
     m_d2dRenderTarget->DrawText(
         text.c_str(), static_cast<UINT32>(text.size()), textFormat.Get(),
-        D2D1::RectF(centeredX, centeredY, centeredX + textMetrics.width, centeredY + textMetrics.height),
+        D2D1::RectF(position.x, position.y,
+                    position.x + controlWidth, position.y + controlHeight),
         m_pixelBrush.Get()
     );
 }

@@ -1,0 +1,104 @@
+===========================================================
+  EXCEPTION CALL-STACK LOG
+  Generated  : 2026-06-03 14:16:55
+===========================================================
+  Exception  : Access Violation - Invalid memory access
+  Code       : 0xC0000005
+  Address    : 0x00007FF7283EA5E4
+  Thread ID  : 22288
+  Process ID : 20100
+  Platform   : Windows x64  [DEBUG BUILD]
+===========================================================
+  CALL STACK TRACE (17 of 17 frames captured, showing up to 25)
+===========================================================
+  #00  Address  : 0x00007FF7283EA5E4
+       Function : VKFXItem::VKFXItem  +0x174
+       Module   : VulkanCPGE.exe
+       --------
+  #01  Address  : 0x00007FF7283E5566
+       Function : std::_Default_allocator_traits<std::allocator<VKFXItem> >::construct<VKFXItem,VKFXItem>  +0x46
+       Module   : VulkanCPGE.exe
+       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\xmemory  Line 725
+       --------
+  #02  Address  : 0x00007FF7283DD083
+       Function : std::_Uninitialized_backout_al<std::allocator<VKFXItem> >::_Emplace_back<VKFXItem>  +0x53
+       Module   : VulkanCPGE.exe
+       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\xmemory  Line 1802
+       --------
+  #03  Address  : 0x00007FF7283E45A4
+       Function : std::_Uninitialized_move<VKFXItem *,std::allocator<VKFXItem> >  +0xC4
+       Module   : VulkanCPGE.exe
+       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\xmemory  Line 1946
+       --------
+  #04  Address  : 0x00007FF7283DE614
+       Function : std::vector<VKFXItem,std::allocator<VKFXItem> >::_Emplace_reallocate<VKFXItem const &>  +0x244
+       Module   : VulkanCPGE.exe
+       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\vector  Line 846
+       --------
+  #05  Address  : 0x00007FF7283DDC23
+       Function : std::vector<VKFXItem,std::allocator<VKFXItem> >::_Emplace_one_at_back<VKFXItem const &>  +0x83
+       Module   : VulkanCPGE.exe
+       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\vector  Line 784
+       --------
+  #06  Address  : 0x00007FF7283F80EE
+       Function : std::vector<VKFXItem,std::allocator<VKFXItem> >::push_back  +0x1E
+       Module   : VulkanCPGE.exe
+       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\vector  Line 872
+       --------
+  #07  Address  : 0x00007FF7283C77BE
+       Function : VKFXManager::AddEffect  +0x9E
+       Module   : VulkanCPGE.exe
+       Source   : F:\Projects\C++\CPGE2026\VULKAN_FXManager.cpp  Line 108
+       --------
+  #08  Address  : 0x00007FF7283CB95A
+       Function : VKFXManager::FadeToImage  +0xFA
+       Module   : VulkanCPGE.exe
+       Source   : F:\Projects\C++\CPGE2026\VULKAN_FXManager.cpp  Line 640
+       --------
+  #09  Address  : 0x00007FF7282E5F94
+       Function : SwitchToMovieIntro  +0xE4
+       Module   : VulkanCPGE.exe
+       Source   : F:\Projects\C++\CPGE2026\main.cpp  Line 2371
+       --------
+  #10  Address  : 0x00007FF7282E13AC
+       Function : WinMain  +0x11FC
+       Module   : VulkanCPGE.exe
+       Source   : F:\Projects\C++\CPGE2026\main.cpp  Line 955
+       --------
+  #11  Address  : 0x00007FF7285016F2
+       Function : invoke_main  +0x32
+       Module   : VulkanCPGE.exe
+       Source   : D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_common.inl  Line 107
+       --------
+  #12  Address  : 0x00007FF72850159E
+       Function : __scrt_common_main_seh  +0x12E
+       Module   : VulkanCPGE.exe
+       Source   : D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_common.inl  Line 288
+       --------
+  #13  Address  : 0x00007FF72850145E
+       Function : __scrt_common_main  +0xE
+       Module   : VulkanCPGE.exe
+       Source   : D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_common.inl  Line 331
+       --------
+  #14  Address  : 0x00007FF72850178E
+       Function : WinMainCRTStartup  +0xE
+       Module   : VulkanCPGE.exe
+       Source   : D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_winmain.cpp  Line 17
+       --------
+  #15  Address  : 0x00007FFDE9DA259D
+       Function : BaseThreadInitThunk  +0x1D
+       Module   : KERNEL32.DLL
+       --------
+  #16  Address  : 0x00007FFDEBB6AF78
+       Function : RtlUserThreadStart  +0x28
+       Module   : ntdll.dll
+===========================================================
+  BREADCRUMB TRAIL  (last RECORD_FUNCTION_CALL() entries — oldest to newest)
+===========================================================
+  22.  WinMain
+  23.  VulkanRenderer::Initialize
+  24.  VulkanRenderer::LoaderTaskThread
+  25.  VulkanRenderer::RenderFrame
+===========================================================
+  END OF CALL-STACK LOG
+===========================================================

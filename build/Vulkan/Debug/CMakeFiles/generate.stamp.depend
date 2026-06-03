@@ -10,6 +10,7 @@ D:/Programs/CMake/share/cmake-4.3/Modules/CMakeSystemSpecificInitialize.cmake
 D:/Programs/CMake/share/cmake-4.3/Modules/Compiler/CMakeCommonCompilerMacros.cmake
 D:/Programs/CMake/share/cmake-4.3/Modules/Compiler/MSVC-CXX.cmake
 D:/Programs/CMake/share/cmake-4.3/Modules/Compiler/MSVC.cmake
+D:/Programs/CMake/share/cmake-4.3/Modules/FindOpenGL.cmake
 D:/Programs/CMake/share/cmake-4.3/Modules/FindPackageHandleStandardArgs.cmake
 D:/Programs/CMake/share/cmake-4.3/Modules/FindPackageMessage.cmake
 D:/Programs/CMake/share/cmake-4.3/Modules/FindVulkan.cmake

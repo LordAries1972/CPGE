@@ -687,11 +687,15 @@ void GUIWindow::Render() {
                 if (control.bgTextureId != -1)
                 {
                     if (control.isHovered) {
+                        // Hover: always fully opaque regardless of bgColor.a
                         r->DrawTexture(control.bgTextureHoverId, control.position, control.size, MyColor(255, 255, 255, 255), true);
                     }
                     else
                     {
-                        r->DrawTexture(control.bgTextureId, control.position, control.size, MyColor(255, 255, 255, 255), true);
+                        // Default: use bgColor.a as the alpha tint so semi-transparent
+                        // buttons (bgColor.a < 255) render at the correct opacity.
+                        r->DrawTexture(control.bgTextureId, control.position, control.size,
+                                       MyColor(255, 255, 255, control.bgColor.a), true);
                     }
 
                     // Pass the button's top-left corner and dimensions; DrawMyTextCentered
@@ -766,25 +770,32 @@ void GUIWindow::Render() {
                     {
                         r->DrawTexture(control.bgTextureId, control.position, control.size, MyColor(200, 200, 200, 255), true);
                     }
-
-                    // Calculate text position to center it both horizontally and vertically
-                    float textWidth = r->CalculateTextWidth(control.label, control.lblFontSize, control.size.x);
-                    float textHeight = r->CalculateTextHeight(control.label, control.lblFontSize, control.size.y);
-
-                    // Calculate the center position for the text
-                    float textX = control.position.x;
-                    float textY = (control.position.y + (control.size.y - textHeight) / 2.0f ) + 2;
-                    Vector2 recalcedPos = Vector2(textX, textY);
-                    // Draw the text content with the specified text color
-                    r->DrawMyText(control.label, recalcedPos, control.size, control.txtColor, control.lblFontSize);
                 }
                 else
                 {
-                    // Draw the text area background using the control's color
                     r->DrawRectangle(control.position, control.size, bgColor, true);
-
-                    // Draw the text content with the specified text color
-                    r->DrawMyText(control.label, control.position, control.size, control.txtColor, control.lblFontSize);
+                }
+                // Draw title bar label: H+V centred when lblCenterH=true (default),
+                // or left-aligned with manual V-centering when lblCenterH=false.
+                if (!control.label.empty())
+                {
+                    if (control.lblCenterH)
+                    {
+                        r->DrawMyTextCentered(control.label, control.position,
+                                              control.txtColor, control.lblFontSize,
+                                              control.size.x, control.size.y);
+                    }
+                    else
+                    {
+                        // Vertically centre the text without horizontal centering.
+                        // Approximate glyph height = fontSize * 1.25; 6px left padding.
+                        const float approxH  = control.lblFontSize * 1.25f;
+                        const float centredY = control.position.y +
+                                               (control.size.y - approxH) * 0.5f;
+                        r->DrawMyText(control.label,
+                                      Vector2(control.position.x + 6.0f, centredY),
+                                      control.txtColor, control.lblFontSize);
+                    }
                 }
                 break;
             }
