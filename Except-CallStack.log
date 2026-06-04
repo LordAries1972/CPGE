@@ -1,12 +1,12 @@
 ===========================================================
   EXCEPTION CALL-STACK LOG
-  Generated  : 2026-06-04 20:08:54
+  Generated  : 2026-06-04 21:04:43
 ===========================================================
   Exception  : Breakpoint - Debugger breakpoint encountered
   Code       : 0x80000003
   Address    : 0x00007FFDE9068852
-  Thread ID  : 25576
-  Process ID : 8524
+  Thread ID  : 27504
+  Process ID : 28752
   Platform   : Windows x64  [DEBUG BUILD]
 ===============================================================
   CALL STACK TRACE (24 of 24 frames captured, showing up to 25)
@@ -15,28 +15,28 @@
        Function : DebugBreak  +0x2
        Module   : KERNELBASE.dll
        --------
-  #01  Address  : 0x00007FFD9BDC382A
-       Function : 0x7FFD9BDC382A
+  #01  Address  : 0x00007FFD1662382A
+       Function : 0x7FFD1662382A
        Module   : D2D1Debug3.dll
        --------
   #02  Address  : 0x0000000000003070
        Function : 0x3070
        Module   : Unknown
        --------
-  #03  Address  : 0x0000004B70D4CF08
-       Function : 0x4B70D4CF08
+  #03  Address  : 0x00000095EB0FCD68
+       Function : 0x95EB0FCD68
        Module   : Unknown
        --------
-  #04  Address  : 0x00007FFD9BE31098
-       Function : 0x7FFD9BE31098
+  #04  Address  : 0x00007FFD16691098
+       Function : 0x7FFD16691098
        Module   : D2D1Debug3.dll
        --------
-  #05  Address  : 0x00007FFD9BE31060
-       Function : 0x7FFD9BE31060
+  #05  Address  : 0x00007FFD16691060
+       Function : 0x7FFD16691060
        Module   : D2D1Debug3.dll
        --------
-  #06  Address  : 0x0000004B70D4D010
-       Function : 0x4B70D4D010
+  #06  Address  : 0x00000095EB0FCE70
+       Function : 0x95EB0FCE70
        Module   : Unknown
        --------
   #07  Address  : 0x00007FFDEBC73C44

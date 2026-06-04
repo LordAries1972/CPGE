@@ -14,9 +14,9 @@
     #include "Debug.h"
     #include "WinSystem.h"
     #include "Configuration.h"
-    #include "DX_FXManager.h"
+    #include "DX12FXManager.h"
     #include "GUIManager.h"
-    #include "Models.h"
+    #include "DX12Models.h"
     #include "Lights.h"
     #include "SceneManager.h"
     #include "MoviePlayer.h"
@@ -538,8 +538,9 @@ void DX12Renderer::CreateDepthStencilBuffer() {
         clearValue.DepthStencil.Stencil = 0;                                    // Clear stencil to zero
 
         // Create the depth stencil buffer resource
+        CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_DEFAULT);
         HRESULT hr = m_d3d12Device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),                  // Default heap for GPU access
+            &heapProps,                                                         // Default heap for GPU access
             D3D12_HEAP_FLAG_NONE,                                               // No special heap flags
             &depthStencilDesc,                                                  // Resource description
             D3D12_RESOURCE_STATE_DEPTH_WRITE,                                   // Initial state for depth writing

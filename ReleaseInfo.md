@@ -1,9 +1,9 @@
-﻿# DirectX 11 & 12, OpenGL, Radeon & Vulkan Game Engine
+# DirectX 11 & 12, OpenGL, Radeon & Vulkan Game Engine
 
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1488*
+*Current Build Version: v0.0.1493*
 
 ---
 
@@ -2637,6 +2637,10 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
 
 - **Fix — SDK 26100 API changes in `CreateD2DRenderTargets()`** (`DX12Renderer.cpp`):
   Two compile errors from Windows SDK 10.0.26100 API differences: (1) `ID3D11On12Device::CreateWrappedResources` (plural) does not exist in SDK 26100 — the method was renamed `CreateWrappedResource` (singular) and changed to wrap a single resource per call via `IUnknown*` + `REFIID`/`void**` (IID_PPV_ARGS style) rather than an array of `ID3D12Resource*`. Signature: `CreateWrappedResource(IUnknown* pResource12, const D3D11_RESOURCE_FLAGS*, D3D12_RESOURCE_STATES InState, D3D12_RESOURCE_STATES OutState, REFIID, void**)`. Updated call site accordingly. (2) `ID2D1Factory::GetDesktopDpi` is deprecated in SDK 26100 (C4996). Replaced with `m_d2dContext->GetDpi(&dpiX, &dpiY)` — the correct desktop-app API that reads DPI from the device context.
+- *See: [`DX12Renderer.cpp`](DX12Renderer.cpp)*
+
+- **Fix — C2102 compile error: `&` applied to r-value `CD3DX12_HEAP_PROPERTIES` temporary** (`DX12Renderer.cpp`):
+  `CreateCommittedResource` was called with `&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT)` as its first argument. `CD3DX12_HEAP_PROPERTIES(...)` constructs a temporary (r-value); MSVC C2102 does not permit taking the address of an r-value. Fixed by storing the heap properties in a named local variable `heapProps` and passing `&heapProps`.
 - *See: [`DX12Renderer.cpp`](DX12Renderer.cpp)*
 
 ---

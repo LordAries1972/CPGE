@@ -142,7 +142,10 @@
     <ClCompile Include="ConsoleWindow.cpp" />
     <ClCompile Include="Debug.cpp" />
     <ClCompile Include="DX11Renderer.cpp" />
+    <ClCompile Include="DX12FXManager.cpp" />
+    <ClCompile Include="DX12Models.cpp" />
     <ClCompile Include="DX12Renderer.cpp" />
+    <ClCompile Include="DX12RenderFrame.cpp" />
     <ClCompile Include="DXCamera.cpp" />
     <ClCompile Include="DXRenderFrame.cpp" />
     <ClCompile Include="DX_FXManager.cpp" />
@@ -202,6 +205,8 @@
     <ClInclude Include="ConstantBuffer.h" />
     <ClInclude Include="Debug.h" />
     <ClInclude Include="DX11Renderer.h" />
+    <ClInclude Include="DX12FXManager.h" />
+    <ClInclude Include="DX12Models.h" />
     <ClInclude Include="DX12Renderer.h" />
     <ClInclude Include="DXCamera.h" />
     <ClInclude Include="DX_FXManager.h" />
@@ -257,15 +262,13 @@
     <ResourceCompile Include="CrossPlatformGameEngine.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-
   <!-- ════════════════════════════════════════════════════════════════════ -->
   <!-- Build-time SDK diagnostics: Vulkan SDK, OpenGL, Shader Compilers   -->
   <!-- ════════════════════════════════════════════════════════════════════ -->
   <Target Name="PrintSDKDiagnostics" BeforeTargets="ClCompile">
     <!-- ── Detect active renderer from Includes.h ───────────────────────── -->
     <!-- Reads the file and returns the first non-commented __USE_*__ define -->
-    <Exec Command="powershell -NoProfile -NonInteractive -Command &quot;try{$r='UNKNOWN';$lines=[IO.File]::ReadAllLines('$(ProjectDir)Includes.h');foreach($l in $lines){if($l -match '^\s*#define\s+(__USE_DIRECTX_11__|__USE_DIRECTX_12__|__USE_OPENGL__|__USE_VULKAN__)'){$r=$Matches[1];break}};Write-Output $r}catch{Write-Output 'UNKNOWN'}&quot;"
-          ConsoleToMSBuild="true" IgnoreExitCode="true">
+    <Exec Command="powershell -NoProfile -NonInteractive -Command &quot;try{$r='UNKNOWN';$lines=[IO.File]::ReadAllLines('$(ProjectDir)Includes.h');foreach($l in $lines){if($l -match '^\s*#define\s+(__USE_DIRECTX_11__|__USE_DIRECTX_12__|__USE_OPENGL__|__USE_VULKAN__)'){$r=$Matches[1];break}};Write-Output $r}catch{Write-Output 'UNKNOWN'}&quot;" ConsoleToMSBuild="true" IgnoreExitCode="true">
       <Output TaskParameter="ConsoleOutput" PropertyName="_RendererDefine" />
     </Exec>
     <PropertyGroup>
@@ -324,21 +327,16 @@
     <Warning Text="VULKAN_SDK environment variable is not set — Vulkan headers and libraries will be missing." Condition="'$(_VkSDK)' == ''" />
     <Warning Text="glew.h not found in $(ProjectDir)include\GL — OpenGL renderer will fall back to bare gl.h (OpenGL 1.1 only)." Condition="!Exists('$(_GlewH)')" />
   </Target>
-
   <!-- ── Copy linker output to renderer-prefixed name ───────────────────── -->
   <!-- VS2022 always looks for $(TargetPath) = CPGE.exe to launch the        -->
   <!-- debugger (static project evaluation). We therefore keep CPGE.exe as   -->
   <!-- the primary linker output AND copy it to DXCPGE.exe / VulkanCPGE.exe  -->
   <!-- etc. after linking. Both files exist: VS uses CPGE.exe, the prefixed   -->
   <!-- copy is for distribution / renderer identification.                    -->
-  <Target Name="CopyRendererExe" AfterTargets="Link"
-          Condition="'$(_RendererPrefix)' != '' And Exists('$(TargetPath)')">
-    <Copy SourceFiles="$(TargetPath)"
-          DestinationFiles="$(TargetDir)$(_RendererPrefix)$(GameName)$(TargetExt)"
-          OverwriteReadOnlyFiles="true" />
+  <Target Name="CopyRendererExe" AfterTargets="Link" Condition="'$(_RendererPrefix)' != '' And Exists('$(TargetPath)')">
+    <Copy SourceFiles="$(TargetPath)" DestinationFiles="$(TargetDir)$(_RendererPrefix)$(GameName)$(TargetExt)" OverwriteReadOnlyFiles="true" />
     <Message Text="  Renderer copy : $(TargetDir)$(_RendererPrefix)$(GameName)$(TargetExt)" Importance="high" />
   </Target>
-
   <Target Name="ComputeLinkImportLibraryOutputsForClean" Condition=" '$(TargetFramework)' != '' ">
     <!-- Add a default or no-op action here -->
   </Target>

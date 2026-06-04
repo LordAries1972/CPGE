@@ -34,7 +34,7 @@
 #include "DXCamera.h"
 #include "Vectors.h"
 #include "Color.h"
-#include "Models.h"
+#include "DX12Models.h"
 #include "ThreadManager.h"
 #include "ConstantBuffer.h"
 #include "DX12RenderFrame.h"
