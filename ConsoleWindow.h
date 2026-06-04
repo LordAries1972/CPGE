@@ -117,9 +117,12 @@ private:
     std::atomic<int>            m_visibleLines { CONSOLE_VISIBLE_LINES };
 
     // Scrollbar track rect cached each RenderContent() call for click hit-testing.
-    float m_sbX = 0.0f;
-    float m_sbY = 0.0f;
-    float m_sbH = 0.0f;
+    float m_sbX   = 0.0f;
+    float m_sbY   = 0.0f;
+    float m_sbH   = 0.0f;
+    // Knob (thumb) rect — subset of the track; cached for precise knob hit-testing.
+    float m_knobY = 0.0f;
+    float m_knobH = 0.0f;
 
     std::wstring                             m_cmdLine;
     std::function<void(const std::wstring&)> m_commandCallback;

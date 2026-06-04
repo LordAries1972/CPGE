@@ -787,7 +787,11 @@ void GUIManager::CreateConfigWindow()
             // Build notification window BEFORE closing config window so we never
             // access closure captures after RemoveWindow.
             const std::string NOTIFY_WIN = "restart_notify";
+#if defined(__USE_OPENGL__)
+            const float NW = 430.0f, NH = 170.0f;
+#else
             const float NW = 440.0f, NH = 170.0f;
+#endif
             const float NX = (static_cast<float>(self->myRenderer->iOrigWidth)  - NW) / 2.0f;
             const float NY = (static_cast<float>(self->myRenderer->iOrigHeight) - NH) / 2.0f;
 

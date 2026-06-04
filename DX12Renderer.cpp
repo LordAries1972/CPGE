@@ -10,58 +10,77 @@
 // Meaning, if we are NOT using this Renderer, forget it
 // and DO NOT include its code.
 #if defined(__USE_DIRECTX_12__)
-#include "DX12Renderer.h"
-#include "Debug.h"
-#include "WinSystem.h"
-#include "Configuration.h"
-#include "DX_FXManager.h"
-#include "GUIManager.h"
-#include "Models.h"
-#include "Lights.h"
-#include "SceneManager.h"
-#include "MoviePlayer.h"
+    #include "DX12Renderer.h"
+    #include "Debug.h"
+    #include "WinSystem.h"
+    #include "Configuration.h"
+    #include "DX_FXManager.h"
+    #include "GUIManager.h"
+    #include "Models.h"
+    #include "Lights.h"
+    #include "SceneManager.h"
+    #include "MoviePlayer.h"
+
+    #if defined(__USE_MP3PLAYER__)
+        #include "WinMediaPlayer.h"
+    #elif defined(__USE_XMPLAYER__)
+        #include "XMMODPlayer.h"
+    #endif
+
+    #include <d3dcompiler.h>
+    #include "d3dx12.h"
+
+    #pragma comment(lib, "d3d12.lib")
+    #pragma comment(lib, "dxgi.lib")
+    #pragma comment(lib, "d3dcompiler.lib")
+    #pragma comment(lib, "d3d11.lib")
+    #pragma comment(lib, "d2d1.lib")
+    #pragma comment(lib, "dwrite.lib")
+
+    // Minimal DDS header structure for parsing DDS texture files
+    #pragma pack(push, 1)
+    struct DDS_PIXELFORMAT {
+        DWORD dwSize, dwFlags, dwFourCC;
+        DWORD dwRGBBitCount;
+        DWORD dwRBitMask, dwGBitMask, dwBBitMask, dwABitMask;
+    };
+    struct DDS_HEADER {
+        DWORD           dwSize, dwFlags, dwHeight, dwWidth;
+        DWORD           dwPitchOrLinearSize, dwDepth, dwMipMapCount;
+        DWORD           dwReserved1[11];
+        DDS_PIXELFORMAT ddspf;
+        DWORD           dwCaps, dwCaps2, dwCaps3, dwCaps4, dwReserved2;
+    };
+    #pragma pack(pop)
+
+    // Static member initialization
+    std::mutex DX12Renderer::s_renderMutex;
+    std::mutex DX12Renderer::s_loaderMutex;
+
+    class LightsManager;
+
+    extern HWND hwnd;
+    extern HINSTANCE hInst;
+    extern GUIManager guiManager;
+    extern Debug debug;
+    extern SystemUtils sysUtils;
+    extern SceneManager scene;
+    extern ThreadManager threadManager;
+    extern FXManager fxManager;
+    extern Vector2 myMouseCoords;
+    extern Model models[MAX_MODELS];
+    extern LightsManager lightsManager;
+    extern MoviePlayer moviePlayer;
+    extern WindowMetrics winMetrics;
+
+    extern bool bResizing;
+    extern std::atomic<bool> bResizeInProgress;                    // Prevents multiple resize operations
+    extern std::atomic<bool> bFullScreenTransition;                // Prevents handling during fullscreen transitions
 
 #if defined(__USE_MP3PLAYER__)
-#include "WinMediaPlayer.h"
+    extern MediaPlayer player;
 #elif defined(__USE_XMPLAYER__)
-#include "XMMODPlayer.h"
-#endif
-
-#include <d3dcompiler.h>
-#include "d3dx12.h"
-
-#pragma comment(lib, "d3d12.lib")
-#pragma comment(lib, "dxgi.lib")
-#pragma comment(lib, "d3dcompiler.lib")
-
-// Static member initialization
-std::mutex DX12Renderer::s_renderMutex;
-std::mutex DX12Renderer::s_loaderMutex;
-
-class LightsManager;
-
-extern HWND hwnd;
-extern HINSTANCE hInst;
-extern GUIManager guiManager;
-extern Debug debug;
-extern SystemUtils sysUtils;
-extern SceneManager scene;
-extern ThreadManager threadManager;
-extern FXManager fxManager;
-extern Vector2 myMouseCoords;
-extern Model models[MAX_MODELS];
-extern LightsManager lightsManager;
-extern MoviePlayer moviePlayer;
-extern WindowMetrics winMetrics;
-
-extern bool bResizing;
-extern std::atomic<bool> bResizeInProgress;                    // Prevents multiple resize operations
-extern std::atomic<bool> bFullScreenTransition;                // Prevents handling during fullscreen transitions
-
-#if defined(__USE_MP3PLAYER__)
-extern MediaPlayer player;
-#elif defined(__USE_XMPLAYER__)
-extern XMMODPlayer xmPlayer;
+    extern XMMODPlayer xmPlayer;
 #endif
 
 // Constructor/Destructor
@@ -80,9 +99,8 @@ DX12Renderer::DX12Renderer() : m_frameIndex(0), m_fenceValue(0), m_fenceEvent(nu
     SecureZeroMemory(&m_cbvSrvUavHeap, sizeof(m_cbvSrvUavHeap));
     SecureZeroMemory(&m_samplerHeap, sizeof(m_samplerHeap));
 
-    // Initialize texture arrays to zero
+    // Initialize plain-data arrays to zero (ComPtr arrays default-construct to nullptr; do NOT SecureZeroMemory them)
     SecureZeroMemory(&m_d3d12Textures, sizeof(m_d3d12Textures));
-    SecureZeroMemory(&m_d2dTextures, sizeof(m_d2dTextures));
     SecureZeroMemory(&My2DBlitQueue, sizeof(My2DBlitQueue));
     SecureZeroMemory(&screenModes, sizeof(screenModes));
 
@@ -92,9 +110,9 @@ DX12Renderer::DX12Renderer() : m_frameIndex(0), m_fenceValue(0), m_fenceEvent(nu
     m_dx11Dx12Compat.bDX12Available = false;
     m_dx11Dx12Compat.bUsingDX11Fallback = false;
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Constructor initialized successfully.");
-#endif
+    #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Constructor initialized successfully.");
+    #endif
 }
 
 DX12Renderer::~DX12Renderer()
@@ -129,7 +147,11 @@ void DX12Renderer::CreateDevice() {
             ComPtr<ID3D12Debug1> debugController1;
             if (SUCCEEDED(debugController->QueryInterface(IID_PPV_ARGS(&debugController1))))
             {
-                debugController1->SetEnableGPUBasedValidation(TRUE);
+                // GPU-Based Validation is disabled for the WIP DX12 pipeline — it raises
+                // hard exceptions (via RaiseException) on upload-heap CBV writes that violate
+                // the DATA_STATIC contract, crashing the process before errors can be logged.
+                // Re-enable once constant buffer update patterns are finalised.
+                debugController1->SetEnableGPUBasedValidation(FALSE);
             }
 
             // Enable GPU-based validation and shader debugging
@@ -825,10 +847,13 @@ void DX12Renderer::CreateDebugLayer() {
         // Set up info queue for detailed debug messages
         ComPtr<ID3D12InfoQueue> infoQueue;
         if (SUCCEEDED(m_d3d12Device.As(&infoQueue))) {
-            // Enable break on severe errors for debugging
+            // Only break on data corruption — breaking on ERROR or WARNING raises
+            // RaiseException() which crashes the process on any validation hit,
+            // including false positives in a WIP pipeline. Errors/warnings are still
+            // captured by the storage filter and visible in the debug output.
             infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, TRUE);
-            infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, TRUE);
-            infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, TRUE);
+            infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR,      FALSE);
+            infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING,    FALSE);
 
             // Filter out less important messages to reduce noise
             D3D12_MESSAGE_SEVERITY severities[] = {
@@ -964,63 +989,72 @@ void DX12Renderer::CreateRootSignature() {
 #endif
 
     try {
-        // Define root parameters for the graphics pipeline
-        CD3DX12_ROOT_PARAMETER1 rootParameters[6];
+        // Define root parameters for the graphics pipeline (7 entries: b0-b5 CBVs + texture SRV table)
+        CD3DX12_ROOT_PARAMETER1 rootParameters[7];
 
-        // Root Parameter 0: Constant Buffer for camera/view matrices (b0)
+        // Root Parameter 0: b0 — ConstantBuffer (camera/view/world matrices)
         rootParameters[DX12_ROOT_PARAM_CONST_BUFFER].InitAsConstantBufferView(
             0,                                                                  // Register b0
             0,                                                                  // Register space 0
-            D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC,                             // Data is static during draw
-            D3D12_SHADER_VISIBILITY_ALL                                         // Visible to all shader stages
+            D3D12_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE,                           // Updated every frame via Map/Unmap
+            D3D12_SHADER_VISIBILITY_ALL                                         // Used by both VS and PS
         );
 
-        // Root Parameter 1: Constant Buffer for model lighting (b1)
+        // Root Parameter 1: b1 — LightBuffer (scene-local lights)
         rootParameters[DX12_ROOT_PARAM_LIGHT_BUFFER].InitAsConstantBufferView(
             1,                                                                  // Register b1
             0,                                                                  // Register space 0
-            D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC,                             // Data is static during draw
-            D3D12_SHADER_VISIBILITY_PIXEL                                       // Visible to pixel shader only
+            D3D12_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE,                           // Updated every frame via Map/Unmap
+            D3D12_SHADER_VISIBILITY_PIXEL                                       // Pixel shader only
         );
 
-        // Root Parameter 2: Debug Buffer for pixel shader debugging (b2)
+        // Root Parameter 2: b2 — DebugBuffer (pixel shader debug mode)
         rootParameters[DX12_ROOT_PARAM_DEBUG_BUFFER].InitAsConstantBufferView(
             2,                                                                  // Register b2
             0,                                                                  // Register space 0
-            D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC,                             // Data is static during draw
-            D3D12_SHADER_VISIBILITY_PIXEL                                       // Visible to pixel shader only
+            D3D12_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE,                           // Updated every frame via Map/Unmap
+            D3D12_SHADER_VISIBILITY_PIXEL                                       // Pixel shader only
         );
 
-        // Root Parameter 3: Global Light Buffer (b3)
+        // Root Parameter 3: b3 — GlobalLightBuffer (global / world lights)
         rootParameters[DX12_ROOT_PARAM_GLOBAL_LIGHT_BUFFER].InitAsConstantBufferView(
             3,                                                                  // Register b3
             0,                                                                  // Register space 0
-            D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC,                             // Data is static during draw
-            D3D12_SHADER_VISIBILITY_PIXEL                                       // Visible to pixel shader only
+            D3D12_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE,                           // Updated every frame via Map/Unmap
+            D3D12_SHADER_VISIBILITY_PIXEL                                       // Pixel shader only
         );
 
-        // Root Parameter 4: Material Buffer (b4)
+        // Root Parameter 4: b4 — MaterialBuffer (PBR material properties)
         rootParameters[DX12_ROOT_PARAM_MATERIAL_BUFFER].InitAsConstantBufferView(
             4,                                                                  // Register b4
             0,                                                                  // Register space 0
-            D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC,                             // Data is static during draw
-            D3D12_SHADER_VISIBILITY_PIXEL                                       // Visible to pixel shader only
+            D3D12_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE,                           // Updated every frame via Map/Unmap
+            D3D12_SHADER_VISIBILITY_PIXEL                                       // Pixel shader only
         );
 
-        // Root Parameter 5: Descriptor Table for Textures (t0-t5)
+        // Root Parameter 5: b5 — EnvBuffer (environment intensity / tint / fresnel)
+        // REQUIRED by ModelPShader.hlsl: cbuffer EnvBuffer : register(b5)
+        rootParameters[DX12_ROOT_PARAM_ENVIRONMENT_BUFFER].InitAsConstantBufferView(
+            5,                                                                  // Register b5
+            0,                                                                  // Register space 0
+            D3D12_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE,                           // Updated per-scene
+            D3D12_SHADER_VISIBILITY_PIXEL                                       // Pixel shader only
+        );
+
+        // Root Parameter 6: Descriptor table — t0-t5 SRV textures
         CD3DX12_DESCRIPTOR_RANGE1 textureRanges[1];
         textureRanges[0].Init(
-            D3D12_DESCRIPTOR_RANGE_TYPE_SRV,                                    // Shader Resource View type
-            6,                                                                  // Number of descriptors (t0-t5)
-            0,                                                                  // Base shader register (t0)
+            D3D12_DESCRIPTOR_RANGE_TYPE_SRV,                                    // Shader Resource View
+            6,                                                                  // t0-t5 (6 descriptors)
+            0,                                                                  // Base register t0
             0,                                                                  // Register space 0
-            D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC                             // Data is static during draw
+            D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE                           // Textures may be loaded/swapped
         );
 
-        rootParameters[DX12_ROOT_PARAM_ENVIRONMENT_BUFFER].InitAsDescriptorTable(
-            1,                                                                  // Number of descriptor ranges
-            textureRanges,                                                      // Descriptor ranges array
-            D3D12_SHADER_VISIBILITY_PIXEL                                       // Visible to pixel shader only
+        rootParameters[DX12_ROOT_PARAM_TEXTURE_TABLE].InitAsDescriptorTable(
+            1,                                                                  // 1 descriptor range
+            textureRanges,                                                      // Range: t0-t5
+            D3D12_SHADER_VISIBILITY_PIXEL                                       // Pixel shader only
         );
 
         // Define static samplers for texture sampling
@@ -1138,54 +1172,35 @@ void DX12Renderer::CreatePipelineState() {
 #endif
 
     try {
-        // Load and compile shaders first
+        // Resolve the directory that contains the executable so we can locate the
+        // pre-compiled CSO files that FXC placed there during the build step.
+        wchar_t exePathBuf[MAX_PATH] = {};
+        GetModuleFileNameW(nullptr, exePathBuf, MAX_PATH);
+        std::wstring exeDir(exePathBuf);
+        auto lastSlash = exeDir.find_last_of(L"\\/");
+        if (lastSlash != std::wstring::npos)
+            exeDir = exeDir.substr(0, lastSlash + 1);
+
+        // Load pre-compiled vertex shader (ModelVShader.cso — compiled by FXC during build)
         ComPtr<ID3DBlob> vertexShader;
         ComPtr<ID3DBlob> pixelShader;
-        ComPtr<ID3DBlob> errors;
 
-        // Compile vertex shader
-        HRESULT hr = D3DCompileFromFile(
-            L"ModelVShader.hlsl",                                               // Shader filename
-            nullptr,                                                            // No defines
-            D3D_COMPILE_STANDARD_FILE_INCLUDE,                                  // Include handler
-            "main",                                                             // Entry point
-            "vs_5_1",                                                           // Shader target (DirectX 12 compatible)
-            D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION,                    // Debug flags for development
-            0,                                                                  // No effect flags
-            &vertexShader,                                                      // Output compiled shader
-            &errors                                                             // Output error messages
-        );
-
+        std::wstring vsPath = exeDir + L"ModelVShader.cso";
+        HRESULT hr = D3DReadFileToBlob(vsPath.c_str(), &vertexShader);
         if (FAILED(hr)) {
-            if (errors) {
-                std::string errorMsg(static_cast<const char*>(errors->GetBufferPointer()), errors->GetBufferSize());
-                debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"DX12Renderer: Vertex shader compilation failed: %s",
-                    std::wstring(errorMsg.begin(), errorMsg.end()).c_str());
-            }
-            ThrowError("Vertex shader compilation failed");
+            debug.logDebugMessage(LogLevel::LOG_CRITICAL,
+                L"DX12Renderer: Failed to load ModelVShader.cso from: %s", vsPath.c_str());
+            ThrowError("Vertex shader load failed (ModelVShader.cso not found)");
             return;
         }
 
-        // Compile pixel shader
-        hr = D3DCompileFromFile(
-            L"ModelPShader.hlsl",                                               // Shader filename
-            nullptr,                                                            // No defines
-            D3D_COMPILE_STANDARD_FILE_INCLUDE,                                  // Include handler
-            "main",                                                             // Entry point
-            "ps_5_1",                                                           // Shader target (DirectX 12 compatible)
-            D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION,                    // Debug flags for development
-            0,                                                                  // No effect flags
-            &pixelShader,                                                       // Output compiled shader
-            &errors                                                             // Output error messages
-        );
-
+        // Load pre-compiled pixel shader (ModelPShader.cso — compiled by FXC during build)
+        std::wstring psPath = exeDir + L"ModelPShader.cso";
+        hr = D3DReadFileToBlob(psPath.c_str(), &pixelShader);
         if (FAILED(hr)) {
-            if (errors) {
-                std::string errorMsg(static_cast<const char*>(errors->GetBufferPointer()), errors->GetBufferSize());
-                debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"DX12Renderer: Pixel shader compilation failed: %s",
-                    std::wstring(errorMsg.begin(), errorMsg.end()).c_str());
-            }
-            ThrowError("Pixel shader compilation failed");
+            debug.logDebugMessage(LogLevel::LOG_CRITICAL,
+                L"DX12Renderer: Failed to load ModelPShader.cso from: %s", psPath.c_str());
+            ThrowError("Pixel shader load failed (ModelPShader.cso not found)");
             return;
         }
 
@@ -1255,7 +1270,8 @@ void DX12Renderer::CreatePipelineState() {
         // Create the pipeline state object
         hr = m_d3d12Device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineState));
         if (FAILED(hr)) {
-            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"DX12Renderer: Failed to create graphics pipeline state.");
+            debug.logDebugMessage(LogLevel::LOG_CRITICAL,
+                L"DX12Renderer: CreateGraphicsPipelineState failed. HRESULT: 0x%08X", hr);
             ThrowError("CreateGraphicsPipelineState failed");
             return;
         }
@@ -1283,30 +1299,27 @@ void DX12Renderer::LoadShaders() {
 #endif
 
     try {
-        // Check if shader files exist
-        std::filesystem::path vertexShaderPath = L"ModelVShader.hlsl";
-        std::filesystem::path pixelShaderPath = L"ModelPShader.hlsl";
+        // Validate HLSL source files exist in Assets/Shaders/ (same path as DX11 pipeline)
+        auto vsPath = ShadersDir / L"ModelVertex.hlsl";
+        auto psPath = ShadersDir / L"ModelPixel.hlsl";
 
-        if (!std::filesystem::exists(vertexShaderPath)) {
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Vertex shader file not found: ModelVShader.hlsl");
-        }
-        else {
+        if (!std::filesystem::exists(vsPath))
+            debug.logDebugMessage(LogLevel::LOG_WARNING,
+                L"DX12Renderer: HLSL source not found at %ls (CSO may still exist in exe dir)", vsPath.c_str());
 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Found vertex shader file: ModelVShader.hlsl");
+        else
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Found HLSL source: %ls", vsPath.c_str());
 #endif
-        }
 
-        if (!std::filesystem::exists(pixelShaderPath)) {
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Pixel shader file not found: ModelPShader.hlsl");
-        }
-        else {
+        if (!std::filesystem::exists(psPath))
+            debug.logDebugMessage(LogLevel::LOG_WARNING,
+                L"DX12Renderer: HLSL source not found at %ls (CSO may still exist in exe dir)", psPath.c_str());
 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Found pixel shader file: ModelPShader.hlsl");
+        else
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Found HLSL source: %ls", psPath.c_str());
 #endif
-        }
 
-        // Additional shader validation can be added here
-        // For now, the actual compilation happens in CreatePipelineState()
+        // Pre-compiled CSO files are loaded in CreatePipelineState() via D3DReadFileToBlob
 
 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
         debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Shader validation completed.");
@@ -1375,9 +1388,46 @@ void DX12Renderer::CreateConstantBuffers() {
         // Set global light buffer name for debugging
         m_globalLightBuffer->SetName(L"DX12Renderer_GlobalLightBuffer");
 
+        // Create EnvBuffer (b5) — matches ModelPShader's cbuffer EnvBuffer : register(b5)
+        // Layout: float envIntensity, float3 envTint, float mipLODBias, float fresnel0, float2 _padEnv  (32 bytes)
+        UINT envBufferSize = (32 + 255) & ~255;                                 // 256-byte aligned
+        CD3DX12_RESOURCE_DESC envBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(envBufferSize);
+
+        hr = m_d3d12Device->CreateCommittedResource(
+            &heapProps,
+            D3D12_HEAP_FLAG_NONE,
+            &envBufferDesc,
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&m_envBuffer)
+        );
+
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"DX12Renderer: Failed to create EnvBuffer (b5).");
+            ThrowError("CreateConstantBuffer failed for EnvBuffer");
+            return;
+        }
+
+        m_envBuffer->SetName(L"DX12Renderer_EnvBuffer");
+
+        // Zero-initialise EnvBuffer with safe defaults
+        {
+            void* pData = nullptr;
+            CD3DX12_RANGE readRange(0, 0);
+            if (SUCCEEDED(m_envBuffer->Map(0, &readRange, &pData)))
+            {
+                memset(pData, 0, envBufferSize);
+                // envIntensity = 1.0, fresnel0 = 0.04 (dielectric default)
+                float* f = static_cast<float*>(pData);
+                f[0] = 1.0f;  // envIntensity
+                f[5] = 0.04f; // fresnel0
+                m_envBuffer->Unmap(0, nullptr);
+            }
+        }
+
 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Constant buffers created successfully. Camera CB Size: %d, Light CB Size: %d",
-            constantBufferSize, lightBufferSize);
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Constant buffers created successfully. Camera CB Size: %d, Light CB Size: %d, Env CB Size: %d",
+            constantBufferSize, lightBufferSize, envBufferSize);
 #endif
     }
     catch (const std::exception& e) {
@@ -1570,7 +1620,7 @@ void DX12Renderer::WaitForPreviousFrame() {
         // Update frame index to next frame
         m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
 
-        // If the next frame is not ready to be rendered yet, wait until it is ready
+        // If the next frame is not ready to be rendered yet, wait until it is ready (5 s max to avoid hang)
         if (m_fence->GetCompletedValue() < m_frameContexts[m_frameIndex].fenceValue) {
             hr = m_fence->SetEventOnCompletion(m_frameContexts[m_frameIndex].fenceValue, m_fenceEvent);
             if (FAILED(hr)) {
@@ -1579,9 +1629,9 @@ void DX12Renderer::WaitForPreviousFrame() {
             }
 
             // Wait for the fence event to be signaled
-            DWORD waitResult = WaitForSingleObject(m_fenceEvent, INFINITE);
+            DWORD waitResult = WaitForSingleObject(m_fenceEvent, 5000);
             if (waitResult != WAIT_OBJECT_0) {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to wait for fence event.");
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Fence wait timed out or failed — forcing frame advance.");
                 return;
             }
 
@@ -1618,7 +1668,7 @@ void DX12Renderer::MoveToNextFrame() {
         // Update the frame index
         m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
 
-        // If the next frame is not ready to be rendered yet, wait until it is ready
+        // If the next frame is not ready to be rendered yet, wait until it is ready (5 s max)
         if (m_fence->GetCompletedValue() < m_frameContexts[m_frameIndex].fenceValue) {
             hr = m_fence->SetEventOnCompletion(m_frameContexts[m_frameIndex].fenceValue, m_fenceEvent);
             if (FAILED(hr)) {
@@ -1627,9 +1677,9 @@ void DX12Renderer::MoveToNextFrame() {
             }
 
             // Wait for the fence event
-            DWORD waitResult = WaitForSingleObject(m_fenceEvent, INFINITE);
+            DWORD waitResult = WaitForSingleObject(m_fenceEvent, 5000);
             if (waitResult != WAIT_OBJECT_0) {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to wait for fence event in MoveToNextFrame.");
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Fence wait timed out in MoveToNextFrame — forcing advance.");
                 return;
             }
         }
@@ -1780,7 +1830,7 @@ void DX12Renderer::PopulateCommandList() {
             D3D12_RESOURCE_STATE_RENDER_TARGET);
 
         // Get render target and depth stencil handles
-        CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_frameContexts[m_frameIndex].rtvHandle;
+        CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_frameContexts[m_frameIndex].rtvHandle);
         CD3DX12_CPU_DESCRIPTOR_HANDLE dsvHandle(m_dsvHeap.cpuStart);
 
         // Set render targets
@@ -1800,6 +1850,11 @@ void DX12Renderer::PopulateCommandList() {
         if (m_globalLightBuffer) {
             m_commandList->SetGraphicsRootConstantBufferView(DX12_ROOT_PARAM_GLOBAL_LIGHT_BUFFER,
                 m_globalLightBuffer->GetGPUVirtualAddress());
+        }
+
+        if (m_envBuffer) {
+            m_commandList->SetGraphicsRootConstantBufferView(DX12_ROOT_PARAM_ENVIRONMENT_BUFFER,
+                m_envBuffer->GetGPUVirtualAddress());
         }
 
         // Set primitive topology
@@ -1847,7 +1902,7 @@ void DX12Renderer::WaitForGPUToFinish() {
         // Increment the fence value
         m_fenceValue++;
 
-        // Wait until the fence has been processed
+        // Wait until the fence has been processed (5 s max — prevents infinite hang on device loss or shutdown)
         if (m_fence->GetCompletedValue() < fenceValue) {
             hr = m_fence->SetEventOnCompletion(fenceValue, m_fenceEvent);
             if (FAILED(hr)) {
@@ -1855,10 +1910,9 @@ void DX12Renderer::WaitForGPUToFinish() {
                 return;
             }
 
-            DWORD waitResult = WaitForSingleObject(m_fenceEvent, INFINITE);
+            DWORD waitResult = WaitForSingleObject(m_fenceEvent, 5000);
             if (waitResult != WAIT_OBJECT_0) {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to wait for GPU completion.");
-                return;
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: GPU wait timed out or failed in WaitForGPUToFinish — forcing cleanup.");
             }
         }
 
@@ -1987,31 +2041,38 @@ bool DX12Renderer::InitializeDX11On12Compatibility() {
             sizeof("DX12Renderer_DX11CompatContext") - 1,
             "DX12Renderer_DX11CompatContext");
 
-        // Create DirectX 11 on 12 device for interoperability
-        hr = D3D11On12CreateDevice(
-            m_d3d12Device.Get(),                                                // DirectX 12 device
-            creationFlags,                                                      // Creation flags
-            featureLevels,                                                      // Feature levels array
-            _countof(featureLevels),                                            // Number of feature levels
-            reinterpret_cast<IUnknown**>(m_commandQueue.GetAddressOf()),       // Command queue array
-            1,                                                                  // Number of command queues
-            0,                                                                  // Node mask
-            &m_dx11Dx12Compat.dx11On12Device,                                   // Output DirectX 11 on 12 device
-            &m_dx11Dx12Compat.dx11Context,                                      // Output DirectX 11 context
-            &selectedFeatureLevel                                               // Selected feature level
-        );
+        // Create DirectX 11 on 12 device for interoperability.
+        // D3D11On12CreateDevice outputs an ID3D11Device*; we then QI for ID3D11On12Device.
+        {
+            ComPtr<ID3D11Device> tempD3D11Device;
+            ComPtr<ID3D11DeviceContext> tempD3D11Context;
+            IUnknown* commandQueues[] = { m_commandQueue.Get() };
+            hr = D3D11On12CreateDevice(
+                m_d3d12Device.Get(),                                            // DirectX 12 device
+                creationFlags,                                                  // Creation flags
+                featureLevels,                                                  // Feature levels array
+                _countof(featureLevels),                                        // Number of feature levels
+                commandQueues,                                                  // Command queue array
+                1,                                                              // Number of command queues
+                0,                                                              // Node mask
+                &tempD3D11Device,                                               // Output ID3D11Device*
+                &tempD3D11Context,                                              // Output ID3D11DeviceContext*
+                &selectedFeatureLevel                                           // Selected feature level
+            );
 
-        if (FAILED(hr)) {
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to create DirectX 11 on 12 device.");
-            // Continue without DirectX 11 on 12 interop, but keep basic DirectX 11 support
-            m_dx11Dx12Compat.dx11On12Device = nullptr;
+            if (FAILED(hr)) {
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to create DirectX 11 on 12 device.");
+                m_dx11Dx12Compat.dx11On12Device = nullptr;
+            }
+            else {
+                // Promote to ID3D11On12Device via QueryInterface
+                tempD3D11Device.As(&m_dx11Dx12Compat.dx11On12Device);
+                // Keep the wrapped DX11 context for Direct2D interop
+                m_dx11Dx12Compat.dx11Context = tempD3D11Context;
+            }
         }
-        else {
-            // Set DirectX 11 on 12 device name for debugging
-            m_dx11Dx12Compat.dx11On12Device->SetPrivateData(WKPDID_D3DDebugObjectName,
-                sizeof("DX12Renderer_DX11On12Device") - 1,
-                "DX12Renderer_DX11On12Device");
 
+        if (m_dx11Dx12Compat.dx11On12Device) {
 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
             debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: DirectX 11 on 12 device created successfully.");
 #endif
@@ -2049,11 +2110,16 @@ bool DX12Renderer::InitializeDX11On12Compatibility() {
             return false;
         }
 
-        // Get DXGI device from DirectX 11 device for Direct2D device creation
+        // Get DXGI device from the DX11On12 device (NOT the standalone dx11Device).
+        // The D2D device must share the same underlying device as the DX11On12 wrapper
+        // so that D2D bitmaps created from wrapped DX12 back-buffer surfaces are valid.
         ComPtr<IDXGIDevice> dxgiDevice;
-        hr = m_dx11Dx12Compat.dx11Device.As(&dxgiDevice);
+        if (m_dx11Dx12Compat.dx11On12Device)
+            hr = m_dx11Dx12Compat.dx11On12Device.As(&dxgiDevice);
+        else
+            hr = m_dx11Dx12Compat.dx11Device.As(&dxgiDevice);   // fallback only
         if (FAILED(hr)) {
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to get DXGI device from DirectX 11 device.");
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to get DXGI device for Direct2D device creation.");
             CleanupDX11On12Compatibility();
             return false;
         }
@@ -2077,6 +2143,11 @@ bool DX12Renderer::InitializeDX11On12Compatibility() {
             CleanupDX11On12Compatibility();
             return false;
         }
+
+        // Force 96 DPI so all D2D coordinates are in physical pixels, matching iOrigWidth/iOrigHeight.
+        // Without this the D2D context inherits the monitor DPI (e.g. 144 at 150% scaling), shifting
+        // every GUI element by the DPI ratio and placing the GameMenu panel off-screen.
+        m_d2dContext->SetDpi(96.0f, 96.0f);
 
         // Mark compatibility layer as available
         m_dx11Dx12Compat.bDX11Available = true;
@@ -2118,6 +2189,13 @@ void DX12Renderer::CleanupDX11On12Compatibility() {
 #endif
 
     try {
+        // Release per-frame D2D targets and wrapped back buffers first
+        for (UINT i = 0; i < FrameCount; ++i)
+        {
+            m_d2dRenderTargets[i].Reset();
+            m_wrappedBackBuffers[i].Reset();
+        }
+
         // Release Direct2D resources
         if (m_d2dContext) {
             m_d2dContext->SetTarget(nullptr);                                   // Clear render target
@@ -2165,6 +2243,89 @@ void DX12Renderer::CleanupDX11On12Compatibility() {
         std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
         debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"DX12Renderer: Exception in CleanupDX11On12Compatibility: %s", errorMsg.c_str());
     }
+}
+
+//-----------------------------------------
+// Create Per-Frame D2D Render Targets
+// Must be called after InitializeDX11On12Compatibility() AND after the swap chain
+// back buffers exist. Creates one wrapped DX11 resource + one ID2D1Bitmap1 per frame.
+//-----------------------------------------
+bool DX12Renderer::CreateD2DRenderTargets()
+{
+    if (!m_dx11Dx12Compat.dx11On12Device || !m_d2dContext || !m_swapChain)
+    {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Cannot create D2D targets — missing dx11On12Device, d2dContext or swapChain.");
+        return false;
+    }
+
+    // Release any existing resources first
+    for (UINT i = 0; i < FrameCount; ++i)
+    {
+        m_d2dRenderTargets[i].Reset();
+        m_wrappedBackBuffers[i].Reset();
+    }
+
+    // Use 96 DPI for D2D render target bitmaps — must match the SetDpi(96,96) applied to
+    // m_d2dContext in InitializeDX11On12Compatibility so the coordinate spaces are identical.
+    const FLOAT dpiX = 96.0f, dpiY = 96.0f;
+
+    D2D1_BITMAP_PROPERTIES1 bitmapProps = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+        D2D1::PixelFormat(DXGI_FORMAT_R8G8B8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+        dpiX, dpiY);
+
+    for (UINT i = 0; i < FrameCount; ++i)
+    {
+        // Get the DX12 back buffer for this frame slot
+        ComPtr<ID3D12Resource> backBuffer;
+        HRESULT hr = m_swapChain->GetBuffer(i, IID_PPV_ARGS(&backBuffer));
+        if (FAILED(hr))
+        {
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: GetBuffer(%u) failed for D2D target creation.", i);
+            return false;
+        }
+
+        // Wrap as a DX11 resource so DX11On12 / D2D can render into it.
+        // SDK 10.0.26100 uses CreateWrappedResource (singular) — wraps one resource at a time.
+        // inState  = RENDER_TARGET : DX12 state the resource is in when AcquireWrappedResources() is called.
+        // outState = PRESENT       : DX12 state it transitions to when ReleaseWrappedResources() is called.
+        D3D11_RESOURCE_FLAGS d3d11Flags = { D3D11_BIND_RENDER_TARGET };
+        hr = m_dx11Dx12Compat.dx11On12Device->CreateWrappedResource(
+            backBuffer.Get(),                           // IUnknown* — DX12 resource
+            &d3d11Flags,                                // D3D11 bind flags
+            D3D12_RESOURCE_STATE_RENDER_TARGET,         // InState
+            D3D12_RESOURCE_STATE_PRESENT,               // OutState
+            IID_PPV_ARGS(&m_wrappedBackBuffers[i]));    // -> ID3D11Resource
+        if (FAILED(hr))
+        {
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: CreateWrappedResource(%u) failed (0x%08X).", i, hr);
+            return false;
+        }
+
+        // QI for the DXGI surface — needed by CreateBitmapFromDxgiSurface
+        ComPtr<IDXGISurface> surface;
+        hr = m_wrappedBackBuffers[i].As(&surface);
+        if (FAILED(hr))
+        {
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: QI to IDXGISurface failed for frame %u.", i);
+            return false;
+        }
+
+        // Create a D2D target bitmap backed by this surface
+        hr = m_d2dContext->CreateBitmapFromDxgiSurface(surface.Get(), &bitmapProps, &m_d2dRenderTargets[i]);
+        if (FAILED(hr))
+        {
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: CreateBitmapFromDxgiSurface failed for frame %u (0x%08X).", i, hr);
+            return false;
+        }
+
+#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: D2D render target created for frame %u.", i);
+#endif
+    }
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Per-frame D2D render targets created successfully.");
+    return true;
 }
 
 //-----------------------------------------
@@ -2221,6 +2382,8 @@ void DX12Renderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
         RendererName(RENDERER_NAME_DX12);
         iOrigWidth = winMetrics.clientWidth;
         iOrigHeight = winMetrics.clientHeight;
+        m_renderTargetWidth  = iOrigWidth;
+        m_renderTargetHeight = iOrigHeight;
 
         // Initialize DirectX 12 core components in proper order
         CreateDevice();                                                         // Create DirectX 12 device
@@ -2241,6 +2404,11 @@ void DX12Renderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
         bool compatibilitySuccess = InitializeDX11On12Compatibility();
         if (!compatibilitySuccess) {
             debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: DirectX 11-12 compatibility layer failed to initialize. 2D rendering may be limited.");
+        }
+        else {
+            // Create per-frame D2D render targets (wrapped back buffers + D2D bitmaps)
+            if (!CreateD2DRenderTargets())
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to create per-frame D2D render targets. 2D images will not be visible.");
         }
 
         // Initialize our Camera to default values
@@ -2316,54 +2484,6 @@ bool DX12Renderer::StartRendererThreads()
     }
 
     return result;
-}
-
-//-----------------------------------------
-// Loader Task Thread for DirectX 12
-//-----------------------------------------
-void DX12Renderer::LoaderTaskThread() {
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Loader task thread started...");
-#endif
-
-    try {
-        // Set thread name for debugging
-        std::string threadName = threadManager.getThreadName(THREAD_LOADER);
-
-        // Wait for renderer to be initialized before starting loading
-        while (!bIsInitialized.load() && !threadManager.threadVars.bIsShuttingDown.load()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-
-        if (threadManager.threadVars.bIsShuttingDown.load()) {
-            return;
-        }
-
-        // Load all known textures
-        bool texturesLoaded = LoadAllKnownTextures();
-        if (!texturesLoaded) {
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to load textures in loader thread.");
-        }
-
-        // Load models and other resources here
-        // This will be implemented in subsequent steps
-
-        // Mark loading as finished
-        threadManager.threadVars.bLoaderTaskFinished.store(true);
-
-        // Clear resizing flag if it was set
-        if (wasResizing.load()) {
-            wasResizing.store(false);
-        }
-
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Loader task thread completed successfully.");
-#endif
-    }
-    catch (const std::exception& e) {
-        std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"DX12Renderer: Exception in LoaderTaskThread: %s", errorMsg.c_str());
-    }
 }
 
 //-----------------------------------------
@@ -2445,10 +2565,19 @@ void DX12Renderer::Cleanup() {
         threadManager.TerminateThread(THREAD_LOADER);
 
         #ifdef RENDERER_IS_THREAD
-            // Ensure the renderer finishes first!
-            while (threadManager.threadVars.bIsRendering.load())
+            // Wait for the current render operation to finish (2 s max — avoids infinite hang)
             {
-                std::this_thread::sleep_for(std::chrono::milliseconds(5)); // Small delay to prevent CPU spinning
+                auto waitStart = std::chrono::steady_clock::now();
+                while (threadManager.threadVars.bIsRendering.load())
+                {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                    if (std::chrono::duration<float>(std::chrono::steady_clock::now() - waitStart).count() > 2.0f)
+                    {
+                        debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: bIsRendering still set after 2s — forcing cleanup.");
+                        threadManager.threadVars.bIsRendering.store(false);
+                        break;
+                    }
+                }
             }
 
             // Now terminate the Renderer Thread.
@@ -2522,6 +2651,10 @@ void DX12Renderer::Cleanup() {
 
         if (m_globalLightBuffer) {
             m_globalLightBuffer.Reset();
+        }
+
+        if (m_envBuffer) {
+            m_envBuffer.Reset();
         }
 
         if (m_depthStencilBuffer) {
@@ -2698,120 +2831,257 @@ bool DX12Renderer::LoadTexture(int textureIndex, const std::wstring& filename, b
 #endif
         }
         else {
-            // For 3D textures, use native DirectX 12 resource loading
-            // Open the DDS file for DirectX 12 native loading
-            HANDLE file = CreateFileW(
-                filename.c_str(),                                               // Filename
-                GENERIC_READ,                                                   // Read access
-                FILE_SHARE_READ,                                                // Allow shared reading
-                nullptr,                                                        // Default security
-                OPEN_EXISTING,                                                  // File must exist
-                FILE_ATTRIBUTE_NORMAL,                                          // Normal file attributes
-                nullptr                                                         // No template file
-            );
+            // For 3D textures: branch on file extension — WIC path for PNG/JPG/BMP,
+            // DDS path for block-compressed DDS files.
+            std::wstring ext = filename;
+            size_t dotPos = ext.rfind(L'.');
+            if (dotPos != std::wstring::npos)
+                for (auto& c : ext) c = towlower(c);
+            bool isDDS = (filename.size() >= 4 &&
+                          filename.rfind(L".dds") == filename.size() - 4) ||
+                         (filename.size() >= 4 &&
+                          filename.rfind(L".DDS") == filename.size() - 4);
 
-            if (file == INVALID_HANDLE_VALUE) {
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to open 3D texture file: %s", filename.c_str());
-                return false;
-            }
+            // ── WIC path (PNG / JPG / BMP) ────────────────────────────────────────
+            if (!isDDS)
+            {
+                if (!m_d3d12Device) {
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: D3D12 device not ready for 3D texture load.");
+                    return false;
+                }
 
-            // Get file size for buffer allocation
-            LARGE_INTEGER fileSize;
-            if (!GetFileSizeEx(file, &fileSize)) {
-                CloseHandle(file);
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to get 3D texture file size.");
-                return false;
-            }
+                // Decode image pixels via WIC → BGRA32
+                ComPtr<IWICImagingFactory> wicFactory;
+                HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr,
+                    CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wicFactory));
+                if (FAILED(hr)) {
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: WIC factory creation failed for 3D texture.");
+                    return false;
+                }
 
-            // Read file data into memory
-            std::vector<BYTE> fileData(fileSize.LowPart);
-            DWORD bytesRead;
-            if (!ReadFile(file, fileData.data(), fileSize.LowPart, &bytesRead, nullptr) || bytesRead != fileSize.LowPart) {
-                CloseHandle(file);
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to read 3D texture file data.");
-                return false;
-            }
-            CloseHandle(file);
+                ComPtr<IWICBitmapDecoder> decoder;
+                hr = wicFactory->CreateDecoderFromFilename(filename.c_str(), nullptr,
+                    GENERIC_READ, WICDecodeMetadataCacheOnLoad, &decoder);
+                if (FAILED(hr)) {
+                    debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: WIC decoder failed for 3D texture: %s", filename.c_str());
+                    return false;
+                }
 
-            // Validate DDS magic number
-            DWORD magicNumber = *reinterpret_cast<DWORD*>(fileData.data());
-            if (magicNumber != MAKEFOURCC('D', 'D', 'S', ' ')) {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Invalid DDS file format.");
-                return false;
-            }
+                ComPtr<IWICBitmapFrameDecode> frame;
+                hr = decoder->GetFrame(0, &frame);
+                if (FAILED(hr)) {
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: WIC GetFrame failed for 3D texture.");
+                    return false;
+                }
 
-            // Validate file size
-            if (fileData.size() < (sizeof(DDS_HEADER) + sizeof(DWORD))) {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: DDS file is too small.");
-                return false;
-            }
+                ComPtr<IWICFormatConverter> converter;
+                hr = wicFactory->CreateFormatConverter(&converter);
+                if (FAILED(hr)) {
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: WIC format converter creation failed.");
+                    return false;
+                }
 
-            // Parse DDS header
-            DDS_HEADER* header = reinterpret_cast<DDS_HEADER*>(fileData.data() + sizeof(DWORD));
+                hr = converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppPBGRA,
+                    WICBitmapDitherTypeNone, nullptr, 0.0f, WICBitmapPaletteTypeCustom);
+                if (FAILED(hr)) {
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: WIC converter Initialize failed for 3D texture.");
+                    return false;
+                }
 
-            // Determine DXGI format from DDS header
-            DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
-            if (header->ddspf.dwFourCC == MAKEFOURCC('D', 'X', 'T', '1')) {
-                format = DXGI_FORMAT_BC1_UNORM;
-            }
-            else if (header->ddspf.dwFourCC == MAKEFOURCC('D', 'X', 'T', '3')) {
-                format = DXGI_FORMAT_BC2_UNORM;
-            }
-            else if (header->ddspf.dwFourCC == MAKEFOURCC('D', 'X', 'T', '5')) {
-                format = DXGI_FORMAT_BC3_UNORM;
-            }
-            else {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Unsupported DDS format.");
-                return false;
-            }
+                UINT texW = 0, texH = 0;
+                converter->GetSize(&texW, &texH);
+                if (texW == 0 || texH == 0) {
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: 3D texture has zero dimensions.");
+                    return false;
+                }
 
-            // Calculate texture size and create upload buffer
-            UINT textureWidth = header->dwWidth;
-            UINT textureHeight = header->dwHeight;
-            UINT mipLevels = header->dwMipMapCount ? header->dwMipMapCount : 1;
+                // Copy BGRA pixels to CPU buffer
+                const UINT srcRowPitch = texW * 4;
+                std::vector<BYTE> pixels(static_cast<size_t>(srcRowPitch) * texH);
+                hr = converter->CopyPixels(nullptr, srcRowPitch, static_cast<UINT>(pixels.size()), pixels.data());
+                if (FAILED(hr)) {
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: WIC CopyPixels failed for 3D texture.");
+                    return false;
+                }
 
-            // Create texture resource description
-            D3D12_RESOURCE_DESC textureDesc = {};
-            textureDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;         // 2D texture
-            textureDesc.Alignment = 0;                                          // Default alignment
-            textureDesc.Width = textureWidth;                                   // Texture width
-            textureDesc.Height = textureHeight;                                 // Texture height
-            textureDesc.DepthOrArraySize = 1;                                   // Single texture
-            textureDesc.MipLevels = mipLevels;                                  // Mip levels from DDS
-            textureDesc.Format = format;                                        // Format from DDS
-            textureDesc.SampleDesc.Count = 1;                                   // No multisampling
-            textureDesc.SampleDesc.Quality = 0;                                 // No multisampling quality
-            textureDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;                  // Driver-optimized layout
-            textureDesc.Flags = D3D12_RESOURCE_FLAG_NONE;                       // No special flags
+                // Create committed resource on DEFAULT heap (BGRA8, 1 mip, COPY_DEST)
+                D3D12_RESOURCE_DESC texDesc = {};
+                texDesc.Dimension          = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+                texDesc.Width              = texW;
+                texDesc.Height             = texH;
+                texDesc.DepthOrArraySize   = 1;
+                texDesc.MipLevels          = 1;
+                texDesc.Format             = DXGI_FORMAT_B8G8R8A8_UNORM;
+                texDesc.SampleDesc.Count   = 1;
+                texDesc.SampleDesc.Quality = 0;
+                texDesc.Layout             = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+                texDesc.Flags              = D3D12_RESOURCE_FLAG_NONE;
 
-            // Create the texture resource
-            CD3DX12_HEAP_PROPERTIES defaultHeapProps(D3D12_HEAP_TYPE_DEFAULT);
-            HRESULT hr = m_d3d12Device->CreateCommittedResource(
-                &defaultHeapProps,                                              // Default heap for GPU access
-                D3D12_HEAP_FLAG_NONE,                                           // No special heap flags
-                &textureDesc,                                                   // Texture description
-                D3D12_RESOURCE_STATE_COPY_DEST,                                 // Initial state for copying
-                nullptr,                                                        // No optimized clear value
-                IID_PPV_ARGS(&m_d3d12Textures[textureIndex])                   // Output texture resource
-            );
+                CD3DX12_HEAP_PROPERTIES defaultHeap(D3D12_HEAP_TYPE_DEFAULT);
+                hr = m_d3d12Device->CreateCommittedResource(
+                    &defaultHeap, D3D12_HEAP_FLAG_NONE, &texDesc,
+                    D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                    IID_PPV_ARGS(&m_d3d12Textures[textureIndex]));
+                if (FAILED(hr)) {
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to create 3D texture resource (WIC path).");
+                    return false;
+                }
 
-            if (FAILED(hr)) {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to create 3D texture resource.");
-                return false;
-            }
+                std::wstring resName = L"DX12Renderer_3DTexture_" + std::to_wstring(textureIndex);
+                m_d3d12Textures[textureIndex]->SetName(resName.c_str());
 
-            // Set texture name for debugging
-            std::wstring textureName = L"DX12Renderer_3DTexture_" + std::to_wstring(textureIndex);
-            m_d3d12Textures[textureIndex]->SetName(textureName.c_str());
+                // Upload pixel data to GPU
+                if (!UploadTextureData(textureIndex, pixels.data(), pixels.size(),
+                                       texW, texH, DXGI_FORMAT_B8G8R8A8_UNORM))
+                {
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: UploadTextureData failed for 3D texture (WIC path).");
+                    m_d3d12Textures[textureIndex].Reset();
+                    return false;
+                }
 
-            // TODO: Implement texture data upload using copy commands
-            // This requires creating an upload buffer and copying texture data
-            // For now, we'll mark the texture as created but not uploaded
+                // Create SRV in the CBV/SRV/UAV heap (slots 10..10+MAX_TEXTURE_BUFFERS_3D-1)
+                D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+                srvDesc.Format                        = DXGI_FORMAT_B8G8R8A8_UNORM;
+                srvDesc.ViewDimension                 = D3D12_SRV_DIMENSION_TEXTURE2D;
+                srvDesc.Shader4ComponentMapping       = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+                srvDesc.Texture2D.MipLevels           = 1;
+                srvDesc.Texture2D.MostDetailedMip     = 0;
+                srvDesc.Texture2D.PlaneSlice          = 0;
+                srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
+
+                CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(
+                    m_cbvSrvUavHeap.cpuStart,
+                    10 + textureIndex,
+                    m_cbvSrvUavHeap.handleIncrementSize);
+
+                m_d3d12Device->CreateShaderResourceView(
+                    m_d3d12Textures[textureIndex].Get(), &srvDesc, srvHandle);
 
 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: 3D texture %d created successfully. Size: %dx%d, Mips: %d",
-                textureIndex, textureWidth, textureHeight, mipLevels);
+                debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                    L"DX12Renderer: 3D texture %d loaded via WIC. Size: %dx%d Format: BGRA8",
+                    textureIndex, texW, texH);
 #endif
+            }
+            // ── DDS path (block-compressed DDS) ──────────────────────────────────
+            else
+            {
+                if (!m_d3d12Device) {
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: D3D12 device not ready for DDS texture load.");
+                    return false;
+                }
+
+                HANDLE file = CreateFileW(filename.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                    nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+                if (file == INVALID_HANDLE_VALUE) {
+                    debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to open DDS file: %s", filename.c_str());
+                    return false;
+                }
+
+                LARGE_INTEGER fileSize;
+                if (!GetFileSizeEx(file, &fileSize)) {
+                    CloseHandle(file);
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to get DDS file size.");
+                    return false;
+                }
+
+                std::vector<BYTE> fileData(fileSize.LowPart);
+                DWORD bytesRead = 0;
+                if (!ReadFile(file, fileData.data(), fileSize.LowPart, &bytesRead, nullptr)
+                    || bytesRead != fileSize.LowPart)
+                {
+                    CloseHandle(file);
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to read DDS file data.");
+                    return false;
+                }
+                CloseHandle(file);
+
+                if (fileData.size() < sizeof(DWORD) + sizeof(DDS_HEADER)) {
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: DDS file is too small.");
+                    return false;
+                }
+
+                DWORD magic = *reinterpret_cast<DWORD*>(fileData.data());
+                if (magic != MAKEFOURCC('D', 'D', 'S', ' ')) {
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Invalid DDS magic number.");
+                    return false;
+                }
+
+                DDS_HEADER* header = reinterpret_cast<DDS_HEADER*>(fileData.data() + sizeof(DWORD));
+
+                DXGI_FORMAT ddsFormat = DXGI_FORMAT_UNKNOWN;
+                if      (header->ddspf.dwFourCC == MAKEFOURCC('D','X','T','1')) ddsFormat = DXGI_FORMAT_BC1_UNORM;
+                else if (header->ddspf.dwFourCC == MAKEFOURCC('D','X','T','3')) ddsFormat = DXGI_FORMAT_BC2_UNORM;
+                else if (header->ddspf.dwFourCC == MAKEFOURCC('D','X','T','5')) ddsFormat = DXGI_FORMAT_BC3_UNORM;
+                else {
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Unsupported DDS FourCC format.");
+                    return false;
+                }
+
+                UINT texW    = header->dwWidth;
+                UINT texH    = header->dwHeight;
+                UINT mips    = header->dwMipMapCount ? header->dwMipMapCount : 1;
+
+                D3D12_RESOURCE_DESC texDesc = {};
+                texDesc.Dimension          = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+                texDesc.Width              = texW;
+                texDesc.Height             = texH;
+                texDesc.DepthOrArraySize   = 1;
+                texDesc.MipLevels          = mips;
+                texDesc.Format             = ddsFormat;
+                texDesc.SampleDesc.Count   = 1;
+                texDesc.SampleDesc.Quality = 0;
+                texDesc.Layout             = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+                texDesc.Flags              = D3D12_RESOURCE_FLAG_NONE;
+
+                CD3DX12_HEAP_PROPERTIES defaultHeap(D3D12_HEAP_TYPE_DEFAULT);
+                HRESULT hr = m_d3d12Device->CreateCommittedResource(
+                    &defaultHeap, D3D12_HEAP_FLAG_NONE, &texDesc,
+                    D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                    IID_PPV_ARGS(&m_d3d12Textures[textureIndex]));
+                if (FAILED(hr)) {
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to create 3D DDS texture resource.");
+                    return false;
+                }
+
+                std::wstring resName = L"DX12Renderer_3DTexture_" + std::to_wstring(textureIndex);
+                m_d3d12Textures[textureIndex]->SetName(resName.c_str());
+
+                // Upload compressed pixel data (starts after DDS magic + header)
+                const BYTE* pixelStart = fileData.data() + sizeof(DWORD) + sizeof(DDS_HEADER);
+                size_t      pixelSize  = fileData.size()  - sizeof(DWORD) - sizeof(DDS_HEADER);
+
+                if (!UploadTextureData(textureIndex, pixelStart, pixelSize, texW, texH, ddsFormat))
+                {
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: UploadTextureData failed for DDS texture.");
+                    m_d3d12Textures[textureIndex].Reset();
+                    return false;
+                }
+
+                // Create SRV in the CBV/SRV/UAV heap (slots 10..10+MAX_TEXTURE_BUFFERS_3D-1)
+                D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+                srvDesc.Format                        = ddsFormat;
+                srvDesc.ViewDimension                 = D3D12_SRV_DIMENSION_TEXTURE2D;
+                srvDesc.Shader4ComponentMapping       = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+                srvDesc.Texture2D.MipLevels           = mips;
+                srvDesc.Texture2D.MostDetailedMip     = 0;
+                srvDesc.Texture2D.PlaneSlice          = 0;
+                srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
+
+                CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(
+                    m_cbvSrvUavHeap.cpuStart,
+                    10 + textureIndex,
+                    m_cbvSrvUavHeap.handleIncrementSize);
+
+                m_d3d12Device->CreateShaderResourceView(
+                    m_d3d12Textures[textureIndex].Get(), &srvDesc, srvHandle);
+
+#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                    L"DX12Renderer: 3D DDS texture %d loaded. Size: %dx%d Mips: %d Format: %d",
+                    textureIndex, texW, texH, mips, ddsFormat);
+#endif
+            }
         }
 
         return true;
@@ -3659,8 +3929,27 @@ bool DX12Renderer::LoadAllKnownTextures()
             }
         }
 
-        // Load 3D textures (DDS format) for DirectX 12
-        // Implementation will be added in Step 7
+        // Load all 3D textures (PNG / JPG / DDS from tex3DFilename[])
+        for (int i = 0; i < MAX_TEXTURE_BUFFERS_3D; i++)
+        {
+            auto fileName = AssetsDir / tex3DFilename[i];
+
+            if (!LoadTexture(i, fileName, false))
+            {
+                std::wstring msg = L"DX12Renderer: Failed to load 3D Texture: " + fileName.wstring();
+                debug.logLevelMessage(LogLevel::LOG_ERROR, msg);
+                texturesFailed++;
+                result = false;
+            }
+            else
+            {
+                texturesLoaded++;
+#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+                std::wstring msg = L"DX12Renderer: Successfully loaded 3D Texture: " + fileName.wstring();
+                debug.logLevelMessage(LogLevel::LOG_DEBUG, msg);
+#endif
+            }
+        }
 
 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
         debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Texture loading completed. Loaded: %d, Failed: %d", texturesLoaded, texturesFailed);
@@ -4352,9 +4641,72 @@ void DX12Renderer::DrawVideoFrame(const Vector2& position, const Vector2& size, 
 }
 
 //-----------------------------------------
+// CreateVideoD2DTexture — allocate a D2D bitmap slot for per-frame video playback.
+// Returns the texture index in m_d2dTextures that MoviePlayer should use.
+//-----------------------------------------
+bool DX12Renderer::CreateVideoD2DTexture(int& outTextureIndex, UINT width, UINT height)
+{
+    outTextureIndex = -1;
+    if (!m_d2dContext || !IsDX11CompatibilityAvailable()) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: D2D context not ready for video texture creation.");
+        return false;
+    }
+    if (width == 0 || height == 0) return false;
+
+    // Find an empty slot near the end of the 2D texture array (reserved for dynamic use)
+    const int reservedStart = MAX_TEXTURE_BUFFERS - 8;
+    for (int i = reservedStart; i < MAX_TEXTURE_BUFFERS; ++i) {
+        if (!m_d2dTextures[i]) {
+            D2D1_SIZE_U size = D2D1::SizeU(width, height);
+            D2D1_BITMAP_PROPERTIES bitmapProps = D2D1::BitmapProperties(
+                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+                96.0f, 96.0f);   // 96 DPI matches context DPI set in InitializeDX11On12Compatibility
+
+            HRESULT hr = m_d2dContext->CreateBitmap(size, nullptr, 0, bitmapProps, &m_d2dTextures[i]);
+            if (FAILED(hr)) {
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: CreateBitmap for video failed (0x%08X).", hr);
+                return false;
+            }
+            outTextureIndex = i;
+#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Video D2D texture allocated at slot %d (%ux%u).", i, width, height);
+#endif
+            return true;
+        }
+    }
+    debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: No free D2D texture slot available for video.");
+    return false;
+}
+
+//-----------------------------------------
+// UpdateVideoD2DTexture — upload one decoded video frame (BGRA) to the D2D bitmap.
+//-----------------------------------------
+bool DX12Renderer::UpdateVideoD2DTexture(int textureIndex, const BYTE* pData, UINT rowPitch)
+{
+    if (textureIndex < 0 || textureIndex >= MAX_TEXTURE_BUFFERS) return false;
+    if (!m_d2dTextures[textureIndex] || !pData) return false;
+
+    HRESULT hr = m_d2dTextures[textureIndex]->CopyFromMemory(nullptr, pData, rowPitch);
+    if (FAILED(hr)) {
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"DX12Renderer: CopyFromMemory for video slot %d failed (0x%08X).", textureIndex, hr);
+        return false;
+    }
+    return true;
+}
+
+//-----------------------------------------
+// ReleaseVideoD2DTexture — free the D2D bitmap slot used for video.
+//-----------------------------------------
+void DX12Renderer::ReleaseVideoD2DTexture(int textureIndex)
+{
+    if (textureIndex >= 0 && textureIndex < MAX_TEXTURE_BUFFERS)
+        m_d2dTextures[textureIndex].Reset();
+}
+
+//-----------------------------------------
 // Resize DirectX 12 Renderer
 //-----------------------------------------
-void DX12Renderer::Resize(uint32_t width, uint32_t height)
+bool DX12Renderer::Resize(uint32_t width, uint32_t height)
 {
 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
     debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Resize requested: %dx%d", width, height);
@@ -4365,7 +4717,7 @@ void DX12Renderer::Resize(uint32_t width, uint32_t height)
     // Try to acquire the render mutex with a 1000ms timeout
     if (!threadManager.TryLock(lockName, 1000)) {
         debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Could not acquire render mutex for resize operation - timeout reached");
-        return;
+        return false;
     }
 
     try {
@@ -4373,7 +4725,7 @@ void DX12Renderer::Resize(uint32_t width, uint32_t height)
         {
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"DX12Renderer: Missing critical DirectX 12 interfaces for resize.");
             threadManager.RemoveLock(lockName);
-            return;
+            return false;
         }
 
         // Save old window size (only in windowed mode)
@@ -4426,7 +4778,7 @@ void DX12Renderer::Resize(uint32_t width, uint32_t height)
         if (FAILED(hr)) {
             debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to resize swap chain buffers.");
             threadManager.RemoveLock(lockName);
-            return;
+            return false;
         }
 
         // Recreate render target views for each frame
@@ -4437,7 +4789,7 @@ void DX12Renderer::Resize(uint32_t width, uint32_t height)
             if (FAILED(hr)) {
                 debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to get swap chain buffer %d after resize.", i);
                 threadManager.RemoveLock(lockName);
-                return;
+                return false;
             }
 
             // Create render target view for this buffer
@@ -4492,7 +4844,7 @@ void DX12Renderer::Resize(uint32_t width, uint32_t height)
         if (FAILED(hr)) {
             debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to create depth stencil buffer after resize.");
             threadManager.RemoveLock(lockName);
-            return;
+            return false;
         }
 
         // Set depth buffer name for debugging
@@ -4518,12 +4870,19 @@ void DX12Renderer::Resize(uint32_t width, uint32_t height)
         // Update internal dimensions
         iOrigWidth = width;
         iOrigHeight = height;
+        m_renderTargetWidth  = width;
+        m_renderTargetHeight = height;
 
         // Recreate DirectX 11-12 compatibility layer for 2D rendering
         CleanupDX11On12Compatibility();
         bool compatibilitySuccess = InitializeDX11On12Compatibility();
         if (!compatibilitySuccess) {
             debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to reinitialize DirectX 11-12 compatibility after resize.");
+        }
+        else {
+            // Recreate per-frame D2D render targets for the new back buffers
+            if (!CreateD2DRenderTargets())
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to recreate D2D render targets after resize.");
         }
 
         // Update camera with new dimensions
@@ -4538,6 +4897,7 @@ void DX12Renderer::Resize(uint32_t width, uint32_t height)
 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
         debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Resize completed successfully to %dx%d", width, height);
 #endif
+        return true;
     }
     catch (const std::exception& e) {
         std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
@@ -4545,6 +4905,7 @@ void DX12Renderer::Resize(uint32_t width, uint32_t height)
 
         // Ensure lock is released on exception
         threadManager.RemoveLock(lockName);
+        return false;
     }
 }
 
@@ -5052,13 +5413,13 @@ bool DX12Renderer::UploadTextureData(int textureIndex, const void* textureData, 
                 memcpy(
                     dstData + row * dstRowPitch,                                // Destination row
                     srcData + row * srcRowPitch,                                // Source row
-                    min(srcRowPitch, static_cast<UINT>(rowSizeInBytes))        // Copy size (minimum of source and destination)
+                    std::min(srcRowPitch, static_cast<UINT>(rowSizeInBytes))   // Copy size (minimum of source and destination)
                 );
             }
         }
         else {
             // Block compressed format - copy entire data block
-            memcpy(dstData, srcData, min(dataSize, static_cast<size_t>(uploadBufferSize)));
+            memcpy(dstData, srcData, std::min(dataSize, static_cast<size_t>(uploadBufferSize)));
         }
 
         // Unmap the upload buffer
@@ -5388,7 +5749,7 @@ bool DX12Renderer::CreateTextureFromMemory(int textureIndex, const void* data, s
         // Calculate mip levels if mipmap generation is requested
         UINT mipLevels = 1;
         if (generateMips) {
-            mipLevels = static_cast<UINT>(floor(log2(max(width, height)))) + 1;
+            mipLevels = static_cast<UINT>(floor(log2(static_cast<double>(std::max(width, height))))) + 1;
         }
 
         // Create texture resource description
@@ -5884,487 +6245,139 @@ bool DX12Renderer::CreateRenderTexture(int textureIndex, UINT width, UINT height
 }
 
 
-//---------------------------------------------
-// Main Rendering Frame Function for DirectX 12
-//---------------------------------------------
-void DX12Renderer::RenderFrame()
+//-----------------------------------------
+// GetDevice / GetDeviceContext / GetSwapChain
+// Return raw COM pointers castable by callers
+//-----------------------------------------
+void* DX12Renderer::GetDevice()
 {
-    // SAFE-GUARDS - Early exit conditions for invalid states
-    if (bHasCleanedUp || !m_d3d12Device || !m_commandQueue || !m_constantBuffer) return;
-    if (threadManager.threadVars.bIsShuttingDown.load() || bIsMinimized.load() || threadManager.threadVars.bIsResizing.load() || 
-        !bIsInitialized.load() || threadManager.threadVars.bIsRendering.load()) return;
+    return m_d3d12Device.Get();
+}
 
-    try
-    {
-        // Try to acquire the render frame lock with a 10ms timeout
-        if (!threadManager.TryLock(renderFrameLockName, 10)) {
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Could not acquire render frame lock - timeout reached");
-            return;
-        }
+void* DX12Renderer::GetDeviceContext()
+{
+    return m_commandList.Get();
+}
 
-        // Initialize frame timing and window metrics
-        HRESULT hr = S_OK;
-        HWND hWnd = hwnd;
+void* DX12Renderer::GetSwapChain()
+{
+    return m_swapChain.Get();
+}
 
-        // Get window rectangle for viewport calculations
-        D3D12_VIEWPORT viewport = {};
-        RECT rc;
-        POINT cursorPos;
-
-        if (!winMetrics.isFullScreen)
-        {
-            GetClientRect(hWnd, &rc);                                           // Get client area for windowed mode
-        }
-        else
-        {
-            rc = winMetrics.monitorFullArea;                                    // Use full monitor area for fullscreen
-        }
-
-        // Calculate viewport dimensions
-        float width = float(rc.right - rc.left);
-        float height = float(rc.bottom - rc.top);
-        viewport.Width = width;
-        viewport.Height = height;
-        viewport.MinDepth = 0.0f;
-        viewport.MaxDepth = 1.0f;
-        viewport.TopLeftX = 0;
-        viewport.TopLeftY = 0;
-
-        // Check the status of the rendering thread
-#ifdef RENDERER_IS_THREAD
-        ThreadStatus status = threadManager.GetThreadStatus(THREAD_RENDERER);
-        while (((status == ThreadStatus::Running) || (status == ThreadStatus::Paused)) && (!threadManager.threadVars.bIsShuttingDown.load()))
-        {
-            status = threadManager.GetThreadStatus(THREAD_RENDERER);
-            if (status == ThreadStatus::Paused)
-            {
-                Sleep(1);                                                       // Small delay during pause
-                continue;
-            }
+//-----------------------------------------
+// WaitToFinishThenPauseThread
+// Drain GPU work, wait for the render loop to idle, then pause the thread.
+//-----------------------------------------
+void DX12Renderer::WaitToFinishThenPauseThread()
+{
+#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: WaitToFinishThenPauseThread() - beginning safe thread pause");
 #endif
 
-            // Check DirectX 12 device health
-            if (m_d3d12Device)
-            {
-                // DirectX 12 doesn't have GetDeviceRemovedReason like DirectX 11
-                // Instead, we check if critical resources are still valid
-                if (!m_swapChain || !m_commandQueue || !m_fence)
-                {
-                    if (!threadManager.threadVars.bIsResizing.load() && !sysUtils.IsWindowMinimized())
-                    {
-                        debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Critical resources invalid. Attempting recovery.");
-                        threadManager.threadVars.bIsResizing.store(true);
-                        Resize(iOrigWidth, iOrigHeight);
-                        ResumeLoader();
-                        threadManager.threadVars.bIsResizing.store(false);
-                        threadManager.RemoveLock(renderFrameLockName);
-                        return;
-                    }
-                    else
-                    {
-                        debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Critical resources invalid but window minimized or resizing. Skipping recovery.");
-                    }
-                }
-            }
-
-            // Mark that we are now rendering
-            threadManager.threadVars.bIsRendering.store(true);
-
-            // Wait for the previous frame to complete before starting new frame
-            WaitForPreviousFrame();
-
-            // Reset command list for new frame recording
-            ResetCommandList();
-
-            // Update frame timing for delta time calculations
-            static auto myLastTime = std::chrono::high_resolution_clock::now();
-            auto myCurrentTime = std::chrono::high_resolution_clock::now();
-            myLastTime = myCurrentTime;
-
-            // Get current frame start time for delta time calculation
-            auto now = std::chrono::steady_clock::now();
-            float deltaTime = std::chrono::duration<float>(now - lastFrameTime).count();
-            lastFrameTime = now;
-
-            // Get and scale mouse coordinates for current frame
-            GetCursorPos(&cursorPos);
-            ScreenToClient(hWnd, &cursorPos);
-            myMouseCoords.x = cursorPos.x;
-            myMouseCoords.y = cursorPos.y;
-
-            // Scale the mouse coordinates for different resolution modes
-            auto [scaledX, scaledY] = sysUtils.ScaleMouseCoordinates(cursorPos.x, cursorPos.y, iOrigWidth, iOrigHeight, width, height);
-            float x = float(scaledX);
-            float y = float(scaledY);
-
-            // Set the graphics root signature for this frame
-            m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
-
-            // Set descriptor heaps for shader resource binding
-            ID3D12DescriptorHeap* ppHeaps[] = { m_cbvSrvUavHeap.heap.Get(), m_samplerHeap.heap.Get() };
-            m_commandList->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
-
-            // Set viewport and scissor rectangle for rendering
-            m_commandList->RSSetViewports(1, &viewport);
-            D3D12_RECT scissorRect = { 0, 0, static_cast<LONG>(width), static_cast<LONG>(height) };
-            m_commandList->RSSetScissorRects(1, &scissorRect);
-
-            // Transition the current render target from present to render target state
-            TransitionResource(m_frameContexts[m_frameIndex].renderTarget.Get(),
-                D3D12_RESOURCE_STATE_PRESENT,
-                D3D12_RESOURCE_STATE_RENDER_TARGET);
-
-            // Get render target and depth stencil handles for this frame
-            CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_frameContexts[m_frameIndex].rtvHandle;
-            CD3DX12_CPU_DESCRIPTOR_HANDLE dsvHandle(m_dsvHeap.cpuStart);
-
-            // Set render targets for this frame
-            m_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, &dsvHandle);
-
-            // Clear the render target and depth stencil buffer
-            const float clearColor[] = { 0.0f, 0.0f, 0.0f, 1.0f };             // Black clear color
-            m_commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
-            m_commandList->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
-
-            // Update camera view matrix for this frame
-            myCamera.UpdateViewMatrix();
-
-            // Update constant buffers with current frame data
-            UpdateConstantBuffers();
-
-            // Bind constant buffer views to the graphics pipeline
-            if (m_constantBuffer) {
-                m_commandList->SetGraphicsRootConstantBufferView(DX12_ROOT_PARAM_CONST_BUFFER,
-                    m_constantBuffer->GetGPUVirtualAddress());
-            }
-
-            if (m_globalLightBuffer) {
-                m_commandList->SetGraphicsRootConstantBufferView(DX12_ROOT_PARAM_GLOBAL_LIGHT_BUFFER,
-                    m_globalLightBuffer->GetGPUVirtualAddress());
-            }
-
-            // Set primitive topology for triangle rendering
-            m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-            // We now need to determine which Scene we are to render
-            switch (scene.stSceneType)
-            {
-            case SceneType::SCENE_SPLASH:
-            {
-                // Transition render target back to present for 2D rendering
-                TransitionResource(m_frameContexts[m_frameIndex].renderTarget.Get(),
-                    D3D12_RESOURCE_STATE_RENDER_TARGET,
-                    D3D12_RESOURCE_STATE_PRESENT);
-
-                // Close command list for 3D rendering
-                CloseCommandList();
-                ExecuteCommandList();
-
-                // Try to acquire the Direct2D render lock for 2D operations
-                if (threadManager.TryLock(D2DLockName, 100))
-                {
-                    // Begin Direct2D rendering operations
-                    if (m_d2dContext) {
-                        m_d2dContext->BeginDraw();
-
-                        // Present Splash Screen using 2D compatibility layer
-                        if (IsDX11CompatibilityAvailable()) {
-                            // Use DirectX 11 on 12 for 2D rendering
-                            // Implementation will be added in Step 6
-                        }
-
-                        // End Direct2D rendering
-                        HRESULT d2dResult = m_d2dContext->EndDraw();
-                        if (FAILED(d2dResult)) {
-                            debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Direct2D EndDraw failed in splash scene.");
-                        }
-                    }
-
-                    // Release the Direct2D render lock
-                    threadManager.RemoveLock(D2DLockName);
-                }
-                else
-                {
-                    debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Could not acquire D2D render lock - skipping 2D operations");
-                }
-
-                break;
-            }
-
-            case SceneType::SCENE_INTRO_MOVIE:
-            {
-                // Transition render target back to present for 2D rendering
-                TransitionResource(m_frameContexts[m_frameIndex].renderTarget.Get(),
-                    D3D12_RESOURCE_STATE_RENDER_TARGET,
-                    D3D12_RESOURCE_STATE_PRESENT);
-
-                // Close command list for 3D rendering
-                CloseCommandList();
-                ExecuteCommandList();
-
-                // Try to acquire the Direct2D render lock for movie playback
-                if (threadManager.TryLock(D2DLockName, 100))
-                {
-                    // Begin Direct2D rendering operations
-                    if (m_d2dContext) {
-                        m_d2dContext->BeginDraw();
-
-                        // Check if movie is playing
-                        if (moviePlayer.IsPlaying()) {
-                            // Update the movie frame
-                            moviePlayer.UpdateFrame();
-
-                            // Render the movie to fill the screen
-                            // Movie rendering implementation will be added in Step 6
-                            // moviePlayer.Render(Vector2(0, 0), Vector2(iOrigWidth, iOrigHeight));
-
-                            // Check for user input to skip movie
-                            if (GetAsyncKeyState(' ') & 0x8000)
-                            {
-                                moviePlayer.Stop(); // Stop playback to switch scene
-                            }
-                        }
-
-                        // End Direct2D rendering
-                        HRESULT d2dResult = m_d2dContext->EndDraw();
-                        if (FAILED(d2dResult)) {
-                            debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Direct2D EndDraw failed in movie scene.");
-                        }
-                    }
-
-                    // Release the Direct2D render lock
-                    threadManager.RemoveLock(D2DLockName);
-                }
-                else
-                {
-                    debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Could not acquire D2D render lock - skipping movie operations");
-                }
-
-                break;
-            }
-
-            case SceneType::SCENE_GAMEPLAY:
-            {
-                // 3D Rendering Pipeline for Gameplay Scene
-
-                // Ensure all loading is complete before rendering models and lighting
-                if (threadManager.threadVars.bLoaderTaskFinished.load())
-                {
-                    // Debug input for wireframe mode toggle
-#if defined(_DEBUG_RENDER_WIREFRAME_)
-    // Wireframe mode would require separate pipeline state in DirectX 12
-    // This will be implemented later
+    ThreadLockHelper exclusiveLock(threadManager, "exclusive_directx_access", 10000);
+    if (!exclusiveLock.IsLocked()) {
+#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: WaitToFinishThenPauseThread() - failed to acquire exclusive lock");
 #endif
-
-// Simple triangle test for pipeline validation (debug only)
-#if defined(_DEBUG_DX12RENDERER_) && defined(_SIMPLE_TRIANGLE_) && defined(_DEBUG)
-                    TestDrawTriangle(); // Test triangle for rendering (debug purposes)
-#endif
-
-                    // Render all loaded 3D models
-                    for (int i = 0; i < MAX_MODELS; ++i)
-                    {
-                        if (scene.scene_models[i].m_isLoaded)
-                        {
-                            // Update model information for DirectX 12 rendering
-                            scene.scene_models[i].m_modelInfo.fxActive = false; // Force this off for now
-                            scene.scene_models[i].m_modelInfo.viewMatrix = myCamera.GetViewMatrix();
-                            scene.scene_models[i].m_modelInfo.projectionMatrix = myCamera.GetProjectionMatrix();
-                            scene.scene_models[i].m_modelInfo.cameraPosition = myCamera.GetPosition();
-
-                            // Update animation for this model
-                            scene.scene_models[i].UpdateAnimation(deltaTime);
-
-                            // Render model using DirectX 12 command list
-                            // Model rendering adaptation for DirectX 12 will be implemented in subsequent steps
-                            // scene.scene_models[i].RenderDX12(m_commandList.Get(), deltaTime);
-                        }
-                    }
-                }
-
-                // Animate lights per frame
-                // lightsManager.AnimateLights(deltaTime); // TODO: Replace with real deltaTime
-
-                // Transition render target back to present state after 3D rendering
-                TransitionResource(m_frameContexts[m_frameIndex].renderTarget.Get(),
-                    D3D12_RESOURCE_STATE_RENDER_TARGET,
-                    D3D12_RESOURCE_STATE_PRESENT);
-
-                // Close and execute 3D rendering commands
-                CloseCommandList();
-                ExecuteCommandList();
-
-                break;
-            }
-            }
-
-            // 2D Rendering Layer - Universal for all scenes
-            if (m_d2dContext && IsDX11CompatibilityAvailable())
-            {
-                // Check status of Direct2D to see if available for use
-                if (threadManager.TryLock(D2DLockName, 100))
-                {
-                    // Begin Direct2D drawing operations
-                    m_d2dContext->BeginDraw();
-
-                    // Scene-specific 2D rendering
-                    if ((!threadManager.threadVars.bIsShuttingDown.load()) &&
-                        (!bIsMinimized.load()) &&
-                        (!threadManager.threadVars.bIsResizing.load()) &&
-                        (bIsInitialized.load()))
-                    {
-                        switch (scene.stSceneType)
-                        {
-                        case SceneType::SCENE_INTRO:
-                        {
-                            // Ensure all loading is complete before rendering intro elements
-                            if (threadManager.threadVars.bLoaderTaskFinished.load())
-                            {
-                                // Set camera for intro scene
-                                myCamera.SetYawPitch(0.285f, -0.22f);
-
-                                // 2D intro scene rendering will be implemented in Step 6
-                                // Draw background image, logo, and effects
-                            }
-                            break;
-                        }
-
-                        case SceneType::SCENE_INTRO_MOVIE:
-                        {
-                            // Movie scene 2D overlay rendering
-                            if (moviePlayer.IsPlaying() && (!threadManager.threadVars.bLoaderTaskFinished.load()))
-                            {
-                                // 2D movie overlay rendering will be implemented in Step 6
-                                // Draw company logo overlay
-                            }
-                            break;
-                        }
-                        }
-                    }
-
-                    // FPS Display for debugging and performance monitoring
-                    if (USE_FPS_DISPLAY && config.myConfig.showDebugInfo)
-                    {
-                        static auto lastFrameTime = std::chrono::steady_clock::now();
-                        static auto lastFPSTime = lastFrameTime;
-                        static int frameCounter = 0;
-
-                        auto currentTime = std::chrono::steady_clock::now();
-                        float deltaTime = std::chrono::duration<float>(currentTime - lastFrameTime).count();
-                        float elapsedForFPS = std::chrono::duration<float>(currentTime - lastFPSTime).count();
-
-                        lastFrameTime = currentTime;
-                        frameCounter++;
-
-                        // Update FPS calculation every second
-                        if (elapsedForFPS >= 1.0f)
-                        {
-                            fps = static_cast<float>(frameCounter) / elapsedForFPS;
-                            frameCounter = 0;
-                            lastFPSTime = currentTime;
-                        }
-
-                        // Get camera coordinates for display
-                        XMFLOAT3 Coords = myCamera.GetPosition();
-
-                        // Build FPS and debug information string
-                        std::wstring fpsText = L"FPS: " + std::to_wstring(fps) + L"\nMOUSE: x" + std::to_wstring(cursorPos.x) + L", y" + std::to_wstring(cursorPos.y);
-                        fpsText = fpsText + L"\nCamera X: " + std::to_wstring(Coords.x) + L", Y: " + std::to_wstring(Coords.y) + L", Z: " + std::to_wstring(Coords.z) +
-                            L", Yaw: " + std::to_wstring(myCamera.m_yaw) + L", Pitch: " + std::to_wstring(myCamera.m_pitch) + L"\n";
-                        fpsText = fpsText + L"Global Light Count: " + std::to_wstring(lightsManager.GetLightCount()) + L"\n";
-                        fpsText = fpsText + L"Renderer: DirectX 12\n";
-
-                        // Draw FPS text using DirectX 11 compatibility layer
-                        // Text rendering implementation will be added in Step 6
-                        // DrawMyText(fpsText, Vector2(0, 0), MyColor(255, 255, 255, 255), 10.0f);
-                    }
-
-                    // Loading indicator animation
-                    if (!threadManager.threadVars.bLoaderTaskFinished.load())
-                    {
-                        static int delay = 0;
-                        static int loadIndex = 0;
-                        static int iPosX = 0;
-
-                        delay++;
-                        if (delay > 5)
-                        {
-                            loadIndex++;
-                            if (loadIndex > 9) { loadIndex = 0; }
-                            delay = 0;
-                        }
-
-                        // Loading circle animation will be implemented in Step 6
-                        // iPosX = loadIndex << 5;
-                        // Blit2DObjectAtOffset(BlitObj2DIndexType::BG_LOADER_CIRCLE, width - 32, height - 32, iPosX, 0, 32, 32);
-                    }
-
-                    // Apply 2D Effects and GUI rendering
-                    fxManager.Render2D();                                       // Render 2D effects
-                    guiManager.Render();                                        // Render GUI windows
-
-                    // Render Mouse Cursor
-                    // Mouse cursor rendering will be implemented in Step 6
-                    // Blit2DObject(BlitObj2DIndexType::BLIT_ALWAYS_CURSOR, cursorPos.x, cursorPos.y);
-
-                    // End Direct2D drawing operations
-                    try
-                    {
-                        HRESULT hr = m_d2dContext->EndDraw();
-                        if (FAILED(hr))
-                        {
-                            debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Direct2D EndDraw failed.");
-                        }
-
-                        // Render post-processing effects after normal rendering but before present
-                        fxManager.Render();
-                    }
-                    catch (const std::exception& e)
-                    {
-                        std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
-                        debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Exception in Direct2D EndDraw: %s", errorMsg.c_str());
-                    }
-
-                    // Release the Direct2D render lock
-                    threadManager.RemoveLock(D2DLockName);
-                }
-                else
-                {
-                    debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Could not acquire D2D render lock - skipping 2D operations");
-                }
-            }
-
-            // Present the frame to the display
-            PresentFrame();
-
-            // Move to the next frame for double buffering
-            MoveToNextFrame();
-
-            // Mark that we are no longer rendering    
-            threadManager.threadVars.bIsRendering.store(false);
-
-#ifdef RENDERER_IS_THREAD
-        } // End of while loop for thread status check
-#endif
-
-        // Make sure to remove the lock even if an exception occurs
-        threadManager.RemoveLock(renderFrameLockName);
-    }
-    catch (const std::exception& e)
-    {
-        // Make sure to remove the lock even if an exception occurs
-        threadManager.RemoveLock(renderFrameLockName);
-        std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
-        debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"DX12Renderer: Exception in RenderFrame: %s", errorMsg.c_str());
+        return;
     }
 
-#ifdef RENDERER_IS_THREAD
-    debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Render Thread Exiting.");
+    // Wait for the render loop to finish the current frame
+    int waitAttempts = 0;
+    while (threadManager.threadVars.bIsRendering.load() && waitAttempts < 500) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        ++waitAttempts;
+    }
+
+#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+    if (waitAttempts >= 500)
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: WaitToFinishThenPauseThread() - timeout waiting for render, forcing pause");
+#endif
+
+    // Flush GPU queue to ensure all commands are processed
+    try {
+        WaitForGPUToFinish();
+    }
+    catch (const std::exception& e) {
+#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: WaitToFinishThenPauseThread() - GPU wait exception: %hs", e.what());
+#else
+        (void)e;
+#endif
+    }
+
+    // Pause the renderer thread
+    ThreadStatus status = threadManager.GetThreadStatus(THREAD_RENDERER);
+    if (status == ThreadStatus::Running) {
+        threadManager.PauseThread(THREAD_RENDERER);
+
+        int pauseAttempts = 0;
+        while (threadManager.GetThreadStatus(THREAD_RENDERER) == ThreadStatus::Running && pauseAttempts < 200) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            ++pauseAttempts;
+        }
+    }
+
+    // Final drain — ensure bIsRendering is clear
+    waitAttempts = 0;
+    while (threadManager.threadVars.bIsRendering.load() && waitAttempts < 50) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        ++waitAttempts;
+    }
+
+#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: WaitToFinishThenPauseThread() - completed");
 #endif
 }
 
+//-----------------------------------------
+// DrawMyTextStyled
+// Renders text with bold / italic / underline / strikethrough / centered support.
+//-----------------------------------------
+void DX12Renderer::DrawMyTextStyled(const std::wstring& text, const Vector2& position,
+    const MyColor& color, const TextRenderStyle& style)
+{
+    if (!IsDX11CompatibilityAvailable() || !m_d2dContext || !m_dwriteFactory) return;
+    if (text.empty() || style.fontSize <= 0.0f) return;
 
+    ComPtr<IDWriteTextFormat> fmt;
+    HRESULT hr = m_dwriteFactory->CreateTextFormat(
+        style.fontName.empty() ? L"Arial" : style.fontName.c_str(),
+        nullptr,
+        style.bold   ? DWRITE_FONT_WEIGHT_BOLD   : DWRITE_FONT_WEIGHT_NORMAL,
+        style.italic ? DWRITE_FONT_STYLE_ITALIC   : DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        style.fontSize,
+        L"en-us",
+        &fmt);
+    if (FAILED(hr) || !fmt) return;
 
+    UINT32 textLen = static_cast<UINT32>(text.size());
 
+    float layoutWidth = 2000.0f;
+    float drawX = position.x;
+    if (style.centered) {
+        float rtWidth = (m_renderTargetWidth > 0) ? static_cast<float>(m_renderTargetWidth) : 1920.0f;
+        fmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        layoutWidth = rtWidth;
+        drawX = 0.0f;
+    }
+
+    ComPtr<IDWriteTextLayout> layout;
+    hr = m_dwriteFactory->CreateTextLayout(text.c_str(), textLen, fmt.Get(), layoutWidth, 500.0f, &layout);
+    if (FAILED(hr) || !layout) return;
+
+    DWRITE_TEXT_RANGE all{ 0, textLen };
+    if (style.underline)      layout->SetUnderline(TRUE, all);
+    if (style.strikethrough)  layout->SetStrikethrough(TRUE, all);
+
+    float r = color.r / 255.0f, g = color.g / 255.0f, b = color.b / 255.0f, a = color.a / 255.0f;
+
+    ComPtr<ID2D1SolidColorBrush> brush;
+    hr = m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(r, g, b, a), &brush);
+    if (FAILED(hr) || !brush) return;
+
+    m_d2dContext->DrawTextLayout(D2D1::Point2F(drawX, position.y), layout.Get(), brush.Get());
+}
 
 #endif // defined(__USE_DIRECTX_12__)

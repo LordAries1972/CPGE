@@ -143,7 +143,9 @@ private:
     ComPtr<ID3D11Texture2D> m_videoTexture;
     ComPtr<ID3D11Texture2D> m_videoRenderTexture;                                           // Additional texture for dual-texture system
     ComPtr<ID3D11ShaderResourceView> m_videoTextureView;
-    int m_videoTextureIndex;                                                                // Index in the renderer's texture array
+    int m_videoTextureIndex;                                                                // Index in the renderer's texture array (DX11 or DX12 D2D slot)
+    // DX12 uses a D2D bitmap slot allocated via DX12Renderer::CreateVideoD2DTexture.
+    // No separate member needed beyond m_videoTextureIndex (which stores the D2D slot index).
 
     // Video information
     UINT m_videoWidth;

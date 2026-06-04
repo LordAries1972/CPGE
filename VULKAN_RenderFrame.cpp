@@ -457,6 +457,7 @@ void VulkanRenderer::RenderFrame()
                     case SceneType::SCENE_GAMETITLE:
                         if (threadManager.threadVars.bLoaderTaskFinished.load())
                             myCamera.SetYawPitch(0.260f, -0.28f);
+                        fxManager.RenderLoadingText();
                         break;
                     case SceneType::SCENE_GAMEPLAY:
                         break;
@@ -565,9 +566,11 @@ void VulkanRenderer::RenderFrame()
                                              m_iPosX, 0, 32, 32);
                     }
                 }
-                // Loading text: continue rendering until graceful fade-outs complete
-                if (!threadManager.threadVars.bLoaderTaskFinished.load() ||
-                    fxManager.HasActiveLoadingTextEffects())
+                // Loading text: for SCENE_GAMETITLE it is rendered unconditionally above
+                // (matches DX11/OpenGL); for all other scenes use the conditional guard.
+                if (scene.stSceneType != SceneType::SCENE_GAMETITLE &&
+                    (!threadManager.threadVars.bLoaderTaskFinished.load() ||
+                     fxManager.HasActiveLoadingTextEffects()))
                 {
                     fxManager.RenderLoadingText();
                 }
@@ -580,15 +583,15 @@ void VulkanRenderer::RenderFrame()
                     try { fxManager.RenderFX(fxManager.tunnelID, cmd, myCamera.GetViewMatrix()); } catch (...) {}
                 }
 
-                // 3D starfield — for SCENE_GAMETITLE redirect into the bg overlay so stars composite
-                // BEFORE 3D models; for all other scenes render into the main overlay as normal.
-                // The RenderFX call stays at its original position in the frame loop to preserve
-                // timing relative to Render2D/Render() and avoid FX manager race conditions.
-                if (fxManager.starfieldID > 0)
+                // 3D starfield — only render when SCENE_GAMETITLE is fully loaded (matches DX11/OpenGL).
+                // Redirect into the bg overlay so stars composite BEFORE 3D models; fall back to the
+                // main overlay if the bg render target is unavailable.
+                // Never shown during the loader screen regardless of loading direction.
+                if (fxManager.starfieldID > 0 &&
+                    scene.stSceneType == SceneType::SCENE_GAMETITLE &&
+                    threadManager.threadVars.bLoaderTaskFinished.load())
                 {
-                    if (scene.stSceneType == SceneType::SCENE_GAMETITLE &&
-                        threadManager.threadVars.bLoaderTaskFinished.load() &&
-                        m_bgD2dRenderTarget)
+                    if (m_bgD2dRenderTarget)
                     {
                         m_bgD2dRenderTarget->BeginDraw();
                         m_bgD2dRenderTarget->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f));
@@ -733,7 +736,8 @@ void VulkanRenderer::RenderFrame()
             // matching the DX11 draw order where D2D writes to the backbuffer before 3D renders over it.
 #if defined(PLATFORM_WINDOWS)
             if (m_2dPipeline != VK_NULL_HANDLE && m_bgOverlayTexture.isValid &&
-                scene.stSceneType == SceneType::SCENE_GAMETITLE)
+                scene.stSceneType == SceneType::SCENE_GAMETITLE &&
+                threadManager.threadVars.bLoaderTaskFinished.load())
             {
                 vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_2dPipeline);
 

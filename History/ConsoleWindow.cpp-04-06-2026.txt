@@ -1,0 +1,405 @@
+#pragma once
+
+#define NOMINMAN
+
+#include "Includes.h"
+#include "ConsoleWindow.h"
+#include "GUIManager.h"
+#include "Renderer.h"
+#include "Color.h"
+#include "Vectors.h"
+#include "Debug.h"
+#include "ThreadManager.h"
+
+extern Debug         debug;
+extern ThreadManager threadManager;
+
+// Global instance — referenced as extern ConsoleWindow consoleWindow in consuming files.
+ConsoleWindow consoleWindow;
+
+// ---------------------------------------------------------------------------
+// CreateInGUIManager
+// ---------------------------------------------------------------------------
+// Creates the console as a proper GUIManager window and registers all rendering
+// and input callbacks.  The window starts hidden (isVisible = false).
+// Call once after GUIManager::Initialize(); Toggle() shows it thereafter.
+void ConsoleWindow::CreateInGUIManager(GUIManager& gm)
+{
+    m_guiMgr = &gm;
+
+    // Window uses an invisible background — RenderContent draws everything itself.
+    gm.CreateMyWindow("ConsoleWindow",
+                      GUIWindowType::Standard,
+                      Vector2(CONSOLE_WIN_X, CONSOLE_WIN_Y),
+                      Vector2(CONSOLE_WIN_W_MIN, 600.0f),   // placeholder; corrected first Render
+                      MyColor(0, 0, 0, 0),
+                      -1);
+
+    auto win = gm.GetWindow("ConsoleWindow");
+    if (!win) {
+        debug.LogError("ConsoleWindow::CreateInGUIManager - GUIManager window creation failed.");
+        return;
+    }
+
+    // Hide immediately; Toggle() makes it visible when needed.
+    win->isVisible = false;
+    m_guiWin = win;
+
+    // --- Wire all callbacks ---
+
+    win->onCustomRender = [this](Renderer* r) {
+        RenderContent(r);
+    };
+
+    win->onCustomMouseInput = [this](float x, float y) {
+        HandleScrollbarClick(x, y);
+    };
+
+    win->onCharInput = [this](wchar_t c) {
+        OnCharInput(c);
+    };
+
+    win->onBackspace = [this]() {
+        OnBackspace();
+    };
+
+    win->onEnter = [this]() {
+        OnEnter();
+    };
+
+    win->onMouseWheel = [this](int delta) {
+        OnMouseWheel(delta);
+    };
+}
+
+// ---------------------------------------------------------------------------
+// Toggle
+// ---------------------------------------------------------------------------
+void ConsoleWindow::Toggle()
+{
+    bIsVisible = !bIsVisible;
+
+    if (m_guiMgr) {
+        // When showing, immediately correct the GUIWindow bounds from the renderer
+        // so hit-testing is accurate on the very first input frame after Toggle().
+        // (RenderContent also updates bounds each render frame, but the first
+        //  HandleAllInput call may arrive before the first render if the user
+        //  clicks immediately after pressing F8.)
+        if (bIsVisible) {
+            if (auto win = m_guiWin.lock()) {
+                if (win->myRenderer) {
+                    Renderer* r = win->myRenderer;
+                    win->position = Vector2(CONSOLE_WIN_X, CONSOLE_WIN_Y);
+                    win->size.x   = std::clamp(static_cast<float>(r->iOrigWidth)  * CONSOLE_WIN_W_PCT,
+                                               CONSOLE_WIN_W_MIN, CONSOLE_WIN_W_MAX);
+                    win->size.y   = static_cast<float>(r->iOrigHeight) - CONSOLE_WIN_H_MARGIN;
+                }
+            }
+        }
+
+        m_guiMgr->SetWindowVisibility("ConsoleWindow", bIsVisible);
+        if (bIsVisible)
+            m_guiMgr->BringWindowToFront("ConsoleWindow");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AddLine  (thread-safe)
+// ---------------------------------------------------------------------------
+void ConsoleWindow::AddLine(const std::wstring& line, ConsoleLineColor type)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_buffer.push_back({line, type});
+    while (static_cast<int>(m_buffer.size()) > CONSOLE_MAX_LINES)
+        m_buffer.pop_front();
+    m_scrollOffset = 0;
+}
+
+// ---------------------------------------------------------------------------
+// Scroll
+// ---------------------------------------------------------------------------
+void ConsoleWindow::Scroll(int delta)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    const int totalLines = static_cast<int>(m_buffer.size());
+    const int maxOffset  = std::max(0, totalLines - m_visibleLines.load());
+    m_scrollOffset = std::clamp(m_scrollOffset + delta, 0, maxOffset);
+}
+
+// ---------------------------------------------------------------------------
+// Clear
+// ---------------------------------------------------------------------------
+void ConsoleWindow::Clear()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_buffer.clear();
+    m_scrollOffset = 0;
+}
+
+// ---------------------------------------------------------------------------
+// SetCommandCallback
+// ---------------------------------------------------------------------------
+void ConsoleWindow::SetCommandCallback(std::function<void(const std::wstring&)> cb)
+{
+    m_commandCallback = std::move(cb);
+}
+
+// ---------------------------------------------------------------------------
+// Private keyboard / wheel callbacks
+// ---------------------------------------------------------------------------
+void ConsoleWindow::OnCharInput(wchar_t c)
+{
+    if (!bIsVisible) return;
+    if (c >= 32 && c != 127)
+        m_cmdLine += c;
+}
+
+void ConsoleWindow::OnBackspace()
+{
+    if (!bIsVisible || m_cmdLine.empty()) return;
+    m_cmdLine.pop_back();
+}
+
+void ConsoleWindow::OnEnter()
+{
+    if (!bIsVisible || m_cmdLine.empty()) return;
+    AddLine(L"> " + m_cmdLine);
+    if (m_commandCallback)
+        m_commandCallback(m_cmdLine);
+    m_cmdLine.clear();
+}
+
+void ConsoleWindow::OnMouseWheel(int delta)
+{
+    if (!bIsVisible) return;
+    Scroll(delta > 0 ? 3 : -3);
+}
+
+// ---------------------------------------------------------------------------
+// HandleScrollbarClick  (onCustomMouseInput callback)
+// ---------------------------------------------------------------------------
+void ConsoleWindow::HandleScrollbarClick(float x, float y)
+{
+    if (!bIsVisible || m_sbH <= 0.0f || m_knobH <= 0.0f) return;
+
+    // X: expand hit area by 8px on each side so the narrow scrollbar is easy to grab.
+    constexpr float kXTolerance = 8.0f;
+    if (x < m_sbX - kXTolerance || x > m_sbX + CONSOLE_SCROLLBAR_W + kXTolerance) return;
+
+    // Y: accept only the knob (thumb) area so dragging behaves predictably.
+    constexpr float kYTolerance = 4.0f;
+    if (y < m_knobY - kYTolerance || y > m_knobY + m_knobH + kYTolerance) return;
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+    const int totalLines = static_cast<int>(m_buffer.size());
+    const int maxOffset  = std::max(0, totalLines - m_visibleLines.load());
+    if (maxOffset == 0) return;
+
+    // Map the click position within the track to a scroll offset.
+    // top of track = maxOffset (oldest lines); bottom = 0 (newest lines).
+    const float t  = 1.0f - (y - m_sbY) / m_sbH;
+    m_scrollOffset = std::clamp(static_cast<int>(t * static_cast<float>(maxOffset) + 0.5f), 0, maxOffset);
+}
+
+// ---------------------------------------------------------------------------
+// RenderContent  (onCustomRender callback)
+// ---------------------------------------------------------------------------
+// Draws the full console overlay — border, title bar, text area, scrollbar,
+// and command-line bar.  Also keeps the GUIWindow bounds up to date each
+// frame so focus and hit-testing always match what is visually drawn.
+void ConsoleWindow::RenderContent(Renderer* r)
+{
+    if (!bIsVisible || !r) return;
+    if (!r->bIsInitialized.load()) return;
+    if (threadManager.threadVars.bIsShuttingDown.load() ||
+        threadManager.threadVars.bIsResizing.load()) return;
+
+    // Font size scaled to screen height; ~10pt at 1080p, clamped to [8, 12].
+    // OpenGL uses GDI which renders ~10% wider than DWrite; a slightly smaller
+    // font (÷120 instead of ÷108) keeps lines from reaching the scrollbar.
+#if defined(__USE_OPENGL__)
+    const float fontSize   = std::clamp(static_cast<float>(r->iOrigHeight) / 120.0f, 7.0f, 10.0f);
+#else
+    const float fontSize   = std::clamp(static_cast<float>(r->iOrigHeight) / 108.0f, 8.0f, 12.0f);
+#endif
+    const float lineHeight = fontSize + 4.0f;
+
+    // Window geometry — computed from current screen size each frame.
+    const float winW     = std::clamp(static_cast<float>(r->iOrigWidth)  * CONSOLE_WIN_W_PCT,
+                                      CONSOLE_WIN_W_MIN, CONSOLE_WIN_W_MAX);
+    const float winH     = static_cast<float>(r->iOrigHeight) - CONSOLE_WIN_H_MARGIN;
+    const float winX     = CONSOLE_WIN_X;
+    const float winY     = CONSOLE_WIN_Y;
+    const float contentH  = winH - CONSOLE_TITLEBAR_H;
+    const float textAreaH = contentH - CONSOLE_CMDBAR_H - 1.0f;
+    const int   visibleLines = std::max(1, static_cast<int>((textAreaH - CONSOLE_PADDING * 2.0f) / lineHeight));
+    m_visibleLines.store(visibleLines);
+
+    // Keep the GUIWindow bounds in sync so hit-testing matches the visual draw.
+    if (auto win = m_guiWin.lock()) {
+        win->position = Vector2(winX, winY);
+        win->size     = Vector2(winW, winH);
+    }
+
+    // --- Outer border ---
+    r->DrawRectangle(Vector2(winX - 1.0f, winY - 1.0f),
+                     Vector2(winW + 2.0f, winH + 2.0f),
+                     MyColor(60, 140, 220, 230), true);
+
+    // --- Title bar ---
+    r->DrawRectangle(Vector2(winX, winY),
+                     Vector2(winW, CONSOLE_TITLEBAR_H),
+                     MyColor(20, 55, 100, 245), true);
+
+    const float tbTextY = winY + (CONSOLE_TITLEBAR_H - fontSize) * 0.5f - 1.0f;
+    r->DrawMyText(L"Console",
+                  Vector2(winX + 6.0f, tbTextY),
+                  MyColor(220, 235, 255, 255),
+                  fontSize);
+
+    r->DrawRectangle(Vector2(winX, winY + CONSOLE_TITLEBAR_H - 1.0f),
+                     Vector2(winW, 1.0f),
+                     MyColor(60, 120, 190, 255), true);
+
+    // --- Content area ---
+    const float contentX = winX;
+    const float contentY = winY + CONSOLE_TITLEBAR_H;
+    r->DrawRectangle(Vector2(contentX, contentY),
+                     Vector2(winW, contentH),
+                     MyColor(12, 18, 30, 218), true);
+
+    // --- Scrollbar slot ---
+    const float sbX = contentX + winW - CONSOLE_SCROLLBAR_W;
+
+    r->DrawRectangle(Vector2(sbX, contentY),
+                     Vector2(1.0f, textAreaH),
+                     MyColor(55, 110, 175, 255), true);
+
+    const float trackX = sbX + 1.0f;
+    const float trackY = contentY + 0.5f;
+    const float trackW = CONSOLE_SCROLLBAR_W - 1.0f;
+    const float trackH = textAreaH - 1.0f;
+
+    m_sbX = trackX;
+    m_sbY = trackY;
+    m_sbH = trackH;
+
+    r->DrawRectangle(Vector2(trackX, trackY),
+                     Vector2(trackW, trackH),
+                     MyColor(18, 35, 60, 255), true);
+
+    // --- Text lines and scrollbar thumb (under buffer lock) ---
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+
+        const int totalLines = static_cast<int>(m_buffer.size());
+        const int maxOffset  = std::max(0, totalLines - visibleLines);
+        m_scrollOffset       = std::clamp(m_scrollOffset, 0, maxOffset);
+
+        // Scrollbar thumb
+        if (totalLines > 0) {
+            const float fillRatio = std::min(1.0f,
+                static_cast<float>(visibleLines) / static_cast<float>(totalLines));
+            const float thumbH = std::max(8.0f, trackH * fillRatio);
+            const float thumbT = (maxOffset > 0)
+                ? (trackH - thumbH) * (1.0f - static_cast<float>(m_scrollOffset) /
+                                                static_cast<float>(maxOffset))
+                : trackH - thumbH;
+
+            r->DrawRectangle(Vector2(trackX + 1.0f, trackY + thumbT),
+                             Vector2(trackW - 2.0f, thumbH),
+                             MyColor(80, 150, 225, 255), true);
+
+            // Cache knob bounds for mouse hit-testing in HandleScrollbarClick.
+            m_knobY = trackY + thumbT;
+            m_knobH = thumbH;
+        } else {
+            m_knobY = trackY;
+            m_knobH = 0.0f;
+        }
+
+        // Determine which buffer lines are visible.
+        int endIdx   = std::clamp(totalLines - m_scrollOffset, 0, totalLines);
+        int startIdx = std::max(0, endIdx - visibleLines);
+
+        const float textAreaW = winW - CONSOLE_SCROLLBAR_W - CONSOLE_PADDING;
+        const int approxCPL = std::max(1, static_cast<int>(textAreaW / (fontSize * 0.60f)));
+
+        // Word-wrap buffer entries into flat display rows (no renderer text-measurement).
+        struct DisplayRow { std::wstring text; MyColor color; };
+        std::vector<DisplayRow> displayRows;
+        displayRows.reserve(static_cast<size_t>(visibleLines) * 2);
+
+        for (int i = startIdx; i < endIdx; ++i) {
+            const ConsoleLine& cl = m_buffer[i];
+            MyColor lineColor;
+            switch (cl.type) {
+            case ConsoleLineColor::Warning: lineColor = MyColor(255, 220,   0, 255); break;
+            case ConsoleLineColor::Error:   lineColor = MyColor(255, 140,   0, 255); break;
+            default:                        lineColor = MyColor(210, 210, 210, 255); break;
+            }
+
+            const std::wstring& src = cl.text;
+            if (src.empty() || static_cast<int>(src.size()) <= approxCPL) {
+                displayRows.push_back({src, lineColor});
+            } else {
+                std::wstring curRow;
+                int curLen = 0;
+                size_t pos = 0;
+                while (pos < src.size()) {
+                    size_t wEnd = src.find(L' ', pos);
+                    const bool lastWord = (wEnd == std::wstring::npos);
+                    if (lastWord) wEnd = src.size();
+                    const int wLen   = static_cast<int>(wEnd - pos);
+                    const int needed = wLen + (curLen > 0 ? 1 : 0);
+                    if (curLen + needed > approxCPL && curLen > 0) {
+                        displayRows.push_back({curRow, lineColor});
+                        curRow.clear();
+                        curLen = 0;
+                    }
+                    if (curLen > 0) { curRow += L' '; ++curLen; }
+                    curRow.append(src, pos, static_cast<size_t>(wLen));
+                    curLen += wLen;
+                    if (lastWord) break;
+                    pos = wEnd + 1;
+                }
+                if (!curRow.empty())
+                    displayRows.push_back({curRow, lineColor});
+            }
+        }
+
+        // Render display rows anchored to the bottom of the text area.
+        const int totalDR   = static_cast<int>(displayRows.size());
+        const int showStart = std::max(0, totalDR - visibleLines);
+        const int showCount = totalDR - showStart;
+        const float textStartY = contentY + CONSOLE_PADDING +
+                                 static_cast<float>(visibleLines - showCount) * lineHeight;
+
+        for (int i = 0; i < showCount; ++i) {
+            const DisplayRow& dr = displayRows[static_cast<size_t>(showStart + i)];
+            r->DrawMyText(dr.text,
+                          Vector2(contentX + CONSOLE_PADDING, textStartY + static_cast<float>(i) * lineHeight),
+                          Vector2(textAreaW, lineHeight),
+                          dr.color,
+                          fontSize);
+        }
+    }
+
+    // --- Command-line separator ---
+    const float cmdSepY = contentY + textAreaH;
+    r->DrawRectangle(Vector2(contentX, cmdSepY),
+                     Vector2(winW, 1.0f),
+                     MyColor(55, 110, 175, 255), true);
+
+    // --- Command-line bar ---
+    const float cmdBarY = cmdSepY + 1.0f;
+    r->DrawRectangle(Vector2(contentX, cmdBarY),
+                     Vector2(winW, CONSOLE_CMDBAR_H),
+                     MyColor(10, 15, 25, 230), true);
+
+    const float cmdTextY = cmdBarY + (CONSOLE_CMDBAR_H - fontSize) * 0.5f - 1.0f;
+    r->DrawMyText(L"> " + m_cmdLine + L"_",
+                  Vector2(contentX + CONSOLE_PADDING, cmdTextY),
+                  MyColor(160, 220, 160, 255),
+                  fontSize);
+}

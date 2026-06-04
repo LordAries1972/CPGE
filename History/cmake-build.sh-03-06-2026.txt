@@ -62,15 +62,26 @@ if [[ "${ARG1,,}" == "all" ]]; then
     ALL_FAIL_COUNT=0
     ALL_PASS_LIST=""
     ALL_FAIL_LIST=""
+    IS_FIRST_BUILD=1
 
     for renderer in opengl vulkan; do
         echo ""
         echo "  ---- Building ${renderer} ${ALL_CONFIG} ----"
-        if "${BASH_SOURCE[0]}" "${renderer}" "${ALL_CONFIG}"; then
-            ALL_PASS_LIST="${ALL_PASS_LIST} ${renderer}"
+        if [[ "${IS_FIRST_BUILD}" == "1" ]]; then
+            if "${BASH_SOURCE[0]}" "${renderer}" "${ALL_CONFIG}"; then
+                ALL_PASS_LIST="${ALL_PASS_LIST} ${renderer}"
+            else
+                ALL_FAIL_COUNT=$((ALL_FAIL_COUNT + 1))
+                ALL_FAIL_LIST="${ALL_FAIL_LIST} ${renderer}"
+            fi
+            IS_FIRST_BUILD=0
         else
-            ALL_FAIL_COUNT=$((ALL_FAIL_COUNT + 1))
-            ALL_FAIL_LIST="${ALL_FAIL_LIST} ${renderer}"
+            if SKIP_VERSION_INCREMENT=1 "${BASH_SOURCE[0]}" "${renderer}" "${ALL_CONFIG}"; then
+                ALL_PASS_LIST="${ALL_PASS_LIST} ${renderer}"
+            else
+                ALL_FAIL_COUNT=$((ALL_FAIL_COUNT + 1))
+                ALL_FAIL_LIST="${ALL_FAIL_LIST} ${renderer}"
+            fi
         fi
     done
 

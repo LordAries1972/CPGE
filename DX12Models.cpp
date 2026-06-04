@@ -1,0 +1,644 @@
+#define NOMINMAX
+#include "Includes.h"
+
+#if defined(__USE_DIRECTX_12__)
+#if defined(_WIN32) || defined(_WIN64)
+
+// DX12 Models implementation.
+// All GPU resources (vertex/index/constant buffers, textures) are created via the
+// DX11-on-12 compatibility device (ID3D11Device from DX12Renderer::GetDX11CompatDevice()).
+// This allows the same DX11-style API used in Models.cpp to run on top of DX12.
+// Model::Render() receives the dx11Dx12Compat.dx11Context as deviceContext from
+// DX12RenderFrame::RenderGamePlay(), so all draw calls are automatically translated to
+// DX12 commands by the 11on12 translation layer.
+
+#include "Models.h"
+#include "ConstantBuffer.h"
+#include "DX12Renderer.h"
+#include "DX12Models.h"
+#include "Debug.h"
+#include "WinSystem.h"
+#include "ThreadManager.h"
+#include "ShaderManager.h"
+#include "ThreadLockHelper.h"
+#include "Configuration.h"
+#include "ExceptionHandler.h"
+#include <d3d11.h>
+#include <wincodec.h>
+#include <d3dcompiler.h>
+
+#pragma comment(lib, "d3dcompiler.lib")
+#pragma comment(lib, "windowscodecs.lib")
+
+using namespace DirectX;
+
+// Helper: align to 16 bytes (required for DX11 constant buffers)
+static inline UINT Align16DX12(UINT value) { return (value + 15u) & ~15u; }
+
+extern std::shared_ptr<Renderer> renderer;
+extern Model models[MAX_MODELS];
+extern Debug debug;
+extern ThreadManager threadManager;
+extern ShaderManager shaderManager;
+extern Configuration config;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Internal helper: get the DX11-on-12 device from the active DX12 renderer.
+// ─────────────────────────────────────────────────────────────────────────────
+static ID3D11Device* GetDX12CompatDevice()
+{
+    auto dx12 = std::dynamic_pointer_cast<DX12Renderer>(renderer);
+    if (!dx12) return nullptr;
+    auto dev = dx12->GetDX11CompatDevice();
+    return dev.Detach();   // caller must Release(); used only with raw new refs below
+}
+
+static ComPtr<ID3D11Device> GetDX12CompatDeviceComPtr()
+{
+    auto dx12 = std::dynamic_pointer_cast<DX12Renderer>(renderer);
+    if (!dx12) return nullptr;
+    return dx12->GetDX11CompatDevice();
+}
+
+static ComPtr<ID3D11DeviceContext> GetDX12CompatContext()
+{
+    auto dx12 = std::dynamic_pointer_cast<DX12Renderer>(renderer);
+    if (!dx12) return nullptr;
+    return dx12->GetDX11CompatContext();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Texture::LoadFromFile — DX12 path (uses DX11-on-12 device)
+// ─────────────────────────────────────────────────────────────────────────────
+bool Texture::LoadFromFile(const std::wstring& path)
+{
+    texturePath = path;
+
+    ComPtr<ID3D11Device> device = GetDX12CompatDeviceComPtr();
+    if (!device) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[DX12 Texture] No DX11-on-12 device available for texture load");
+        return false;
+    }
+
+    if (textureSRV) { textureSRV->Release(); textureSRV = nullptr; }
+
+    if (!std::filesystem::exists(path)) {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[DX12 Texture] File does not exist: " + path);
+        return false;
+    }
+
+    IWICImagingFactory* wicFactory = nullptr;
+    IWICBitmapDecoder* decoder = nullptr;
+    IWICBitmapFrameDecode* frame = nullptr;
+    IWICFormatConverter* converter = nullptr;
+
+    HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wicFactory));
+    if (FAILED(hr) || !wicFactory) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 Texture] CoCreateInstance(WICImagingFactory) failed. HRESULT: 0x%08X", hr);
+        return false;
+    }
+
+    hr = wicFactory->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnLoad, &decoder);
+    if (FAILED(hr) || !decoder) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 Texture] WIC decode failed. HRESULT: 0x%08X", hr);
+        wicFactory->Release(); return false;
+    }
+
+    hr = decoder->GetFrame(0, &frame);
+    if (FAILED(hr) || !frame) {
+        decoder->Release(); wicFactory->Release(); return false;
+    }
+
+    hr = wicFactory->CreateFormatConverter(&converter);
+    if (FAILED(hr) || !converter) {
+        frame->Release(); decoder->Release(); wicFactory->Release(); return false;
+    }
+
+    hr = converter->Initialize(frame, GUID_WICPixelFormat32bppBGRA, WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom);
+    if (FAILED(hr)) {
+        converter->Release(); frame->Release(); decoder->Release(); wicFactory->Release(); return false;
+    }
+
+    UINT width = 0, height = 0;
+    converter->GetSize(&width, &height);
+    if (width == 0 || height == 0) {
+        converter->Release(); frame->Release(); decoder->Release(); wicFactory->Release(); return false;
+    }
+
+    std::vector<BYTE> pixels(static_cast<size_t>(width) * height * 4);
+    hr = converter->CopyPixels(nullptr, width * 4, static_cast<UINT>(pixels.size()), pixels.data());
+    converter->Release(); frame->Release(); decoder->Release(); wicFactory->Release();
+    if (FAILED(hr)) return false;
+
+    D3D11_TEXTURE2D_DESC desc = {};
+    desc.Width = width; desc.Height = height;
+    desc.MipLevels = 1; desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_IMMUTABLE;
+    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+    D3D11_SUBRESOURCE_DATA initData = { pixels.data(), width * 4 };
+    ID3D11Texture2D* tex = nullptr;
+    hr = device->CreateTexture2D(&desc, &initData, &tex);
+    if (FAILED(hr) || !tex) { debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 Texture] CreateTexture2D failed 0x%08X", hr); return false; }
+
+    hr = device->CreateShaderResourceView(tex, nullptr, &textureSRV);
+    tex->Release();
+    if (FAILED(hr) || !textureSRV) { debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 Texture] CreateSRV failed 0x%08X", hr); return false; }
+
+#if defined(_DEBUG_MODEL_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[DX12 Texture] Loaded: " + path);
+#endif
+    return true;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Texture::LoadFromMemory — DX12 path
+// ─────────────────────────────────────────────────────────────────────────────
+bool Texture::LoadFromMemory(const uint8_t* data, size_t size)
+{
+    if (!data || size == 0) return false;
+
+    ComPtr<ID3D11Device> device = GetDX12CompatDeviceComPtr();
+    if (!device) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[DX12 Texture] No device for LoadFromMemory");
+        return false;
+    }
+
+    if (textureSRV) { textureSRV->Release(); textureSRV = nullptr; }
+
+    IWICImagingFactory* wicFactory = nullptr;
+    IWICStream* stream = nullptr;
+    IWICBitmapDecoder* decoder = nullptr;
+    IWICBitmapFrameDecode* frame = nullptr;
+    IWICFormatConverter* converter = nullptr;
+
+    HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wicFactory));
+    if (FAILED(hr) || !wicFactory) return false;
+
+    hr = wicFactory->CreateStream(&stream);
+    if (FAILED(hr) || !stream) { wicFactory->Release(); return false; }
+
+    hr = stream->InitializeFromMemory(const_cast<BYTE*>(data), static_cast<DWORD>(size));
+    if (FAILED(hr)) { stream->Release(); wicFactory->Release(); return false; }
+
+    hr = wicFactory->CreateDecoderFromStream(stream, nullptr, WICDecodeMetadataCacheOnLoad, &decoder);
+    if (FAILED(hr) || !decoder) { stream->Release(); wicFactory->Release(); return false; }
+
+    hr = decoder->GetFrame(0, &frame);
+    if (FAILED(hr) || !frame) { decoder->Release(); stream->Release(); wicFactory->Release(); return false; }
+
+    hr = wicFactory->CreateFormatConverter(&converter);
+    if (FAILED(hr) || !converter) { frame->Release(); decoder->Release(); stream->Release(); wicFactory->Release(); return false; }
+
+    hr = converter->Initialize(frame, GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom);
+    if (FAILED(hr)) { converter->Release(); frame->Release(); decoder->Release(); stream->Release(); wicFactory->Release(); return false; }
+
+    UINT width = 0, height = 0;
+    converter->GetSize(&width, &height);
+    if (width == 0 || height == 0) {
+        converter->Release(); frame->Release(); decoder->Release(); stream->Release(); wicFactory->Release();
+        return false;
+    }
+
+    std::vector<uint8_t> pixels(static_cast<size_t>(width) * height * 4);
+    hr = converter->CopyPixels(nullptr, width * 4, static_cast<UINT>(pixels.size()), pixels.data());
+    converter->Release(); frame->Release(); decoder->Release(); stream->Release(); wicFactory->Release();
+    if (FAILED(hr)) return false;
+
+    D3D11_TEXTURE2D_DESC desc = {};
+    desc.Width = width; desc.Height = height;
+    desc.MipLevels = 1; desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_IMMUTABLE;
+    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+    D3D11_SUBRESOURCE_DATA initData = { pixels.data(), width * 4 };
+    ID3D11Texture2D* tex = nullptr;
+    hr = device->CreateTexture2D(&desc, &initData, &tex);
+    if (FAILED(hr) || !tex) return false;
+
+    hr = device->CreateShaderResourceView(tex, nullptr, &textureSRV);
+    tex->Release();
+    return SUCCEEDED(hr) && textureSRV != nullptr;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Texture::CreateSolidColorTexture — DX12 path
+// ─────────────────────────────────────────────────────────────────────────────
+bool Texture::CreateSolidColorTexture(uint32_t width, uint32_t height, const XMFLOAT4& color)
+{
+    if (width == 0 || height == 0) return false;
+
+    ComPtr<ID3D11Device> device = GetDX12CompatDeviceComPtr();
+    if (!device) return false;
+
+    if (textureSRV) { textureSRV->Release(); textureSRV = nullptr; }
+
+    std::vector<uint8_t> textureData(static_cast<size_t>(width) * height * 4);
+    const uint8_t r = static_cast<uint8_t>(std::clamp(color.x, 0.0f, 1.0f) * 255.0f);
+    const uint8_t g = static_cast<uint8_t>(std::clamp(color.y, 0.0f, 1.0f) * 255.0f);
+    const uint8_t b = static_cast<uint8_t>(std::clamp(color.z, 0.0f, 1.0f) * 255.0f);
+    const uint8_t a = static_cast<uint8_t>(std::clamp(color.w, 0.0f, 1.0f) * 255.0f);
+    for (size_t i = 0; i < static_cast<size_t>(width) * height; ++i) {
+        textureData[i*4+0] = r; textureData[i*4+1] = g;
+        textureData[i*4+2] = b; textureData[i*4+3] = a;
+    }
+
+    D3D11_TEXTURE2D_DESC texDesc = {};
+    texDesc.Width = width; texDesc.Height = height;
+    texDesc.MipLevels = 1; texDesc.ArraySize = 1;
+    texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    texDesc.SampleDesc.Count = 1;
+    texDesc.Usage = D3D11_USAGE_IMMUTABLE;
+    texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+    D3D11_SUBRESOURCE_DATA initData = { textureData.data(), width * 4 };
+    ID3D11Texture2D* texture2D = nullptr;
+    HRESULT hr = device->CreateTexture2D(&texDesc, &initData, &texture2D);
+    if (FAILED(hr) || !texture2D) return false;
+
+    hr = device->CreateShaderResourceView(texture2D, nullptr, &textureSRV);
+    texture2D->Release();
+    return SUCCEEDED(hr) && textureSRV != nullptr;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model::UpdateConstantBuffer — DX12 path (uses DX11-on-12 context)
+// ─────────────────────────────────────────────────────────────────────────────
+void Model::UpdateConstantBuffer()
+{
+    if (!m_isLoaded || !m_modelInfo.constantBuffer) return;
+
+    auto dx12 = std::dynamic_pointer_cast<DX12Renderer>(renderer);
+    if (!dx12) return;
+    ComPtr<ID3D11DeviceContext> deviceContext = dx12->GetDX11CompatContext();
+    if (!deviceContext) return;
+
+    ConstantBuffer cb = {};
+    m_modelInfo.cameraPosition = dx12->myCamera.GetPosition();
+    cb.worldMatrix      = XMMatrixTranspose(m_modelInfo.worldMatrix);
+    cb.viewMatrix       = XMMatrixTranspose(m_modelInfo.viewMatrix);
+    cb.projectionMatrix = XMMatrixTranspose(m_modelInfo.projectionMatrix);
+    cb.cameraPosition   = m_modelInfo.cameraPosition;
+    cb.modelScale       = m_modelInfo.scale;
+
+    D3D11_MAPPED_SUBRESOURCE mappedResource = {};
+    HRESULT hr = deviceContext->Map(m_modelInfo.constantBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
+    if (SUCCEEDED(hr)) {
+        memcpy(mappedResource.pData, &cb, sizeof(ConstantBuffer));
+        deviceContext->Unmap(m_modelInfo.constantBuffer.Get(), 0);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model::UpdateModelLighting — DX12 path
+// ─────────────────────────────────────────────────────────────────────────────
+void Model::UpdateModelLighting()
+{
+    if (!m_modelInfo.lightConstantBuffer) return;
+
+    auto dx12 = std::dynamic_pointer_cast<DX12Renderer>(renderer);
+    if (!dx12) return;
+    ComPtr<ID3D11DeviceContext> context = dx12->GetDX11CompatContext();
+    if (!context) return;
+
+    LightBuffer buffer = {};
+    int maxLights = std::min(static_cast<int>(m_modelInfo.localLights.size()), MAX_MODEL_LIGHTS);
+    buffer.numLights = maxLights;
+    for (int i = 0; i < maxLights; ++i)
+        buffer.lights[i] = m_modelInfo.localLights[i];
+
+    const UINT kExpectedLightCBSizeBytes = 1728;
+    const UINT lightStructSizeBytes = static_cast<UINT>(sizeof(LightBuffer));
+    const UINT finalLightCBSizeBytes = (lightStructSizeBytes > kExpectedLightCBSizeBytes) ? lightStructSizeBytes : kExpectedLightCBSizeBytes;
+
+    D3D11_MAPPED_SUBRESOURCE mappedLight = {};
+    HRESULT hr = context->Map(m_modelInfo.lightConstantBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedLight);
+    if (SUCCEEDED(hr)) {
+        memset(mappedLight.pData, 0, finalLightCBSizeBytes);
+        memcpy(mappedLight.pData, &buffer, sizeof(LightBuffer));
+        context->Unmap(m_modelInfo.lightConstantBuffer.Get(), 0);
+        context->PSSetConstantBuffers(SLOT_LIGHT_BUFFER, 1, m_modelInfo.lightConstantBuffer.GetAddressOf());
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model::UpdateEnvironmentBuffer — DX12 path
+// ─────────────────────────────────────────────────────────────────────────────
+void Model::UpdateEnvironmentBuffer()
+{
+    auto dx12 = std::dynamic_pointer_cast<DX12Renderer>(renderer);
+    if (!dx12) return;
+    ComPtr<ID3D11DeviceContext> context = dx12->GetDX11CompatContext();
+    if (!context || !m_modelInfo.environmentBuffer) return;
+
+    EnvBufferGPU envData = {};
+    envData.envIntensity = m_modelInfo.envIntensity;
+    envData.envTint      = m_modelInfo.envTint;
+    envData.mipLODBias   = m_modelInfo.mipLODBias;
+    envData.fresnel0     = m_modelInfo.fresnel0;
+
+    D3D11_MAPPED_SUBRESOURCE mappedResource;
+    HRESULT hr = context->Map(m_modelInfo.environmentBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
+    if (SUCCEEDED(hr)) {
+        memcpy(mappedResource.pData, &envData, sizeof(EnvBufferGPU));
+        context->Unmap(m_modelInfo.environmentBuffer.Get(), 0);
+        context->PSSetConstantBuffers(SLOT_ENVIRONMENT_BUFFER, 1, m_modelInfo.environmentBuffer.GetAddressOf());
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model::SetupModelForRendering — DX12 path (uses DX11-on-12 device)
+// ─────────────────────────────────────────────────────────────────────────────
+bool Model::SetupModelForRendering()
+{
+    bool expected = false;
+    if (!bIsSettingUpModel.compare_exchange_strong(expected, true))
+        return false;
+
+    struct SetupGuard {
+        std::atomic<bool>* flag;
+        SetupGuard(std::atomic<bool>* f) : flag(f) {}
+        ~SetupGuard() { flag->store(false); }
+    } guard(&bIsSettingUpModel);
+
+    auto dx12 = std::dynamic_pointer_cast<DX12Renderer>(renderer);
+    if (!dx12 || !dx12->IsDX11CompatibilityAvailable()) {
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"[DX12 Model] 11on12 device not available for model ID: %d", m_modelInfo.ID);
+        return false;
+    }
+    ComPtr<ID3D11Device> device = dx12->GetDX11CompatDevice();
+    if (!device) {
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"[DX12 Model] GetDX11CompatDevice() returned null for model ID: %d", m_modelInfo.ID);
+        return false;
+    }
+
+    // Fallback textures
+    {
+        std::string lockName = "model_texture_update_" + std::to_string(m_modelInfo.ID);
+        ThreadLockHelper lock(threadManager, lockName.c_str(), 5000);
+        if (m_modelInfo.textureSRVs.empty())   LoadFallbackTexture();
+        if (m_modelInfo.normalMapSRVs.empty()) LoadFallbackNormalMap();
+    }
+
+    //=== VERTEX BUFFER ===//
+    if (m_modelInfo.vertices.empty()) {
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"[DX12 Model] No vertices for model ID: %d", m_modelInfo.ID);
+        return false;
+    }
+    D3D11_BUFFER_DESC vbDesc = {};
+    vbDesc.ByteWidth  = static_cast<UINT>(m_modelInfo.vertices.size() * sizeof(Vertex));
+    vbDesc.Usage      = D3D11_USAGE_IMMUTABLE;
+    vbDesc.BindFlags  = D3D11_BIND_VERTEX_BUFFER;
+    D3D11_SUBRESOURCE_DATA vbData = { m_modelInfo.vertices.data() };
+    if (FAILED(device->CreateBuffer(&vbDesc, &vbData, &m_modelInfo.vertexBuffer))) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 Model] Failed to create vertex buffer ID: %d", m_modelInfo.ID);
+        return false;
+    }
+
+    //=== INDEX BUFFER ===//
+    D3D11_BUFFER_DESC ibDesc = {};
+    ibDesc.ByteWidth = static_cast<UINT>(m_modelInfo.indices.size() * sizeof(uint32_t));
+    ibDesc.Usage     = D3D11_USAGE_IMMUTABLE;
+    ibDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+    D3D11_SUBRESOURCE_DATA ibData = { m_modelInfo.indices.data() };
+    if (FAILED(device->CreateBuffer(&ibDesc, &ibData, &m_modelInfo.indexBuffer))) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 Model] Failed to create index buffer ID: %d", m_modelInfo.ID);
+        return false;
+    }
+
+    //=== CONSTANT BUFFER ===//
+    D3D11_BUFFER_DESC cbDesc = {};
+    cbDesc.ByteWidth      = Align16DX12(static_cast<UINT>(sizeof(ConstantBuffer)));
+    cbDesc.Usage          = D3D11_USAGE_DYNAMIC;
+    cbDesc.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
+    cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    if (FAILED(device->CreateBuffer(&cbDesc, nullptr, &m_modelInfo.constantBuffer))) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 Model] Failed to create constant buffer ID: %d", m_modelInfo.ID);
+        return false;
+    }
+
+    //=== LIGHT CONSTANT BUFFER ===//
+    const UINT kExpectedLightCBSizeBytes = 1728;
+    const UINT lightStructSizeBytes = static_cast<UINT>(sizeof(LightBuffer));
+    const UINT finalLightCBSizeBytes = Align16DX12((lightStructSizeBytes > kExpectedLightCBSizeBytes) ? lightStructSizeBytes : kExpectedLightCBSizeBytes);
+    D3D11_BUFFER_DESC lightDesc = {};
+    lightDesc.ByteWidth      = finalLightCBSizeBytes;
+    lightDesc.Usage          = D3D11_USAGE_DYNAMIC;
+    lightDesc.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
+    lightDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    if (FAILED(device->CreateBuffer(&lightDesc, nullptr, &m_modelInfo.lightConstantBuffer))) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 Model] Failed to create light buffer ID: %d", m_modelInfo.ID);
+        return false;
+    }
+
+    //=== MATERIAL BUFFER ===//
+    D3D11_BUFFER_DESC matDesc = {};
+    matDesc.ByteWidth      = Align16DX12(static_cast<UINT>(sizeof(MaterialGPU)));
+    matDesc.Usage          = D3D11_USAGE_DYNAMIC;
+    matDesc.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
+    matDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    if (FAILED(device->CreateBuffer(&matDesc, nullptr, m_modelInfo.materialBuffer.GetAddressOf()))) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 Model] Failed to create material buffer ID: %d", m_modelInfo.ID);
+        return false;
+    }
+
+    //=== DEBUG CONSTANT BUFFER (b2) ===//
+    DebugBuffer dbg = {};
+    dbg.debugMode = 0;
+    D3D11_BUFFER_DESC dbgDesc = {};
+    dbgDesc.ByteWidth      = Align16DX12(static_cast<UINT>(sizeof(DebugBuffer)));
+    dbgDesc.Usage          = D3D11_USAGE_DEFAULT;
+    dbgDesc.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
+    dbgDesc.CPUAccessFlags = 0;
+    D3D11_SUBRESOURCE_DATA dbgData = { &dbg };
+    if (FAILED(device->CreateBuffer(&dbgDesc, &dbgData, m_modelInfo.debugConstantBuffer.GetAddressOf()))) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 Model] Failed to create debug buffer ID: %d", m_modelInfo.ID);
+        return false;
+    }
+
+    //=== SAMPLER ===//
+    D3D11_SAMPLER_DESC sampDesc = {};
+    sampDesc.Filter         = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+    sampDesc.AddressU       = D3D11_TEXTURE_ADDRESS_WRAP;
+    sampDesc.AddressV       = D3D11_TEXTURE_ADDRESS_WRAP;
+    sampDesc.AddressW       = D3D11_TEXTURE_ADDRESS_WRAP;
+    sampDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+    sampDesc.MinLOD         = 0;
+    sampDesc.MaxLOD         = D3D11_FLOAT32_MAX;
+    if (FAILED(device->CreateSamplerState(&sampDesc, &m_modelInfo.samplerState))) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 Model] Failed to create sampler state ID: %d", m_modelInfo.ID);
+        return false;
+    }
+
+    if (!SetupPBRResources())
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"[DX12 Model] PBR setup failed for model ID: %d (non-fatal)", m_modelInfo.ID);
+
+    return true;
+}
+
+// SetupModelForRendering(int) overload — delegates to the no-arg version
+bool Model::SetupModelForRendering(int ID)
+{
+    bool result = SetupModelForRendering();
+#if defined(_DEBUG_MODEL_) || defined(_DEBUG_SCENEMANAGER_)
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"[DX12 Model] SetupModelForRendering(ID=%d) result=%s", ID, result ? L"OK" : L"FAIL");
+#endif
+    return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model::SetupPBRResources — DX12 path
+// ─────────────────────────────────────────────────────────────────────────────
+bool Model::SetupPBRResources()
+{
+    auto dx12 = std::dynamic_pointer_cast<DX12Renderer>(renderer);
+    if (!dx12) return false;
+    ComPtr<ID3D11Device> device = dx12->GetDX11CompatDevice();
+    if (!device) return false;
+
+    // Environment constant buffer
+    if (!m_modelInfo.environmentBuffer) {
+        D3D11_BUFFER_DESC envDesc = {};
+        envDesc.ByteWidth      = Align16DX12(static_cast<UINT>(sizeof(EnvBufferGPU)));
+        envDesc.Usage          = D3D11_USAGE_DYNAMIC;
+        envDesc.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
+        envDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        if (FAILED(device->CreateBuffer(&envDesc, nullptr, m_modelInfo.environmentBuffer.GetAddressOf())))
+            return false;
+    }
+
+    // Environment sampler
+    if (!m_modelInfo.environmentSamplerState) {
+        D3D11_SAMPLER_DESC envSamplerDesc = {};
+        envSamplerDesc.Filter         = D3D11_FILTER_ANISOTROPIC;
+        envSamplerDesc.AddressU       = D3D11_TEXTURE_ADDRESS_WRAP;
+        envSamplerDesc.AddressV       = D3D11_TEXTURE_ADDRESS_WRAP;
+        envSamplerDesc.AddressW       = D3D11_TEXTURE_ADDRESS_WRAP;
+        envSamplerDesc.MaxAnisotropy  = 16;
+        envSamplerDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+        envSamplerDesc.MaxLOD         = D3D11_FLOAT32_MAX;
+        if (FAILED(device->CreateSamplerState(&envSamplerDesc, &m_modelInfo.environmentSamplerState)))
+            return false;
+    }
+
+    SetEnvironmentProperties(1.0f, XMFLOAT3(1.0f, 1.0f, 1.0f), 0.0f, 0.04f);
+    return true;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model::Render(ID3D11DeviceContext*, float) — DX12 path
+// The deviceContext here is the DX11-on-12 compatibility context (passed from
+// DX12RenderFrame::RenderGamePlay). DX11 draw calls on this context are
+// automatically translated to DX12 GPU commands by the 11on12 device.
+// ─────────────────────────────────────────────────────────────────────────────
+void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
+{
+    if (!deviceContext || !threadManager.threadVars.bLoaderTaskFinished.load()) return;
+    if (!m_isLoaded || bIsDestroyed) return;
+    if (m_modelInfo.bIsTransformOnly || m_modelInfo.bIsTransformProxy) return;
+    if (!m_modelInfo.vertexBuffer || !m_modelInfo.indexBuffer || !m_modelInfo.constantBuffer) return;
+
+    // Update world-view-proj constant buffer
+    UpdateConstantBuffer();
+
+    // Bind shaders via ShaderManager
+    bool shaderBound = shaderManager.UseShaderProgram("ModelProgram");
+    if (!shaderBound)
+        shaderBound = shaderManager.UseShaderProgram("GameplayModelProgram");
+    if (!shaderBound) return;
+
+    // Vertex/index/topology
+    UINT stride = sizeof(Vertex), offset = 0;
+    deviceContext->IASetVertexBuffers(0, 1, m_modelInfo.vertexBuffer.GetAddressOf(), &stride, &offset);
+    deviceContext->IASetIndexBuffer(m_modelInfo.indexBuffer.Get(), DXGI_FORMAT_R32_UINT, 0);
+    deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    // Constant buffer
+    deviceContext->VSSetConstantBuffers(SLOT_CONST_BUFFER, 1, m_modelInfo.constantBuffer.GetAddressOf());
+    deviceContext->PSSetConstantBuffers(SLOT_CONST_BUFFER, 1, m_modelInfo.constantBuffer.GetAddressOf());
+
+    // Material buffer (b4)
+    if (m_modelInfo.materialBuffer) {
+        D3D11_MAPPED_SUBRESOURCE mappedResource = {};
+        HRESULT hr = deviceContext->Map(m_modelInfo.materialBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
+        if (SUCCEEDED(hr)) {
+            MaterialGPU* matGPU = reinterpret_cast<MaterialGPU*>(mappedResource.pData);
+            memset(matGPU, 0, sizeof(MaterialGPU));
+
+            const Material* mat = nullptr;
+            if (!m_materials.empty()) mat = &(m_materials.begin()->second);
+
+            if (mat) {
+                matGPU->Ka = mat->Ka; matGPU->Kd = mat->Kd; matGPU->Ks = mat->Ks;
+                matGPU->Ns = mat->Ns; matGPU->Metallic = mat->Metallic;
+                matGPU->Roughness = mat->Roughness; matGPU->ReflectionStrength = mat->Reflection;
+                matGPU->EmissiveFactor = mat->emissiveFactor; matGPU->EmissiveStrength = mat->emissiveStrength;
+                matGPU->NormalScale = mat->normalScale;
+            } else {
+                matGPU->Ka = XMFLOAT3(0.1f, 0.1f, 0.1f);
+                matGPU->Kd = XMFLOAT3(0.8f, 0.8f, 0.8f);
+                matGPU->Ks = XMFLOAT3(1.0f, 1.0f, 1.0f);
+                matGPU->Ns = 16.0f; matGPU->Metallic = m_modelInfo.metallic;
+                matGPU->Roughness = m_modelInfo.roughness;
+                matGPU->ReflectionStrength = m_modelInfo.reflectionStrength;
+            }
+
+            if ((matGPU->Ka.x <= 0.0001f) && (matGPU->Ka.y <= 0.0001f) && (matGPU->Ka.z <= 0.0001f)) {
+                matGPU->Ka = XMFLOAT3(matGPU->Kd.x * 0.15f, matGPU->Kd.y * 0.15f, matGPU->Kd.z * 0.15f);
+            }
+            matGPU->useMetallicMap   = (m_modelInfo.metallicMapSRV   != nullptr) ? 1.0f : 0.0f;
+            matGPU->useRoughnessMap  = (m_modelInfo.roughnessMapSRV  != nullptr) ? 1.0f : 0.0f;
+            matGPU->useAOMap         = (m_modelInfo.aoMapSRV         != nullptr) ? 1.0f : 0.0f;
+            matGPU->useEnvMap        = (m_modelInfo.environmentMapSRV != nullptr) ? 1.0f : 0.0f;
+
+            deviceContext->Unmap(m_modelInfo.materialBuffer.Get(), 0);
+            deviceContext->PSSetConstantBuffers(SLOT_MATERIAL_BUFFER, 1, m_modelInfo.materialBuffer.GetAddressOf());
+        }
+    }
+
+    // Debug buffer (b2)
+    if (m_modelInfo.debugConstantBuffer)
+        deviceContext->PSSetConstantBuffers(SLOT_DEBUG_BUFFER, 1, m_modelInfo.debugConstantBuffer.GetAddressOf());
+
+    // Environment buffer (b5)
+    UpdateEnvironmentBuffer();
+
+    // Texture SRVs
+    {
+        std::string lockName = "model_texture_update_" + std::to_string(m_modelInfo.ID);
+        ThreadLockHelper lock(threadManager, lockName.c_str(), 5000);
+
+        if (m_modelInfo.textureSRVs.empty())   LoadFallbackTexture();
+        if (m_modelInfo.normalMapSRVs.empty()) LoadFallbackNormalMap();
+
+        ID3D11ShaderResourceView* texSRV    = m_modelInfo.textureSRVs.empty()    ? nullptr : m_modelInfo.textureSRVs[0].Get();
+        ID3D11ShaderResourceView* normSRV   = m_modelInfo.normalMapSRVs.empty()  ? nullptr : m_modelInfo.normalMapSRVs[0].Get();
+        ID3D11ShaderResourceView* metalSRV  = m_modelInfo.metallicMapSRV   ? m_modelInfo.metallicMapSRV.Get()    : nullptr;
+        ID3D11ShaderResourceView* roughSRV  = m_modelInfo.roughnessMapSRV  ? m_modelInfo.roughnessMapSRV.Get()   : nullptr;
+        ID3D11ShaderResourceView* aoSRV     = m_modelInfo.aoMapSRV         ? m_modelInfo.aoMapSRV.Get()          : nullptr;
+        ID3D11ShaderResourceView* envSRV    = m_modelInfo.environmentMapSRV ? m_modelInfo.environmentMapSRV.Get() : nullptr;
+
+        if (texSRV)   deviceContext->PSSetShaderResources(SLOT_diffuseTexture,  1, &texSRV);
+        if (normSRV)  deviceContext->PSSetShaderResources(SLOT_normalMap,       1, &normSRV);
+        if (metalSRV) deviceContext->PSSetShaderResources(SLOT_metallicMap,     1, &metalSRV);
+        if (roughSRV) deviceContext->PSSetShaderResources(SLOT_roughnessMap,    1, &roughSRV);
+        if (aoSRV)    deviceContext->PSSetShaderResources(SLOT_aoMap,           1, &aoSRV);
+        if (envSRV)   deviceContext->PSSetShaderResources(SLOT_environmentMap,  1, &envSRV);
+
+        deviceContext->PSSetSamplers(SLOT_SAMPLER_STATE,        1, m_modelInfo.samplerState.GetAddressOf());
+        deviceContext->PSSetSamplers(SLOT_ENVIRO_SAMPLER_STATE, 1, m_modelInfo.environmentSamplerState.GetAddressOf());
+    }
+
+    // Per-model lighting
+    UpdateModelLighting();
+
+    // Draw
+    deviceContext->DrawIndexed(static_cast<UINT>(m_modelInfo.indices.size()), 0, 0);
+}
+
+#endif // _WIN32 || _WIN64
+#endif // __USE_DIRECTX_12__

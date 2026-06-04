@@ -37,16 +37,18 @@
 #include "Models.h"
 #include "ThreadManager.h"
 #include "ConstantBuffer.h"
+#include "DX12RenderFrame.h"
 
 const std::string RENDERER_NAME_DX12 = "DX12Renderer";
 
 // Reserved Root Parameter Slots for DirectX 12 Render Pipeline
-const int DX12_ROOT_PARAM_CONST_BUFFER = 0;                                    // Constant Buffer Root Parameter
-const int DX12_ROOT_PARAM_LIGHT_BUFFER = 1;                                    // Model Light Buffer Root Parameter
-const int DX12_ROOT_PARAM_DEBUG_BUFFER = 2;                                    // Debug Buffer Root Parameter
-const int DX12_ROOT_PARAM_GLOBAL_LIGHT_BUFFER = 3;                             // Global Light Buffer Root Parameter
-const int DX12_ROOT_PARAM_MATERIAL_BUFFER = 4;                                 // Material Buffer Root Parameter
-const int DX12_ROOT_PARAM_ENVIRONMENT_BUFFER = 5;                              // Environment Settings Buffer Root Parameter
+const int DX12_ROOT_PARAM_CONST_BUFFER = 0;                                    // b0: ConstantBuffer  (camera/view/world)
+const int DX12_ROOT_PARAM_LIGHT_BUFFER = 1;                                    // b1: LightBuffer     (scene lights)
+const int DX12_ROOT_PARAM_DEBUG_BUFFER = 2;                                    // b2: DebugBuffer     (pixel shader debug mode)
+const int DX12_ROOT_PARAM_GLOBAL_LIGHT_BUFFER = 3;                             // b3: GlobalLightBuffer
+const int DX12_ROOT_PARAM_MATERIAL_BUFFER = 4;                                 // b4: MaterialBuffer
+const int DX12_ROOT_PARAM_ENVIRONMENT_BUFFER = 5;                              // b5: EnvBuffer       (env intensity/tint/fresnel)
+const int DX12_ROOT_PARAM_TEXTURE_TABLE = 6;                                   // Descriptor table: t0-t5 SRV textures
 
 // Reserved Descriptor Table Slots for DirectX 12 Textures
 const int DX12_DESCRIPTOR_DIFFUSE_TEXTURE = 0;                                 // Diffuse Textures
@@ -144,12 +146,17 @@ public:
 
     // Resources
     ComPtr<ID3D12Resource> m_depthStencilBuffer{ nullptr };                    // Depth stencil buffer
-    ComPtr<ID3D12Resource> m_constantBuffer{ nullptr };                        // Constant buffer
-    ComPtr<ID3D12Resource> m_globalLightBuffer{ nullptr };                     // Global light buffer
+    ComPtr<ID3D12Resource> m_constantBuffer{ nullptr };                        // b0: ConstantBuffer
+    ComPtr<ID3D12Resource> m_globalLightBuffer{ nullptr };                     // b3: GlobalLightBuffer
+    ComPtr<ID3D12Resource> m_envBuffer{ nullptr };                             // b5: EnvBuffer
 
     // Texture resources
     ComPtr<ID3D12Resource> m_d3d12Textures[MAX_TEXTURE_BUFFERS_3D];            // 3D texture resources
-    ComPtr<ID3D12Resource> m_d2dTextures[MAX_TEXTURE_BUFFERS];                 // 2D texture resources
+    ComPtr<ID2D1Bitmap>    m_d2dTextures[MAX_TEXTURE_BUFFERS];                 // 2D texture resources (Direct2D bitmaps)
+
+    // Per-frame D2D render targets (one per swap chain back buffer)
+    ComPtr<ID3D11Resource> m_wrappedBackBuffers[FrameCount];                   // DX12 back buffers wrapped as DX11 resources
+    ComPtr<ID2D1Bitmap1>   m_d2dRenderTargets[FrameCount];                     // D2D target bitmaps backed by each back buffer
 
     // DirectX 11-12 Compatibility Context
     DX11_DX12_CompatibilityContext m_dx11Dx12Compat;                           // Compatibility context
@@ -196,14 +203,27 @@ public:
         int iXOffset, int iYOffset, int iTileSizeX, int iTileSizeY);            // Blit wrapped 2D object
     void Clear2DBlitQueue();                                                    // Clear 2D blit queue
 
+    // Device access (base class interface)
+    void* GetDevice() override;                                                 // Returns raw ID3D12Device* pointer
+    void* GetDeviceContext() override;                                          // Returns raw ID3D12CommandList* pointer
+    void* GetSwapChain() override;                                              // Returns raw IDXGISwapChain4* pointer
+
+    // Thread synchronisation
+    void WaitToFinishThenPauseThread() override;                                // Safely drain GPU + pause renderer thread
+
     // Window and display management
-    void Resize(uint32_t width, uint32_t height) override;                      // Resize renderer
+    bool Resize(uint32_t width, uint32_t height) override;                      // Resize renderer
     void ResumeLoader(bool isResizing = false) override;                        // Resume loader thread
     void WaitForGPUToFinish();                                                  // Wait for GPU to finish
 
     // Video frame rendering
     void DrawVideoFrame(const Vector2& position, const Vector2& size,
         const MyColor& tintColor, ComPtr<ID3D12Resource> texture);              // Draw video frame
+
+    // D2D video texture API — used by MoviePlayer for per-frame video playback
+    bool CreateVideoD2DTexture(int& outTextureIndex, UINT width, UINT height);   // Allocate a D2D bitmap slot for video
+    bool UpdateVideoD2DTexture(int textureIndex, const BYTE* pData, UINT rowPitch); // Upload one decoded video frame
+    void ReleaseVideoD2DTexture(int textureIndex);                               // Free the video bitmap slot
 
     // GUI rendering functions
     void DrawMyTextCentered(const std::wstring& text, const Vector2& position,
@@ -225,7 +245,9 @@ public:
         const float FontSize) override;                                         // Draw text with size
     void DrawMyTextWithFont(const std::wstring& text, const Vector2& position,
         const MyColor& color, const float FontSize,
-        const std::wstring& fontName);                                          // Draw text with custom font
+        const std::wstring& fontName) override;                                 // Draw text with custom font
+    void DrawMyTextStyled(const std::wstring& text, const Vector2& position,
+        const MyColor& color, const TextRenderStyle& style) override;           // Draw styled text (bold/italic/etc)
     void DrawTexture(int textureId, const Vector2& position, const Vector2& size,
         const MyColor& tintColor, bool is2D) override;                          // Draw texture
     void RendererName(std::string sThisName) override;                          // Set renderer name
@@ -276,6 +298,9 @@ private:
     std::string renderFrameLockName = "dx12_renderer_frame_lock";               // Render frame lock name
     std::string D2DLockName = "dx12_d2d_render_lock";                           // Direct2D lock name
 
+    // Timing
+    DX12DeltaTimeSmoothing deltaTimeSmoothing;                                  // Per-frame delta smoothing
+
     // Private DirectX 12 initialization functions
     void CreateDevice();                                                        // Create DirectX 12 device
     void CreateCommandQueue();                                                  // Create command queue
@@ -311,9 +336,31 @@ private:
     void CreateConstantBuffers();                                               // Create constant buffers
     void CreateTextureResources();                                              // Create texture resources
     void CreateSamplers();                                                      // Create samplers
+    bool UploadTextureData(int textureIndex, const void* textureData,
+        size_t dataSize, UINT width, UINT height, DXGI_FORMAT format);         // Upload raw pixel data to GPU texture
+    bool GenerateMipmaps(int textureIndex);                                    // Generate mipmaps for a 3D texture
+    void OptimizeTextureMemory();                                              // Compact and optimise texture heap usage
+    bool PreloadTextures(const std::vector<std::wstring>& textureFilenames);   // Batch-preload a list of texture files
+    bool CreateTextureFromMemory(int textureIndex, const void* data,
+        size_t dataSize, UINT width, UINT height, DXGI_FORMAT format,
+        bool generateMips);                                                    // Create a GPU texture from in-memory pixel data
+    bool BatchLoadTextures(const std::vector<std::pair<int, std::wstring>>& textureList, bool is2D); // Batch-load texture pairs (index+path)
+    void GetTextureMemoryStats(UINT64& totalMemoryUsed, UINT& texturesLoaded, UINT& availableSlots); // Query texture memory statistics
+    bool ValidateTextureResource(int textureIndex, bool is2D);                 // Validate a texture resource is ready for use
+    void ReleaseUnusedTextures();                                              // Release textures with no active references
+    bool CreateRenderTexture(int textureIndex, UINT width, UINT height,
+        DXGI_FORMAT format, bool useAsDepthBuffer);                            // Create a render-target or depth-buffer texture
     void TransitionResource(ID3D12Resource* resource,
         D3D12_RESOURCE_STATES stateBefore,
         D3D12_RESOURCE_STATES stateAfter);                                      // Transition resource state
+
+    // Game scene render helpers (implemented in DX12RenderFrame.cpp)
+    inline void RenderGamePlay(float deltaTime);
+    inline void RenderIntroMovie();
+    void        RenderBackgroundImage();
+
+    // D2D per-frame target setup — called after init and after each resize
+    bool CreateD2DRenderTargets();
 
     // Mutexes for thread safety
     static std::mutex s_loaderMutex;                                            // Static loader mutex

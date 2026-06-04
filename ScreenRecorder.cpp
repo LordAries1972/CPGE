@@ -241,7 +241,9 @@ void ScreenRecorder::StopRecording()
     m_micMode = MicMode::Off;
     m_micAccum.clear();
     m_micAccumRead = 0;
-#if defined(__USE_DIRECTX_11__)
+#if defined(__USE_DIRECTX_12__)
+    CleanupDX12Capture();
+#elif defined(__USE_DIRECTX_11__)
     m_stagingTexture.Reset();
 #elif defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS)
     CleanupVulkanCapture();
@@ -254,7 +256,145 @@ void ScreenRecorder::StopRecording()
 }
 
 // ---------------------------------------------------------------------------
-// CaptureFrame
+// CaptureFrame — DirectX 12
+// ---------------------------------------------------------------------------
+#if defined(__USE_DIRECTX_12__)
+void ScreenRecorder::CleanupDX12Capture()
+{
+    if (m_dx12ReadbackBuffer) {
+        m_dx12ReadbackBuffer->Unmap(0, nullptr);
+        m_dx12ReadbackBuffer.Reset();
+    }
+    m_dx12ReadbackRowPitch = 0;
+    m_dx12ReadbackWidth    = 0;
+    m_dx12ReadbackHeight   = 0;
+}
+
+void ScreenRecorder::CaptureFrame(ID3D12Device*       device,
+                                   ID3D12CommandQueue* queue,
+                                   IDXGISwapChain4*    swapChain,
+                                   UINT                frameIndex,
+                                   std::mutex*         queueMutex)
+{
+    if (!m_isRecording.load() || !device || !queue || !swapChain) return;
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_isRecording.load() || !m_pSinkWriter) return;
+
+    // FPS throttle
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    {
+        const LONGLONG elapsed100ns =
+            (now.QuadPart - m_lastVideoQpc.QuadPart) * 10000000LL / m_qpcFreq.QuadPart;
+        if (elapsed100ns < m_framePeriod) return;
+        m_lastVideoQpc.QuadPart += m_qpcFreq.QuadPart * m_framePeriod / 10000000LL;
+    }
+
+    const LONGLONG ts = (now.QuadPart - m_qpcRecordingStart.QuadPart) * 10'000'000LL / m_qpcFreq.QuadPart;
+
+    // Get the back-buffer for the current frame
+    ComPtr<ID3D12Resource> backBuffer;
+    if (FAILED(swapChain->GetBuffer(frameIndex, IID_PPV_ARGS(&backBuffer)))) return;
+
+    D3D12_RESOURCE_DESC bbDesc = backBuffer->GetDesc();
+    if (bbDesc.Width < m_width || bbDesc.Height < m_height) return;
+
+    // Calculate 256-byte-aligned row pitch required by DX12 readback buffers
+    const UINT bytesPerPixel = 4;   // BGRA
+    const UINT64 rowPitch256 = (static_cast<UINT64>(m_width) * bytesPerPixel + 255) & ~255ULL;
+    const UINT64 bufferSize  = rowPitch256 * m_height;
+
+    // Create (or re-create) the readback buffer if dimensions changed
+    if (!m_dx12ReadbackBuffer || m_dx12ReadbackWidth != m_width || m_dx12ReadbackHeight != m_height)
+    {
+        if (m_dx12ReadbackBuffer) {
+            m_dx12ReadbackBuffer->Unmap(0, nullptr);
+            m_dx12ReadbackBuffer.Reset();
+        }
+        CD3DX12_HEAP_PROPERTIES readbackHeap(D3D12_HEAP_TYPE_READBACK);
+        CD3DX12_RESOURCE_DESC   bufDesc = CD3DX12_RESOURCE_DESC::Buffer(bufferSize);
+        HRESULT hr = device->CreateCommittedResource(&readbackHeap, D3D12_HEAP_FLAG_NONE,
+            &bufDesc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&m_dx12ReadbackBuffer));
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder: Failed to create DX12 readback buffer.");
+            return;
+        }
+        m_dx12ReadbackRowPitch = rowPitch256;
+        m_dx12ReadbackWidth    = m_width;
+        m_dx12ReadbackHeight   = m_height;
+    }
+
+    // One-shot command allocator + list for the copy
+    ComPtr<ID3D12CommandAllocator>    copyAllocator;
+    ComPtr<ID3D12GraphicsCommandList> copyList;
+    if (FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&copyAllocator)))) return;
+    if (FAILED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, copyAllocator.Get(), nullptr, IID_PPV_ARGS(&copyList)))) return;
+
+    // Transition back-buffer: PRESENT → COPY_SOURCE
+    D3D12_RESOURCE_BARRIER toSrc = CD3DX12_RESOURCE_BARRIER::Transition(
+        backBuffer.Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    copyList->ResourceBarrier(1, &toSrc);
+
+    // Copy the m_width × m_height region to the readback buffer
+    D3D12_TEXTURE_COPY_LOCATION src = {};
+    src.pResource        = backBuffer.Get();
+    src.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    src.SubresourceIndex = 0;
+
+    D3D12_TEXTURE_COPY_LOCATION dst = {};
+    dst.pResource                          = m_dx12ReadbackBuffer.Get();
+    dst.Type                               = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    dst.PlacedFootprint.Offset             = 0;
+    dst.PlacedFootprint.Footprint.Format   = DXGI_FORMAT_B8G8R8A8_UNORM;
+    dst.PlacedFootprint.Footprint.Width    = m_width;
+    dst.PlacedFootprint.Footprint.Height   = m_height;
+    dst.PlacedFootprint.Footprint.Depth    = 1;
+    dst.PlacedFootprint.Footprint.RowPitch = static_cast<UINT>(rowPitch256);
+
+    D3D12_BOX srcBox = { 0, 0, 0, m_width, m_height, 1 };
+    copyList->CopyTextureRegion(&dst, 0, 0, 0, &src, &srcBox);
+
+    // Transition back-buffer: COPY_SOURCE → PRESENT
+    D3D12_RESOURCE_BARRIER toPresent = CD3DX12_RESOURCE_BARRIER::Transition(
+        backBuffer.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_PRESENT);
+    copyList->ResourceBarrier(1, &toPresent);
+
+    if (FAILED(copyList->Close())) return;
+
+    // Submit copy
+    ID3D12CommandList* lists[] = { copyList.Get() };
+    if (queueMutex) {
+        std::lock_guard<std::mutex> qLock(*queueMutex);
+        queue->ExecuteCommandLists(1, lists);
+    } else {
+        queue->ExecuteCommandLists(1, lists);
+    }
+
+    // Fence-wait for the copy to finish (uses a temporary inline fence)
+    ComPtr<ID3D12Fence> fence;
+    if (FAILED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)))) return;
+    HANDLE fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+    if (!fenceEvent) return;
+    queue->Signal(fence.Get(), 1);
+    fence->SetEventOnCompletion(1, fenceEvent);
+    WaitForSingleObject(fenceEvent, 5000);
+    CloseHandle(fenceEvent);
+
+    // Map and hand to MF encoder
+    void* mappedData = nullptr;
+    D3D12_RANGE readRange = { 0, bufferSize };
+    if (FAILED(m_dx12ReadbackBuffer->Map(0, &readRange, &mappedData))) return;
+    if (mappedData)
+        WriteVideoFrame(static_cast<const BYTE*>(mappedData),
+                        static_cast<UINT>(rowPitch256), ts);
+    D3D12_RANGE writeRange = { 0, 0 };   // no CPU writes
+    m_dx12ReadbackBuffer->Unmap(0, &writeRange);
+}
+#endif // __USE_DIRECTX_12__
+
+// ---------------------------------------------------------------------------
+// CaptureFrame — DirectX 11
 // ---------------------------------------------------------------------------
 #if defined(__USE_DIRECTX_11__)
 void ScreenRecorder::CaptureFrame(ID3D11Device*        device,

@@ -2,11 +2,19 @@
 
 //-------------------------------------------------------------------------------------------------
 // FXManager.h - Visual FX Queue and Parallax Scroll Effects
+//
+// For DirectX 12 builds this header delegates to DX12FXManager.h, which provides a full DX12
+// implementation using D2D (via the 11on12 compatibility layer) for all rendering.
 //-------------------------------------------------------------------------------------------------
+
+#if defined(__USE_DIRECTX_12__)
+    #include "DX12FXManager.h"
+#else
+
 #include "Includes.h"
 #include "Renderer.h"
 
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+#if defined(__USE_DIRECTX_11__)
     #include "DirectXMath.h"
     #include <d3d11.h>
     #include <d3dcompiler.h>
@@ -732,3 +740,5 @@ private:
     UINT numViewports = 0;
 #endif
 };
+
+#endif // !defined(__USE_DIRECTX_12__)

@@ -1,7 +1,6 @@
-#include "Includes.h"
-
 #ifdef __USE_VULKAN__
 
+#include "Includes.h"
 #include "Debug.h"
 #include "Configuration.h"
 #include "ExceptionHandler.h"

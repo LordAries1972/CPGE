@@ -1,0 +1,129 @@
+#pragma once
+
+#include <atomic>
+#include <deque>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <string>
+
+// Forward declarations
+class Renderer;
+class GUIManager;
+class GUIWindow;
+
+// --- Console window layout constants (edit to reposition / resize) -----------
+constexpr float CONSOLE_WIN_X         = 10.0f;    // left edge (px from client left)
+constexpr float CONSOLE_WIN_Y         =  5.0f;    // top edge  (px from client top)
+constexpr float CONSOLE_WIN_H_MARGIN  = 10.0f;    // px subtracted from client height → window height
+constexpr float CONSOLE_WIN_W_PCT     =  0.75f;   // window width as fraction of client width
+constexpr float CONSOLE_WIN_W_MIN     = 570.0f;   // minimum window width  (px)
+constexpr float CONSOLE_WIN_W_MAX     = 1400.0f;  // maximum window width  (px)
+// ----------------------------------------------------------------------------
+
+constexpr int   CONSOLE_MAX_LINES     = 500;
+constexpr int   CONSOLE_VISIBLE_LINES = 14;
+constexpr float CONSOLE_TITLEBAR_H    = 20.0f;
+constexpr float CONSOLE_CMDBAR_H      = 22.0f;
+constexpr float CONSOLE_SCROLLBAR_W   = 10.0f;
+constexpr float CONSOLE_PADDING       = 3.0f;
+
+enum class ConsoleLineColor { Normal, Warning, Error };
+
+struct ConsoleLine {
+    std::wstring     text;
+    ConsoleLineColor type = ConsoleLineColor::Normal;
+};
+
+// ---------------------------------------------------------------------------
+// ConsoleWindow
+// ---------------------------------------------------------------------------
+// An F8-toggled overlay console that is a first-class GUIManager window.
+// Call CreateInGUIManager() once after GUIManager::Initialize() to register
+// the window, then Toggle() to show/hide it.  All rendering, focus management,
+// and input routing flow through GUIManager — the console participates in the
+// same z-order system as every other GUI window and receives exclusive input
+// focus when it is the topmost visible window.
+//
+// Public API (unchanged from the standalone version):
+//   CreateInGUIManager(gm)  — one-time setup
+//   Toggle()                — show / hide
+//   AddLine(text, color)    — thread-safe log line append
+//   Scroll(delta)           — scroll buffer (used by PAGE UP / PAGE DOWN)
+//   Clear()                 — erase all buffer lines
+//   SetCommandCallback(fn)  — register command-submission handler
+//   bIsVisible              — mirrors GUIManager window visibility
+// ---------------------------------------------------------------------------
+class ConsoleWindow {
+public:
+    ConsoleWindow() = default;
+
+    // Register the console as a GUIManager window and wire all callbacks.
+    // Must be called once after GUIManager::Initialize() and before Toggle().
+    void CreateInGUIManager(GUIManager& gm);
+
+    // Show or hide the console.  Brings the window to the front when shown.
+    void Toggle();
+
+    // Thread-safe: may be called from any thread.
+    void AddLine(const std::wstring& line, ConsoleLineColor type = ConsoleLineColor::Normal);
+
+    // Scroll the visible buffer window (positive = older lines, negative = newer).
+    void Scroll(int delta);
+
+    // Erase all buffered lines.
+    void Clear();
+
+    // Register a callback invoked when the user submits a command (Enter key).
+    // Receives the raw command text (without the "> " prefix).
+    void SetCommandCallback(std::function<void(const std::wstring&)> cb);
+
+    // True while the console is visible.
+    bool bIsVisible = false;
+
+private:
+    // -----------------------------------------------------------------------
+    // GUIManager callback implementations
+    // -----------------------------------------------------------------------
+
+    // onCustomRender — draws border, title bar, text area, scrollbar, command bar.
+    // Also updates the GUIWindow bounds each frame so hit-testing matches the draw.
+    void RenderContent(Renderer* r);
+
+    // onCustomMouseInput — scrollbar click hit-test.
+    void HandleScrollbarClick(float x, float y);
+
+    // onCharInput — appends a printable character to the command line.
+    void OnCharInput(wchar_t c);
+
+    // onBackspace — deletes the last character from the command line.
+    void OnBackspace();
+
+    // onEnter — submits the command line and fires m_commandCallback.
+    void OnEnter();
+
+    // onMouseWheel — scrolls the buffer (delta > 0 → older, delta < 0 → newer).
+    void OnMouseWheel(int delta);
+
+    // -----------------------------------------------------------------------
+    // State
+    // -----------------------------------------------------------------------
+    GUIManager*                 m_guiMgr  = nullptr;
+    std::weak_ptr<GUIWindow>    m_guiWin;          // weak so cleanup works normally
+
+    std::deque<ConsoleLine>     m_buffer;
+    std::mutex                  m_mutex;
+    int                         m_scrollOffset = 0;
+    std::atomic<int>            m_visibleLines { CONSOLE_VISIBLE_LINES };
+
+    // Scrollbar track rect cached each RenderContent() call for click hit-testing.
+    float m_sbX   = 0.0f;
+    float m_sbY   = 0.0f;
+    float m_sbH   = 0.0f;
+    // Knob (thumb) rect — subset of the track; cached for precise knob hit-testing.
+    float m_knobY = 0.0f;
+    float m_knobH = 0.0f;
+
+    std::wstring                             m_cmdLine;
+    std::function<void(const std::wstring&)> m_commandCallback;
+};

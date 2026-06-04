@@ -74,6 +74,7 @@ if /i "%ARG1%"=="all" (
     set /a ALL_FAIL_COUNT=0
     set "ALL_PASS_LIST="
     set "ALL_FAIL_LIST="
+    set "IS_FIRST_BUILD=1"
 
     for %%R in (dx11 dx12 opengl vulkan) do (
         set "SKIP_RENDERER=0"
@@ -85,8 +86,12 @@ if /i "%ARG1%"=="all" (
         ) else (
             echo.
             echo   ---- Building %%R !ALL_CONFIG! ----
+            if "!IS_FIRST_BUILD!"=="0" set SKIP_VERSION_INCREMENT=1
             call "%~f0" %%R !ALL_CONFIG!
-            if errorlevel 1 (
+            set "BUILD_ERR=!ERRORLEVEL!"
+            set SKIP_VERSION_INCREMENT=
+            set "IS_FIRST_BUILD=0"
+            if "!BUILD_ERR!" NEQ "0" (
                 set /a ALL_FAIL_COUNT+=1
                 set "ALL_FAIL_LIST=!ALL_FAIL_LIST! %%R"
             ) else (

@@ -17,7 +17,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 
 // ---------------------------------------------------------------------------
 // Game Identity
-// Output executable: DX{GAME_NAME}.exe / OpenGL{GAME_NAME}.exe / Vulkan{GAME_NAME}.exe
+// Output executable: DX{GAME_NAME}.exe / DX12{GAME_NAME}.exe / OpenGL{GAME_NAME}.exe / Vulkan{GAME_NAME}.exe
 // NOTE: Also update <GameName> in CrossPlatformGameEngine.vcxproj and the
 //       GAME_NAME cmake cache variable in CMakeLists.txt to match.
 // ---------------------------------------------------------------------------
@@ -87,11 +87,27 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
         // define; changing it here is sufficient to switch the compiled backend.
         // Runtime rendererType in GameConfig.cfg selects between multiple compiled
         // renderers at runtime: 0=DX11  1=DX12  2=OpenGL  3=Vulkan  4=RADEON
-        #define __USE_DIRECTX_11__
-//        #define __USE_DIRECTX_12__
+        //
+        // NOTE: When building via cmake-build.bat the CMake project also injects
+        // the renderer define into PreprocessorDefinitions so that incremental builds
+        // remain self-consistent.  The #ifndef guards below prevent the C4005 macro-
+        // redefinition warning that would otherwise fire from that double-definition.
+        // ------------------------------------------------------------------------------------
+        #ifndef __USE_DIRECTX_11__
+//        #define __USE_DIRECTX_11__
+        #endif
+        #ifndef __USE_DIRECTX_12__
+        #define __USE_DIRECTX_12__
+        #endif
+        #ifndef __USE_OPENGL__
 //        #define __USE_OPENGL__
+        #endif
+        #ifndef __USE_VULKAN__
 //        #define __USE_VULKAN__
+        #endif
+        #ifndef __USE_RADEON__
 //        #define __USE_RADEON__
+        #endif
 
         #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__) && !defined(__USE_OPENGL__) && !defined(__USE_VULKAN__)
             #error "Includes.h: No renderer selected for Windows — uncomment exactly one __USE_*__ define above."
@@ -145,9 +161,13 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
             #include "d3dx12.h"                                                               // DirectX 12 helper library
             #include <d3dcompiler.h>
 
-            // DirectX 11-12 compatibility includes for side-by-side operation
+            // DirectX 11-12 compatibility and Direct2D/DirectWrite (used by DX12 2D rendering layer)
             #include <d3d11.h>
             #include <d3d11_1.h>
+            #include <d3d11on12.h>                                                            // ID3D11On12Device
+            #include <d2d1.h>
+            #include <d2d1_3.h>                                                               // ID2D1Factory3 / ID2D1Device2 / ID2D1DeviceContext2 / ID2D1Bitmap
+            #include <dwrite.h>                                                               // IDWriteFactory
 
             #pragma comment(lib, "d3d12.lib")
             #pragma comment(lib, "dxgi.lib")

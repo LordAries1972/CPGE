@@ -20,6 +20,10 @@
 #pragma once
 
 #include "Includes.h"
+#if defined(__USE_DIRECTX_12__)
+    #include <d3d12.h>
+    #include <dxgi1_4.h>
+#endif
 #include <mfapi.h>
 #include <mfidl.h>
 #include <mfreadwrite.h>
@@ -79,7 +83,18 @@ public:
 
     void StopRecording();
 
-#if defined(__USE_DIRECTX_11__)
+#if defined(__USE_DIRECTX_12__)
+    // Capture the DX12 back-buffer into the MF video stream.
+    // Call this AFTER ExecuteCommandLists (GPU render done) and BEFORE Present.
+    // device / queue / swapChain — active DX12 objects from the renderer.
+    // frameIndex — current swap-chain back-buffer index.
+    // queueMutex — serialises command submission from multiple threads.
+    void CaptureFrame(ID3D12Device*       device,
+                      ID3D12CommandQueue* queue,
+                      IDXGISwapChain4*    swapChain,
+                      UINT                frameIndex,
+                      std::mutex*         queueMutex = nullptr);
+#elif defined(__USE_DIRECTX_11__)
     void CaptureFrame(ID3D11Device*        device,
                       ID3D11DeviceContext* context,
                       IDXGISwapChain1*     swapChain);
@@ -140,7 +155,15 @@ private:
     DWORD                   m_audioStreamIndex;
 
     // ---- Renderer-specific capture resources ----
-#if defined(__USE_DIRECTX_11__)
+#if defined(__USE_DIRECTX_12__)
+    // DX12 readback buffer — CPU-readable buffer used to stage the back-buffer pixels.
+    // Lazily created the first time CaptureFrame is called and reused thereafter.
+    ComPtr<ID3D12Resource>  m_dx12ReadbackBuffer;
+    UINT64                  m_dx12ReadbackRowPitch = 0;   // 256-byte-aligned row pitch
+    UINT                    m_dx12ReadbackWidth    = 0;   // Back-buffer width at creation
+    UINT                    m_dx12ReadbackHeight   = 0;   // Back-buffer height at creation
+    void CleanupDX12Capture();
+#elif defined(__USE_DIRECTX_11__)
     ComPtr<ID3D11Texture2D> m_stagingTexture;
 #elif defined(__USE_OPENGL__) && defined(PLATFORM_WINDOWS)
     // glReadPixels pixel buffer — resized lazily inside CaptureFrame

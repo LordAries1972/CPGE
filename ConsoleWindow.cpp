@@ -180,16 +180,23 @@ void ConsoleWindow::OnMouseWheel(int delta)
 // ---------------------------------------------------------------------------
 void ConsoleWindow::HandleScrollbarClick(float x, float y)
 {
-    if (!bIsVisible || m_sbH <= 0.0f) return;
-    if (x < m_sbX || x > m_sbX + CONSOLE_SCROLLBAR_W) return;
-    if (y < m_sbY || y > m_sbY + m_sbH) return;
+    if (!bIsVisible || m_sbH <= 0.0f || m_knobH <= 0.0f) return;
+
+    // X: expand hit area by 8px on each side so the narrow scrollbar is easy to grab.
+    constexpr float kXTolerance = 8.0f;
+    if (x < m_sbX - kXTolerance || x > m_sbX + CONSOLE_SCROLLBAR_W + kXTolerance) return;
+
+    // Y: accept only the knob (thumb) area so dragging behaves predictably.
+    constexpr float kYTolerance = 4.0f;
+    if (y < m_knobY - kYTolerance || y > m_knobY + m_knobH + kYTolerance) return;
 
     std::lock_guard<std::mutex> lock(m_mutex);
     const int totalLines = static_cast<int>(m_buffer.size());
     const int maxOffset  = std::max(0, totalLines - m_visibleLines.load());
     if (maxOffset == 0) return;
 
-    // top of track = maxOffset (oldest); bottom = 0 (newest)
+    // Map the click position within the track to a scroll offset.
+    // top of track = maxOffset (oldest lines); bottom = 0 (newest lines).
     const float t  = 1.0f - (y - m_sbY) / m_sbH;
     m_scrollOffset = std::clamp(static_cast<int>(t * static_cast<float>(maxOffset) + 0.5f), 0, maxOffset);
 }
@@ -302,6 +309,13 @@ void ConsoleWindow::RenderContent(Renderer* r)
             r->DrawRectangle(Vector2(trackX + 1.0f, trackY + thumbT),
                              Vector2(trackW - 2.0f, thumbH),
                              MyColor(80, 150, 225, 255), true);
+
+            // Cache knob bounds for mouse hit-testing in HandleScrollbarClick.
+            m_knobY = trackY + thumbT;
+            m_knobH = thumbH;
+        } else {
+            m_knobY = trackY;
+            m_knobH = 0.0f;
         }
 
         // Determine which buffer lines are visible.

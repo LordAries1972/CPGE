@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1431*
+*Current Build Version: v0.0.1488*
 
 ---
 
@@ -55,7 +55,7 @@ lets make this Engine great!
 #### 2026
 
 - [June 2026](#june-2026---opengl-pipeline-fixes)
-  - [01](#june-01-2026) · [02](#june-02-2026) · [03](#june-03-2026)
+  - [01](#june-01-2026) · [02](#june-02-2026) · [03](#june-03-2026) · [04](#june-04-2026)
 - [May 2026](#may-2026---more-major-updates-and-fixes)
   - [02](#may-02-2026) · [03-04](#may-03-04-2026) · [06](#may-06-2026) · [08](#may-08-2026) · [10](#may-10-2026) · [11](#may-11-2026) · [14](#may-14-2026) · [15](#may-15-2026) · [16](#may-16-2026) · [17](#may-17-2026) · [18](#may-18-2026) · [19](#may-19-2026) · [20](#may-20-2026) · [21](#may-21-2026) · [22](#may-22-2026) · [23](#may-23-2026) · [24](#may-24-2026) · [28](#may-28-2026) · [29](#may-29-2026) · [30](#may-30-2026) · [31](#may-31-2026)
 - [April 2026](#april-2026---bug-fixes-and-updates)
@@ -2486,6 +2486,158 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
 - **Fix — Loader text Y-position: LOADER_TEXT_Y_RATIO wired to all callers (all pipelines)** (`IOStreamDX11Thread.cpp`, `OpenGL_IOStreamThread.cpp`, `VULKAN_IOStreamThread.cpp`):
   All `showStage` lambdas were passing explicit `posY = 392.0f`, bypassing the `renderer->iOrigHeight × LOADER_TEXT_Y_RATIO` auto-position logic in the FXManagers. Changed to `posY = -1.0f` so the FXManager places loader text at exactly 70% of the actual screen height on every pipeline and resolution.
 - *See: [`IOStreamDX11Thread.cpp`](IOStreamDX11Thread.cpp), [`OpenGL_IOStreamThread.cpp`](OpenGL_IOStreamThread.cpp), [`VULKAN_IOStreamThread.cpp`](VULKAN_IOStreamThread.cpp)*
+
+- **Fix — `cmake-build all`: version bump only on first pipeline** (`cmake-build.bat`, `Linux/cmake-build.sh`, `cmake/IncrementVersion.cmake`):
+  When building all pipelines in one command, `IncrementVersion.cmake` ran as a PRE_BUILD step for every pipeline, incrementing the build number (and updating `Version.id`, `BuildInfo.h`, and `ReleaseInfo.md`) N times instead of once. Fix: an `IS_FIRST_BUILD` flag in each script's `all` loop sets the environment variable `SKIP_VERSION_INCREMENT=1` before every non-first `call`/invocation; the env var is cleared immediately after each sub-call returns. `IncrementVersion.cmake` checks `$ENV{SKIP_VERSION_INCREMENT}` at the top and returns early with a status message when set. On Windows the env var is set/cleared inline around the `call`; on Linux `VAR=value command` scopes it to just the subprocess. Single-renderer builds and the `all` first pipeline are unaffected.
+- *See: [`cmake-build.bat`](cmake-build.bat), [`Linux/cmake-build.sh`](Linux/cmake-build.sh), [`cmake/IncrementVersion.cmake`](cmake/IncrementVersion.cmake)*
+
+#### June 04, 2026
+
+- **Fix — DX12 application hang on shutdown** (`DX12Renderer.cpp`):
+  `WaitForGPUToFinish()`, `WaitForPreviousFrame()`, and `MoveToNextFrame()` all called `WaitForSingleObject(m_fenceEvent, INFINITE)`. If the GPU command queue was in a bad state at shutdown (device loss or render thread still inside a frame), the fence never signalled and the process hung indefinitely. Changed all three waits to use a 5-second timeout; a warning is logged and cleanup continues if the timeout expires. The `bIsRendering` spin-wait in `Cleanup()` was similarly capped at 2 seconds with a forced flag clear to prevent a deadlock when the render thread is blocked mid-frame.
+- *See: [`DX12Renderer.cpp`](DX12Renderer.cpp)*
+
+- **Fix — DX12 GameMenu panel positioned incorrectly on displays with DPI ≠ 96** (`DX12Renderer.cpp`):
+  `GUIWindows.cpp` positions the GameMenu at `renderer->iOrigWidth − 300` (physical pixels). `DrawRectangle` and `DrawTexture` pass these coordinates directly to `m_d2dContext->FillRectangle` / `DrawBitmap`. When `m_d2dContext` inherits the monitor DPI (e.g. 144 at 150% scaling) its coordinate space is in DIPs, not physical pixels, so `1920 − 300 = 1620` DIPs is far off-screen on a 1280-DIP canvas. Fixed: `m_d2dContext->SetDpi(96.0f, 96.0f)` is now called immediately after `CreateDeviceContext` in `InitializeDX11On12Compatibility`, forcing the context to use physical pixel coordinates. `CreateD2DRenderTargets` now also uses the constant 96 DPI for bitmap properties instead of reading `GetDpi()`, ensuring the context and bitmap coordinate spaces match. Additionally `m_renderTargetWidth` / `m_renderTargetHeight` are now seeded from `iOrigWidth`/`iOrigHeight` in `Initialize` and updated in `Resize` so `DrawMyTextStyled` centring logic has the correct canvas width.
+- *See: [`DX12Renderer.cpp`](DX12Renderer.cpp)*
+
+- **New — DX12FXManager.h / DX12FXManager.cpp: Full DX12 FX Manager** (`DX12FXManager.h`, `DX12FXManager.cpp`, `DX_FXManager.h`, `DX_FXManager.cpp`, `CMakeLists.txt`, `CrossPlatformGameEngine.vcxproj`):
+  Full DX12-pipeline port of the FX Manager. All renderer-abstracted effects (starfield, WarpDotTunnel, text scrollers, particles, TextFadeInOut, loading text) share the same logic as DX11; DX12-specific paths use the D2D device context (via the 11on12 compatibility layer) instead of raw DX11 API calls. Color fader uses `DrawRectangle()` (D2D-backed fullscreen overlay); starfield and WarpDotTunnel project 3D positions to screen via `Blit2DColoredPixel()`. `DX_FXManager.h` now redirects to `DX12FXManager.h` for DX12 builds; `DX_FXManager.cpp` is restricted to DX11 only. Duplicate `CancelEffect/RestartEffect/ChainEffect` symbols in `Models.cpp` were restricted to DX11 to prevent linker conflicts.
+- *See: [`DX12FXManager.h`](DX12FXManager.h), [`DX12FXManager.cpp`](DX12FXManager.cpp), [`DX_FXManager.h`](DX_FXManager.h), [`DX_FXManager.cpp`](DX_FXManager.cpp)*
+
+- **New — DX12Models.h / DX12Models.cpp: Full DX12 Model System** (`DX12Models.h`, `DX12Models.cpp`, `Models.cpp`, `CMakeLists.txt`, `CrossPlatformGameEngine.vcxproj`):
+  Full DX12-pipeline port of the Model system using the DX11-on-12 compatibility device. `Texture::LoadFromFile`, `LoadFromMemory`, `CreateSolidColorTexture`, `Model::SetupModelForRendering`, `UpdateConstantBuffer`, `UpdateModelLighting`, `UpdateEnvironmentBuffer`, `SetupPBRResources`, and `Model::Render` are all implemented in `DX12Models.cpp` using `DX12Renderer::GetDX11CompatDevice()` and `GetDX11CompatContext()`. `DX12RenderFrame::RenderGamePlay` passes the 11on12 context to `model.Render()`, so all DX11 draw calls are automatically translated to DX12 GPU commands by the 11on12 translation layer. Corresponding guard changes in `Models.cpp` prevent duplicate symbol link errors.
+- *See: [`DX12Models.h`](DX12Models.h), [`DX12Models.cpp`](DX12Models.cpp), [`Models.cpp`](Models.cpp)*
+
+- **New — MoviePlayer DX12 support** (`MoviePlayer.h`, `MoviePlayer.cpp`, `DX12Renderer.h`, `DX12Renderer.cpp`):
+  `MoviePlayer::CreateVideoTexture()`, `UpdateVideoTexture()`, and `Render()` now have DX12 paths. A D2D bitmap slot is allocated via the new `DX12Renderer::CreateVideoD2DTexture()` API; each decoded video frame is uploaded via `UpdateVideoD2DTexture()` (which calls `ID2D1Bitmap::CopyFromMemory` after decoding through the existing `UpdateVideoTextureCPU` path); `Render()` blits the D2D bitmap via `DX12Renderer::Blit2DObjectToSize`. Three new public methods added to `DX12Renderer`: `CreateVideoD2DTexture`, `UpdateVideoD2DTexture`, `ReleaseVideoD2DTexture`.
+- *See: [`MoviePlayer.cpp`](MoviePlayer.cpp), [`DX12Renderer.h`](DX12Renderer.h), [`DX12Renderer.cpp`](DX12Renderer.cpp)*
+
+- **New — ScreenRecorder DX12 support** (`ScreenRecorder.h`, `ScreenRecorder.cpp`):
+  `ScreenRecorder::CaptureFrame()` now has a DX12 overload accepting `(ID3D12Device*, ID3D12CommandQueue*, IDXGISwapChain4*, UINT frameIndex, std::mutex*)`. Each call transitions the current back buffer to `COPY_SOURCE`, copies the frame region into a lazily-created readback buffer via `CopyTextureRegion`, waits on an inline fence, then maps the readback buffer and writes pixels to the MF sink writer at the target FPS. The readback buffer is reused across frames and only rebuilt if capture dimensions change. `CleanupDX12Capture()` releases the buffer on `StopRecording()`.
+- *See: [`ScreenRecorder.h`](ScreenRecorder.h), [`ScreenRecorder.cpp`](ScreenRecorder.cpp)*
+
+- **New — SceneManager DX12 support confirmed** (`SceneManager.cpp`):
+  SceneManager already contained a complete DX12 path (`#elif defined(__USE_DIRECTX_12__)`) for renderer initialisation, GPU buffer validation, and `SetupModelForRendering` calls. No changes needed; model setup and rendering are now fully functional via `DX12Models.cpp`.
+- *See: [`SceneManager.cpp`](SceneManager.cpp)*
+
+- **Fix — Vulkan loader text (TextFadeInOut) not shown on SCENE_GAMETITLE → SCENE_GAMEPLAY loader screen** (`VULKAN_RenderFrame.cpp`):
+  DX11 and OpenGL unconditionally call `fxManager.RenderLoadingText()` for `SCENE_GAMETITLE`; the Vulkan path relied solely on a post-switch conditional guard (`!bLoaderTaskFinished || HasActiveLoadingTextEffects()`), which could miss the window if the transition races with effect startup. Fixed: added an unconditional `fxManager.RenderLoadingText()` call to the `SCENE_GAMETITLE` switch case, matching DX11/OpenGL exactly. The outer conditional guard was narrowed to exclude `SCENE_GAMETITLE` (now handled above) to prevent double-calling.
+- *See: [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp)*
+
+- **Fix — Game Menu starting X position wrong on OpenGL pipeline** (`OpenGLRenderFrame.cpp`):
+  In fullscreen mode the OpenGL render loop derives `renderW` from `winMetrics.monitorFullArea` each frame, but `iOrigWidth` was only updated on explicit resize events. `GUIWindows.cpp` computes the Game Menu window X as `renderer->iOrigWidth − 300`; a stale `iOrigWidth` placed the menu at the wrong position when `renderW ≠ iOrigWidth`. Fixed: `iOrigWidth` and `iOrigHeight` are now assigned from `renderW`/`renderH` immediately after `m_renderTargetWidth`/`m_renderTargetHeight` are updated each frame, keeping them in sync with the actual rendered dimensions.
+- *See: [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp)*
+
+- **Fix — Video Restart Dialog 10px too wide on OpenGL pipeline** (`GUIConfigWindow.cpp`):
+  OpenGL uses GDI for text rendering which produces glyphs ~10% wider than DWrite (DX11/Vulkan), causing dialog content to crowd the right edge. Added `#if defined(__USE_OPENGL__)` guard: dialog width `NW` is 430 px on OpenGL, 440 px on all other pipelines.
+- *See: [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp)*
+
+- **Fix — Vulkan 3D starfield incorrectly visible on loader screen** (`VULKAN_RenderFrame.cpp`):
+  DX11 and OpenGL only render the starfield inside the `bLoaderTaskFinished` branch of `SCENE_GAMETITLE`, so it is never shown during loading. The Vulkan path had a broad `else` branch that rendered the starfield to the main overlay for any scene where the bg-overlay path was not taken — including the loader screen. Additionally the bg overlay composite was not gated on `bLoaderTaskFinished`, so a stale (frozen) copy of the last-rendered starfield was blitted during the loader. Two fixes: (1) the starfield `RenderFX` block is now guarded by `SCENE_GAMETITLE && bLoaderTaskFinished` (matching DX11/OpenGL), with the `else` fallback retained only for the case where `m_bgD2dRenderTarget` is unavailable; (2) the bg overlay composite in the render pass now also checks `bLoaderTaskFinished.load()` so no stale overlay is drawn during loading.
+- *See: [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp)*
+
+- **Fix — Console scrollbar knob hit detection too small (all pipelines)** (`ConsoleWindow.h`, `ConsoleWindow.cpp`):
+  The scrollbar track is only `CONSOLE_SCROLLBAR_W = 10 px` wide, making the knob very hard to click precisely. Two improvements: (1) `HandleScrollbarClick` now accepts clicks within ±8 px of the X track bounds (total effective width ~26 px) so the knob is easy to grab; (2) the Y hit test now checks against the knob (thumb) position specifically rather than the full track height, preventing spurious scroll jumps from clicks elsewhere in the track. Added `m_knobY` and `m_knobH` members to `ConsoleWindow`; cached each render frame inside the thumb-drawing block in `RenderContent`, then used by `HandleScrollbarClick`.
+- *See: [`ConsoleWindow.h`](ConsoleWindow.h), [`ConsoleWindow.cpp`](ConsoleWindow.cpp)*
+
+- **Fix — DirectX 12 pipeline compile errors and missing virtual overrides** (`DX12Renderer.h`, `DX12Renderer.cpp`):
+  Multiple issues in the DX12 renderer have been corrected to bring it to parity with the DX11 pipeline:
+  (1) `m_d2dTextures` was declared `ComPtr<ID3D12Resource>[]` but every 2D blit function used it as `ComPtr<ID2D1Bitmap>[]` — corrected the declaration to `ComPtr<ID2D1Bitmap>`.
+  (2) `Resize()` was declared `void` in `DX12Renderer.h`/`.cpp` while the base class `Renderer` requires `bool` — changed to `bool` throughout with proper `return true`/`false` at every exit path.
+  (3) Five base-class pure-virtual overrides were absent: `GetDevice()`, `GetDeviceContext()`, `GetSwapChain()`, `WaitToFinishThenPauseThread()`, and `DrawMyTextStyled()` — all declared in the header and implemented in the `.cpp` following the DX11 pattern.
+  (4) `DrawMyTextWithFont` was missing the `override` specifier — added.
+  (5) `UploadTextureData()` was defined in `.cpp` without a matching declaration — added to the private section of the header.
+  (6) Removed incorrect `SecureZeroMemory` call on the `m_d2dTextures` ComPtr array in the constructor.
+- *See: [`DX12Renderer.h`](DX12Renderer.h), [`DX12Renderer.cpp`](DX12Renderer.cpp)*
+
+- **Feature — DX12 pipeline hardware support check at startup** (`RendererFactory.cpp`):
+  `CreateRendererInstance()` now tests for DirectX 12 hardware support (and DirectX 11 support for that pipeline) before instantiating the renderer. If the selected pipeline is not supported, a `MessageBox` is displayed: `"<Pipeline> is not supported on your system, or the required drivers are missing! The Game will NOW terminate!"`, and startup returns `EXIT_FAILURE`. DX12 detection enumerates non-software DXGI adapters and attempts `D3D12CreateDevice` at Feature Level 12.0; DX11 detection probes `D3D11CreateDevice` at Feature Level 11.0.
+- *See: [`RendererFactory.cpp`](RendererFactory.cpp)*
+
+- **Feature — DX12 output executable renamed to `DX12<GAME_NAME>.exe`** (`CMakeLists.txt`):
+  The DX12 renderer's `RENDERER_PREFIX` was changed from `"DX"` (shared with DX11, producing `DXCPGE.exe`) to `"DX12"`, producing `DX12CPGE.exe`. The renderer define `__USE_DIRECTX_12__` is now injected into vcxproj `PreprocessorDefinitions` via `target_compile_definitions` so each renderer's build is self-consistent independent of `Includes.h` state. `/FS` was added to Debug `AdditionalOptions` to prevent PDB contention on parallel full rebuilds.
+- *See: [`CMakeLists.txt`](CMakeLists.txt)*
+
+- **Fix — C4101 unreferenced-variable warning in `WaitToFinishThenPauseThread`** (`DX12Renderer.cpp`):
+  Catch-block variable `e` was only referenced inside `#if _DEBUG_DX12RENDERER_`, making it unused in non-debug builds. Added `(void)e;` in the `#else` branch.
+- *See: [`DX12Renderer.cpp`](DX12Renderer.cpp)*
+
+- **Fix — DX12 startup failure: `LoadAllShaders()` incorrectly ran for DX12** (`ShaderLoaders.cpp`, `DX12Renderer.cpp`):
+  `LoadAllShaders()` was guarded with `#if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__)` — it ran the ShaderManager HLSL compile pipeline for DX12 and failed because DX12 uses pre-compiled CSO files loaded by `CreatePipelineState()`, not the DX11 ShaderManager. Fixed by adding an early `return true` for `__USE_DIRECTX_12__`. Also corrected `DX12Renderer::LoadShaders()` to look for HLSL source files in `Assets/Shaders/` (same path as DX11) instead of the CWD.
+- *See: [`ShaderLoaders.cpp`](ShaderLoaders.cpp), [`DX12Renderer.cpp`](DX12Renderer.cpp)*
+
+- **Fix — Program does not terminate on CRITICAL / TERMINATION log events** (`Debug.cpp`):
+  `logLevelMessage(LOG_CRITICAL, ...)` was gated behind `#if !defined(_DEBUG)` — in debug builds it did nothing. `LOG_TERMINATION` never called `PostQuitMessage` at all. Fixed: both levels now unconditionally call `PostQuitMessage(EXIT_FAILURE)` in all build types. For `LOG_TERMINATION` (unrecoverable) a `MessageBoxW` is shown with the error text and `ExitProcess(EXIT_FAILURE)` is called immediately so the program cannot continue in a corrupt state.
+- *See: [`Debug.cpp`](Debug.cpp)*
+
+- **Fix — DX12 PSO creation failure: root signature missing `EnvBuffer` (b5)** (`DX12Renderer.h`, `DX12Renderer.cpp`):
+  `ModelPShader.hlsl` declares `cbuffer EnvBuffer : register(b5)` for environment intensity/tint/fresnel. The root signature only had b0–b4; `CreateGraphicsPipelineState` returned `E_INVALIDARG` because a shader register was not covered. Fixed by adding a 7th root parameter: b5 CBV (`DX12_ROOT_PARAM_ENVIRONMENT_BUFFER`) for the pixel shader, and renaming the existing texture descriptor table slot to `DX12_ROOT_PARAM_TEXTURE_TABLE = 6`. An `m_envBuffer` upload-heap resource is created in `CreateConstantBuffers()`, zero-initialised with safe defaults (envIntensity=1.0, fresnel0=0.04), bound in `PopulateCommandList()`, and released in `Cleanup()`. The HRESULT from `CreateGraphicsPipelineState` is now logged for easier future diagnosis.
+- *See: [`DX12Renderer.h`](DX12Renderer.h), [`DX12Renderer.cpp`](DX12Renderer.cpp)*
+
+- **Fix — DX12 pipeline crash: D3D12 debug validation layer raising SEH exception on startup** (`DX12Renderer.cpp`):
+  SEH `0x0000087A` from `D3D12SDKLayers.dll` / `DXGIDebug.dll` caused by three debug-layer issues:
+  (1) `SetBreakOnSeverity(ERROR/WARNING, TRUE)` — any D3D12 validation hit called `RaiseException()`, crashing the process; reduced to CORRUPTION only.
+  (2) `SetEnableGPUBasedValidation(TRUE)` — too strict for the WIP pipeline; disabled.
+  (3) CBV root descriptors flagged `D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC` while `UpdateConstantBuffers()` maps/unmaps them every frame — changed to `DATA_VOLATILE`. Texture range similarly changed to `DATA_VOLATILE`.
+- *See: [`DX12Renderer.cpp`](DX12Renderer.cpp)*
+
+- **Fix — DX12 startup crash: vertex/pixel shader failed to load** (`DX12Renderer.cpp`):
+  `CreatePipelineState` called `D3DCompileFromFile` at runtime to compile `ModelVShader.hlsl` / `ModelPShader.hlsl` from the CWD — these source files are not present at runtime. The build already compiles them to `.cso` via FXC into the exe output directory. Replaced both calls with `D3DReadFileToBlob`, resolving the path from `GetModuleFileNameW` so CSO files are found regardless of the CWD. This also eliminates the "program did not terminate" symptom caused by an exception propagating through partially-initialised DX12 state during cleanup.
+- *See: [`DX12Renderer.cpp`](DX12Renderer.cpp)*
+
+- **Fix — C4005 macro-redefinition warnings on DX12 build eliminated** (`Includes.h`):
+  Adding `__USE_DIRECTX_12__` to the vcxproj `PreprocessorDefinitions` (previous fix) caused millions of `C4005: '__USE_DIRECTX_12__': macro redefinition` warnings because `Includes.h` also `#define`d the same macro after cmake-build.bat patched it. Fixed by wrapping each renderer `#define` in an `#ifndef` / `#endif` guard so the Includes.h definition is silently skipped when the define is already provided via the command line. The cmake-build.bat PowerShell patching regex is unaffected — it only touches the `#define` lines, which remain inside the guards.
+- *See: [`Includes.h`](Includes.h)*
+
+- **Fix — Full DX12 clean-build compile and link errors resolved** (multiple files):
+  A forced clean rebuild exposed pre-existing errors masked by incremental obj caching. All fixed:
+  (1) `Includes.h` DX12 block missing `<d3d11on12.h>`, `<d2d1_3.h>`, `<dwrite.h>` and matching libs — added.
+  (2) `DX12Renderer.cpp` two `CD3DX12_CPU_DESCRIPTOR_HANDLE` copy-init sites — changed to constructor form.
+  (3) `DX12Renderer.cpp` `D3D11On12CreateDevice` wrong output arg type — fixed; QI to `ID3D11On12Device` separately.
+  (4) `DX12Renderer.cpp` `SetPrivateData` on `ID3D11On12Device` — removed (method is on `ID3D11DeviceChild`).
+  (5) `DX12Renderer.cpp` `DDS_HEADER` undefined — added minimal local struct definition.
+  (6) `DX12Renderer.cpp` bare `min`/`max` with NOMINMAX defined — changed to `std::min`/`std::max`.
+  (7) `DX12Renderer.cpp` five private methods missing header declarations — all added to `DX12Renderer.h`.
+  (8) `DX12Renderer.cpp` `SceneType::SCENE_SPLASH` (non-existent) — corrected to `SCENE_INTRO`.
+  (9) `DX12Renderer.cpp` `Model::UpdateAnimation` (not yet implemented) — commented with TODO.
+  (10) `Models.h` `Texture` DX11-specific guards extended to `|| defined(__USE_DIRECTX_12__)` for DX11-on-12 compatibility layer.
+  (11) `DX_FXManager.cpp` outer guard extended from `__USE_DIRECTX_11__` to `|| __USE_DIRECTX_12__`; constructor initializer list DX11 members moved to conditional body block.
+  (12) `VulkanCamera.cpp` `#include "Includes.h"` moved inside `#ifdef __USE_VULKAN__` to prevent post-link recompile PDB conflict caused by the `IncrementVersion` PRE_BUILD step modifying `BuildInfo.h`.
+- *See: [`Includes.h`](Includes.h), [`DX12Renderer.h`](DX12Renderer.h), [`DX12Renderer.cpp`](DX12Renderer.cpp), [`Models.h`](Models.h), [`DX_FXManager.cpp`](DX_FXManager.cpp), [`VulkanCamera.cpp`](VulkanCamera.cpp)*
+
+- **Feature — Full DX12 IOStream loader thread ported** (`IOStreamDX12Thread.h`, `IOStreamDX12Thread.cpp`):
+  `DX12Renderer::LoaderTaskThread()` was a minimal stub that only called `LoadAllKnownTextures()` and set `bLoaderTaskFinished`. The full DX11 loader logic has been ported for DX12: scene-specific loading for `SCENE_INTRO`, `SCENE_GAMETITLE`, `SCENE_GAMEPLAY`, `SCENE_GAMEOVER`, `SCENE_LOAD_MP3`, and `SCENE_EXPERIMENT` (debug). Each branch mirrors the DX11 implementation including light creation, GLTF scene parsing with camera auto-frame fallback, audio loading, GUI camera setup, FX starfield/tunnel creation, and loading-text stage annotations. The `s_loaderMutex` static is defined in `DX12Renderer.cpp`; no re-definition in the IOStream file. The stub body was removed from `DX12Renderer.cpp`.
+- *See: [`IOStreamDX12Thread.h`](IOStreamDX12Thread.h), [`IOStreamDX12Thread.cpp`](IOStreamDX12Thread.cpp), [`DX12Renderer.cpp`](DX12Renderer.cpp)*
+
+- **Feature — DX12RenderFrame.h/.cpp created; full render pipeline ported** (`DX12RenderFrame.h`, `DX12RenderFrame.cpp`, `DX12Renderer.h`, `DX12Renderer.cpp`):
+  A dedicated `DX12RenderFrame.h` / `DX12RenderFrame.cpp` pair has been created, mirroring the DX11 `DXRenderFrame.cpp` architecture. `DX12RenderFrame.h` defines `DX12DeltaTimeSmoothing` — a per-frame weighted delta time smoother (8-frame circular buffer, variance capping, target-correction accumulation) identical to the DX11 version but self-contained for the DX12 pipeline. `DX12RenderFrame.cpp` fully implements:
+  (1) `DX12Renderer::RenderFrame()` — complete 13-step pipeline: safe-guards, exclusive lock, thread-loop support, command list reset, viewport/scissor, RT transition, RT clear, constant buffer binding, `RenderBackgroundImage()`, scene-switch 3D dispatch, RT→PRESENT transition, command list execute, full 2D pass (scene-specific elements, FPS overlay, renderer info overlay, debug OSD, loading circle animation, FX, GUI, cursor, REC indicator), VSync-aware present with software cap, and delta-time smoothing.
+  (2) `DX12Renderer::RenderGamePlay()` — sets camera/light data in model info, iterates `scene_models[]`, calls `Render(deltaTime)` for animation time accumulation; debug pixel-shader key bindings included.
+  (3) `DX12Renderer::RenderIntroMovie()` — full movie render + logo overlay + space-skip, using `m_d2dContext`.
+  (4) `DX12Renderer::RenderBackgroundImage()` — D2D `BeginDraw/EndDraw` background with scene-specific images, logo overlay, and loading-screen fader trigger; 3D FX (starfield/tunnel) deferred until DX12 FXManager paths are available. The old partial `RenderFrame()` stub was removed from `DX12Renderer.cpp`. `DX12Renderer.h` gained `RenderGamePlay`, `RenderIntroMovie`, `RenderBackgroundImage` private declarations, a `DX12DeltaTimeSmoothing deltaTimeSmoothing` member, and loading animation state members (`delay`, `loadIndex`, `iPosX`). `DX12RenderFrame.cpp` added to `CMakeLists.txt` and all four vcxproj files.
+- *See: [`DX12RenderFrame.h`](DX12RenderFrame.h), [`DX12RenderFrame.cpp`](DX12RenderFrame.cpp), [`DX12Renderer.h`](DX12Renderer.h), [`DX12Renderer.cpp`](DX12Renderer.cpp), [`CMakeLists.txt`](CMakeLists.txt)*
+
+- **Fix — `LoadAllKnownTextures()` skipped 3D textures on DX12 pipeline** (`DX12Renderer.cpp`):
+  `LoadAllKnownTextures()` only iterated `texFilename[]` (2D UI textures) and left the `tex3DFilename[]` entries (`bricks1.png`, `water1.jpg`) unloaded with a "Step 7" placeholder comment. Both the function contract and the name require ALL known textures to be in GPU memory before loading commences.
+  Two changes: (1) `LoadAllKnownTextures()` now iterates `tex3DFilename[]` and calls `LoadTexture(i, fileName, false)` for each entry, counting failures and returning `false` if any texture could not be loaded. (2) `LoadTexture(is2D=false)` — the 3D path — has been fully implemented: it detects the file extension and branches to a **WIC path** (PNG/JPG/BMP → BGRA32 decode via `IWICFormatConverter`, committed `DXGI_FORMAT_B8G8R8A8_UNORM` resource, full pixel upload via `UploadTextureData()`, SRV created at slot `10+textureIndex` in `m_cbvSrvUavHeap`) or a **DDS path** (magic-number validation, BC1/BC2/BC3 format detection, committed resource creation, pixel data upload via `UploadTextureData()` with the post-header pixel block, SRV created at the same heap slot). Both paths were previously either absent (WIC) or left as a TODO stub without pixel upload or SRV creation (DDS).
+- *See: [`DX12Renderer.cpp`](DX12Renderer.cpp)*
+
+- **Fix — DX12 pipeline compile errors: member redefinition and wrong `Model::Render` overload** (`DX12Renderer.h`, `DX12RenderFrame.cpp`):
+  Two compile errors introduced by the DX12 port task: (1) `delay`, `loadIndex`, and `iPosX` were added as a new block in `DX12Renderer.h` but already existed as private members earlier in the same class definition (lines 279-281), producing C2086 redefinition errors across every TU that included the header. The duplicate block was removed. (2) `DX12RenderFrame.cpp::RenderGamePlay` called `scene.scene_models[i].Render(deltaTime)` (single-argument form). Under `__USE_DIRECTX_12__`, `Models.h` only exposes `Render(ID3D11DeviceContext*, float)` — the single-argument overload is guarded to `__USE_OPENGL__ || __USE_VULKAN__`. Fixed by calling `Render(m_dx11Dx12Compat.dx11Context.Get(), deltaTime)`, using the DX11-on-DX12 compatibility context which layers DX11 draw calls over the DX12 command queue.
+- *See: [`DX12Renderer.h`](DX12Renderer.h), [`DX12RenderFrame.cpp`](DX12RenderFrame.cpp)*
+
+- **Fix — DX12 pipeline: no 2D images visible at runtime (four root causes)** (`DX12Renderer.h`, `DX12Renderer.cpp`, `DX12RenderFrame.cpp`):
+  All 2D images, textures, text, and GUI were invisible at runtime. Four compounding root causes identified and fixed:
+  (1) **D2D context had no render target** — `m_d2dContext->SetTarget()` was never called. Every `BeginDraw/EndDraw` session wrote to nothing. Fixed: `SetTarget(m_d2dRenderTargets[m_frameIndex])` called before each D2D pass.
+  (2) **`CreateWrappedResources()` was never called** — DX12 back buffers were never wrapped as DX11 resources, so D2D had no GPU path to the swap chain surface. Fixed: `CreateD2DRenderTargets()` added — for each back buffer calls `ID3D11On12Device::CreateWrappedResources()` (`inState=RENDER_TARGET` / `outState=PRESENT`) then `CreateBitmapFromDxgiSurface()`. Per-frame `m_wrappedBackBuffers[FrameCount]` and `m_d2dRenderTargets[FrameCount]` added to `DX12Renderer.h`; called in `Initialize()` and `Resize()`, released in `CleanupDX11On12Compatibility()`.
+  (3) **D2D device created from wrong DX device** — `InitializeDX11On12Compatibility()` queried `IDXGIDevice` from the standalone `dx11Device` (unrelated to DX12). The D2D device must share the `dx11On12Device` so bitmaps from wrapped DX12 surfaces are valid. Fixed: DXGI device now queried from `dx11On12Device` with `dx11Device` as fallback.
+  (4) **Wrong render order — D2D ran after `PRESENT` transition** — `RenderFrame` transitioned the back buffer to `PRESENT` before the D2D pass, making `AcquireWrappedResources` (expects `RENDER_TARGET`) fail silently. Fixed: command list closes and executes WITHOUT transitioning to PRESENT. Back buffer reaches PRESENT only via `ReleaseWrappedResources()` (`outState=PRESENT`). Background image drawing is inlined as D2D Pass 1; overlays/GUI/cursor/FPS/FX are Pass 2. `dx11Context->Flush()` called after `ReleaseWrappedResources()` to submit commands before `PresentFrame()`.
+- *See: [`DX12Renderer.h`](DX12Renderer.h), [`DX12Renderer.cpp`](DX12Renderer.cpp), [`DX12RenderFrame.cpp`](DX12RenderFrame.cpp)*
+
+- **Fix — SDK 26100 API changes in `CreateD2DRenderTargets()`** (`DX12Renderer.cpp`):
+  Two compile errors from Windows SDK 10.0.26100 API differences: (1) `ID3D11On12Device::CreateWrappedResources` (plural) does not exist in SDK 26100 — the method was renamed `CreateWrappedResource` (singular) and changed to wrap a single resource per call via `IUnknown*` + `REFIID`/`void**` (IID_PPV_ARGS style) rather than an array of `ID3D12Resource*`. Signature: `CreateWrappedResource(IUnknown* pResource12, const D3D11_RESOURCE_FLAGS*, D3D12_RESOURCE_STATES InState, D3D12_RESOURCE_STATES OutState, REFIID, void**)`. Updated call site accordingly. (2) `ID2D1Factory::GetDesktopDpi` is deprecated in SDK 26100 (C4996). Replaced with `m_d2dContext->GetDpi(&dpiX, &dpiY)` — the correct desktop-app API that reads DPI from the device context.
+- *See: [`DX12Renderer.cpp`](DX12Renderer.cpp)*
 
 ---
 

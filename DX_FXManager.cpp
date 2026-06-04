@@ -1,5 +1,6 @@
-﻿#include "Includes.h"    // Must come first — this file defines __USE_DIRECTX_11__
+﻿#include "Includes.h"    // Must come first — this file defines the active renderer
 
+// DX12 builds use DX12FXManager.cpp — this file is DX11-only.
 #if defined(__USE_DIRECTX_11__)
 #if defined(_WIN32) || defined(_WIN64)
 
@@ -17,11 +18,18 @@ extern ThreadManager threadManager;
 #pragma warning(disable: 4101)
 #pragma warning(disable: 4267)                  // Suppress size_t conversion warnings
 
-// UPDATED: FXManager constructor with bIsRendering initialization
-FXManager::FXManager() : originalBlendState(nullptr), fadeBlendState(nullptr), originalRenderTarget(nullptr),
-fullscreenQuadVertexBuffer(nullptr), inputLayout(nullptr), vertexShader(nullptr), pixelShader(nullptr),
-bHasCleanedUp(false), bIsRendering(false) {
-    // Constructor body remains the same
+// FXManager constructor — DX11 raw-pointer members are default-initialised to nullptr in the header
+// and must NOT appear in the initializer list for DX12 builds (they don't exist as members).
+FXManager::FXManager() : bHasCleanedUp(false), bIsRendering(false) {
+#if defined(__USE_DIRECTX_11__)
+    originalBlendState        = nullptr;
+    fadeBlendState            = nullptr;
+    originalRenderTarget      = nullptr;
+    fullscreenQuadVertexBuffer = nullptr;
+    inputLayout               = nullptr;
+    vertexShader              = nullptr;
+    pixelShader               = nullptr;
+#endif
 }
 
 FXManager::~FXManager() {

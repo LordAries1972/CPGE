@@ -474,6 +474,8 @@ void OpenGLRenderer::RenderFrame()
             glViewport(0, 0, renderW, renderH);
             m_renderTargetWidth  = renderW;
             m_renderTargetHeight = renderH;
+            iOrigWidth           = renderW;
+            iOrigHeight          = renderH;
 
             // ---- Clear buffers ----
             glClearColor(clearR, clearG, clearB, 1.0f);

@@ -148,9 +148,14 @@ private:
 
 bool LoadAllShaders()
 {
-#if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__)
-    // Only DX11/DX12 use the ShaderManager HLSL pipeline.
-    // OpenGL, Vulkan, Radeon and any future renderers compile their own shaders internally.
+#if defined(__USE_DIRECTX_12__)
+    // DX12 loads pre-compiled CSO shaders directly in DX12Renderer::CreatePipelineState()
+    // via D3DReadFileToBlob. The ShaderManager HLSL compile pipeline is DX11-only.
+    return true;
+#endif
+
+#if !defined(__USE_DIRECTX_11__)
+    // Non-DX11 renderers (OpenGL, Vulkan, Radeon) compile their own shaders internally.
     return true;
 #endif
 

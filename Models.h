@@ -142,7 +142,7 @@ public:
     bool LoadFromMemory(const uint8_t* data, size_t size);
     const std::wstring& GetPath() const { return texturePath; }
 
-#if defined(__USE_DIRECTX_11__)
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
     ID3D11ShaderResourceView* GetSRV() const { return textureSRV; }
     bool CreateSolidColorTexture(uint32_t width, uint32_t height, const XMFLOAT4& color);
 #elif defined(__USE_OPENGL__)
@@ -161,7 +161,7 @@ private:
     std::wstring texturePath;
     bool bTextureDestroyed = false;
 
-#if defined(__USE_DIRECTX_11__)
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
     ID3D11ShaderResourceView* textureSRV = nullptr;
     ID3D11Resource* textureResource = nullptr;
     bool IsValid() const { return textureSRV != nullptr; }

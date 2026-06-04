@@ -13,6 +13,8 @@
 #include "MoviePlayer.h"
 #if defined(__USE_DIRECTX_11__)
     #include "DX11Renderer.h"
+#elif defined(__USE_DIRECTX_12__)
+    #include "DX12Renderer.h"
 #endif
 #include <mfapi.h>
 #include <mfidl.h>
@@ -522,8 +524,17 @@ bool MoviePlayer::OpenMovie(const std::wstring& filePath)
                 pDesiredType->Release();
             }
 
-            // Lock the renderer when creating the video texture
-#if defined(__USE_DIRECTX_11__)
+            // Create video texture for the active renderer
+#if defined(__USE_DIRECTX_12__)
+            {
+                std::lock_guard<std::mutex> renderLock(DX12Renderer::GetRenderMutex());
+                if (!CreateVideoTexture(width, height, isHevcContent))
+                {
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to create DX12 video texture");
+                    return false;
+                }
+            }
+#elif defined(__USE_DIRECTX_11__)
             {
                 std::lock_guard<std::mutex> renderLock(DX11Renderer::GetRenderMutex());
 
@@ -681,9 +692,27 @@ bool MoviePlayer::OpenMovie(const std::wstring& filePath)
 // -----------------------------------------------------------------------------------------------------
 bool MoviePlayer::CreateVideoTexture(UINT width, UINT height, bool isHevcContent)
 {
-#if !defined(__USE_DIRECTX_11__)
-    return false;
-#else
+#if defined(__USE_DIRECTX_12__)
+    // DX12: allocate a D2D bitmap slot via the DX12Renderer video texture API.
+    auto dx12Renderer = std::dynamic_pointer_cast<DX12Renderer>(m_renderer);
+    if (!dx12Renderer) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"MoviePlayer: Failed to cast to DX12Renderer");
+        return false;
+    }
+    // Release any previous slot.
+    if (m_videoTextureIndex >= 0)
+        dx12Renderer->ReleaseVideoD2DTexture(m_videoTextureIndex);
+
+    if (!dx12Renderer->CreateVideoD2DTexture(m_videoTextureIndex, width, height)) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"MoviePlayer: Failed to create DX12 D2D video texture");
+        return false;
+    }
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"MoviePlayer: DX12 D2D video texture created (" +
+        std::to_wstring(width) + L"x" + std::to_wstring(height) + L") at slot " +
+        std::to_wstring(m_videoTextureIndex));
+    return true;
+#elif defined(__USE_DIRECTX_11__)
+
     auto dx11Renderer = std::dynamic_pointer_cast<DX11Renderer>(m_renderer);
     if (!dx11Renderer)
     {
@@ -810,7 +839,7 @@ bool MoviePlayer::CreateVideoTexture(UINT width, UINT height, bool isHevcContent
     #endif
 
     return true;
-#endif // __USE_DIRECTX_11__
+#endif // __USE_DIRECTX_11__ / __USE_DIRECTX_12__
 }
 
 // ----------------------------------------------------------------------------------------------
@@ -827,9 +856,21 @@ bool MoviePlayer::UpdateVideoTexture()
         return false;
     }
 
+    // DX12: decode frame to CPU buffer then upload via D2D CopyFromMemory.
+#if defined(__USE_DIRECTX_12__)
+    if (m_videoTextureIndex < 0) return false;
+    if (!UpdateVideoTextureCPU()) return false;
+
+    auto dx12Renderer = std::dynamic_pointer_cast<DX12Renderer>(m_renderer);
+    if (!dx12Renderer || m_cpuFrameWidth == 0 || m_cpuFrameHeight == 0) return false;
+
+    UINT rowPitch = m_cpuFrameWidth * 4;   // BGRA — 4 bytes per pixel
+    return dx12Renderer->UpdateVideoD2DTexture(m_videoTextureIndex,
+        m_cpuFrameBuffer.data(), rowPitch);
+
     // Non-DX11 renderers (Vulkan, OpenGL) use a CPU-side buffer path that does not
     // require a D3D11 texture.  Route them directly to UpdateVideoTextureCPU().
-#if !defined(__USE_DIRECTX_11__)
+#elif !defined(__USE_DIRECTX_11__)
     return UpdateVideoTextureCPU();
 #else
     // Check if we have valid DX11 video textures to update
@@ -2148,6 +2189,14 @@ void MoviePlayer::Cleanup()
     m_videoTexture.Reset();
     m_videoRenderTexture.Reset();
 
+#if defined(__USE_DIRECTX_12__)
+    // Release DX12 D2D video bitmap slot
+    if (m_videoTextureIndex >= 0 && m_renderer) {
+        auto dx12Renderer = std::dynamic_pointer_cast<DX12Renderer>(m_renderer);
+        if (dx12Renderer) dx12Renderer->ReleaseVideoD2DTexture(m_videoTextureIndex);
+    }
+#endif
+
     // Reset state
     m_isPlaying = false;
     m_isPaused = false;
@@ -2681,7 +2730,24 @@ void MoviePlayer::Render(const Vector2& position, const Vector2& size)
     if (!m_isPlaying.load() || m_videoTextureIndex < 0)
         return;
 
-#if defined(__USE_DIRECTX_11__)
+#if defined(__USE_DIRECTX_12__)
+    // DX12: the video frame is stored in a D2D bitmap slot; blit it via DX12Renderer::Blit2DObjectToSize.
+    if (m_renderer && m_videoTextureIndex >= 0)
+    {
+        std::lock_guard<std::mutex> renderLock(DX12Renderer::GetRenderMutex());
+        auto dx12 = std::dynamic_pointer_cast<DX12Renderer>(m_renderer);
+        if (dx12)
+        {
+            dx12->Blit2DObjectToSize(
+                static_cast<BlitObj2DIndexType>(m_videoTextureIndex),
+                static_cast<int>(position.x),
+                static_cast<int>(position.y),
+                static_cast<int>(size.x),
+                static_cast<int>(size.y));
+            m_hasNewFrame.store(false);
+        }
+    }
+#elif defined(__USE_DIRECTX_11__)
     std::lock_guard<std::mutex> renderLock(DX11Renderer::GetRenderMutex());
 
     auto dx11Renderer = std::dynamic_pointer_cast<DX11Renderer>(m_renderer);

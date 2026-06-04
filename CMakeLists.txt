@@ -14,7 +14,7 @@ if(RENDERER STREQUAL "DX11")
     set(RENDERER_PREFIX "DX")
     set(RENDERER_DEFINE "__USE_DIRECTX_11__")
 elseif(RENDERER STREQUAL "DX12")
-    set(RENDERER_PREFIX "DX")
+    set(RENDERER_PREFIX "DX12")
     set(RENDERER_DEFINE "__USE_DIRECTX_12__")
 elseif(RENDERER STREQUAL "OpenGL")
     set(RENDERER_PREFIX "OpenGL")
@@ -46,9 +46,12 @@ set(SOURCES
     Debug.cpp
     DX11Renderer.cpp
     DX12Renderer.cpp
+    DX12RenderFrame.cpp
     DXCamera.cpp
     DXRenderFrame.cpp
     DX_FXManager.cpp
+    DX12FXManager.cpp
+    DX12Models.cpp
     ExceptionHandler.cpp
     FileIO.cpp
     GamePlayer.cpp
@@ -292,7 +295,7 @@ if(MSVC)
         /MP          # Multi-processor compilation
         /nologo
         /Zp16        # Struct member alignment 16 bytes
-        $<$<CONFIG:Debug>:/MDd /sdl>
+        $<$<CONFIG:Debug>:/MDd /sdl /FS>
         $<$<CONFIG:Release>:/MD /sdl /Oi /Ob2 /GF /GT>
     )
 
@@ -302,6 +305,7 @@ if(MSVC)
         UNICODE
         _UNICODE
         GLEW_STATIC     # Use glew32s.lib (static); prevents __declspec(dllimport) on GLEW symbols
+        ${RENDERER_DEFINE}  # e.g. __USE_DIRECTX_12__ — embedded in vcxproj so stale .obj from other pipelines cannot sneak in
     )
 
     # Release: whole-program optimisation

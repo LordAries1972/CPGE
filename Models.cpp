@@ -83,6 +83,8 @@ Texture::~Texture() {
     bTextureDestroyed = true;
 }
 
+// DX12 builds get LoadFromFile/LoadFromMemory/CreateSolidColorTexture from DX12Models.cpp.
+#if !defined(__USE_DIRECTX_12__)
 bool Texture::LoadFromFile(const std::wstring& path)
 {
     // Store the texture path for reference and debugging.
@@ -306,6 +308,7 @@ bool Texture::LoadFromFile(const std::wstring& path)
     return false;
 #endif
 }
+#endif // !defined(__USE_DIRECTX_12__) — LoadFromFile
 
 
 // ==========================================================================================
@@ -313,6 +316,7 @@ bool Texture::LoadFromFile(const std::wstring& path)
 // Decodes a PNG/JPEG/etc. image stored in a raw byte buffer (e.g. an embedded GLB bufferView)
 // and uploads it as an immutable DX11 shader-resource texture.
 // ==========================================================================================
+#if !defined(__USE_DIRECTX_12__)
 bool Texture::LoadFromMemory(const uint8_t* data, size_t size)
 {
     if (!data || size == 0)
@@ -506,12 +510,14 @@ bool Texture::LoadFromMemory(const uint8_t* data, size_t size)
     return false;
 #endif
 }
+#endif // !defined(__USE_DIRECTX_12__) — LoadFromMemory
 
 
 // ==========================================================================================
 // CreateSolidColorTexture
 // Creates a 2D texture filled with a constant color.
 // ==========================================================================================
+#if !defined(__USE_DIRECTX_12__)
 bool Texture::CreateSolidColorTexture(uint32_t width, uint32_t height, const XMFLOAT4& color)
 {
     // Validate input dimensions.
@@ -615,6 +621,7 @@ bool Texture::CreateSolidColorTexture(uint32_t width, uint32_t height, const XMF
     return false;
 #endif
 }
+#endif // !defined(__USE_DIRECTX_12__) — CreateSolidColorTexture
 
 
 //==============================================================================
@@ -1538,6 +1545,7 @@ void Model::CopyFrom(const Model& other)
 }
 
 // Updates the constant buffer with the world matrix.
+#if !defined(__USE_DIRECTX_12__)
 void Model::UpdateConstantBuffer() {
 #ifdef __USE_DIRECTX_11__
     // Ensure the model is loaded and the constant buffer is valid
@@ -1572,6 +1580,7 @@ void Model::UpdateConstantBuffer() {
     debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"UpdateConstantBuffer: DirectX 11 is not enabled.");
 #endif
 }
+#endif // !defined(__USE_DIRECTX_12__) — UpdateConstantBuffer
 
 void Model::TriggerEffect(int effectID)
 {
@@ -1579,7 +1588,8 @@ void Model::TriggerEffect(int effectID)
     m_modelInfo.fxActive = true;
 }
 
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+// DX11 only — DX12 builds get CancelEffect/RestartEffect/ChainEffect from DX12FXManager.cpp.
+#if defined(__USE_DIRECTX_11__)
 
 void FXManager::CancelEffect(int effectID)
 {
@@ -1612,7 +1622,7 @@ void FXManager::ChainEffect(int fromEffectID, int toEffectID)
     }
 }
 
-#endif // __USE_DIRECTX_11__ || __USE_DIRECTX_12__
+#endif // __USE_DIRECTX_11__
 
 void Model::SetPosition(XMFLOAT3 position)
 {
@@ -1669,11 +1679,14 @@ void Model::LoadFallbackNormalMap()
 
 
 
+// DX12 builds get SetupModelForRendering from DX12Models.cpp.
+#if !defined(__USE_DIRECTX_12__)
+
 //==============================================================================
 // Restored SetupModelForRendering with shader setup and DX11 macro protection
 //==============================================================================
 bool Model::SetupModelForRendering(int ID)
-{ 
+{
     bool result = false;
     result = SetupModelForRendering();
 
@@ -2168,15 +2181,18 @@ lightDesc.Usage = D3D11_USAGE_DYNAMIC;
     return true;
 #endif
 }
+#endif // !defined(__USE_DIRECTX_12__) — SetupModelForRendering
 
 
 // ============================================================================
 // UpdateModelLighting() - Pushes local lights to GPU constant buffer (b1)
+// DX12 builds get this from DX12Models.cpp.
 // ============================================================================
+#if !defined(__USE_DIRECTX_12__)
 void Model::UpdateModelLighting()
 {
-#if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__)
-    return; // No-op on non-DX builds; lighting is handled by the shader/renderer layer
+#if !defined(__USE_DIRECTX_11__)
+    return;
 #else
     if (!m_modelInfo.lightConstantBuffer)
         return;
@@ -2228,13 +2244,15 @@ context->PSSetConstantBuffers(SLOT_LIGHT_BUFFER, 1, m_modelInfo.lightConstantBuf
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"[Model] Failed to map light buffer for writing.");
 #endif
     }
-#endif // __USE_DIRECTX_11__ || __USE_DIRECTX_12__
+#endif // __USE_DIRECTX_11__
 }
+#endif // !defined(__USE_DIRECTX_12__) — UpdateModelLighting
 
 //=============================================================================
 // void Model::Render(ID3D11DeviceContext* deviceContext)
+// DX12 builds get this from DX12Models.cpp (which uses the 11on12 context).
 //=============================================================================
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+#if defined(__USE_DIRECTX_11__)
 void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
 {
 #if defined(__USE_DIRECTX_11__)
@@ -2521,6 +2539,8 @@ void Model::DebugInfoForModel() const
 }
 
 // Implementation for Model class PBR extension methods
+// DX12 builds get this from DX12Models.cpp.
+#if !defined(__USE_DIRECTX_12__)
 bool Model::SetupPBRResources() {
     #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
         // IMPORTANT:
@@ -2566,6 +2586,7 @@ bool Model::SetupPBRResources() {
     #endif // __USE_DIRECTX_11__ || __USE_DIRECTX_12__
     return true;
 }
+#endif // !defined(__USE_DIRECTX_12__) — SetupPBRResources
 
 bool Model::LoadEnvironmentMap(const std::wstring& filePath) {
     #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
@@ -2659,8 +2680,10 @@ bool Model::LoadAOMap(const std::wstring& filePath) {
     return true;
 }
 
+// DX12 builds get UpdateEnvironmentBuffer from DX12Models.cpp.
+#if !defined(__USE_DIRECTX_12__)
 void Model::UpdateEnvironmentBuffer() {
-    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+    #if defined(__USE_DIRECTX_11__)
         // IMPORTANT:
         // Do NOT use ComPtr::Attach() with renderer-owned COM pointers.
         // Attach() assumes ownership and will Release() on scope exit.
@@ -2685,8 +2708,9 @@ void Model::UpdateEnvironmentBuffer() {
             // Bind to Pixel Shader slot b5
             context->PSSetConstantBuffers(SLOT_ENVIRONMENT_BUFFER, 1, m_modelInfo.environmentBuffer.GetAddressOf());
         }
-    #endif // __USE_DIRECTX_11__ || __USE_DIRECTX_12__
+    #endif // __USE_DIRECTX_11__
 }
+#endif // !defined(__USE_DIRECTX_12__) — UpdateEnvironmentBuffer
 
 void Model::SetPBRProperties(float metallic, float roughness, float reflectionStrength) {
     m_modelInfo.metallic = metallic;

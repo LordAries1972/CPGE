@@ -1,3 +1,12 @@
+# When cmake-build[.bat|.sh] runs the 'all' target it calls this script once
+# per pipeline.  Only the first pipeline should bump the version; subsequent
+# ones pass SKIP_VERSION_INCREMENT=1 in the environment to avoid multiple
+# increments from a single logical build.
+if("$ENV{SKIP_VERSION_INCREMENT}" STREQUAL "1")
+    message(STATUS "Version increment skipped — not the first pipeline in an 'all' build.")
+    return()
+endif()
+
 set(MASTER_VER 0)
 set(SUB_VER 0)
 set(DEFAULT_BUILD 695)

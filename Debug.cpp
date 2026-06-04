@@ -149,15 +149,26 @@ void Debug::logLevelMessage(LogLevel level, const std::wstring& message)
             Insert_Into_Log_File(LOG_FILE_NAME, taggedMessage);
         #endif
 
-        if (level == LogLevel::LOG_CRITICAL)
+        if (level == LogLevel::LOG_CRITICAL || level == LogLevel::LOG_TERMINATION)
         {
-            #if !defined(_DEBUG) && !defined(DEBUG)
-                throw std::runtime_error("Fatal Critical Error Has Occurred!");
+            // Post a quit message so the main message loop exits with a failure code.
+            // Works in ALL build types (the old code was gated behind !_DEBUG).
+            PostQuitMessage(EXIT_FAILURE);
 
-                // Terminate the application.
-                PostQuitMessage(0);
-//            DebugBreak();
-            #endif
+#if defined(PLATFORM_WINDOWS)
+            if (level == LogLevel::LOG_TERMINATION)
+            {
+                // TERMINATION is unrecoverable — show a dialog so the user sees
+                // the reason, then force-exit.  ExitProcess is intentional here:
+                // the program state is corrupt, we must not continue.
+                MessageBoxW(nullptr,
+                    (std::wstring(L"A fatal error has occurred and the program must close.\n\n")
+                        + message).c_str(),
+                    L"Fatal Error — Terminating",
+                    MB_OK | MB_ICONERROR | MB_TOPMOST);
+                ExitProcess(EXIT_FAILURE);
+            }
+#endif
         }
     }
 }
