@@ -14,9 +14,9 @@
     #include "Debug.h"
     #include "WinSystem.h"
     #include "Configuration.h"
-    #include "DX_FXManager.h"
+    #include "DX12FXManager.h"
     #include "GUIManager.h"
-    #include "Models.h"
+    #include "DX12Models.h"
     #include "Lights.h"
     #include "SceneManager.h"
     #include "MoviePlayer.h"
@@ -538,8 +538,9 @@ void DX12Renderer::CreateDepthStencilBuffer() {
         clearValue.DepthStencil.Stencil = 0;                                    // Clear stencil to zero
 
         // Create the depth stencil buffer resource
+        CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_DEFAULT);
         HRESULT hr = m_d3d12Device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),                  // Default heap for GPU access
+            &heapProps,                                                         // Default heap for GPU access
             D3D12_HEAP_FLAG_NONE,                                               // No special heap flags
             &depthStencilDesc,                                                  // Resource description
             D3D12_RESOURCE_STATE_DEPTH_WRITE,                                   // Initial state for depth writing
@@ -2813,9 +2814,19 @@ bool DX12Renderer::LoadTexture(int textureIndex, const std::wstring& filename, b
                 return false;
             }
 
-            // Create Direct2D bitmap from WIC bitmap
+            // Create Direct2D bitmap from WIC bitmap.
+            // Must hold D2DLockName because ID2D1DeviceContext (created with
+            // D2D1_DEVICE_CONTEXT_OPTIONS_NONE) is NOT thread-safe. The render
+            // thread may be inside BeginDraw/EndDraw concurrently.
             ComPtr<ID2D1Bitmap> d2dBitmap;
-            hr = m_d2dContext->CreateBitmapFromWicBitmap(converter.Get(), &d2dBitmap);
+            {
+                ThreadLockHelper d2dLoadLock(threadManager, D2DLockName, 5000);
+                if (!d2dLoadLock.IsLocked()) {
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Could not acquire D2D lock for 2D texture creation.");
+                    return false;
+                }
+                hr = m_d2dContext->CreateBitmapFromWicBitmap(converter.Get(), &d2dBitmap);
+            }
             if (FAILED(hr)) {
                 debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to create Direct2D bitmap from WIC bitmap.");
                 return false;
@@ -4638,6 +4649,69 @@ void DX12Renderer::DrawVideoFrame(const Vector2& position, const Vector2& size, 
         std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
         debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"DX12Renderer: Exception in DrawVideoFrame: %s", errorMsg.c_str());
     }
+}
+
+//-----------------------------------------
+// CreateVideoD2DTexture — allocate a D2D bitmap slot for per-frame video playback.
+// Returns the texture index in m_d2dTextures that MoviePlayer should use.
+//-----------------------------------------
+bool DX12Renderer::CreateVideoD2DTexture(int& outTextureIndex, UINT width, UINT height)
+{
+    outTextureIndex = -1;
+    if (!m_d2dContext || !IsDX11CompatibilityAvailable()) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: D2D context not ready for video texture creation.");
+        return false;
+    }
+    if (width == 0 || height == 0) return false;
+
+    // Find an empty slot near the end of the 2D texture array (reserved for dynamic use)
+    const int reservedStart = MAX_TEXTURE_BUFFERS - 8;
+    for (int i = reservedStart; i < MAX_TEXTURE_BUFFERS; ++i) {
+        if (!m_d2dTextures[i]) {
+            D2D1_SIZE_U size = D2D1::SizeU(width, height);
+            D2D1_BITMAP_PROPERTIES bitmapProps = D2D1::BitmapProperties(
+                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+                96.0f, 96.0f);   // 96 DPI matches context DPI set in InitializeDX11On12Compatibility
+
+            HRESULT hr = m_d2dContext->CreateBitmap(size, nullptr, 0, bitmapProps, &m_d2dTextures[i]);
+            if (FAILED(hr)) {
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: CreateBitmap for video failed (0x%08X).", hr);
+                return false;
+            }
+            outTextureIndex = i;
+#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Video D2D texture allocated at slot %d (%ux%u).", i, width, height);
+#endif
+            return true;
+        }
+    }
+    debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: No free D2D texture slot available for video.");
+    return false;
+}
+
+//-----------------------------------------
+// UpdateVideoD2DTexture — upload one decoded video frame (BGRA) to the D2D bitmap.
+//-----------------------------------------
+bool DX12Renderer::UpdateVideoD2DTexture(int textureIndex, const BYTE* pData, UINT rowPitch)
+{
+    if (textureIndex < 0 || textureIndex >= MAX_TEXTURE_BUFFERS) return false;
+    if (!m_d2dTextures[textureIndex] || !pData) return false;
+
+    HRESULT hr = m_d2dTextures[textureIndex]->CopyFromMemory(nullptr, pData, rowPitch);
+    if (FAILED(hr)) {
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"DX12Renderer: CopyFromMemory for video slot %d failed (0x%08X).", textureIndex, hr);
+        return false;
+    }
+    return true;
+}
+
+//-----------------------------------------
+// ReleaseVideoD2DTexture — free the D2D bitmap slot used for video.
+//-----------------------------------------
+void DX12Renderer::ReleaseVideoD2DTexture(int textureIndex)
+{
+    if (textureIndex >= 0 && textureIndex < MAX_TEXTURE_BUFFERS)
+        m_d2dTextures[textureIndex].Reset();
 }
 
 //-----------------------------------------

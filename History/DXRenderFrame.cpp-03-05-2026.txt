@@ -1,9 +1,0 @@
-DXRenderFrame.cpp - 03-05-2026
-================================
-Fix: Loader ring position was using D3D viewport floats (width/height from
-GetClientRect) instead of the D2D render target dimensions (iOrigWidth/iOrigHeight).
-Every other Blit call in this file uses iOrigWidth/iOrigHeight. The viewport float
-values can differ from the actual render target size, pushing the ring off-screen.
-Changed to: Blit2DObjectAtOffset(..., iOrigWidth - 40, iOrigHeight - 40, ...)
-This places the ring 8px from the bottom-right corner in D2D coordinate space,
-consistent with the actual render target on every resolution and aspect ratio.

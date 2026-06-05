@@ -1,9 +1,0 @@
-GUIConfigWindow.cpp - 03-05-2026
-=================================
-Fix 1: Aspect ratio label was hidden (vis=false) and never updated when the
-resolution slider changed. Changed vis to true and added calculation in the
-resolution onChange callback:
-    config.myConfig.aspectRatio = (long double)r.first / r.second;
-    updLabel("t2_asp", CfgFmtFloat(config.myConfig.aspectRatio, 4));
-
-The label now shows live as the user scrolls through resolutions.

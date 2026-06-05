@@ -31,7 +31,7 @@
 #include "ExceptionHandler.h"
 #include "WinSystem.h"
 #include "Configuration.h"
-#include "DX_FXManager.h"
+#include "DX12FXManager.h"
 #include "GUIManager.h"
 #include "ConsoleWindow.h"
 #include "Models.h"
@@ -636,17 +636,8 @@ void DX12Renderer::RenderFrame()
                         }
                     }
 
-                    // End D2D overlay pass + post-processing FX
-                    try
-                    {
-                        HRESULT hr = m_d2dContext->EndDraw();
-                        if (FAILED(hr))
-                        {
-                            #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-                                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 RENDERFRAME] Direct2D EndDraw failed (0x%08X)", hr);
-                            #endif
-                        }
-
+                    // Full-screen pass FX (color fader, starfield, warp tunnel) — must be inside BeginDraw/EndDraw
+                    try {
                         fxManager.Render();
                     }
                     catch (const std::exception& e)
@@ -656,14 +647,31 @@ void DX12Renderer::RenderFrame()
                         #endif
                     }
 
+                    // End D2D overlay pass
+                    try
+                    {
+                        HRESULT hr = m_d2dContext->EndDraw();
+                        if (FAILED(hr))
+                        {
+                            #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+                                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 RENDERFRAME] Direct2D EndDraw failed (0x%08X)", hr);
+                            #endif
+                        }
+                    }
+                    catch (const std::exception& e)
+                    {
+                        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+                            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 RENDERFRAME] EndDraw failed: %hs", e.what());
+                        #endif
+                    }
+
                     #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
                         debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[DX12 RENDERFRAME] 2D overlay pass completed");
                     #endif
                 }
                 else
                 {
-                    // D2D lock not acquired — still need EndDraw to pair with BeginDraw above
-                    m_d2dContext->EndDraw();
+                    // D2D lock not acquired — BeginDraw was never called for pass 2, so no EndDraw here.
                     #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
                         debug.logLevelMessage(LogLevel::LOG_WARNING, L"[DX12 RENDERFRAME] Could not acquire D2D render lock - skipping 2D overlays");
                     #endif

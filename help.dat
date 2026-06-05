@@ -1,0 +1,27 @@
+----------------------
+CPGE HELP INSTRUCTIONS
+----------------------
+
+------------------
+Console Commands:-
+------------------
+HELP                        => Shows this help information.
+
+
+------------------------------
+Known Keys for Game Title Area:-
+------------------------------
+F2                          => Show/Hide Debug Overlay
+F8                          => Open / Closes this Console window.
+HOME                        => Start / Stop Screen Recorder.
+ESC                         => QUIT!
+NUM KEYPAD +/-              => Microphone Volume Up/Down (Only when Screen Recording).
+CTRL NUM KEYPAD +/-         => SFX VOLUME Up/Down
+ALT NUM KEYPAD +/-          => Music VOLUME Up/Down
+CTRL+ALT+NUM KEYPAD +/-     => TTS VOLUME Up/Down (Window builds only!)
+CTRL+SHIFT+NUM KEYPAD +/-   => Master Volume Up/Down
+
+
+--------------------------
+IN GAME AREA (GAME PLAY):-
+--------------------------

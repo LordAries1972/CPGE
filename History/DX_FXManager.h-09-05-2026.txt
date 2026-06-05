@@ -1,6 +1,0 @@
-DX_FXManager.h - 09-05-2026
-============================
-1. WarpTunnelData: added float pathPhaseOffset = 0.0f.
-2. FXManager public: added StopAllFX(), SaveAndSuspendFXForScene(), RestoreFXAfterScene().
-3. FXManager private: added m_sceneSavedEffects (vector<FXItem>),
-   m_sceneSavedStarfieldID, m_sceneSavedTunnelID for scene transition save/restore.

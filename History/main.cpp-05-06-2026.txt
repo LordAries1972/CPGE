@@ -414,6 +414,44 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         }
     #endif
 
+    // Ensure the config's rendererType matches the compiled render pipeline.
+    // If the config was saved from a different pipeline build, override it and
+    // force-save before the renderer instance is created so every subsystem
+    // that reads rendererType at startup gets the correct value.
+    {
+        int compiledRendererType = config.myConfig.rendererType; // unchanged by default
+
+#if defined(PLATFORM_WINDOWS)
+    #if   defined(__USE_DIRECTX_11__)
+        compiledRendererType = 0;
+    #elif defined(__USE_DIRECTX_12__)
+        compiledRendererType = 1;
+    #elif defined(__USE_OPENGL__)
+        compiledRendererType = 2;
+    #elif defined(__USE_VULKAN__)
+        compiledRendererType = 3;
+    #endif
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    #if   defined(__USE_OPENGL__)
+        compiledRendererType = 0;
+    #elif defined(__USE_VULKAN__)
+        compiledRendererType = 1;
+    #endif
+#else
+        compiledRendererType = 0; // iOS / macOS — OpenGL only
+#endif
+
+        if (config.myConfig.rendererType != compiledRendererType)
+        {
+            debug.logLevelMessage(LogLevel::LOG_WARNING,
+                L"[Config] rendererType mismatch (config=" + std::to_wstring(config.myConfig.rendererType) +
+                L", compiled=" + std::to_wstring(compiledRendererType) +
+                L") — overriding to compiled pipeline and saving config.");
+            config.myConfig.rendererType = compiledRendererType;
+            config.saveConfig();
+        }
+    }
+
     // Create appropriate Renderer Interface
     if (CreateRendererInstance() != EXIT_SUCCESS)
         return EXIT_FAILURE;

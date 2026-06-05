@@ -493,6 +493,7 @@ void DX11Renderer::RenderFrame()
                        // Display Relative Information.
                        std::wstring fpsText = L"FPS: " + std::to_wstring(fps) +                                 
                            L"\nMOUSE: x" + std::to_wstring(myMouseCoords.x) + L", y" + std::to_wstring(myMouseCoords.y) +
+                           L"\nClient Width: " + std::to_wstring(iOrigWidth) + L", Client Height:" + std::to_wstring(iOrigHeight) +
                            L"\nCamera X: " + std::to_wstring(Coords.x) + L", Y: " + std::to_wstring(Coords.y) + L", Z: " + std::to_wstring(Coords.z) +
                            L", Yaw: " + std::to_wstring(myCamera.m_yaw) + L", Pitch: " + std::to_wstring(myCamera.m_pitch) + L"\n" +
                            L"Global Light Count: " + std::to_wstring(lightsManager.GetLightCount()) + L"\n";    
@@ -512,6 +513,7 @@ void DX11Renderer::RenderFrame()
                        bool riShow = (scene.stSceneType == SceneType::SCENE_GAMETITLE ||
                                       scene.stSceneType == SceneType::SCENE_GAMEPLAY  ||
                                       scene.stSceneType == SceneType::SCENE_INTRO     ||
+                                      scene.stSceneType == SceneType::SCENE_INTRO_MOVIE     ||
                                       scene.stSceneType == SceneType::SCENE_GAMEOVER);
                        #if defined(_DEBUG)
                            riShow = riShow || (scene.stSceneType == SceneType::SCENE_EXPERIMENT);

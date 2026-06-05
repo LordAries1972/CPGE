@@ -21,7 +21,7 @@ for the given scene.
 #include "SoundManager.h"
 #include "SceneManager.h"
 #include "GUIManager.h"
-#include "DX_FXManager.h"
+#include "DX12FXManager.h"
 #include "DX12Renderer.h"
 
 using namespace SoundSystem;

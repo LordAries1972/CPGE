@@ -21,7 +21,7 @@ for the given scene.
 #include "SoundManager.h"
 #include "SceneManager.h"
 #include "GUIManager.h"
-#include "DX_FXManager.h"
+#include "DX12FXManager.h"
 #include "DX12Renderer.h"
 
 using namespace SoundSystem;
@@ -150,7 +150,7 @@ void DX12Renderer::LoaderTaskThread()
                     LightStruct sunLight;
                     SecureZeroMemory(&sunLight, sizeof(LightStruct));
                     sunLight.active = true;
-                    sunLight.position  = XMFLOAT3(0.0f, 5.0f, -150.0f);   // deep background, slightly above centre
+                    sunLight.position  = XMFLOAT3(0.0f, 5.0f, 150.0f);   // behind camera, slightly above centre
 
                     // Normalise direction manually: (0, -0.25, -1) / length = (0, -0.2425, -0.9701)
                     sunLight.direction = XMFLOAT3(0.0f, -0.2425f, -0.9701f);

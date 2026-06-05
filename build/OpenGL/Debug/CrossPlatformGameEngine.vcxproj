@@ -797,6 +797,8 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="F:\Projects\C++\CPGE2026\DXCamera.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\DXRenderFrame.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\DX_FXManager.cpp" />
+    <ClCompile Include="F:\Projects\C++\CPGE2026\DX12FXManager.cpp" />
+    <ClCompile Include="F:\Projects\C++\CPGE2026\DX12Models.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\ExceptionHandler.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\FileIO.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\GamePlayer.cpp" />

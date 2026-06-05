@@ -480,6 +480,7 @@ void VulkanRenderer::RenderFrame()
                     std::wstring fpsText =
                         L"FPS: " + std::to_wstring(m_fps) +
                         L"\nMOUSE: x" + std::to_wstring(myMouseCoords.x) + L", y" + std::to_wstring(myMouseCoords.y) +
+                        L"\nClient Width: " + std::to_wstring(iOrigWidth) + L", Client Height:" + std::to_wstring(iOrigHeight) +
                         L"\nCamera X: " + std::to_wstring(coords.x) + L", Y: " + std::to_wstring(coords.y) +
                         L", Z: " + std::to_wstring(coords.z) +
                         L", Yaw: " + std::to_wstring(myCamera.m_yaw) + L", Pitch: " + std::to_wstring(myCamera.m_pitch) +

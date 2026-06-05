@@ -1,7 +1,0 @@
-VULKAN_IOStreamThread.h - 06-05-2026
-======================================
-NEW FILE
-
-Minimal header for the Vulkan loader thread — equivalent of IOStreamDX11Thread.h.
-Includes Renderer.h and VULKAN_Renderer.h.
-LoaderTaskThread() is declared as a member of VulkanRenderer (defined in the .cpp).

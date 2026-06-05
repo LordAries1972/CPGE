@@ -140,6 +140,7 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
 
                         StopMusicPlayback();
                         threadManager.threadVars.bIsShuttingDown.store(true);
+                        renderer->WaitToFinishThenPauseThread();
                         PostQuitMessage(0);
                         break;
                     }

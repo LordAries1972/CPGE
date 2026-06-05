@@ -1,3 +1,0 @@
-// Joystick.h - 06-05-2026
-// Added: PollControllers() public method declaration
-// Added: HasActiveControllers() convenience inline

@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1493*
+*Current Build Version: v0.0.1512*
 
 ---
 
@@ -55,7 +55,7 @@ lets make this Engine great!
 #### 2026
 
 - [June 2026](#june-2026---opengl-pipeline-fixes)
-  - [01](#june-01-2026) · [02](#june-02-2026) · [03](#june-03-2026) · [04](#june-04-2026)
+  - [01](#june-01-2026) · [02](#june-02-2026) · [03](#june-03-2026) · [04](#june-04-2026) · [05](#june-05-2026)
 - [May 2026](#may-2026---more-major-updates-and-fixes)
   - [02](#may-02-2026) · [03-04](#may-03-04-2026) · [06](#may-06-2026) · [08](#may-08-2026) · [10](#may-10-2026) · [11](#may-11-2026) · [14](#may-14-2026) · [15](#may-15-2026) · [16](#may-16-2026) · [17](#may-17-2026) · [18](#may-18-2026) · [19](#may-19-2026) · [20](#may-20-2026) · [21](#may-21-2026) · [22](#may-22-2026) · [23](#may-23-2026) · [24](#may-24-2026) · [28](#may-28-2026) · [29](#may-29-2026) · [30](#may-30-2026) · [31](#may-31-2026)
 - [April 2026](#april-2026---bug-fixes-and-updates)
@@ -2643,6 +2643,144 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
   `CreateCommittedResource` was called with `&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT)` as its first argument. `CD3DX12_HEAP_PROPERTIES(...)` constructs a temporary (r-value); MSVC C2102 does not permit taking the address of an r-value. Fixed by storing the heap properties in a named local variable `heapProps` and passing `&heapProps`.
 - *See: [`DX12Renderer.cpp`](DX12Renderer.cpp)*
 
+- **Fix — DX12 startup crash: D2D1Debug layer DebugBreak on first render** (`DX12RenderFrame.cpp`, `IOStreamDX12Thread.cpp`, `DX12Renderer.cpp`):
+  Three distinct D2D violations caused an immediate `0x80000003` SEH breakpoint via `D2D1Debug3.dll` when the DX12 pipeline started:
+  (1) **`fxManager.Render()` placed after `EndDraw()`** — `DX12RenderFrame.cpp` called `fxManager.Render()` (which drives ColorFader, Starfield, and WarpDotTunnel — all D2D-backed) immediately after `m_d2dContext->EndDraw()`. D2D detected drawing operations (`FillRectangle`, `DrawBitmap`) outside a `BeginDraw/EndDraw` pair and fired `DebugBreak`. Fixed by moving `fxManager.Render()` to before `EndDraw()`, still within the locked D2D pass-2 block.
+  (2) **Spurious `EndDraw()` without matching `BeginDraw()` in the lock-fail else-branch** — the `else` clause for when `D2DLockName` acquisition timed out called `m_d2dContext->EndDraw()` with a misleading comment. Since pass-2's `BeginDraw()` is inside the `if (locked)` block, the `else` branch has no outstanding `BeginDraw`; calling `EndDraw` here was an unmatched D2D call. Removed the spurious `EndDraw`; updated the comment.
+  (3) **`CreateBitmapFromWicBitmap` called from loader thread without D2D lock** — `DX12Renderer::LoadTexture()` called `m_d2dContext->CreateBitmapFromWicBitmap()` on the loader thread while the render thread might have `m_d2dContext` in active use. `ID2D1DeviceContext` created with `D2D1_DEVICE_CONTEXT_OPTIONS_NONE` is not thread-safe; concurrent access was detected by the D2D debug layer with `D2D1_DEBUG_LEVEL_INFORMATION`. Fixed by wrapping the `CreateBitmapFromWicBitmap` call with a `ThreadLockHelper(D2DLockName, 5000)` — only the D2D call is locked; the WIC decode (slow I/O) runs freely before acquiring the lock.
+  Also fixed wrong `#include "DX_FXManager.h"` to `#include "DX12FXManager.h"` in both `DX12RenderFrame.cpp` and `IOStreamDX12Thread.cpp` (the indirect include via `DX_FXManager.h` was harmless but incorrect for DX12-specific files).
+- *See: [`DX12RenderFrame.cpp`](DX12RenderFrame.cpp), [`IOStreamDX12Thread.cpp`](IOStreamDX12Thread.cpp), [`DX12Renderer.cpp`](DX12Renderer.cpp)*
+
+#### June 05, 2026
+
+- **Fix — DX12 starfield renders on top of 3D content** (`DX12FXManager.h`, `DX12FXManager.cpp`, `DX12RenderFrame.cpp`):
+  `fxManager.Render()` was called in pass-2 (after 3D command-list execution), putting Starfield and WarpDotTunnel on top of 3D models. Added `bool backgroundOnly = false` parameter: `Render(true)` renders only Starfield/WarpDotTunnel (background layer) and is now called at the end of pass-1 D2D BeginDraw (before 3D). `Render(false)` (default, existing call in pass-2) renders only ColorFader so scene-fade overlays remain on top of everything.
+- *See: [`DX12FXManager.h`](DX12FXManager.h), [`DX12FXManager.cpp`](DX12FXManager.cpp), [`DX12RenderFrame.cpp`](DX12RenderFrame.cpp)*
+
+- **Fix — DX12 pipeline crash (0xC0000005) on first game-menu render** (`DX12Renderer.cpp`):
+  `DrawMyTextCentered` requested `DWRITE_FONT_WEIGHT_BOLD` for `FontName = L"MayaCulpa"`. The MayaCulpa typeface has no native bold face; DWrite attempted to synthesise bold by reading internal font tables, hit a `memcpy` into invalid font data deep inside `DWrite.dll`, and fired an access-violation SEH exception (crash address `0x7FFDEBA99612`, 14-frame stack through `D2D1Debug3.dll → d2d1.dll → DWrite.dll → memcpy`). All prior text draws (renderer info overlay, FX loading text) used `DWRITE_FONT_WEIGHT_NORMAL` — that is why the crash was deferred until the first `guiManager.Render()` call after `CreateGameMenuWindow`. Fix: changed the weight in `DrawMyTextCentered` from `DWRITE_FONT_WEIGHT_BOLD` to `DWRITE_FONT_WEIGHT_NORMAL`; text centering (`DWRITE_TEXT_ALIGNMENT_CENTER` / `DWRITE_PARAGRAPH_ALIGNMENT_CENTER`) is unaffected.
+- *See: [`DX12Renderer.cpp`](DX12Renderer.cpp)*
+
+- **Fix — DX12 movie video not playing: all D2D texture slots occupied** (`DX12Renderer.h`, `DX12Renderer.cpp`, `MoviePlayer.cpp`):
+  `CreateVideoD2DTexture()` searched for an empty slot in `m_d2dTextures[]`. `LoadAllKnownTextures()` fills all 19 slots (every element of `texFilename[]`), leaving none free. The slot search always failed → `OpenMovie()` returned false → `SwitchToGameIntro()` immediately. Fixed by adding a dedicated `ComPtr<ID2D1Bitmap> m_d2dVideoBitmap` to `DX12Renderer`. `CreateVideoD2DTexture()` now creates into that member and returns sentinel index `MAX_TEXTURE_BUFFERS`. `UpdateVideoD2DTexture()` and `ReleaseVideoD2DTexture()` handle the sentinel. Added `BlitVideoBitmap(x,y,w,h)` which draws `m_d2dVideoBitmap` directly via `m_d2dContext->DrawBitmap`. `MoviePlayer::Render()` DX12 path calls `BlitVideoBitmap` instead of the slot-cast blit.
+- *See: [`DX12Renderer.h`](DX12Renderer.h), [`DX12Renderer.cpp`](DX12Renderer.cpp), [`MoviePlayer.cpp`](MoviePlayer.cpp)*
+
+- **Fix — DX12 render rate ~30fps instead of 60fps** (`DX12Renderer.cpp`):
+  `MoveToNextFrame()` called `WaitForSingleObject(m_fenceEvent, 5000)` after `Present`. Combined with `WaitForPreviousFrame()` doing the same at the start of the NEXT frame, every frame incurred two GPU-serialisation stalls. On a 60 Hz display that halved the achievable rate to ~30fps. Removed the `WaitForSingleObject` call from `MoveToNextFrame()` — it now only signals the fence and advances the frame index. `WaitForPreviousFrame()` handles the necessary wait at the start of the following frame.
+- *See: [`DX12Renderer.cpp`](DX12Renderer.cpp)*
+
+- **Fix — DX12 app hangs on exit from SCENE_GAMETITLE** (`DX12Renderer.cpp`):
+  `Cleanup()` called `CleanupDX11On12Compatibility()` (destroying the 11on12 D3D11 device) before `models[i].DestroyModel()` and `scene.CleanUp()`. The model vertex/index/constant buffers and SRVs created via that device were still alive when the device was destroyed, leaving dangling references that caused hangs or crashes. Moved both `DestroyModel` and `scene.CleanUp()` to run first, before the 11on12 teardown. Also added `m_d2dVideoBitmap.Reset()` before `CleanupDX11On12Compatibility()`.
+- *See: [`DX12Renderer.cpp`](DX12Renderer.cpp)*
+
+- **Fix — DX12 movie deadlock: `MoviePlayer::Render()` acquired `GetRenderMutex()` inside `BeginDraw`** (`MoviePlayer.cpp`):
+  `MoviePlayer::Render()` held `DX12Renderer::GetRenderMutex()` while calling `Blit2DObjectToSize()`. `Render()` is only ever called from the render frame's pass-2 `BeginDraw`/`EndDraw` block. `SwitchToMovieIntro()` calls `PauseThread(THREAD_RENDERER)` (non-blocking) then immediately acquires the same mutex inside `OpenMovie()` on the main thread. If the renderer thread was mid-frame — already past `BeginDraw` but not yet at `EndDraw` — it would block on `GetRenderMutex()` inside the BeginDraw session; the main thread held that mutex and called `m_d2dContext->CreateBitmap()`, requiring D2D serialisation that the render thread's in-progress BeginDraw also participates in: circular wait / movie immediately stops playing. Fix: removed `GetRenderMutex()` from `Render()` for the DX12 path — D2D1_FACTORY_TYPE_MULTI_THREADED already serialises all factory-derived calls from within the render frame. The mutex in `OpenMovie()` (line 530) is retained to guard the brief window where the renderer has not yet paused.
+- *See: [`MoviePlayer.cpp`](MoviePlayer.cpp)*
+
+- **Fix — DX12 SCENE_GAMETITLE crash: `UpdateConstantBuffer` D3D11 Map called while DX12 command list open** (`DX12Models.cpp`):
+  `Model::Render` called `UpdateConstantBuffer()` (which issues `deviceContext->Map/Unmap` on the 11on12 D3D11 immediate context) before the `shaderBound` check. For DX12, no D3D11 shaders are loaded so `shaderBound` always returns false, but the `Map` call already ran. This call was issued in STEP 8 of the render frame while the DX12 command list was still open, which the D3D11_3SDKLayers debug layer detected as invalid interleaving and raised `RaiseException(0x87D)`. Moved `UpdateConstantBuffer()` to after the shader guard: if no shaders are available (DX12 case), the function returns early before any D3D11 context calls are made.
+- *See: [`DX12Models.cpp`](DX12Models.cpp)*
+
+- **Feature — `cmake-build.bat`: run install script after successful build** (`cmake-build.bat`):
+  After a successful single-renderer build, `cmake-build.bat` now calls `install-debug.bat` (Debug config) or `install-release.bat` (Release config) to copy output files to the execution folder. A missing install script is reported as a warning rather than an error so the build result is preserved.
+- *See: [`cmake-build.bat`](cmake-build.bat)*
+
+- **Fix — DX12 `UploadTextureData` crash: wrong initial resource state in barrier + shared fence race** (`DX12Renderer.cpp`):
+  Two bugs in `UploadTextureData`: (1) `LoadTexture` creates the 3D texture resource with initial state `D3D12_RESOURCE_STATE_COPY_DEST`, but `UploadTextureData` immediately issued a barrier claiming the resource was in `D3D12_RESOURCE_STATE_COMMON`. The D3D12 debug layer detected the mismatch and raised exception `0x87D` from `D3D12SDKLayers.dll`. Removed the incorrect barrier — resource is already in COPY_DEST. (2) `WaitForGPUToFinish()` was called from the loader thread, which races on the shared `m_fence`/`m_fenceValue`/`m_fenceEvent` with the render thread (causing the `MoveToNextFrame` fence timeout). Replaced with a dedicated per-upload fence+event created, used, and destroyed within the upload call.
+- *See: [`DX12Renderer.cpp`](DX12Renderer.cpp)*
+
+- **Fix — DX12 pipeline hang: unnecessary D2D lock in `LoadTexture` removed** (`DX12Renderer.cpp`):
+  `LoadTexture` was holding `D2DLockName` for the duration of `CreateBitmapFromWicBitmap`. That lock was incorrect: `D2D1_FACTORY_TYPE_MULTI_THREADED` already serialises all factory-derived calls internally, so no external lock is needed. Holding it caused the render thread's `d2dClearLock` and `d2dRenderLock` (100 ms timeouts) to time out on every texture load, stalling the pipeline.
+- *See: [`DX12Renderer.cpp`](DX12Renderer.cpp)*
+
+- **Fix — DX12 startup crash: Access Violation in `ThreadManager::TryLock` condition variable wait** (`ThreadManager.h`):
+  `lockConditions` was declared `std::unordered_map<std::string, std::condition_variable>`. When a second lock name was first seen, `operator[]` could trigger a rehash, invalidating the `auto& lockCV` reference held by a thread already sleeping inside `wait_for` on a different lock. The sleeping thread then crashed with `0xC0000005` inside `SleepConditionVariableSRW` (ntdll) because its condition variable object had been relocated. Changed `lockConditions` to `std::map<std::string, std::condition_variable>` — a tree map whose node pointers are stable across inserts, so no reference is ever invalidated.
+- *See: [`ThreadManager.h`](ThreadManager.h)*
+
+- **Fix — DX12 still ~30fps after MoveToNextFrame fix: `WaitForPreviousFrame` double-signalled the fence** (`DX12Renderer.cpp`):
+  `WaitForPreviousFrame` called `m_commandQueue->Signal(m_fence.Get(), fence)` at the *start* of every frame (before any GPU work was submitted) and also advanced `m_frameIndex` via `GetCurrentBackBufferIndex()`. Combined with `MoveToNextFrame` doing the same advance and signal, the fence was signalled twice per frame and the frame index was advanced twice, breaking buffer tracking and halving effective frame rate. Removed the Signal call and the `GetCurrentBackBufferIndex` advance from `WaitForPreviousFrame` entirely — it now *only* waits. All fence signalling and index advancement happens in `MoveToNextFrame` (after `Present`). Also replaced the hard 5 000 ms fence timeout with a 500 ms short-circuit when `bIsShuttingDown` is true so the render thread exits promptly on close.
+- *See: [`DX12Renderer.cpp`](DX12Renderer.cpp)*
+
+- **Fix — DX12 crash: `FXManager::AddEffect` push_back reallocation invalidates Particle vector** (`DX12FXManager.h`, `DX12FXManager.cpp`):
+  `FadeOutThenCallback`'s callback (fired from within `Render()` while `effects` was being iterated) called `FadeToImage` → `AddEffect` → `effects.push_back(newEffect)`. Under MSVC debug iterators the reallocation move-constructs each `FXItem`, which move-constructs `std::vector<Particle>`; the iterator proxy swap then crashes with `0xC0000005` because the old proxy is no longer valid. Added `std::vector<FXItem> m_pendingEffects` to `FXManager`. `AddEffect` now pushes to `m_pendingEffects` (mutex-protected) whenever `bIsRendering` is true. `Render()` flushes `m_pendingEffects` into `effects` at the very end — after all iteration loops and `RemoveCompletedEffects()` — so no reallocation ever occurs mid-iteration. `CleanUp()` clears `m_pendingEffects` too.
+- *See: [`DX12FXManager.h`](DX12FXManager.h), [`DX12FXManager.cpp`](DX12FXManager.cpp)*
+
+- **Fix — DX12 models not rendering: no D3D11 shader program in DX12 mode** (`DX12Models.cpp`, `DX12Models.h`, `DX12RenderFrame.cpp`, `Models.h`):
+  `Model::Render(dx11Context, deltaTime)` returned immediately because `shaderManager.UseShaderProgram("ModelProgram")` always fails in DX12 mode — `LoadAllShaders()` returns `true` early without loading any D3D11 shaders. Added a native DX12 draw path: `SetupModelForRendering()` now creates three additional upload-heap `ID3D12Resource` objects per model — vertex buffer, index buffer, and per-model constant buffer (persistently mapped). `Model::RenderDX12(ID3D12GraphicsCommandList*, DX12Renderer*, float)` updates the mapped constant buffer with the model's world/view/proj matrices, binds VB/IB directly on the command list, sets the per-model CB at root parameter b0 via `SetGraphicsRootConstantBufferView`, binds the null-SRV fallback descriptor table for texture slots, and calls `DrawIndexedInstanced`. `RenderGamePlay` now calls `m_commandList->SetPipelineState(m_pipelineState.Get())` once before the model loop and routes each model through `RenderDX12` instead of the legacy 11on12 D3D11 call. Six null SRV descriptors are created in `cbvSrvUavHeap` slots 0–5 during `Initialize()` and exposed as `m_nullTextureGPUHandle`; these act as safe placeholder textures until per-model DX12 SRVs are added.
+- *See: [`DX12Models.cpp`](DX12Models.cpp), [`DX12Models.h`](DX12Models.h), [`DX12RenderFrame.cpp`](DX12RenderFrame.cpp), [`Models.h`](Models.h), [`DX12Renderer.cpp`](DX12Renderer.cpp), [`DX12Renderer.h`](DX12Renderer.h)*
+
+- **Fix — DX12: XMModPlayer continues after ESC from SCENE_GAMETITLE** (`KBHandlersCode.cpp`):
+  The `SCENE_GAMETITLE` ESC handler faded to black and then called `bIsShuttingDown = true` + `PostQuitMessage(0)` without ever calling `StopMusicPlayback()`. The XM/MP3 player thread continued running in the background after the window closed. `SCENE_GAMEPLAY` ESC correctly called `StopMusicPlayback()` before `SwitchToGameIntro()`. Fixed by adding `StopMusicPlayback()` immediately before `bIsShuttingDown.store(true)` in the `SCENE_GAMETITLE` branch.
+- *See: [`KBHandlersCode.cpp`](KBHandlersCode.cpp)*
+
+- **Fix — Config window text mis-aligned / centered instead of left-justified** (`GUIManager.cpp`, `DX12Renderer.cpp`):
+  Two bugs combined to centre all label text: (1) `GUIWindow::Render()` TextArea case used `Vector2 resize = size` (the window's 620×480 dimensions) instead of `control.size` — DWrite received a layout rect spanning the full window, so short labels appeared centred within it. Fixed: `resize = control.size`. (2) `DX12Renderer::DrawMyText(text, pos, size)` draws through a cached `IDWriteTextFormat` that `DrawMyTextCentered` had previously mutated to `DWRITE_TEXT_ALIGNMENT_CENTER`. Fixed: call `SetTextAlignment(LEADING)` + `SetParagraphAlignment(NEAR)` at the top of the with-size overload to reset before each use.
+- *See: [`GUIManager.cpp`](GUIManager.cpp), [`DX12Renderer.cpp`](DX12Renderer.cpp)*
+
+- **Fix — Config window scrolled controls overlap tab bar / bottom area** (`GUIConfigWindow.cpp`):
+  `setTabScroll` shifted Y positions but never clipped them. Fixed by setting `c.isVisible = false` for controls whose bounds fall outside `[CONT_Y+2, CONT_Y+368]` after each shift. `doSwitchTab` now restores `c.isVisible = true` on the outgoing tab before the main show/hide loop runs, preventing permanently-hidden controls after a tab switch.
+- *See: [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp)*
+
+- **Fix — Quit-to-Desktop button: music continues and window hangs on DX12** (`GUIWindows.cpp`):
+  The `FadeOutThenCallback` lambda (fires from render thread) was missing `StopMusicPlayback()` and called `PostMessage(WM_CLOSE)` while the render thread was still mid-frame. Fixed: added `extern void StopMusicPlayback()` + call it first; replaced the direct `PostMessage` with a detached `std::thread` that sleeps 100 ms (≥ 6 frames at 60fps) to let the render thread safely finish before posting `WM_CLOSE` to the main thread.
+- *See: [`GUIWindows.cpp`](GUIWindows.cpp)*
+
+- **Fix — DX12 starfield visually slower than DX11** (`DX12FXManager.cpp`):
+  Star velocity initialised to `[20, 60]` units/second — identical to DX11 in source, but DX11's static `lastTweenTime` accumulated a growing delta that effectively accelerated stars. DX12's correctly-clamped 60fps delta of 0.016s produced noticeably slower apparent motion. Tripled spawn and respawn speed to `[60, 180]` units/second for visual parity with DX11.
+- *See: [`DX12FXManager.cpp`](DX12FXManager.cpp)*
+
+- **Feature — GPU capability detection in DX11, Vulkan and OpenGL renderers** (`DX11Renderer.h/.cpp`, `VULKAN_Renderer.h/.cpp`, `OpenGLRenderer.h/.cpp`):
+  Mirrors the DX12 capability detection added earlier. Each renderer adds `m_dedicatedVRAMMB`, `m_sharedSystemMemMB`, `m_isUMA`, `m_isLowEndGPU`. DX11 queries `DXGI_ADAPTER_DESC` via `IDXGIDevice::GetAdapter`. Vulkan queries `VkPhysicalDeviceMemoryProperties` heap sizes and `deviceType` for UMA detection. OpenGL adds `dxgi.lib` + `<dxgi.h>` (Windows guard) and enumerates the default DXGI adapter for VRAM; GPU name from `glGetString(GL_RENDERER/GL_VENDOR)`.
+- *See: [`DX11Renderer.h`](DX11Renderer.h), [`DX11Renderer.cpp`](DX11Renderer.cpp), [`VULKAN_Renderer.h`](VULKAN_Renderer.h), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`OpenGLRenderer.h`](OpenGLRenderer.h), [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp)*
+
+- **Feature — Buffering config option + Triple Buffering UI toggle + per-tab scrollbars** (`Configuration.h`, `Configuration.cpp`, `GUIConfigWindow.cpp`, `DX11Renderer.cpp`, `DX12Renderer.h`, `DX12Renderer.cpp`, `VULKAN_Renderer.cpp`):
+  Added `int buffering = 1` (1=triple, 0=double) to `MyConfig`. The field is persisted to `GameConfig.cfg` via `loadConfig`/`saveConfig` and included in the FNV-1a checksum so tampering is detected. Under the **Video** tab a new **Triple Buffering** toggle slider (id `t2_tripbuf`) sets `buffering` and marks `needsVideoRestart`; the toggle initialises from the current config value. All renderers now read the setting at swap-chain creation time: DX11 sets `swapDesc.BufferCount` to 3 or 2; DX12 introduces a new private member `m_effectiveFrameCount` (3 or 2) that replaces the compile-time `FrameCount = 3` constant in `CreateSwapChain`, `CreateRenderTargetViews`, `CreateD2DRenderTargets`, and `Resize`'s `ResizeBuffers`/RTV-recreation loops (cleanup and max-allocation loops keep `FrameCount` so nothing is leaked); Vulkan sets `ci.minImageCount` from `minImageCount + 1` (triple) or `minImageCount` (double), clamped to `maxImageCount`. The Video tab now has 12 rows, which exceeds the 370 px visible height by 14 px. Added a 12-pixel-wide vertical scrollbar to every tab's content area: scroll state (`tabScrollY[5]`) is a `shared_ptr<std::array<float,5>>`; `setTabScroll(delta)` shifts the Y positions of visible tab controls and clamps to `[0, contentH − 370]`; `doSwitchTab` un-scrolls the outgoing tab before switching; the scrollbar thumb is drawn via `onCustomRender`; mouse-wheel is routed via `onMouseWheel` (18 px/notch); clicking the track jumps to the proportional position via `onCustomMouseInput`. All horizontal sliders are narrowed by `CFG_SCROLL_W + 4 = 16 px` and the info-row value label uses the same budget so no control overlaps the scrollbar track.
+- *See: [`Configuration.h`](Configuration.h), [`Configuration.cpp`](Configuration.cpp), [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp), [`DX11Renderer.cpp`](DX11Renderer.cpp), [`DX12Renderer.h`](DX12Renderer.h), [`DX12Renderer.cpp`](DX12Renderer.cpp), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp)*
+
+- **Feature — DX12 low-end GPU support: feature level cascade + capability detection** (`DX12Renderer.cpp`, `DX12Renderer.h`):
+  `CreateDevice()` and `SelectBestAdapter()` hard-coded `D3D_FEATURE_LEVEL_12_0` as the minimum for `D3D12CreateDevice`, silently rejecting GPUs that support DX12 only at FL 11.1 (many Intel HD/Iris, older AMD APUs). Changed minimum to `D3D_FEATURE_LEVEL_11_0` in both locations — the device is still created at the adapter's maximum supported level, so no functionality is lost on capable hardware. After device creation, added a GPU capability query block that populates six new private members: `m_dedicatedVRAMMB`, `m_sharedSystemMemMB` (VRAM in MB from `DXGI_ADAPTER_DESC3`); `m_isUMA` (`D3D12_FEATURE_DATA_ARCHITECTURE.UMA`); `m_isLowEndGPU` (true when VRAM < 2 GB or UMA); `m_maxFeatureLevel` (`D3D12_FEATURE_DATA_FEATURE_LEVELS`); `m_resourceBindingTier` (`D3D12_FEATURE_DATA_D3D12_OPTIONS.ResourceBindingTier`). All six are logged at startup and available for future runtime quality-scaling decisions.
+- *See: [`DX12Renderer.cpp`](DX12Renderer.cpp), [`DX12Renderer.h`](DX12Renderer.h)*
+
+- **Fix — DX12 pipeline 6fps: per-frame COM resource creation through 11on12 layer** (`DX12Renderer.h`, `DX12Renderer.cpp`, `DX12RenderFrame.cpp`):
+  Every call to `DrawMyText`, `DrawMyTextStyled`, `DrawMyTextWithFont`, `DrawMyTextCentered`, and `DrawRectangle` created a new `IDWriteTextFormat` and `ID2D1SolidColorBrush`. Through the 11on12 compatibility layer each creation carries significant synchronisation overhead; with 10+ creates per frame at 60 Hz the accumulated cost dropped throughput to ~6fps. Added two per-renderer caches: `m_generalBrush` (`ID2D1SolidColorBrush`) is created once and reused via `SetColor()` on every text/rect call; `m_textFormatCache` (`unordered_map<wstring, IDWriteTextFormat*>`) caches by (fontName|fontSize|weight|style) key. Private helpers `GetOrCreateTextFormat()` and `SetGeneralBrushColor()` encapsulate the lookup/creation logic. The renderer-info overlay in `DX12RenderFrame.cpp` was also updated to use the cached format. Both caches are released in `Cleanup()` before the 11on12 device is torn down.
+- *See: [`DX12Renderer.h`](DX12Renderer.h), [`DX12Renderer.cpp`](DX12Renderer.cpp), [`DX12RenderFrame.cpp`](DX12RenderFrame.cpp)*
+
+- **Fix — DX11 heap corruption: `AddEffect` unprotected `push_back` during render iteration** (`DX_FXManager.h`, `DX_FXManager.cpp`):
+  The DX11 `FXManager::AddEffect()` called `effects.push_back()` without checking `bIsRendering`, the same guard present in the DX12 path. If the loader thread (breadcrumb: `LoaderTaskThread` + `RenderFrame` both active) called `AddEffect` while the render thread was iterating `effects` inside `Render()`, a vector reallocation occurred mid-iteration. The reallocation moved `FXItem` objects to new storage and called `~FXItem()` on the old elements; `TextFadeData::~TextFadeData` tried to free a `wstring` whose heap block had already been corrupted by the concurrent write, producing the `_CrtIsValidHeapPointer(block)` assertion at `debug_heap.cpp:904`. Fixed by adding `std::vector<FXItem> m_pendingEffects` to `DX_FXManager.h` and mirroring the DX12 deferred-push pattern: `AddEffect` uses the `bIsRendering` guard + `m_effectsMutex` to defer into `m_pendingEffects`; `Render()` flushes the pending list to `effects` after `RemoveCompletedEffects()` — identical to the DX12FXManager approach.
+- *See: [`DX_FXManager.h`](DX_FXManager.h), [`DX_FXManager.cpp`](DX_FXManager.cpp)*
+
+- **Fix — MoviePlayer `CreateVideoTexture` missing return value for Vulkan/OpenGL pipelines** (`MoviePlayer.cpp`):
+  `CreateVideoTexture` had `#if __USE_DIRECTX_12__ ... #elif __USE_DIRECTX_11__ ... #endif` with no `#else` branch. For Vulkan and OpenGL (neither define active) the function body was empty, causing `error C4716: must return a value`. Added `#else return true;` — Vulkan/OpenGL use the CPU-buffer path (`UpdateVideoTextureCPU`) and require no GPU texture object from this function.
+- *See: [`MoviePlayer.cpp`](MoviePlayer.cpp)*
+
+- **Fix — DX12 pipeline sustained 6fps: D2D double-flush, redundant locks, double buffering** (`DX12RenderFrame.cpp`, `DX12Renderer.h`):
+  Three changes combined: (1) Two-pass D2D design (separate BeginDraw/EndDraw for background and overlay) merged into a single BeginDraw/EndDraw — each `EndDraw` flushed D2D batches to the 11on12 device, doubling translation overhead per frame. (2) `ThreadLockHelper d2dClearLock` around `ClearRenderTargetView`/`ClearDepthStencilView` (D3D12 command-list ops, no D2D relevance) and `ThreadLockHelper d2dRenderLock` (render thread is sole D2D user) were both removed. (3) `FrameCount` raised from 2 to 3 — double buffering caused `Present(1,0)` to block waiting for the previous buffer; the third buffer allows the CPU to pipeline one frame ahead without stalling. `BeginDraw` was also moved inside the shutdown guard to prevent a BeginDraw without EndDraw during graceful exit.
+- *See: [`DX12RenderFrame.cpp`](DX12RenderFrame.cpp), [`DX12Renderer.h`](DX12Renderer.h)*
+
+- **Fix — DX12 GameMenu position formula used magic number 300** (`GUIManager.h`, `GUIWindows.cpp`, `GUIManager.cpp`):
+  Added `GAMEMENU_WINDOW_WIDTH = 300` constant to `GUIManager.h`; replaced all three hardcoded `300` occurrences with the constant so the formula is explicitly `iOrigWidth - GAMEMENU_WINDOW_WIDTH`.
+- *See: [`GUIManager.h`](GUIManager.h), [`GUIWindows.cpp`](GUIWindows.cpp), [`GUIManager.cpp`](GUIManager.cpp)*
+
+- **Fix — DX12 Configuration window 20px too tall** (`GUIConfigWindow.cpp`):
+  Added `#if defined(__USE_DIRECTX_12__)` guard: config window height is 460px on DX12, 480px on all other pipelines.
+- *See: [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp)*
+
+- **Fix — DX12 startup error: `GetContainingOutput` fails when window not yet on a display** (`DX12Renderer.cpp`):
+  `SetFullScreen()` and `SetFullExclusive()` hard-failed on `GetContainingOutput` failure. At startup (displayMode=2) the swap chain may not yet be associated with an output. Both functions now downgrade to WARNING and fall back to the adapter's first output via `IDXGIDevice::GetAdapter` → `IDXGIAdapter::EnumOutputs(0)`.
+- *See: [`DX12Renderer.cpp`](DX12Renderer.cpp)*
+
+- **Fix — DX12 intro movie plays twice** (`main.cpp`):
+  The `FadeOutThenCallback` lambda called `OpenMovieAndPlay()` but left `scene.bSceneSwitching = true`, causing the main loop's `bSceneSwitching && !IsFadeActive()` check to call `SwitchToMovieIntro()` → `OpenMovieAndPlay()` a second time. Added `scene.bSceneSwitching = false` inside the callback.
+- *See: [`main.cpp`](main.cpp)*
+
+- **Feature — Renderer init log now shows renderer type** (`RendererFactory.cpp`):
+  `CreateRendererInstance()` logged a generic "Renderer instance created" message. Replaced with `#if`-chained: `"DirectX 12 renderer instance successfully initialised."`, `"DirectX 11 …"`, `"Vulkan …"`, `"OpenGL …"`.
+- *See: [`RendererFactory.cpp`](RendererFactory.cpp)*
+
+- **Feature — Auto-correct config rendererType to match compiled pipeline before renderer creation** (`main.cpp`):
+  If the saved config `rendererType` doesn't match the compiled pipeline (e.g. config was last written by a DX11 build but the DX12 binary is now running), the mismatch was silently ignored — any subsystem that read `rendererType` at startup would see the wrong value. Added a validation block in `WinMain` immediately before `CreateRendererInstance()`: `compiledRendererType` is resolved from the active `#if __USE_DIRECTX_11__ / _12__ / __USE_OPENGL__ / __USE_VULKAN__` define, per-platform values applied (Windows: 0=DX11, 1=DX12, 2=OGL, 3=VK; Linux/Android: 0=OGL, 1=VK; iOS/macOS: 0). If the value differs from `config.myConfig.rendererType`, the config is overridden and `config.saveConfig()` is called before the renderer is instantiated. A WARNING-level log entry records the mismatch and the corrected value.
+- *See: [`main.cpp`](main.cpp)*
+
 ---
 
 ## Future Development
@@ -2676,8 +2814,8 @@ Since this is early-stage days of development (WIP), major reconstruction may oc
 #### May 27, 2025
 
 Multi-renderer implementation:
-- DirectX 12 Renderer for Windows (Partially implemented) (WIP)
-- OpenGL Renderer for Windows/Linux/MacOS/Android (Partially implemented) (WIP)
+- DirectX 12 Renderer for Windows (Partially implemented & Working) (WIP)
+- OpenGL Renderer for Windows/Linux/MacOS/Android (Partially implemented & working) (WIP)
 - Vulkan Renderer for Windows/Linux/Android (Near Working) (WIP)
 - Radeon Renderer for Windows & Linux (For AMD Users (Not Started) (WIP))
 

@@ -1,6 +1,0 @@
-VULKAN_FXManager.h - 09-05-2026
-================================
-1. VKWarpTunnelData: added float pathPhaseOffset = 0.0f.
-2. VKFXManager public: added StopAllFX(), SaveAndSuspendFXForScene(), RestoreFXAfterScene().
-3. VKFXManager private: added m_sceneSavedEffects (vector<VKFXItem>),
-   m_sceneSavedStarfieldID, m_sceneSavedTunnelID.
