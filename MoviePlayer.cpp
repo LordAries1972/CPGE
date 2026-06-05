@@ -815,14 +815,30 @@ bool MoviePlayer::CreateVideoTexture(UINT width, UINT height, bool isHevcContent
         return false;
     }
 
-    // Create shader resource view with appropriate format
-    D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-    srvDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM; // Always use BGRA for SRV
-    srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-    srvDesc.Texture2D.MostDetailedMip = 0;
-    srvDesc.Texture2D.MipLevels = 1;
+    // Staging textures have BindFlags=0 and cannot be used as SRVs.
+    // Create a DEFAULT texture the GPU can sample from; UpdateVideoTexture's
+    // existing CopyResource call will push each decoded frame into it.
+    ComPtr<ID3D11Texture2D> renderTexture;
+    D3D11_TEXTURE2D_DESC renderDesc = textureDesc;
+    renderDesc.Usage          = D3D11_USAGE_DEFAULT;
+    renderDesc.BindFlags      = D3D11_BIND_SHADER_RESOURCE;
+    renderDesc.CPUAccessFlags = 0;
 
-    hr = device->CreateShaderResourceView(m_videoTexture.Get(), &srvDesc, &m_videoTextureView);
+    hr = device->CreateTexture2D(&renderDesc, nullptr, &renderTexture);
+    if (FAILED(hr))
+    {
+        LogMediaError(hr, L"Failed to create render texture for video");
+        m_videoTexture.Reset();
+        return false;
+    }
+
+    D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Format                    = DXGI_FORMAT_B8G8R8A8_UNORM;
+    srvDesc.ViewDimension             = D3D11_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Texture2D.MostDetailedMip = 0;
+    srvDesc.Texture2D.MipLevels       = 1;
+
+    hr = device->CreateShaderResourceView(renderTexture.Get(), &srvDesc, &m_videoTextureView);
     if (FAILED(hr))
     {
         LogMediaError(hr, L"Failed to create shader resource view");
@@ -830,9 +846,8 @@ bool MoviePlayer::CreateVideoTexture(UINT width, UINT height, bool isHevcContent
         return false;
     }
 
-    // Find an available texture slot in the renderer
-    // For now we'll use MAX_TEXTURE_BUFFERS_3D - 1 as a dedicated video texture slot
-    m_videoTextureIndex = MAX_TEXTURE_BUFFERS_3D - 1;
+    m_videoRenderTexture = renderTexture;
+    m_videoTextureIndex  = MAX_TEXTURE_BUFFERS_3D - 1;
     dx11Renderer->m_d3dTextures[m_videoTextureIndex] = m_videoTextureView;
 
     #if defined(_DEBUG_MOVIEPLAYER_)

@@ -588,7 +588,7 @@ void DX12Renderer::RenderFrame()
                         recBlinkCounter = (recBlinkCounter + 1) % 60;
                         if (recBlinkCounter < 30)
                         {
-                            DrawMyText(L"● REC",
+                            DrawMyText(L"* REC",
                                 Vector2(width - 75.0f, 12.0f),
                                 MyColor::Red(),
                                 18.0f);
@@ -642,6 +642,13 @@ void DX12Renderer::RenderFrame()
                 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
                     debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[DX12 RENDERFRAME] Presenting frame to display");
                 #endif
+
+                // Capture the fully-composed back-buffer BEFORE Present.
+                // ReleaseWrappedResources above transitions it to PRESENT state,
+                // which is the state CaptureFrame expects to transition from.
+                if (screenRecorder.IsRecording())
+                    screenRecorder.CaptureFrame(m_d3d12Device.Get(), m_commandQueue.Get(),
+                                                m_swapChain.Get(), m_frameIndex);
 
                 std::chrono::steady_clock::time_point presentStart = std::chrono::steady_clock::now();
 

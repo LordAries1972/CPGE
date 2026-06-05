@@ -1921,6 +1921,7 @@ void DX12Renderer::PopulateCommandList() {
 // Wait for GPU to Finish All Operations
 //-----------------------------------------
 void DX12Renderer::WaitForGPUToFinish() {
+    if (!m_commandQueue || !m_fence || !m_fenceEvent) return;
     try {
         // Signal the fence
         const UINT64 fenceValue = m_fenceValue;
@@ -2610,8 +2611,13 @@ void DX12Renderer::Cleanup() {
         return;
     }
 
+    // Signal shutdown immediately so fence waits use the short 500ms timeout
+    // and the render thread loop's !bIsShuttingDown exit condition fires.
+    threadManager.threadVars.bIsShuttingDown.store(true);
+
     try {
         // Synchronize Thread Closures
+        threadManager.StopThread(THREAD_LOADER);
         threadManager.TerminateThread(THREAD_LOADER);
 
         #ifdef RENDERER_IS_THREAD
@@ -2631,6 +2637,7 @@ void DX12Renderer::Cleanup() {
             }
 
             // Now terminate the Renderer Thread.
+            threadManager.StopThread(THREAD_RENDERER);
             threadManager.TerminateThread(THREAD_RENDERER);
         #endif
 
@@ -2647,9 +2654,6 @@ void DX12Renderer::Cleanup() {
             models[i].DestroyModel();
 
         scene.CleanUp();
-
-        // Clean up the Thread Manager
-        threadManager.Cleanup();
 
         // Release cached D2D resources before tearing down the device
         m_generalBrush.Reset();
@@ -5201,6 +5205,9 @@ bool DX12Renderer::SetFullExclusive(uint32_t width, uint32_t height)
 //-----------------------------------------
 bool DX12Renderer::SetWindowedScreen(void)
 {
+    // Resources have already been released — nothing to do.
+    if (bHasCleanedUp) return false;
+
 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
     debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: SetWindowedScreen() called - beginning windowed transition");
 #endif

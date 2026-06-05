@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1521*
+*Current Build Version: v0.0.1532*
 
 ---
 
@@ -55,7 +55,7 @@ lets make this Engine great!
 #### 2026
 
 - [June 2026](#june-2026---opengl-pipeline-fixes)
-  - [01](#june-01-2026) · [02](#june-02-2026) · [03](#june-03-2026) · [04](#june-04-2026) · [05](#june-05-2026)
+  - [01](#june-01-2026) · [02](#june-02-2026) · [03](#june-03-2026) · [04](#june-04-2026) · [05](#june-05-2026) · [06](#june-06-2026)
 - [May 2026](#may-2026---more-major-updates-and-fixes)
   - [02](#may-02-2026) · [03-04](#may-03-04-2026) · [06](#may-06-2026) · [08](#may-08-2026) · [10](#may-10-2026) · [11](#may-11-2026) · [14](#may-14-2026) · [15](#may-15-2026) · [16](#may-16-2026) · [17](#may-17-2026) · [18](#may-18-2026) · [19](#may-19-2026) · [20](#may-20-2026) · [21](#may-21-2026) · [22](#may-22-2026) · [23](#may-23-2026) · [24](#may-24-2026) · [28](#may-28-2026) · [29](#may-29-2026) · [30](#may-30-2026) · [31](#may-31-2026)
 - [April 2026](#april-2026---bug-fixes-and-updates)
@@ -2856,6 +2856,32 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
 - **Fix — Config window circular close button not responding to clicks; saves instead of reverting** (`GUIConfigWindow.cpp`):
   The previous implementation relied on `onCustomMouseInput` with captured-at-creation-time coordinates, which (a) could mismatch after window drag and (b) was never firing reliably. Replaced with a transparent `Button` control ("btn_circleclose") at the circle location — `MoveWindow` keeps it in sync after dragging. `onMouseBtnDown` saves the config (`config.saveConfig()`) then closes, with an `std::atomic<bool>` guard against double-fire. `onCustomRender` now reads all positions live from `weakWin->position` so the circle, title text, and scrollbar all stay correct after dragging.
 - *See: [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp)*
+
+#### June 06, 2026
+
+- **Fix — DX12 ScreenRecorder captures no video (blank recording)** (`DX12RenderFrame.cpp`):
+  `DX12RenderFrame.cpp` contained the blinking REC indicator (`IsRecording()` check) but never called `screenRecorder.CaptureFrame()`. All other pipelines (DX11 in `DXRenderFrame.cpp`, Vulkan in `VULKAN_RenderFrame.cpp`, OpenGL in `OpenGLRenderFrame.cpp`) call `CaptureFrame` before their respective `Present` call; the DX12 equivalent was simply omitted. Added the call immediately before `PresentFrame()`, after `ReleaseWrappedResources()` + `Flush()` have transitioned the back buffer to `D3D12_RESOURCE_STATE_PRESENT` — the exact state `CaptureFrame` expects before issuing its PRESENT→COPY_SOURCE→PRESENT barrier pair.
+- *See: [`DX12RenderFrame.cpp`](DX12RenderFrame.cpp)*
+
+- **Fix — DX11 `CreateVideoTexture` fails with E_INVALIDARG (0x80070057): SRV created from staging texture** (`MoviePlayer.cpp`):
+  `CreateVideoTexture` (DX11 path) created `m_videoTexture` as `D3D11_USAGE_STAGING` with `BindFlags = 0`, then immediately called `CreateShaderResourceView` on it. D3D11 staging textures have no bind flags and cannot be bound to the pipeline; `CreateShaderResourceView` returned `E_INVALIDARG`, causing `OpenMovie` to abort with "Failed to create video texture". Fix: after the staging texture is successfully created, a second DEFAULT texture (`m_videoRenderTexture`) is created with `D3D11_BIND_SHADER_RESOURCE`; the SRV is built from that texture. The existing `CopyResource(m_videoRenderTexture, m_videoTexture)` call in `UpdateVideoTexture` then copies each decoded frame from the CPU-writable staging texture into the shader-visible DEFAULT texture on every rendered frame.
+- *See: [`MoviePlayer.cpp`](MoviePlayer.cpp)*
+
+- **Fix — DX12 pipeline hangs on shutdown (process survives after window closes)** (`DX12Renderer.cpp`, `ScreenRecorder.cpp`):
+  `DX12Renderer::Cleanup()` never set `threadManager.threadVars.bIsShuttingDown = true`, unlike DX11 which sets it as its very first action. Consequences: (1) `WaitForGPUToFinish()` and `WaitForPreviousFrame()` used the 5000ms fence timeout instead of the 500ms shutdown timeout; (2) the render thread loop's `!bIsShuttingDown.load()` exit condition never fired, leaving the render thread alive after `TerminateThread` returned. Fix mirrors the DX11 pattern: `bIsShuttingDown.store(true)` is now the first action after the `bHasCleanedUp` guard, `StopThread` is called before each `TerminateThread`, and the erroneous internal `threadManager.Cleanup()` call (which main.cpp already issues) is removed. Also fixed: `ScreenRecorder.cpp`'s DX11 `CaptureFrame` overload was being compiled in DX12 builds (which also define `__USE_DIRECTX_11__` for 11on12), referencing `m_stagingTexture` which is excluded from DX12 builds by the `#elif` header guard. Added `&& !defined(__USE_DIRECTX_12__)` to the `CaptureFrame` DX11 body guard.
+- *See: [`DX12Renderer.cpp`](DX12Renderer.cpp), [`ScreenRecorder.cpp`](ScreenRecorder.cpp)*
+
+- **Fix — DX12 ScreenRecorder `CaptureFrame` typo: `m_d3dDevice` → `m_d3d12Device`** (`DX12RenderFrame.cpp`):
+  The `CaptureFrame` call added for Bug 2 used `m_d3dDevice` (DX11 naming) instead of the correct DX12 member `m_d3d12Device`, causing a C2065 compile error. Corrected to `m_d3d12Device`. Build now produces `DX12CPGE.exe` cleanly.
+- *See: [`DX12RenderFrame.cpp`](DX12RenderFrame.cpp)*
+
+- **Fix — DX12 ScreenRecorder captures blank video (format mismatch + no channel swap)** (`ScreenRecorder.cpp`):
+  The DX12 `CaptureFrame` hardcoded `DXGI_FORMAT_B8G8R8A8_UNORM` in the `CopyTextureRegion` placed footprint, but the DX12 swap chain uses `DXGI_FORMAT_R8G8B8A8_UNORM`. D3D12 requires the footprint format to exactly match the source texture format; the mismatch caused the copy command list to enter an error state and `Close()` to fail, so `WriteVideoFrame` was never called and the video stream had zero frames. Fix: footprint format changed to `bbDesc.Format` (the actual back-buffer format). Additionally, the DX12 back buffer is RGBA byte order while the MF ARGB32 encoder input expects BGRA; added an in-place R↔B channel swap (`(v & 0xFF00FF00) | (R<<16) | (B>>16)`) over every pixel before passing the mapped data to `WriteVideoFrame`.
+- *See: [`ScreenRecorder.cpp`](ScreenRecorder.cpp)*
+
+- **Fix — DX12 process hangs after window closes (post-cleanup null dereference in `SetWindowedScreen`)** (`DX12Renderer.cpp`):
+  `main.cpp` calls `renderer->SetWindowedScreen()` on line 1682 immediately after `renderer->Cleanup()` on line 1680. After `Cleanup()`, `m_commandQueue`, `m_fence`, and `m_swapChain` are all null (ComPtr reset). `SetWindowedScreen()` called `WaitForGPUToFinish()` which dereferenced the null `m_commandQueue`, putting the process into an unrecoverable state that prevents clean exit. Two guards added: `if (bHasCleanedUp) return false;` at the top of `SetWindowedScreen()`, and `if (!m_commandQueue || !m_fence || !m_fenceEvent) return;` at the top of `WaitForGPUToFinish()`. The first guard short-circuits the entire call; the second is a defence-in-depth safety net for any other callers.
+- *See: [`DX12Renderer.cpp`](DX12Renderer.cpp)*
 
 ---
 

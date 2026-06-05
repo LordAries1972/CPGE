@@ -97,13 +97,13 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 //        #define __USE_DIRECTX_11__
         #endif
         #ifndef __USE_DIRECTX_12__
-//        #define __USE_DIRECTX_12__
+        #define __USE_DIRECTX_12__
         #endif
         #ifndef __USE_OPENGL__
 //        #define __USE_OPENGL__
         #endif
         #ifndef __USE_VULKAN__
-        #define __USE_VULKAN__
+//        #define __USE_VULKAN__
         #endif
         #ifndef __USE_RADEON__
 //        #define __USE_RADEON__

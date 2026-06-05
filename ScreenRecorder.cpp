@@ -346,7 +346,7 @@ void ScreenRecorder::CaptureFrame(ID3D12Device*       device,
     dst.pResource                          = m_dx12ReadbackBuffer.Get();
     dst.Type                               = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
     dst.PlacedFootprint.Offset             = 0;
-    dst.PlacedFootprint.Footprint.Format   = DXGI_FORMAT_B8G8R8A8_UNORM;
+    dst.PlacedFootprint.Footprint.Format   = bbDesc.Format;   // must match source texture format exactly
     dst.PlacedFootprint.Footprint.Width    = m_width;
     dst.PlacedFootprint.Footprint.Height   = m_height;
     dst.PlacedFootprint.Footprint.Depth    = 1;
@@ -386,8 +386,28 @@ void ScreenRecorder::CaptureFrame(ID3D12Device*       device,
     D3D12_RANGE readRange = { 0, bufferSize };
     if (FAILED(m_dx12ReadbackBuffer->Map(0, &readRange, &mappedData))) return;
     if (mappedData)
+    {
+        // DX12 swap chain is R8G8B8A8_UNORM; MF ARGB32 input expects BGRA byte order.
+        // Swap R (byte 0) and B (byte 2) in every pixel in-place before encoding.
+        if (bbDesc.Format == DXGI_FORMAT_R8G8B8A8_UNORM ||
+            bbDesc.Format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB)
+        {
+            BYTE* base = static_cast<BYTE*>(mappedData);
+            for (UINT row = 0; row < m_height; ++row)
+            {
+                UINT32* px = reinterpret_cast<UINT32*>(base + row * static_cast<size_t>(rowPitch256));
+                for (UINT col = 0; col < m_width; ++col)
+                {
+                    const UINT32 v = px[col];
+                    px[col] = (v & 0xFF00FF00u)
+                             | ((v & 0x000000FFu) << 16)   // R → B position
+                             | ((v & 0x00FF0000u) >> 16);  // B → R position
+                }
+            }
+        }
         WriteVideoFrame(static_cast<const BYTE*>(mappedData),
                         static_cast<UINT>(rowPitch256), ts);
+    }
     D3D12_RANGE writeRange = { 0, 0 };   // no CPU writes
     m_dx12ReadbackBuffer->Unmap(0, &writeRange);
 }
@@ -396,7 +416,7 @@ void ScreenRecorder::CaptureFrame(ID3D12Device*       device,
 // ---------------------------------------------------------------------------
 // CaptureFrame — DirectX 11
 // ---------------------------------------------------------------------------
-#if defined(__USE_DIRECTX_11__)
+#if defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__)
 void ScreenRecorder::CaptureFrame(ID3D11Device*        device,
                                    ID3D11DeviceContext* context,
                                    IDXGISwapChain1*     swapChain)
