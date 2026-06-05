@@ -265,7 +265,11 @@ public:
     void DrawVideoFrame(const Vector2& position, const Vector2& size, const MyColor& tintColor, ComPtr<ID3D11Texture2D> texture);
 
     // GuiManager Render functions.
-    void DrawMyTextCentered(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize, float controlWidth, float controlHeight);
+    void DrawMyTextCentered(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize, float controlWidth, float controlHeight, bool bold = false) override;
+
+    // 2D clip rect — scissors all D2D drawing to the specified screen rectangle.
+    void PushClipRect(float x, float y, float w, float h) override;
+    void PopClipRect() override;
     
     // Helper Functions
     bool SetFullScreen(void) override;
@@ -277,6 +281,7 @@ public:
 	
     // Base class overrides
     void DrawRectangle(const Vector2& position, const Vector2& size, const MyColor& color, bool is2D) override;
+    void DrawCircle(const Vector2& center, float radius, const MyColor& color, bool filled = true) override;
     void DrawMyText(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize) override;
     void DrawMyText(const std::wstring& text, const Vector2& position, const Vector2& size, const MyColor& color, const float FontSize) override;
     void DrawMyTextWithFont(const std::wstring& text, const Vector2& position, const MyColor& color,

@@ -19,6 +19,9 @@
     <ClCompile Include="F:\Projects\C++\CPGE2026\DX12Renderer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="F:\Projects\C++\CPGE2026\DX12RenderFrame.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="F:\Projects\C++\CPGE2026\DXCamera.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -26,6 +29,12 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="F:\Projects\C++\CPGE2026\DX_FXManager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="F:\Projects\C++\CPGE2026\DX12FXManager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="F:\Projects\C++\CPGE2026\DX12Models.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="F:\Projects\C++\CPGE2026\ExceptionHandler.cpp">

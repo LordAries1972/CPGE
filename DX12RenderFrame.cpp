@@ -267,6 +267,10 @@ void DX12Renderer::RenderFrame()
                 m_commandList->SetGraphicsRootConstantBufferView(DX12_ROOT_PARAM_GLOBAL_LIGHT_BUFFER,
                     m_globalLightBuffer->GetGPUVirtualAddress());
 
+            if (m_envBuffer)
+                m_commandList->SetGraphicsRootConstantBufferView(DX12_ROOT_PARAM_ENVIRONMENT_BUFFER,
+                    m_envBuffer->GetGPUVirtualAddress());
+
             // Set primitive topology
             m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 

@@ -513,7 +513,7 @@ void DX11Renderer::RenderFrame()
                        bool riShow = (scene.stSceneType == SceneType::SCENE_GAMETITLE ||
                                       scene.stSceneType == SceneType::SCENE_GAMEPLAY  ||
                                       scene.stSceneType == SceneType::SCENE_INTRO     ||
-                                      scene.stSceneType == SceneType::SCENE_INTRO_MOVIE     ||
+                                      scene.stSceneType == SceneType::SCENE_INTRO_MOVIE ||
                                       scene.stSceneType == SceneType::SCENE_GAMEOVER);
                        #if defined(_DEBUG)
                            riShow = riShow || (scene.stSceneType == SceneType::SCENE_EXPERIMENT);

@@ -253,7 +253,12 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     configButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);                                       // Button up texture
     configButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);                                // Button hover texture
     configButton.label = L"CONFIGURATION";                                                             // Button label text
+#if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+    configButton.lblFontSize = 13.0f;
+    configButton.bold = true;
+#else
     configButton.lblFontSize = 16.0f;                                                                        // Font size for button text
+#endif
     configButton.isVisible = true;                                                                           // Make button visible
 
     // Fixed onMouseOver handler using weak reference
@@ -298,7 +303,12 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     gameplayButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);                                        // Button up texture
     gameplayButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);                                 // Button hover texture
     gameplayButton.label = L"GAME PLAY";
+#if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+    gameplayButton.lblFontSize = 13.0f;
+    gameplayButton.bold = true;
+#else
     gameplayButton.lblFontSize = 16.0f;                                                                         // Font size for button text
+#endif
     gameplayButton.isVisible = true;                                                                            // Make button visible
 
     // Fixed onMouseOver handler using weak reference
@@ -362,7 +372,12 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     hiscoresButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);                                 // Button hover texture
     hiscoresButton.label = L"HIGH SCORES";                                                               // Button label text
     
+#if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+    hiscoresButton.lblFontSize = 13.0f;
+    hiscoresButton.bold = true;
+#else
     hiscoresButton.lblFontSize = 16.0f;                                                                         // Font size for button text
+#endif
     hiscoresButton.isVisible = true;                                                                            // Make button visible
 
     // Fixed onMouseOver handler using weak reference
@@ -412,7 +427,12 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     creditsButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);                                        // Button up texture
     creditsButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);                                 // Button hover texture
     creditsButton.label = L"SHOW CREDITS";                                                                 // Button label text
+#if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+    creditsButton.lblFontSize = 13.0f;
+    creditsButton.bold = true;
+#else
     creditsButton.lblFontSize = 16.0f;                                                                         // Font size for button text
+#endif
     creditsButton.isVisible = true;                                                                            // Make button visible
 
     // Fixed onMouseOver handler using weak reference
@@ -462,7 +482,12 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     quitButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);                                        // Button up texture
     quitButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);                                 // Button hover texture
     quitButton.label = L"QUIT TO DESKTOP";                                                              // Button label text
+#if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+    quitButton.lblFontSize = 13.0f;
+    quitButton.bold = true;
+#else
     quitButton.lblFontSize = 16.0f;                                                                         // Font size for button text
+#endif
     quitButton.isVisible = true;                                                                            // Make button visible
 
     // Fixed onMouseOver handler using weak reference
@@ -539,7 +564,12 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     experimentalButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);
     experimentalButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);
     experimentalButton.label = L"** EXPERIMENTAL **";
+#if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+    experimentalButton.lblFontSize = 13.0f;
+    experimentalButton.bold = true;
+#else
     experimentalButton.lblFontSize = 16.0f;
+#endif
 
     experimentalButton.isVisible = true;
 

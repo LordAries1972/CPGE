@@ -259,7 +259,11 @@ public:
     void DrawVideoFrame(const Vector2& position, const Vector2& size, const MyColor& tintColor, GLuint textureID); // Render video frame texture
 
     // GuiManager Render functions.
-    void DrawMyTextCentered(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize, float controlWidth, float controlHeight); // Render centered text
+    void DrawMyTextCentered(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize, float controlWidth, float controlHeight, bool bold = false) override; // Render centered text
+
+    // 2D clip rect — scissors all rendering to the specified screen rectangle.
+    void PushClipRect(float x, float y, float w, float h) override;
+    void PopClipRect() override;
 
     // Helper Functions
     bool SetFullScreen(void) override;                                          // Set display to fullscreen mode
@@ -268,6 +272,7 @@ public:
 
     // Base class overrides
     void DrawRectangle(const Vector2& position, const Vector2& size, const MyColor& color, bool is2D) override; // Render filled rectangle
+    void DrawCircle(const Vector2& center, float radius, const MyColor& color, bool filled = true) override;
     void DrawMyText(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize) override; // Render text string
     void DrawMyText(const std::wstring& text, const Vector2& position, const Vector2& size, const MyColor& color, const float FontSize) override; // Render text in bounds
     void DrawMyTextWithFont(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize, const std::wstring& fontName); // Render text with specific font
@@ -312,9 +317,11 @@ public:
         float        fontSize  = 0.0f;
         uint32_t     colorPack = 0;  // RGBA packed 8-bit each
         int          cw = 0, ch = 0; // 0,0 = natural size; >0 = DrawMyTextCentered dims
+        bool         bold      = false;
         bool operator==(const TextCacheKey& o) const noexcept {
             return cw == o.cw && ch == o.ch && fontSize == o.fontSize &&
-                   colorPack == o.colorPack && text == o.text && fontName == o.fontName;
+                   colorPack == o.colorPack && bold == o.bold &&
+                   text == o.text && fontName == o.fontName;
         }
     };
     struct TextCacheHash {
@@ -325,6 +332,7 @@ public:
             h ^= std::hash<uint32_t>{}(k.colorPack)    + 0x9e3779b9u + (h << 6) + (h >> 2);
             h ^= std::hash<int>{}(k.cw)                + 0x9e3779b9u + (h << 6) + (h >> 2);
             h ^= std::hash<int>{}(k.ch)                + 0x9e3779b9u + (h << 6) + (h >> 2);
+            h ^= std::hash<bool>{}(k.bold)             + 0x9e3779b9u + (h << 6) + (h >> 2);
             return h;
         }
     };
@@ -335,11 +343,11 @@ public:
     // Returns a cached (or freshly created) text texture; caller must NOT delete it.
     GLuint AcquireTextTexture(const std::wstring& text, const std::wstring& fontName,
                               float fontSize, const MyColor& color, int& outW, int& outH,
-                              int cw = 0, int ch = 0);
+                              int cw = 0, int ch = 0, bool bold = false);
     // Rasterise a centered text bitmap (extracted from DrawMyTextCentered)
     GLuint RenderTextCenteredToTexture(const std::wstring& text, float fontSize,
                                        const MyColor& color, int cw, int ch,
-                                       int& outW, int& outH);
+                                       int& outW, int& outH, bool bold = false);
     void   EvictStaleTextCache();   // Called once per frame from RenderFrame
     void   FlushTextCache();        // Called from Cleanup — deletes all GL textures
 

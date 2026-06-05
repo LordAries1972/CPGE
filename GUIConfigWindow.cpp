@@ -169,9 +169,9 @@ void GUIManager::CreateConfigWindow()
     }
 
 #if defined(__USE_DIRECTX_12__)
-    const float WW = 620.0f, WH = 460.0f;
+    const float WW = 620.0f, WH = 456.0f;   // −4 from original 460 per user spec
 #else
-    const float WW = 620.0f, WH = 480.0f;
+    const float WW = 620.0f, WH = 476.0f;   // −4 from original 480 per user spec
 #endif
     const float WX = (static_cast<float>(myRenderer->iOrigWidth)  - WW) / 2.0f;
     const float WY = (static_cast<float>(myRenderer->iOrigHeight) - WH) / 2.0f;
@@ -184,6 +184,10 @@ void GUIManager::CreateConfigWindow()
     auto configWindow = GetWindow(WIN_NAME);
     if (!configWindow) return;
 
+    // Hide during setup: the render thread snapshot-builds every frame and could
+    // pick up this window before AddControl finishes, causing a race on the controls
+    // vector (reallocation while iterating = dangling iterator → "string too long").
+    configWindow->isVisible = false;
     configWindow->isModal = true;
 
     std::weak_ptr<GUIWindow> weakWin = configWindow;
@@ -228,9 +232,11 @@ void GUIManager::CreateConfigWindow()
                 if (c.id.size() >= 3 && c.id[0] == 't' &&
                     (c.id[1] - '0') == t && c.id[2] == '_') {
                     c.position.y -= shift;
-                    // Clip: hide controls that scrolled outside the visible content area
-                    c.isVisible = (c.position.y + c.size.y > contTop + 2.0f) &&
-                                  (c.position.y < contTop + kVisH - 2.0f);
+                    // Pre-cull only if COMPLETELY outside the content area.
+                    // Partially-overlapping controls are handled by the renderer's
+                    // PushClipRect (D2D / glScissor) for pixel-accurate clipping.
+                    c.isVisible = !((c.position.y + c.size.y <= contTop) ||
+                                    (c.position.y >= contTop + kVisH));
                 }
     };
 
@@ -309,6 +315,13 @@ void GUIManager::CreateConfigWindow()
     const float LBL_W     = 200.0f;   // label column — same for ALL row types
     const float SLR_VAL_W = 85.0f;    // readout column
     const float ROW_H     = 26.0f;
+    // OpenGL GDI text is slightly wider than DWrite; reduce label/value font size so
+    // value text (e.g. "Full Screen", "DirectX 11") is not cut off in its column.
+#if defined(__USE_OPENGL__)
+    constexpr float LBL_FS = 11.0f;
+#else
+    constexpr float LBL_FS = 13.0f;
+#endif
     const float CX        = WX + 10.0f;
     const float CONT_Y    = WY + TITLEBAR_HEIGHT + 26.0f;
     const float CY        = CONT_Y + 10.0f;
@@ -353,7 +366,7 @@ void GUIManager::CreateConfigWindow()
     auto addTogSlider = [&](const std::string& pfx, float y, const std::wstring& name,
                             bool initState, bool vis, int tabIdx,
                             std::function<void(bool)> onChange) {
-        addLabel(pfx + "_lbl", CX, y, LBL_W, ROW_H, name, 13.0f, vis);
+        addLabel(pfx + "_lbl", CX, y, LBL_W, ROW_H, name, LBL_FS, vis);
         GUIControl tc;
         tc.type             = GUIControlType::ToggleSlider;
         tc.id               = pfx + "_tog";
@@ -377,8 +390,8 @@ void GUIManager::CreateConfigWindow()
     // label | read-only value
     auto addInfoRow = [&](const std::string& pfx, float y, const std::wstring& name,
                           const std::wstring& val, bool vis) {
-        addLabel(pfx + "_lbl", CX,      y, LBL_W,                                          ROW_H, name, 13.0f, vis);
-        addLabel(pfx + "_val", VAL_X(), y, (WX + WW - 10.0f - CFG_SCROLL_W - 4.0f) - VAL_X(), ROW_H, val,  13.0f, vis);
+        addLabel(pfx + "_lbl", CX,      y, LBL_W,                                          ROW_H, name, LBL_FS, vis);
+        addLabel(pfx + "_val", VAL_X(), y, (WX + WW - 10.0f - CFG_SCROLL_W - 4.0f) - VAL_X(), ROW_H, val,  LBL_FS, vis);
     };
 
     // Helper to update a label control in the window
@@ -395,8 +408,8 @@ void GUIManager::CreateConfigWindow()
                             float sMin, float sMax, float sVal,
                             std::function<std::wstring(float)> fmtFn,
                             std::function<void(float)> onChange) {
-        addLabel(pfx + "_lbl", CX,        y, LBL_W,     ROW_H, name,        13.0f, vis);
-        addLabel(pfx + "_val", VAL_X(),   y, SLR_VAL_W, ROW_H, fmtFn(sVal), 13.0f, vis);
+        addLabel(pfx + "_lbl", CX,        y, LBL_W,     ROW_H, name,        LBL_FS, vis);
+        addLabel(pfx + "_val", VAL_X(),   y, SLR_VAL_W, ROW_H, fmtFn(sVal), LBL_FS, vis);
         GUIControl sc;
         sc.type             = GUIControlType::HSlider;
         sc.id               = pfx + "_sldr";
@@ -419,23 +432,48 @@ void GUIManager::CreateConfigWindow()
     };
 
     // -----------------------------------------------------------------------
-    // TITLEBAR
+    // TITLEBAR — drawn entirely by onCustomRender (3-D look + circular close button)
+    // The GUIControl is kept for drag-zone registration only; its own rendering is suppressed
+    // by setting bgTextureId = NONE and bgColor fully transparent.
     // -----------------------------------------------------------------------
     {
         GUIControl tb;
         tb.type = GUIControlType::TitleBar;  tb.id = "titlebar";
         tb.position = Vector2(WX, WY);
         tb.size     = Vector2(WW, TITLEBAR_HEIGHT);
-        tb.bgColor  = MyColor(0, 0, 0, 255);
-        tb.txtColor = MyColor(255, 220, 80, 255);
-        tb.bgTextureId = tb.bgTextureHoverId = int(BlitObj2DIndexType::IMG_TITLEBAR1);
-        tb.bgTextureHoverId = int(BlitObj2DIndexType::IMG_TITLEBAR1HL);
-        tb.label = L"System Configuration";  tb.lblFontSize = 16.0f;
-        tb.lblCenterH = false;
-        tb.isVisible = true;
+        tb.bgColor  = MyColor(0, 0, 0, 0);   // transparent — drawn by onCustomRender
+        tb.bgTextureId = tb.bgTextureHoverId = int(BlitObj2DIndexType::NONE);
+        tb.label = L"";  tb.isVisible = true;
         tb.onMouseBtnDown = [weakWin]() { if (auto w = weakWin.lock()) w->isDragging = true; };
         tb.onMouseBtnUp   = [weakWin]() { if (auto w = weakWin.lock()) w->isDragging = false; };
         configWindow->AddControl(tb);
+    }
+
+    // -----------------------------------------------------------------------
+    // CIRCULAR CLOSE BUTTON — transparent Button positioned over the drawn circle.
+    // Saves config and closes (mirrors Save but without restart prompt).
+    // A shared atomic flag guards against double-fire.
+    // -----------------------------------------------------------------------
+    constexpr float CB_OFF_X = 15.0f;    // px from window right edge to circle centre
+    constexpr float CB_R     = 8.5f;     // circle radius
+    {
+        auto closeGuard = std::make_shared<std::atomic<bool>>(false);
+
+        GUIControl cbBtn;
+        cbBtn.type = GUIControlType::Button;  cbBtn.id = "btn_circleclose";
+        cbBtn.position = Vector2(WX + WW - CB_OFF_X - CB_R, WY + TITLEBAR_HEIGHT * 0.5f - CB_R);
+        cbBtn.size     = Vector2(CB_R * 2.0f, CB_R * 2.0f);
+        cbBtn.bgColor  = MyColor(0, 0, 0, 0);       // fully transparent — circle is drawn by onCustomRender
+        cbBtn.bgTextureId = cbBtn.bgTextureHoverId = int(BlitObj2DIndexType::NONE);
+        cbBtn.label = L"";  cbBtn.lblFontSize = 1.0f;  cbBtn.isVisible = true;
+
+        cbBtn.onMouseBtnDown = [this, WIN_NAME, closeGuard]() {
+            if (closeGuard->exchange(true)) return;   // prevent double-fire
+            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+            config.saveConfig();
+            RemoveWindow(WIN_NAME);
+        };
+        configWindow->AddControl(cbBtn);
     }
 
     // -----------------------------------------------------------------------
@@ -464,6 +502,9 @@ void GUIManager::CreateConfigWindow()
         btn.bgTextureHoverId = int(BlitObj2DIndexType::IMG_TAB_RED);
         btn.txtColor  = (t.idx == 0) ? MyColor(255, 220, 0, 255) : MyColor(150, 150, 150, 255);
         btn.label = t.lbl;  btn.lblFontSize = 13.0f;  btn.isVisible = true;
+#if defined(__USE_OPENGL__)
+        btn.bold = true;
+#endif
         int idx = t.idx;
         btn.onMouseBtnDown = [doSwitchTab, idx]() {
             soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
@@ -854,7 +895,7 @@ void GUIManager::CreateConfigWindow()
             // access closure captures after RemoveWindow.
             const std::string NOTIFY_WIN = "restart_notify";
 #if defined(__USE_OPENGL__)
-            const float NW = 430.0f, NH = 170.0f;
+            const float NW = 420.0f, NH = 170.0f;   // −10 per user spec
 #else
             const float NW = 440.0f, NH = 170.0f;
 #endif
@@ -923,6 +964,9 @@ void GUIManager::CreateConfigWindow()
                 c.hoverColor = MyColor(60, 60, 90, 255);
                 c.bgTextureId = c.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTONUP1);
                 c.txtColor = MyColor(210, 210, 210, 255);
+#if defined(__USE_OPENGL__)
+                c.bold = true;
+#endif
                 c.label = L"Restart Now";  c.lblFontSize = 13.0f;  c.isVisible = true;
                 c.onMouseBtnDown = [self, NOTIFY_WIN, restartDone]() {
                     if (restartDone->exchange(true)) return;
@@ -948,6 +992,9 @@ void GUIManager::CreateConfigWindow()
                 c.hoverColor = MyColor(60, 60, 90, 255);
                 c.bgTextureId = c.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTONUP1);
                 c.txtColor = MyColor(210, 210, 210, 255);
+#if defined(__USE_OPENGL__)
+                c.bold = true;
+#endif
                 c.label = L"Cancel Restart";  c.lblFontSize = 13.0f;  c.isVisible = true;
                 c.onMouseBtnDown = [self, NOTIFY_WIN, restartDone]() {
                     restartDone->store(true);
@@ -1003,53 +1050,114 @@ void GUIManager::CreateConfigWindow()
             ShellExecuteW(NULL, L"open", ep, NULL, ed, SW_SHOWNORMAL);
         }, 102);
 
+#if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+    for (auto& c : configWindow->controls) {
+        if (c.type == GUIControlType::Button &&
+            (c.id == "btn_close" || c.id == "btn_save" || c.id == "btn_restart"))
+            c.bold = true;
+    }
+#endif
+
     // ===================================================================
     // Activate tab 0
     // ===================================================================
     doSwitchTab(0);
 
     // ===================================================================
+    // Clip rect + clipContent — marks all tab content controls so
+    // GUIWindow::Render() scissors them inside the bevel box via
+    // renderer PushClipRect (D2D / glScissor).  This must run AFTER
+    // all controls are added so the container/titlebar/tab-buttons
+    // are NOT flagged (they render outside the clip region).
+    // ===================================================================
+    for (auto& c : configWindow->controls) {
+        if (c.id.size() >= 3 && c.id[0] == 't' &&
+            std::isdigit(static_cast<unsigned char>(c.id[1])) && c.id[2] == '_')
+            c.clipContent = true;
+    }
+    configWindow->m_hasClip  = true;
+    configWindow->m_clipPos  = Vector2(WX, CONT_Y + 4.0f);
+    configWindow->m_clipSize = Vector2(WW, CONT_H - 4.0f);
+
+    // ===================================================================
     // SCROLLBAR — drawn on top of all controls via onCustomRender.
-    // Track position: right edge of content area, 2px inset each side.
+    // Track position per spec: y+3, x−3, height−4 relative to content area.
     // Thumb height is proportional to visible / total content height.
     // When the active tab's content fits the visible area the thumb fills
     // the full track (inactive appearance).
     // ===================================================================
     {
-        const float SCROLL_X = WX + WW - CFG_SCROLL_W - 2.0f;
-        const float SCROLL_Y = CONT_Y + 2.0f;
-        const float SCROLL_H = CONT_H - 4.0f;
+        // SCROLL_H is the only scrollbar dimension not derivable from the window position.
+        // All X/Y positions are computed live inside the lambdas from weakWin->position.
+        const float SCROLL_H = CONT_H - 11.0f;   // −8 baseline then −3 per spec
 
-        configWindow->onCustomRender = [actTab, tabScrollY, tabContentH,
-                                         SCROLL_X, SCROLL_Y, SCROLL_H, CFG_SCROLL_W](Renderer* r) {
+        // onCustomRender: all positions derived from weakWin at render time so that
+        // window dragging keeps titlebar, circle button, and scrollbar in sync.
+        configWindow->onCustomRender = [weakWin, actTab, tabScrollY, tabContentH,
+                                         CFG_SCROLL_W, SCROLL_H, CB_R](Renderer* r) {
+            auto w = weakWin.lock();
+            if (!w) return;
+
+            constexpr float kTH   = TITLEBAR_HEIGHT;
             constexpr float kVisH = 370.0f;
-            int   t       = *actTab;
-            float contentH = tabContentH[t];
+            const float wx  = w->position.x;
+            const float wy  = w->position.y;
+            const float ww  = w->size.x;
+            // Scrollbar positions
+            const float contY   = wy + kTH + 26.0f;
+            const float scrollX = wx + ww - CFG_SCROLL_W - 7.0f;
+            const float scrollY = contY + 5.0f;
+            // Circle close-button centre (15 px from right edge, titlebar vertical centre)
+            const float cbX = wx + ww - 15.0f;
+            const float cbY = wy + kTH * 0.5f;
+
+            // ── 3-D TITLEBAR ──────────────────────────────────────────────
+            r->DrawRectangle(Vector2(wx, wy), Vector2(ww, kTH),
+                MyColor(15, 18, 38, 255), true);
+            r->DrawRectangle(Vector2(wx, wy), Vector2(ww, 2.0f),
+                MyColor(80, 105, 200, 210), true);
+            r->DrawRectangle(Vector2(wx, wy + 2.0f), Vector2(ww, 1.0f),
+                MyColor(45, 58, 118, 160), true);
+            r->DrawRectangle(Vector2(wx, wy + 3.0f), Vector2(ww, kTH - 5.0f),
+                MyColor(22, 28, 54, 235), true);
+            r->DrawRectangle(Vector2(wx, wy + kTH - 1.0f), Vector2(ww, 1.0f),
+                MyColor(4, 5, 12, 255), true);
+
+            // Title text centred (leave room on right for circle button)
+            r->DrawMyTextCentered(L"System Configuration",
+                Vector2(wx, wy), MyColor(255, 220, 75, 255), 16.0f, ww - 34.0f, kTH);
+
+            // ── CIRCULAR CLOSE BUTTON ─────────────────────────────────────
+            r->DrawCircle(Vector2(cbX, cbY), CB_R + 1.5f, MyColor(55, 14, 14, 200), true);
+            r->DrawCircle(Vector2(cbX, cbY), CB_R,        MyColor(190, 38, 38, 255), true);
+            // "x" centred inside circle — horizontally and vertically
+            r->DrawMyTextCentered(L"x",
+                Vector2(cbX - CB_R, cbY - CB_R),
+                MyColor(255, 215, 215, 255), 10.0f,
+                CB_R * 2.0f, CB_R * 2.0f);
+
+            // ── SCROLLBAR ─────────────────────────────────────────────────
+            int   t         = *actTab;
+            float contentH  = tabContentH[t];
             float scrollOff = (*tabScrollY)[t];
-            float maxS     = std::max(0.0f, contentH - kVisH);
+            float maxS      = std::max(0.0f, contentH - kVisH);
 
-            // Track background
-            r->DrawRectangle(Vector2(SCROLL_X, SCROLL_Y), Vector2(CFG_SCROLL_W, SCROLL_H),
-                MyColor(15, 15, 22, 210), true);
-            // Left border strip
-            r->DrawRectangle(Vector2(SCROLL_X, SCROLL_Y), Vector2(1.0f, SCROLL_H),
-                MyColor(55, 55, 75, 130), true);
+            r->DrawRectangle(Vector2(scrollX, scrollY),
+                Vector2(CFG_SCROLL_W, SCROLL_H), MyColor(15, 15, 22, 210), true);
+            r->DrawRectangle(Vector2(scrollX, scrollY),
+                Vector2(1.0f, SCROLL_H), MyColor(55, 55, 75, 130), true);
 
-            // Thumb
             float thumbH = (maxS > 0.0f)
                 ? std::max(20.0f, SCROLL_H * (kVisH / contentH))
                 : SCROLL_H - 2.0f;
             float thumbY = (maxS > 0.0f)
-                ? SCROLL_Y + (SCROLL_H - thumbH) * (scrollOff / maxS)
-                : SCROLL_Y + 1.0f;
+                ? scrollY + (SCROLL_H - thumbH) * (scrollOff / maxS)
+                : scrollY + 1.0f;
             MyColor thumbCol = (maxS > 0.0f)
-                ? MyColor(80, 92, 145, 235)
-                : MyColor(38, 38, 58, 150);
-
-            r->DrawRectangle(Vector2(SCROLL_X + 2.0f, thumbY),
+                ? MyColor(80, 92, 145, 235) : MyColor(38, 38, 58, 150);
+            r->DrawRectangle(Vector2(scrollX + 2.0f, thumbY),
                 Vector2(CFG_SCROLL_W - 4.0f, thumbH), thumbCol, true);
-            // Thumb top shine
-            r->DrawRectangle(Vector2(SCROLL_X + 2.0f, thumbY),
+            r->DrawRectangle(Vector2(scrollX + 2.0f, thumbY),
                 Vector2(CFG_SCROLL_W - 4.0f, 2.0f), MyColor(255, 255, 255, 45), true);
         };
 
@@ -1058,17 +1166,23 @@ void GUIManager::CreateConfigWindow()
             setTabScroll(static_cast<float>(-delta) * 18.0f);
         };
 
-        // Click on scrollbar track: jump to proportional position
-        configWindow->onCustomMouseInput = [actTab, tabScrollY, tabContentH,
-                                             SCROLL_X, SCROLL_Y, SCROLL_H,
-                                             CFG_SCROLL_W, setTabScroll](float mx, float my) {
-            if (mx < SCROLL_X || mx > SCROLL_X + CFG_SCROLL_W) return;
-            if (my < SCROLL_Y || my > SCROLL_Y + SCROLL_H) return;
+        // Scrollbar track click: jump to proportional position.
+        // Close-button clicks are handled by the "btn_circleclose" Button control.
+        configWindow->onCustomMouseInput = [weakWin, actTab, tabScrollY, tabContentH,
+                                             CFG_SCROLL_W, SCROLL_H, setTabScroll](float mx, float my) {
+            auto w = weakWin.lock();
+            if (!w) return;
             constexpr float kVisH = 370.0f;
+            const float contY   = w->position.y + TITLEBAR_HEIGHT + 26.0f;
+            const float scrollX = w->position.x + w->size.x - CFG_SCROLL_W - 7.0f;
+            const float scrollY = contY + 5.0f;
+
+            if (mx < scrollX || mx > scrollX + CFG_SCROLL_W) return;
+            if (my < scrollY || my > scrollY + SCROLL_H)     return;
             int   t    = *actTab;
             float maxS = std::max(0.0f, tabContentH[t] - kVisH);
             if (maxS <= 0.0f) return;
-            float rel    = (my - SCROLL_Y) / SCROLL_H;
+            float rel    = (my - scrollY) / SCROLL_H;
             float target = std::clamp(rel * maxS, 0.0f, maxS);
             float delta  = target - (*tabScrollY)[t];
             setTabScroll(delta);
@@ -1077,4 +1191,7 @@ void GUIManager::CreateConfigWindow()
 
     debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateConfigWindow - Window created (%d controls)",
         (int)configWindow->controls.size());
+
+    // All controls added — safe to make visible now
+    configWindow->isVisible = true;
 }

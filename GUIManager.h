@@ -87,6 +87,8 @@ struct GUIControl {
     bool isPressed   = false;
     bool isActive    = false;                           // HSlider: true on the last-touched knob (flashes)
     bool lblCenterH  = true;                            // TitleBar: true=H+V centered, false=left-aligned+V centered
+    bool clipContent = false;                           // true = this control is scissored to the window's m_clipRect
+    bool bold        = false;                           // true = button label rendered bold (OpenGL-effective; other renderers accept param but keep NORMAL weight)
     GUIControlType type = GUIControlType::None;         // New field to specify control type
 };
 
@@ -114,6 +116,13 @@ public:
     int scrollPosition = 0;                             // Current scroll position
     int maxScrollPosition = 0;                          // Maximum scroll position
     std::wstring contentText;                           // Text content for the window
+
+    // Clip rect applied to all controls that have clipContent=true.
+    // Screen coordinates; set by the creator (e.g. GUIConfigWindow) to the
+    // content area so tab controls are scissored inside the bevel box.
+    bool    m_hasClip  = false;
+    Vector2 m_clipPos  = {};
+    Vector2 m_clipSize = {};
     Renderer* myRenderer = nullptr;                     // Renderer reference
     Vector2 contentAreaSize;                            // Size of the content area
 

@@ -732,18 +732,21 @@ bool MoviePlayer::CreateVideoTexture(UINT width, UINT height, bool isHevcContent
         debug.logLevelMessage(LogLevel::LOG_INFO, L"Creating robust texture for HEVC content");
     }
 
-    // Always create texture with BGRA format for proper shader resource view
+    // STAGING texture: CPU read+write, no BindFlags (no SRV).
+    // DrawVideoFrame maps it directly with D3D11_MAP_READ, bypassing CopyResource
+    // (CopyResource from DYNAMIC is forbidden by the D3D11 spec and triggers an
+    // SDK Layer exception).
     D3D11_TEXTURE2D_DESC textureDesc = {};
     textureDesc.Width = width;
     textureDesc.Height = height;
     textureDesc.MipLevels = 1;
     textureDesc.ArraySize = 1;
-    textureDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM; // Always use BGRA format for texture
+    textureDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
     textureDesc.SampleDesc.Count = 1;
     textureDesc.SampleDesc.Quality = 0;
-    textureDesc.Usage = D3D11_USAGE_DYNAMIC;
-    textureDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-    textureDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    textureDesc.Usage = D3D11_USAGE_STAGING;
+    textureDesc.BindFlags = 0;
+    textureDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE | D3D11_CPU_ACCESS_READ;
     textureDesc.MiscFlags = 0;
 
     // Log texture creation details
@@ -965,9 +968,10 @@ bool MoviePlayer::UpdateVideoTexture()
     // Determine which texture to use (normal or dual-texture system for HEVC)
     ID3D11Texture2D* destTexture = m_videoTexture.Get();
 
-    // Map the texture for writing video data
+    // Map the texture for writing video data.
+    // D3D11_MAP_WRITE_DISCARD is DYNAMIC-only; STAGING textures use D3D11_MAP_WRITE.
     D3D11_MAPPED_SUBRESOURCE mappedResource = {};
-    hr = context->Map(destTexture, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
+    hr = context->Map(destTexture, 0, D3D11_MAP_WRITE, 0, &mappedResource);
     if (FAILED(hr) || !mappedResource.pData)
     {
         buffer->Unlock();

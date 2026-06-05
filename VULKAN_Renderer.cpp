@@ -472,8 +472,11 @@ VKAPI_ATTR VkBool32 VKAPI_CALL VulkanRenderer::DebugCallback(
     const VkDebugUtilsMessengerCallbackDataEXT* pData,
     void*)
 {
+    // Vulkan validation-layer messages are development diagnostics, not application
+    // errors.  Mapping them to LOG_ERROR would trigger PostQuitMessage on every
+    // validation warning during normal scene transitions.  Use LOG_WARNING instead.
     LogLevel lvl = (severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
-                    ? LogLevel::LOG_ERROR : LogLevel::LOG_WARNING;
+                    ? LogLevel::LOG_WARNING : LogLevel::LOG_DEBUG;
     std::string msg = std::string("[Vulkan] ") + pData->pMessage;
     debug.logLevelMessage(lvl, std::wstring(msg.begin(), msg.end()));
     return VK_FALSE;
@@ -551,7 +554,7 @@ void VulkanRenderer::PickPhysicalDevice()
         m_isLowEndGPU = (m_dedicatedVRAMMB < 2048 || m_isUMA);
 
         debug.logDebugMessage(LogLevel::LOG_INFO,
-            L"VulkanRenderer: GPU Caps — VRAM: %llu MB, UMA: %s, LowEnd: %s",
+            L"VulkanRenderer: GPU Caps: VRAM: %llu MB, UMA: %s, LowEnd: %s",
             m_dedicatedVRAMMB,
             m_isUMA       ? L"Yes" : L"No",
             m_isLowEndGPU ? L"Yes" : L"No");
@@ -1997,6 +2000,10 @@ VulkanTexture VulkanRenderer::CreateTextureFromRGBA(const uint8_t* pixels, uint3
 void VulkanRenderer::DestroyVulkanTexture(VulkanTexture& tex)
 {
     if (!tex.isValid || m_device == VK_NULL_HANDLE) return;
+    // Wait for all in-flight GPU work to finish before destroying resources.
+    // Without this, vkDestroySampler fires a validation error if a descriptor
+    // set still references the sampler in a queued command buffer.
+    vkDeviceWaitIdle(m_device);
     if (tex.sampler != VK_NULL_HANDLE) { vkDestroySampler(m_device, tex.sampler, nullptr);   tex.sampler = VK_NULL_HANDLE; }
     if (tex.view    != VK_NULL_HANDLE) { vkDestroyImageView(m_device, tex.view, nullptr);    tex.view    = VK_NULL_HANDLE; }
     if (tex.image   != VK_NULL_HANDLE) { vkDestroyImage(m_device, tex.image, nullptr);       tex.image   = VK_NULL_HANDLE; }
@@ -2217,6 +2224,39 @@ void VulkanRenderer::DrawRectangle(const Vector2& position, const Vector2& size,
 #endif
 }
 
+void VulkanRenderer::DrawCircle(const Vector2& center, float radius, const MyColor& color, bool filled) {
+#if defined(PLATFORM_WINDOWS)
+    if (!m_d2dRenderTarget) return;
+    float fr = color.r / 255.0f, fg = color.g / 255.0f, fb = color.b / 255.0f, fa = color.a / 255.0f;
+    ComPtr<ID2D1SolidColorBrush> brush;
+    m_d2dRenderTarget->CreateSolidColorBrush(D2D1::ColorF(fr, fg, fb, fa), &brush);
+    if (!brush) return;
+    D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(center.x, center.y), radius, radius);
+    if (filled) m_d2dRenderTarget->FillEllipse(ellipse, brush.Get());
+    else        m_d2dRenderTarget->DrawEllipse(ellipse, brush.Get());
+    m_overlayDirty = true;
+#else
+    (void)center; (void)radius; (void)color; (void)filled;
+#endif
+}
+
+void VulkanRenderer::PushClipRect(float x, float y, float w, float h) {
+#if defined(PLATFORM_WINDOWS)
+    if (!m_d2dRenderTarget) return;
+    m_d2dRenderTarget->PushAxisAlignedClip(D2D1::RectF(x, y, x + w, y + h),
+                                            D2D1_ANTIALIAS_MODE_ALIASED);
+#else
+    (void)x; (void)y; (void)w; (void)h;
+#endif
+}
+
+void VulkanRenderer::PopClipRect() {
+#if defined(PLATFORM_WINDOWS)
+    if (!m_d2dRenderTarget) return;
+    m_d2dRenderTarget->PopAxisAlignedClip();
+#endif
+}
+
 #if defined(PLATFORM_WINDOWS)
 void VulkanRenderer::DrawRectangleD2D(const Vector2& pos, const Vector2& size, const MyColor& color)
 {
@@ -2277,6 +2317,7 @@ void VulkanRenderer::InvalidateTextFormatCache() { m_textFormatCache.clear(); }
 void VulkanRenderer::UploadOverlayToVulkan(VkCommandBuffer cmd)
 {
     if (!m_overlayDirty || !m_wicBitmap || !m_overlayTexture.isValid) return;
+    if (m_overlayTexture.image == VK_NULL_HANDLE) return;  // guard: image must be valid
 
     // Lock WIC bitmap and copy to staging buffer
     WICRect lockRect = { 0, 0, static_cast<INT>(m_overlayWidth), static_cast<INT>(m_overlayHeight) };
@@ -2411,7 +2452,7 @@ void VulkanRenderer::DrawMyText(const std::wstring& text, const Vector2& positio
 }
 
 void VulkanRenderer::DrawMyTextCentered(const std::wstring& text, const Vector2& position, const MyColor& color,
-                                         const float FontSize, float controlWidth, float controlHeight)
+                                         const float FontSize, float controlWidth, float controlHeight, bool /*bold*/)
 {
 #if defined(PLATFORM_WINDOWS)
     if (!m_d2dRenderTarget || !m_dwriteFactory) return;

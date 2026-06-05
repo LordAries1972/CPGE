@@ -420,6 +420,7 @@ void DX12Renderer::LoaderTaskThread()
                 break;
             }
         } // End of switch (scene.stSceneType)
+
     }
 
     // Reset Resize State Flag

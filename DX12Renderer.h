@@ -239,7 +239,12 @@ public:
     // GUI rendering functions
     void DrawMyTextCentered(const std::wstring& text, const Vector2& position,
         const MyColor& color, const float FontSize,
-        float controlWidth, float controlHeight);                               // Draw centered text
+        float controlWidth, float controlHeight,
+        bool bold = false) override;                                            // Draw centered text (bold ignored on DX12 — DWrite synthesis unsafe with this font)
+
+    // 2D clip rect — scissors all D2D drawing to the specified screen rectangle.
+    void PushClipRect(float x, float y, float w, float h) override;
+    void PopClipRect() override;
 
     // Display mode functions
     bool SetFullScreen(void) override;                                          // Set fullscreen mode
@@ -249,6 +254,7 @@ public:
     // Base class overrides for 2D/3D rendering
     void DrawRectangle(const Vector2& position, const Vector2& size,
         const MyColor& color, bool is2D) override;                              // Draw rectangle
+    void DrawCircle(const Vector2& center, float radius, const MyColor& color, bool filled = true) override;
     void DrawMyText(const std::wstring& text, const Vector2& position,
         const MyColor& color, const float FontSize) override;                   // Draw text
     void DrawMyText(const std::wstring& text, const Vector2& position,

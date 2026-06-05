@@ -399,7 +399,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <EntryPointSymbol>WinMainCRTStartup</EntryPointSymbol>
       <GenerateDebugInformation>false</GenerateDebugInformation>
-      <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <IgnoreSpecificDefaultLibraries>LIBCMT;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
       <ImageHasSafeExceptionHandlers></ImageHasSafeExceptionHandlers>
       <ImportLibrary>F:/Projects/C++/CPGE2026/build/DX11/Debug/Release/DXCPGE.lib</ImportLibrary>
       <LinkErrorReporting></LinkErrorReporting>

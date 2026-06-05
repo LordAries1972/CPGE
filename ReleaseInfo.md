@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1512*
+*Current Build Version: v0.0.1521*
 
 ---
 
@@ -2657,6 +2657,22 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
   `fxManager.Render()` was called in pass-2 (after 3D command-list execution), putting Starfield and WarpDotTunnel on top of 3D models. Added `bool backgroundOnly = false` parameter: `Render(true)` renders only Starfield/WarpDotTunnel (background layer) and is now called at the end of pass-1 D2D BeginDraw (before 3D). `Render(false)` (default, existing call in pass-2) renders only ColorFader so scene-fade overlays remain on top of everything.
 - *See: [`DX12FXManager.h`](DX12FXManager.h), [`DX12FXManager.cpp`](DX12FXManager.cpp), [`DX12RenderFrame.cpp`](DX12RenderFrame.cpp)*
 
+- **DX12 model & lighting parity with DX11** (`DX12RenderFrame.cpp`, `DX12Renderer.cpp`):
+  Two gaps vs the DX11 pipeline were closed. (1) The env buffer (b5, `EnvBuffer`) was never bound on the command list before model draw calls in `DX12RenderFrame.cpp` — added `SetGraphicsRootConstantBufferView(DX12_ROOT_PARAM_ENVIRONMENT_BUFFER, ...)` in step 7. (2) `UpdateConstantBuffers()` did not zero-fill the global light buffer region before copying (DX11 uses `memset` to `kGlobalLightCBMinBytes = 1728` bytes to prevent the shader reading stale data past the struct boundary) — added matching memset before memcpy.
+- *See: [`DX12RenderFrame.cpp`](DX12RenderFrame.cpp), [`DX12Renderer.cpp`](DX12Renderer.cpp)*
+
+- **Fix — cmake build output garbled characters** (`cmake/IncrementVersion.cmake`, `CMakeLists.txt`):
+  All em dashes (`—`) in `message()` output calls were replaced with `--`. On Windows consoles using CP850 or CP1252, UTF-8 encoded em dashes appear as `ÔÇö`. All remaining non-ASCII characters in these files are inside `#` cmake comments (never echoed to the console) and were left unchanged.
+- *See: [`cmake/IncrementVersion.cmake`](cmake/IncrementVersion.cmake), [`CMakeLists.txt`](CMakeLists.txt)*
+
+- **Fix — OpenGL crash "string too long" when opening Config window** (`GUIConfigWindow.cpp`):
+  Race condition between the render thread (iterating `controls` in `GUIWindow::Render()`) and the game/input thread (calling `AddControl()` during `CreateConfigWindow()`). Vector reallocation during `push_back` while the render thread held a raw iterator caused dangling-pointer reads, producing corrupted `std::wstring` size metadata that threw `std::length_error("string too long")`. Fix: set `configWindow->isVisible = false` immediately after window creation, restore `true` after all controls and scrollbar setup are complete, so the render thread never snapshots the window with partially-added controls.
+- *See: [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp)*
+
+- **Fix — DX11 crash (D3D11 SDK Layer SEH exception 0x87D) during movie playback** (`MoviePlayer.cpp`, `DX11Renderer.cpp`):
+  `DrawVideoFrame()` called `CopyResource(STAGING_dest, DYNAMIC_src)` which the D3D11 specification forbids — the source of `CopyResource` must not have `D3D11_USAGE_DYNAMIC`. The SDK Layers raised a structured exception (0x87D) on the first rendered movie frame. Fix: changed `m_videoTexture` creation in `CreateVideoTexture()` (DX11 path) from `D3D11_USAGE_DYNAMIC / BIND_SHADER_RESOURCE / CPU_ACCESS_WRITE` to `D3D11_USAGE_STAGING / no BindFlags / CPU_ACCESS_READ|WRITE`. Changed `UpdateVideoTexture()` map mode from `D3D11_MAP_WRITE_DISCARD` (DYNAMIC-only) to `D3D11_MAP_WRITE`. Removed the redundant staging-texture creation + `CopyResource` from `DrawVideoFrame()`; it now maps `videoTexture` directly with `D3D11_MAP_READ` — valid on STAGING textures — and feeds the pixel data straight to the D2D bitmap.
+- *See: [`MoviePlayer.cpp`](MoviePlayer.cpp), [`DX11Renderer.cpp`](DX11Renderer.cpp)*
+
 - **Fix — DX12 pipeline crash (0xC0000005) on first game-menu render** (`DX12Renderer.cpp`):
   `DrawMyTextCentered` requested `DWRITE_FONT_WEIGHT_BOLD` for `FontName = L"MayaCulpa"`. The MayaCulpa typeface has no native bold face; DWrite attempted to synthesise bold by reading internal font tables, hit a `memcpy` into invalid font data deep inside `DWrite.dll`, and fired an access-violation SEH exception (crash address `0x7FFDEBA99612`, 14-frame stack through `D2D1Debug3.dll → d2d1.dll → DWrite.dll → memcpy`). All prior text draws (renderer info overlay, FX loading text) used `DWRITE_FONT_WEIGHT_NORMAL` — that is why the crash was deferred until the first `guiManager.Render()` call after `CreateGameMenuWindow`. Fix: changed the weight in `DrawMyTextCentered` from `DWRITE_FONT_WEIGHT_BOLD` to `DWRITE_FONT_WEIGHT_NORMAL`; text centering (`DWRITE_TEXT_ALIGNMENT_CENTER` / `DWRITE_PARAGRAPH_ALIGNMENT_CENTER`) is unaffected.
 - *See: [`DX12Renderer.cpp`](DX12Renderer.cpp)*
@@ -2681,8 +2697,20 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
   `Model::Render` called `UpdateConstantBuffer()` (which issues `deviceContext->Map/Unmap` on the 11on12 D3D11 immediate context) before the `shaderBound` check. For DX12, no D3D11 shaders are loaded so `shaderBound` always returns false, but the `Map` call already ran. This call was issued in STEP 8 of the render frame while the DX12 command list was still open, which the D3D11_3SDKLayers debug layer detected as invalid interleaving and raised `RaiseException(0x87D)`. Moved `UpdateConstantBuffer()` to after the shader guard: if no shaders are available (DX12 case), the function returns early before any D3D11 context calls are made.
 - *See: [`DX12Models.cpp`](DX12Models.cpp)*
 
+- **Fix — OpenGL: game-menu buttons not bold** (`GUIWindows.cpp`):
+  All six game-menu buttons (Configuration, Game Play, High Scores, Show Credits, Quit to Desktop, Experimental) were missing `bold = true` under the OpenGL pipeline. Added `bold = true` inside each button's existing `#if defined(__USE_OPENGL__)` font-size block.
+- *See: [`GUIWindows.cpp`](GUIWindows.cpp)*
+
+- **Fix — Config window clip rect starts too high** (`GUIConfigWindow.cpp`):
+  `m_clipPos` was set to `CONT_Y`, causing the clip region to overlap the tab bar by a few pixels. Shifted `m_clipPos.y` down by 4 px (`CONT_Y + 4.0f`) and reduced `m_clipSize.y` by 4 px (`CONT_H − 4.0f`) to match.
+- *See: [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp)*
+
 - **Feature — `cmake-build.bat`: run install script after successful build** (`cmake-build.bat`):
   After a successful single-renderer build, `cmake-build.bat` now calls `install-debug.bat` (Debug config) or `install-release.bat` (Release config) to copy output files to the execution folder. A missing install script is reported as a warning rather than an error so the build result is preserved.
+- *See: [`cmake-build.bat`](cmake-build.bat)*
+
+- **Fix — `cmake-build all`: install script ran after each renderer instead of once at the end** (`cmake-build.bat`):
+  `cmake-build all` calls itself recursively for each renderer. Each recursive call ran the install script on success, so `install-debug.bat` / `install-release.bat` fired up to four times before all builds were complete. Fixed by setting `SKIP_INSTALL=1` before the for-loop; child processes inherit the flag and skip install via `if not defined SKIP_INSTALL`. The "all" block now runs the install script exactly once after the for-loop, and only when `ALL_FAIL_COUNT EQU 0` (all pipelines passed).
 - *See: [`cmake-build.bat`](cmake-build.bat)*
 
 - **Fix — DX12 `UploadTextureData` crash: wrong initial resource state in barrier + shared fence race** (`DX12Renderer.cpp`):
@@ -2717,9 +2745,13 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
   Two bugs combined to centre all label text: (1) `GUIWindow::Render()` TextArea case used `Vector2 resize = size` (the window's 620×480 dimensions) instead of `control.size` — DWrite received a layout rect spanning the full window, so short labels appeared centred within it. Fixed: `resize = control.size`. (2) `DX12Renderer::DrawMyText(text, pos, size)` draws through a cached `IDWriteTextFormat` that `DrawMyTextCentered` had previously mutated to `DWRITE_TEXT_ALIGNMENT_CENTER`. Fixed: call `SetTextAlignment(LEADING)` + `SetParagraphAlignment(NEAR)` at the top of the with-size overload to reset before each use.
 - *See: [`GUIManager.cpp`](GUIManager.cpp), [`DX12Renderer.cpp`](DX12Renderer.cpp)*
 
-- **Fix — Config window scrolled controls overlap tab bar / bottom area** (`GUIConfigWindow.cpp`):
-  `setTabScroll` shifted Y positions but never clipped them. Fixed by setting `c.isVisible = false` for controls whose bounds fall outside `[CONT_Y+2, CONT_Y+368]` after each shift. `doSwitchTab` now restores `c.isVisible = true` on the outgoing tab before the main show/hide loop runs, preventing permanently-hidden controls after a tab switch.
-- *See: [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp)*
+- **Fix — Config window content area not pixel-accurately clipped to bevel box** (`Renderer.h`, `GUIManager.h/.cpp`, `DX12Renderer`, `DX11Renderer`, `OpenGLRenderer`, `GUIConfigWindow.cpp`):
+  `isVisible` toggling cannot clip partially-overlapping controls at sub-pixel accuracy. Added `PushClipRect(x,y,w,h)` / `PopClipRect()` virtual methods to `Renderer` (no-op defaults). DX11 and DX12 implement via D2D `PushAxisAlignedClip` / `PopAxisAlignedClip`. OpenGL uses `glScissor` + `glEnable/Disable(GL_SCISSOR_TEST)` with Y-flip. Added `bool clipContent` to `GUIControl` and `m_hasClip`, `m_clipPos`, `m_clipSize` to `GUIWindow`. `GUIWindow::Render()` pushes the clip on the first visible `clipContent` control, pops it before the first subsequent non-clipContent visible control (and always before `onCustomRender`), so title bar, tab buttons, and bottom buttons are never scissored. In `GUIConfigWindow`, all `t[0-4]_*` controls are marked `clipContent=true` after `doSwitchTab(0)`, clip rect set to `(WX, CONT_Y, WW, CONT_H)`, and `setTabScroll` pre-cull relaxed to "completely-outside-only" so partial controls reach the renderer for pixel-accurate edge clipping. Layout adjustments per spec: scrollbar y+3, x−3, height−4; window height −4 (DX12: 456 px, others: 476 px).
+- *See: [`Renderer.h`](Renderer.h), [`GUIManager.h`](GUIManager.h), [`GUIManager.cpp`](GUIManager.cpp), [`DX12Renderer.h`](DX12Renderer.h), [`DX12Renderer.cpp`](DX12Renderer.cpp), [`DX11Renderer.h`](DX11Renderer.h), [`DX11Renderer.cpp`](DX11Renderer.cpp), [`OpenGLRenderer.h`](OpenGLRenderer.h), [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp)*
+
+- **Feature — OpenGL pipeline: bold tab/button text, smaller control labels, GameMenu smaller font, restart window −10 px** (`Renderer.h`, `GUIManager.h/.cpp`, `OpenGLRenderer.h/.cpp`, `DX12/DX11/Vulkan renderers`, `GUIConfigWindow.cpp`, `GUIWindows.cpp`):
+  OpenGL GDI text rasterises wider than DWrite, causing value-column labels ("Full Screen", "DirectX 11") to be clipped. Five targeted OpenGL changes: (1) **Smaller control labels** — added `LBL_FS` constant: 11 pt for OpenGL, 13 pt elsewhere; used for every slider/toggle/info row label and value. (2) **Bold tab buttons** — tab nav buttons set `bold=true` under `__USE_OPENGL__`. (3) **Bold config/restart buttons** — `btn_close`, `btn_save`, `btn_restart`, `n_btn_now`, `n_btn_cancel` all set `bold=true` for OpenGL. (4) **Restart window width −10** — `NW` changed from 430 to 420 under `__USE_OPENGL__`. (5) **GameMenu smaller font** — all six game menu buttons (`configButton`, `gameplayButton`, `hiscoresButton`, `creditsButton`, `quitButton`, `experimentalButton`) reduced from 16 pt to 13 pt under `__USE_OPENGL__`. Infrastructure to support bold: added `bool bold` to `GUIControl`; `DrawMyTextCentered` in `Renderer.h` gains `bool bold = false` default parameter propagated to all four renderer overrides; OpenGL implements bold via GDI `FW_BOLD`/`FW_NORMAL` in `RenderTextCenteredToTexture`, with `bold` included in `TextCacheKey` so bold and normal variants cache independently. DX12 and DX11 accept the param but keep `FW_NORMAL` (DX12 DWrite synthesis is unsafe with this font face). `GUIManager.cpp` passes `control.bold` to `DrawMyTextCentered`.
+- *See: [`Renderer.h`](Renderer.h), [`GUIManager.h`](GUIManager.h), [`GUIManager.cpp`](GUIManager.cpp), [`OpenGLRenderer.h`](OpenGLRenderer.h), [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`DX12Renderer.h`](DX12Renderer.h), [`DX12Renderer.cpp`](DX12Renderer.cpp), [`DX11Renderer.h`](DX11Renderer.h), [`DX11Renderer.cpp`](DX11Renderer.cpp), [`VULKAN_Renderer.h`](VULKAN_Renderer.h), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp), [`GUIWindows.cpp`](GUIWindows.cpp)*
 
 - **Fix — Quit-to-Desktop button: music continues and window hangs on DX12** (`GUIWindows.cpp`):
   The `FadeOutThenCallback` lambda (fires from render thread) was missing `StopMusicPlayback()` and called `PostMessage(WM_CLOSE)` while the render thread was still mid-frame. Fixed: added `extern void StopMusicPlayback()` + call it first; replaced the direct `PostMessage` with a detached `std::thread` that sleeps 100 ms (≥ 6 frames at 60fps) to let the render thread safely finish before posting `WM_CLOSE` to the main thread.
@@ -2736,6 +2768,10 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
 - **Feature — Buffering config option + Triple Buffering UI toggle + per-tab scrollbars** (`Configuration.h`, `Configuration.cpp`, `GUIConfigWindow.cpp`, `DX11Renderer.cpp`, `DX12Renderer.h`, `DX12Renderer.cpp`, `VULKAN_Renderer.cpp`):
   Added `int buffering = 1` (1=triple, 0=double) to `MyConfig`. The field is persisted to `GameConfig.cfg` via `loadConfig`/`saveConfig` and included in the FNV-1a checksum so tampering is detected. Under the **Video** tab a new **Triple Buffering** toggle slider (id `t2_tripbuf`) sets `buffering` and marks `needsVideoRestart`; the toggle initialises from the current config value. All renderers now read the setting at swap-chain creation time: DX11 sets `swapDesc.BufferCount` to 3 or 2; DX12 introduces a new private member `m_effectiveFrameCount` (3 or 2) that replaces the compile-time `FrameCount = 3` constant in `CreateSwapChain`, `CreateRenderTargetViews`, `CreateD2DRenderTargets`, and `Resize`'s `ResizeBuffers`/RTV-recreation loops (cleanup and max-allocation loops keep `FrameCount` so nothing is leaked); Vulkan sets `ci.minImageCount` from `minImageCount + 1` (triple) or `minImageCount` (double), clamped to `maxImageCount`. The Video tab now has 12 rows, which exceeds the 370 px visible height by 14 px. Added a 12-pixel-wide vertical scrollbar to every tab's content area: scroll state (`tabScrollY[5]`) is a `shared_ptr<std::array<float,5>>`; `setTabScroll(delta)` shifts the Y positions of visible tab controls and clamps to `[0, contentH − 370]`; `doSwitchTab` un-scrolls the outgoing tab before switching; the scrollbar thumb is drawn via `onCustomRender`; mouse-wheel is routed via `onMouseWheel` (18 px/notch); clicking the track jumps to the proportional position via `onCustomMouseInput`. All horizontal sliders are narrowed by `CFG_SCROLL_W + 4 = 16 px` and the info-row value label uses the same budget so no control overlaps the scrollbar track.
 - *See: [`Configuration.h`](Configuration.h), [`Configuration.cpp`](Configuration.cpp), [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp), [`DX11Renderer.cpp`](DX11Renderer.cpp), [`DX12Renderer.h`](DX12Renderer.h), [`DX12Renderer.cpp`](DX12Renderer.cpp), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp)*
+
+- **Fix — OpenGL Release build LNK4098: LIBCMT conflicts with MSVCRT** (`CMakeLists.txt`, `build/OpenGL/Release/CrossPlatformGameEngine.vcxproj`):
+  `glew32s.lib` was compiled `/MT` and pulls `LIBCMT.lib` as a default lib. The project's Release config uses `/MD` (`MultiThreadedDLL` → `MSVCRT.lib`). Having both causes `LNK4098: defaultlib 'LIBCMT' conflicts`. Debug was already protected by `/NODEFAULTLIB:LIBCMT`. Fixed by adding the same flag to the CMake Release generator expression and patching `IgnoreSpecificDefaultLibraries` directly in the already-generated vcxproj Release `Link` block.
+- *See: [`CMakeLists.txt`](CMakeLists.txt), [`build/OpenGL/Release/CrossPlatformGameEngine.vcxproj`](build/OpenGL/Release/CrossPlatformGameEngine.vcxproj)*
 
 - **Feature — DX12 low-end GPU support: feature level cascade + capability detection** (`DX12Renderer.cpp`, `DX12Renderer.h`):
   `CreateDevice()` and `SelectBestAdapter()` hard-coded `D3D_FEATURE_LEVEL_12_0` as the minimum for `D3D12CreateDevice`, silently rejecting GPUs that support DX12 only at FL 11.1 (many Intel HD/Iris, older AMD APUs). Changed minimum to `D3D_FEATURE_LEVEL_11_0` in both locations — the device is still created at the adapter's maximum supported level, so no functionality is lost on capable hardware. After device creation, added a GPU capability query block that populates six new private members: `m_dedicatedVRAMMB`, `m_sharedSystemMemMB` (VRAM in MB from `DXGI_ADAPTER_DESC3`); `m_isUMA` (`D3D12_FEATURE_DATA_ARCHITECTURE.UMA`); `m_isLowEndGPU` (true when VRAM < 2 GB or UMA); `m_maxFeatureLevel` (`D3D12_FEATURE_DATA_FEATURE_LEVELS`); `m_resourceBindingTier` (`D3D12_FEATURE_DATA_D3D12_OPTIONS.ResourceBindingTier`). All six are logged at startup and available for future runtime quality-scaling decisions.
@@ -2780,6 +2816,46 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
 - **Feature — Auto-correct config rendererType to match compiled pipeline before renderer creation** (`main.cpp`):
   If the saved config `rendererType` doesn't match the compiled pipeline (e.g. config was last written by a DX11 build but the DX12 binary is now running), the mismatch was silently ignored — any subsystem that read `rendererType` at startup would see the wrong value. Added a validation block in `WinMain` immediately before `CreateRendererInstance()`: `compiledRendererType` is resolved from the active `#if __USE_DIRECTX_11__ / _12__ / __USE_OPENGL__ / __USE_VULKAN__` define, per-platform values applied (Windows: 0=DX11, 1=DX12, 2=OGL, 3=VK; Linux/Android: 0=OGL, 1=VK; iOS/macOS: 0). If the value differs from `config.myConfig.rendererType`, the config is overridden and `config.saveConfig()` is called before the renderer is instantiated. A WARNING-level log entry records the mismatch and the corrected value.
 - *See: [`main.cpp`](main.cpp)*
+
+- **Fix — LOG_ERROR now terminates the application** (`Debug.cpp`):
+  `LOG_CRITICAL` and `LOG_TERMINATION` already called `PostQuitMessage(EXIT_FAILURE)`. `LOG_ERROR` did not — after a RenderFrame exception the render thread logged the error and returned, leaving the app running with no rendering. Extended the `PostQuitMessage` guard to include `LOG_ERROR` so any error-level log triggers a clean main-loop exit.
+- *See: [`Debug.cpp`](Debug.cpp)*
+
+- **Fix — Vulkan game-menu buttons not bold** (`GUIWindows.cpp`):
+  All six game-menu buttons now have `bold = true` under `#if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)`, matching the existing OpenGL-only bold that was already in place.
+- *See: [`GUIWindows.cpp`](GUIWindows.cpp)*
+
+- **Fix — Vulkan config window: no clipping and text not rendering** (`VULKAN_Renderer.h`, `VULKAN_Renderer.cpp`, `GUIConfigWindow.cpp`):
+  `VulkanRenderer` had no `PushClipRect`/`PopClipRect` implementations — tab-content controls bled outside the bevel. Added D2D `PushAxisAlignedClip`/`PopAxisAlignedClip` implementation (same as DX11). Config window bottom-button bold extended to `|| defined(__USE_VULKAN__)`.
+- *See: [`VULKAN_Renderer.h`](VULKAN_Renderer.h), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp)*
+
+- **Feature — Config window: custom 3D drawn titlebar with circular close button** (`GUIConfigWindow.cpp`, `Renderer.h`, all renderer implementations):
+  Replaced the `IMG_TITLEBAR1` texture titlebar with a renderer-drawn 3D-style bar: dark navy base, 2 px blue highlight edge at top, 1 px shadow at bottom, title text centred. A crimson circular close button is drawn at `(WX + WW − 15, titlebar centre Y)` radius 8.5 px with outer dark ring and `×` glyph. Clicking the circle cancels (reverts config) and closes the window. ESC key (via `KBHandlersCode.cpp`) also fires the Close-button handler for revert + close. Added `DrawCircle(center, radius, color, filled)` to `Renderer.h` and all four pipelines: DX11/DX12/Vulkan use D2D `FillEllipse`/`DrawEllipse`; OpenGL uses horizontal scanline rectangles.
+- *See: [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp), [`KBHandlersCode.cpp`](KBHandlersCode.cpp), [`Renderer.h`](Renderer.h), [`DX11Renderer.h`](DX11Renderer.h), [`DX11Renderer.cpp`](DX11Renderer.cpp), [`DX12Renderer.h`](DX12Renderer.h), [`DX12Renderer.cpp`](DX12Renderer.cpp), [`VULKAN_Renderer.h`](VULKAN_Renderer.h), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`OpenGLRenderer.h`](OpenGLRenderer.h), [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp)*
+
+- **Fix — Config window scrollbar 3 px too tall** (`GUIConfigWindow.cpp`):
+  `SCROLL_H = CONT_H − 8.0f` → `CONT_H − 11.0f` (−3 px per spec).
+- *See: [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp)*
+
+- **Fix — DX12 app hangs on exit: `WaitForGPUToFinish` uses 5-second fence timeout during shutdown** (`DX12Renderer.cpp`):
+  `WaitForGPUToFinish()` (called from `Cleanup()`) waited up to 5 seconds unconditionally. Changed to mirror `WaitForPreviousFrame`: use 500 ms when `bIsShuttingDown` is true, 5000 ms otherwise. Prevents a 5-second hang at the end of every exit sequence.
+- *See: [`DX12Renderer.cpp`](DX12Renderer.cpp)*
+
+- **Fix — Vulkan cascading crash: validation-layer errors mapped to LOG_ERROR triggering PostQuitMessage** (`VULKAN_Renderer.cpp`):
+  The Vulkan debug-utils messenger callback (line ~475) mapped `VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR` → `LOG_ERROR`. Now that `LOG_ERROR` calls `PostQuitMessage`, a `vkDestroySampler` validation warning during normal scene cleanup was triggering a shutdown mid-frame, cascading into NULL-image pipeline barriers, thread-pool crashes, and access violations in `LoadTexture`. Fixed by mapping validation-layer messages to `LOG_WARNING` / `LOG_DEBUG` (diagnostic only, not fatal).
+- *See: [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp)*
+
+- **Fix — Vulkan `vkDestroySampler` validation error during scene cleanup** (`VULKAN_Renderer.cpp`):
+  `DestroyVulkanTexture` destroyed samplers, image views, images, and memory without waiting for GPU work referencing those resources to complete. Added `vkDeviceWaitIdle(m_device)` at the start of `DestroyVulkanTexture` so all queued commands drain before any resource is freed.
+- *See: [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp)*
+
+- **Fix — Vulkan NULL-image pipeline barrier in `UploadOverlayToVulkan`** (`VULKAN_Renderer.cpp`):
+  Added explicit `m_overlayTexture.image != VK_NULL_HANDLE` guard before the `vkCmdPipelineBarrier` call so a partially-initialised overlay texture cannot produce a validation error.
+- *See: [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp)*
+
+- **Fix — Config window circular close button not responding to clicks; saves instead of reverting** (`GUIConfigWindow.cpp`):
+  The previous implementation relied on `onCustomMouseInput` with captured-at-creation-time coordinates, which (a) could mismatch after window drag and (b) was never firing reliably. Replaced with a transparent `Button` control ("btn_circleclose") at the circle location — `MoveWindow` keeps it in sync after dragging. `onMouseBtnDown` saves the config (`config.saveConfig()`) then closes, with an `std::atomic<bool>` guard against double-fire. `onCustomRender` now reads all positions live from `weakWin->position` so the circle, title text, and scrollbar all stay correct after dragging.
+- *See: [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp)*
 
 ---
 

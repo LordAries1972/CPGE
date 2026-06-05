@@ -75,6 +75,7 @@ if /i "%ARG1%"=="all" (
     set "ALL_PASS_LIST="
     set "ALL_FAIL_LIST="
     set "IS_FIRST_BUILD=1"
+    set "SKIP_INSTALL=1"
 
     for %%R in (dx11 dx12 opengl vulkan) do (
         set "SKIP_RENDERER=0"
@@ -107,6 +108,28 @@ if /i "%ARG1%"=="all" (
     if not "!ALL_FAIL_LIST!"=="" echo   FAILED :!ALL_FAIL_LIST!
     echo ============================================================
     echo.
+
+    :: --- Run install ONCE after all pipelines finish (only when all succeeded) ---
+    if !ALL_FAIL_COUNT! EQU 0 (
+        if /i "!ALL_CONFIG!"=="Debug" (
+            if exist "install-debug.bat" (
+                echo Running install-debug.bat ...
+                call install-debug.bat
+                if errorlevel 1 echo WARNING: install-debug.bat returned an error.
+            ) else (
+                echo WARNING: install-debug.bat not found -- skipping install.
+            )
+        )
+        if /i "!ALL_CONFIG!"=="Release" (
+            if exist "install-release.bat" (
+                echo Running install-release.bat ...
+                call install-release.bat
+                if errorlevel 1 echo WARNING: install-release.bat returned an error.
+            ) else (
+                echo WARNING: install-release.bat not found -- skipping install.
+            )
+        )
+    )
 
     if !ALL_FAIL_COUNT! GTR 0 (
         endlocal
@@ -198,23 +221,25 @@ if errorlevel 1 goto :error
 echo.
 echo Build succeeded: %RENDERER% %CONFIG% -- %DATE%  %TIME%
 
-:: --- Run install script on success ---
-if /i "%CONFIG%"=="Debug" (
-    if exist "install-debug.bat" (
-        echo Running install-debug.bat ...
-        call install-debug.bat
-        if errorlevel 1 echo WARNING: install-debug.bat returned an error.
-    ) else (
-        echo WARNING: install-debug.bat not found -- skipping install.
+:: --- Run install script on success (skipped when called from 'cmake-build all') ---
+if not defined SKIP_INSTALL (
+    if /i "%CONFIG%"=="Debug" (
+        if exist "install-debug.bat" (
+            echo Running install-debug.bat ...
+            call install-debug.bat
+            if errorlevel 1 echo WARNING: install-debug.bat returned an error.
+        ) else (
+            echo WARNING: install-debug.bat not found -- skipping install.
+        )
     )
-)
-if /i "%CONFIG%"=="Release" (
-    if exist "install-release.bat" (
-        echo Running install-release.bat ...
-        call install-release.bat
-        if errorlevel 1 echo WARNING: install-release.bat returned an error.
-    ) else (
-        echo WARNING: install-release.bat not found -- skipping install.
+    if /i "%CONFIG%"=="Release" (
+        if exist "install-release.bat" (
+            echo Running install-release.bat ...
+            call install-release.bat
+            if errorlevel 1 echo WARNING: install-release.bat returned an error.
+        ) else (
+            echo WARNING: install-release.bat not found -- skipping install.
+        )
     )
 )
 

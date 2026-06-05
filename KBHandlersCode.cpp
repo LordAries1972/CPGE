@@ -81,6 +81,15 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
         switch (keyCode) 
         {
             case KeyCode::KEY_ESCAPE:
+                // Config window takes priority — ESC fires the Close button (cancel + revert)
+                if (auto cfgWin = guiManager.GetWindow("ConfigWindow")) {
+                    for (auto& ctrl : cfgWin->controls)
+                        if (ctrl.id == "btn_close" && ctrl.onMouseBtnDown) {
+                            ctrl.onMouseBtnDown();
+                            break;
+                        }
+                    break;
+                }
                 switch (scene.stSceneType)
                 {
                     case SceneType::SCENE_GAMEPLAY:

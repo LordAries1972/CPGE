@@ -184,7 +184,7 @@ void OpenGLRenderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
         m_isLowEndGPU = (m_dedicatedVRAMMB < 2048 || m_isUMA);
 
         debug.logDebugMessage(LogLevel::LOG_INFO,
-            L"OpenGLRenderer: GPU Caps — %s (%s), VRAM: %llu MB, Shared: %llu MB, UMA: %s, LowEnd: %s",
+            L"OpenGLRenderer: GPU Caps: %s (%s), VRAM: %llu MB, Shared: %llu MB, UMA: %s, LowEnd: %s",
             gpuName.c_str(), vendorName.c_str(),
             m_dedicatedVRAMMB, m_sharedSystemMemMB,
             m_isUMA       ? L"Yes" : L"No",
@@ -1327,6 +1327,25 @@ void OpenGLRenderer::DrawRectangle(const Vector2& position, const Vector2& size,
         0, 0, 0, 0, color, false);
 }
 
+void OpenGLRenderer::DrawCircle(const Vector2& center, float radius, const MyColor& color, bool filled) {
+    if (radius <= 0.0f) return;
+    if (filled) {
+        int r = static_cast<int>(std::ceil(radius));
+        for (int dy = -r; dy <= r; ++dy) {
+            float dx = std::sqrt(std::max(0.0f, radius * radius - (float)(dy * dy)));
+            DrawRectangle(Vector2(center.x - dx, center.y + dy), Vector2(dx * 2.0f, 1.0f), color, true);
+        }
+    } else {
+        int r = static_cast<int>(radius);
+        for (int dy = -r; dy <= r; ++dy) {
+            float dx = std::sqrt(std::max(0.0f, radius * radius - (float)(dy * dy)));
+            DrawRectangle(Vector2(center.x - dx, center.y + dy), Vector2(1.0f, 1.0f), color, true);
+            if (dx > 0.5f)
+                DrawRectangle(Vector2(center.x + dx - 1.0f, center.y + dy), Vector2(1.0f, 1.0f), color, true);
+        }
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // DrawTexture
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1624,15 +1643,27 @@ void OpenGLRenderer::DrawMyTextStyled(const std::wstring& text, const Vector2& p
 #endif
 }
 
+void OpenGLRenderer::PushClipRect(float x, float y, float w, float h) {
+    // OpenGL scissor: Y is from the bottom of the window
+    GLint glY = m_renderTargetHeight - static_cast<GLint>(y + h);
+    glScissor(static_cast<GLint>(x), glY, static_cast<GLint>(w), static_cast<GLint>(h));
+    glEnable(GL_SCISSOR_TEST);
+}
+
+void OpenGLRenderer::PopClipRect() {
+    glDisable(GL_SCISSOR_TEST);
+}
+
 void OpenGLRenderer::DrawMyTextCentered(const std::wstring& text, const Vector2& position,
-    const MyColor& color, const float fontSize, float controlWidth, float controlHeight)
+    const MyColor& color, const float fontSize, float controlWidth, float controlHeight,
+    bool bold)
 {
     if (text.empty()) return;
     int cw = std::max(1, static_cast<int>(controlWidth));
     int ch = std::max(1, static_cast<int>(controlHeight));
     int tw = 0, th = 0;
-    // cw/ch baked into the cache key — each unique control size gets its own entry.
-    GLuint texID = AcquireTextTexture(text, L"Arial", fontSize, color, tw, th, cw, ch);
+    // cw/ch and bold baked into the cache key — each unique combination gets its own entry.
+    GLuint texID = AcquireTextTexture(text, L"Arial", fontSize, color, tw, th, cw, ch, bold);
     if (!texID) return;
     Render2DQuad(texID,
         static_cast<int>(position.x), static_cast<int>(position.y),
@@ -1646,7 +1677,7 @@ void OpenGLRenderer::DrawMyTextCentered(const std::wstring& text, const Vector2&
 // Extracts the GDI-rasterise path from DrawMyTextCentered so it can be reused by
 // the text cache.  Returns 0 on failure; outW/outH receive the texture dims (= cw, ch).
 GLuint OpenGLRenderer::RenderTextCenteredToTexture(const std::wstring& text, float fontSize,
-    const MyColor& color, int cw, int ch, int& outW, int& outH)
+    const MyColor& color, int cw, int ch, int& outW, int& outH, bool bold)
 {
     outW = cw; outH = ch;
 #if defined(_WIN32) || defined(_WIN64)
@@ -1665,7 +1696,7 @@ GLuint OpenGLRenderer::RenderTextCenteredToTexture(const std::wstring& text, flo
     HBITMAP preStub = stubBmp ? reinterpret_cast<HBITMAP>(SelectObject(memDC, stubBmp)) : nullptr;
 
     int ptSize = std::max(1, static_cast<int>(fontSize * 1.333f));
-    HFONT hFont = CreateFontW(-ptSize, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    HFONT hFont = CreateFontW(-ptSize, 0, 0, 0, bold ? FW_BOLD : FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
     if (!hFont) {
@@ -1726,14 +1757,14 @@ GLuint OpenGLRenderer::RenderTextCenteredToTexture(const std::wstring& text, flo
 
 GLuint OpenGLRenderer::AcquireTextTexture(const std::wstring& text,
     const std::wstring& fontName, float fontSize, const MyColor& color,
-    int& outW, int& outH, int cw, int ch)
+    int& outW, int& outH, int cw, int ch, bool bold)
 {
     uint32_t pack = (static_cast<uint32_t>(color.r) << 24) |
                     (static_cast<uint32_t>(color.g) << 16) |
                     (static_cast<uint32_t>(color.b) <<  8) |
                      static_cast<uint32_t>(color.a);
 
-    TextCacheKey key{ text, fontName, fontSize, pack, cw, ch };
+    TextCacheKey key{ text, fontName, fontSize, pack, cw, ch, bold };
     auto it = m_textCache.find(key);
     if (it != m_textCache.end() && it->second.id != 0) {
         it->second.lastFrame = m_textCacheFrame;
@@ -1745,7 +1776,7 @@ GLuint OpenGLRenderer::AcquireTextTexture(const std::wstring& text,
     GLuint texID = 0;
     int tw = 0, th = 0;
     if (cw > 0 && ch > 0)
-        texID = RenderTextCenteredToTexture(text, fontSize, color, cw, ch, tw, th);
+        texID = RenderTextCenteredToTexture(text, fontSize, color, cw, ch, tw, th, bold);
     else
         texID = RenderTextToTexture(text, fontName, fontSize, color, tw, th);
 

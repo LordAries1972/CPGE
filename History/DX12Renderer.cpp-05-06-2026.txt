@@ -1633,7 +1633,11 @@ void DX12Renderer::UpdateConstantBuffers() {
 #endif
                 }
 
-                // Copy the data to the mapped buffer
+                // Zero the full allocated GPU region before copying — matches DX11's
+                // kGlobalLightCBMinBytes approach to ensure the shader never reads stale data
+                // beyond what the CPU struct covers (upload heap is 256-byte aligned).
+                static const UINT kGlobalLightCBMinBytes = 1728;
+                memset(pLightData, 0, kGlobalLightCBMinBytes);
                 memcpy(pLightData, &glb, sizeof(GlobalLightBuffer));
 
                 // Unmap the buffer
@@ -1937,7 +1941,8 @@ void DX12Renderer::WaitForGPUToFinish() {
                 return;
             }
 
-            DWORD waitResult = WaitForSingleObject(m_fenceEvent, 5000);
+            const DWORD gpuTimeoutMs = threadManager.threadVars.bIsShuttingDown.load() ? 500 : 5000;
+            DWORD waitResult = WaitForSingleObject(m_fenceEvent, gpuTimeoutMs);
             if (waitResult != WAIT_OBJECT_0) {
                 debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: GPU wait timed out or failed in WaitForGPUToFinish — forcing cleanup.");
             }
@@ -3821,10 +3826,35 @@ void DX12Renderer::DrawMyTextWithFont(const std::wstring& text, const Vector2& p
     }
 }
 
+void DX12Renderer::DrawCircle(const Vector2& center, float radius, const MyColor& color, bool filled) {
+    if (!m_d2dContext) return;
+    float fr = color.r / 255.0f, fg = color.g / 255.0f, fb = color.b / 255.0f, fa = color.a / 255.0f;
+    ComPtr<ID2D1SolidColorBrush> brush;
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(fr, fg, fb, fa), &brush);
+    if (!brush) return;
+    D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(center.x, center.y), radius, radius);
+    if (filled) m_d2dContext->FillEllipse(ellipse, brush.Get());
+    else        m_d2dContext->DrawEllipse(ellipse, brush.Get());
+}
+
+//-----------------------------------------
+// 2D Clip Rect (D2D PushAxisAlignedClip)
+//-----------------------------------------
+void DX12Renderer::PushClipRect(float x, float y, float w, float h) {
+    if (!m_d2dContext) return;
+    m_d2dContext->PushAxisAlignedClip(D2D1::RectF(x, y, x + w, y + h),
+                                      D2D1_ANTIALIAS_MODE_ALIASED);
+}
+
+void DX12Renderer::PopClipRect() {
+    if (!m_d2dContext) return;
+    m_d2dContext->PopAxisAlignedClip();
+}
+
 //-----------------------------------------
 // Draw Centered Text for DirectX 12
 //-----------------------------------------
-void DX12Renderer::DrawMyTextCentered(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize, float controlWidth, float controlHeight) {
+void DX12Renderer::DrawMyTextCentered(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize, float controlWidth, float controlHeight, bool /*bold*/) {
 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
     debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Drawing centered text in control (%.2f x %.2f) at (%.2f, %.2f): %s",
         controlWidth, controlHeight, position.x, position.y, text.substr(0, 50).c_str());

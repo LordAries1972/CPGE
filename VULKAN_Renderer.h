@@ -247,10 +247,14 @@ public:
     void WaitToFinishThenPauseThread() override;
     void WaitForGPUToFinish()          override;
 
+    void PushClipRect(float x, float y, float w, float h) override;
+    void PopClipRect() override;
+
     void DrawRectangle(const Vector2& position, const Vector2& size, const MyColor& color, bool is2D) override;
+    void DrawCircle(const Vector2& center, float radius, const MyColor& color, bool filled = true) override;
     void DrawMyText(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize) override;
     void DrawMyText(const std::wstring& text, const Vector2& position, const Vector2& size, const MyColor& color, const float FontSize) override;
-    void DrawMyTextCentered(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize, float controlWidth, float controlHeight) override;
+    void DrawMyTextCentered(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize, float controlWidth, float controlHeight, bool bold = false) override;
     void DrawMyTextWithFont(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize, const std::wstring& fontName) override;
     void DrawMyTextStyled(const std::wstring& text, const Vector2& position, const MyColor& color, const TextRenderStyle& style) override;
     void DrawTexture(int textureId, const Vector2& position, const Vector2& size, const MyColor& tintColor, bool is2D) override;

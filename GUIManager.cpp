@@ -735,9 +735,26 @@ void GUIWindow::Render() {
         r->DrawRectangle(position, size, backgroundColor, true);
     }
 
-    // Render each control
+    // Render each control.
+    // Controls marked clipContent=true are wrapped in a renderer scissor rect so that
+    // content overflowing the bevel box (e.g. scrolled tab controls) is pixel-accurately
+    // clipped.  The clip is pushed on the first visible clipContent control and popped
+    // when the first subsequent visible non-clipContent control is hit (or at loop end),
+    // so title bar, tab buttons, and bottom buttons are never scissored.
+    bool clipActive = false;
     for (auto& control : controls) {
         if (!control.isVisible) continue;
+
+        // Push clip rect the first time we hit a clipContent control
+        if (control.clipContent && !clipActive && m_hasClip) {
+            r->PushClipRect(m_clipPos.x, m_clipPos.y, m_clipSize.x, m_clipSize.y);
+            clipActive = true;
+        }
+        // Pop clip rect when we leave the clipContent block
+        else if (!control.clipContent && clipActive) {
+            r->PopClipRect();
+            clipActive = false;
+        }
 
         MyColor bgColor = control.isHovered ? control.hoverColor : control.bgColor;
 
@@ -763,10 +780,10 @@ void GUIWindow::Render() {
                     {
                         r->DrawMyTextCentered(control.label,
                             Vector2(control.position.x + 2.0f, control.position.y + 2.0f),
-                            control.shadowedTxtColor, control.lblFontSize, control.size.x, control.size.y);
+                            control.shadowedTxtColor, control.lblFontSize, control.size.x, control.size.y, control.bold);
                     }
                     r->DrawMyTextCentered(control.label, control.position,
-                        control.txtColor, control.lblFontSize, control.size.x, control.size.y);
+                        control.txtColor, control.lblFontSize, control.size.x, control.size.y, control.bold);
                     break;
                 }
                 else
@@ -774,16 +791,14 @@ void GUIWindow::Render() {
                     // Draw the button background
                     r->DrawRectangle(control.position, control.size, bgColor, true);
 
-                    // Pass the button's top-left corner and dimensions; DrawMyTextCentered
-                    // measures the text itself and computes the true centre position.
                     if (control.useShadowedText)
                     {
                         r->DrawMyTextCentered(control.label,
                             Vector2(control.position.x + 2.0f, control.position.y + 2.0f),
-                            control.shadowedTxtColor, control.lblFontSize, control.size.x, control.size.y);
+                            control.shadowedTxtColor, control.lblFontSize, control.size.x, control.size.y, control.bold);
                     }
                     r->DrawMyTextCentered(control.label, control.position,
-                        control.txtColor, control.lblFontSize, control.size.x, control.size.y);
+                        control.txtColor, control.lblFontSize, control.size.x, control.size.y, control.bold);
                 }
                 break;
             }
@@ -1017,6 +1032,13 @@ void GUIWindow::Render() {
                 break;
             }
         }
+    }
+
+    // Ensure clip rect is popped before custom rendering (e.g. config scrollbar)
+    // so that onCustomRender is never scissored.
+    if (clipActive) {
+        r->PopClipRect();
+        clipActive = false;
     }
 
     // Custom rendering extension — drawn on top of all controls; used by windows

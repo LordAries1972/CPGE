@@ -706,7 +706,7 @@ void DX11Renderer::CreateDeviceAndSwapChain(HWND hwnd) {
             m_isLowEndGPU       = (m_dedicatedVRAMMB < 2048 || m_isUMA);
             std::wstring gpuName(adDesc.Description, adDesc.Description + wcslen(adDesc.Description));
             debug.logDebugMessage(LogLevel::LOG_INFO,
-                L"DX11Renderer: GPU Caps — %s, VRAM: %llu MB, Shared: %llu MB, UMA: %s, LowEnd: %s",
+                L"DX11Renderer: GPU Caps: %s, VRAM: %llu MB, Shared: %llu MB, UMA: %s, LowEnd: %s",
                 gpuName.c_str(), m_dedicatedVRAMMB, m_sharedSystemMemMB,
                 m_isUMA ? L"Yes" : L"No", m_isLowEndGPU ? L"Yes" : L"No");
             if (m_isLowEndGPU)
@@ -953,7 +953,29 @@ void DX11Renderer::DrawRectangle(const Vector2& position, const Vector2& size, c
     }
 }
 
-void DX11Renderer::DrawMyTextCentered(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize, float controlWidth, float controlHeight) {
+void DX11Renderer::DrawCircle(const Vector2& center, float radius, const MyColor& color, bool filled) {
+    if (!m_d2dRenderTarget) return;
+    float fr = color.r / 255.0f, fg = color.g / 255.0f, fb = color.b / 255.0f, fa = color.a / 255.0f;
+    ComPtr<ID2D1SolidColorBrush> brush;
+    m_d2dRenderTarget->CreateSolidColorBrush(D2D1::ColorF(fr, fg, fb, fa), &brush);
+    if (!brush) return;
+    D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(center.x, center.y), radius, radius);
+    if (filled) m_d2dRenderTarget->FillEllipse(ellipse, brush.Get());
+    else        m_d2dRenderTarget->DrawEllipse(ellipse, brush.Get());
+}
+
+void DX11Renderer::PushClipRect(float x, float y, float w, float h) {
+    if (!m_d2dRenderTarget) return;
+    m_d2dRenderTarget->PushAxisAlignedClip(D2D1::RectF(x, y, x + w, y + h),
+                                           D2D1_ANTIALIAS_MODE_ALIASED);
+}
+
+void DX11Renderer::PopClipRect() {
+    if (!m_d2dRenderTarget) return;
+    m_d2dRenderTarget->PopAxisAlignedClip();
+}
+
+void DX11Renderer::DrawMyTextCentered(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize, float controlWidth, float controlHeight, bool /*bold*/) {
     if (!m_d2dRenderTarget || !m_dwriteFactory) return;
     if (text.empty() || FontSize <= 0.0f) return;
 
@@ -1167,31 +1189,24 @@ void DX11Renderer::DrawVideoFrame(const Vector2& position, const Vector2& size, 
         D3D11_TEXTURE2D_DESC textureDesc = {};
         videoTexture->GetDesc(&textureDesc);
 
-        // Recreate staging texture only when dimensions change (not every frame)
-        if (!m_videoStagingTex || m_videoStagingW != textureDesc.Width || m_videoStagingH != textureDesc.Height)
+        // Reset the D2D bitmap only when video dimensions change
+        if (m_videoStagingW != textureDesc.Width || m_videoStagingH != textureDesc.Height)
         {
-            m_videoStagingTex.Reset();
             m_videoBitmap.Reset();
-            D3D11_TEXTURE2D_DESC stagingDesc = textureDesc;
-            stagingDesc.Usage          = D3D11_USAGE_STAGING;
-            stagingDesc.BindFlags      = 0;
-            stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-            stagingDesc.MiscFlags      = 0;
-            HRESULT hr = m_d3dDevice->CreateTexture2D(&stagingDesc, nullptr, &m_videoStagingTex);
-            if (FAILED(hr)) { debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to create staging texture"); return; }
             m_videoStagingW = textureDesc.Width;
             m_videoStagingH = textureDesc.Height;
         }
 
-        m_d3dContext->CopyResource(m_videoStagingTex.Get(), videoTexture.Get());
-
+        // The video texture is STAGING (CPU_ACCESS_READ) — map directly.
+        // Previously used CopyResource(STAGING, DYNAMIC) which the D3D11 spec forbids
+        // (CopyResource source must not be DYNAMIC); that triggered an SDK Layer exception.
         D3D11_MAPPED_SUBRESOURCE mapped = {};
-        HRESULT hr = m_d3dContext->Map(m_videoStagingTex.Get(), 0, D3D11_MAP_READ, 0, &mapped);
-        if (FAILED(hr)) { debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to map staging texture"); return; }
+        HRESULT hr = m_d3dContext->Map(videoTexture.Get(), 0, D3D11_MAP_READ, 0, &mapped);
+        if (FAILED(hr)) { debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to map video texture"); return; }
 
         ThreadLockHelper d2dLock(threadManager, "d2d_draw_lock", 1000);
         if (!d2dLock.IsLocked()) {
-            m_d3dContext->Unmap(m_videoStagingTex.Get(), 0);
+            m_d3dContext->Unmap(videoTexture.Get(), 0);
             return;
         }
 
@@ -1210,7 +1225,7 @@ void DX11Renderer::DrawVideoFrame(const Vector2& position, const Vector2& size, 
             hr = m_videoBitmap->CopyFromMemory(&updateRect, mapped.pData, mapped.RowPitch);
         }
 
-        m_d3dContext->Unmap(m_videoStagingTex.Get(), 0);
+        m_d3dContext->Unmap(videoTexture.Get(), 0);
 
         if (FAILED(hr)) { debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to update video bitmap"); return; }
 
