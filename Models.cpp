@@ -1506,6 +1506,9 @@ void Model::CopyFrom(const Model& other)
         m_modelInfo.roughnessMapSRV.Reset();
         m_modelInfo.aoMapSRV.Reset();
         m_modelInfo.environmentMapSRV.Reset();
+        m_modelInfo.glossMapSRV.Reset();
+        m_modelInfo.emissiveMapSRV.Reset();
+        m_modelInfo.shadowMapSRV.Reset();
 
         // Clear GPU Buffers
         m_modelInfo.vertexBuffer.Reset();
@@ -1514,6 +1517,7 @@ void Model::CopyFrom(const Model& other)
         m_modelInfo.lightConstantBuffer.Reset();
         m_modelInfo.materialBuffer.Reset();
         m_modelInfo.environmentBuffer.Reset();
+        m_modelInfo.shadowBuffer.Reset();
 
         // Clear Shaders
         m_modelInfo.vertexShader.Reset();
@@ -1527,6 +1531,7 @@ void Model::CopyFrom(const Model& other)
         // Clear Sampler State
         m_modelInfo.samplerState.Reset();
         m_modelInfo.environmentSamplerState.Reset();
+        m_modelInfo.shadowSamplerState.Reset();
 
         // === DO NOT TOUCH: ===
         // m_modelInfo.textures
@@ -1756,12 +1761,9 @@ bool Model::SetupModelForRendering()
             LoadFallbackTexture();
         }
 
-        // Ensure at least one normal map SRV exists to prevent GPU crash
-        if (m_modelInfo.normalMapSRVs.empty())
-        {
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID %d has no normal maps. Applying flat normal fallback.", m_modelInfo.ID);
-            LoadFallbackNormalMap();
-        }
+        // No flat normal fallback: models without a normal map render with geometry
+        // vertex normals.  NormalScale is set to 0 in Render() so the shader takes
+        // the vertex-normal path and never samples the (null) normal map slot.
     }
 
     #if defined(_DEBUG_MODEL_)
@@ -1888,6 +1890,39 @@ lightDesc.Usage = D3D11_USAGE_DYNAMIC;
     {
         debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create Sampler State for model ID: %d", m_modelInfo.ID);
         return false;
+    }
+
+    // === Shadow comparison sampler (s2) for PCF shadow mapping ===
+    D3D11_SAMPLER_DESC shadowSampDesc = {};
+    shadowSampDesc.Filter         = D3D11_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
+    shadowSampDesc.AddressU       = D3D11_TEXTURE_ADDRESS_BORDER;
+    shadowSampDesc.AddressV       = D3D11_TEXTURE_ADDRESS_BORDER;
+    shadowSampDesc.AddressW       = D3D11_TEXTURE_ADDRESS_BORDER;
+    shadowSampDesc.BorderColor[0] = 1.0f;   // outside shadow map = fully lit
+    shadowSampDesc.BorderColor[1] = 1.0f;
+    shadowSampDesc.BorderColor[2] = 1.0f;
+    shadowSampDesc.BorderColor[3] = 1.0f;
+    shadowSampDesc.ComparisonFunc = D3D11_COMPARISON_LESS_EQUAL;
+    shadowSampDesc.MinLOD         = 0;
+    shadowSampDesc.MaxLOD         = 0;
+
+    if (FAILED(device->CreateSamplerState(&shadowSampDesc, &m_modelInfo.shadowSamplerState)))
+    {
+        // Non-fatal: shadow sampling falls back gracefully (useShadowMap=0 in shader)
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"[Model] Failed to create shadow sampler for model ID: %d", m_modelInfo.ID);
+    }
+
+    // === Shadow constant buffer (b6) ===
+    D3D11_BUFFER_DESC shadowDesc = {};
+    shadowDesc.ByteWidth      = Align16(static_cast<UINT>(sizeof(ShadowBufferGPU)));
+    shadowDesc.Usage          = D3D11_USAGE_DYNAMIC;
+    shadowDesc.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
+    shadowDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+    if (FAILED(device->CreateBuffer(&shadowDesc, nullptr, &m_modelInfo.shadowBuffer)))
+    {
+        // Non-fatal: shadows disabled for this model
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"[Model] Failed to create shadow buffer for model ID: %d", m_modelInfo.ID);
     }
 
     // Setup PBR resources
@@ -2380,11 +2415,17 @@ void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
                                        matGPU->Kd.y * 0.15f,
                                        matGPU->Kd.z * 0.15f);
             }
-// Determine texture map usage flags based on SRV presence.
-            matGPU->useMetallicMap = (m_modelInfo.metallicMapSRV != nullptr) ? 1.0f : 0.0f;
-            matGPU->useRoughnessMap = (m_modelInfo.roughnessMapSRV != nullptr) ? 1.0f : 0.0f;
-            matGPU->useAOMap = (m_modelInfo.aoMapSRV != nullptr) ? 1.0f : 0.0f;
-            matGPU->useEnvMap = (m_modelInfo.environmentMapSRV != nullptr) ? 1.0f : 0.0f;
+            // Determine texture map usage flags based on SRV presence
+            matGPU->useMetallicMap  = (m_modelInfo.metallicMapSRV    != nullptr) ? 1.0f : 0.0f;
+            matGPU->useRoughnessMap = (m_modelInfo.roughnessMapSRV   != nullptr) ? 1.0f : 0.0f;
+            matGPU->useAOMap        = (m_modelInfo.aoMapSRV          != nullptr) ? 1.0f : 0.0f;
+            matGPU->useEnvMap       = (m_modelInfo.environmentMapSRV != nullptr) ? 1.0f : 0.0f;
+            matGPU->useDiffuseMap   = m_modelInfo.useDiffuseMap   ? 1.0f : 0.0f;
+            matGPU->useGlossMap     = m_modelInfo.useGlossMap     ? 1.0f : 0.0f;
+            matGPU->useEmissiveMap  = m_modelInfo.useEmissiveMap  ? 1.0f : 0.0f;
+            // NormalScale == 0 tells the shader to use vertex normal (no normal map present)
+            if (m_modelInfo.normalMapSRVs.empty())
+                matGPU->NormalScale = 0.0f;
 
             // Unmap the constant buffer so the GPU can read it.
             deviceContext->Unmap(m_modelInfo.materialBuffer.Get(), 0);
@@ -2418,42 +2459,66 @@ void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
         LoadFallbackTexture();
     }
 
-    if (m_modelInfo.normalMapSRVs.empty())
-    {
-        #if defined(_DEBUG_MODEL_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID %d has no normal maps. Applying flat normal fallback.", m_modelInfo.ID);
-        #endif
-        LoadFallbackNormalMap();
-    }
-
     // Bind texture SRVs to pixel shader slots (read under lock)
-    ID3D11ShaderResourceView* texSRV = m_modelInfo.textureSRVs.empty() ? nullptr : m_modelInfo.textureSRVs[0].Get();
-    ID3D11ShaderResourceView* normSRV = m_modelInfo.normalMapSRVs.empty() ? nullptr : m_modelInfo.normalMapSRVs[0].Get();
-    ID3D11ShaderResourceView* metalMapSRV = m_modelInfo.metallicMapSRV ? m_modelInfo.metallicMapSRV.Get() : nullptr;
-    ID3D11ShaderResourceView* roughMapSRV = m_modelInfo.roughnessMapSRV ? m_modelInfo.roughnessMapSRV.Get() : nullptr;
-    ID3D11ShaderResourceView* aoMapSRV = m_modelInfo.aoMapSRV ? m_modelInfo.aoMapSRV.Get() : nullptr;
+    ID3D11ShaderResourceView* texSRV       = m_modelInfo.textureSRVs.empty()   ? nullptr : m_modelInfo.textureSRVs[0].Get();
+    ID3D11ShaderResourceView* normSRV      = m_modelInfo.normalMapSRVs.empty() ? nullptr : m_modelInfo.normalMapSRVs[0].Get();
+    ID3D11ShaderResourceView* metalMapSRV  = m_modelInfo.metallicMapSRV    ? m_modelInfo.metallicMapSRV.Get()    : nullptr;
+    ID3D11ShaderResourceView* roughMapSRV  = m_modelInfo.roughnessMapSRV   ? m_modelInfo.roughnessMapSRV.Get()   : nullptr;
+    ID3D11ShaderResourceView* aoMapSRV     = m_modelInfo.aoMapSRV          ? m_modelInfo.aoMapSRV.Get()          : nullptr;
     ID3D11ShaderResourceView* enviroMapSRV = m_modelInfo.environmentMapSRV ? m_modelInfo.environmentMapSRV.Get() : nullptr;
+    ID3D11ShaderResourceView* glossSRV     = m_modelInfo.glossMapSRV       ? m_modelInfo.glossMapSRV.Get()       : nullptr;
+    ID3D11ShaderResourceView* emissiveSRV  = m_modelInfo.emissiveMapSRV    ? m_modelInfo.emissiveMapSRV.Get()    : nullptr;
+    ID3D11ShaderResourceView* shadowSRV    = m_modelInfo.shadowMapSRV      ? m_modelInfo.shadowMapSRV.Get()      : nullptr;
 
     if (texSRV)
         deviceContext->PSSetShaderResources(SLOT_diffuseTexture, 1, &texSRV);
 
+    // Always set the normal map slot: bind the SRV when present, null it when absent.
+    // Leaving it unset lets a stale SRV from a previous model leak through.
     if (normSRV)
         deviceContext->PSSetShaderResources(SLOT_normalMap, 1, &normSRV);
+    else
+    {
+        ID3D11ShaderResourceView* nullSRV = nullptr;
+        deviceContext->PSSetShaderResources(SLOT_normalMap, 1, &nullSRV);
+    }
 
     if (metalMapSRV)
-        deviceContext->PSSetShaderResources(SLOT_metallicMap, 1, &metalMapSRV);
-
+        deviceContext->PSSetShaderResources(SLOT_metallicMap,    1, &metalMapSRV);
     if (roughMapSRV)
-        deviceContext->PSSetShaderResources(SLOT_roughnessMap, 1, &roughMapSRV);
-
+        deviceContext->PSSetShaderResources(SLOT_roughnessMap,   1, &roughMapSRV);
     if (aoMapSRV)
-        deviceContext->PSSetShaderResources(SLOT_aoMap, 1, &aoMapSRV);
-
+        deviceContext->PSSetShaderResources(SLOT_aoMap,          1, &aoMapSRV);
     if (enviroMapSRV)
         deviceContext->PSSetShaderResources(SLOT_environmentMap, 1, &enviroMapSRV);
 
-    deviceContext->PSSetSamplers(SLOT_SAMPLER_STATE, 1, m_modelInfo.samplerState.GetAddressOf());
+    // Bind extended maps (t6 gloss, t7 emissive, t8 shadow).
+    // Passing &ptr where ptr==nullptr correctly unbinds the slot in D3D11.
+    deviceContext->PSSetShaderResources(SLOT_glossMap,    1, &glossSRV);
+    deviceContext->PSSetShaderResources(SLOT_emissiveMap, 1, &emissiveSRV);
+    deviceContext->PSSetShaderResources(SLOT_shadowMap,   1, &shadowSRV);
+
+    deviceContext->PSSetSamplers(SLOT_SAMPLER_STATE,        1, m_modelInfo.samplerState.GetAddressOf());
     deviceContext->PSSetSamplers(SLOT_ENVIRO_SAMPLER_STATE, 1, m_modelInfo.environmentSamplerState.GetAddressOf());
+    if (m_modelInfo.shadowSamplerState)
+        deviceContext->PSSetSamplers(SLOT_SHADOW_SAMPLER_STATE, 1, m_modelInfo.shadowSamplerState.GetAddressOf());
+
+    // Update and bind shadow constant buffer (b6)
+    if (m_modelInfo.shadowBuffer)
+    {
+        D3D11_MAPPED_SUBRESOURCE shadowMapped = {};
+        if (SUCCEEDED(deviceContext->Map(m_modelInfo.shadowBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &shadowMapped)))
+        {
+            ShadowBufferGPU* shadowGPU    = static_cast<ShadowBufferGPU*>(shadowMapped.pData);
+            shadowGPU->lightViewProj      = XMMatrixIdentity();  // Set externally by shadow render pass
+            shadowGPU->shadowBias         = 0.001f;
+            shadowGPU->shadowStrength     = 0.8f;
+            shadowGPU->useShadowMap       = (shadowSRV != nullptr) ? 1.0f : 0.0f;
+            shadowGPU->shadowMapSize      = 2048.0f;
+            deviceContext->Unmap(m_modelInfo.shadowBuffer.Get(), 0);
+        }
+        deviceContext->PSSetConstantBuffers(SLOT_SHADOW_BUFFER, 1, m_modelInfo.shadowBuffer.GetAddressOf());
+    }
 
     // Update model-specific lighting parameters.
     UpdateModelLighting();

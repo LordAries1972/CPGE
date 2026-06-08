@@ -1,0 +1,20 @@
+// History: ModelVertex.hlsl - 08-06-2026
+// Enhancement: GLTF-correct tangent-W bitangent support in vertex shader.
+//
+// Changes:
+//
+//   1. VS_INPUT TANGENT changed from float3 to float4:
+//        float4 tangent : TANGENT;
+//      The GLTF 2.0 specification stores TANGENT as a VEC4 where .w is the
+//      handedness sign (+1.0 or -1.0) for mirrored UV islands.
+//      The old float3 read only xyz and silently dropped the handedness value,
+//      causing incorrect lighting on mirrored meshes (e.g. symmetric ship hulls).
+//
+//   2. Bitangent calculation corrected to GLTF spec:
+//        Before: cross(T, N)          -- wrong axis order, no handedness
+//        After:  normalize(cross(N, T)) * input.tangent.w
+//      This matches the GLTF 2.0 spec:
+//        bitangent = cross(normal.xyz, tangent.xyz) * tangent.w
+//      T is extracted as input.tangent.xyz before the normalMatrix multiply.
+//
+// Files changed: ModelVertex.hlsl

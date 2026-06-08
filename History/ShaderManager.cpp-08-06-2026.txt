@@ -1,0 +1,14 @@
+// History: ShaderManager.cpp - 08-06-2026
+// Enhancement: Updated ModelVertex input layout TANGENT from R32G32B32_FLOAT to
+//   R32G32B32A32_FLOAT to match the new float4 tangent in ModelVertex.hlsl.
+//
+// Change:
+//   Before: { "TANGENT", 0, DXGI_FORMAT_R32G32B32_FLOAT,    0, 32, ... }
+//   After:  { "TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 32, ... }
+//
+//   The GLTF 2.0 specification defines TANGENT as a VEC4 accessor where the
+//   W component is the handedness sign (+1 or -1).  The old R32G32B32 format
+//   (12 bytes) only read xyz; the new R32G32B32A32 format (16 bytes) reads the
+//   full float4 matching the Vertex struct member float tangentW added in Models.h.
+//
+// Files changed: ShaderManager.cpp (ModelVertex/ModelVShader input layout, ~line 3007)

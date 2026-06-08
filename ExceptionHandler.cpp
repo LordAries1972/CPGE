@@ -60,10 +60,14 @@ ExceptionHandler::ExceptionHandler() :
         // Initialize Windows-specific members
         m_processHandle = nullptr;
         m_previousFilter = nullptr;
+        m_previousInvalidParamHandler = nullptr;   // CRT invalid-parameter handler
+        m_previousPurecallHandler = nullptr;        // CRT pure-virtual-call handler
+        m_previousAbortHandler = SIG_ERR;           // SIGABRT handler (SIG_ERR = not yet set)
 
         #ifdef _DEBUG
             m_symbolsInitialized = false;
             m_moduleBase = 0;
+            m_crtReportHookInstalled = false;
         #endif
     #else
         // Initialize Unix-like system members
@@ -73,6 +77,10 @@ ExceptionHandler::ExceptionHandler() :
         memset(&m_oldSigIll, 0, sizeof(m_oldSigIll));
         memset(&m_oldSigBus, 0, sizeof(m_oldSigBus));
     #endif
+
+    // Cross-platform C++ runtime handler state
+    m_previousTerminateHandler = nullptr;
+    m_previousNewHandler = nullptr;
 
     #if defined(_DEBUG_EXCEPTIONHANDLER_)
         debug.logLevelMessage(LogLevel::LOG_INFO, L"[ExceptionHandler] Constructor called - ready for initialization");
@@ -139,15 +147,48 @@ bool ExceptionHandler::Initialize() {
     // Install our custom unhandled exception filter
     m_previousFilter = SetUnhandledExceptionFilter(UnhandledExceptionFilter);
     if (!m_previousFilter) {
-    #if defined(_DEBUG_EXCEPTIONHANDLER_)
-        debug.logLevelMessage(LogLevel::LOG_INFO, L"[ExceptionHandler] No previous exception filter was installed");
-    #endif
+        #if defined(_DEBUG_EXCEPTIONHANDLER_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[ExceptionHandler] No previous exception filter was installed");
+        #endif
     }
     else {
-    #if defined(_DEBUG_EXCEPTIONHANDLER_)
+        #if defined(_DEBUG_EXCEPTIONHANDLER_)
             debug.logLevelMessage(LogLevel::LOG_INFO, L"[ExceptionHandler] Previous exception filter saved and replaced");
-    #endif
+        #endif
     }
+
+    // --- Windows CRT error handlers (all guarded: Windows only) ---
+
+    // Intercept CRT invalid-parameter errors (e.g. printf(NULL), strcpy with NULL dest)
+    m_previousInvalidParamHandler = _set_invalid_parameter_handler(InvalidParameterHandler);
+
+    // Intercept pure-virtual-function calls before the CRT terminates the process
+    m_previousPurecallHandler = _set_purecall_handler(PurecallHandler);
+
+    // Intercept SIGABRT raised by abort(), CRT assertion failures (release), and
+    // _set_purecall_handler/_set_invalid_parameter_handler fall-through paths.
+    // Suppress the default CRT abort dialog so we can handle it cleanly ourselves.
+    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+    m_previousAbortHandler = signal(SIGABRT, AbortSignalHandler);
+
+    #ifdef _DEBUG
+        // Hook the CRT debug report pipeline so _ASSERT, _ASSERTE, _RPT*, and any
+        // internal CRT error route through our logger before reaching the dialog.
+        if (_CrtSetReportHook2(_CRT_RPTHOOK_INSTALL, CrtReportHook) >= 0) {
+            m_crtReportHookInstalled = true;
+            #if defined(_DEBUG_EXCEPTIONHANDLER_)
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"[ExceptionHandler] CRT debug report hook installed");
+            #endif
+        }
+        else {
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[ExceptionHandler] Failed to install CRT debug report hook");
+        }
+    #endif
+
+    #if defined(_DEBUG_EXCEPTIONHANDLER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[ExceptionHandler] Windows CRT error handlers installed");
+    #endif
+
 #else
     // Unix-like systems initialization (Linux, macOS, iOS, Android)
     struct sigaction sa;
@@ -186,6 +227,18 @@ bool ExceptionHandler::Initialize() {
         debug.logLevelMessage(LogLevel::LOG_INFO, L"[ExceptionHandler] Signal handlers installed successfully");
     #endif
 #endif
+
+    // --- Cross-platform C++ runtime handlers ---
+
+    // Intercept std::terminate() so unhandled C++ exceptions are logged before the process dies
+    m_previousTerminateHandler = std::set_terminate(TerminateHandler);
+
+    // Intercept operator new failures so out-of-memory conditions are logged
+    m_previousNewHandler = std::set_new_handler(NewHandler);
+
+    #if defined(_DEBUG_EXCEPTIONHANDLER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[ExceptionHandler] Cross-platform C++ runtime handlers installed");
+    #endif
 
     // Mark as successfully initialized
     m_isInitialized = true;
@@ -238,6 +291,36 @@ void ExceptionHandler::Cleanup() {
     }
 #endif
 
+    // Restore Windows CRT error handlers (all guarded: Windows only)
+
+    // Restore CRT invalid-parameter handler
+    if (m_previousInvalidParamHandler) {
+        _set_invalid_parameter_handler(m_previousInvalidParamHandler);
+        m_previousInvalidParamHandler = nullptr;
+    }
+
+    // Restore pure-virtual-call handler
+    _set_purecall_handler(m_previousPurecallHandler);
+    m_previousPurecallHandler = nullptr;
+
+    // Restore abort signal handler and re-enable the default CRT abort dialog
+    if (m_previousAbortHandler != SIG_ERR) {
+        signal(SIGABRT, m_previousAbortHandler);
+        m_previousAbortHandler = SIG_ERR;
+    }
+    _set_abort_behavior(_WRITE_ABORT_MSG | _CALL_REPORTFAULT, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+
+    #ifdef _DEBUG
+        // Unregister CRT debug report hook
+        if (m_crtReportHookInstalled) {
+            _CrtSetReportHook2(_CRT_RPTHOOK_REMOVE, CrtReportHook);
+            m_crtReportHookInstalled = false;
+            #if defined(_DEBUG_EXCEPTIONHANDLER_)
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"[ExceptionHandler] CRT debug report hook removed");
+            #endif
+        }
+    #endif
+
     m_processHandle = nullptr;
     #ifdef _DEBUG
         m_moduleBase = 0;
@@ -254,6 +337,14 @@ void ExceptionHandler::Cleanup() {
         debug.logLevelMessage(LogLevel::LOG_INFO, L"[ExceptionHandler] Signal handlers restored");
     #endif
 #endif
+
+    // Restore cross-platform C++ runtime handlers
+    if (m_previousTerminateHandler) {
+        std::set_terminate(m_previousTerminateHandler);
+        m_previousTerminateHandler = nullptr;
+    }
+    std::set_new_handler(m_previousNewHandler);
+    m_previousNewHandler = nullptr;
 
     // Reset all member variables to safe defaults
     m_isInitialized = false;
@@ -441,6 +532,146 @@ LONG WINAPI ExceptionHandler::UnhandledExceptionFilter(PEXCEPTION_POINTERS excep
     // Return to continue the exception search (let system handle it)
     return EXCEPTION_CONTINUE_SEARCH;
 }
+
+// ---- Windows CRT error callbacks (guarded: Windows only) ----
+
+// Fires when a CRT function receives an invalid parameter (e.g. printf(NULL), vsnprintf bad size)
+void __cdecl ExceptionHandler::InvalidParameterHandler(const wchar_t* expression,
+    const wchar_t* function, const wchar_t* file, unsigned int line, uintptr_t /*reserved*/) {
+    ExceptionHandler& handler = GetInstance();
+
+    debug.logDebugMessage(LogLevel::LOG_CRITICAL,
+        L"[ExceptionHandler] CRT Invalid Parameter: expr='%ls', func='%ls', file='%ls', line=%u",
+        expression ? expression : L"(null)",
+        function   ? function   : L"(null)",
+        file       ? file       : L"(null)",
+        line);
+
+    // Capture and log breadcrumb trail
+    handler.LogLastFunctionCalls();
+
+    // Write call-stack log and dump in debug builds
+    #ifdef _DEBUG
+        std::unique_ptr<StackFrameInfo[]> frames(new StackFrameInfo[MAX_STACK_FRAMES]);
+        int frameCount = 0;
+        handler.GetCurrentStackTrace(frames.get(), MAX_STACK_FRAMES, frameCount);
+        handler.WriteCallStackLog("CRT Invalid Parameter", 0, 0,
+            handler.GetCurrentThreadId(), handler.GetCurrentProcessId(),
+            frames.get(), frameCount);
+    #endif
+
+    // Generate a crash dump so the state at the invalid-parameter call is preserved
+    if (handler.m_crashDumpEnabled) {
+        handler.GenerateCrashDump(nullptr);
+    }
+}
+
+// Fires when a pure-virtual function is called on an incompletely constructed/destructed object
+void __cdecl ExceptionHandler::PurecallHandler() {
+    ExceptionHandler& handler = GetInstance();
+
+    debug.logLevelMessage(LogLevel::LOG_CRITICAL,
+        L"[ExceptionHandler] Pure Virtual Function Call detected - object lifetime violation");
+
+    // Capture breadcrumb trail
+    handler.LogLastFunctionCalls();
+
+    #ifdef _DEBUG
+        std::unique_ptr<StackFrameInfo[]> frames(new StackFrameInfo[MAX_STACK_FRAMES]);
+        int frameCount = 0;
+        handler.GetCurrentStackTrace(frames.get(), MAX_STACK_FRAMES, frameCount);
+        handler.WriteCallStackLog("Pure Virtual Function Call", 0, 0,
+            handler.GetCurrentThreadId(), handler.GetCurrentProcessId(),
+            frames.get(), frameCount);
+    #endif
+
+    if (handler.m_crashDumpEnabled) {
+        handler.GenerateCrashDump(nullptr);
+    }
+}
+
+// Fires on abort(), failed CRT assertions in release, and any SIGABRT raise
+void __cdecl ExceptionHandler::AbortSignalHandler(int /*sig*/) {
+    ExceptionHandler& handler = GetInstance();
+
+    debug.logLevelMessage(LogLevel::LOG_CRITICAL,
+        L"[ExceptionHandler] SIGABRT received - abort() called or CRT assertion failed (release)");
+
+    handler.LogLastFunctionCalls();
+
+    #ifdef _DEBUG
+        std::unique_ptr<StackFrameInfo[]> frames(new StackFrameInfo[MAX_STACK_FRAMES]);
+        int frameCount = 0;
+        handler.GetCurrentStackTrace(frames.get(), MAX_STACK_FRAMES, frameCount);
+        handler.WriteCallStackLog("SIGABRT / abort()", 0, 0,
+            handler.GetCurrentThreadId(), handler.GetCurrentProcessId(),
+            frames.get(), frameCount);
+    #endif
+
+    if (handler.m_crashDumpEnabled) {
+        handler.GenerateCrashDump(nullptr);
+    }
+}
+
+#ifdef _DEBUG
+// Fires on every _ASSERT / _ASSERTE / _RPT* call and any internal CRT diagnostic report.
+// Logs the message through our system then returns 0 (FALSE) to allow normal CRT handling
+// (dialog, debugger break, etc.) to proceed unchanged.
+int __cdecl ExceptionHandler::CrtReportHook(int reportType, char* message, int* returnValue) {
+    ExceptionHandler& handler = GetInstance();
+
+    // Map CRT report type to our log level
+    LogLevel level = LogLevel::LOG_WARNING;
+    const wchar_t* typeName = L"CRT Warning";
+
+    switch (reportType) {
+    case _CRT_WARN:
+        level    = LogLevel::LOG_WARNING;
+        typeName = L"CRT Warning";
+        break;
+    case _CRT_ERROR:
+        level    = LogLevel::LOG_ERROR;
+        typeName = L"CRT Error";
+        break;
+    case _CRT_ASSERT:
+        level    = LogLevel::LOG_CRITICAL;
+        typeName = L"CRT Assert";
+        break;
+    default:
+        break;
+    }
+
+    debug.logDebugMessage(level, L"[ExceptionHandler] %ls: %hs",
+        typeName, message ? message : "(null)");
+
+    // For errors and assert failures, also capture the call stack and write the log
+    if (reportType == _CRT_ERROR || reportType == _CRT_ASSERT) {
+        handler.LogLastFunctionCalls();
+
+        std::unique_ptr<StackFrameInfo[]> frames(new StackFrameInfo[MAX_STACK_FRAMES]);
+        int frameCount = 0;
+        handler.GetCurrentStackTrace(frames.get(), MAX_STACK_FRAMES, frameCount);
+
+        // Build a narrow description for the log header
+        char desc[512] = {};
+        snprintf(desc, sizeof(desc), "%ls: %s",
+            typeName, message ? message : "(null)");
+
+        handler.WriteCallStackLog(desc, 0, 0,
+            handler.GetCurrentThreadId(), handler.GetCurrentProcessId(),
+            frames.get(), frameCount);
+    }
+
+    // 0 = continue execution (do not force a debugger break from our hook)
+    if (returnValue) {
+        *returnValue = 0;
+    }
+
+    // Return 0 (FALSE) to let the CRT dialog / debugger-break run normally
+    return 0;
+}
+#endif // _DEBUG
+
 #else
 // Unix-like systems signal handler
 void ExceptionHandler::SignalHandler(int signal, siginfo_t* info, void* context) {
@@ -451,6 +682,88 @@ void ExceptionHandler::SignalHandler(int signal, siginfo_t* info, void* context)
     handler.ProcessSignalException(signal, info, context);
 }
 #endif
+
+// ---- Cross-platform C++ runtime error handlers ----
+
+// Fires when an unhandled C++ exception propagates all the way to std::terminate().
+// Tries to identify the active exception before logging and dumping.
+void ExceptionHandler::TerminateHandler() {
+    ExceptionHandler& handler = GetInstance();
+
+    // Attempt to name the exception that caused the terminate call
+    const char* exceptionDesc = "Unknown exception type";
+    std::string exceptionWhat;
+
+    try {
+        // Re-throw so we can catch typed exception info
+        if (std::current_exception()) {
+            std::rethrow_exception(std::current_exception());
+        }
+        else {
+            exceptionDesc = "No active exception (terminate called explicitly)";
+        }
+    }
+    catch (const std::exception& ex) {
+        exceptionWhat  = ex.what();
+        exceptionDesc  = exceptionWhat.c_str();
+    }
+    catch (...) {
+        exceptionDesc = "Non-std exception type";
+    }
+
+    debug.logDebugMessage(LogLevel::LOG_CRITICAL,
+        L"[ExceptionHandler] std::terminate() called. Exception: %hs", exceptionDesc);
+
+    handler.LogLastFunctionCalls();
+
+    #ifdef _DEBUG
+        std::unique_ptr<StackFrameInfo[]> frames(new StackFrameInfo[MAX_STACK_FRAMES]);
+        int frameCount = 0;
+        handler.GetCurrentStackTrace(frames.get(), MAX_STACK_FRAMES, frameCount);
+
+        char desc[512] = {};
+        snprintf(desc, sizeof(desc), "std::terminate - %s", exceptionDesc);
+        handler.WriteCallStackLog(desc, 0, 0,
+            handler.GetCurrentThreadId(), handler.GetCurrentProcessId(),
+            frames.get(), frameCount);
+    #endif
+
+    if (handler.m_crashDumpEnabled) {
+        handler.GenerateCrashDump(nullptr);
+    }
+
+    // Chain to the previous terminate handler; fall back to abort if none
+    if (handler.m_previousTerminateHandler) {
+        handler.m_previousTerminateHandler();
+    }
+    std::abort();
+}
+
+// Fires when operator new cannot satisfy an allocation request.
+// Logs the failure, then re-throws std::bad_alloc so callers receive the standard error.
+void ExceptionHandler::NewHandler() {
+    ExceptionHandler& handler = GetInstance();
+
+    debug.logLevelMessage(LogLevel::LOG_CRITICAL,
+        L"[ExceptionHandler] Memory allocation failure - operator new could not allocate");
+
+    handler.LogLastFunctionCalls();
+
+    #ifdef _DEBUG
+        std::unique_ptr<StackFrameInfo[]> frames(new StackFrameInfo[MAX_STACK_FRAMES]);
+        int frameCount = 0;
+        handler.GetCurrentStackTrace(frames.get(), MAX_STACK_FRAMES, frameCount);
+        handler.WriteCallStackLog("operator new failure (std::bad_alloc)", 0, 0,
+            handler.GetCurrentThreadId(), handler.GetCurrentProcessId(),
+            frames.get(), frameCount);
+    #endif
+
+    // Restore the previous handler before throwing so we don't recurse infinitely
+    std::set_new_handler(handler.m_previousNewHandler);
+
+    // Standard requires new_handler to either free memory, install another handler, or throw
+    throw std::bad_alloc();
+}
 
 // Internal method to capture detailed stack trace information
 bool ExceptionHandler::CaptureStackTrace(void* context, StackFrameInfo* frames, int maxFrames, int& frameCount) {
@@ -824,6 +1137,27 @@ void ExceptionHandler::GetExceptionDescription(DWORD exceptionCode, char* descri
         break;
     case 0xC0000374: // STATUS_HEAP_CORRUPTION
         SafeStringCopy(description, "Heap Corruption - Memory heap is corrupted", descriptionSize);
+        break;
+    case 0xC0000409: // STATUS_STACK_BUFFER_OVERRUN (CRT /GS security cookie check)
+        SafeStringCopy(description, "Stack Buffer Overrun - CRT security cookie check failed (/GS)", descriptionSize);
+        break;
+    case 0xC0000417: // STATUS_INVALID_CRUNTIME_PARAMETER (CRT invalid parameter)
+        SafeStringCopy(description, "Invalid CRT Parameter - CRT function received illegal argument", descriptionSize);
+        break;
+    case 0x40000015: // STATUS_FATAL_APP_EXIT (triggered by FatalAppExit / TerminateProcess with special code)
+        SafeStringCopy(description, "Fatal Application Exit - Application terminated abnormally", descriptionSize);
+        break;
+    case 0xE06D7363: // C++ exception (SEH code used by MSVC for throw)
+        SafeStringCopy(description, "C++ Exception - Unhandled C++ exception propagated to SEH layer", descriptionSize);
+        break;
+    case 0x40010005: // DBG_CONTROL_C (Ctrl+C in debugger)
+        SafeStringCopy(description, "Debug Control-C - Ctrl+C intercepted by debugger", descriptionSize);
+        break;
+    case 0x40010006: // DBG_PRINTEXCEPTION_C (OutputDebugString notification)
+        SafeStringCopy(description, "Debug Print Exception - OutputDebugString notification", descriptionSize);
+        break;
+    case 0x40010007: // DBG_RIPEXCEPTION (RIP debug event)
+        SafeStringCopy(description, "Debug RIP Exception - System integrity violation reported", descriptionSize);
         break;
     default:
         // For unknown exception codes, show the hex value
@@ -1320,9 +1654,9 @@ void ExceptionHandler::WriteCallStackLog(const char* exceptionDescription,
     fprintf(f, "===============================================================\n");
 
     // ================================================================
-    //  CALL STACK TRACE  (max 25 frames from fault address)
+    //  CALL STACK TRACE  (max 100 frames from fault address)
     // ================================================================
-    const int MAX_LOG_FRAMES = 25;
+    const int MAX_LOG_FRAMES = 100;
     int logFrames = (frames && frameCount > 0) ? std::min(frameCount, MAX_LOG_FRAMES) : 0;
 
     fprintf(f, "  CALL STACK TRACE");

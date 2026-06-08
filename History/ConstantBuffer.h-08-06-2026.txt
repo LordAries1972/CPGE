@@ -1,0 +1,21 @@
+// History: ConstantBuffer.h - 08-06-2026
+// Enhancement: Expanded MaterialGPU with new conditional map flags;
+//   added ShadowBufferGPU struct for PCF shadow mapping.
+//
+// Changes:
+//
+//   MaterialGPU (previously 112 bytes, unchanged):
+//     pad4 -> useDiffuseMap  (1.0 = sample t0 * Kd; 0.0 = use Kd directly)
+//     pad5 -> useGlossMap    (1.0 = use gloss map at t6; roughness = 1 - gloss.r)
+//     pad6 -> useEmissiveMap (1.0 = use emissive texture at t7 * EmissiveFactor)
+//   Total size: 112 bytes (unchanged, multiple of 16).
+//
+//   ShadowBufferGPU (new, 80 bytes):
+//     XMMATRIX lightViewProj  -- light view-projection matrix (64 bytes)
+//     float shadowBias        -- depth bias to prevent shadow acne
+//     float shadowStrength    -- shadow darkness multiplier [0-1]
+//     float useShadowMap      -- 1.0 = shadow map at t8 is active
+//     float shadowMapSize     -- shadow map resolution for PCF texel offset
+//   Matches cbuffer ShadowBuffer : register(b6) in ModelPixel.hlsl.
+//
+// Files changed: ConstantBuffer.h

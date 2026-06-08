@@ -1,0 +1,27 @@
+// History: SceneManager.cpp - 07-06-2026 (b)
+// Fix: FBX material textures not rendering -- textureSRVs/normalMapSRVs/metallicMapSRV/
+//      roughnessMapSRV/aoMapSRV were never populated in ParseFBXScene material block.
+//
+// Root cause:
+//   The old code added Texture shared_ptrs to m_modelInfo.textures but never pushed
+//   their SRVs into m_modelInfo.textureSRVs (or the other SRV slots).
+//   SetupModelForRendering checks textureSRVs.empty() -- if true it applies the brick
+//   fallback texture.  FBX models therefore always rendered with the brick fallback.
+//
+// Also fixed: only materialIDs[0] was used.  FBX models with 48 materials had only
+//   the first material registered; all others were silently discarded.
+//
+// Changes:
+//   - Loop through ALL materialIDs (not just [0]); build + register every material
+//     into m_materials map (ready for future geometry-split-by-material-index support).
+//   - First material (mi==0) drives the GPU slots:
+//       textureSRVs.push_back(diffuseTexture->GetSRV())
+//       normalMapSRVs.push_back(normalMap->GetSRV())
+//       roughnessMapSRV = roughnessMap->GetSRV()
+//       metallicMapSRV  = metallicMap->GetSRV()
+//       aoMapSRV        = aoMap->GetSRV()
+//     All guarded by #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+//   - If first material has no diffuse texture, create a solid-colour fallback from
+//     fbxMat.diffuseColor + opacity so the brick fallback is never used.
+//
+// File changed: SceneManager.cpp (ParseFBXScene material block ~line 4746)

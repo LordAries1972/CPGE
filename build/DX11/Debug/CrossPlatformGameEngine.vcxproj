@@ -788,6 +788,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="F:\Projects\C++\CPGE2026\BlenderImports.cpp" />
+    <ClCompile Include="F:\Projects\C++\CPGE2026\FBXImport.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\Configuration.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\ConsoleWindow.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\Debug.cpp" />

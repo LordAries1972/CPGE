@@ -106,29 +106,41 @@ bool Texture::LoadFromFile(const std::wstring& path)
 
     hr = decoder->GetFrame(0, &frame);
     if (FAILED(hr) || !frame) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 Texture] GetFrame(0) failed 0x%08X for '%ls'", hr, path.c_str());
         decoder->Release(); wicFactory->Release(); return false;
     }
 
     hr = wicFactory->CreateFormatConverter(&converter);
     if (FAILED(hr) || !converter) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 Texture] CreateFormatConverter failed 0x%08X for '%ls'", hr, path.c_str());
         frame->Release(); decoder->Release(); wicFactory->Release(); return false;
     }
 
-    hr = converter->Initialize(frame, GUID_WICPixelFormat32bppBGRA, WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom);
+    hr = converter->Initialize(frame, GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom);
     if (FAILED(hr)) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 Texture] FormatConverter::Initialize failed 0x%08X for '%ls'", hr, path.c_str());
         converter->Release(); frame->Release(); decoder->Release(); wicFactory->Release(); return false;
     }
 
     UINT width = 0, height = 0;
     converter->GetSize(&width, &height);
     if (width == 0 || height == 0) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 Texture] converter->GetSize returned 0x0 for '%ls'", path.c_str());
         converter->Release(); frame->Release(); decoder->Release(); wicFactory->Release(); return false;
     }
 
     std::vector<BYTE> pixels(static_cast<size_t>(width) * height * 4);
     hr = converter->CopyPixels(nullptr, width * 4, static_cast<UINT>(pixels.size()), pixels.data());
     converter->Release(); frame->Release(); decoder->Release(); wicFactory->Release();
-    if (FAILED(hr)) return false;
+    if (FAILED(hr)) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 Texture] CopyPixels failed 0x%08X for '%ls'", hr, path.c_str());
+        return false;
+    }
+
+    // Save RGBA pixel data for DX12 native texture upload (UploadDX12TextureToGPU)
+    m_dx12PixelCache.assign(pixels.begin(), pixels.end());
+    m_dx12Width  = width;
+    m_dx12Height = height;
 
     D3D11_TEXTURE2D_DESC desc = {};
     desc.Width = width; desc.Height = height;
@@ -207,6 +219,11 @@ bool Texture::LoadFromMemory(const uint8_t* data, size_t size)
     converter->Release(); frame->Release(); decoder->Release(); stream->Release(); wicFactory->Release();
     if (FAILED(hr)) return false;
 
+    // Save RGBA pixel data for DX12 native texture upload (UploadDX12TextureToGPU)
+    m_dx12PixelCache = pixels;
+    m_dx12Width  = width;
+    m_dx12Height = height;
+
     D3D11_TEXTURE2D_DESC desc = {};
     desc.Width = width; desc.Height = height;
     desc.MipLevels = 1; desc.ArraySize = 1;
@@ -246,6 +263,11 @@ bool Texture::CreateSolidColorTexture(uint32_t width, uint32_t height, const XMF
         textureData[i*4+0] = r; textureData[i*4+1] = g;
         textureData[i*4+2] = b; textureData[i*4+3] = a;
     }
+
+    // Save RGBA pixel data for DX12 native texture upload (UploadDX12TextureToGPU)
+    m_dx12PixelCache = textureData;
+    m_dx12Width  = width;
+    m_dx12Height = height;
 
     D3D11_TEXTURE2D_DESC texDesc = {};
     texDesc.Width = width; texDesc.Height = height;
@@ -349,6 +371,11 @@ void Model::UpdateEnvironmentBuffer()
         context->PSSetConstantBuffers(SLOT_ENVIRONMENT_BUFFER, 1, m_modelInfo.environmentBuffer.GetAddressOf());
     }
 }
+
+// Forward declaration — defined later in this file, after Render().
+static bool UploadDX12TextureToGPU(DX12Renderer* dx12,
+    const uint8_t* pixels, UINT width, UINT height,
+    ComPtr<ID3D12Resource>& outResource);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Model::SetupModelForRendering — DX12 path (uses DX11-on-12 device)
@@ -524,7 +551,7 @@ bool Model::SetupModelForRendering()
             m_modelInfo.d3d12IndexCount            = static_cast<UINT>(m_modelInfo.indices.size());
         }
 
-        // Per-model constant buffer (persistently mapped upload heap, 256-byte aligned)
+        // Per-model constant buffer b0 (persistently mapped upload heap, 256-byte aligned)
         const UINT64 cbBytes = (sizeof(ConstantBuffer) + 255u) & ~255u;
         CD3DX12_RESOURCE_DESC cbDesc = CD3DX12_RESOURCE_DESC::Buffer(cbBytes);
         hr = dx12->m_d3d12Device->CreateCommittedResource(
@@ -534,6 +561,151 @@ bool Model::SetupModelForRendering()
         if (SUCCEEDED(hr) && m_modelInfo.d3d12ConstantBuffer) {
             CD3DX12_RANGE noRead(0, 0);
             m_modelInfo.d3d12ConstantBuffer->Map(0, &noRead, &m_modelInfo.d3d12CBMapped);
+        }
+
+        // Light constant buffer b1 (persistently mapped, min 1728 bytes per shader contract)
+        {
+            const UINT kLightMin  = 1728;
+            const UINT lightActual = static_cast<UINT>(sizeof(LightBuffer));
+            const UINT64 lightAligned = ((lightActual > kLightMin ? lightActual : kLightMin) + 255u) & ~255u;
+            CD3DX12_RESOURCE_DESC lDesc = CD3DX12_RESOURCE_DESC::Buffer(lightAligned);
+            hr = dx12->m_d3d12Device->CreateCommittedResource(
+                &uploadHeap, D3D12_HEAP_FLAG_NONE, &lDesc,
+                D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                IID_PPV_ARGS(&m_modelInfo.d3d12LightBuffer));
+            if (SUCCEEDED(hr) && m_modelInfo.d3d12LightBuffer) {
+                CD3DX12_RANGE noRead(0, 0);
+                m_modelInfo.d3d12LightBuffer->Map(0, &noRead, &m_modelInfo.d3d12LightMapped);
+                if (m_modelInfo.d3d12LightMapped)
+                    memset(m_modelInfo.d3d12LightMapped, 0, static_cast<size_t>(lightAligned));
+            }
+        }
+
+        // Material constant buffer b4 (persistently mapped, 256-byte aligned)
+        {
+            const UINT64 matAligned = (sizeof(MaterialGPU) + 255u) & ~255u;
+            CD3DX12_RESOURCE_DESC mDesc = CD3DX12_RESOURCE_DESC::Buffer(matAligned);
+            hr = dx12->m_d3d12Device->CreateCommittedResource(
+                &uploadHeap, D3D12_HEAP_FLAG_NONE, &mDesc,
+                D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                IID_PPV_ARGS(&m_modelInfo.d3d12MaterialBuffer));
+            if (SUCCEEDED(hr) && m_modelInfo.d3d12MaterialBuffer) {
+                CD3DX12_RANGE noRead(0, 0);
+                m_modelInfo.d3d12MaterialBuffer->Map(0, &noRead, &m_modelInfo.d3d12MaterialMapped);
+            }
+        }
+
+        // Debug constant buffer b2 (persistently mapped, default debugMode=0)
+        {
+            const UINT64 dbgAligned = (sizeof(DebugBuffer) + 255u) & ~255u;
+            CD3DX12_RESOURCE_DESC dDesc = CD3DX12_RESOURCE_DESC::Buffer(dbgAligned);
+            hr = dx12->m_d3d12Device->CreateCommittedResource(
+                &uploadHeap, D3D12_HEAP_FLAG_NONE, &dDesc,
+                D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                IID_PPV_ARGS(&m_modelInfo.d3d12DebugBuffer));
+            if (SUCCEEDED(hr) && m_modelInfo.d3d12DebugBuffer) {
+                CD3DX12_RANGE noRead(0, 0);
+                m_modelInfo.d3d12DebugBuffer->Map(0, &noRead, &m_modelInfo.d3d12DebugMapped);
+                if (m_modelInfo.d3d12DebugMapped) {
+                    DebugBuffer dbgInit = {};
+                    dbgInit.debugMode = 0;
+                    memcpy(m_modelInfo.d3d12DebugMapped, &dbgInit, sizeof(DebugBuffer));
+                }
+            }
+        }
+    }
+
+    // Allocate 6 consecutive SRV descriptor slots in the renderer's CBV/SRV/UAV heap for
+    // this model's textures (t0=diffuse, t1=normal, t2=metallic, t3=roughness, t4=AO, t5=env).
+    // Actual SRV creation is deferred to RegisterDX12Textures() on the first render frame
+    // (it needs an open command list for resource barriers).
+    if (m_modelInfo.d3d12TextureHeapOffset == 0)
+    {
+        const UINT heapCap = DX12_MODEL_TEXTURE_HEAP_BASE + DX12_MODEL_TEXTURE_HEAP_CAPACITY;
+        std::lock_guard<std::mutex> heapLock(dx12->globalMutex);
+        if (dx12->m_cbvSrvUavHeap.currentOffset + 6 <= heapCap)
+        {
+            m_modelInfo.d3d12TextureHeapOffset = dx12->m_cbvSrvUavHeap.currentOffset;
+            dx12->m_cbvSrvUavHeap.currentOffset += 6;
+            m_modelInfo.d3d12TextureGPUHandle.ptr =
+                dx12->m_cbvSrvUavHeap.gpuStart.ptr +
+                static_cast<UINT64>(m_modelInfo.d3d12TextureHeapOffset) *
+                dx12->m_cbvSrvUavHeap.handleIncrementSize;
+        }
+        else
+        {
+            // Heap exhausted — fall back to the null texture handle
+            m_modelInfo.d3d12TextureGPUHandle = dx12->m_nullTextureGPUHandle;
+            debug.logDebugMessage(LogLevel::LOG_WARNING,
+                L"[DX12 Model] CBV/SRV/UAV heap full; model ID %d will use null textures", m_modelInfo.ID);
+        }
+    }
+    // Force re-registration so new SRVs are written on the next render frame
+    m_modelInfo.d3d12TexturesRegistered = false;
+
+    // Upload DX12 textures from pixel caches stored during model loading.
+    // Runs in the loader thread; uses a private fence, so m_fenceValue is untouched.
+    // The render thread will not draw this model until m_isLoaded = true, which is
+    // set only after SetupModelForRendering returns, so there is no hazard.
+    {
+        // Locate the Texture object whose SRV matches a given raw SRV pointer.
+        auto findTex = [&](ID3D11ShaderResourceView* srv) -> std::shared_ptr<Texture> {
+            if (!srv) return nullptr;
+            for (auto& t : m_modelInfo.textures)
+                if (t && t->GetSRV() == srv) return t;
+            return nullptr;
+        };
+
+        std::shared_ptr<Texture> texSlots[6] = {
+            findTex(m_modelInfo.textureSRVs.empty()   ? nullptr : m_modelInfo.textureSRVs[0].Get()),
+            findTex(m_modelInfo.normalMapSRVs.empty() ? nullptr : m_modelInfo.normalMapSRVs[0].Get()),
+            m_modelInfo.metallicMap,
+            m_modelInfo.roughnessMap,
+            m_modelInfo.aoMap,
+            nullptr,  // slot 5 (env) — no Texture object; null SRV used
+        };
+
+        for (int slot = 0; slot < 6; ++slot) {
+            if (!texSlots[slot]) continue;
+
+            // If this Texture object was already uploaded (either earlier in this loop
+            // or by a previous model that shares the same Texture), reuse its resource.
+            if (texSlots[slot]->GetDX12Resource()) {
+                m_modelInfo.d3d12TexResources[slot] = texSlots[slot]->GetDX12Resource();
+                continue;
+            }
+
+            // Within this model's 6 slots, check if an earlier slot already uploaded
+            // the same Texture object (handles metallic==roughness combined maps).
+            bool reused = false;
+            for (int j = 0; j < slot; ++j) {
+                if (texSlots[j].get() == texSlots[slot].get() && m_modelInfo.d3d12TexResources[j]) {
+                    m_modelInfo.d3d12TexResources[slot] = m_modelInfo.d3d12TexResources[j];
+                    texSlots[slot]->GetDX12Resource()   = m_modelInfo.d3d12TexResources[j];
+                    reused = true;
+                    break;
+                }
+            }
+            if (reused) continue;
+
+            if (texSlots[slot]->GetDX12Pixels().empty()) continue;
+
+            if (!UploadDX12TextureToGPU(dx12.get(),
+                    texSlots[slot]->GetDX12Pixels().data(),
+                    texSlots[slot]->GetDX12Width(),
+                    texSlots[slot]->GetDX12Height(),
+                    m_modelInfo.d3d12TexResources[slot]))
+            {
+                debug.logDebugMessage(LogLevel::LOG_WARNING,
+                    L"[DX12 Model] Texture upload failed for slot %d, model ID %d", slot, m_modelInfo.ID);
+            }
+            else
+            {
+                // Store the uploaded resource in the Texture so future models sharing
+                // this Texture can reuse it without re-uploading.
+                texSlots[slot]->GetDX12Resource() = m_modelInfo.d3d12TexResources[slot];
+                texSlots[slot]->ClearDX12Pixels();  // free staging memory; resource is now in Texture
+            }
         }
     }
 
@@ -654,10 +826,16 @@ void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
             if ((matGPU->Ka.x <= 0.0001f) && (matGPU->Ka.y <= 0.0001f) && (matGPU->Ka.z <= 0.0001f)) {
                 matGPU->Ka = XMFLOAT3(matGPU->Kd.x * 0.15f, matGPU->Kd.y * 0.15f, matGPU->Kd.z * 0.15f);
             }
-            matGPU->useMetallicMap   = (m_modelInfo.metallicMapSRV   != nullptr) ? 1.0f : 0.0f;
-            matGPU->useRoughnessMap  = (m_modelInfo.roughnessMapSRV  != nullptr) ? 1.0f : 0.0f;
-            matGPU->useAOMap         = (m_modelInfo.aoMapSRV         != nullptr) ? 1.0f : 0.0f;
-            matGPU->useEnvMap        = (m_modelInfo.environmentMapSRV != nullptr) ? 1.0f : 0.0f;
+            matGPU->useMetallicMap   = (m_modelInfo.metallicMapSRV    != nullptr) ? 1.0f : 0.0f;
+            matGPU->useRoughnessMap  = (m_modelInfo.roughnessMapSRV   != nullptr) ? 1.0f : 0.0f;
+            matGPU->useAOMap         = (m_modelInfo.aoMapSRV          != nullptr) ? 1.0f : 0.0f;
+            matGPU->useEnvMap        = (m_modelInfo.environmentMapSRV  != nullptr) ? 1.0f : 0.0f;
+            matGPU->useDiffuseMap    = m_modelInfo.useDiffuseMap   ? 1.0f : 0.0f;
+            matGPU->useGlossMap      = m_modelInfo.useGlossMap     ? 1.0f : 0.0f;
+            matGPU->useEmissiveMap   = m_modelInfo.useEmissiveMap  ? 1.0f : 0.0f;
+            // NormalScale == 0 tells the shader to use vertex normal (no normal map present)
+            if (m_modelInfo.normalMapSRVs.empty())
+                matGPU->NormalScale = 0.0f;
 
             deviceContext->Unmap(m_modelInfo.materialBuffer.Get(), 0);
             deviceContext->PSSetConstantBuffers(SLOT_MATERIAL_BUFFER, 1, m_modelInfo.materialBuffer.GetAddressOf());
@@ -676,25 +854,58 @@ void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
         std::string lockName = "model_texture_update_" + std::to_string(m_modelInfo.ID);
         ThreadLockHelper lock(threadManager, lockName.c_str(), 5000);
 
-        if (m_modelInfo.textureSRVs.empty())   LoadFallbackTexture();
-        if (m_modelInfo.normalMapSRVs.empty()) LoadFallbackNormalMap();
+        if (m_modelInfo.textureSRVs.empty()) LoadFallbackTexture();
 
-        ID3D11ShaderResourceView* texSRV    = m_modelInfo.textureSRVs.empty()    ? nullptr : m_modelInfo.textureSRVs[0].Get();
-        ID3D11ShaderResourceView* normSRV   = m_modelInfo.normalMapSRVs.empty()  ? nullptr : m_modelInfo.normalMapSRVs[0].Get();
-        ID3D11ShaderResourceView* metalSRV  = m_modelInfo.metallicMapSRV   ? m_modelInfo.metallicMapSRV.Get()    : nullptr;
-        ID3D11ShaderResourceView* roughSRV  = m_modelInfo.roughnessMapSRV  ? m_modelInfo.roughnessMapSRV.Get()   : nullptr;
-        ID3D11ShaderResourceView* aoSRV     = m_modelInfo.aoMapSRV         ? m_modelInfo.aoMapSRV.Get()          : nullptr;
-        ID3D11ShaderResourceView* envSRV    = m_modelInfo.environmentMapSRV ? m_modelInfo.environmentMapSRV.Get() : nullptr;
+        ID3D11ShaderResourceView* texSRV       = m_modelInfo.textureSRVs.empty()   ? nullptr : m_modelInfo.textureSRVs[0].Get();
+        ID3D11ShaderResourceView* normSRV      = m_modelInfo.normalMapSRVs.empty() ? nullptr : m_modelInfo.normalMapSRVs[0].Get();
+        ID3D11ShaderResourceView* metalSRV     = m_modelInfo.metallicMapSRV    ? m_modelInfo.metallicMapSRV.Get()    : nullptr;
+        ID3D11ShaderResourceView* roughSRV     = m_modelInfo.roughnessMapSRV   ? m_modelInfo.roughnessMapSRV.Get()   : nullptr;
+        ID3D11ShaderResourceView* aoSRV        = m_modelInfo.aoMapSRV          ? m_modelInfo.aoMapSRV.Get()          : nullptr;
+        ID3D11ShaderResourceView* envSRV       = m_modelInfo.environmentMapSRV ? m_modelInfo.environmentMapSRV.Get() : nullptr;
+        ID3D11ShaderResourceView* glossSRV     = m_modelInfo.glossMapSRV       ? m_modelInfo.glossMapSRV.Get()       : nullptr;
+        ID3D11ShaderResourceView* emissiveSRV  = m_modelInfo.emissiveMapSRV    ? m_modelInfo.emissiveMapSRV.Get()    : nullptr;
+        ID3D11ShaderResourceView* shadowSRV    = m_modelInfo.shadowMapSRV      ? m_modelInfo.shadowMapSRV.Get()      : nullptr;
 
-        if (texSRV)   deviceContext->PSSetShaderResources(SLOT_diffuseTexture,  1, &texSRV);
-        if (normSRV)  deviceContext->PSSetShaderResources(SLOT_normalMap,       1, &normSRV);
+        if (texSRV) deviceContext->PSSetShaderResources(SLOT_diffuseTexture, 1, &texSRV);
+        // Always set the normal map slot to prevent stale SRV from a previous model
+        if (normSRV)
+            deviceContext->PSSetShaderResources(SLOT_normalMap, 1, &normSRV);
+        else
+        {
+            ID3D11ShaderResourceView* nullSRV = nullptr;
+            deviceContext->PSSetShaderResources(SLOT_normalMap, 1, &nullSRV);
+        }
         if (metalSRV) deviceContext->PSSetShaderResources(SLOT_metallicMap,     1, &metalSRV);
         if (roughSRV) deviceContext->PSSetShaderResources(SLOT_roughnessMap,    1, &roughSRV);
         if (aoSRV)    deviceContext->PSSetShaderResources(SLOT_aoMap,           1, &aoSRV);
         if (envSRV)   deviceContext->PSSetShaderResources(SLOT_environmentMap,  1, &envSRV);
 
+        // Bind extended maps (t6 gloss, t7 emissive, t8 shadow)
+        deviceContext->PSSetShaderResources(SLOT_glossMap,    1, &glossSRV);
+        deviceContext->PSSetShaderResources(SLOT_emissiveMap, 1, &emissiveSRV);
+        deviceContext->PSSetShaderResources(SLOT_shadowMap,   1, &shadowSRV);
+
         deviceContext->PSSetSamplers(SLOT_SAMPLER_STATE,        1, m_modelInfo.samplerState.GetAddressOf());
         deviceContext->PSSetSamplers(SLOT_ENVIRO_SAMPLER_STATE, 1, m_modelInfo.environmentSamplerState.GetAddressOf());
+        if (m_modelInfo.shadowSamplerState)
+            deviceContext->PSSetSamplers(SLOT_SHADOW_SAMPLER_STATE, 1, m_modelInfo.shadowSamplerState.GetAddressOf());
+
+        // Update and bind shadow constant buffer (b6)
+        if (m_modelInfo.shadowBuffer)
+        {
+            D3D11_MAPPED_SUBRESOURCE shadowMapped = {};
+            if (SUCCEEDED(deviceContext->Map(m_modelInfo.shadowBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &shadowMapped)))
+            {
+                ShadowBufferGPU* shadowGPU = static_cast<ShadowBufferGPU*>(shadowMapped.pData);
+                shadowGPU->lightViewProj   = XMMatrixIdentity();
+                shadowGPU->shadowBias      = 0.001f;
+                shadowGPU->shadowStrength  = 0.8f;
+                shadowGPU->useShadowMap    = (shadowSRV != nullptr) ? 1.0f : 0.0f;
+                shadowGPU->shadowMapSize   = 2048.0f;
+                deviceContext->Unmap(m_modelInfo.shadowBuffer.Get(), 0);
+            }
+            deviceContext->PSSetConstantBuffers(SLOT_SHADOW_BUFFER, 1, m_modelInfo.shadowBuffer.GetAddressOf());
+        }
     }
 
     // Per-model lighting
@@ -705,10 +916,207 @@ void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// UploadDX12TextureToGPU — loader-thread texture upload.
+//
+// Creates a D3D12 DEFAULT-heap Texture2D, copies pixels via a one-shot upload
+// command list, transitions to PIXEL_SHADER_RESOURCE, and blocks the calling
+// thread (loader thread) until the GPU completes.  Uses a local fence so the
+// render thread's m_fenceValue is never touched.  ExecuteCommandLists on the
+// shared command queue is thread-safe per the D3D12 specification.
+// ─────────────────────────────────────────────────────────────────────────────
+static bool UploadDX12TextureToGPU(
+    DX12Renderer* dx12,
+    const uint8_t* pixels, UINT width, UINT height,
+    ComPtr<ID3D12Resource>& outResource)
+{
+    if (!dx12 || !pixels || width == 0 || height == 0) return false;
+
+    // Describe the DEFAULT-heap texture
+    D3D12_RESOURCE_DESC texDesc = {};
+    texDesc.Dimension          = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    texDesc.Width              = width;
+    texDesc.Height             = height;
+    texDesc.DepthOrArraySize   = 1;
+    texDesc.MipLevels          = 1;
+    texDesc.Format             = DXGI_FORMAT_R8G8B8A8_UNORM;
+    texDesc.SampleDesc.Count   = 1;
+    texDesc.SampleDesc.Quality = 0;
+    texDesc.Layout             = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    texDesc.Flags              = D3D12_RESOURCE_FLAG_NONE;
+
+    CD3DX12_HEAP_PROPERTIES defaultHeap(D3D12_HEAP_TYPE_DEFAULT);
+    ComPtr<ID3D12Resource> texResource;
+    HRESULT hr = dx12->m_d3d12Device->CreateCommittedResource(
+        &defaultHeap, D3D12_HEAP_FLAG_NONE, &texDesc,
+        D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+        IID_PPV_ARGS(&texResource));
+    if (FAILED(hr) || !texResource) {
+        debug.logDebugMessage(LogLevel::LOG_WARNING,
+            L"[DX12 Texture] UploadDX12TextureToGPU: CreateCommittedResource (default) failed 0x%08X", hr);
+        return false;
+    }
+
+    // Query the correct row pitch and total upload size
+    UINT64 uploadSize = 0;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
+    UINT numRows = 0;
+    UINT64 rowSizeBytes = 0;
+    dx12->m_d3d12Device->GetCopyableFootprints(&texDesc, 0, 1, 0,
+        &footprint, &numRows, &rowSizeBytes, &uploadSize);
+
+    // Create UPLOAD-heap staging buffer
+    CD3DX12_HEAP_PROPERTIES uploadHeap(D3D12_HEAP_TYPE_UPLOAD);
+    CD3DX12_RESOURCE_DESC uploadDesc = CD3DX12_RESOURCE_DESC::Buffer(uploadSize);
+    ComPtr<ID3D12Resource> uploadBuf;
+    hr = dx12->m_d3d12Device->CreateCommittedResource(
+        &uploadHeap, D3D12_HEAP_FLAG_NONE, &uploadDesc,
+        D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+        IID_PPV_ARGS(&uploadBuf));
+    if (FAILED(hr) || !uploadBuf) {
+        debug.logDebugMessage(LogLevel::LOG_WARNING,
+            L"[DX12 Texture] UploadDX12TextureToGPU: CreateCommittedResource (upload) failed 0x%08X", hr);
+        return false;
+    }
+
+    // Map upload buffer and copy pixel rows (respecting D3D12 row-pitch alignment)
+    void* pMapped = nullptr;
+    CD3DX12_RANGE noRead(0, 0);
+    hr = uploadBuf->Map(0, &noRead, &pMapped);
+    if (FAILED(hr) || !pMapped) return false;
+    for (UINT row = 0; row < height; ++row) {
+        memcpy(
+            static_cast<uint8_t*>(pMapped) + static_cast<UINT64>(row) * footprint.Footprint.RowPitch,
+            pixels + static_cast<UINT64>(row) * width * 4,
+            static_cast<size_t>(width) * 4);
+    }
+    uploadBuf->Unmap(0, nullptr);
+
+    // One-shot command allocator + list for the copy
+    ComPtr<ID3D12CommandAllocator> uploadAlloc;
+    hr = dx12->m_d3d12Device->CreateCommandAllocator(
+        D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&uploadAlloc));
+    if (FAILED(hr)) return false;
+
+    ComPtr<ID3D12GraphicsCommandList> uploadList;
+    hr = dx12->m_d3d12Device->CreateCommandList(
+        0, D3D12_COMMAND_LIST_TYPE_DIRECT, uploadAlloc.Get(), nullptr,
+        IID_PPV_ARGS(&uploadList));
+    if (FAILED(hr)) return false;
+
+    D3D12_TEXTURE_COPY_LOCATION dstLoc = {};
+    dstLoc.pResource        = texResource.Get();
+    dstLoc.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    dstLoc.SubresourceIndex = 0;
+
+    D3D12_TEXTURE_COPY_LOCATION srcLoc = {};
+    srcLoc.pResource       = uploadBuf.Get();
+    srcLoc.Type            = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    srcLoc.PlacedFootprint = footprint;
+
+    uploadList->CopyTextureRegion(&dstLoc, 0, 0, 0, &srcLoc, nullptr);
+
+    auto barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+        texResource.Get(),
+        D3D12_RESOURCE_STATE_COPY_DEST,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    uploadList->ResourceBarrier(1, &barrier);
+    uploadList->Close();
+
+    // Submit and wait with a private fence (never touches m_fenceValue)
+    {
+        ComPtr<ID3D12Fence> localFence;
+        dx12->m_d3d12Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&localFence));
+        HANDLE localEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+
+        ID3D12CommandList* ppLists[] = { uploadList.Get() };
+        dx12->m_commandQueue->ExecuteCommandLists(1, ppLists);
+        dx12->m_commandQueue->Signal(localFence.Get(), 1);
+        localFence->SetEventOnCompletion(1, localEvent);
+        WaitForSingleObject(localEvent, INFINITE);
+        CloseHandle(localEvent);
+    }
+
+    outResource = texResource;
+    return true;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Internal helper — write a null (black/zero) SRV descriptor at a CPU handle.
+// Used by RegisterDX12Textures() for texture slots that have no source SRV.
+// ─────────────────────────────────────────────────────────────────────────────
+static void WriteNullTextureSRV(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE cpu)
+{
+    D3D12_SHADER_RESOURCE_VIEW_DESC nullSRV = {};
+    nullSRV.Format                  = DXGI_FORMAT_R8G8B8A8_UNORM;
+    nullSRV.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
+    nullSRV.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    nullSRV.Texture2D.MipLevels     = 1;
+    device->CreateShaderResourceView(nullptr, &nullSRV, cpu);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model::RegisterDX12Textures — first-render SRV descriptor registration.
+//
+// Called from the render thread on the first draw of a model.  By this point
+// SetupModelForRendering (loader thread) has already uploaded each texture to a
+// DEFAULT-heap D3D12 resource (PIXEL_SHADER_RESOURCE state) stored in
+// d3d12TexResources[].  This function just writes SRV descriptors into the
+// pre-allocated heap slots — no D3D11 calls, no resource barriers needed.
+// ─────────────────────────────────────────────────────────────────────────────
+void Model::RegisterDX12Textures(ID3D12GraphicsCommandList* cmdList, DX12Renderer* dx12)
+{
+    if (!cmdList || !dx12 || m_modelInfo.d3d12TexturesRegistered) return;
+
+    if (m_modelInfo.d3d12TextureHeapOffset == 0 ||
+        m_modelInfo.d3d12TextureGPUHandle.ptr == dx12->m_nullTextureGPUHandle.ptr)
+    {
+        m_modelInfo.d3d12TexturesRegistered = true;
+        return;
+    }
+
+    const UINT incSize = dx12->m_cbvSrvUavHeap.handleIncrementSize;
+    const D3D12_CPU_DESCRIPTOR_HANDLE cpuBase = {
+        dx12->m_cbvSrvUavHeap.cpuStart.ptr +
+        static_cast<SIZE_T>(m_modelInfo.d3d12TextureHeapOffset) * incSize
+    };
+
+    for (int i = 0; i < 6; ++i)
+    {
+        const D3D12_CPU_DESCRIPTOR_HANDLE slotCPU = {
+            cpuBase.ptr + static_cast<SIZE_T>(i) * incSize
+        };
+
+        if (m_modelInfo.d3d12TexResources[i])
+        {
+            D3D12_RESOURCE_DESC rd = m_modelInfo.d3d12TexResources[i]->GetDesc();
+            D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+            srvDesc.Format                  = rd.Format;
+            srvDesc.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
+            srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            srvDesc.Texture2D.MipLevels     = rd.MipLevels;
+            dx12->m_d3d12Device->CreateShaderResourceView(
+                m_modelInfo.d3d12TexResources[i].Get(), &srvDesc, slotCPU);
+        }
+        else
+        {
+            WriteNullTextureSRV(dx12->m_d3d12Device.Get(), slotCPU);
+        }
+    }
+    // Resources are already in PIXEL_SHADER_RESOURCE state from the loader-thread upload;
+    // no resource barriers are needed here.
+    m_modelInfo.d3d12TexturesRegistered = true;
+
+#if defined(_DEBUG_MODEL_)
+    debug.logDebugMessage(LogLevel::LOG_INFO,
+        L"[DX12 Model] Registered DX12 texture SRVs for model ID %d", m_modelInfo.ID);
+#endif
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Model::RenderDX12 — native DX12 command-list draw path.
 // Called from DX12RenderFrame::RenderGamePlay() while the DX12 command list is
-// open.  Bypasses the D3D11 shader guard that prevents the 11on12-path Render()
-// from working (no DX11 "ModelProgram" is loaded in DX12 mode).
+// open.  Binds all per-model constant buffers (b0 camera/world, b1 lights,
+// b2 debug, b4 material), registers texture SRVs on first call, and draws.
 // ─────────────────────────────────────────────────────────────────────────────
 void Model::RenderDX12(ID3D12GraphicsCommandList* cmdList, DX12Renderer* dx12, float deltaTime)
 {
@@ -720,29 +1128,94 @@ void Model::RenderDX12(ID3D12GraphicsCommandList* cmdList, DX12Renderer* dx12, f
         return;
     if (m_modelInfo.d3d12IndexCount == 0) return;
 
-    // Update per-model constant buffer with world / view / projection matrices
-    ConstantBuffer cb = {};
-    cb.worldMatrix      = XMMatrixTranspose(m_modelInfo.worldMatrix);
-    cb.viewMatrix       = XMMatrixTranspose(m_modelInfo.viewMatrix);
-    cb.projectionMatrix = XMMatrixTranspose(m_modelInfo.projectionMatrix);
-    cb.cameraPosition   = m_modelInfo.cameraPosition;
-    cb.modelScale       = m_modelInfo.scale;
-    memcpy(m_modelInfo.d3d12CBMapped, &cb, sizeof(ConstantBuffer));
+    // === b0: camera / world / view / projection ===
+    {
+        ConstantBuffer cb = {};
+        cb.worldMatrix      = XMMatrixTranspose(m_modelInfo.worldMatrix);
+        cb.viewMatrix       = XMMatrixTranspose(m_modelInfo.viewMatrix);
+        cb.projectionMatrix = XMMatrixTranspose(m_modelInfo.projectionMatrix);
+        cb.cameraPosition   = m_modelInfo.cameraPosition;
+        cb.modelScale       = m_modelInfo.scale;
+        memcpy(m_modelInfo.d3d12CBMapped, &cb, sizeof(ConstantBuffer));
+        cmdList->SetGraphicsRootConstantBufferView(
+            DX12_ROOT_PARAM_CONST_BUFFER,
+            m_modelInfo.d3d12ConstantBuffer->GetGPUVirtualAddress());
+    }
 
-    // Bind per-model constant buffer at root parameter b0 (overrides the global camera CB)
-    cmdList->SetGraphicsRootConstantBufferView(
-        DX12_ROOT_PARAM_CONST_BUFFER,
-        m_modelInfo.d3d12ConstantBuffer->GetGPUVirtualAddress());
+    // === b1: per-model lights ===
+    if (m_modelInfo.d3d12LightBuffer && m_modelInfo.d3d12LightMapped)
+    {
+        LightBuffer lb = {};
+        int maxLights = std::min(static_cast<int>(m_modelInfo.localLights.size()), MAX_MODEL_LIGHTS);
+        lb.numLights = maxLights;
+        for (int i = 0; i < maxLights; ++i)
+            lb.lights[i] = m_modelInfo.localLights[i];
+        memcpy(m_modelInfo.d3d12LightMapped, &lb, sizeof(LightBuffer));
+        cmdList->SetGraphicsRootConstantBufferView(
+            DX12_ROOT_PARAM_LIGHT_BUFFER,
+            m_modelInfo.d3d12LightBuffer->GetGPUVirtualAddress());
+    }
 
-    // Bind vertex and index buffers
+    // === b4: PBR material ===
+    if (m_modelInfo.d3d12MaterialBuffer && m_modelInfo.d3d12MaterialMapped)
+    {
+        MaterialGPU matGPU = {};
+        const Material* mat = m_materials.empty() ? nullptr : &(m_materials.begin()->second);
+        if (mat) {
+            matGPU.Ka = mat->Ka;   matGPU.Kd = mat->Kd;   matGPU.Ks = mat->Ks;
+            matGPU.Ns = mat->Ns;   matGPU.Metallic = mat->Metallic;
+            matGPU.Roughness = mat->Roughness;
+            matGPU.ReflectionStrength = mat->Reflection;
+            matGPU.EmissiveFactor  = mat->emissiveFactor;
+            matGPU.EmissiveStrength = mat->emissiveStrength;
+            matGPU.NormalScale     = mat->normalScale;
+        } else {
+            matGPU.Ka = XMFLOAT3(0.1f, 0.1f, 0.1f);
+            matGPU.Kd = XMFLOAT3(0.8f, 0.8f, 0.8f);
+            matGPU.Ks = XMFLOAT3(1.0f, 1.0f, 1.0f);
+            matGPU.Ns = 16.0f;
+            matGPU.Metallic           = m_modelInfo.metallic;
+            matGPU.Roughness          = m_modelInfo.roughness;
+            matGPU.ReflectionStrength = m_modelInfo.reflectionStrength;
+        }
+        // Guard against fully-black ambient
+        if (matGPU.Ka.x <= 0.0001f && matGPU.Ka.y <= 0.0001f && matGPU.Ka.z <= 0.0001f)
+            matGPU.Ka = XMFLOAT3(matGPU.Kd.x * 0.15f, matGPU.Kd.y * 0.15f, matGPU.Kd.z * 0.15f);
+
+        matGPU.useMetallicMap   = (m_modelInfo.metallicMapSRV    != nullptr) ? 1.0f : 0.0f;
+        matGPU.useRoughnessMap  = (m_modelInfo.roughnessMapSRV   != nullptr) ? 1.0f : 0.0f;
+        matGPU.useAOMap         = (m_modelInfo.aoMapSRV          != nullptr) ? 1.0f : 0.0f;
+        matGPU.useEnvMap        = (m_modelInfo.environmentMapSRV != nullptr) ? 1.0f : 0.0f;
+        matGPU.useDiffuseMap    = m_modelInfo.useDiffuseMap  ? 1.0f : 0.0f;
+        matGPU.useGlossMap      = m_modelInfo.useGlossMap    ? 1.0f : 0.0f;
+        matGPU.useEmissiveMap   = m_modelInfo.useEmissiveMap ? 1.0f : 0.0f;
+        memcpy(m_modelInfo.d3d12MaterialMapped, &matGPU, sizeof(MaterialGPU));
+        cmdList->SetGraphicsRootConstantBufferView(
+            DX12_ROOT_PARAM_MATERIAL_BUFFER,
+            m_modelInfo.d3d12MaterialBuffer->GetGPUVirtualAddress());
+    }
+
+    // === b2: pixel shader debug mode ===
+    if (m_modelInfo.d3d12DebugBuffer)
+        cmdList->SetGraphicsRootConstantBufferView(
+            DX12_ROOT_PARAM_DEBUG_BUFFER,
+            m_modelInfo.d3d12DebugBuffer->GetGPUVirtualAddress());
+
+    // === Texture descriptor table (t0-t5) ===
+    // On first render: unwrap DX11 SRVs to D3D12 resources, create descriptors, record barriers.
+    if (!m_modelInfo.d3d12TexturesRegistered)
+        RegisterDX12Textures(cmdList, dx12);
+
+    if (m_modelInfo.d3d12TextureGPUHandle.ptr != 0)
+        cmdList->SetGraphicsRootDescriptorTable(DX12_ROOT_PARAM_TEXTURE_TABLE,
+            m_modelInfo.d3d12TextureGPUHandle);
+    else if (dx12->m_nullTextureGPUHandle.ptr != 0)
+        cmdList->SetGraphicsRootDescriptorTable(DX12_ROOT_PARAM_TEXTURE_TABLE,
+            dx12->m_nullTextureGPUHandle);
+
+    // === Geometry ===
     cmdList->IASetVertexBuffers(0, 1, &m_modelInfo.d3d12VBView);
     cmdList->IASetIndexBuffer(&m_modelInfo.d3d12IBView);
-
-    // Bind the null/default texture descriptor table so the shader does not
-    // read uninitialised SRV slots (model-specific DX12 textures are a future step)
-    if (dx12->m_nullTextureGPUHandle.ptr != 0)
-        cmdList->SetGraphicsRootDescriptorTable(DX12_ROOT_PARAM_TEXTURE_TABLE, dx12->m_nullTextureGPUHandle);
-
     cmdList->DrawIndexedInstanced(m_modelInfo.d3d12IndexCount, 1, 0, 0, 0);
 }
 

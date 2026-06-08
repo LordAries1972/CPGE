@@ -1,0 +1,21 @@
+// History: DXCamera.cpp - 07-06-2026
+// Fix: GetNearPlane() and GetFarPlane() used RH/OpenGL extraction formulas
+//      against an XMMatrixPerspectiveFovLH (LH) matrix, returning garbage/negative values.
+//
+// LH perspective matrix elements:
+//   _33 = fRange        = far / (far - near)
+//   _43 = -fRange*near  = -far*near / (far - near)
+//
+// Correct extractions:
+//   near = -m43 / m33
+//   far  = m43 / (1 - m33)
+//
+// Previous (WRONG) formulas used RH convention (OpenGL):
+//   near = m43 / (m33 - 1)   -> returned -far (negative!)
+//   far  = -m43 / (m33 + 1)  -> returned wrong value
+//
+// GetNearPlane() returning -far caused XMMatrixPerspectiveFovLH to fire its
+// debug assert (NearZ > 0), producing SEH 0x80000003 crash in SetFieldOfView()
+// when called from ParseFBXCameras() after loading an FBX scene.
+//
+// Files changed: DXCamera.cpp (GetFarPlane, GetNearPlane)

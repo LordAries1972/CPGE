@@ -1,0 +1,38 @@
+// History: FBXImport.cpp - 08-06-2026 (b)
+// Fix: FBX material diffuse colour always reads as white {1,1,1}.
+//
+// Root cause:
+//   ExtractMaterial called ReadP70Vec3(*p70, "DiffuseColor", {1,1,1}).
+//   FindP70 does an exact string match against P-node property[0].strValue.
+//   Blender (and some Maya versions) export the diffuse colour under the
+//   legacy alias "Diffuse" rather than the FBX 7.x standard "DiffuseColor".
+//   Because only one name was tried, ReadP70Vec3 returned the {1,1,1} default
+//   for every material, causing the solid-colour 1x1 texture to be created
+//   with RGB=(1,1,1) (white) regardless of the actual material colours.
+//
+// Changes in ExtractMaterial:
+//
+//   1. Try "DiffuseColor" first; if not found (sentinel -1), try "Diffuse".
+//        mat.diffuseColor = ReadP70Vec3(*p70, "DiffuseColor", {-1,-1,-1});
+//        if (mat.diffuseColor.x < 0.0f)
+//            mat.diffuseColor = ReadP70Vec3(*p70, "Diffuse", {1,1,1});
+//
+//   2. Apply DiffuseFactor to the resolved diffuse colour:
+//        mat.diffuseFactor = ReadP70Float(*p70, "DiffuseFactor", 1.0f);
+//        if (mat.diffuseFactor > 0.0f && mat.diffuseFactor != 1.0f)
+//            mat.diffuseColor *= mat.diffuseFactor  (clamped to [0,1])
+//      FBX spec: actual_diffuse = DiffuseColor * DiffuseFactor.
+//      Previously diffuseFactor was stored but never applied.
+//
+//   3. Same dual-name fallback for ambient, specular, emissive colours:
+//        "AmbientColor"  -> "Ambient"
+//        "SpecularColor" -> "Specular"
+//        "EmissiveColor" -> "Emissive"
+//
+//   4. Added FindChild("Properties") fallback when "Properties70" is absent
+//      (FBX 6.x format exports the properties under "Properties" not "Properties70").
+//
+//   5. Added unconditional LOG_WARNING when neither node is found so the
+//      failure is diagnosable without enabling _DEBUG_FBXIMPORTER_.
+//
+// File changed: FBXImport.cpp (ExtractMaterial, Properties70 block)

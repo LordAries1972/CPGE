@@ -1,0 +1,35 @@
+// History: ModelPixel.glsl - 08-06-2026
+// Enhancement: Full conditional shader redesign matching ModelPixel.hlsl.
+//   useDiffuseMap, gloss map, emissive texture, PCF shadow, fixed debug modes 3/4,
+//   NormalScale<=0 vertex-normal fallback.
+//
+// Changes:
+//
+//   1. New samplers: glossMap (t6), emissiveMap (t7), sampler2DShadow shadowMap (t8).
+//
+//   2. MaterialBuffer: _padM4/_padM5/_padM6 replaced by useDiffuseMap/useGlossMap/useEmissiveMap.
+//      GLSL layout unchanged -- std140 packing keeps the same byte offsets.
+//
+//   3. ShadowBuffer (binding 6): lightViewProj mat4, shadowBias, shadowStrength,
+//      useShadowMap, shadowMapSize. SampleShadow() performs 3x3 PCF using
+//      sampler2DShadow hardware comparison path.
+//
+//   4. useDiffuseMap path:
+//        1.0: albedo = texture(diffuseTexture) * vec4(Kd, 1.0)
+//        0.0: albedo = vec4(Kd, 1.0)
+//
+//   5. Gloss map: roughness = 1.0 - texture(glossMap).r when useGlossMap > 0.5.
+//
+//   6. Emissive texture: EmissiveFactor * texture(emissiveMap).rgb * EmissiveStrength.
+//
+//   7. NormalScale <= 0 branch added: use raw geometry vNormal, no TBN sample.
+//      Previously OpenGL path always sampled normalMap even without a bound texture,
+//      producing garbage normals.
+//
+//   8. ProcessLight() updated with out vec3 outDiff, out vec3 outSpec for correct
+//      debug modes 3 (diffuse-only) and 4 (specular-only) visualisation.
+//
+//   9. Shadow factor from SampleShadow() multiplies directLighting.
+//      debugMode==7 shows shadow factor grey-scale.
+//
+// Files changed: Assets/Shaders/ModelPixel.glsl

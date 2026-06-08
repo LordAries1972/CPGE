@@ -182,12 +182,9 @@ void DX11Renderer::LoaderTaskThread()
 					ThreadLockHelper preAllocLock(threadManager, "SceneManager_PreAllocation", 2000);
 					if (preAllocLock.IsLocked())
 					{
-						scene.ParseGLTFScene(AssetsDir / L"splash-hover1.gltf");
+						scene.ParseSceneAutoDetect(AssetsDir / L"splash-hover1.gltf");
+//						scene.ParseGLTFScene(AssetsDir / L"splash-hover1.gltf");
 //		  				  scene.ParseGLBScene(AssetsDir / L"test1.glb");
-						if (!scene.bGltfCameraParsed)
-						{
-							scene.AutoFrameSceneToCamera();
-						}
 					}
 
 					showStage(L"Loading audio...");
@@ -211,19 +208,29 @@ void DX11Renderer::LoaderTaskThread()
 								camH = static_cast<float>(winMetrics.clientHeight);
 								break;
 						}
-						myCamera.SetupDefaultCamera(camW, camH);
+						// Only apply default camera if the FBX scene did not supply one.
+						// If bCameraJumped is true, ParseFBXCameras() already set position
+						// and projection; overriding here would discard the FBX camera.
+						if (!myCamera.bCameraJumped)
+							myCamera.SetupDefaultCamera(camW, camH);
 					}
-					// Set Camera Position
-					myCamera.SetPosition(-5.0f, 2.0f, -20.0f);
-					// Now set Yaw and Pitch
-					myCamera.SetYawPitch(0.0f, 0.0f);
+					// Set Camera Position / Yaw / Pitch only when NOT using an FBX camera
+					if (!myCamera.bCameraJumped)
+					{
+						if (!scene.bGltfCameraParsed)
+						{
+							scene.AutoFrameSceneToCamera();
+						}
+						myCamera.SetPosition(0.0f, 6.0f, -120.0f);
+						myCamera.SetYawPitch(0.0f, 0.0f);
+					}
 
 					showStage(L"Building interface...");
 					guiManager.CreateGameMenuWindow(L"winGameMenu");
 
 					showStage(L"Almost ready...");
 					// Reverse — stars start spread near camera and converge toward {0, 0, 0}
-					fxManager.CreateStarfield(100, 800.0f, 1000.0f, XMFLOAT3(-180.0f, 0.0f, 0.0f), true);
+					fxManager.CreateStarfield(100, 800.0f, 1000.0f, XMFLOAT3(-20.0f, -120.0f, -100.0f), true);
 					// Create a starfield with 100 stars, a radius of 1000, and reset distance of 1000
 					// fxManager.CreateStarfield(100, 800.0f, 1000.0f);
 
@@ -244,7 +251,7 @@ void DX11Renderer::LoaderTaskThread()
 
 					// Before calling CreateTextScrollerLTOR, get the next ID that will be assigned
 					textScrollerEffectID = static_cast<int>(fxManager.effects.size()) + 1;
-					fxManager.CreateTextScrollerConsistent(newsText, L"MayaCulpa", fontSize, textColor,
+					fxManager.CreateTextScrollerConsistent(newsText, L"Segoe UI", fontSize, textColor,
 						regionX, regionY, regionWidth, regionHeight,
 						scrollSpeed, duration);
 					*/
@@ -272,13 +279,15 @@ void DX11Renderer::LoaderTaskThread()
 								camH = static_cast<float>(winMetrics.clientHeight);
 								break;
 						}
-						myCamera.SetupDefaultCamera(camW, camH);
+						if (!myCamera.bCameraJumped)
+							myCamera.SetupDefaultCamera(camW, camH);
 					}
-					myCamera.SetPosition(-5.0f, 2.0f, -20.0f);
+					if (!myCamera.bCameraJumped)
+						myCamera.SetPosition(0.0f, 6.0f, -20.0f);
 					guiManager.OnWindowResize(iOrigWidth, iOrigHeight);
 
 					// Reverse — stars start spread near camera and converge toward {0, 0, 0}
-					fxManager.CreateStarfield(100, 800.0f, 1000.0f, XMFLOAT3(-180.0f, 0.0f, 0.0f), true);
+					fxManager.CreateStarfield(100, 800.0f, 1000.0f, XMFLOAT3(-20.0f, -120.0f, -100.0f), true);
 					//fxManager.CreateStarfield(100, 1000.0f, 1000.0f);
 					fxManager.StopLoadingText();
 
@@ -294,7 +303,7 @@ void DX11Renderer::LoaderTaskThread()
 					float duration = FLT_MAX;
 
 					textScrollerEffectID = static_cast<int>(fxManager.effects.size()) + 1;
-					fxManager.CreateTextScrollerConsistent(newsText, L"MayaCulpa", fontSize, textColor,
+					fxManager.CreateTextScrollerConsistent(newsText, L"Segoe UI", fontSize, textColor,
 						regionX, regionY, regionWidth, regionHeight,
 						scrollSpeed, duration);
 					*/

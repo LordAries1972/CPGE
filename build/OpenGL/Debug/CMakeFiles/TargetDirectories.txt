@@ -1,3 +1,0 @@
-F:/Projects/C++/CPGE2026/build/OpenGL/Debug/CMakeFiles/CrossPlatformGameEngine.dir
-F:/Projects/C++/CPGE2026/build/OpenGL/Debug/CMakeFiles/ALL_BUILD.dir
-F:/Projects/C++/CPGE2026/build/OpenGL/Debug/CMakeFiles/ZERO_CHECK.dir

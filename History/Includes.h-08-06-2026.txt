@@ -1,0 +1,12 @@
+// History: Includes.h - 08-06-2026
+// Enhancement: Added new texture, sampler, and cbuffer slot constants for
+//   gloss map, emissive texture, shadow map, and shadow comparison sampler.
+//
+// New constants:
+//   SLOT_SHADOW_BUFFER = 6     -- ShadowBufferGPU cbuffer (b6)
+//   SLOT_glossMap = 6          -- Gloss/smoothness texture (t6)
+//   SLOT_emissiveMap = 7       -- Emissive texture (t7)
+//   SLOT_shadowMap = 8         -- Shadow depth map (t8)
+//   SLOT_SHADOW_SAMPLER_STATE = 2 -- PCF comparison sampler (s2)
+//
+// Files changed: Includes.h

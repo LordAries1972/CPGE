@@ -1,0 +1,37 @@
+// History: FBXImport.cpp - 08-06-2026
+// Enhancement: TriangulateGeometry updated to output per-triangle material indices.
+//
+// Root cause:
+//   ParseFBXScene needed to split a single FBX joined mesh into per-material
+//   sub-meshes (one GPU draw call per material slot).  TriangulateGeometry knew
+//   which polygon each triangle came from, but had no way to report the polygon's
+//   material index to the caller.
+//
+// Changes:
+//
+//   1. Function signature: added std::vector<int32_t>& outTriMatIdx as 4th param.
+//      Added outTriMatIdx.clear() alongside the existing outVerts/outIdx clears.
+//
+//   2. Fan-triangulation loop converted from range-for over polygons to index-for
+//      (size_t p = 0; p < polygons.size(); ++p) so the polygon index p is available.
+//
+//   3. Per-polygon material slot resolved before the inner triangle loop:
+//        const bool matByPolygon = (!geom.materialIndex.empty() &&
+//                                    geom.materialMappingType != "AllSame");
+//        const int32_t allSameMat = (!geom.materialIndex.empty())
+//                                   ? geom.materialIndex[0] : 0;
+//        const int32_t polyMat = matByPolygon
+//                                ? ((p < geom.materialIndex.size())
+//                                   ? geom.materialIndex[p] : 0)
+//                                : allSameMat;
+//
+//   4. Inside the inner triangle loop (one triangle = fan vertex t, t+1, pivot 0):
+//        outTriMatIdx.push_back(polyMat);   // one entry per output triangle
+//      Pushed BEFORE the three-vertex generation block so outTriMatIdx remains
+//      aligned with outIdx (both grow by exactly one entry per triangle).
+//
+// Invariant guaranteed:
+//   outTriMatIdx.size() == outIdx.size() / 3
+//   outTriMatIdx[t] is the FBX material slot for triangle t.
+//
+// File changed: FBXImport.cpp (TriangulateGeometry function body)

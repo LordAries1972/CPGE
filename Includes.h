@@ -94,10 +94,10 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
         // redefinition warning that would otherwise fire from that double-definition.
         // ------------------------------------------------------------------------------------
         #ifndef __USE_DIRECTX_11__
-//        #define __USE_DIRECTX_11__
+        #define __USE_DIRECTX_11__
         #endif
         #ifndef __USE_DIRECTX_12__
-        #define __USE_DIRECTX_12__
+//        #define __USE_DIRECTX_12__
         #endif
         #ifndef __USE_OPENGL__
 //        #define __USE_OPENGL__
@@ -627,12 +627,13 @@ const std::filesystem::path ShadersDir = L"./Assets/Shaders/";
 const std::vector<std::string> MyShaders = { "ModelVertex", "ModelPixel" };
 
 // Reserved Shader Slots for Render Pipeline ( b? slot )
-const int SLOT_CONST_BUFFER = 0;                                                // Constant Buffer Slot   
+const int SLOT_CONST_BUFFER = 0;                                                // Constant Buffer Slot
 const int SLOT_LIGHT_BUFFER = 1;                                                // Model Light Buffer Slot
 const int SLOT_DEBUG_BUFFER = 2;                                                // Debug Buffer Slot
 const int SLOT_GLOBAL_LIGHT_BUFFER = 3;                                         // Global Light Buffer Slot
 const int SLOT_MATERIAL_BUFFER = 4;                                             // Material Buffer Slot
 const int SLOT_ENVIRONMENT_BUFFER = 5;                                          // Environment Settings Buffer Slot
+const int SLOT_SHADOW_BUFFER = 6;                                               // Shadow Constant Buffer Slot (b6)
 
 // Reserved Texture Slots for Pixel Shader ( t? slot ).
 const int SLOT_diffuseTexture = 0;                                              // Diffuse Textures.
@@ -641,10 +642,14 @@ const int SLOT_metallicMap = 2;                                                 
 const int SLOT_roughnessMap = 3;                                                // Roughness Mappings.
 const int SLOT_aoMap = 4;                                                       // Ambient Occulusion Mapping.
 const int SLOT_environmentMap = 5;                                              // Environment Mappings for Reflections.
+const int SLOT_glossMap = 6;                                                    // Gloss / Smoothness Map (roughness = 1 - gloss.r)
+const int SLOT_emissiveMap = 7;                                                 // Emissive Texture Map (multiplied by EmissiveFactor)
+const int SLOT_shadowMap = 8;                                                   // Shadow Depth Map for PCF Shadow Sampling
 
 // Reserved Sampler Slots for Pixel Shader ( s? slot )
 const int SLOT_SAMPLER_STATE = 0;
 const int SLOT_ENVIRO_SAMPLER_STATE = 1;
+const int SLOT_SHADOW_SAMPLER_STATE = 2;                                        // Shadow Comparison Sampler (PCF)
 
 #if defined(PLATFORM_WINDOWS)
     //------------------------------------------

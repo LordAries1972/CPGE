@@ -41,6 +41,7 @@ message(STATUS "Output exe : ${EXE_OUTPUT_NAME}")
 # ── Sources ──────────────────────────────────────────────────────────────────
 set(SOURCES
     BlenderImports.cpp
+    FBXImport.cpp
     Configuration.cpp
     ConsoleWindow.cpp
     Debug.cpp

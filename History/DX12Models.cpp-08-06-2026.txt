@@ -1,0 +1,32 @@
+// History: DX12Models.cpp - 08-06-2026
+// Fix: Removed flat normal map fallback from DX12 render path; same policy
+//      as Models.cpp -- no fallback when normalMapSRVs is empty.
+//
+// Changes:
+//   1. RenderDX12-via-11on12 path (RenderOn11Context / similar):
+//      Removed: if (m_modelInfo.normalMapSRVs.empty()) LoadFallbackNormalMap();
+//
+//   2. MaterialBuffer update: added NormalScale = 0.0f override when
+//      normalMapSRVs is empty so ModelPixel.hlsl uses vertex normal path.
+//
+//   3. Normal map slot binding: changed from "if (normSRV) bind" to always
+//      set the slot (bind null when normSRV is nullptr) to prevent stale SRV
+//      from a previously rendered model leaking into this model's draw call.
+//
+// File changed: DX12Models.cpp (RenderOn11Context / DX12 render path)
+//
+// ---
+//
+// Enhancement [same date]: Extended SRV binding + new material flags (DX12 11on12 path)
+//
+//   11on12 render path (deviceContext):
+//     1. MaterialBuffer: useDiffuseMap / useGlossMap / useEmissiveMap flags added
+//        from m_modelInfo booleans.
+//     2. SRV binding extended: glossSRV (t6), emissiveSRV (t7), shadowSRV (t8).
+//     3. shadowSamplerState bound to s2.
+//     4. shadowBuffer mapped/updated (same values as Models.cpp) and bound to b6.
+//
+//   Native DX12 path (d3d12MaterialMapped):
+//     Same three new flags written into MaterialGPU for DX12 native draw path.
+//
+// File changed: DX12Models.cpp

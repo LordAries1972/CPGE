@@ -16,7 +16,7 @@ struct VS_INPUT
     float3 position  : POSITION;
     float3 normal    : NORMAL;
     float2 texCoord  : TEXCOORD;
-    float3 tangent   : TANGENT;
+    float4 tangent   : TANGENT;                 // xyz = tangent, w = handedness sign (+1 or -1)
 };
 
 struct VS_OUTPUT
@@ -57,11 +57,15 @@ VS_OUTPUT main(VS_INPUT input)
     float3x3 normalMatrix = transpose(inverse3x3(worldMatrix3x3));
 
     float3 N = normalize(mul(input.normal, normalMatrix));
-    float3 T = normalize(mul(input.tangent, normalMatrix));
-    float3 B = normalize(cross(T, N)); // Bitangent (corrected for GLTF Z-flip handedness)
+    float3 T = normalize(mul(input.tangent.xyz, normalMatrix));
 
-    output.normal = N;
-    output.tangent = T;
+    // GLTF spec: bitangent = cross(N, T.xyz) * T.w
+    // T.w is +1 for standard winding, -1 for mirrored UV islands.
+    // Using cross(N, T) (not cross(T, N)) matches the GLTF 2.0 specification.
+    float3 B = normalize(cross(N, T)) * input.tangent.w;
+
+    output.normal    = N;
+    output.tangent   = T;
     output.bitangent = B;
 
     // === View direction (from vertex to camera)

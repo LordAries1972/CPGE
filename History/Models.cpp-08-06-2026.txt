@@ -1,0 +1,50 @@
+// History: Models.cpp - 08-06-2026
+// Fix: Removed flat normal map fallback; models without a normal map now render
+//      using geometry vertex normals with no fallback texture allocation.
+//
+// Root cause / policy change:
+//   SetupModelForRendering previously called LoadFallbackNormalMap() whenever
+//   normalMapSRVs was empty, creating a 1x1 (0.5, 0.5, 1.0) flat-normal SRV.
+//   Policy is: no fallback -- models without a normal map should render with
+//   the material colour using geometry normals, not a synthesised flat map.
+//
+// Changes:
+//
+//   1. SetupModelForRendering (DX11 path):
+//      Removed the "Ensure at least one normal map SRV exists" block that called
+//      LoadFallbackNormalMap().  Added comment explaining the NormalScale=0 path.
+//
+//   2. Render() DX11 path:
+//      a. Removed the per-frame LoadFallbackNormalMap() call.
+//      b. Added NormalScale = 0.0f override in the MaterialBuffer update when
+//         normalMapSRVs is empty.  This tells ModelPixel.hlsl to use vertex normal.
+//      c. Changed "if (normSRV) bind" to always set the normal map slot:
+//           if (normSRV) bind;  else bind null;
+//         Prevents a stale SRV from a previously rendered model leaking through.
+//
+// File changed: Models.cpp (SetupModelForRendering DX11 path; Render DX11 path)
+//
+// ---
+//
+// Enhancement [same date]: Extended SRV binding + shadow buffer/sampler creation
+//
+//   SetupModelForRendering:
+//     1. Shadow comparison sampler created (s2, D3D11_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT,
+//        BORDER addressing, LESS_EQUAL comparison, border colour = white = fully lit).
+//     2. Shadow constant buffer created (b6, sizeof(ShadowBufferGPU) = 80 bytes).
+//        Both are non-fatal if creation fails (shadows disabled gracefully).
+//
+//   DestroyModel:
+//     Added Reset() calls for glossMapSRV, emissiveMapSRV, shadowMapSRV, shadowBuffer,
+//     shadowSamplerState.
+//
+//   Render() DX11 path:
+//     1. MaterialBuffer: useDiffuseMap / useGlossMap / useEmissiveMap flags written
+//        from m_modelInfo.useDiffuseMap / useGlossMap / useEmissiveMap.
+//     2. SRV binding extended: glossSRV (t6), emissiveSRV (t7), shadowSRV (t8) always
+//        bound (passing &ptr where ptr==null unbinds the slot correctly in D3D11).
+//     3. shadowSamplerState bound to s2 when present.
+//     4. shadowBuffer mapped/updated (lightViewProj=Identity, bias=0.001, strength=0.8,
+//        useShadowMap=1 if shadowSRV!=null, mapSize=2048) and bound to b6.
+//
+// File changed: Models.cpp

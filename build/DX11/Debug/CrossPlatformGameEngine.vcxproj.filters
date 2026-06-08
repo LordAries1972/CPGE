@@ -4,6 +4,9 @@
     <ClCompile Include="F:\Projects\C++\CPGE2026\BlenderImports.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="F:\Projects\C++\CPGE2026\FBXImport.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="F:\Projects\C++\CPGE2026\Configuration.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

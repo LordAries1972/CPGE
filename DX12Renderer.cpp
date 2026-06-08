@@ -452,7 +452,7 @@ void DX12Renderer::CreateDescriptorHeaps() {
 
         // Create CBV/SRV/UAV descriptor heap for textures and constant buffers
         D3D12_DESCRIPTOR_HEAP_DESC cbvSrvUavHeapDesc = {};
-        cbvSrvUavHeapDesc.NumDescriptors = MAX_TEXTURE_BUFFERS_3D + 10;          // Textures plus constant buffers
+        cbvSrvUavHeapDesc.NumDescriptors = DX12_MODEL_TEXTURE_HEAP_BASE + DX12_MODEL_TEXTURE_HEAP_CAPACITY; // Null(6)+reserved(4)+scene+model SRVs
         cbvSrvUavHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;        // Combined heap type
         cbvSrvUavHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;    // Shader visible for binding
         cbvSrvUavHeapDesc.NodeMask = 0;                                         // Single GPU node
@@ -2449,6 +2449,9 @@ void DX12Renderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
                 m_d3d12Device->CreateShaderResourceView(nullptr, &nullSrv, cpu);
             }
             m_nullTextureGPUHandle = m_cbvSrvUavHeap.gpuStart;  // slots 0-5 are the 6 null SRVs
+            // Initialise allocation cursor to the first per-model texture slot so that
+            // Model::SetupModelForRendering() can allocate 6 consecutive SRV slots from here.
+            m_cbvSrvUavHeap.currentOffset = DX12_MODEL_TEXTURE_HEAP_BASE;
         }
 
         // Initialize DirectX 11-12 compatibility layer for 2D rendering
@@ -3858,7 +3861,7 @@ void DX12Renderer::PopClipRect() {
 //-----------------------------------------
 // Draw Centered Text for DirectX 12
 //-----------------------------------------
-void DX12Renderer::DrawMyTextCentered(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize, float controlWidth, float controlHeight, bool /*bold*/) {
+void DX12Renderer::DrawMyTextCentered(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize, float controlWidth, float controlHeight, bool bold) {
 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
     debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Drawing centered text in control (%.2f x %.2f) at (%.2f, %.2f): %s",
         controlWidth, controlHeight, position.x, position.y, text.substr(0, 50).c_str());
@@ -3871,11 +3874,8 @@ void DX12Renderer::DrawMyTextCentered(const std::wstring& text, const Vector2& p
             return;
         }
 
-        // MayaCulpa has no native bold face; requesting BOLD forces DWrite to
-        // synthesise it from font tables that are malformed for that weight,
-        // causing a memcpy AV deep inside DWrite on the first call.
-        // NORMAL weight renders without synthesis and is crash-free.
-        IDWriteTextFormat* textFormat = GetOrCreateTextFormat(FontName, FontSize, DWRITE_FONT_WEIGHT_NORMAL);
+        DWRITE_FONT_WEIGHT weight = bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL;
+        IDWriteTextFormat* textFormat = GetOrCreateTextFormat(FontName, FontSize, weight);
         if (!textFormat) {
             debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to get/create text format for centered text.");
             return;

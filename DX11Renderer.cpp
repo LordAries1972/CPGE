@@ -979,11 +979,8 @@ void DX11Renderer::DrawMyTextCentered(const std::wstring& text, const Vector2& p
     if (!m_d2dRenderTarget || !m_dwriteFactory) return;
     if (text.empty() || FontSize <= 0.0f) return;
 
-    // Bold weight matches the Vulkan pipeline treatment and compensates for
-    // DWrite rendering at the DXGI backbuffer DPI vs off-screen bitmaps.
-    // Full-rect centering: pass the entire control rect and let DWrite centre
-    // both axes via PARAGRAPH_ALIGNMENT_CENTER + TEXT_ALIGNMENT_CENTER —
-    // more accurate than manual metric math and consistent with VulkanRenderer.
+    // Bold weight matches the DX12/Vulkan pipeline treatment.
+    // A fresh format per call is required because alignment is mutated below.
     ComPtr<IDWriteTextFormat> textFormat;
     HRESULT hr = m_dwriteFactory->CreateTextFormat(
         FontName, nullptr, DWRITE_FONT_WEIGHT_BOLD,
@@ -991,8 +988,21 @@ void DX11Renderer::DrawMyTextCentered(const std::wstring& text, const Vector2& p
         FontSize, L"en-us", &textFormat);
     if (FAILED(hr)) return;
 
-    textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-    textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    // Measure actual text extents via TextLayout so the centred position is
+    // exact at any DPI.  DWRITE_PARAGRAPH_ALIGNMENT_CENTER alone is unreliable
+    // on ID2D1RenderTarget (DXGI surface) at non-96-DPI system scales.
+    ComPtr<IDWriteTextLayout> textLayout;
+    hr = m_dwriteFactory->CreateTextLayout(
+        text.c_str(), static_cast<UINT32>(text.size()),
+        textFormat.Get(), 10000.0f, 1000.0f, &textLayout);
+    if (FAILED(hr)) return;
+
+    DWRITE_TEXT_METRICS metrics;
+    if (FAILED(textLayout->GetMetrics(&metrics))) return;
+
+    // Compute the pixel-perfect centred origin within the control rect
+    float centredX = position.x + (controlWidth  * 0.5f) - (metrics.width  * 0.5f);
+    float centredY = position.y + (controlHeight * 0.5f) - (metrics.height * 0.5f);
 
     float r = color.r / 255.0f, g = color.g / 255.0f, b = color.b / 255.0f, a = color.a / 255.0f;
     if (!m_pixelBrush)
@@ -1000,10 +1010,10 @@ void DX11Renderer::DrawMyTextCentered(const std::wstring& text, const Vector2& p
     else
         m_pixelBrush->SetColor(D2D1::ColorF(r, g, b, a));
 
+    // Draw at the exact measured rect — horizontal and vertical centering is guaranteed
     m_d2dRenderTarget->DrawText(
         text.c_str(), static_cast<UINT32>(text.size()), textFormat.Get(),
-        D2D1::RectF(position.x, position.y,
-                    position.x + controlWidth, position.y + controlHeight),
+        D2D1::RectF(centredX, centredY, centredX + metrics.width, centredY + metrics.height),
         m_pixelBrush.Get()
     );
 }

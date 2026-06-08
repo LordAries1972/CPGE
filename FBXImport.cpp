@@ -1,0 +1,2331 @@
+// ============================================================
+// FBXImport.cpp -- ground-up FBX 7.x binary / ASCII importer (no Autodesk SDK)
+// Originally created by Daniel J. Hobson, Melbourne, Australia 2026.
+// ============================================================
+#include "Includes.h"
+#include "FBXImport.h"
+#include "Debug.h"
+#include "BlenderImports.h"
+#include <set>
+
+namespace {
+
+static constexpr int kMaxBits = 15;
+static constexpr int kMaxLit  = 288;
+static constexpr int kMaxDist = 32;
+
+struct HuffTree { int count[kMaxBits + 1]; int symbol[kMaxLit + kMaxDist]; };
+
+struct InflCtx {
+    const uint8_t* src;
+    size_t srcLen, srcPos;
+    uint32_t bits;
+    int      nbits;
+    uint8_t* dst;
+    size_t   dstLen, dstPos;
+    bool     err;
+};
+
+static uint32_t GetBits(InflCtx& c, int n)
+{
+    while (c.nbits < n) {
+        if (c.srcPos >= c.srcLen) { c.err = true; return 0; }
+        c.bits |= (uint32_t)c.src[c.srcPos++] << c.nbits;
+        c.nbits += 8;
+    }
+    uint32_t v = c.bits & ((1u << n) - 1);
+    c.bits >>= n; c.nbits -= n;
+    return v;
+}
+
+static void BuildTree(HuffTree& h, const int* lens, int n)
+{
+    memset(h.count, 0, sizeof(h.count));
+    for (int i = 0; i < n; i++) if (lens[i]) h.count[lens[i]]++;
+    int offs[kMaxBits + 1] = {};
+    for (int i = 1; i < kMaxBits; i++) offs[i + 1] = offs[i] + h.count[i];
+    for (int i = 0; i < n; i++) if (lens[i]) h.symbol[offs[lens[i]]++] = i;
+}
+
+static int DecSym(InflCtx& c, const HuffTree& h)
+{
+    int code = 0, first = 0, idx = 0;
+    for (int b = 1; b <= kMaxBits; b++) {
+        code |= (int)GetBits(c, 1);
+        int cnt = h.count[b];
+        if (code - cnt < first) return h.symbol[idx + (code - first)];
+        idx += cnt; first = (first + cnt) << 1; code <<= 1;
+    }
+    c.err = true; return -1;
+}
+
+static const int kLenBase[29]  = { 3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258 };
+static const int kLenEx[29]    = { 0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0 };
+static const int kDistBase[30] = { 1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577 };
+static const int kDistEx[30]   = { 0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13 };
+
+static bool InflateCodes(InflCtx& c, const HuffTree& lt, const HuffTree& dt)
+{
+    while (!c.err) {
+        int sym = DecSym(c, lt);
+        if (c.err) return false;
+        if (sym < 256) {
+            if (c.dstPos >= c.dstLen) { c.err = true; return false; }
+            c.dst[c.dstPos++] = (uint8_t)sym;
+        } else if (sym == 256) {
+            return true;
+        } else {
+            sym -= 257;
+            if (sym >= 29) { c.err = true; return false; }
+            int len  = kLenBase[sym] + (int)GetBits(c, kLenEx[sym]);
+            int dsym = DecSym(c, dt);
+            if (c.err || dsym < 0 || dsym >= 30) { c.err = true; return false; }
+            int dist = kDistBase[dsym] + (int)GetBits(c, kDistEx[dsym]);
+            if ((size_t)dist > c.dstPos || c.dstPos + (size_t)len > c.dstLen) { c.err = true; return false; }
+            for (int i = 0; i < len; i++) { c.dst[c.dstPos] = c.dst[c.dstPos - dist]; c.dstPos++; }
+        }
+    }
+    return false;
+}
+
+static bool InflateStored(InflCtx& c)
+{
+    c.bits = 0; c.nbits = 0;
+    if (c.srcPos + 4 > c.srcLen) { c.err = true; return false; }
+    uint16_t len  = (uint16_t)c.src[c.srcPos] | ((uint16_t)c.src[c.srcPos + 1] << 8);
+    uint16_t nlen = (uint16_t)c.src[c.srcPos + 2] | ((uint16_t)c.src[c.srcPos + 3] << 8);
+    c.srcPos += 4;
+    if ((len ^ nlen) != 0xFFFFu) { c.err = true; return false; }
+    if (c.srcPos + len > c.srcLen || c.dstPos + len > c.dstLen) { c.err = true; return false; }
+    memcpy(c.dst + c.dstPos, c.src + c.srcPos, len);
+    c.srcPos += len; c.dstPos += len;
+    return true;
+}
+
+static bool InflateFixed(InflCtx& c)
+{
+    int ll[288], dl[32];
+    for (int i = 0;   i < 144; i++) ll[i] = 8;
+    for (int i = 144; i < 256; i++) ll[i] = 9;
+    for (int i = 256; i < 280; i++) ll[i] = 7;
+    for (int i = 280; i < 288; i++) ll[i] = 8;
+    for (int i = 0;   i < 32;  i++) dl[i] = 5;
+    HuffTree lt, dt;
+    BuildTree(lt, ll, 288);
+    BuildTree(dt, dl, 32);
+    return InflateCodes(c, lt, dt);
+}
+
+static bool InflateDynamic(InflCtx& c)
+{
+    int hlit  = (int)GetBits(c, 5) + 257;
+    int hdist = (int)GetBits(c, 5) + 1;
+    int hclen = (int)GetBits(c, 4) + 4;
+    if (c.err) return false;
+
+    static const int kCLOrder[19] = { 16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15 };
+    int cls[19] = {};
+    for (int i = 0; i < hclen; i++) cls[kCLOrder[i]] = (int)GetBits(c, 3);
+    HuffTree ct;
+    BuildTree(ct, cls, 19);
+
+    int total = hlit + hdist;
+    std::vector<int> lens(total, 0);
+    for (int i = 0; i < total; ) {
+        int sym = DecSym(c, ct);
+        if (c.err) return false;
+        if (sym < 16) {
+            lens[i++] = sym;
+        } else if (sym == 16) {
+            if (i == 0) { c.err = true; return false; }
+            int rep = (int)GetBits(c, 2) + 3, prev = lens[i - 1];
+            for (; rep-- && i < total; ) lens[i++] = prev;
+        } else if (sym == 17) {
+            int rep = (int)GetBits(c, 3) + 3;
+            for (; rep-- && i < total; ) lens[i++] = 0;
+        } else {
+            int rep = (int)GetBits(c, 7) + 11;
+            for (; rep-- && i < total; ) lens[i++] = 0;
+        }
+    }
+
+    HuffTree lt, dt;
+    BuildTree(lt, lens.data(), hlit);
+    BuildTree(dt, lens.data() + hlit, hdist);
+    return InflateCodes(c, lt, dt);
+}
+
+static bool DoInflate(InflCtx& c)
+{
+    bool fin = false;
+    while (!fin && !c.err) {
+        fin = GetBits(c, 1) != 0;
+        switch (GetBits(c, 2)) {
+        case 0: if (!InflateStored(c))  return false; break;
+        case 1: if (!InflateFixed(c))   return false; break;
+        case 2: if (!InflateDynamic(c)) return false; break;
+        default: c.err = true; return false;
+        }
+    }
+    return !c.err;
+}
+
+} // namespace
+
+extern Debug debug;
+
+// ============================================================
+// Helper: read T from little-endian byte stream (no alignment)
+// ============================================================
+template<typename T>
+static T ReadLE(const uint8_t* p)
+{
+    T v;
+    memcpy(&v, p, sizeof(T));
+    return v;
+}
+
+// ============================================================
+// FBXNode helpers
+// ============================================================
+const FBXNode* FBXNode::FindChild(const std::string& n) const
+{
+    for (const auto& c : children)
+        if (c.name == n) return &c;
+    return nullptr;
+}
+
+std::vector<const FBXNode*> FBXNode::FindChildren(const std::string& n) const
+{
+    std::vector<const FBXNode*> out;
+    for (const auto& c : children)
+        if (c.name == n) out.push_back(&c);
+    return out;
+}
+
+// ============================================================
+// FBXImporter -- constructor / destructor
+// ============================================================
+FBXImporter::FBXImporter() {}
+FBXImporter::~FBXImporter() {}
+
+// ============================================================
+// LoadFile  --  detect binary vs ASCII and dispatch
+// ============================================================
+bool FBXImporter::LoadFile(const std::wstring& filepath)
+{
+    m_loaded = false;
+    m_scene  = FBXScene{};
+
+    // Read entire file into memory
+    std::ifstream f(filepath, std::ios::binary | std::ios::ate);
+    if (!f.is_open())
+    {
+        debug.logLevelMessage(LogLevel::LOG_ERROR,
+            (L"[FBXImporter] Cannot open file: " + filepath).c_str());
+        return false;
+    }
+
+    const auto fileSize = static_cast<size_t>(f.tellg());
+    f.seekg(0);
+    std::vector<uint8_t> data(fileSize);
+    f.read(reinterpret_cast<char*>(data.data()), fileSize);
+    f.close();
+
+    if (fileSize < 27)
+    {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FBXImporter] File too small to be valid FBX.");
+        return false;
+    }
+
+    // Detect: binary magic = "Kaydara FBX Binary  \x00\x1a\x00" (23 bytes)
+    static const uint8_t kBinaryMagic[23] = {
+        'K','a','y','d','a','r','a',' ','F','B','X',' ','B','i','n','a','r','y',
+        ' ',' ','\x00','\x1a','\x00'
+    };
+    m_isBinary = (memcmp(data.data(), kBinaryMagic, 23) == 0);
+
+    bool ok = false;
+    if (m_isBinary)
+    {
+        ok = ParseBinary(data);
+    }
+    else
+    {
+        // ASCII: treat file as UTF-8 string
+        std::string text(reinterpret_cast<const char*>(data.data()), data.size());
+        ok = ParseASCII(text);
+    }
+
+    if (!ok)
+    {
+        debug.logLevelMessage(LogLevel::LOG_ERROR,
+            (L"[FBXImporter] Parsing failed for: " + filepath).c_str());
+        return false;
+    }
+
+    m_loaded = true;
+    #if defined(_DEBUG_FBXIMPORTER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO,
+            (std::wstring(L"[FBXImporter] Loaded FBX v") + std::to_wstring(m_version) +
+             L" -- Models:" + std::to_wstring(m_scene.models.size()) +
+             L" Geom:"      + std::to_wstring(m_scene.geometries.size()) +
+             L" Mats:"      + std::to_wstring(m_scene.materials.size()) +
+             L" Lights:"    + std::to_wstring(m_scene.lights.size()) +
+             L" AnimStacks:"+ std::to_wstring(m_scene.animStacks.size())).c_str());
+    #endif
+    return true;
+}
+
+// ============================================================
+//  BINARY PARSER
+// ============================================================
+
+// InflateData: decompress a zlib-wrapped DEFLATE stream embedded in a binary FBX array.
+// FBX stores large attribute arrays (positions, UVs, etc.) as zlib-DEFLATE blobs
+// with a 2-byte zlib header (0x78 0x??) that we skip before feeding to our inflator.
+// Uses a minimal hand-rolled DEFLATE decoder (no zlib dependency) for portability.
+bool FBXImporter::InflateData(const uint8_t* src, size_t srcLen,
+                               size_t dstLen, std::vector<uint8_t>& dst)
+{
+    dst.resize(dstLen);
+
+    if (srcLen < 6)
+    {
+        #if defined(_DEBUG_FBXIMPORTER_)
+            debug.logLevelMessage(LogLevel::LOG_WARNING,
+                L"[FBXImporter] InflateData: compressed block too small");
+        #endif
+        return false;
+    }
+
+    InflCtx c{};
+    c.src    = src + 2;
+    c.srcLen = srcLen - 6;
+    c.dst    = dst.data();
+    c.dstLen = dstLen;
+
+    if (!DoInflate(c) || c.dstPos != dstLen)
+    {
+        debug.logLevelMessage(LogLevel::LOG_ERROR,
+            L"[FBXImporter] InflateData: Decompress failed or size mismatch");
+        return false;
+    }
+    return true;
+}
+
+// ----------------------------------------------------------------
+// ParseBinaryProperty: decode one FBX binary property from the data stream.
+// Type byte codes (ASCII type ID):
+//   Y=int16  C=bool  I=int32  F=float  D=double  L=int64
+//   f=float[]  d=double[]  l=int64[]  i=int32[]  b=bool[]
+//   S=string  R=raw-bytes
+// Array types carry a 12-byte header (count, encoding, compressedLen) before
+// the payload; encoding==1 means the payload is zlib-DEFLATE compressed.
+// ----------------------------------------------------------------
+bool FBXImporter::ParseBinaryProperty(const std::vector<uint8_t>& data,
+                                       size_t& off, FBXProperty& out)
+{
+    if (off >= data.size()) return false;
+
+    const uint8_t typeCode = data[off++];
+    out.type = static_cast<FBXPropertyType>(typeCode);
+
+    switch (typeCode)
+    {
+    case 'Y': // int16
+        if (off + 2 > data.size()) return false;
+        out.v_short = ReadLE<int16_t>(data.data() + off); off += 2;
+        return true;
+
+    case 'C': // bool
+        if (off + 1 > data.size()) return false;
+        out.v_bool = (data[off++] != 0);
+        return true;
+
+    case 'I': // int32
+        if (off + 4 > data.size()) return false;
+        out.v_int = ReadLE<int32_t>(data.data() + off); off += 4;
+        return true;
+
+    case 'F': // float
+        if (off + 4 > data.size()) return false;
+        out.v_float = ReadLE<float>(data.data() + off); off += 4;
+        return true;
+
+    case 'D': // double
+        if (off + 8 > data.size()) return false;
+        out.v_double = ReadLE<double>(data.data() + off); off += 8;
+        return true;
+
+    case 'L': // int64
+        if (off + 8 > data.size()) return false;
+        out.v_long = ReadLE<int64_t>(data.data() + off); off += 8;
+        return true;
+
+    // -------- Array types --------
+    case 'f': case 'd': case 'l': case 'i': case 'b':
+    {
+        if (off + 12 > data.size()) return false;
+        const uint32_t arrayLen   = ReadLE<uint32_t>(data.data() + off);
+        const uint32_t encoding   = ReadLE<uint32_t>(data.data() + off + 4);
+        const uint32_t compLen    = ReadLE<uint32_t>(data.data() + off + 8);
+        off += 12;
+
+        if (off + compLen > data.size()) return false;
+
+        const uint8_t* rawPtr = data.data() + off;
+        off += compLen;
+
+        // Determine element size
+        size_t elemSize = (typeCode == 'd' || typeCode == 'l') ? 8 : (typeCode == 'b') ? 1 : 4;
+        size_t plainLen = static_cast<size_t>(arrayLen) * elemSize;
+
+        std::vector<uint8_t> plain;
+        if (encoding == 0)
+        {
+            plain.assign(rawPtr, rawPtr + compLen);
+        }
+        else if (encoding == 1)
+        {
+            if (!InflateData(rawPtr, compLen, plainLen, plain))
+                return false;
+        }
+        else
+        {
+            #if defined(_DEBUG_FBXIMPORTER_)
+                debug.logLevelMessage(LogLevel::LOG_WARNING,
+                    L"[FBXImporter] Unknown array encoding; skipping.");
+            #endif
+            return true; // skip, leave arrays empty
+        }
+
+        if (plain.size() < plainLen) return false;
+
+        if (typeCode == 'f')
+        {
+            out.floatArray.resize(arrayLen);
+            memcpy(out.floatArray.data(), plain.data(), plainLen);
+        }
+        else if (typeCode == 'd')
+        {
+            out.doubleArray.resize(arrayLen);
+            memcpy(out.doubleArray.data(), plain.data(), plainLen);
+        }
+        else if (typeCode == 'l')
+        {
+            out.longArray.resize(arrayLen);
+            memcpy(out.longArray.data(), plain.data(), plainLen);
+        }
+        else if (typeCode == 'i')
+        {
+            out.intArray.resize(arrayLen);
+            memcpy(out.intArray.data(), plain.data(), plainLen);
+        }
+        else // 'b'
+        {
+            out.boolArray.resize(arrayLen);
+            memcpy(out.boolArray.data(), plain.data(), arrayLen);
+        }
+        return true;
+    }
+
+    case 'S': // string
+    {
+        if (off + 4 > data.size()) return false;
+        const uint32_t len = ReadLE<uint32_t>(data.data() + off); off += 4;
+        if (off + len > data.size()) return false;
+        out.strValue.assign(reinterpret_cast<const char*>(data.data() + off), len);
+        off += len;
+        return true;
+    }
+
+    case 'R': // raw bytes
+    {
+        if (off + 4 > data.size()) return false;
+        const uint32_t len = ReadLE<uint32_t>(data.data() + off); off += 4;
+        if (off + len > data.size()) return false;
+        out.strValue.assign(reinterpret_cast<const char*>(data.data() + off), len);
+        off += len;
+        return true;
+    }
+
+    default:
+        #if defined(_DEBUG_FBXIMPORTER_)
+            debug.logLevelMessage(LogLevel::LOG_WARNING,
+                L"[FBXImporter] Unknown property type; aborting property read.");
+        #endif
+        return false;
+    }
+}
+
+// ----------------------------------------------------------------
+// ParseBinaryNode: read one node from the binary FBX stream (recursive).
+// Node layout: [endOffset | numProps | propListLen | nameLen | name | props... | children... | sentinel]
+//   - 32-bit offsets for FBX < 7.5, 64-bit for 7.5+ (is64bit flag).
+//   - endOffset points past the node's last child sentinel in the file.
+//   - Children follow properties and are terminated by a 13- or 25-byte null sentinel.
+//   - Returning false means the parser hit a null sentinel (end-of-list) or a corrupt record.
+// ----------------------------------------------------------------
+bool FBXImporter::ParseBinaryNode(const std::vector<uint8_t>& data,
+                                   size_t& off, FBXNode& out, bool is64bit)
+{
+    // Sentinel check: all-zero header = null record (end of nested list)
+    const size_t sentinelSize = is64bit ? 25u : 13u;
+    if (off + sentinelSize > data.size()) return false;
+
+    // Quick sentinel check (first few bytes all zero?)
+    bool isSentinel = true;
+    for (size_t i = 0; i < sentinelSize; ++i)
+        if (data[off + i] != 0) { isSentinel = false; break; }
+    if (isSentinel) { off += sentinelSize; return false; } // signals end-of-list
+
+    // Read node header
+    uint64_t endOffset    = 0;
+    uint64_t numProps     = 0;
+    uint64_t propListLen  = 0;
+
+    if (is64bit)
+    {
+        if (off + 25 > data.size()) return false;
+        endOffset   = ReadLE<uint64_t>(data.data() + off);     off += 8;
+        numProps    = ReadLE<uint64_t>(data.data() + off);     off += 8;
+        propListLen = ReadLE<uint64_t>(data.data() + off);     off += 8;
+    }
+    else
+    {
+        if (off + 13 > data.size()) return false;
+        endOffset   = ReadLE<uint32_t>(data.data() + off);     off += 4;
+        numProps    = ReadLE<uint32_t>(data.data() + off);     off += 4;
+        propListLen = ReadLE<uint32_t>(data.data() + off);     off += 4;
+    }
+
+    if (endOffset == 0) return false; // null record
+
+    const uint8_t nameLen = data[off++];
+    if (off + nameLen > data.size()) return false;
+    out.name.assign(reinterpret_cast<const char*>(data.data() + off), nameLen);
+    off += nameLen;
+
+    // Validate header fields against the actual buffer size before any allocation.
+    // A corrupt FBX can contain a numProps / propListLen / endOffset value that is
+    // far larger than the file, causing vector::reserve to request gigabytes and
+    // trigger abort() via the custom new-handler (proven by crash stack trace).
+    if (endOffset > data.size())
+    {
+        #if defined(_DEBUG_FBXIMPORTER_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING,
+                L"[FBXImporter] ParseBinaryNode: node '%hs' endOffset=%llu exceeds fileSize=%llu -- corrupt/trailing record, skipping.",
+                out.name.c_str(), (unsigned long long)endOffset, (unsigned long long)data.size());
+        #endif
+        return false;
+    }
+    const size_t propsEnd = off + static_cast<size_t>(propListLen);
+    if (propsEnd > data.size() || numProps > propListLen)
+    {
+        // numProps > propListLen is impossible in a valid file (each property is
+        // at least 1 byte), so this also catches a corrupted numProps.
+        #if defined(_DEBUG_FBXIMPORTER_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING,
+                L"[FBXImporter] ParseBinaryNode: node '%hs' corrupt property count/length (numProps=%llu propListLen=%llu) -- aborting node.",
+                out.name.c_str(), (unsigned long long)numProps, (unsigned long long)propListLen);
+        #endif
+        return false;
+    }
+    out.properties.reserve(static_cast<size_t>(numProps));
+    for (uint64_t p = 0; p < numProps; ++p)
+    {
+        FBXProperty prop;
+        if (!ParseBinaryProperty(data, off, prop)) break;
+        out.properties.push_back(std::move(prop));
+    }
+    // Align to end of property block (padding may exist)
+    if (off < propsEnd) off = propsEnd;
+
+    // Read nested children until endOffset - sentinelSize
+    const size_t childrenEnd = static_cast<size_t>(endOffset) - sentinelSize;
+    while (off < childrenEnd && off < data.size())
+    {
+        FBXNode child;
+        if (!ParseBinaryNode(data, off, child, is64bit))
+            break; // sentinel hit
+        out.children.push_back(std::move(child));
+    }
+
+    // Advance to exact endOffset (skip any unread data / trailing sentinel)
+    off = static_cast<size_t>(endOffset);
+    return true;
+}
+
+// ----------------------------------------------------------------
+// ParseBinary  --  top-level binary file parser
+// ----------------------------------------------------------------
+bool FBXImporter::ParseBinary(const std::vector<uint8_t>& data)
+{
+    // Header: 23-byte magic, 4-byte version
+    m_version = ReadLE<uint32_t>(data.data() + 23);
+    const bool is64bit = (m_version >= 7500);
+
+    #if defined(_DEBUG_FBXIMPORTER_)
+        debug.logDebugMessage(LogLevel::LOG_INFO,
+            L"[FBXImporter] Binary FBX version: %u (%hs) fileSize=%zu bytes",
+            m_version, is64bit ? "64-bit offsets" : "32-bit offsets", data.size());
+    #endif
+
+    // Root node: start after header (offset 27)
+    FBXNode root;
+    root.name = "__ROOT__";
+    size_t off = 27;
+
+    while (off < data.size())
+    {
+        FBXNode child;
+        // Binary FBX root list ends with a null sentinel (13 or 25 zero bytes); the opaque
+        // footer that follows must not be parsed as nodes.  Break immediately on any false
+        // return so the footer bytes are silently ignored.
+        if (!ParseBinaryNode(data, off, child, is64bit))
+            break;
+        #if defined(_DEBUG_FBXIMPORTER_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                L"[FBXImporter] ParseBinary: top-level node '%hs' (%d children, %d props)",
+                child.name.c_str(), (int)child.children.size(), (int)child.properties.size());
+        #endif
+        root.children.push_back(std::move(child));
+    }
+
+    ExtractGlobalSettings(root);
+    ExtractObjects(root);
+    ProcessConnections(root);
+    return true;
+}
+
+// ============================================================
+//  ASCII PARSER
+// ============================================================
+
+void FBXImporter::SkipASCIIWhitespace(const char*& p, const char* end)
+{
+    while (p < end)
+    {
+        // Skip whitespace
+        if (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') { ++p; continue; }
+        // Skip line comments (;)
+        if (*p == ';')
+        {
+            while (p < end && *p != '\n') ++p;
+            continue;
+        }
+        break;
+    }
+}
+
+std::string FBXImporter::ReadASCIIIdentifier(const char*& p, const char* end)
+{
+    std::string s;
+    while (p < end && (isalnum((unsigned char)*p) || *p == '_' || *p == '.'))
+        s += *p++;
+    return s;
+}
+
+std::string FBXImporter::ReadASCIIString(const char*& p, const char* end)
+{
+    if (p >= end || *p != '"') return {};
+    ++p; // skip opening quote
+    std::string s;
+    while (p < end && *p != '"')
+    {
+        if (*p == '\\' && p + 1 < end) { ++p; s += *p++; }
+        else s += *p++;
+    }
+    if (p < end) ++p; // skip closing quote
+    return s;
+}
+
+double FBXImporter::ReadASCIINumber(const char*& p, const char* end)
+{
+    char* endp = nullptr;
+    double v = strtod(p, &endp);
+    if (endp && endp > p) p = endp;
+    return v;
+}
+
+bool FBXImporter::ParseASCIIValue(const char*& p, const char* end, FBXProperty& out)
+{
+    SkipASCIIWhitespace(p, end);
+    if (p >= end) return false;
+
+    if (*p == '"')
+    {
+        out.type     = FBXPropertyType::String;
+        out.strValue = ReadASCIIString(p, end);
+        return true;
+    }
+
+    // '*N' signals an array count followed by '{ a: v0,v1,... }'
+    if (*p == '*')
+    {
+        ++p;
+        SkipASCIIWhitespace(p, end);
+        // skip count
+        while (p < end && isdigit((unsigned char)*p)) ++p;
+        SkipASCIIWhitespace(p, end);
+        if (p < end && *p == '{')
+        {
+            ++p;
+            SkipASCIIWhitespace(p, end);
+            // Expect 'a:'
+            if (p + 2 < end && *p == 'a') { p += 2; } // skip 'a:'
+            SkipASCIIWhitespace(p, end);
+            // Read comma-separated numbers
+            out.type = FBXPropertyType::DoubleArray;
+            while (p < end && *p != '}')
+            {
+                SkipASCIIWhitespace(p, end);
+                if (p >= end || *p == '}') break;
+                out.doubleArray.push_back(ReadASCIINumber(p, end));
+                SkipASCIIWhitespace(p, end);
+                if (p < end && *p == ',') ++p;
+            }
+            if (p < end && *p == '}') ++p;
+        }
+        return true;
+    }
+
+    // Number (int or float)
+    out.type     = FBXPropertyType::Double;
+    out.v_double = ReadASCIINumber(p, end);
+    return true;
+}
+
+bool FBXImporter::ParseASCIINode(const char*& p, const char* end, FBXNode& out)
+{
+    SkipASCIIWhitespace(p, end);
+    if (p >= end || *p == '}') return false;
+
+    // Read node name
+    out.name = ReadASCIIIdentifier(p, end);
+    if (out.name.empty()) return false;
+
+    SkipASCIIWhitespace(p, end);
+    if (p >= end) return false;
+
+    // Expect ':'
+    if (*p != ':') return false;
+    ++p;
+
+    // Read optional properties up to '{' or newline
+    // Properties are comma-separated values on the same line
+    while (p < end && *p != '{' && *p != '\n' && *p != '\r')
+    {
+        SkipASCIIWhitespace(p, end);
+        if (p >= end || *p == '{' || *p == '\n' || *p == '\r') break;
+        if (*p == ',') { ++p; continue; }
+
+        FBXProperty prop;
+        if (ParseASCIIValue(p, end, prop))
+            out.properties.push_back(std::move(prop));
+        else
+            break;
+    }
+
+    SkipASCIIWhitespace(p, end);
+
+    // Child block
+    if (p < end && *p == '{')
+    {
+        ++p; // skip '{'
+        while (p < end)
+        {
+            SkipASCIIWhitespace(p, end);
+            if (p >= end || *p == '}') break;
+
+            FBXNode child;
+            if (ParseASCIINode(p, end, child))
+                out.children.push_back(std::move(child));
+            else
+            {
+                // Skip unexpected character
+                if (p < end && *p != '}') ++p;
+            }
+        }
+        if (p < end && *p == '}') ++p; // skip '}'
+    }
+
+    return true;
+}
+
+bool FBXImporter::ParseASCII(const std::string& text)
+{
+    // Extract version from header comment / FBXHeaderExtension
+    // e.g. "; FBX 7.4.0 project file"
+    m_version = 7400; // default
+    {
+        const char* hdr = text.c_str();
+        const char* found = strstr(hdr, "FBXVersion:");
+        if (!found) found = strstr(hdr, "FBX Version:");
+        if (found)
+        {
+            const char* np = found;
+            while (*np && !isdigit((unsigned char)*np)) ++np;
+            if (*np) m_version = static_cast<uint32_t>(strtol(np, nullptr, 10));
+        }
+    }
+
+    #if defined(_DEBUG_FBXIMPORTER_)
+        debug.logDebugMessage(LogLevel::LOG_INFO,
+            L"[FBXImporter] ASCII FBX version: %u", m_version);
+    #endif
+
+    FBXNode root;
+    root.name = "__ROOT__";
+    const char* p   = text.c_str();
+    const char* end = p + text.size();
+
+    while (p < end)
+    {
+        SkipASCIIWhitespace(p, end);
+        if (p >= end) break;
+        FBXNode child;
+        if (ParseASCIINode(p, end, child))
+            root.children.push_back(std::move(child));
+        else
+            ++p; // skip any garbage
+    }
+
+    ExtractGlobalSettings(root);
+    ExtractObjects(root);
+    ProcessConnections(root);
+    return true;
+}
+
+// ============================================================
+//  PROPERTY UTILITIES
+// ============================================================
+
+double FBXImporter::PropToDouble(const FBXProperty& p) const
+{
+    switch (static_cast<uint8_t>(p.type))
+    {
+    case 'Y': return p.v_short;
+    case 'C': return p.v_bool ? 1.0 : 0.0;
+    case 'I': return p.v_int;
+    case 'F': return p.v_float;
+    case 'D': return p.v_double;
+    case 'L': return static_cast<double>(p.v_long);
+    default:  return 0.0;
+    }
+}
+
+int32_t FBXImporter::PropToInt(const FBXProperty& p) const
+{
+    return static_cast<int32_t>(PropToDouble(p));
+}
+
+int64_t FBXImporter::PropToLong(const FBXProperty& p) const
+{
+    switch (static_cast<uint8_t>(p.type))
+    {
+    case 'L': return p.v_long;
+    case 'I': return p.v_int;
+    default:  return static_cast<int64_t>(PropToDouble(p));
+    }
+}
+
+std::string FBXImporter::PropToString(const FBXProperty& p) const
+{
+    if (static_cast<uint8_t>(p.type) == 'S' || static_cast<uint8_t>(p.type) == 'R')
+        return p.strValue;
+    return {};
+}
+
+std::vector<double> FBXImporter::PropToDoubleVec(const FBXProperty& p) const
+{
+    const uint8_t t = static_cast<uint8_t>(p.type);
+    if (t == 'd') return p.doubleArray;
+    if (t == 'f')
+    {
+        std::vector<double> out;
+        out.reserve(p.floatArray.size());
+        for (float v : p.floatArray) out.push_back(v);
+        return out;
+    }
+    if (t == 'i')
+    {
+        std::vector<double> out;
+        out.reserve(p.intArray.size());
+        for (int32_t v : p.intArray) out.push_back(v);
+        return out;
+    }
+    if (t == 'l')
+    {
+        std::vector<double> out;
+        out.reserve(p.longArray.size());
+        for (int64_t v : p.longArray) out.push_back(static_cast<double>(v));
+        return out;
+    }
+    // ASCII puts arrays into doubleArray
+    return p.doubleArray;
+}
+
+std::vector<int32_t> FBXImporter::PropToIntVec(const FBXProperty& p) const
+{
+    const uint8_t t = static_cast<uint8_t>(p.type);
+    if (t == 'i') return p.intArray;
+    if (t == 'l')
+    {
+        std::vector<int32_t> out;
+        out.reserve(p.longArray.size());
+        for (int64_t v : p.longArray) out.push_back(static_cast<int32_t>(v));
+        return out;
+    }
+    if (t == 'd')
+    {
+        std::vector<int32_t> out;
+        out.reserve(p.doubleArray.size());
+        for (double v : p.doubleArray) out.push_back(static_cast<int32_t>(v));
+        return out;
+    }
+    return {};
+}
+
+// ============================================================
+//  NODE IDENTITY HELPERS
+// ============================================================
+
+int64_t FBXImporter::GetNodeID(const FBXNode& n) const
+{
+    if (!n.properties.empty()) return PropToLong(n.properties[0]);
+    return 0;
+}
+
+// "Model::Cube" --> "Cube",  "Cube" --> "Cube"
+std::string FBXImporter::GetNodeName(const FBXNode& n) const
+{
+    if (n.properties.size() >= 2)
+    {
+        std::string s = PropToString(n.properties[1]);
+        const auto sep = s.find("::");
+        if (sep != std::string::npos) return s.substr(sep + 2);
+        return s;
+    }
+    return {};
+}
+
+// "Model::Cube" --> "Model"
+std::string FBXImporter::GetNodeSubType(const FBXNode& n) const
+{
+    if (n.properties.size() >= 3)
+        return PropToString(n.properties[2]);
+    return {};
+}
+
+// ============================================================
+//  Properties70 reader helpers
+//  P nodes: "PropName", "TypeName", "Label", "Flags", values...
+// ============================================================
+static const FBXNode* FindP70(const FBXNode& p70, const std::string& key)
+{
+    for (const auto& p : p70.children)
+        if (p.name == "P" && !p.properties.empty())
+        {
+            const auto& first = p.properties[0];
+            if ((static_cast<uint8_t>(first.type) == 'S' || static_cast<uint8_t>(first.type) == 'R')
+                && first.strValue == key)
+                return &p;
+        }
+    return nullptr;
+}
+
+XMFLOAT3 FBXImporter::ReadP70Vec3(const FBXNode& p70, const std::string& key, XMFLOAT3 def) const
+{
+    const FBXNode* p = FindP70(p70, key);
+    if (!p || p->properties.size() < 7) return def;
+    return XMFLOAT3{
+        static_cast<float>(PropToDouble(p->properties[4])),
+        static_cast<float>(PropToDouble(p->properties[5])),
+        static_cast<float>(PropToDouble(p->properties[6]))
+    };
+}
+
+float FBXImporter::ReadP70Float(const FBXNode& p70, const std::string& key, float def) const
+{
+    const FBXNode* p = FindP70(p70, key);
+    if (!p || p->properties.size() < 5) return def;
+    return static_cast<float>(PropToDouble(p->properties[4]));
+}
+
+bool FBXImporter::ReadP70Bool(const FBXNode& p70, const std::string& key, bool def) const
+{
+    const FBXNode* p = FindP70(p70, key);
+    if (!p || p->properties.size() < 5) return def;
+    return PropToInt(p->properties[4]) != 0;
+}
+
+int FBXImporter::ReadP70Int(const FBXNode& p70, const std::string& key, int def) const
+{
+    const FBXNode* p = FindP70(p70, key);
+    if (!p || p->properties.size() < 5) return def;
+    return PropToInt(p->properties[4]);
+}
+
+std::string FBXImporter::ReadP70String(const FBXNode& p70, const std::string& key, const std::string& def) const
+{
+    const FBXNode* p = FindP70(p70, key);
+    if (!p || p->properties.size() < 5) return def;
+    return PropToString(p->properties[4]);
+}
+
+// ============================================================
+//  GLOBAL SETTINGS
+// ============================================================
+void FBXImporter::ExtractGlobalSettings(const FBXNode& root)
+{
+    const FBXNode* gs = root.FindChild("GlobalSettings");
+    if (!gs) return;
+    const FBXNode* p70 = gs->FindChild("Properties70");
+    if (!p70) return;
+
+    m_scene.upAxis        = ReadP70Int(*p70, "UpAxis",           1);
+    m_scene.upAxisSign    = ReadP70Int(*p70, "UpAxisSign",       1);
+    m_scene.frontAxis     = ReadP70Int(*p70, "FrontAxis",        2);
+    m_scene.frontAxisSign = ReadP70Int(*p70, "FrontAxisSign",    1);
+    m_scene.coordAxis     = ReadP70Int(*p70, "CoordAxis",        0);
+    m_scene.coordAxisSign = ReadP70Int(*p70, "CoordAxisSign",    1);
+    m_scene.unitScaleFactor = ReadP70Float(*p70, "UnitScaleFactor", 1.0f);
+
+    // TimeSpan
+    const FBXNode* ts = gs->FindChild("TimeSpanStart");
+    if (ts && !ts->properties.empty())
+        m_scene.timeSpanStart = PropToLong(ts->properties[0]);
+    const FBXNode* te = gs->FindChild("TimeSpanStop");
+    if (te && !te->properties.empty())
+        m_scene.timeSpanStop = PropToLong(te->properties[0]);
+
+    #if defined(_DEBUG_FBXIMPORTER_)
+        // upAxis: 0=X 1=Y 2=Z; frontAxis: 0=X 1=Y 2=Z; coordAxis: 0=X 1=Y 2=Z
+        static const char* kAxisName[] = { "X", "Y", "Z" };
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[FBXImporter] GlobalSettings: upAxis=%hs(%+d) frontAxis=%hs(%+d) coordAxis=%hs(%+d) unitScaleFactor=%.6f",
+            kAxisName[m_scene.upAxis    < 3 ? m_scene.upAxis    : 1], m_scene.upAxisSign,
+            kAxisName[m_scene.frontAxis < 3 ? m_scene.frontAxis : 2], m_scene.frontAxisSign,
+            kAxisName[m_scene.coordAxis < 3 ? m_scene.coordAxis : 0], m_scene.coordAxisSign,
+            m_scene.unitScaleFactor);
+    #endif
+}
+
+// ============================================================
+//  OBJECTS EXTRACTION
+// ============================================================
+void FBXImporter::ExtractObjects(const FBXNode& root)
+{
+    const FBXNode* objNode = root.FindChild("Objects");
+    if (!objNode)
+    {
+        // Genuine load failure -- always report regardless of debug flag
+        debug.logLevelMessage(LogLevel::LOG_ERROR,
+            L"[FBXImporter] No 'Objects' node found -- FBX document is malformed or empty.");
+        return;
+    }
+
+    #if defined(_DEBUG_FBXIMPORTER_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[FBXImporter] ExtractObjects: %d object entries to process",
+            (int)objNode->children.size());
+    #endif
+
+    for (const auto& child : objNode->children)
+    {
+        if      (child.name == "Geometry")          ExtractGeometry(child);
+        else if (child.name == "Model")             ExtractModel(child);
+        else if (child.name == "Material")          ExtractMaterial(child);
+        else if (child.name == "Texture")           ExtractTexture(child);
+        else if (child.name == "NodeAttribute")     ExtractNodeAttribute(child);
+        else if (child.name == "AnimationStack")    ExtractAnimStack(child);
+        else if (child.name == "AnimationLayer")    ExtractAnimLayer(child);
+        else if (child.name == "AnimationCurveNode")ExtractAnimCurveNode(child);
+        else if (child.name == "AnimationCurve")    ExtractAnimCurve(child);
+        #if defined(_DEBUG_FBXIMPORTER_)
+        else
+        {
+            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                L"[FBXImporter] ExtractObjects: unhandled object type '%hs' (skipped)",
+                child.name.c_str());
+        }
+        #endif
+    }
+}
+
+// ============================================================
+//  GEOMETRY EXTRACTION
+// ============================================================
+void FBXImporter::ExtractGeometry(const FBXNode& node)
+{
+    FBXGeometry g;
+    g.id   = GetNodeID(node);
+    g.name = GetNodeName(node);
+
+    // Vertices
+    if (const FBXNode* vn = node.FindChild("Vertices"))
+        if (!vn->properties.empty())
+            g.vertices = PropToDoubleVec(vn->properties[0]);
+
+    // Polygon vertex index
+    if (const FBXNode* pi = node.FindChild("PolygonVertexIndex"))
+        if (!pi->properties.empty())
+            g.polygonVertexIndex = PropToIntVec(pi->properties[0]);
+
+    // Layer elements
+    ExtractLayerNormals(node, g);
+    ExtractLayerUVs(node, g);
+    ExtractLayerTangents(node, g);
+    ExtractLayerMaterials(node, g);
+    ExtractLayerSmoothing(node, g);
+
+    #if defined(_DEBUG_FBXIMPORTER_)
+    {
+        const auto& gd = g; // reference before move
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[FBXImporter] ExtractGeometry '%hs' (id=%lld): positions=%d pvi=%d normals=%d uvs=%d tangents=%d matIdx=%d mapping='%hs'/'%hs'",
+            gd.name.c_str(), gd.id,
+            (int)(gd.vertices.size() / 3),
+            (int)gd.polygonVertexIndex.size(),
+            (int)(gd.normals.size() / 3),
+            (int)(gd.uvs.size() / 2),
+            (int)(gd.tangents.size() / 3),
+            (int)gd.materialIndex.size(),
+            gd.normalMappingType.c_str(),
+            gd.normalReferenceType.c_str());
+    }
+    #endif
+    m_scene.geometryByID[g.id] = static_cast<int>(m_scene.geometries.size());
+    m_scene.geometries.push_back(std::move(g));
+}
+
+void FBXImporter::ExtractLayerNormals(const FBXNode& geomNode, FBXGeometry& g)
+{
+    // May live directly or inside a LayerElement0 / LayerElementNormal block
+    auto tryExtract = [&](const FBXNode& src) -> bool
+    {
+        const FBXNode* nd = src.FindChild("Normals");
+        if (!nd || nd->properties.empty()) return false;
+        const FBXNode* mt = src.FindChild("MappingInformationType");
+        const FBXNode* rt = src.FindChild("ReferenceInformationType");
+        const FBXNode* ni = src.FindChild("NormalsIndex");
+        g.normals = PropToDoubleVec(nd->properties[0]);
+        if (mt && !mt->properties.empty()) g.normalMappingType   = PropToString(mt->properties[0]);
+        if (rt && !rt->properties.empty()) g.normalReferenceType = PropToString(rt->properties[0]);
+        if (ni && !ni->properties.empty()) g.normalIndex         = PropToIntVec(ni->properties[0]);
+        return true;
+    };
+
+    // Try LayerElementNormal first (it may be multiple; take first)
+    for (const auto& c : geomNode.FindChildren("LayerElementNormal"))
+        if (tryExtract(*c)) return;
+
+    // Fallback: direct child
+    tryExtract(geomNode);
+}
+
+void FBXImporter::ExtractLayerUVs(const FBXNode& geomNode, FBXGeometry& g)
+{
+    auto tryExtract = [&](const FBXNode& src) -> bool
+    {
+        const FBXNode* uv = src.FindChild("UV");
+        if (!uv || uv->properties.empty()) return false;
+        const FBXNode* mt = src.FindChild("MappingInformationType");
+        const FBXNode* rt = src.FindChild("ReferenceInformationType");
+        const FBXNode* ui = src.FindChild("UVIndex");
+        g.uvs = PropToDoubleVec(uv->properties[0]);
+        if (mt && !mt->properties.empty()) g.uvMappingType   = PropToString(mt->properties[0]);
+        if (rt && !rt->properties.empty()) g.uvReferenceType = PropToString(rt->properties[0]);
+        if (ui && !ui->properties.empty()) g.uvIndex         = PropToIntVec(ui->properties[0]);
+        return true;
+    };
+
+    for (const auto& c : geomNode.FindChildren("LayerElementUV"))
+        if (tryExtract(*c)) return;
+    tryExtract(geomNode);
+}
+
+void FBXImporter::ExtractLayerTangents(const FBXNode& geomNode, FBXGeometry& g)
+{
+    auto tryExtract = [&](const FBXNode& src) -> bool
+    {
+        const FBXNode* tn = src.FindChild("Tangents");
+        if (!tn || tn->properties.empty()) return false;
+        const FBXNode* mt  = src.FindChild("MappingInformationType");
+        const FBXNode* rt  = src.FindChild("ReferenceInformationType");
+        const FBXNode* idx = src.FindChild("TangentsIndex");
+        g.tangents = PropToDoubleVec(tn->properties[0]);
+        if (mt  && !mt->properties.empty())  g.tangentMappingType   = PropToString(mt->properties[0]);
+        if (rt  && !rt->properties.empty())  g.tangentReferenceType = PropToString(rt->properties[0]);
+        if (idx && !idx->properties.empty()) g.tangentIndex         = PropToIntVec(idx->properties[0]);
+        const FBXNode* bn = src.FindChild("Binormals");
+        if (bn && !bn->properties.empty()) g.binormals = PropToDoubleVec(bn->properties[0]);
+        return true;
+    };
+
+    for (const auto& c : geomNode.FindChildren("LayerElementTangent"))
+        if (tryExtract(*c)) return;
+    tryExtract(geomNode);
+}
+
+void FBXImporter::ExtractLayerMaterials(const FBXNode& geomNode, FBXGeometry& g)
+{
+    auto tryExtract = [&](const FBXNode& src) -> bool
+    {
+        const FBXNode* mi = src.FindChild("Materials");
+        if (!mi || mi->properties.empty()) return false;
+        const FBXNode* mt = src.FindChild("MappingInformationType");
+        g.materialIndex = PropToIntVec(mi->properties[0]);
+        if (mt && !mt->properties.empty()) g.materialMappingType = PropToString(mt->properties[0]);
+        return true;
+    };
+
+    for (const auto& c : geomNode.FindChildren("LayerElementMaterial"))
+        if (tryExtract(*c)) return;
+    tryExtract(geomNode);
+}
+
+void FBXImporter::ExtractLayerSmoothing(const FBXNode& geomNode, FBXGeometry& g)
+{
+    for (const auto& c : geomNode.FindChildren("LayerElementSmoothing"))
+    {
+        const FBXNode* sm = c->FindChild("Smoothing");
+        if (sm && !sm->properties.empty())
+        {
+            g.smoothingGroups = PropToIntVec(sm->properties[0]);
+            const FBXNode* mt = c->FindChild("MappingInformationType");
+            if (mt && !mt->properties.empty()) g.smoothingMappingType = PropToString(mt->properties[0]);
+        }
+        return;
+    }
+}
+
+// ============================================================
+//  MODEL EXTRACTION
+// ============================================================
+FBXTransform FBXImporter::ExtractTransform(const FBXNode& modelNode) const
+{
+    FBXTransform t;
+    const FBXNode* p70 = modelNode.FindChild("Properties70");
+    if (!p70) return t;
+
+    t.translation    = ReadP70Vec3(*p70, "Lcl Translation", {0,0,0});
+    t.rotationEuler  = ReadP70Vec3(*p70, "Lcl Rotation",    {0,0,0});
+    t.scale          = ReadP70Vec3(*p70, "Lcl Scaling",     {1,1,1});
+    t.preRotation    = ReadP70Vec3(*p70, "PreRotation",     {0,0,0});
+    t.postRotation   = ReadP70Vec3(*p70, "PostRotation",    {0,0,0});
+    t.rotationOffset = ReadP70Vec3(*p70, "RotationOffset",  {0,0,0});
+    t.rotationPivot  = ReadP70Vec3(*p70, "RotationPivot",   {0,0,0});
+    t.scalingOffset  = ReadP70Vec3(*p70, "ScalingOffset",   {0,0,0});
+    t.scalingPivot   = ReadP70Vec3(*p70, "ScalingPivot",    {0,0,0});
+    t.rotationOrder  = ReadP70Int(*p70,  "RotationOrder",   0);
+    return t;
+}
+
+void FBXImporter::ExtractModel(const FBXNode& node)
+{
+    FBXModel m;
+    m.id   = GetNodeID(node);
+    m.name = GetNodeName(node);
+    m.type = GetNodeSubType(node);   // "Mesh", "Camera", "Light", "Null", ""
+
+    m.transform = ExtractTransform(node);
+
+    // Shadow / visibility
+    const FBXNode* p70 = node.FindChild("Properties70");
+    if (p70)
+    {
+        m.castShadow    = ReadP70Bool(*p70, "CastShadow",    false);
+        m.receiveShadow = ReadP70Bool(*p70, "ReceiveShadow", false);
+        m.visible       = ReadP70Bool(*p70, "Visibility",    true);
+    }
+
+    #if defined(_DEBUG_FBXIMPORTER_)
+    {
+        const auto& md = m;
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[FBXImporter] ExtractModel '%hs' type='%hs' (id=%lld) parent=%lld geomID=%lld mats=%d | T=(%.3f,%.3f,%.3f) R=(%.2f,%.2f,%.2f) S=(%.3f,%.3f,%.3f)",
+            md.name.c_str(), md.type.c_str(), md.id, md.parentID, md.geometryID,
+            (int)md.materialIDs.size(),
+            md.transform.translation.x, md.transform.translation.y, md.transform.translation.z,
+            md.transform.rotationEuler.x, md.transform.rotationEuler.y, md.transform.rotationEuler.z,
+            md.transform.scale.x, md.transform.scale.y, md.transform.scale.z);
+    }
+    #endif
+    m_scene.modelByID[m.id] = static_cast<int>(m_scene.models.size());
+    m_scene.models.push_back(std::move(m));
+}
+
+// ============================================================
+//  MATERIAL EXTRACTION
+// ============================================================
+void FBXImporter::ExtractMaterial(const FBXNode& node)
+{
+    FBXMaterial mat;
+    mat.id   = GetNodeID(node);
+    mat.name = GetNodeName(node);
+
+    const FBXNode* sm = node.FindChild("ShadingModel");
+    if (sm && !sm->properties.empty())
+        mat.shadingModel = PropToString(sm->properties[0]);
+
+    // "Properties70" is the standard node name; FBX 6.x used "Properties"
+    const FBXNode* p70 = node.FindChild("Properties70");
+    if (!p70) p70 = node.FindChild("Properties");
+    if (!p70)
+    {
+        debug.logLevelMessage(LogLevel::LOG_WARNING,
+            (L"[FBXImporter] ExtractMaterial '" +
+             std::wstring(mat.name.begin(), mat.name.end()) +
+             L"': no Properties70 node -- default material colours will be used").c_str());
+    }
+
+    if (p70)
+    {
+        // Diffuse colour: FBX 7.x names it "DiffuseColor"; Blender/Maya sometimes
+        // use the older alias "Diffuse".  Use -1 sentinel to detect "not found".
+        mat.diffuseColor = ReadP70Vec3(*p70, "DiffuseColor", {-1,-1,-1});
+        if (mat.diffuseColor.x < 0.0f)
+            mat.diffuseColor = ReadP70Vec3(*p70, "Diffuse", {1,1,1});
+
+        // DiffuseFactor scales the colour (spec: actual = DiffuseColor * DiffuseFactor)
+        mat.diffuseFactor = ReadP70Float(*p70, "DiffuseFactor", 1.0f);
+        if (mat.diffuseFactor > 0.0f && mat.diffuseFactor != 1.0f)
+        {
+            mat.diffuseColor.x = std::clamp(mat.diffuseColor.x * mat.diffuseFactor, 0.0f, 1.0f);
+            mat.diffuseColor.y = std::clamp(mat.diffuseColor.y * mat.diffuseFactor, 0.0f, 1.0f);
+            mat.diffuseColor.z = std::clamp(mat.diffuseColor.z * mat.diffuseFactor, 0.0f, 1.0f);
+        }
+
+        // Ambient colour: "AmbientColor" or legacy "Ambient"
+        mat.ambientColor = ReadP70Vec3(*p70, "AmbientColor", {-1,-1,-1});
+        if (mat.ambientColor.x < 0.0f)
+            mat.ambientColor = ReadP70Vec3(*p70, "Ambient", {0.1f,0.1f,0.1f});
+
+        // Specular colour: "SpecularColor" or legacy "Specular"
+        mat.specularColor = ReadP70Vec3(*p70, "SpecularColor", {-1,-1,-1});
+        if (mat.specularColor.x < 0.0f)
+            mat.specularColor = ReadP70Vec3(*p70, "Specular", {0.5f,0.5f,0.5f});
+
+        // Emissive colour: "EmissiveColor" or legacy "Emissive"
+        mat.emissiveColor = ReadP70Vec3(*p70, "EmissiveColor", {-1,-1,-1});
+        if (mat.emissiveColor.x < 0.0f)
+            mat.emissiveColor = ReadP70Vec3(*p70, "Emissive", {0,0,0});
+
+        mat.shininess     = ReadP70Float(*p70, "Shininess",        32.0f);
+        mat.opacity       = ReadP70Float(*p70, "Opacity",          1.0f);
+        mat.reflectivity  = ReadP70Float(*p70, "ReflectionFactor", 0.0f);
+        mat.specFactor    = ReadP70Float(*p70, "SpecularFactor",   1.0f);
+        mat.emissiveFactor= ReadP70Float(*p70, "EmissiveFactor",   1.0f);
+
+        // Transparency (FBX may store as TransparencyFactor instead of Opacity)
+        float transp = ReadP70Float(*p70, "TransparencyFactor", 0.0f);
+        if (transp > 0.0f) mat.opacity = 1.0f - transp;
+
+        // ShininessExponent is an alias in some exporters
+        float shexp = ReadP70Float(*p70, "ShininessExponent", -1.0f);
+        if (shexp >= 0.0f) mat.shininess = shexp;
+
+        // PBR properties (Maya/Blender may export these for Stingray/glTF-style materials)
+        mat.metalness = ReadP70Float(*p70, "Metalness",  0.0f);
+        mat.roughness = ReadP70Float(*p70, "Roughness",  0.5f);
+    }
+
+    #if defined(_DEBUG_FBXIMPORTER_)
+    {
+        const auto& mt = mat;
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[FBXImporter] ExtractMaterial '%hs' (id=%lld) shading='%hs' diffuse=(%.2f,%.2f,%.2f) metalness=%.2f roughness=%.2f opacity=%.2f diffTexID=%lld normTexID=%lld",
+            mt.name.c_str(), mt.id, mt.shadingModel.c_str(),
+            mt.diffuseColor.x, mt.diffuseColor.y, mt.diffuseColor.z,
+            mt.metalness, mt.roughness, mt.opacity,
+            mt.diffuseTexID, mt.normalTexID);
+    }
+    #endif
+    m_scene.materialByID[mat.id] = static_cast<int>(m_scene.materials.size());
+    m_scene.materials.push_back(std::move(mat));
+}
+
+// ============================================================
+//  TEXTURE EXTRACTION
+// ============================================================
+void FBXImporter::ExtractTexture(const FBXNode& node)
+{
+    FBXTexture tex;
+    tex.id   = GetNodeID(node);
+    tex.name = GetNodeName(node);
+
+    const FBXNode* fn = node.FindChild("FileName");
+    if (fn && !fn->properties.empty())
+        tex.filename = PropToString(fn->properties[0]);
+
+    const FBXNode* rfn = node.FindChild("RelativeFilename");
+    if (rfn && !rfn->properties.empty())
+        tex.relativeFilename = PropToString(rfn->properties[0]);
+
+    m_scene.textureByID[tex.id] = static_cast<int>(m_scene.textures.size());
+    m_scene.textures.push_back(std::move(tex));
+}
+
+// ============================================================
+//  NODE ATTRIBUTE  (Camera / Light)
+// ============================================================
+void FBXImporter::ExtractNodeAttribute(const FBXNode& node)
+{
+    const std::string subType = GetNodeSubType(node);
+    const int64_t id          = GetNodeID(node);
+    const std::string name    = GetNodeName(node);
+
+    const FBXNode* p70 = node.FindChild("Properties70");
+
+    if (subType == "Camera" || subType == "camera")
+    {
+        FBXCamera cam;
+        cam.id   = id;
+        cam.name = name;
+        if (p70)
+        {
+            cam.fovY        = ReadP70Float(*p70, "FieldOfView",         60.0f);
+            cam.nearPlane   = ReadP70Float(*p70, "NearPlane",           0.1f);
+            cam.farPlane    = ReadP70Float(*p70, "FarPlane",            10000.0f);
+            cam.aspectRatio = ReadP70Float(*p70, "AspectRatio",         1.778f);
+            cam.interestPos = ReadP70Vec3(*p70,  "InterestPosition",    {0,0,0});
+            cam.upVector    = ReadP70Vec3(*p70,  "UpVector",            {0,1,0});
+        }
+        m_scene.cameraByID[cam.id] = static_cast<int>(m_scene.cameras.size());
+        m_scene.cameras.push_back(std::move(cam));
+    }
+    else if (subType == "Light" || subType == "light")
+    {
+        FBXLight lt;
+        lt.id   = id;
+        lt.name = name;
+        if (p70)
+        {
+            int ltype = ReadP70Int(*p70, "LightType", 0);
+            lt.lightType = static_cast<FBXLightType>(std::min(ltype, 3));
+            lt.color        = ReadP70Vec3(*p70,  "Color",         {1,1,1});
+            lt.intensity    = ReadP70Float(*p70, "Intensity",     100.0f);
+            lt.innerAngle   = ReadP70Float(*p70, "InnerAngle",    0.0f);
+            lt.outerAngle   = ReadP70Float(*p70, "OuterAngle",    45.0f);
+            lt.range        = ReadP70Float(*p70, "FarAttenuationEnd", 1000.0f);
+            lt.castShadows  = ReadP70Bool(*p70,  "CastShadows",   false);
+            lt.shadowColor  = ReadP70Vec3(*p70,  "ShadowColor",   {0,0,0});
+            lt.shadowOpacity= ReadP70Float(*p70, "ShadowOpacity", 1.0f);
+            lt.decayType    = ReadP70Int(*p70,   "DecayType",     0);
+            lt.decayStart   = ReadP70Float(*p70, "DecayStart",    0.0f);
+        }
+        m_scene.lightByID[lt.id] = static_cast<int>(m_scene.lights.size());
+        m_scene.lights.push_back(std::move(lt));
+    }
+}
+
+// ============================================================
+//  ANIMATION EXTRACTION
+// ============================================================
+void FBXImporter::ExtractAnimStack(const FBXNode& node)
+{
+    FBXAnimStack stack;
+    stack.id   = GetNodeID(node);
+    stack.name = GetNodeName(node);
+
+    const FBXNode* p70 = node.FindChild("Properties70");
+    if (p70)
+    {
+        // LocalStart / LocalStop stored as int64 KTime
+        const FBXNode* ls = FindP70(*p70, "LocalStart");
+        if (ls && ls->properties.size() >= 5)
+            stack.localStart = PropToLong(ls->properties[4]);
+        const FBXNode* le = FindP70(*p70, "LocalStop");
+        if (le && le->properties.size() >= 5)
+            stack.localStop = PropToLong(le->properties[4]);
+    }
+
+    m_scene.animStacks.push_back(std::move(stack));
+}
+
+void FBXImporter::ExtractAnimLayer(const FBXNode& node)
+{
+    FBXAnimLayer layer;
+    layer.id   = GetNodeID(node);
+    layer.name = GetNodeName(node);
+    m_scene.animLayers.push_back(std::move(layer));
+}
+
+void FBXImporter::ExtractAnimCurveNode(const FBXNode& node)
+{
+    FBXAnimCurveNode cn;
+    cn.id   = GetNodeID(node);
+    cn.name = GetNodeName(node);
+
+    // Property name is in the 3rd property of the node header (after id, name)
+    if (node.properties.size() >= 3)
+        cn.propertyName = PropToString(node.properties[2]);
+
+    // Default values from Properties70
+    const FBXNode* p70 = node.FindChild("Properties70");
+    if (p70)
+    {
+        cn.defaultX = ReadP70Float(*p70, "d|X", 0.0f);
+        cn.defaultY = ReadP70Float(*p70, "d|Y", 0.0f);
+        cn.defaultZ = ReadP70Float(*p70, "d|Z", 0.0f);
+    }
+
+    m_scene.animCurveNodeByID[cn.id] = static_cast<int>(m_scene.animCurveNodes.size());
+    m_scene.animCurveNodes.push_back(std::move(cn));
+}
+
+void FBXImporter::ExtractAnimCurve(const FBXNode& node)
+{
+    FBXAnimCurve curve;
+    curve.id = GetNodeID(node);
+
+    const FBXNode* kt = node.FindChild("KeyTime");
+    if (kt && !kt->properties.empty())
+    {
+        const auto& vec = kt->properties[0].longArray;
+        if (!vec.empty()) curve.keyTimes = vec;
+        else
+        {
+            // ASCII stores as DoubleArray; convert
+            for (double v : PropToDoubleVec(kt->properties[0]))
+                curve.keyTimes.push_back(static_cast<int64_t>(v));
+        }
+    }
+
+    const FBXNode* kv = node.FindChild("KeyValueFloat");
+    if (kv && !kv->properties.empty())
+    {
+        const auto& fa = kv->properties[0].floatArray;
+        if (!fa.empty()) curve.keyValues = fa;
+        else
+        {
+            for (double v : PropToDoubleVec(kv->properties[0]))
+                curve.keyValues.push_back(static_cast<float>(v));
+        }
+    }
+
+    // Interpolation flags (optional)
+    const FBXNode* kaf = node.FindChild("KeyAttrFlags");
+    if (kaf && !kaf->properties.empty()) curve.keyAttrFlags = PropToIntVec(kaf->properties[0]);
+    const FBXNode* kar = node.FindChild("KeyAttrRefCount");
+    if (kar && !kar->properties.empty()) curve.keyAttrRefCount = PropToIntVec(kar->properties[0]);
+
+    m_scene.animCurveByID[curve.id] = static_cast<int>(m_scene.animCurves.size());
+    m_scene.animCurves.push_back(std::move(curve));
+}
+
+// ============================================================
+//  CONNECTIONS  --  resolve all OO / OP relationships
+// ============================================================
+void FBXImporter::ProcessConnections(const FBXNode& root)
+{
+    const FBXNode* connNode = root.FindChild("Connections");
+    if (!connNode) return;
+
+    #if defined(_DEBUG_FBXIMPORTER_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[FBXImporter] ProcessConnections: %d connection records to resolve",
+            (int)connNode->children.size());
+    #endif
+
+    for (const auto& c : connNode->children)
+    {
+        if (c.name != "C" || c.properties.size() < 3) continue;
+
+        const std::string connType = PropToString(c.properties[0]);
+        const int64_t childID  = PropToLong(c.properties[1]);
+        const int64_t parentID = PropToLong(c.properties[2]);
+
+        // OO  -- object to object
+        if (connType == "OO")
+        {
+            // Model → Model  (parent-child hierarchy)
+            auto mci = m_scene.modelByID.find(childID);
+            auto mpi = m_scene.modelByID.find(parentID);
+            if (mci != m_scene.modelByID.end())
+            {
+                m_scene.models[mci->second].parentID = parentID;
+            }
+
+            // Geometry → Model
+            auto gi = m_scene.geometryByID.find(childID);
+            if (gi != m_scene.geometryByID.end() && mpi != m_scene.modelByID.end())
+            {
+                m_scene.models[mpi->second].geometryID = childID;
+                #if defined(_DEBUG_FBXIMPORTER_)
+                    debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                        L"[FBXImporter] ProcessConnections: geomID=%lld -> model '%hs' (slot=%d) geometryID resolved",
+                        (long long)childID,
+                        m_scene.models[mpi->second].name.c_str(),
+                        mpi->second);
+                #endif
+            }
+
+            // Material → Model
+            auto mati = m_scene.materialByID.find(childID);
+            if (mati != m_scene.materialByID.end() && mpi != m_scene.modelByID.end())
+            {
+                m_scene.models[mpi->second].materialIDs.push_back(childID);
+                #if defined(_DEBUG_FBXIMPORTER_)
+                    debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                        L"[FBXImporter] ProcessConnections: matID=%lld -> model '%hs' (slot=%d) material linked",
+                        (long long)childID,
+                        m_scene.models[mpi->second].name.c_str(),
+                        mpi->second);
+                #endif
+            }
+
+            // NodeAttribute (camera/light) → Model
+            auto lti = m_scene.lightByID.find(childID);
+            if (lti != m_scene.lightByID.end() && mpi != m_scene.modelByID.end())
+                m_scene.models[mpi->second].attributeID = childID;
+            auto cami = m_scene.cameraByID.find(childID);
+            if (cami != m_scene.cameraByID.end() && mpi != m_scene.modelByID.end())
+                m_scene.models[mpi->second].attributeID = childID;
+
+            // AnimLayer → AnimStack
+            auto ali = std::find_if(m_scene.animLayers.begin(), m_scene.animLayers.end(),
+                [childID](const FBXAnimLayer& l){ return l.id == childID; });
+            auto asi = std::find_if(m_scene.animStacks.begin(), m_scene.animStacks.end(),
+                [parentID](const FBXAnimStack& s){ return s.id == parentID; });
+            if (ali != m_scene.animLayers.end() && asi != m_scene.animStacks.end())
+                asi->layerIDs.push_back(childID);
+
+            // AnimCurveNode → AnimLayer
+            auto cni = m_scene.animCurveNodeByID.find(childID);
+            if (cni != m_scene.animCurveNodeByID.end())
+            {
+                auto ali2 = std::find_if(m_scene.animLayers.begin(), m_scene.animLayers.end(),
+                    [parentID](const FBXAnimLayer& l){ return l.id == parentID; });
+                if (ali2 != m_scene.animLayers.end())
+                    ali2->curveNodeIDs.push_back(childID);
+
+                // AnimCurveNode → Model (target model to animate)
+                if (m_scene.modelByID.count(parentID))
+                    m_scene.animCurveNodes[cni->second].targetModelID = parentID;
+            }
+
+            // AnimCurve → AnimCurveNode (without channel name)
+            auto aci = m_scene.animCurveByID.find(childID);
+            if (aci != m_scene.animCurveByID.end() && cni != m_scene.animCurveNodeByID.end())
+            {
+                // Without channel name we assign to X (OP connections below handle X/Y/Z)
+            }
+
+            // Texture → Material
+            auto texi = m_scene.textureByID.find(childID);
+            if (texi != m_scene.textureByID.end())
+            {
+                auto matit = m_scene.materialByID.find(parentID);
+                if (matit != m_scene.materialByID.end())
+                {
+                    // Without OP channel we can only assign to diffuse
+                    auto& mat = m_scene.materials[matit->second];
+                    if (mat.diffuseTexID == 0) mat.diffuseTexID = childID;
+                }
+            }
+        }
+        // OP  -- object to property channel
+        else if (connType == "OP" && c.properties.size() >= 4)
+        {
+            const std::string channel = PropToString(c.properties[3]);
+
+            // AnimCurve → AnimCurveNode channel (d|X / d|Y / d|Z)
+            auto aci = m_scene.animCurveByID.find(childID);
+            auto cni = m_scene.animCurveNodeByID.find(parentID);
+            if (aci != m_scene.animCurveByID.end() && cni != m_scene.animCurveNodeByID.end())
+            {
+                auto& cn = m_scene.animCurveNodes[cni->second];
+                if (channel == "d|X") cn.curveXID = childID;
+                else if (channel == "d|Y") cn.curveYID = childID;
+                else if (channel == "d|Z") cn.curveZID = childID;
+            }
+
+            // Texture → Material channel
+            auto texi = m_scene.textureByID.find(childID);
+            auto mati = m_scene.materialByID.find(parentID);
+            if (texi != m_scene.textureByID.end() && mati != m_scene.materialByID.end())
+            {
+                auto& mat = m_scene.materials[mati->second];
+                if (channel == "DiffuseColor"  || channel == "Diffuse")     mat.diffuseTexID    = childID;
+                else if (channel == "NormalMap" || channel == "Normal")      mat.normalTexID     = childID;
+                else if (channel == "SpecularColor"|| channel == "Specular") mat.specularTexID   = childID;
+                else if (channel == "ReflectionFactor"|| channel == "Roughness") mat.roughnessTexID = childID;
+                else if (channel == "Metalness" || channel == "MetallicMap") mat.metallicTexID   = childID;
+                else if (channel == "AmbientColor"|| channel == "AO")        mat.aoTexID         = childID;
+                else if (channel == "EmissiveColor"|| channel == "Emissive") mat.emissiveTexID   = childID;
+            }
+        }
+    }
+}
+
+// ============================================================
+//  COORDINATE FLIP  (FBX RH Z-up or Y-up  -->  engine LH Y-up)
+// ============================================================
+XMFLOAT3 FBXImporter::ApplyCoordFlip(const XMFLOAT3& v) const
+{
+    // upAxis == 2 (Z-up, right-handed): X right, Y front, Z up
+    //   Engine (Y-up LH): X = X, Y = Z, Z = -Y
+    // upAxis == 1 (Y-up, right-handed): X right, Y up, -Z forward
+    //   Engine (Y-up LH): X = X, Y = Y, Z = -Z
+    if (m_scene.upAxis == 2)
+        return XMFLOAT3(v.x, v.z, -v.y);
+    else // Y-up default
+        return XMFLOAT3(v.x, v.y, -v.z);
+}
+
+XMFLOAT3 FBXImporter::ApplyNormalFlip(const XMFLOAT3& n) const
+{
+    if (m_scene.upAxis == 2)
+        return XMFLOAT3(n.x, n.z, -n.y);
+    else
+        return XMFLOAT3(n.x, n.y, -n.z);
+}
+
+// Similarity transform: converts a rotation matrix from FBX right-handed space
+// to the engine's left-handed Y-up space.  Both column-vector math and DirectX
+// row-vector convention agree: R_LH = MT * R_RH * M (row-major, M = coord map).
+//
+// Y-up case:  M = diag(1,1,-1)  (Z-flip); M is symmetric so M == MT == M^-1.
+// Z-up case:  M maps (x,y,z) -> (x,z,-y); MT = M^-1 (M is orthogonal).
+//
+// Usage: call this on any rotation matrix that came from EulerToMatrix before
+// converting it to a quaternion or using it for lights / animation.
+XMMATRIX FBXImporter::ApplyRotationFlip(const XMMATRIX& rotM) const
+{
+    if (m_scene.upAxis == 2)
+    {
+        // Z-up RH: swap Y/Z and negate new Z (old Y) -- coord map M_row
+        // M_row row-major: [1,0,0,0 | 0,0,-1,0 | 0,1,0,0 | 0,0,0,1]
+        const XMMATRIX M  = XMMatrixSet(1,0,0,0,  0,0,-1,0,  0,1,0,0,  0,0,0,1);
+        const XMMATRIX MT = XMMatrixTranspose(M);   // M^-1 for orthogonal M
+        return MT * rotM * M;
+    }
+    else
+    {
+        // Y-up RH: Z-flip only -- M = diag(1,1,-1), M*M = I so M == M^-1
+        const XMMATRIX M = XMMatrixScaling(1.0f, 1.0f, -1.0f);
+        return M * rotM * M;
+    }
+}
+
+// ============================================================
+//  TRANSFORM MATRIX
+// ============================================================
+XMFLOAT3 FBXImporter::DegToRad(const XMFLOAT3& d) const
+{
+    return { d.x * (XM_PI / 180.0f),
+             d.y * (XM_PI / 180.0f),
+             d.z * (XM_PI / 180.0f) };
+}
+
+XMMATRIX FBXImporter::EulerToMatrix(const XMFLOAT3& deg, int order) const
+{
+    const XMFLOAT3 r = DegToRad(deg);
+    const XMMATRIX Rx = XMMatrixRotationX(r.x);
+    const XMMATRIX Ry = XMMatrixRotationY(r.y);
+    const XMMATRIX Rz = XMMatrixRotationZ(r.z);
+
+    // FBX uses EXTRINSIC rotation orders (each axis rotates the object relative to the
+    // FIXED world frame, in the named order).  In DirectX row-vector convention the
+    // leftmost matrix is applied first, so extrinsic XYZ = Rx * Ry * Rz.
+    // FBX rotation order enum: 0=XYZ 1=XZY 2=YXZ 3=YZX 4=ZXY 5=ZYX
+    switch (order)
+    {
+    case 1:  return Rx * Rz * Ry;   // XZY: X first, Z second, Y last
+    case 2:  return Ry * Rx * Rz;   // YXZ: Y first, X second, Z last
+    case 3:  return Ry * Rz * Rx;   // YZX: Y first, Z second, X last
+    case 4:  return Rz * Rx * Ry;   // ZXY: Z first, X second, Y last
+    case 5:  return Rz * Ry * Rx;   // ZYX: Z first, Y second, X last
+    default: return Rx * Ry * Rz;   // XYZ: X first, Y second, Z last (Blender default)
+    }
+}
+
+// Reconstructs the full FBX local transform matrix in FBX RIGHT-HANDED space.
+// FBX SDK local transform order (must match exactly to reproduce correct world placement):
+//   World = T * Roff * Rp * Rpre * R * RpostI * RpI * Soff * Sp * S * SpI
+// Caller (SceneManager) is responsible for converting the result to engine LH space
+// via ApplyRotationFlip for the rotation part and ApplyCoordFlip for the translation.
+XMMATRIX FBXImporter::BuildTransformMatrix(const FBXTransform& t) const
+{
+    const XMMATRIX T   = XMMatrixTranslation(t.translation.x, t.translation.y, t.translation.z);
+    const XMMATRIX Roff= XMMatrixTranslation(t.rotationOffset.x, t.rotationOffset.y, t.rotationOffset.z);
+    const XMMATRIX Rp  = XMMatrixTranslation(t.rotationPivot.x, t.rotationPivot.y, t.rotationPivot.z);
+    const XMMATRIX RpI = XMMatrixTranslation(-t.rotationPivot.x,-t.rotationPivot.y,-t.rotationPivot.z);
+    const XMMATRIX Rpre= EulerToMatrix(t.preRotation,    0);
+    const XMMATRIX R   = EulerToMatrix(t.rotationEuler,  t.rotationOrder);
+    const XMMATRIX RpostI = XMMatrixTranspose(EulerToMatrix(t.postRotation, 0)); // inverse = transpose for rotation
+    const XMMATRIX Soff= XMMatrixTranslation(t.scalingOffset.x, t.scalingOffset.y, t.scalingOffset.z);
+    const XMMATRIX Sp  = XMMatrixTranslation(t.scalingPivot.x, t.scalingPivot.y, t.scalingPivot.z);
+    const XMMATRIX SpI = XMMatrixTranslation(-t.scalingPivot.x,-t.scalingPivot.y,-t.scalingPivot.z);
+    const XMMATRIX S   = XMMatrixScaling(t.scale.x, t.scale.y, t.scale.z);
+
+    // Full FBX transform order
+    return T * Roff * Rp * Rpre * R * RpostI * RpI * Soff * Sp * S * SpI;
+}
+
+// ============================================================
+//  GEOMETRY TRIANGULATION
+// ============================================================
+
+// Compute per-face flat normals from triangle positions
+void FBXImporter::ComputeFlatNormals(
+    const std::vector<XMFLOAT3>& positions,
+    const std::vector<uint32_t>& triIndices,
+    std::vector<XMFLOAT3>& outNormals)
+{
+    outNormals.resize(triIndices.size());
+    for (size_t i = 0; i + 2 < triIndices.size(); i += 3)
+    {
+        XMVECTOR a = XMLoadFloat3(&positions[triIndices[i]]);
+        XMVECTOR b = XMLoadFloat3(&positions[triIndices[i + 1]]);
+        XMVECTOR c = XMLoadFloat3(&positions[triIndices[i + 2]]);
+        XMVECTOR n = XMVector3Normalize(XMVector3Cross(b - a, c - a));
+        XMStoreFloat3(&outNormals[i],     n);
+        XMStoreFloat3(&outNormals[i + 1], n);
+        XMStoreFloat3(&outNormals[i + 2], n);
+    }
+}
+
+// Lengyel's tangent calculation
+void FBXImporter::ComputeTangents(std::vector<Vertex>& verts,
+                                   const std::vector<uint32_t>& indices)
+{
+    std::vector<XMFLOAT3> tan1(verts.size(), {0,0,0});
+    std::vector<XMFLOAT3> tan2(verts.size(), {0,0,0});
+
+    for (size_t i = 0; i + 2 < indices.size(); i += 3)
+    {
+        const uint32_t i0 = indices[i], i1 = indices[i+1], i2 = indices[i+2];
+        const XMFLOAT3& p0 = verts[i0].position;
+        const XMFLOAT3& p1 = verts[i1].position;
+        const XMFLOAT3& p2 = verts[i2].position;
+        const XMFLOAT2& uv0= verts[i0].texCoord;
+        const XMFLOAT2& uv1= verts[i1].texCoord;
+        const XMFLOAT2& uv2= verts[i2].texCoord;
+
+        const float e1x = p1.x - p0.x, e1y = p1.y - p0.y, e1z = p1.z - p0.z;
+        const float e2x = p2.x - p0.x, e2y = p2.y - p0.y, e2z = p2.z - p0.z;
+        const float du1 = uv1.x - uv0.x, dv1 = uv1.y - uv0.y;
+        const float du2 = uv2.x - uv0.x, dv2 = uv2.y - uv0.y;
+        const float denom = du1 * dv2 - du2 * dv1;
+        if (fabsf(denom) < 1e-8f) continue;
+        const float r = 1.0f / denom;
+
+        XMFLOAT3 sdir{(dv2 * e1x - dv1 * e2x) * r,
+                      (dv2 * e1y - dv1 * e2y) * r,
+                      (dv2 * e1z - dv1 * e2z) * r};
+        XMFLOAT3 tdir{(du1 * e2x - du2 * e1x) * r,
+                      (du1 * e2y - du2 * e1y) * r,
+                      (du1 * e2z - du2 * e1z) * r};
+
+        for (uint32_t idx : {i0, i1, i2})
+        {
+            tan1[idx].x += sdir.x; tan1[idx].y += sdir.y; tan1[idx].z += sdir.z;
+            tan2[idx].x += tdir.x; tan2[idx].y += tdir.y; tan2[idx].z += tdir.z;
+        }
+    }
+
+    for (size_t i = 0; i < verts.size(); ++i)
+    {
+        XMVECTOR n = XMLoadFloat3(&verts[i].normal);
+        XMVECTOR t = XMLoadFloat3(&tan1[i]);
+        // Gram-Schmidt orthogonalize
+        XMVECTOR tang = XMVector3Normalize(t - n * XMVector3Dot(n, t));
+        XMStoreFloat3(&verts[i].tangent, tang);
+    }
+}
+
+// ----------------------------------------------------------------
+// TriangulateGeometry: triangulate an FBXGeometry into engine Vertex / uint32_t arrays.
+//
+// FBX polygon format: polygonVertexIndex[] is a flat array of vertex indices where
+// each polygon ends with a bitwise-NOT index (~vi, i.e. negative in two's complement).
+// Polygons can be triangles, quads, or N-gons; we fan-triangulate anything >3 verts.
+//
+// Layer elements (normals, UVs, tangents) each carry a mapping mode:
+//   ByPolygonVertex: one value per polygon-corner  (pvIndex into the element array)
+//   ByVertex:        one value per control point   (vertIdx into the element array)
+// We unify all attributes per polygon-vertex into a final Vertex struct.
+//
+// Coordinate conversion applied here:
+//   - Position/Normal/Tangent: ApplyCoordFlip / ApplyNormalFlip (Z-negate or Y/Z swap)
+//   - UV V-coordinate: flipped (1 - v) to match engine convention
+//   - Triangle winding: swap indices [1] and [2] to flip from RH to LH front-face
+// ----------------------------------------------------------------
+bool FBXImporter::TriangulateGeometry(
+    const FBXGeometry&     geom,
+    std::vector<Vertex>&   outVerts,
+    std::vector<uint32_t>& outIdx,
+    std::vector<int32_t>&  outTriMatIdx)
+{
+    outVerts.clear();
+    outIdx.clear();
+    outTriMatIdx.clear();
+
+    const auto& pvi = geom.polygonVertexIndex;
+    if (pvi.empty() || geom.vertices.empty()) return false;
+
+    // Build polygon list: each polygon = list of (pvIndex, vertexIndex) pairs
+    // pvIndex = position in pvi array; vertexIndex = actual vertex pos index
+    // FBX encodes end-of-polygon by negating the last index (bitwise NOT)
+    struct PolyVtx { int pvIdx; int32_t vertIdx; };
+    std::vector<std::vector<PolyVtx>> polygons;
+    std::vector<PolyVtx> currentPoly;
+
+    for (int i = 0; i < static_cast<int>(pvi.size()); ++i)
+    {
+        int32_t raw = pvi[i];
+        bool endOfPoly = (raw < 0);
+        int32_t vi = endOfPoly ? (~raw) : raw;   // actual vertex index
+        currentPoly.push_back({i, vi});
+        if (endOfPoly)
+        {
+            if (currentPoly.size() >= 3)
+                polygons.push_back(currentPoly);
+            currentPoly.clear();
+        }
+    }
+
+    // Helper lambdas to fetch attribute at a polygon-vertex (pvIdx) or vertex (vi)
+    // Returns {x, y, z} or {0,0,0} on miss
+    auto getVec3 = [](const std::vector<double>& arr, int idx, int stride) -> XMFLOAT3
+    {
+        int base = idx * stride;
+        if (base + stride - 1 >= static_cast<int>(arr.size())) return {0,0,0};
+        return { static_cast<float>(arr[base]),
+                 static_cast<float>(arr[base + 1]),
+                 static_cast<float>(arr[base + 2]) };
+    };
+
+    auto getVec2 = [](const std::vector<double>& arr, int idx) -> XMFLOAT2
+    {
+        int base = idx * 2;
+        if (base + 1 >= static_cast<int>(arr.size())) return {0,0};
+        return { static_cast<float>(arr[base]),
+                 static_cast<float>(arr[base + 1]) };
+    };
+
+    // Resolve attribute index based on mapping/reference type
+    auto resolveIdx = [](const std::string& mapping, const std::string& reference,
+                         const std::vector<int32_t>& idxArr,
+                         int pvIdx, int vi) -> int
+    {
+        int baseIdx = 0;
+        if (mapping == "ByPolygonVertex") baseIdx = pvIdx;
+        else                              baseIdx = vi;   // ByVertex, ByControlPoint
+
+        if (reference == "IndexToDirect")
+        {
+            if (baseIdx < static_cast<int>(idxArr.size())) return idxArr[baseIdx];
+            return 0;
+        }
+        return baseIdx; // Direct
+    };
+
+    const bool hasNormals  = !geom.normals.empty();
+    const bool hasUVs      = !geom.uvs.empty();
+    const bool hasTangents = !geom.tangents.empty();
+
+    #if defined(_DEBUG_FBXIMPORTER_)
+    {
+        // Compute triangle estimate (fan triangulation: poly with N verts -> N-2 tris)
+        size_t triEst = 0;
+        for (const auto& p : polygons)
+            triEst += (p.size() >= 3) ? p.size() - 2 : 0;
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[FBXImporter] Triangulate '%hs': rawPositions=%d pvi=%d polygons=%d estimatedTris=%d | normals=%hs uvs=%hs tangents=%hs normMapping='%hs' uvMapping='%hs'",
+            geom.name.c_str(),
+            (int)(geom.vertices.size() / 3),
+            (int)pvi.size(),
+            (int)polygons.size(),
+            (int)triEst,
+            hasNormals  ? "yes" : "NO",
+            hasUVs      ? "yes" : "NO",
+            hasTangents ? "yes" : "NO",
+            geom.normalMappingType.c_str(),
+            geom.uvMappingType.c_str());
+    }
+    #endif
+
+    // Fan-triangulate each polygon; emit one material index per output triangle.
+    const bool matByPolygon = (!geom.materialIndex.empty() &&
+                                geom.materialMappingType != "AllSame");
+    const int32_t allSameMat = (!geom.materialIndex.empty()) ? geom.materialIndex[0] : 0;
+
+    for (size_t p = 0; p < polygons.size(); ++p)
+    {
+        const auto& poly = polygons[p];
+
+        // Per-polygon material slot: ByPolygon → materialIndex[p]; AllSame → materialIndex[0]
+        const int32_t polyMat = matByPolygon
+                                ? ((p < geom.materialIndex.size()) ? geom.materialIndex[p] : 0)
+                                : allSameMat;
+
+        const int nVerts = static_cast<int>(poly.size());
+        for (int t = 1; t <= nVerts - 2; ++t)
+        {
+            outTriMatIdx.push_back(polyMat);   // one entry per triangle
+
+            // Triangle: poly[0], poly[t], poly[t+1]
+            const int triIndices[3] = {0, t, t + 1};
+            for (int ti : triIndices)
+            {
+                const PolyVtx& pv = poly[ti];
+                Vertex v{};
+
+                // Position
+                XMFLOAT3 pos = getVec3(geom.vertices, pv.vertIdx, 3);
+                pos = ApplyCoordFlip(pos);
+                v.position = pos;
+
+                // Normal
+                if (hasNormals)
+                {
+                    int ni = resolveIdx(geom.normalMappingType, geom.normalReferenceType,
+                                        geom.normalIndex, pv.pvIdx, pv.vertIdx);
+                    XMFLOAT3 n = getVec3(geom.normals, ni, 3);
+                    v.normal = ApplyNormalFlip(n);
+                }
+
+                // UV
+                if (hasUVs)
+                {
+                    int ui = resolveIdx(geom.uvMappingType, geom.uvReferenceType,
+                                        geom.uvIndex, pv.pvIdx, pv.vertIdx);
+                    XMFLOAT2 uv = getVec2(geom.uvs, ui);
+                    // FBX stores UVs with V flipped vs DX convention
+                    v.texCoord = { uv.x, 1.0f - uv.y };
+                }
+
+                // Tangent
+                if (hasTangents)
+                {
+                    int ti2 = resolveIdx(geom.tangentMappingType, geom.tangentReferenceType,
+                                         geom.tangentIndex, pv.pvIdx, pv.vertIdx);
+                    XMFLOAT3 tang = getVec3(geom.tangents, ti2, 3);
+                    v.tangent = ApplyNormalFlip(tang);
+                }
+                else
+                {
+                    v.tangent = { 1.0f, 0.0f, 0.0f };
+                }
+
+                outIdx.push_back(static_cast<uint32_t>(outVerts.size()));
+                outVerts.push_back(v);
+            }
+        }
+    }
+
+    // Fix winding order: our coord flip negates one axis, reversing handedness.
+    // Swap index[1] and index[2] per triangle to restore CCW front faces.
+    for (size_t i = 0; i + 2 < outIdx.size(); i += 3)
+        std::swap(outIdx[i + 1], outIdx[i + 2]);
+
+    #if defined(_DEBUG_FBXIMPORTER_)
+    // Report bounding box and counts BEFORE normal/tangent generation
+    if (!outVerts.empty())
+    {
+        XMFLOAT3 bmin = outVerts[0].position, bmax = outVerts[0].position;
+        for (const auto& v : outVerts)
+        {
+            if (v.position.x < bmin.x) bmin.x = v.position.x;
+            if (v.position.y < bmin.y) bmin.y = v.position.y;
+            if (v.position.z < bmin.z) bmin.z = v.position.z;
+            if (v.position.x > bmax.x) bmax.x = v.position.x;
+            if (v.position.y > bmax.y) bmax.y = v.position.y;
+            if (v.position.z > bmax.z) bmax.z = v.position.z;
+        }
+        XMFLOAT3 centre = { (bmin.x + bmax.x) * 0.5f, (bmin.y + bmax.y) * 0.5f, (bmin.z + bmax.z) * 0.5f };
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[FBXImporter] Triangulate result '%hs': verts=%d idx=%d tris=%d | "
+            L"bbox min=(%.3f,%.3f,%.3f) max=(%.3f,%.3f,%.3f) centre=(%.3f,%.3f,%.3f)",
+            geom.name.c_str(),
+            (int)outVerts.size(), (int)outIdx.size(), (int)(outIdx.size() / 3),
+            bmin.x, bmin.y, bmin.z,
+            bmax.x, bmax.y, bmax.z,
+            centre.x, centre.y, centre.z);
+    }
+    else
+    {
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[FBXImporter] Triangulate result '%hs': ZERO output vertices -- geometry is empty or all degenerate",
+            geom.name.c_str());
+    }
+    #endif
+
+    // Compute normals if none in the FBX
+    if (!hasNormals && !outIdx.empty())
+    {
+        std::vector<XMFLOAT3> positions(outVerts.size());
+        for (size_t i = 0; i < outVerts.size(); ++i) positions[i] = outVerts[i].position;
+        std::vector<XMFLOAT3> flatN;
+        ComputeFlatNormals(positions, outIdx, flatN);
+        for (size_t i = 0; i < outVerts.size(); ++i) outVerts[i].normal = flatN[i];
+    }
+
+    // Compute tangents if none in the FBX and UVs are present
+    if (!hasTangents && hasUVs && !outIdx.empty())
+        ComputeTangents(outVerts, outIdx);
+
+    return !outVerts.empty();
+}
+
+// ============================================================
+//  MATERIAL BUILDER
+// ============================================================
+// BuildMaterial: fill an engine Material from an FBXMaterial and resolve texture paths.
+// Texture IDs are FBX object IDs; we look them up in m_scene.textureByID to get the
+// FBXTexture, then resolve the stored filename relative to baseDir (the FBX directory).
+// Absolute paths embedded in FBX are normalised to paths under baseDir when possible.
+bool FBXImporter::BuildMaterial(
+    const FBXMaterial&  fbxMat,
+    const std::wstring& baseDir,
+    Material&           outMat)
+{
+    outMat = Material{};
+    outMat.name = fbxMat.name;
+
+    outMat.Kd = fbxMat.diffuseColor;
+    outMat.Ka = fbxMat.ambientColor;
+    outMat.Ks = fbxMat.specularColor;
+    outMat.Ns = fbxMat.shininess;
+    outMat.dissolve      = fbxMat.opacity;
+    outMat.Reflection    = fbxMat.reflectivity;
+    outMat.Metallic      = fbxMat.metalness;
+    outMat.Roughness     = fbxMat.roughness;
+    outMat.emissiveFactor= { fbxMat.emissiveColor.x, fbxMat.emissiveColor.y, fbxMat.emissiveColor.z };
+
+    // Helper: resolve texture path from FBX texture UID
+    auto resolveTexPath = [&](int64_t texID) -> std::wstring
+    {
+        if (texID == 0) return {};
+        auto it = m_scene.textureByID.find(texID);
+        if (it == m_scene.textureByID.end()) return {};
+        const FBXTexture& t = m_scene.textures[it->second];
+
+        // Prefer relative filename; fall back to full filename
+        std::string path = t.relativeFilename.empty() ? t.filename : t.relativeFilename;
+        if (path.empty()) return {};
+
+        // Normalise separators
+        std::replace(path.begin(), path.end(), '\\', '/');
+
+        // Build absolute path
+        std::wstring wpath(path.begin(), path.end());
+        std::wstring full = baseDir + L"/" + wpath;
+
+        // If that doesn't exist, try just the filename component
+        if (!std::filesystem::exists(full))
+        {
+            auto slash = wpath.rfind(L'/');
+            if (slash != std::wstring::npos) wpath = wpath.substr(slash + 1);
+            full = baseDir + L"/" + wpath;
+        }
+        return full;
+    };
+
+    auto loadTex = [&](int64_t texID) -> std::shared_ptr<Texture>
+    {
+        std::wstring path = resolveTexPath(texID);
+        if (path.empty() || !std::filesystem::exists(path)) return nullptr;
+
+        // Use default constructor + explicit LoadFromFile so we can check the return value.
+        // Texture(path) ignores LoadFromFile's return; GetPath() is set before any load
+        // attempt so it is always non-empty even on failure, making it an unreliable check.
+        auto tex = std::make_shared<Texture>();
+        if (tex->LoadFromFile(path))
+            return tex;
+
+        #if defined(_DEBUG_FBXIMPORTER_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING,
+                L"[FBXImporter] BuildMaterial: LoadFromFile FAILED for '%ls' -- "
+                L"material colour fallback will be used instead",
+                path.c_str());
+        #endif
+        return nullptr;
+    };
+
+    if (fbxMat.diffuseTexID)   outMat.diffuseTexture  = loadTex(fbxMat.diffuseTexID);
+    if (fbxMat.normalTexID)    outMat.normalMap        = loadTex(fbxMat.normalTexID);
+    if (fbxMat.roughnessTexID) outMat.roughnessMap     = loadTex(fbxMat.roughnessTexID);
+    if (fbxMat.metallicTexID)  outMat.metallicMap      = loadTex(fbxMat.metallicTexID);
+    if (fbxMat.aoTexID)        outMat.aoMap            = loadTex(fbxMat.aoTexID);
+
+    outMat.alphaMode  = (fbxMat.opacity < 1.0f) ? "BLEND" : "OPAQUE";
+    outMat.illumModel = 2;
+
+    #if defined(_DEBUG_FBXIMPORTER_)
+        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[FBXImporter] BuildMaterial '%hs': diffuse=(%.2f,%.2f,%.2f) metalness=%.2f roughness=%.2f opacity=%.2f "
+            L"diffTex=%hs normTex=%hs roughTex=%hs metTex=%hs aoTex=%hs",
+            fbxMat.name.c_str(),
+            outMat.Kd.x, outMat.Kd.y, outMat.Kd.z,
+            outMat.Metallic, outMat.Roughness, outMat.dissolve,
+            (outMat.diffuseTexture  ? "found" : "none"),
+            (outMat.normalMap       ? "found" : "none"),
+            (outMat.roughnessMap    ? "found" : "none"),
+            (outMat.metallicMap     ? "found" : "none"),
+            (outMat.aoMap           ? "found" : "none"));
+    #endif
+
+    return true;
+}
+
+// ============================================================
+//  ANIMATION CONVERSION  (FBX --> GLTFAnimation for GLTFAnimator)
+// ============================================================
+// ConvertAnimations: walks the FBX AnimStack -> AnimLayer -> AnimCurveNode -> AnimCurve
+// hierarchy and converts each curve node into a GLTFAnimation sampler.
+//
+// FBX time units: 1 second = FBX_TIME_UNIT (46,186,158,000) ticks.
+// Each AnimCurveNode has X/Y/Z sub-curves; we sample all time keys from all three,
+// then reconstruct the per-frame value (translation xyz or Euler-to-quaternion).
+//
+// Rotation: FBX stores Euler angles in DEGREES in FBX right-handed space.
+//   Step 1: EulerToMatrix() -- Euler deg -> RH rotation matrix (extrinsic FBX order)
+//   Step 2: ApplyRotationFlip() -- RH matrix -> engine LH rotation matrix
+//   Step 3: XMQuaternionRotationMatrix() -- LH matrix -> quaternion for GLTFAnimator
+//
+// Translation: apply ApplyCoordFlip() (same as static TRS in SceneManager).
+// Scale: no flip required (uniform axis scales are invariant under reflection).
+void FBXImporter::ConvertAnimations(
+    const std::unordered_map<int64_t, int>& fbxIDToModelSlot,
+    std::vector<GLTFAnimation>&             outAnimations)
+{
+    outAnimations.clear();
+
+    for (const auto& stack : m_scene.animStacks)
+    {
+        GLTFAnimation anim;
+        anim.name = std::wstring(stack.name.begin(), stack.name.end());
+        anim.duration = 0.0f;
+        if (stack.localStop > stack.localStart)
+            anim.duration = static_cast<float>(stack.localStop - stack.localStart) / FBX_TIME_UNIT;
+
+        for (int64_t layerID : stack.layerIDs)
+        {
+            const auto layerIt = std::find_if(m_scene.animLayers.begin(), m_scene.animLayers.end(),
+                [layerID](const FBXAnimLayer& l){ return l.id == layerID; });
+            if (layerIt == m_scene.animLayers.end()) continue;
+
+            for (int64_t cnID : layerIt->curveNodeIDs)
+            {
+                auto cni = m_scene.animCurveNodeByID.find(cnID);
+                if (cni == m_scene.animCurveNodeByID.end()) continue;
+                const FBXAnimCurveNode& cn = m_scene.animCurveNodes[cni->second];
+
+                // Map target model ID → scene model slot
+                int targetSlot = -1;
+                auto slotIt = fbxIDToModelSlot.find(cn.targetModelID);
+                if (slotIt != fbxIDToModelSlot.end()) targetSlot = slotIt->second;
+                if (targetSlot < 0) continue;
+
+                // Determine animation target path
+                AnimationTargetPath path = AnimationTargetPath::TRANSLATION;
+                if (cn.propertyName == "Lcl Rotation" || cn.name.find("R") != std::string::npos)
+                    path = AnimationTargetPath::ROTATION;
+                else if (cn.propertyName == "Lcl Scaling" || cn.name.find("S") != std::string::npos)
+                    path = AnimationTargetPath::SCALE;
+
+                // Build a combined sampler from X/Y/Z curves
+                auto fetchCurve = [&](int64_t id) -> const FBXAnimCurve*
+                {
+                    auto it = m_scene.animCurveByID.find(id);
+                    if (it == m_scene.animCurveByID.end()) return nullptr;
+                    return &m_scene.animCurves[it->second];
+                };
+
+                const FBXAnimCurve* cx = fetchCurve(cn.curveXID);
+                const FBXAnimCurve* cy = fetchCurve(cn.curveYID);
+                const FBXAnimCurve* cz = fetchCurve(cn.curveZID);
+                if (!cx && !cy && !cz) continue;
+
+                // Collect all unique timestamps from all three curves
+                std::set<int64_t> timesSet;
+                auto addTimes = [&](const FBXAnimCurve* c)
+                    { if (c) for (int64_t t : c->keyTimes) timesSet.insert(t); };
+                addTimes(cx); addTimes(cy); addTimes(cz);
+
+                AnimationSampler sampler;
+                sampler.interpolation = AnimationInterpolation::LINEAR;
+                sampler.minTime = 0.0f;
+                sampler.maxTime = 0.0f;
+
+                // Sample each curve at every timestamp using linear interpolation
+                auto sampleAt = [](const FBXAnimCurve* c, int64_t t, float def) -> float
+                {
+                    if (!c || c->keyTimes.empty()) return def;
+                    if (t <= c->keyTimes.front()) return c->keyValues.empty() ? def : c->keyValues.front();
+                    if (t >= c->keyTimes.back())  return c->keyValues.empty() ? def : c->keyValues.back();
+                    for (size_t i = 0; i + 1 < c->keyTimes.size(); ++i)
+                    {
+                        if (t >= c->keyTimes[i] && t <= c->keyTimes[i + 1])
+                        {
+                            float frac = static_cast<float>(t - c->keyTimes[i]) /
+                                         static_cast<float>(c->keyTimes[i+1] - c->keyTimes[i]);
+                            return c->keyValues[i] + frac * (c->keyValues[i+1] - c->keyValues[i]);
+                        }
+                    }
+                    return def;
+                };
+
+                for (int64_t t : timesSet)
+                {
+                    float sec = static_cast<float>(t) / FBX_TIME_UNIT;
+                    float x = sampleAt(cx, t, cn.defaultX);
+                    float y = sampleAt(cy, t, cn.defaultY);
+                    float z = sampleAt(cz, t, cn.defaultZ);
+
+                    AnimationKeyframe kf;
+                    kf.time = sec;
+
+                    if (path == AnimationTargetPath::ROTATION)
+                    {
+                        // FBX Euler degrees (RH) -> LH quaternion for GLTFAnimator
+                        // Look up the target model's rotation order so fan-exported
+                        // non-XYZ orderings are handled correctly.
+                        int rotOrder = 0; // default XYZ
+                        auto mIt = m_scene.modelByID.find(cn.targetModelID);
+                        if (mIt != m_scene.modelByID.end())
+                            rotOrder = m_scene.models[mIt->second].transform.rotationOrder;
+
+                        XMMATRIX rot = EulerToMatrix({x, y, z}, rotOrder);
+                        rot          = ApplyRotationFlip(rot); // RH -> LH engine space
+                        XMVECTOR q   = XMQuaternionRotationMatrix(rot);
+                        XMFLOAT4 qf;
+                        XMStoreFloat4(&qf, q);
+                        kf.values = { qf.x, qf.y, qf.z, qf.w };
+                    }
+                    else
+                    {
+                        // Translation / Scale
+                        XMFLOAT3 v = ApplyCoordFlip({ x, y, z });
+                        kf.values = { v.x, v.y, v.z };
+                    }
+
+                    sampler.keyframes.push_back(kf);
+                    if (sec > sampler.maxTime) sampler.maxTime = sec;
+                }
+
+                if (sampler.keyframes.empty()) continue;
+                if (anim.duration < sampler.maxTime) anim.duration = sampler.maxTime;
+
+                const int samplerIdx = static_cast<int>(anim.samplers.size());
+                anim.samplers.push_back(std::move(sampler));
+
+                AnimationChannel channel;
+                channel.samplerIndex    = samplerIdx;
+                channel.targetNodeIndex = targetSlot;
+                channel.targetPath      = path;
+                anim.channels.push_back(std::move(channel));
+            }
+        }
+
+        if (!anim.channels.empty())
+            outAnimations.push_back(std::move(anim));
+    }
+}

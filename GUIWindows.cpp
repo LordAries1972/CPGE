@@ -2,12 +2,14 @@
 #include "Includes.h"
 
 #if defined(__USE_OPENGL__)
-#include "OpenGLFXManager.h"
+    #include "OpenGLFXManager.h"
 #elif defined(__USE_VULKAN__)
-#include "VULKAN_FXManager.h"
+    #include "VULKAN_FXManager.h"
 #else
-#include "DX_FXManager.h"
+    #include "DX_FXManager.h"
 #endif
+
+// Our required Classes to create the GUI windows
 #include "ThreadManager.h"
 #include "SoundManager.h"
 #include "GUIManager.h"
@@ -20,18 +22,23 @@ extern SoundManager soundManager;
 extern void StopMusicPlayback();
 extern WindowMetrics winMetrics;
 #if defined(__USE_OPENGL__)
-extern GLFXManager fxManager;
+    extern GLFXManager fxManager;
 #elif defined(__USE_VULKAN__)
-extern VKFXManager fxManager;
+    extern VKFXManager fxManager;
 #else
-extern FXManager fxManager;
+    extern FXManager fxManager;
 #endif
+
+// Forward declaration of the renderer's scene switch function, 
+// which is called by the experimental button in the game menu to 
+// launch or demo demo scene when required.
 extern ThreadManager threadManager;
 extern SceneManager scene;
 extern Debug debug;
 extern std::shared_ptr<Renderer> renderer;
+
 #if defined(_WIN32) || defined(_WIN64)
-extern HWND hwnd;  // main window handle — PostMessage(hwnd, WM_CLOSE) reaches WndProc on the main thread
+    extern HWND hwnd;  // main window handle — PostMessage(hwnd, WM_CLOSE) reaches WndProc on the main thread
 #endif
 
 extern void SwitchToGameIntro();
@@ -72,18 +79,21 @@ void GUIManager::CreateAlertWindow(const std::wstring& message) {
     // Fixed lambda handlers using weak_ptr to prevent circular references
     std::weak_ptr<GUIWindow> weakAlertWindow = alertWindow;
 
-    titleBar.onMouseBtnDown = [weakAlertWindow]() {
+    titleBar.onMouseBtnDown = [weakAlertWindow]() 
+    {
         // Use weak_ptr to avoid circular references and check validity
-        if (auto window = weakAlertWindow.lock()) {
+        if (auto window = weakAlertWindow.lock()) 
+        {
             if (!window->bWindowDestroy) {
                 debug.logDebugMessage(LogLevel::LOG_DEBUG, L"CreateAlertWindow - TitleBar mouse down detected");
                 // Set dragging state safely
                 window->isDragging = true;
             }
         }
-        };
+    }; // End of mouse down handler
 
-    titleBar.onMouseBtnUp = [weakAlertWindow]() {
+    titleBar.onMouseBtnUp = [weakAlertWindow]() 
+    {
         // Use weak_ptr to avoid circular references and check validity
         if (auto window = weakAlertWindow.lock()) {
             if (!window->bWindowDestroy) {
@@ -92,16 +102,17 @@ void GUIManager::CreateAlertWindow(const std::wstring& message) {
                 window->isDragging = false;
             }
         }
-        };
+    }; // End of mouse up handler
 
-    titleBar.onMouseMove = [weakAlertWindow]() {
+    titleBar.onMouseMove = [weakAlertWindow]() 
+    {
         // Use weak_ptr to avoid circular references and check validity
         if (auto window = weakAlertWindow.lock()) {
             if (!window->bWindowDestroy) {
                 // Handle dragging logic here if needed
             }
         }
-        };
+    }; // End of mouse move handler
 
     // Add the control to the window
     alertWindow->AddControl(titleBar);
@@ -137,7 +148,8 @@ void GUIManager::CreateAlertWindow(const std::wstring& message) {
     okayButton.isVisible = true;
 
     // Fixed lambda handler using weak reference to GUIManager
-    okayButton.onMouseBtnDown = [this, windowName = std::string(WINDOW_NAME)]() {
+    okayButton.onMouseBtnDown = [this, windowName = std::string(WINDOW_NAME)]() 
+    {
         try {
             debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateAlertWindow - Okay button clicked");
 
@@ -151,7 +163,7 @@ void GUIManager::CreateAlertWindow(const std::wstring& message) {
             debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateAlertWindow - Exception in okay button handler: %s",
                 std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
         }
-        };
+    }; // End of mouse down handler
     alertWindow->AddControl(okayButton);
 
     // Add Close Button control with fixed lambda handler
@@ -184,7 +196,7 @@ void GUIManager::CreateAlertWindow(const std::wstring& message) {
             debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateAlertWindow - Exception in close button handler: %s",
                 std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
         }
-    };
+    }; // End of mouse down handler
     
     alertWindow->AddControl(btnClose);
 }
@@ -253,16 +265,22 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     configButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);                                       // Button up texture
     configButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);                                // Button hover texture
     configButton.label = L"CONFIGURATION";                                                             // Button label text
-#if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
-    configButton.lblFontSize = 13.0f;
-    configButton.bold = true;
-#else
-    configButton.lblFontSize = 16.0f;                                                                        // Font size for button text
-#endif
+
+    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        configButton.lblFontSize = 13.0f;
+        configButton.bold = true;
+    #elif defined(__USE_DIRECTX_12__)
+        configButton.lblFontSize = 16.0f;
+        configButton.bold = true;
+    #else
+        configButton.lblFontSize = 16.0f;
+    #endif
+
     configButton.isVisible = true;                                                                           // Make button visible
 
     // Fixed onMouseOver handler using weak reference
-    configButton.onMouseOver = [weakGameMenuWindow]() {
+    configButton.onMouseOver = [weakGameMenuWindow]() 
+    {
         // Use weak_ptr to avoid circular references and check validity
         if (auto window = weakGameMenuWindow.lock()) {
             if (!window->bWindowDestroy) {
@@ -274,10 +292,11 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
                 // fxManager.CreateOutlineFX(yellow, pos, size, 1, true, 7, 5);
             }
         }
-        };
+    }; // End of mouse over handler
 
     // Open the config window on mouse button release (standard click-complete convention)
-    configButton.onMouseBtnUp = [this]() {
+    configButton.onMouseBtnUp = [this]() 
+    {
         try {
             debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Configuration button released, opening config window");
             soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
@@ -287,8 +306,8 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
             debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateGameMenuWindow - Exception in configuration button handler: %s",
                 std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
         }
-        };
-
+    }; // End of mouse button up handler
+    
     // Add the configuration button control to the window
     gameMenuWindow->AddControl(configButton);
 
@@ -303,16 +322,20 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     gameplayButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);                                        // Button up texture
     gameplayButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);                                 // Button hover texture
     gameplayButton.label = L"GAME PLAY";
-#if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
-    gameplayButton.lblFontSize = 13.0f;
-    gameplayButton.bold = true;
-#else
-    gameplayButton.lblFontSize = 16.0f;                                                                         // Font size for button text
-#endif
+    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        gameplayButton.lblFontSize = 13.0f;
+        gameplayButton.bold = true;
+    #elif defined(__USE_DIRECTX_12__)
+        gameplayButton.lblFontSize = 16.0f;
+        gameplayButton.bold = true;
+    #else
+        gameplayButton.lblFontSize = 16.0f;
+    #endif
     gameplayButton.isVisible = true;                                                                            // Make button visible
 
     // Fixed onMouseOver handler using weak reference
-    gameplayButton.onMouseOver = [weakGameMenuWindow]() {
+    gameplayButton.onMouseOver = [weakGameMenuWindow]() 
+    {
         // Use weak_ptr to avoid circular references and check validity
         if (auto window = weakGameMenuWindow.lock()) {
             if (!window->bWindowDestroy) {
@@ -324,10 +347,11 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
                 // fxManager.CreateOutlineFX(yellow, pos, size, 1, true, 7, 5);
             }
         }
-        };
+    }; // End of mouse over handler
 
     // Fixed onMouseBtnDown handler using proper error handling
-    gameplayButton.onMouseBtnDown = [this, windowName = std::string(WINDOW_NAME)]() {
+    gameplayButton.onMouseBtnDown = [this, windowName = std::string(WINDOW_NAME)]() 
+    {
         try {
             debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Game Play button clicked");
 
@@ -355,7 +379,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
             debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateGameMenuWindow - Exception in gameplay button handler: %s",
                 std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
         }
-        };
+    }; // End of mouse down handler
 
     // Add the gameplay button control to the window
     gameMenuWindow->AddControl(gameplayButton);
@@ -372,12 +396,15 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     hiscoresButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);                                 // Button hover texture
     hiscoresButton.label = L"HIGH SCORES";                                                               // Button label text
     
-#if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
-    hiscoresButton.lblFontSize = 13.0f;
-    hiscoresButton.bold = true;
-#else
-    hiscoresButton.lblFontSize = 16.0f;                                                                         // Font size for button text
-#endif
+    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        hiscoresButton.lblFontSize = 13.0f;
+        hiscoresButton.bold = true;
+    #elif defined(__USE_DIRECTX_12__)
+        hiscoresButton.lblFontSize = 16.0f;
+        hiscoresButton.bold = true;
+    #else
+        hiscoresButton.lblFontSize = 16.0f;
+    #endif
     hiscoresButton.isVisible = true;                                                                            // Make button visible
 
     // Fixed onMouseOver handler using weak reference
@@ -427,12 +454,15 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     creditsButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);                                        // Button up texture
     creditsButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);                                 // Button hover texture
     creditsButton.label = L"SHOW CREDITS";                                                                 // Button label text
-#if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
-    creditsButton.lblFontSize = 13.0f;
-    creditsButton.bold = true;
-#else
-    creditsButton.lblFontSize = 16.0f;                                                                         // Font size for button text
-#endif
+    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        creditsButton.lblFontSize = 13.0f;
+        creditsButton.bold = true;
+    #elif defined(__USE_DIRECTX_12__)
+        creditsButton.lblFontSize = 16.0f;
+        creditsButton.bold = true;
+    #else
+        creditsButton.lblFontSize = 16.0f;
+    #endif
     creditsButton.isVisible = true;                                                                            // Make button visible
 
     // Fixed onMouseOver handler using weak reference
@@ -482,12 +512,15 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     quitButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);                                        // Button up texture
     quitButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);                                 // Button hover texture
     quitButton.label = L"QUIT TO DESKTOP";                                                              // Button label text
-#if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
-    quitButton.lblFontSize = 13.0f;
-    quitButton.bold = true;
-#else
-    quitButton.lblFontSize = 16.0f;                                                                         // Font size for button text
-#endif
+    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        quitButton.lblFontSize = 13.0f;
+        quitButton.bold = true;
+    #elif defined(__USE_DIRECTX_12__)
+        quitButton.lblFontSize = 16.0f;
+        quitButton.bold = true;
+    #else
+        quitButton.lblFontSize = 16.0f;
+    #endif
     quitButton.isVisible = true;                                                                            // Make button visible
 
     // Fixed onMouseOver handler using weak reference
@@ -502,7 +535,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
                 // fxManager.CreateOutlineFX(yellow, pos, size, 1, true, 7, 5);
             }
         }
-        };
+    };
 
     // Quit button: start a fade-to-black then shut down inside the callback.
     // The callback fires from fxManager.Render() (render thread) once progress>=1,
@@ -521,98 +554,112 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
                     // Signal the render thread to exit its loop.
                     threadManager.threadVars.bIsShuttingDown.store(true);
                     debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Fade complete, signalling main thread to close");
-#if defined(_WIN32) || defined(_WIN64)
-                    // This callback fires from inside the render thread while the
-                    // current frame is still in progress.  Posting WM_CLOSE directly
-                    // risks DestroyWindow racing the render thread's final Present.
-                    // A short-lived helper thread waits ~100 ms (≥ 2 frames at 60fps)
-                    // for the render thread to finish and exit, then posts WM_CLOSE
-                    // so the main message loop can safely tear down the window.
-                    std::thread([]() {
-                        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                        PostMessage(hwnd, WM_CLOSE, 0, 0);
-                    }).detach();
-#else
-                    PostQuitMessage(0);
-#endif
+                    #if defined(_WIN32) || defined(_WIN64)
+                        // This callback fires from inside the render thread while the
+                        // current frame is still in progress.  Posting WM_CLOSE directly
+                        // risks DestroyWindow racing the render thread's final Present.
+                        // A short-lived helper thread waits ~100 ms (≥ 2 frames at 60fps)
+                        // for the render thread to finish and exit, then posts WM_CLOSE
+                        // so the main message loop can safely tear down the window.
+                        std::thread([]() {
+                            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                            PostMessage(hwnd, WM_CLOSE, 0, 0);
+                        }).detach();
+                    #else
+                        PostQuitMessage(0);
+                    #endif
                 });
         }
         catch (const std::exception& e) {
             debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"CreateGameMenuWindow - Exception in quit button handler: %s",
                 std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
             threadManager.threadVars.bIsShuttingDown.store(true);
-#if defined(_WIN32) || defined(_WIN64)
-            PostMessage(hwnd, WM_CLOSE, 0, 0);
-#else
-            PostQuitMessage(0);
-#endif
+            #if defined(_WIN32) || defined(_WIN64)
+                PostMessage(hwnd, WM_CLOSE, 0, 0);
+            #else
+                PostQuitMessage(0);
+            #endif
         }
     };
 
     // Add the quit button control to the window
     gameMenuWindow->AddControl(quitButton);
 
-#if defined(_DEBUG)
-    // Experimental button — DEBUG builds only; launches WarpDotTunnel demo
-    GUIControl experimentalButton;
-    experimentalButton.type = GUIControlType::Button;
-    experimentalButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 330);
-    experimentalButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);
-    experimentalButton.bgColor = MyColor(0, 0, 0, 255);
-    experimentalButton.txtColor = MyColor(255, 128, 0, 255);                                                       // Orange text — visually distinct from release buttons
-    experimentalButton.useShadowedText = true;
-    experimentalButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);
-    experimentalButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);
-    experimentalButton.label = L"** EXPERIMENTAL **";
-#if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
-    experimentalButton.lblFontSize = 13.0f;
-    experimentalButton.bold = true;
-#else
-    experimentalButton.lblFontSize = 16.0f;
-#endif
+    // This is the Experimental button used only on debug builds
+    // so that users can prepare and test certain effects or scenes that 
+    // aren't ready for release or general use yet, without the need for 
+    // a separate debug menu or command console.
+    #if defined(_DEBUG)
+        // Experimental button — DEBUG builds only; launches WarpDotTunnel demo
+        GUIControl experimentalButton;
+        experimentalButton.type = GUIControlType::Button;
+        experimentalButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 330);
+        experimentalButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);
+        experimentalButton.bgColor = MyColor(0, 0, 0, 255);
+        experimentalButton.txtColor = MyColor(255, 128, 0, 255);                                                       // Orange text — visually distinct from release buttons
+        experimentalButton.useShadowedText = true;
+        experimentalButton.bgTextureId = int(BlitObj2DIndexType::IMG_BUTTON2UP);
+        experimentalButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);
+        experimentalButton.label = L"** EXPERIMENTAL **";
+        #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+            experimentalButton.lblFontSize = 13.0f;
+            experimentalButton.bold = true;
+        #elif defined(__USE_DIRECTX_12__)
+            experimentalButton.lblFontSize = 16.0f;
+            experimentalButton.bold = true;
+        #else
+            experimentalButton.lblFontSize = 16.0f;
+        #endif
 
-    experimentalButton.isVisible = true;
+        experimentalButton.isVisible = true;
 
-    experimentalButton.onMouseBtnDown = [this, windowName = std::string(WINDOW_NAME)]() {
-        try {
-            debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Experimental button clicked, launching WarpDotTunnel");
+        experimentalButton.onMouseBtnDown = [this, windowName = std::string(WINDOW_NAME)]() 
+        {
+            // The experimental button OnMouseBtnDown handler performs a quick fade to black, then hands 
+            // off to the loader thread to launch the WarpDotTunnel scene.
+            try {
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Experimental button clicked, launching WarpDotTunnel");
 
-            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+                soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
 
-            fxManager.FadeToBlack(1.0f, 0.06f);
+                fxManager.FadeToBlack(2.0f, 0.06f);
 
-            // This callback runs on the main thread (via HandleAllInput), so we CAN
-            // sleep here. The separate render thread advances the fade independently.
-            int fadeTimeout = 0;
-            const int MAX_FADE_TIMEOUT = 300;
-            while (fxManager.IsFadeActive() && fadeTimeout < MAX_FADE_TIMEOUT) {
-                Sleep(10);
-                fadeTimeout++;
+                // This callback runs on the main thread (via HandleAllInput), so we CAN
+                // sleep here. The separate render thread advances the fade independently.
+                int fadeTimeout = 0;
+                const int MAX_FADE_TIMEOUT = 300;
+                while (fxManager.IsFadeActive() && fadeTimeout < MAX_FADE_TIMEOUT) {
+                    Sleep(10);
+                    fadeTimeout++;
+                }
+
+                // Screen is now black — stop the starfield immediately so it doesn't
+                // flicker visible between the FadeOut completing and the loader thread
+                // calling SaveAndSuspendFXForScene().
+                fxManager.StopStarfield();
+
+                // Close the game menu window to reveal the black screen behind it, and prevent it 
+                // from visually interfering with the demo's own UI elements (like the movie playback progress bar).
+                RemoveWindow(windowName);
+
+                // Screen is black — hand off to the loader thread which owns all
+                // scene initialisation (SaveAndSuspendFXForScene + Init3DWarpDOTTunnel
+                // + FadeToImage are all called from SCENE_EXPERIMENT in IOStreamDX11Thread).
+                scene.SetGotoScene(SCENE_EXPERIMENT);
+                scene.InitiateScene();
+                scene.SetGotoScene(SCENE_NONE);
+                // Start the loader thread's scene setup, which will eventually call SaveAndSuspendFXForScene()
+                renderer->ResumeLoader();
             }
-
-            // Screen is now black — stop the starfield immediately so it doesn't
-            // flicker visible between the FadeOut completing and the loader thread
-            // calling SaveAndSuspendFXForScene().
-            fxManager.StopStarfield();
-
-            RemoveWindow(windowName);
-
-            // Screen is black — hand off to the loader thread which owns all
-            // scene initialisation (SaveAndSuspendFXForScene + Init3DWarpDOTTunnel
-            // + FadeToImage are all called from SCENE_EXPERIMENT in IOStreamDX11Thread).
-            scene.SetGotoScene(SCENE_EXPERIMENT);
-            scene.InitiateScene();
-            scene.SetGotoScene(SCENE_NONE);
-            renderer->ResumeLoader();
-        }
-        catch (const std::exception& e) {
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateGameMenuWindow - Exception in experimental button handler: %s",
-                std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
-        }
-    };
-
-    gameMenuWindow->AddControl(experimentalButton);
-#endif
+            catch (const std::exception& e) 
+            {
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateGameMenuWindow - Exception in experimental button handler: %s",
+                    std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
+            }
+        };
+        // Add button to window
+        gameMenuWindow->AddControl(experimentalButton);
+    #endif
 
     // Log successful completion of game menu window creation
     debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Game menu window created successfully with %d controls",

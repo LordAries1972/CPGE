@@ -1,0 +1,43 @@
+// History: Models.h - 08-06-2026
+// Enhancement: GLTF tangent-W support + new map types (gloss, emissive, shadow).
+//
+// Changes:
+//
+//   Vertex struct (DX11/DX12):
+//     Added: float tangentW = 1.0f
+//     Previously tangent was float3 (xyz only); tangentW carries the GLTF handedness
+//     sign (+1 or -1) for correct bitangent computation on mirrored UV islands.
+//     Vertex size: 44 -> 48 bytes.
+//     NOTE: existing cache.dat files with 44-byte vertices must be regenerated.
+//
+//   Vertex struct (OpenGL/Vulkan):
+//     Changed: float tangent[3] -> float tangent[4]
+//     tangent[3] carries the handedness sign matching GLTF VEC4 TANGENT attribute.
+//
+//   Material struct:
+//     Added: std::string glossMapPath
+//     Added: std::string emissiveMapPath
+//     Added: std::shared_ptr<Texture> glossMap
+//     Added: std::shared_ptr<Texture> emissiveMap
+//
+//   ModelInfo struct (DX11/DX12 section):
+//     Added: ComPtr<ID3D11ShaderResourceView> glossMapSRV     (t6)
+//     Added: ComPtr<ID3D11ShaderResourceView> emissiveMapSRV  (t7)
+//     Added: ComPtr<ID3D11ShaderResourceView> shadowMapSRV    (t8, set by shadow pass)
+//     Added: ComPtr<ID3D11Buffer> shadowBuffer                (b6: ShadowBufferGPU)
+//     Added: ComPtr<ID3D11SamplerState> shadowSamplerState    (s2: PCF comparison)
+//     Added: std::shared_ptr<Texture> glossMap
+//     Added: std::shared_ptr<Texture> emissiveMapTexture
+//     Added: bool useDiffuseMap = false
+//     Added: bool useGlossMap = false
+//     Added: bool useEmissiveMap = false
+//
+//   ModelInfo struct (OpenGL section):
+//     Added: GLuint glossTexID, emissiveTexID, shadowTexID
+//     Added: bool useDiffuseMap, useGlossMap, useEmissiveMap
+//
+//   ModelInfo struct (Vulkan section):
+//     Added: VkBuffer/Memory/Mapped for shadowUniformBuffer
+//     Added: bool useDiffuseMap, useGlossMap, useEmissiveMap
+//
+// Files changed: Models.h

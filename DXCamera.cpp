@@ -2193,14 +2193,15 @@ float Camera::GetFarPlane() const
     XMFLOAT4X4 projMatrix;
     XMStoreFloat4x4(&projMatrix, projectionMatrix);
     
-    // For a perspective projection matrix: m33 = -(far + near) / (far - near)
-    // and m43 = -2 * far * near / (far - near)
-    // Solving for far: far = m43 / (m33 - 1)
+    // XMMatrixPerspectiveFovLH (LH convention):
+    //   _33 = fRange        = far / (far - near)
+    //   _43 = -fRange*near  = -far*near / (far - near)
+    // Solving for far: far = m43 / (1 - m33)
     float m33 = projMatrix._33;
     float m43 = projMatrix._43;
-    
+
     // Calculate far plane distance using the projection matrix elements
-    float farPlane = -m43 / (m33 + 1.0f);
+    float farPlane = m43 / (1.0f - m33);
     
     #if defined(_DEBUG_CAMERA_)
         debug.logDebugMessage(LogLevel::LOG_DEBUG, 
@@ -2218,14 +2219,15 @@ float Camera::GetNearPlane() const
     XMFLOAT4X4 projMatrix;
     XMStoreFloat4x4(&projMatrix, projectionMatrix);
     
-    // For a perspective projection matrix: m33 = -(far + near) / (far - near)
-    // and m43 = -2 * far * near / (far - near)
-    // Solving for near: near = m43 / (m33 - 1)
+    // XMMatrixPerspectiveFovLH (LH convention):
+    //   _33 = fRange        = far / (far - near)
+    //   _43 = -fRange*near  = -far*near / (far - near)
+    // Solving for near: near = -m43 / m33
     float m33 = projMatrix._33;
     float m43 = projMatrix._43;
-    
+
     // Calculate near plane distance using the projection matrix elements
-    float nearPlane = m43 / (m33 - 1.0f);
+    float nearPlane = -m43 / m33;
     
     #if defined(_DEBUG_CAMERA_)
         debug.logDebugMessage(LogLevel::LOG_DEBUG, 

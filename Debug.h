@@ -23,11 +23,16 @@
 //#define _DEBUG_XMPlayer_                                                // Define this line, to show all debug output to runtime console for the XMMODPlayer class.
 //#define _DEBUG_CONFIGURATION_
 //#define _DEBUG_SOUNDMANAGER_
+
 #define _DEBUG_SCENEMANAGER_                                            // Define this line, to show all debug output to runtime console for the SceneManager class.
-//#define _DEBUG_GLTFANIMATOR_                                            // Define this line, to show all debug output for the GLTFAnimator class.
-//#define _DEBUG_SHADERMANAGER_                                           // Define this line, to show all debug output for the ShaderManager class.
+#if defined(_DEBUG_SCENEMANAGER_)
+    //#define _DEBUG_GLTFANIMATOR_                                            // Define this line, to show all debug output for the GLTFAnimator class.
+    //#define _DEBUG_SHADERMANAGER_                                           // Define this line, to show all debug output for the ShaderManager class.
+    //#define _DEBUG_SCENE_TRANSITION_                                        // Debug Info for Scene Transistions.
+    #define _DEBUG_FBXIMPORTER_                                               // Define this line, to show all debug output for the FBXImporter class.
+#endif // end of _DEBUG_SCENEMANAGER_ debug flags
+
 //#define _DEBUG_NETWORKMANAGER_                                          // Define this line, to show all debug output to runtime console for the NetworkManager class.
-//#define _DEBUG_SCENE_TRANSITION_                                        // Debug Info for Scene Transistions.
 //#define _DEBUG_GAMINGAI_                                                // Define this line, to show all debug output for the GamingAI class.
 //#define _DEBUG_PUNPACK_                                                 // Define this line, to show all debug output for the PUNPuck class.
 //#define _DEBUG_GAMEPLAYER_                                              // Define this line, to show all debug output for the GamePlayer class.
@@ -111,6 +116,13 @@ enum class LogLevel : int {
 // ----------------------------------------------------------------------------------------------
 class Debug {
 public:
+    // Constructor: when NO_DEBUGFILE_OUTPUT is not defined, the log file is
+    // truncated to zero bytes so every application session starts with a clean log.
+    // The global `Debug debug;` instance in main.cpp is constructed before WinMain
+    // runs, so the file is cleared before any logging call can occur.
+    Debug();
+    ~Debug() = default;
+
     // Default Logging Level.
     static inline LogLevel currentLogLevel = LogLevel::LOG_INFO;
 
@@ -138,7 +150,9 @@ public:
     static void DebugBreak();
 
 private:
-
+    // Truncates (or creates) the named log file to zero bytes.
+    // Called once from the constructor before any logging thread is active.
+    static void ClearLogFile(const std::wstring& filename);
 };
 
 // Do this as this is a singleton class.

@@ -1,0 +1,104 @@
+// History: SceneManager.cpp - 08-06-2026
+// Fix: Multi-material FBX mesh rendered with only the first material applied to all
+//      polygons.  Root cause: ParseFBXScene used a single scene_models / models slot
+//      for the entire joined mesh regardless of how many material slots the geometry
+//      referenced.  TriangulateGeometry had no mechanism to report per-triangle
+//      material indices, so splitting was impossible.
+//
+// Changes:
+//
+//   ParseFBXScene -- triangulation / material / GPU block replaced:
+//
+//   1. Triangulation call updated to 4-parameter form:
+//        m_fbxImporter.TriangulateGeometry(*geom, verts, idx, triMatIdx)
+//      outTriMatIdx[t] = FBX materialIndex for the polygon that produced triangle t.
+//
+//   2. Unique material slots collected from triMatIdx (first-appearance order).
+//      Falls back to {0} for meshes with no material index data (AllSame / empty).
+//
+//   3. Per-material sub-mesh loop:
+//      - For the first slot: use the pre-allocated instanceIndex / modelSlot.
+//      - For subsequent slots:
+//          * Find a free models[] slot by empty-name scan.
+//          * Build a fresh ModelInfo copying only world-transform + metadata from
+//            the base mesh (name = "<FBXModelName>_mat<N>",
+//            iParentModelID = firstSubMeshInstIdx, gltfNodeIndex = -1).
+//      - Extract sub-mesh triangles: iterate triMatIdx, emit only triangles that
+//        match the current matSlot.  Vertex indices are remapped to a compact range
+//        via an unordered_map<origIdx, newIdx>.
+//      - Resolve FBXMaterial for the slot; call BuildMaterial; solid-colour 1x1
+//        diffuse texture created from fbxMat.diffuseColor + opacity when no file
+//        texture is present.
+//      - Populate textureSRVs / normalMapSRVs / roughnessMapSRV / metallicMapSRV /
+//        aoMapSRV under #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+//      - Call SetupModelForRendering(subInstIdx); sync GPU handles to models[].
+//      - First sub-mesh sets fbxIDToSlot[fbxModel.id]; extras are additional slots.
+//      - ++instanceIndex once per sub-mesh.
+//
+// Policy enforced (unchanged):
+//   1. Texture file present and loads OK        -> use texture
+//   2. Texture missing/fails, material present  -> solid colour from Kd
+//   3. No material at all                       -> brick fallback (SetupModelForRendering)
+//
+// ---
+//
+// Fix 2: Solid-colour diffuse texture changed to WHITE (both FBX and GLTF paths)
+//
+//   Root cause: shader line "albedoColor.rgb *= Kd" multiplies the sampled texture
+//   by the material Kd.  When the solid-colour texture was created with the Kd colour
+//   the result was Kd*Kd (squared / near-black for typical 0.07-0.5 linear values).
+//
+//   Fix: create a 1x1 WHITE texture in both paths:
+//     - FBX sub-mesh path (~line 4865): XMFLOAT4(1,1,1, fbxMatPtr->opacity)
+//     - GLTF no-texture fallback (~line 3503): XMFLOAT4(1,1,1, alpha)
+//   The actual material colour is carried exclusively by Kd in the material constant
+//   buffer: sample(white) x Kd = Kd.
+//
+// ---
+//
+// Fix 3: FBX geometry cache fast-path redesigned to match ParseGLBScene pattern
+//
+//   Old: CopyFrom models[] with no texture rebind; single LOG_INFO.
+//   New (6 steps matching GLTF):
+//
+//     Step 1 -- Re-parse FBX via m_fbxImporter.LoadFile() to restore cameras,
+//               lights and material data before touching scene_models[].
+//     Step 2 -- Restore cameras (ParseFBXCameras) and lights (inline loop).
+//     Step 3 -- Restore scene_models[] geometry from models[] cache; GPU rebuild
+//               triggered when vertex/index/constant buffers are null (handles
+//               cache.dat restore and device reset).
+//     Step 4 -- Texture rebind: for each cached model clear stale SRVs, call
+//               BuildMaterial, create white 1x1 diffuse, push fresh SRVs into
+//               textureSRVs/normalMapSRVs, update m_materials, write back to models[].
+//     Step 5 -- Rebuild FBX ID->scene_models[] slot map (cIDToSlot) for animation
+//               binding by matching FBX model names to cached scene_models[] names.
+//               Convert animations via ConvertAnimations(cIDToSlot, ...).
+//     Step 6 -- Always-on LOG_INFO CACHE HIT summary; bLoadedFromCache = true; return true.
+//
+//   All steps emit always-on LOG_INFO so cache behaviour is visible without
+//   recompiling with _DEBUG_SCENEMANAGER_.
+//
+// Files changed: SceneManager.cpp
+//   - GLTF solid-colour ~line 3503
+//   - FBX sub-mesh solid-colour ~line 4865
+//   - FBX cache fast-path ~line 4308
+//
+// ---
+//
+// Enhancement [same date]: useDiffuseMap flag set during scene parsing
+//
+//   GLTF path:
+//     - When real diffuse texture is loaded: info.useDiffuseMap = true
+//     - When solid-colour fallback is used:  info.useDiffuseMap = false
+//       (set alongside newMat.diffuseMapPath = "SOLID_COLOR")
+//
+//   FBX sub-mesh path:
+//     - Solid-colour fallback now also sets engineMat.diffuseMapPath = "SOLID_COLOR"
+//     - After SRV binding: useDiffuseMap set from (diffuseMapPath != "SOLID_COLOR")
+//       for both scene_models[subInstIdx] and models[subMdlSlot].
+//
+//   When useDiffuseMap=false, ModelPixel.hlsl uses float4(Kd, 1.0) directly,
+//   bypassing t0 sample entirely — correct for solid-colour PBR materials.
+//
+// Files changed: SceneManager.cpp (GLTF texture load ~line 3404; solid-colour ~line 3512;
+//   FBX sub-mesh SRV binding ~line 5149)

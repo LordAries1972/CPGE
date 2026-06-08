@@ -1,0 +1,27 @@
+// History: FBXImport.cpp - 07-06-2026 (b)
+// Fix: BuildMaterial loadTex lambda used unreliable load-success check.
+//
+// Root cause:
+//   std::make_shared<Texture>(path) calls Texture(const std::wstring&) which calls
+//   LoadFromFile() but IGNORES its bool return value.  LoadFromFile sets texturePath
+//   BEFORE any load attempt, so GetPath() is always non-empty even when WIC decoding
+//   or CreateShaderResourceView fails.  The old check:
+//       if (!tex->GetPath().empty()) return tex;
+//   therefore always returned a Texture with a potentially null SRV.  The null SRV
+//   was then pushed into textureSRVs, textureSRVs was no longer empty, and
+//   SetupModelForRendering skipped the fallback check -- leaving the renderer with
+//   a null SRV bound at draw time.
+//
+// Fix:
+//   Use default Texture() constructor + explicit LoadFromFile(path) so the return
+//   value is checked.  Returns nullptr on failure, which causes ParseFBXScene's
+//   solid-colour-from-diffuseColor fallback to fire (material colour used) rather
+//   than propagating a null SRV.  Added _DEBUG_FBXIMPORTER_-gated WARNING log so
+//   load failures are diagnosable.
+//
+// Policy enforced:
+//   1. Texture file found and loads OK  --> use texture
+//   2. Texture file missing or load fails, material present --> solid colour from Kd
+//   3. No material at all               --> brick fallback (SetupModelForRendering)
+//
+// File changed: FBXImport.cpp (BuildMaterial::loadTex lambda)

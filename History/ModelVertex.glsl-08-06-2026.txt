@@ -1,0 +1,16 @@
+// History: ModelVertex.glsl - 08-06-2026
+// Enhancement: GLTF-correct tangent-W bitangent support in OpenGL vertex shader.
+//   Mirrors ModelVertex.hlsl changes from same date.
+//
+// Changes:
+//
+//   1. Vertex attribute aTangent changed from vec3 to vec4:
+//        layout(location = 3) in vec4 aTangent;
+//      .w component carries handedness sign (+1 or -1) as per GLTF 2.0 spec.
+//
+//   2. Bitangent corrected to GLTF spec:
+//        Before: cross(T, N)           -- wrong axis order, no handedness
+//        After:  normalize(cross(N, aTangent.xyz)) * aTangent.w
+//      Tangent transform uses aTangent.xyz explicitly.
+//
+// Files changed: Assets/Shaders/ModelVertex.glsl

@@ -35,10 +35,11 @@ class LightManager;
 // Holds position, normal, and texture coordinate information.
 #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
 struct Vertex {
-    XMFLOAT3 position = { 0.0f, 0.0f, 0.0f };
-    XMFLOAT3 normal = { 0.0f, 0.0f, 0.0f };
-    XMFLOAT2 texCoord = { 0.0f, 0.0f };
-    XMFLOAT3 tangent = { 1.0f, 0.0f, 0.0f };                                        // Initialized for safety
+    XMFLOAT3 position  = { 0.0f, 0.0f, 0.0f };
+    XMFLOAT3 normal    = { 0.0f, 0.0f, 0.0f };
+    XMFLOAT2 texCoord  = { 0.0f, 0.0f };
+    XMFLOAT3 tangent   = { 1.0f, 0.0f, 0.0f };                                      // Tangent XYZ
+    float    tangentW  = 1.0f;                                                       // GLTF handedness sign (+1 or -1) for correct bitangent
 };
 
 #elif defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
@@ -46,7 +47,7 @@ struct Vertex {
     float position[3];
     float normal[3];
     float texCoord[2];
-    float tangent[3] = {1.0f, 0.0f, 0.0f};                                        // Initialized for safety
+    float tangent[4] = {1.0f, 0.0f, 0.0f, 1.0f};                                   // xyz=tangent, w=handedness sign (+1/-1)
 };
 #endif
 
@@ -145,6 +146,14 @@ public:
 #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
     ID3D11ShaderResourceView* GetSRV() const { return textureSRV; }
     bool CreateSolidColorTexture(uint32_t width, uint32_t height, const XMFLOAT4& color);
+#if defined(__USE_DIRECTX_12__)
+    const std::vector<uint8_t>& GetDX12Pixels() const { return m_dx12PixelCache; }
+    UINT GetDX12Width()  const { return m_dx12Width;  }
+    UINT GetDX12Height() const { return m_dx12Height; }
+    void ClearDX12Pixels() { m_dx12PixelCache.clear(); m_dx12Width = 0; m_dx12Height = 0; }
+    ComPtr<ID3D12Resource>& GetDX12Resource() { return m_dx12Resource; }
+    const ComPtr<ID3D12Resource>& GetDX12Resource() const { return m_dx12Resource; }
+#endif
 #elif defined(__USE_OPENGL__)
     GLuint GetTextureID() const { return textureID; }
     bool CreateSolidColorTexture(uint32_t width, uint32_t height, const Vector4& color);
@@ -165,6 +174,12 @@ private:
     ID3D11ShaderResourceView* textureSRV = nullptr;
     ID3D11Resource* textureResource = nullptr;
     bool IsValid() const { return textureSRV != nullptr; }
+#if defined(__USE_DIRECTX_12__)
+    std::vector<uint8_t> m_dx12PixelCache;
+    UINT m_dx12Width  = 0;
+    UINT m_dx12Height = 0;
+    ComPtr<ID3D12Resource> m_dx12Resource;  // cached GPU resource; reused across models sharing this Texture
+#endif
 #elif defined(__USE_OPENGL__)
     GLuint textureID = 0;
     bool IsValid() const { return textureID != 0; }
@@ -192,13 +207,17 @@ struct Material {
     std::string metallicMapPath;
     std::string roughnessMapPath;
     std::string aoMapPath;
-    std::shared_ptr<Texture> diffuseTexture = nullptr;
-    std::shared_ptr<Texture> normalMap = nullptr;
-    std::shared_ptr<Texture> ambientTexture = nullptr;
+    std::string glossMapPath;                                                    // Gloss/smoothness map path
+    std::string emissiveMapPath;                                                 // Emissive texture map path
+    std::shared_ptr<Texture> diffuseTexture  = nullptr;
+    std::shared_ptr<Texture> normalMap       = nullptr;
+    std::shared_ptr<Texture> ambientTexture  = nullptr;
     std::shared_ptr<Texture> specularTexture = nullptr;
-    std::shared_ptr<Texture> metallicMap = nullptr;
-    std::shared_ptr<Texture> roughnessMap = nullptr;
-    std::shared_ptr<Texture> aoMap = nullptr;
+    std::shared_ptr<Texture> metallicMap     = nullptr;
+    std::shared_ptr<Texture> roughnessMap    = nullptr;
+    std::shared_ptr<Texture> aoMap           = nullptr;
+    std::shared_ptr<Texture> glossMap        = nullptr;                         // Gloss/smoothness map (roughness = 1 - gloss.r)
+    std::shared_ptr<Texture> emissiveMap     = nullptr;                         // Emissive texture (multiplied by emissiveFactor)
 
     float dissolve = 1.0f;
     int illumModel = 2;
@@ -329,24 +348,54 @@ struct ModelInfo {
     ComPtr<ID3D11ShaderResourceView> roughnessMapSRV;
     ComPtr<ID3D11ShaderResourceView> aoMapSRV;
     ComPtr<ID3D11ShaderResourceView> environmentMapSRV;
+    ComPtr<ID3D11ShaderResourceView> glossMapSRV;                               // t6: gloss/smoothness map
+    ComPtr<ID3D11ShaderResourceView> emissiveMapSRV;                            // t7: emissive texture map
+    ComPtr<ID3D11ShaderResourceView> shadowMapSRV;                              // t8: shadow depth map (set externally by shadow pass)
     ComPtr<ID3D11Buffer>             environmentBuffer;
+    ComPtr<ID3D11Buffer>             shadowBuffer;                              // b6: ShadowBufferGPU constant buffer
     ComPtr<ID3D11SamplerState>       environmentSamplerState;
+    ComPtr<ID3D11SamplerState>       shadowSamplerState;                        // s2: comparison sampler for PCF
 
+    // Shared_ptr texture owners for new map types (SRVs above point into these)
+    std::shared_ptr<Texture> glossMap;
+    std::shared_ptr<Texture> emissiveMapTexture;
+
+    bool useDiffuseMap      = false;                                            // true = sample t0 * Kd; false = use Kd directly
     bool useMetallicMap     = false;
     bool useRoughnessMap    = false;
     bool useAOMap           = false;
     bool useEnvironmentMap  = false;
+    bool useGlossMap        = false;                                            // true = use t6 gloss map
+    bool useEmissiveMap     = false;                                            // true = use t7 emissive texture
 
 #if defined(__USE_DIRECTX_12__)
-    // Native DX12 upload-heap VB / IB / per-model CB used by Model::RenderDX12().
+    // Native DX12 upload-heap VB / IB / per-model CBs used by Model::RenderDX12().
     // Created alongside the D3D11 11on12 buffers in DX12Models::SetupModelForRendering().
+
+    // Geometry buffers
     ComPtr<ID3D12Resource>   d3d12VertexBuffer;
     ComPtr<ID3D12Resource>   d3d12IndexBuffer;
-    ComPtr<ID3D12Resource>   d3d12ConstantBuffer;
-    void*                    d3d12CBMapped    = nullptr;   // Persistently mapped; valid for upload-heap lifetime
-    D3D12_VERTEX_BUFFER_VIEW d3d12VBView     = {};
-    D3D12_INDEX_BUFFER_VIEW  d3d12IBView     = {};
-    UINT                     d3d12IndexCount = 0;
+    D3D12_VERTEX_BUFFER_VIEW d3d12VBView      = {};
+    D3D12_INDEX_BUFFER_VIEW  d3d12IBView      = {};
+    UINT                     d3d12IndexCount  = 0;
+
+    // Per-model constant buffers (upload heap, persistently mapped, 256-byte aligned)
+    ComPtr<ID3D12Resource>   d3d12ConstantBuffer;           // b0: world/view/proj
+    void*                    d3d12CBMapped       = nullptr;
+    ComPtr<ID3D12Resource>   d3d12LightBuffer;              // b1: per-model lights
+    void*                    d3d12LightMapped    = nullptr;
+    ComPtr<ID3D12Resource>   d3d12MaterialBuffer;           // b4: PBR material
+    void*                    d3d12MaterialMapped = nullptr;
+    ComPtr<ID3D12Resource>   d3d12DebugBuffer;              // b2: pixel shader debug mode
+    void*                    d3d12DebugMapped    = nullptr;
+
+    // Texture descriptor table for this model in the renderer's CBV/SRV/UAV heap.
+    // Six consecutive SRV slots (t0=diffuse, t1=normal, t2=metallic, t3=roughness, t4=AO, t5=env)
+    // are allocated in SetupModelForRendering and written by RegisterDX12Textures() on first render.
+    D3D12_GPU_DESCRIPTOR_HANDLE d3d12TextureGPUHandle   = { 0 };
+    UINT                        d3d12TextureHeapOffset  = 0;
+    bool                        d3d12TexturesRegistered = false;
+    ComPtr<ID3D12Resource>      d3d12TexResources[6];   // Underlying D3D12 resources [0..5]
 #endif
 
 #elif defined(__USE_OPENGL__)
@@ -360,6 +409,9 @@ struct ModelInfo {
     GLuint roughnessTexID   = 0;
     GLuint aoTexID          = 0;
     GLuint envTexID         = 0;
+    GLuint glossTexID       = 0;                                                // t6: gloss/smoothness map
+    GLuint emissiveTexID    = 0;                                                // t7: emissive texture map
+    GLuint shadowTexID      = 0;                                                // t8: shadow depth map
     std::vector<std::string> materials;
 
     float metallic          = 0.0f;
@@ -370,10 +422,13 @@ struct ModelInfo {
     float mipLODBias        = 0.0f;
     float fresnel0          = 0.04f;
 
+    bool useDiffuseMap      = false;
     bool useMetallicMap     = false;
     bool useRoughnessMap    = false;
     bool useAOMap           = false;
     bool useEnvironmentMap  = false;
+    bool useGlossMap        = false;
+    bool useEmissiveMap     = false;
 
 #elif defined(__USE_VULKAN__)
     VkBuffer         vertexBuffer        = VK_NULL_HANDLE;
@@ -391,10 +446,15 @@ struct ModelInfo {
     VkDeviceMemory   materialUniformBufferMemory = VK_NULL_HANDLE;
     void*            materialUniformBufferMapped = nullptr;
 
+    // Shadow UBO (set=0 binding=2): lightViewProj/bias/strength/flags — updated per frame when shadow pass active
+    VkBuffer         shadowUniformBuffer       = VK_NULL_HANDLE;
+    VkDeviceMemory   shadowUniformBufferMemory = VK_NULL_HANDLE;
+    void*            shadowUniformBufferMapped = nullptr;
+
     VkPipeline       pipeline            = VK_NULL_HANDLE;
     VkPipelineLayout pipelineLayout      = VK_NULL_HANDLE;
-    VkDescriptorSet  descriptorSet       = VK_NULL_HANDLE; // set=0: transform UBO + material UBO
-    VkDescriptorSet  textureDescriptorSet= VK_NULL_HANDLE; // set=1: diffuse/normal/ORM/AO textures
+    VkDescriptorSet  descriptorSet       = VK_NULL_HANDLE; // set=0: transform UBO + material UBO + shadow UBO
+    VkDescriptorSet  textureDescriptorSet= VK_NULL_HANDLE; // set=1: diffuse/normal/ORM/AO/gloss/emissive/shadow textures
     std::vector<std::string> materials;
 
     float metallic          = 0.0f;
@@ -405,10 +465,13 @@ struct ModelInfo {
     float mipLODBias        = 0.0f;
     float fresnel0          = 0.04f;
 
+    bool useDiffuseMap      = false;
     bool useMetallicMap     = false;
     bool useRoughnessMap    = false;
     bool useAOMap           = false;
     bool useEnvironmentMap  = false;
+    bool useGlossMap        = false;
+    bool useEmissiveMap     = false;
 #endif
 };
 
@@ -458,10 +521,15 @@ public:
 #endif
 
 #if defined(__USE_DIRECTX_12__)
-    // Native DX12 draw: updates the per-model upload-heap constant buffer, binds
-    // vertex/index buffers on the open command list, and issues DrawIndexedInstanced.
+    // Native DX12 draw: updates all per-model constant buffers (b0/b1/b2/b4), registers
+    // texture SRVs on first call, then binds VB/IB and issues DrawIndexedInstanced.
     // Called from DX12RenderFrame::RenderGamePlay() after SetPipelineState().
     void RenderDX12(ID3D12GraphicsCommandList* cmdList, class DX12Renderer* dx12, float deltaTime);
+
+    // First-frame texture registration: unwraps the model's DX11-on-12 SRVs into native
+    // D3D12 resources, writes SRV descriptors into the pre-allocated heap slots, and records
+    // COMMON -> PIXEL_SHADER_RESOURCE barriers on cmdList.  Sets d3d12TexturesRegistered=true.
+    void RegisterDX12Textures(ID3D12GraphicsCommandList* cmdList, class DX12Renderer* dx12);
 #endif
 
     // GetWorldMatrix: returns XMMATRIX on DX11/DX12 and Windows Vulkan (DirectXMath available);

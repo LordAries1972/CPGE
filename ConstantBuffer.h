@@ -63,9 +63,22 @@ struct alignas(16) MaterialGPU
     XMFLOAT3 EmissiveFactor;                      // Emissive colour (RGB)
     float EmissiveStrength;                       // KHR_materials_emissive_strength multiplier
     float NormalScale;                            // normalTexture.scale (1.0 = default)
-    float pad4;                                   // Padding
-    float pad5;                                   // Padding
-    float pad6;                                   // Padding — keeps struct at 112 bytes (multiple of 16)
+    float useDiffuseMap;                          // 1.0 = sample t0 * Kd; 0.0 = use Kd directly (solid colour material)
+    float useGlossMap;                            // 1.0 = t6 gloss map active (roughness = 1 - gloss.r)
+    float useEmissiveMap;                         // 1.0 = t7 emissive texture active (* EmissiveFactor)
+};
+
+// -------------------------------------------------------------
+// ShadowBufferGPU - Matches cbuffer ShadowBuffer : register(b6)
+// Size: 80 bytes (multiple of 16 required by D3D11 constant buffers)
+// -------------------------------------------------------------
+struct alignas(16) ShadowBufferGPU
+{
+    XMMATRIX lightViewProj;                      // Light view-projection matrix (64 bytes)
+    float shadowBias;                            // Depth bias to prevent shadow acne
+    float shadowStrength;                        // Shadow darkness multiplier [0-1]
+    float useShadowMap;                          // 1.0 = shadow map at t8 is bound and active
+    float shadowMapSize;                         // Shadow map resolution (e.g. 2048.0) for PCF texel offset
 };
 
 // -------------------------------------------------------------

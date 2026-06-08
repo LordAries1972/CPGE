@@ -1,0 +1,53 @@
+// History: ModelPixel.hlsl - 08-06-2026
+// Fix: Models without a normal map must render using geometry vertex normals,
+//      not a flat-normal fallback texture.
+//
+// Root cause:
+//   The shader sampled normalMap (t1) unconditionally.  When no normal map SRV
+//   was bound (null slot), the sample returned (0,0,0,0).  After decode
+//   (normalTS = sample * 2 - 1) this became (-1,-1,-1), producing garbage
+//   world-space normals and incorrect / dark lighting.
+//
+// Fix:
+//   NormalScale == 0.0 is now the "no normal map present" signal set by
+//   the C++ render path (Models.cpp / DX12Models.cpp) when normalMapSRVs
+//   is empty.  The shader branches on this:
+//
+//     if (NormalScale <= 0.0f)
+//         normalWS = N;              // raw geometry vertex normal
+//     else
+//         // sample + decode + TBN transform as before
+//
+//   T and B (tangent/bitangent) are only computed inside the else branch so
+//   no unnecessary work is done for non-normal-mapped models.
+//
+// File changed: Assets/Shaders/ModelPixel.hlsl (normal resolution block ~line 310)
+//
+// ---
+//
+// Enhancement [same date]: Full conditional shader redesign
+//   useDiffuseMap, gloss map, emissive texture, PCF shadow, fixed debug modes 3/4.
+//
+//   1. useDiffuseMap flag (MaterialBuffer, replaces pad4):
+//        1.0: albedo = diffuseTexture.Sample(t0) * Kd  (real texture + Kd tint)
+//        0.0: albedo = float4(Kd, 1.0)                 (solid-colour material)
+//
+//   2. Gloss map (t6, useGlossMap flag, replaces pad5):
+//        roughness = 1.0 - glossMap.Sample(t6).r
+//      Overrides base Roughness value and any roughness map.
+//
+//   3. Emissive texture (t7, useEmissiveMap flag, replaces pad6):
+//        emissive = EmissiveFactor * emissiveMap.Sample(t7).rgb * EmissiveStrength
+//
+//   4. PCF shadow map (t8):
+//      ShadowBuffer cbuffer at b6: lightViewProj, bias, strength, useShadowMap, mapSize.
+//      SamplerComparisonState shadowSampler at s2.
+//      SampleShadow(): 3x3 PCF kernel via SampleCmpLevelZero.
+//      Shadow factor multiplies directLighting only (ambient/emissive unaffected).
+//      debugMode==7 now shows actual shadow factor grey-scale.
+//
+//   5. ProcessLight() updated: out float3 outDiff, out float3 outSpec params
+//      allow correct separate accumulation for debugMode==3 (diffuse) and ==4 (specular).
+//      Both modes previously returned garbage (uninitialized diffuseAccum/specularAccum).
+//
+// Files changed: Assets/Shaders/ModelPixel.hlsl

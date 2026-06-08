@@ -1,0 +1,502 @@
+#pragma once
+
+// ============================================================
+// FBXImport.h  --  Ground-up FBX 7.x binary / ASCII importer
+// Originally created by Daniel J. Hobson, Melbourne, Australia 2026.
+//
+// No Autodesk FBX SDK used.  Supports:
+//   - Binary FBX 7.4 and 7.5 (Blender, Maya, 3ds Max exports)
+//   - ASCII  FBX 7.x
+//
+// Extracted data:
+//   1. Vertices, normals, UV maps, tangents
+//   2. Animations (AnimStack / AnimLayer / AnimCurve)
+//   3. Materials (Lambert, Phong, PBR-like)
+//   4. Lights (Point, Directional, Spot, Area)
+//   5. Cameras
+//   6. Parent / child node hierarchy
+//   7. Shadow cast / receive flags
+//   8. FBX coordinate-system metadata (UpAxis, FrontAxis)
+//
+// FBX time base: 1 second = 46,186,158,000 FBX time units.
+// ============================================================
+
+#include "Includes.h"
+#include "Models.h"
+#include "Lights.h"
+#include "Debug.h"
+
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+    using namespace DirectX;
+#endif
+
+// 1 second expressed in FBX time units
+static constexpr int64_t FBX_TIME_UNIT = 46186158000LL;
+
+//==============================================================================
+// FBXPropertyType  --  single-byte type codes used in binary FBX properties
+//==============================================================================
+enum class FBXPropertyType : uint8_t
+{
+    Short       = 'Y',
+    Bool        = 'C',
+    Int         = 'I',
+    Float       = 'F',
+    Double      = 'D',
+    Long        = 'L',
+    FloatArray  = 'f',
+    DoubleArray = 'd',
+    LongArray   = 'l',
+    IntArray    = 'i',
+    BoolArray   = 'b',
+    String      = 'S',
+    Raw         = 'R'
+};
+
+//==============================================================================
+// FBXProperty  --  one typed value inside a node property list
+//==============================================================================
+struct FBXProperty
+{
+    FBXPropertyType type = FBXPropertyType::Int;
+
+    // Scalar union fields
+    int16_t  v_short  = 0;
+    bool     v_bool   = false;
+    int32_t  v_int    = 0;
+    float    v_float  = 0.0f;
+    double   v_double = 0.0;
+    int64_t  v_long   = 0LL;
+
+    // Heap array fields (only one is valid per type)
+    std::vector<float>   floatArray;
+    std::vector<double>  doubleArray;
+    std::vector<int32_t> intArray;
+    std::vector<int64_t> longArray;
+    std::vector<uint8_t> boolArray;
+
+    // String / raw bytes
+    std::string strValue;
+};
+
+//==============================================================================
+// FBXNode  --  a single node in the parsed FBX document tree
+//==============================================================================
+struct FBXNode
+{
+    std::string              name;
+    std::vector<FBXProperty> properties;
+    std::vector<FBXNode>     children;
+
+    // --- Inline query helpers ---
+    const FBXNode*              FindChild(const std::string& n) const;
+    std::vector<const FBXNode*> FindChildren(const std::string& n) const;
+    bool                        IsNull() const { return name.empty(); }
+};
+
+//==============================================================================
+// FBXTransform  --  full FBX local transform (includes pivot / offset extras)
+//
+// Full FBX matrix order:
+//   World = Parent * T(Lcl) * T(RotOffset) * T(RotPivot)
+//         * R(PreRot) * R(LclRot) * R(PostRot)^-1 * T(-RotPivot)
+//         * T(ScaOffset) * T(ScaPivot) * S(LclScale) * T(-ScaPivot)
+// For Blender exports all pivots/offsets are typically zero.
+//==============================================================================
+struct FBXTransform
+{
+    XMFLOAT3 translation    = { 0.0f, 0.0f, 0.0f };
+    XMFLOAT3 rotationEuler  = { 0.0f, 0.0f, 0.0f };  // Degrees
+    XMFLOAT3 scale          = { 1.0f, 1.0f, 1.0f };
+
+    XMFLOAT3 preRotation    = { 0.0f, 0.0f, 0.0f };  // Degrees
+    XMFLOAT3 postRotation   = { 0.0f, 0.0f, 0.0f };  // Degrees
+    XMFLOAT3 rotationOffset = { 0.0f, 0.0f, 0.0f };
+    XMFLOAT3 rotationPivot  = { 0.0f, 0.0f, 0.0f };
+    XMFLOAT3 scalingOffset  = { 0.0f, 0.0f, 0.0f };
+    XMFLOAT3 scalingPivot   = { 0.0f, 0.0f, 0.0f };
+
+    // 0=XYZ 1=XZY 2=YXZ 3=YZX 4=ZXY 5=ZYX 6=SphericXYZ
+    int rotationOrder = 0;
+};
+
+//==============================================================================
+// FBXGeometry  --  raw polygon soup before triangulation
+//==============================================================================
+struct FBXGeometry
+{
+    int64_t     id = 0;
+    std::string name;
+
+    // Raw positions: flat [x0,y0,z0, x1,y1,z1, ...]
+    std::vector<double> vertices;
+
+    // Polygon vertex index: negated values (~n) mark end of polygon
+    std::vector<int32_t> polygonVertexIndex;
+
+    // Normals
+    std::vector<double>  normals;
+    std::string          normalMappingType;   // "ByPolygonVertex" | "ByVertex" | ...
+    std::string          normalReferenceType; // "Direct" | "IndexToDirect"
+    std::vector<int32_t> normalIndex;
+
+    // UV map (first layer)
+    std::vector<double>  uvs;
+    std::string          uvMappingType;
+    std::string          uvReferenceType;
+    std::vector<int32_t> uvIndex;
+
+    // Tangents
+    std::vector<double>  tangents;
+    std::string          tangentMappingType;
+    std::string          tangentReferenceType;
+    std::vector<int32_t> tangentIndex;
+
+    // Binormals (stored for completeness, not forwarded to GPU)
+    std::vector<double>  binormals;
+
+    // Per-polygon material index
+    std::vector<int32_t> materialIndex;
+    std::string          materialMappingType; // "AllSame" | "ByPolygon"
+
+    // Smoothing groups
+    std::vector<int32_t> smoothingGroups;
+    std::string          smoothingMappingType;
+};
+
+//==============================================================================
+// FBXModel  --  a scene node (Mesh, Camera, Light, Null / group)
+//==============================================================================
+struct FBXModel
+{
+    int64_t     id   = 0;
+    std::string name;   // cleaned (no "Model::" prefix)
+    std::string type;   // "Mesh" | "Camera" | "Light" | "Null"
+
+    FBXTransform transform;
+
+    // Hierarchy (resolved via Connections)
+    int64_t parentID = 0;
+
+    // Connected objects (resolved via Connections)
+    int64_t              geometryID  = 0;
+    int64_t              attributeID = 0;   // NodeAttribute (camera/light)
+    std::vector<int64_t> materialIDs;
+
+    // Shadow
+    bool castShadow    = false;
+    bool receiveShadow = false;
+    bool visible       = true;
+};
+
+//==============================================================================
+// FBXMaterial
+//==============================================================================
+struct FBXMaterial
+{
+    int64_t     id = 0;
+    std::string name;
+    std::string shadingModel;  // "lambert" | "phong" | "pbr" | ...
+
+    XMFLOAT3 diffuseColor   = { 1.0f, 1.0f, 1.0f };
+    XMFLOAT3 ambientColor   = { 0.1f, 0.1f, 0.1f };
+    XMFLOAT3 specularColor  = { 0.5f, 0.5f, 0.5f };
+    XMFLOAT3 emissiveColor  = { 0.0f, 0.0f, 0.0f };
+    float     shininess     = 32.0f;
+    float     opacity       = 1.0f;
+    float     reflectivity  = 0.0f;
+    float     metalness     = 0.0f;
+    float     roughness     = 0.5f;
+    float     diffuseFactor = 1.0f;
+    float     specFactor    = 1.0f;
+    float     emissiveFactor= 1.0f;
+
+    // Texture UID from Connections (0 = none)
+    int64_t diffuseTexID    = 0;
+    int64_t normalTexID     = 0;
+    int64_t specularTexID   = 0;
+    int64_t roughnessTexID  = 0;
+    int64_t metallicTexID   = 0;
+    int64_t aoTexID         = 0;
+    int64_t emissiveTexID   = 0;
+};
+
+//==============================================================================
+// FBXTexture
+//==============================================================================
+struct FBXTexture
+{
+    int64_t     id = 0;
+    std::string name;
+    std::string filename;         // As stored (may be absolute)
+    std::string relativeFilename; // Relative path hint from FBX
+};
+
+//==============================================================================
+// FBXCamera
+//==============================================================================
+struct FBXCamera
+{
+    int64_t     id          = 0;
+    std::string name;
+    float       fovY        = 60.0f;    // Degrees
+    float       nearPlane   = 0.1f;
+    float       farPlane    = 10000.0f;
+    float       aspectRatio = 1.778f;
+    XMFLOAT3    interestPos = { 0.0f, 0.0f, 0.0f };
+    XMFLOAT3    upVector    = { 0.0f, 1.0f, 0.0f };
+};
+
+//==============================================================================
+// FBXLight
+//==============================================================================
+enum class FBXLightType : int { Point = 0, Directional = 1, Spot = 2, Area = 3 };
+
+struct FBXLight
+{
+    int64_t      id            = 0;
+    std::string  name;
+    FBXLightType lightType     = FBXLightType::Point;
+    XMFLOAT3     color         = { 1.0f, 1.0f, 1.0f };
+    float        intensity     = 100.0f;
+    float        innerAngle    = 0.0f;   // Degrees (spot)
+    float        outerAngle    = 45.0f;  // Degrees (spot)
+    float        range         = 1000.0f;
+    bool         castShadows   = false;
+    XMFLOAT3     shadowColor   = { 0.0f, 0.0f, 0.0f };
+    float        shadowOpacity = 1.0f;
+    float        decayStart    = 0.0f;
+    int          decayType     = 0;      // 0=None 1=Linear 2=Quadratic 3=Cubic
+};
+
+//==============================================================================
+// FBX Animation  --  mirrored to GLTFAnimation format by ConvertAnimations()
+//==============================================================================
+struct FBXAnimCurve
+{
+    int64_t              id = 0;
+    std::vector<int64_t> keyTimes;        // FBX time units
+    std::vector<float>   keyValues;
+    std::vector<int32_t> keyAttrFlags;    // interpolation flags per group
+    std::vector<int32_t> keyAttrRefCount; // keys sharing each flag entry
+};
+
+struct FBXAnimCurveNode
+{
+    int64_t     id = 0;
+    std::string name;
+    std::string propertyName; // "Lcl Translation" | "Lcl Rotation" | "Lcl Scaling"
+
+    float defaultX = 0.0f;
+    float defaultY = 0.0f;
+    float defaultZ = 0.0f;
+
+    // Resolved by ProcessConnections
+    int64_t curveXID      = 0;
+    int64_t curveYID      = 0;
+    int64_t curveZID      = 0;
+    int64_t targetModelID = 0;
+};
+
+struct FBXAnimLayer
+{
+    int64_t              id = 0;
+    std::string          name;
+    std::vector<int64_t> curveNodeIDs;
+};
+
+struct FBXAnimStack
+{
+    int64_t              id         = 0;
+    std::string          name;
+    int64_t              localStart = 0;
+    int64_t              localStop  = 0;
+    std::vector<int64_t> layerIDs;
+};
+
+//==============================================================================
+// FBXScene  --  fully assembled scene after parsing and connection resolution
+//==============================================================================
+struct FBXScene
+{
+    std::vector<FBXModel>        models;
+    std::vector<FBXGeometry>     geometries;
+    std::vector<FBXMaterial>     materials;
+    std::vector<FBXTexture>      textures;
+    std::vector<FBXCamera>       cameras;
+    std::vector<FBXLight>        lights;
+    std::vector<FBXAnimStack>    animStacks;
+    std::vector<FBXAnimLayer>    animLayers;
+    std::vector<FBXAnimCurveNode>animCurveNodes;
+    std::vector<FBXAnimCurve>    animCurves;
+
+    // ID --> vector-index lookup tables
+    std::unordered_map<int64_t, int> modelByID;
+    std::unordered_map<int64_t, int> geometryByID;
+    std::unordered_map<int64_t, int> materialByID;
+    std::unordered_map<int64_t, int> textureByID;
+    std::unordered_map<int64_t, int> lightByID;
+    std::unordered_map<int64_t, int> cameraByID;
+    std::unordered_map<int64_t, int> animCurveByID;
+    std::unordered_map<int64_t, int> animCurveNodeByID;
+
+    // Global settings (from GlobalSettings node)
+    int     upAxis        = 1;     // 0=X 1=Y 2=Z
+    int     upAxisSign    = 1;
+    int     frontAxis     = 2;     // 0=X 1=Y 2=Z
+    int     frontAxisSign = 1;
+    int     coordAxis     = 0;
+    int     coordAxisSign = 1;
+    float   unitScaleFactor = 1.0f;
+    int64_t timeSpanStart  = 0;
+    int64_t timeSpanStop   = 0;
+};
+
+//==============================================================================
+// FBXImporter  --  main entry point
+//==============================================================================
+class FBXImporter
+{
+public:
+    FBXImporter();
+    ~FBXImporter();
+
+    // Parse binary or ASCII FBX from file; returns false on failure
+    bool LoadFile(const std::wstring& filepath);
+
+    const FBXScene& GetScene()  const { return m_scene;  }
+    bool            IsLoaded()  const { return m_loaded; }
+    uint32_t        GetVersion()const { return m_version;}
+
+    // Triangulate an FBXGeometry into engine Vertex / uint32_t index arrays.
+    // outTriMatIdx receives one int32_t per output triangle (geom.materialIndex[polygon]).
+    // Applies coordinate-system flip based on scene's UpAxis / FrontAxis.
+    bool TriangulateGeometry(
+        const FBXGeometry&     geom,
+        std::vector<Vertex>&   outVerts,
+        std::vector<uint32_t>& outIdx,
+        std::vector<int32_t>&  outTriMatIdx);
+
+    // Fill an engine Material struct from FBXMaterial + resolve texture paths
+    bool BuildMaterial(
+        const FBXMaterial&  fbxMat,
+        const std::wstring& baseDir,
+        Material&           outMat);
+
+    // Convert all FBX AnimStacks to GLTFAnimation format for use with GLTFAnimator.
+    // fbxIDToModelSlot maps FBX model int64_t ID --> scene_models[] array index.
+    void ConvertAnimations(
+        const std::unordered_map<int64_t, int>& fbxIDToModelSlot,
+        std::vector<GLTFAnimation>&             outAnimations);
+
+    // Public transform helpers (used by SceneManager during scene setup)
+    XMMATRIX BuildTransformMatrix(const FBXTransform& t) const;
+    XMMATRIX EulerToMatrix(const XMFLOAT3& degXYZ, int order) const;
+    // Convert a rotation matrix from FBX right-handed space to engine left-handed Y-up space.
+    // Y-up: similarity M*R*M where M=diag(1,1,-1); Z-up: M*R*MT where M swaps Y/Z axes.
+    XMMATRIX ApplyRotationFlip(const XMMATRIX& rotM) const;
+
+private:
+    FBXScene m_scene;
+    uint32_t m_version = 0;
+    bool     m_isBinary= true;
+    bool     m_loaded  = false;
+
+    // ----------------------------------------------------------------
+    // Binary parsing
+    // ----------------------------------------------------------------
+    bool ParseBinary(const std::vector<uint8_t>& data);
+    bool ParseBinaryNode(
+        const std::vector<uint8_t>& data,
+        size_t& off,
+        FBXNode& out,
+        bool is64bit);
+    bool ParseBinaryProperty(
+        const std::vector<uint8_t>& data,
+        size_t& off,
+        FBXProperty& out);
+    bool InflateData(
+        const uint8_t* src, size_t srcLen,
+        size_t dstLen,
+        std::vector<uint8_t>& dst);
+
+    // ----------------------------------------------------------------
+    // ASCII parsing
+    // ----------------------------------------------------------------
+    bool ParseASCII(const std::string& text);
+    bool ParseASCIINode(const char*& p, const char* end, FBXNode& out);
+    void SkipASCIIWhitespace(const char*& p, const char* end);
+    bool ParseASCIIValue(const char*& p, const char* end, FBXProperty& out);
+    std::string ReadASCIIIdentifier(const char*& p, const char* end);
+    std::string ReadASCIIString(const char*& p, const char* end);
+    double ReadASCIINumber(const char*& p, const char* end);
+
+    // ----------------------------------------------------------------
+    // Object extraction from FBXNode tree --> FBXScene
+    // ----------------------------------------------------------------
+    void ExtractObjects(const FBXNode& root);
+    void ExtractGeometry(const FBXNode& node);
+    void ExtractModel(const FBXNode& node);
+    void ExtractMaterial(const FBXNode& node);
+    void ExtractTexture(const FBXNode& node);
+    void ExtractNodeAttribute(const FBXNode& node);
+    void ExtractAnimStack(const FBXNode& node);
+    void ExtractAnimLayer(const FBXNode& node);
+    void ExtractAnimCurveNode(const FBXNode& node);
+    void ExtractAnimCurve(const FBXNode& node);
+    void ExtractGlobalSettings(const FBXNode& root);
+    void ProcessConnections(const FBXNode& root);
+
+    // Layer element sub-extractors
+    void ExtractLayerNormals(const FBXNode& geomNode, FBXGeometry& g);
+    void ExtractLayerUVs(const FBXNode& geomNode, FBXGeometry& g);
+    void ExtractLayerTangents(const FBXNode& geomNode, FBXGeometry& g);
+    void ExtractLayerMaterials(const FBXNode& geomNode, FBXGeometry& g);
+    void ExtractLayerSmoothing(const FBXNode& geomNode, FBXGeometry& g);
+
+    // ----------------------------------------------------------------
+    // Transform helpers
+    // ----------------------------------------------------------------
+    FBXTransform ExtractTransform(const FBXNode& modelNode) const;
+    XMFLOAT3     DegToRad(const XMFLOAT3& d) const;
+
+    // ----------------------------------------------------------------
+    // Geometry helpers
+    // ----------------------------------------------------------------
+    void ComputeFlatNormals(
+        const std::vector<XMFLOAT3>& positions,
+        const std::vector<uint32_t>&  triIndices,
+        std::vector<XMFLOAT3>&        outNormals);
+
+    void ComputeTangents(
+        std::vector<Vertex>&         verts,
+        const std::vector<uint32_t>& indices);
+
+    XMFLOAT3 ApplyCoordFlip(const XMFLOAT3& v) const;
+    XMFLOAT3 ApplyNormalFlip(const XMFLOAT3& n) const;
+
+    // ----------------------------------------------------------------
+    // Node / property utility
+    // ----------------------------------------------------------------
+    int64_t     GetNodeID     (const FBXNode& n) const;
+    std::string GetNodeName   (const FBXNode& n) const; // strips "Type::" prefix
+    std::string GetNodeSubType(const FBXNode& n) const;
+
+    // Read a named property from a Properties70 child node
+    // Properties70 children are "P" nodes: name, type, label, flags, values...
+    XMFLOAT3    ReadP70Vec3  (const FBXNode& p70, const std::string& key, XMFLOAT3 def) const;
+    float       ReadP70Float (const FBXNode& p70, const std::string& key, float    def) const;
+    bool        ReadP70Bool  (const FBXNode& p70, const std::string& key, bool     def) const;
+    int         ReadP70Int   (const FBXNode& p70, const std::string& key, int      def) const;
+    std::string ReadP70String(const FBXNode& p70, const std::string& key, const std::string& def) const;
+
+    // Coerce any numeric FBXProperty to double
+    double      PropToDouble(const FBXProperty& p) const;
+    int32_t     PropToInt   (const FBXProperty& p) const;
+    int64_t     PropToLong  (const FBXProperty& p) const;
+    std::string PropToString(const FBXProperty& p) const;
+
+    // Flatten any array-type FBXProperty to vector<double>
+    std::vector<double>  PropToDoubleVec(const FBXProperty& p) const;
+    std::vector<int32_t> PropToIntVec   (const FBXProperty& p) const;
+};

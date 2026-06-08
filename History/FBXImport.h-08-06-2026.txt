@@ -1,0 +1,16 @@
+// History: FBXImport.h - 08-06-2026
+// Enhancement: TriangulateGeometry gained a fourth output parameter so callers
+//              can split the triangulated output by per-polygon material index.
+//
+// Change:
+//   bool TriangulateGeometry(
+//       const FBXGeometry&     geom,
+//       std::vector<Vertex>&   outVerts,
+//       std::vector<uint32_t>& outIdx,
+//       std::vector<int32_t>&  outTriMatIdx);   // <-- added
+//
+// outTriMatIdx[t] = FBX materialIndex of the polygon that produced triangle t.
+// Size equals the number of output triangles (= outIdx.size() / 3).
+// One entry per triangle, not per vertex -- callers iterate by triangle stride.
+//
+// File changed: FBXImport.h (TriangulateGeometry declaration)
