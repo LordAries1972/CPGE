@@ -22,6 +22,7 @@
 
 6. [Rendering Pipeline](#rendering-pipeline)
    - [Rendering a Model](#rendering-a-model)
+   - [DX12 Native Texture Pipeline](#dx12-native-texture-pipeline)
    - [Updating Transforms](#updating-transforms)
    - [Debug Information](#debug-information)
 
@@ -281,6 +282,81 @@ void RenderScene(ID3D11DeviceContext* deviceContext, float deltaTime) {
     myModel.Render(deviceContext, deltaTime);
 }
 ```
+
+### DX12 Native Texture Pipeline
+
+On the DX12 pipeline, models are drawn through `RenderDX12()` (native command-list path)
+instead of `Render()`. Textures reach the GPU in two stages, both of which must stay in
+sync with `m_modelInfo.textures` / `textureSRVs`:
+
+1. **Upload** — `UploadDX12ModelTextures()` copies each `Texture`'s cached RGBA pixels
+   into a native D3D12 DEFAULT-heap resource (`d3d12TexResources[0..5]`,
+   slot map: t0=diffuse, t1=normal, t2=metallic, t3=roughness, t4=AO, t5=env).
+   Called automatically by `SetupModelForRendering()`. Every slot that cannot be
+   populated is logged as a `[DX12 TexUpload]` warning.
+2. **Registration** — `RegisterDX12Textures()` writes the SRV descriptors into the
+   model's pre-allocated heap slots on the model's first draw. Empty slots receive
+   NULL descriptors (sample as transparent black) and are reported in the
+   `[DX12 Model]` registration summary log.
+
+```cpp
+// IMPORTANT: any code that replaces a model's textures AFTER
+// SetupModelForRendering() has run (e.g. SceneManager cache-restore rebind)
+// MUST refresh the DX12 side, otherwise the descriptor table keeps pointing
+// at the old/NULL resources and the model renders untextured:
+myModel.RefreshDX12Textures();   // re-uploads textures + forces descriptor rewrite
+```
+
+If the material requests a diffuse map (`useDiffuseMap`) but no diffuse resource
+reached the DX12 heap, `RenderDX12()` automatically falls back to the shader's
+solid-colour `Kd` path (and `RegisterDX12Textures()` logs a warning) — without this
+the NULL descriptor would sample alpha 0 and the alpha-blend PSO would make the
+model invisible.
+
+### OpenGL Texture Pipeline
+
+The OpenGL pipeline mirrors the DX12 two-stage rule with a single method.
+`BindGLTFMaterialTexturesToModel()` only creates `Texture` objects and `Material`
+entries — the GL handles in `ModelInfo` (`textureIDs`, `normalMapIDs`, metallic /
+roughness / AO / gloss / emissive IDs) are written by `Model::RefreshOpenGLTextures()`
+(implemented in `OpenGLModels.cpp`):
+
+```cpp
+// Called automatically by SetupModelForRendering(). Any code that (re)binds
+// materials AFTER setup has run (e.g. SceneManager cache-restore rebind Step 4)
+// MUST call it again, otherwise textureIDs stays empty and the model renders
+// untextured on every scene revisit:
+myModel.RefreshOpenGLTextures();   // rebuilds all GL texture handles from m_materials
+```
+
+It also applies the importer's UV wrap modes (see below) to the diffuse textures
+and creates the 1x1 white fallback when no diffuse map exists.
+
+### UV Settings (all pipelines)
+
+The importers parse per-texture UV settings and the engine applies them on every
+renderer:
+
+- **GLTF / GLB — `KHR_texture_transform`**: the baseColorTexture's offset /
+  rotation / scale is baked directly into the primitive's vertex UVs in
+  `LoadGLTFMeshPrimitives()` (spec order: scale → rotate → translate). Because the
+  transform is baked into vertex data, it works identically on DX11, DX12, OpenGL
+  and Vulkan with no shader changes.
+- **GLTF / GLB — sampler wrap modes**: `wrapS`/`wrapT` (REPEAT / CLAMP_TO_EDGE /
+  MIRRORED_REPEAT) are normalised into `ModelInfo::uvWrapU` / `uvWrapV`
+  (0=REPEAT 1=CLAMP 2=MIRROR).
+- **FBX — texture UV transform**: `Translation` / `Scaling` / `Rotation` (and
+  `ModelUVTranslation` / `ModelUVScaling`) from the Texture node are carried into
+  the engine `Material` by `FBXImporter::BuildMaterial()` and baked into the
+  sub-mesh UVs in `ParseFBXScene()`. `WrapModeU`/`WrapModeV` map to the same
+  `ModelInfo::uvWrapU/V` fields.
+
+Wrap-mode application per renderer:
+
+- **DX11** — per-model `samplerState` (`D3D11_TEXTURE_ADDRESS_*`) in `SetupModelForRendering()`
+- **DX12** — 11on12 per-model sampler (the native `RenderDX12()` path keeps the root-signature static `s0` WRAP sampler)
+- **OpenGL** — `glTexParameteri(GL_TEXTURE_WRAP_S/T)` in `RefreshOpenGLTextures()`
+- **Vulkan** — `VulkanRenderer::GetSamplerForWrap(wrapU, wrapV)`, lazily-created cached samplers used by the texture descriptor writes
 
 ### Updating Transforms
 

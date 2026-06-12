@@ -55,6 +55,9 @@ void VulkanRenderer::LoaderTaskThread()
 {
     exceptionHandler.RecordFunctionCall("VulkanRenderer::LoaderTaskThread");
     std::lock_guard<std::mutex> lock(s_loaderMutex);
+    // Starting Positions
+    XMFLOAT3 starOrigin(-380.0f, 70.0f, 0.0f);
+    XMFLOAT3 cameraStart(-1.91f, 2.38f, -20.0f);
 
     ThreadStatus status = threadManager.GetThreadStatus(THREAD_LOADER);
     threadManager.threadVars.bLoaderTaskFinished.store(false);
@@ -77,27 +80,27 @@ void VulkanRenderer::LoaderTaskThread()
 
         switch (scene.stSceneType)
         {
-#if defined(_DEBUG)
-            // ----------------------------------------------------------------
-            case SceneType::SCENE_EXPERIMENT:
-            {
-                threadManager.threadVars.bLoaderTaskFinished.store(false);
-                threadManager.threadVars.b2DTexturesLoaded.store(false);
-                if (LoadAllKnownTextures())
-                    threadManager.threadVars.b2DTexturesLoaded.store(true);
+            #if defined(_DEBUG)
+                // ----------------------------------------------------------------
+                case SceneType::SCENE_EXPERIMENT:
+                {
+                    threadManager.threadVars.bLoaderTaskFinished.store(false);
+                    threadManager.threadVars.b2DTexturesLoaded.store(false);
+                    if (LoadAllKnownTextures())
+                        threadManager.threadVars.b2DTexturesLoaded.store(true);
 
-                // Screen is already black (button handler faded before ResumeLoader).
-                // Suspend any prior FX (starfield etc.) then start the WarpDotTunnel.
-                fxManager.SaveAndSuspendFXForScene();
-                fxManager.Init3DWarpDOTTunnel(0.0f, 0.0f, 1000.0f, 10.0f, 200.0f,
-                    TunnelSpinCycle::Clockwise, 100, false, 24, 100);
+                    // Screen is already black (button handler faded before ResumeLoader).
+                    // Suspend any prior FX (starfield etc.) then start the WarpDotTunnel.
+                    fxManager.SaveAndSuspendFXForScene();
+                    fxManager.Init3DWarpDOTTunnel(0.0f, 0.0f, 1000.0f, 10.0f, 200.0f,
+                        TunnelSpinCycle::Clockwise, 100, false, 24, 100);
 
-                threadManager.PauseThread(THREAD_LOADER);
-                threadManager.threadVars.bLoaderTaskFinished.store(true);
-                fxManager.FadeToImage(1.0f, 0.08f);
-                break;
-            }
-#endif
+                    threadManager.PauseThread(THREAD_LOADER);
+                    threadManager.threadVars.bLoaderTaskFinished.store(true);
+                    fxManager.FadeToImage(1.0f, 0.08f);
+                    break;
+                }
+            #endif
 
             // ----------------------------------------------------------------
             case SceneType::SCENE_INTRO:
@@ -136,6 +139,7 @@ void VulkanRenderer::LoaderTaskThread()
                 threadManager.threadVars.b2DTexturesLoaded.store(false);
                 debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene GameTitle.");
                 showStage(L"Loading textures...");
+
                 if (LoadAllKnownTextures())
                     threadManager.threadVars.b2DTexturesLoaded.store(true);
 
@@ -168,7 +172,7 @@ void VulkanRenderer::LoaderTaskThread()
                         ThreadLockHelper preAllocLock(threadManager, "SceneManager_PreAllocation", 2000);
                         if (preAllocLock.IsLocked())
                         {
-                            scene.ParseGLTFScene(AssetsDir / L"splash-hover1.gltf");
+                            scene.ParseSceneAutoDetect(AssetsDir / L"splash-hover1.gltf");
                             if (!scene.bGltfCameraParsed) scene.AutoFrameSceneToCamera();
                         }
                     }
@@ -179,23 +183,20 @@ void VulkanRenderer::LoaderTaskThread()
                     myCamera.SetupDefaultCamera(static_cast<float>(iOrigWidth),
                                                 static_cast<float>(iOrigHeight));
                     // Position the camera to view the splash ship — mirrors IOStreamDX11Thread.cpp exactly.
-                    myCamera.SetPosition(-5.0f, 2.0f, -20.0f);
-                    myCamera.SetYawPitch(0.0f, 0.0f);
+                    myCamera.SetPosition(cameraStart.x, cameraStart.y, cameraStart.z);
+                    myCamera.SetYawPitch(0.0f, -0.25f);
                     guiManager.CreateGameMenuWindow(L"winGameMenu");
 
-                    XMFLOAT3 starOrigin(-180.0f, 0.0f, 0.0f);
-                    fxManager.CreateStarfield(150, 800.0f, 1000.0f, starOrigin, true);
+                    fxManager.CreateStarfield(100, 800.0f, 1000.0f, starOrigin, true);
                     fxManager.FadeToImage(1.0f, 0.08f);
                 }
                 else
                 {
                     myCamera.SetupDefaultCamera(static_cast<float>(iOrigWidth),
                                                 static_cast<float>(iOrigHeight));
-                    myCamera.SetPosition(-5.0f, 2.0f, -20.0f);
-                    myCamera.SetYawPitch(0.0f, 0.0f);
+                    myCamera.SetPosition(cameraStart.x, cameraStart.y, cameraStart.z);
+                    myCamera.SetYawPitch(0.0f, -0.25f);
                     guiManager.OnWindowResize(iOrigWidth, iOrigHeight);
-
-                    XMFLOAT3 starOrigin(-180.0f, 0.0f, 0.0f);
                     fxManager.CreateStarfield(150, 800.0f, 1000.0f, starOrigin, true);
                 }
 

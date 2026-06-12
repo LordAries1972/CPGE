@@ -24,6 +24,7 @@
 //   b6  ShadowBuffer       (binding 6)
 //
 #version 330 core
+#extension GL_ARB_shading_language_420pack : enable    // layout(binding=N) on UBOs — core in 4.2, extension on 3.3
 
 // ── Outputs ──────────────────────────────────────────────────────────────────
 out vec4 fragColor;
@@ -52,13 +53,17 @@ uniform sampler2DShadow shadowMap;          // t8: shadow depth map (hardware PC
 #define PI 3.14159265359
 
 // ── ConstantBuffer (binding 0) ───────────────────────────────────────────────
+// MUST match ModelVertex.glsl exactly — field names, types, and padding must be
+// identical in every shader stage that declares this block.
 layout(std140, binding = 0) uniform ConstantBuffer
 {
     mat4  uWorld;
     mat4  uView;
     mat4  uProjection;
-    vec3  cameraPosition;
-    float _padCB;
+    vec3  uCameraPosition;
+    float _pad0;
+    vec3  uModelScale;
+    float _pad1;
 };
 
 // ── DebugBuffer (binding 2) ──────────────────────────────────────────────────
@@ -102,7 +107,11 @@ struct LightStruct
     float Reflection;
     float _pad5;
 
-    float _pad6[4];
+    // Final 16 bytes of padding to match the CPU LightStruct (160 bytes).
+    // MUST be a vec4, not float[4]: std140 gives scalar arrays a 16-byte
+    // element stride, which would inflate the struct to 208 bytes and
+    // misalign every light after index 0.
+    vec4 _pad6;
 };
 
 // ── LightBuffer (binding 1) ──────────────────────────────────────────────────
@@ -354,7 +363,7 @@ void main()
     if (debugMode == 1) { fragColor = vec4(abs(normalWS), 1.0); return; }
 
     // === View direction
-    vec3 V = normalize(cameraPosition - vWorldPosition);
+    vec3 V = normalize(uCameraPosition - vWorldPosition);
 
     // === F0 for Fresnel
     vec3 F0 = mix(vec3(fresnel0), albedoColor.rgb * Ks, metallicValue);

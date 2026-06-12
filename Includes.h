@@ -82,7 +82,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
         // in CMakeLists.txt. If you are building manually, uncomment the line corresponding 
         // to the renderer you want to use.
         // ------------------------------------------------------------------------------------
-        // Uncomment exactly ONE line below. This is the ONLY place the active
+        // This is the ONLY place the active
         // renderer is chosen — the project file (.vcxproj) passes no renderer
         // define; changing it here is sufficient to switch the compiled backend.
         // Runtime rendererType in GameConfig.cfg selects between multiple compiled
@@ -93,20 +93,16 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
         // remain self-consistent.  The #ifndef guards below prevent the C4005 macro-
         // redefinition warning that would otherwise fire from that double-definition.
         // ------------------------------------------------------------------------------------
-        #ifndef __USE_DIRECTX_11__
-        #define __USE_DIRECTX_11__
-        #endif
-        #ifndef __USE_DIRECTX_12__
-//        #define __USE_DIRECTX_12__
-        #endif
-        #ifndef __USE_OPENGL__
-//        #define __USE_OPENGL__
-        #endif
-        #ifndef __USE_VULKAN__
-//        #define __USE_VULKAN__
-        #endif
-        #ifndef __USE_RADEON__
-//        #define __USE_RADEON__
+        // Default renderer: only activated when none of the CMake-injected defines are
+        // present (e.g. a bare IDE build that bypasses cmake-build.bat).
+        // Change the #define below to switch the default for IDE-only builds.
+        // cmake-build.bat always injects exactly one __USE_*__ define, so this block is
+        // skipped for all CMake builds — preventing accidental double-renderer activation.
+        // ------------------------------------------------------------------------------------
+        #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__) && \
+            !defined(__USE_OPENGL__)     && !defined(__USE_VULKAN__)      && \
+            !defined(__USE_RADEON__)
+//            #define __USE_DIRECTX_11__  // Change this to switch the default for IDE-only builds
         #endif
 
         #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__) && !defined(__USE_OPENGL__) && !defined(__USE_VULKAN__)
@@ -148,9 +144,8 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
             // Additional Windows libraries that DirectX depends on
             #pragma comment(lib, "dxguid.lib")      // DirectX GUIDs
             #pragma comment(lib, "winmm.lib")       // Windows Multimedia library
-        #endif
 
-        #if defined(__USE_DIRECTX_12__)
+        #elif defined(__USE_DIRECTX_12__)
             // DirectX 12 specific includes
             #include <d3d12.h>
             #include <dxgi1_6.h>
@@ -175,9 +170,8 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 
             using namespace DirectX;
             using Microsoft::WRL::ComPtr;
-        #endif
 
-        #if defined(__USE_OPENGL__)
+        #elif defined(__USE_OPENGL__)
             // GLEW must be first — it replaces and includes gl.h internally.
             // Fall back to the bare Windows SDK gl.h if GLEW is not installed.
             #if __has_include(<GL/glew.h>)
@@ -199,9 +193,8 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
             #pragma comment(lib, "user32.lib")
             #pragma comment(lib, "gdi32.lib")
             #pragma comment(lib, "shell32.lib")
-        #endif
 
-        #if defined(__USE_VULKAN__)
+        #elif defined(__USE_VULKAN__)
             #define VK_USE_PLATFORM_WIN32_KHR
             #include <vulkan/vulkan.h>
             #include <vulkan/vulkan_win32.h>
@@ -226,9 +219,8 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
             // BlenderImports.h, etc.) use Matrix4x4 instead of XMMATRIX. XMFLOAT4X4
             // has the same float m[4][4] layout so no data conversion is needed.
             using Matrix4x4 = XMFLOAT4X4;
-        #endif
 
-        #if defined(__USE_RADEON__)
+        #elif defined(__USE_RADEON__)
             // NOTE: TO BE UPDATED LATER!
             // Radeon GPU Analyzer (RGA) support — includes and library for offline shader analysis.
             // RGA provides detailed performance metrics and insights for AMD GPUs, helping you optimize
@@ -564,6 +556,63 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
     // Translation matrix from x, y, z.
     inline XMMATRIX XMMatrixTranslation(float x, float y, float z) {
         XMMATRIX m; m.m[3][0]=x; m.m[3][1]=y; m.m[3][2]=z; return m;
+    }
+
+    // Cross product of two 3D vectors (w=0).
+    inline XMVECTOR XMVector3Cross(XMVECTOR a, XMVECTOR b) {
+        return XMVECTOR(
+            a.y*b.z - a.z*b.y,
+            a.z*b.x - a.x*b.z,
+            a.x*b.y - a.y*b.x,
+            0.0f);
+    }
+
+    // Build a 4x4 matrix from 16 individual floats in row-major order.
+    inline XMMATRIX XMMatrixSet(
+        float m00, float m01, float m02, float m03,
+        float m10, float m11, float m12, float m13,
+        float m20, float m21, float m22, float m23,
+        float m30, float m31, float m32, float m33)
+    {
+        XMMATRIX m;
+        m.m[0][0]=m00; m.m[0][1]=m01; m.m[0][2]=m02; m.m[0][3]=m03;
+        m.m[1][0]=m10; m.m[1][1]=m11; m.m[1][2]=m12; m.m[1][3]=m13;
+        m.m[2][0]=m20; m.m[2][1]=m21; m.m[2][2]=m22; m.m[2][3]=m23;
+        m.m[3][0]=m30; m.m[3][1]=m31; m.m[3][2]=m32; m.m[3][3]=m33;
+        return m;
+    }
+
+    // Transpose a 4x4 matrix.
+    inline XMMATRIX XMMatrixTranspose(const XMMATRIX& src) {
+        XMMATRIX r;
+        for (int i = 0; i < 4; i++)
+            for (int j = 0; j < 4; j++)
+                r.m[i][j] = src.m[j][i];
+        return r;
+    }
+
+    // Extract a unit quaternion (x,y,z,w) from an orthonormal rotation matrix.
+    inline XMVECTOR XMQuaternionRotationMatrix(const XMMATRIX& m) {
+        float r00=m.m[0][0], r11=m.m[1][1], r22=m.m[2][2];
+        float r21=m.m[2][1], r12=m.m[1][2];
+        float r02=m.m[0][2], r20=m.m[2][0];
+        float r10=m.m[1][0], r01=m.m[0][1];
+        float trace = r00+r11+r22;
+        float qx, qy, qz, qw;
+        if (trace > 0.0f) {
+            float s=0.5f/sqrtf(trace+1.f);
+            qw=0.25f/s; qx=(r21-r12)*s; qy=(r02-r20)*s; qz=(r10-r01)*s;
+        } else if (r00>r11 && r00>r22) {
+            float s=2.f*sqrtf(1.f+r00-r11-r22);
+            qw=(r21-r12)/s; qx=0.25f*s; qy=(r01+r10)/s; qz=(r02+r20)/s;
+        } else if (r11>r22) {
+            float s=2.f*sqrtf(1.f+r11-r00-r22);
+            qw=(r02-r20)/s; qx=(r01+r10)/s; qy=0.25f*s; qz=(r12+r21)/s;
+        } else {
+            float s=2.f*sqrtf(1.f+r22-r00-r11);
+            qw=(r10-r01)/s; qx=(r02+r20)/s; qy=(r12+r21)/s; qz=0.25f*s;
+        }
+        return XMVECTOR(qx, qy, qz, qw);
     }
 
     #endif // CPGE_MATH_STUBS_DEFINED

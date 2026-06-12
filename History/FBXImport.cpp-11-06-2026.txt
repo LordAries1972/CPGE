@@ -1,0 +1,37 @@
+FBXImport.cpp - History - 11 June 2026
+=======================================
+
+Changes made on 11-06-2026:
+
+PORT - Cross-platform vertex field access for OpenGL/Vulkan float[] vertex layout.
+
+1. ComputeTangents — platform-guarded vertex member access:
+   - DX11/DX12 path (#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)):
+     Uses XMLoadFloat3(&verts[i].normal) with XMFLOAT3 struct members directly.
+     Uses XMStoreFloat3(&verts[i].tangent, tang) for output.
+   - OGL/Vulkan path (#else):
+     Uses XMVectorSet(verts[i].normal[0], ...) instead of XMLoadFloat3 with float(*)[3]
+     (real DirectX XMLoadFloat3 does not accept a float(*)[3] overload).
+     Stores tangent via XMVectorGetX/Y/Z(tang) into float[] array elements.
+   - IMPORTANT FIX: Dot product extracted as scalar before multiply:
+       float dotNT = XMVectorGetX(XMVector3Dot(n, t));
+       XMVECTOR tang = XMVector3Normalize(t - n * dotNT);
+     The stub Vector4 (XMVECTOR alias) has operator*(float) but NOT operator*(Vector4).
+     XMVectorGetX works on both the real DX __m128 and the non-Windows stub.
+
+2. ComputeTangents — position/UV reference declarations:
+   - DX path: const XMFLOAT3& p0 = verts[i0].position; with .x/.y/.z member access.
+   - OGL/Vulkan path: const float* p0 = verts[i0].position; with [0]/[1]/[2] index access.
+   - Similar guards for UV (XMFLOAT2 vs float[2]).
+
+3. TriangulateGeometry — vertex field assignments:
+   - DX path: v.position = pos; v.normal = ...; v.texCoord = ...;
+   - OGL/Vulkan path: v.position[0] = pos.x; etc. (element-wise assignment).
+   - tangent[3] (handedness W component) uses same element-wise pattern.
+
+4. Flat normals loop — position and normal store:
+   - DX path: positions[i] = outVerts[i].position; / outVerts[i].normal = flatN[i];
+   - OGL/Vulkan path: positions[i] = { outVerts[i].position[0], ... }; / element-wise normal copy.
+
+Root cause: DX11/DX12 Vertex struct uses XMFLOAT3/XMFLOAT2 members; OGL/Vulkan Vertex uses float[] arrays.
+All direct struct member assignments must be platform-guarded throughout FBXImport.cpp.

@@ -196,68 +196,73 @@ float3 ProcessLight(LightStruct light, float3 N, float3 V, float3 worldPos,
                     float roughness, float metallic, float3 albedo, float3 F0,
                     out float3 outDiff, out float3 outSpec)
 {
+    // Outputs initialised unconditionally — no early returns so FXC can prove
+    // outDiff/outSpec are set on every path (suppresses X4000 warning).
     outDiff = (float3) 0;
     outSpec = (float3) 0;
 
-    if (light.active == 0)
-        return (float3) 0;
-
-    float3 L = (float3) 0;
-    float  attenuation = 1.0f;
-
-    // Light direction and distance attenuation
-    if (light.type == LIGHT_TYPE_DIRECTIONAL)
+    [branch]
+    if (light.active != 0)
     {
-        L = normalize(-light.direction);
-    }
-    else
-    {
-        float3 lightVec = light.position - worldPos;
-        float  dist     = length(lightVec);
-        L = normalize(lightVec);
+        float3 L          = (float3) 0;
+        float  attenuation = 1.0f;
 
-        if (light.type == LIGHT_TYPE_POINT)
+        // Light direction and distance attenuation
+        if (light.type == LIGHT_TYPE_DIRECTIONAL)
         {
-            attenuation = saturate(1.0f - dist / light.range) / (1.0f + dist * dist);
+            L = normalize(-light.direction);
         }
-        else if (light.type == LIGHT_TYPE_SPOT)
+        else
         {
-            float3 spotDir    = normalize(-light.direction);
-            float  spotCos    = dot(spotDir, -L);
-            float  inner      = cos(light.innerCone);
-            float  outer      = cos(light.outerCone);
-            float  spotFall   = smoothstep(outer, inner, spotCos);
-            float  distFall   = 1.0f / (1.0f + pow(dist, light.lightFalloff));
-            attenuation = spotFall * distFall;
+            float3 lightVec = light.position - worldPos;
+            float  dist     = length(lightVec);
+            L = normalize(lightVec);
+
+            if (light.type == LIGHT_TYPE_POINT)
+            {
+                attenuation = saturate(1.0f - dist / light.range) / (1.0f + dist * dist);
+            }
+            else if (light.type == LIGHT_TYPE_SPOT)
+            {
+                float3 spotDir    = normalize(-light.direction);
+                float  spotCos    = dot(spotDir, -L);
+                float  inner      = cos(light.innerCone);
+                float  outer      = cos(light.outerCone);
+                float  spotFall   = smoothstep(outer, inner, spotCos);
+                float  distFall   = 1.0f / (1.0f + pow(dist, light.lightFalloff));
+                attenuation = spotFall * distFall;
+            }
+        }
+
+        float totalIntensity = max(light.baseIntensity + light.intensity, 0.0f);
+        attenuation *= totalIntensity;
+
+        float NdotL = max(dot(N, L), 0.0f);
+
+        [branch]
+        if (NdotL > 0.0001f)
+        {
+            float3 H      = normalize(V + L);
+            float  reflAdj = 1.0f + light.Reflection;
+
+            float3 F   = FresnelSchlick(max(dot(H, V), 0.0f), F0 * reflAdj);
+            float  NDF = DistributionGGX(N, H, roughness / (1.0f + light.Shiningness));
+            float  G   = GeometrySmith(N, V, L, roughness);
+
+            float3 numerator   = NDF * G * F;
+            float  denominator = 4.0f * max(dot(N, V), 0.0f) * NdotL + 0.001f;
+            float3 specular    = numerator / denominator;
+
+            float3 kS = F;
+            float3 kD = (float3(1.0f, 1.0f, 1.0f) - kS) * (1.0f - metallic);
+
+            float3 diffuseColor  = kD * albedo / PI;
+            float3 specularColor = specular * light.specularColor * reflAdj;
+
+            outDiff = diffuseColor  * light.color * NdotL * attenuation;
+            outSpec = specularColor * light.color * NdotL * attenuation;
         }
     }
-
-    float totalIntensity = max(light.baseIntensity + light.intensity, 0.0f);
-    attenuation *= totalIntensity;
-
-    float NdotL = max(dot(N, L), 0.0f);
-    if (NdotL <= 0.0001f)
-        return (float3) 0;
-
-    float3 H = normalize(V + L);
-    float  reflAdj = 1.0f + light.Reflection;
-
-    float3 F   = FresnelSchlick(max(dot(H, V), 0.0f), F0 * reflAdj);
-    float  NDF = DistributionGGX(N, H, roughness / (1.0f + light.Shiningness));
-    float  G   = GeometrySmith(N, V, L, roughness);
-
-    float3 numerator   = NDF * G * F;
-    float  denominator = 4.0f * max(dot(N, V), 0.0f) * max(dot(N, L), 0.0f) + 0.001f;
-    float3 specular    = numerator / denominator;
-
-    float3 kS = F;
-    float3 kD = (float3(1.0f, 1.0f, 1.0f) - kS) * (1.0f - metallic);
-
-    float3 diffuseColor  = kD * albedo / PI;
-    float3 specularColor = specular * light.specularColor * reflAdj;
-
-    outDiff = diffuseColor  * light.color * NdotL * attenuation;
-    outSpec = specularColor * light.color * NdotL * attenuation;
 
     return outDiff + outSpec;
 }
@@ -283,9 +288,8 @@ float SampleShadow(float3 worldPos)
         return 1.0f;
 
     // Remap X,Y from NDC [-1,1] to texture [0,1]; flip Y for DX clip convention
-    float2 shadowUV;
-    shadowUV.x = projCoords.x *  0.5f + 0.5f;
-    shadowUV.y = projCoords.y * -0.5f + 0.5f;
+    // float2 initialised with constructor — component-wise assignment triggers X4000 in FXC.
+    float2 shadowUV = float2(projCoords.x * 0.5f + 0.5f, projCoords.y * -0.5f + 0.5f);
 
     float currentDepth = projCoords.z - shadowBias;
 

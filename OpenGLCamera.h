@@ -71,6 +71,10 @@ public:
     float m_yaw   = 0.0f;
     float m_pitch = 0.0f;
 
+    // Set to true when GotoCamera / ParseGLTFCameras positions the camera from scene data.
+    // Loader thread checks this to avoid overriding the scene camera with a default position.
+    bool bCameraJumped = false;
+
     // Existing movement functions
     void MoveUp(float distance);
     void MoveDown(float distance);

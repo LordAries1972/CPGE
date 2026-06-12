@@ -48,11 +48,12 @@ const int DX12_ROOT_PARAM_DEBUG_BUFFER = 2;                                    /
 const int DX12_ROOT_PARAM_GLOBAL_LIGHT_BUFFER = 3;                             // b3: GlobalLightBuffer
 const int DX12_ROOT_PARAM_MATERIAL_BUFFER = 4;                                 // b4: MaterialBuffer
 const int DX12_ROOT_PARAM_ENVIRONMENT_BUFFER = 5;                              // b5: EnvBuffer       (env intensity/tint/fresnel)
-const int DX12_ROOT_PARAM_TEXTURE_TABLE = 6;                                   // Descriptor table: t0-t5 SRV textures
+const int DX12_ROOT_PARAM_TEXTURE_TABLE = 6;                                   // Descriptor table: t0-t8 SRV textures
+const int DX12_ROOT_PARAM_SHADOW_BUFFER = 7;                                   // b6: ShadowBuffer    (PCF shadow map data)
 
 // CBV/SRV/UAV descriptor heap layout for per-model texture SRVs.
-// Slots 0-5   : null SRVs (default texture table when a model has no textures)
-// Slots 6-9   : reserved
+// Slots 0-8   : null SRVs (default texture table when a model has no textures; t0-t8 all null)
+// Slots 9     : reserved
 // Slots 10 .. 10+MAX_TEXTURE_BUFFERS_3D-1 : scene-level 3D texture SRVs (see CreateTextureResources)
 // Slots DX12_MODEL_TEXTURE_HEAP_BASE .. +DX12_MODEL_TEXTURE_HEAP_CAPACITY-1 : per-model texture SRVs
 // Each loaded model gets 6 consecutive slots (t0=diffuse, t1=normal, t2=metallic, t3=roughness, t4=AO, t5=env).
@@ -158,6 +159,7 @@ public:
     ComPtr<ID3D12Resource> m_constantBuffer{ nullptr };                        // b0: ConstantBuffer
     ComPtr<ID3D12Resource> m_globalLightBuffer{ nullptr };                     // b3: GlobalLightBuffer
     ComPtr<ID3D12Resource> m_envBuffer{ nullptr };                             // b5: EnvBuffer
+    ComPtr<ID3D12Resource> m_shadowBuffer{ nullptr };                          // b6: ShadowBuffer (PCF)
 
     // Texture resources
     ComPtr<ID3D12Resource> m_d3d12Textures[MAX_TEXTURE_BUFFERS_3D];            // 3D texture resources

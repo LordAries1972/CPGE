@@ -54,19 +54,21 @@ void OpenGLRenderer::LoaderTaskThread()
 {
     exceptionHandler.RecordFunctionCall("OpenGLRenderer::LoaderTaskThread");
     std::lock_guard<std::mutex> lock(s_loaderMutex);
+    XMFLOAT3 starOrigin(-380.0f, 170.0f, 0.0f);
+    XMFLOAT3 cameraStart(3.2f, 2.65f, -20.0f);
 
-#if defined(PLATFORM_WINDOWS)
-    // Acquire the shared loader context so glGenTextures / glTexImage2D calls
-    // in LoadAllKnownTextures() have a valid GL context on this thread.
-    // The render thread owns m_glContext.renderingContext; both contexts
-    // share the same GL object namespace (textures, buffers, etc.).
-    if (m_loaderGLContext && m_glContext.deviceContext) {
-        if (!wglMakeCurrent(m_glContext.deviceContext, m_loaderGLContext)) {
-            debug.logLevelMessage(LogLevel::LOG_ERROR,
-                L"[LOADER] wglMakeCurrent failed — texture uploads will silently fail and screen will be blank");
+    #if defined(PLATFORM_WINDOWS)
+        // Acquire the shared loader context so glGenTextures / glTexImage2D calls
+        // in LoadAllKnownTextures() have a valid GL context on this thread.
+        // The render thread owns m_glContext.renderingContext; both contexts
+        // share the same GL object namespace (textures, buffers, etc.).
+        if (m_loaderGLContext && m_glContext.deviceContext) {
+            if (!wglMakeCurrent(m_glContext.deviceContext, m_loaderGLContext)) {
+                debug.logLevelMessage(LogLevel::LOG_ERROR,
+                    L"[LOADER] wglMakeCurrent failed — texture uploads will silently fail and screen will be blank");
+            }
         }
-    }
-#endif
+    #endif
 
     ThreadStatus status = threadManager.GetThreadStatus(THREAD_LOADER);
     threadManager.threadVars.bLoaderTaskFinished.store(false);
@@ -76,9 +78,9 @@ void OpenGLRenderer::LoaderTaskThread()
            (!threadManager.threadVars.bIsShuttingDown.load()) &&
            (status != ThreadStatus::Stopped))
     {
-#if defined(PLATFORM_WINDOWS)
-        sysUtils.ProcessMessages();
-#endif
+        #if defined(PLATFORM_WINDOWS)
+            sysUtils.ProcessMessages();
+        #endif
 
         status = threadManager.GetThreadStatus(THREAD_LOADER);
         if (status == ThreadStatus::Paused)
@@ -89,24 +91,24 @@ void OpenGLRenderer::LoaderTaskThread()
 
         switch (scene.stSceneType)
         {
-#if defined(_DEBUG)
-            case SceneType::SCENE_EXPERIMENT:
-            {
-                threadManager.threadVars.b2DTexturesLoaded.store(false);
-                threadManager.threadVars.bLoaderTaskFinished.store(false);
-                if (LoadAllKnownTextures())
-                    threadManager.threadVars.b2DTexturesLoaded.store(true);
+            #if defined(_DEBUG)
+                case SceneType::SCENE_EXPERIMENT:
+                {
+                    threadManager.threadVars.b2DTexturesLoaded.store(false);
+                    threadManager.threadVars.bLoaderTaskFinished.store(false);
+                    if (LoadAllKnownTextures())
+                        threadManager.threadVars.b2DTexturesLoaded.store(true);
 
-                fxManager.SaveAndSuspendFXForScene();
-                fxManager.Init3DWarpDOTTunnel(0.0f, 0.0f, 1000.0f, 10.0f, 200.0f,
-                    TunnelSpinCycle::Clockwise, 100, false, 24, 100);
+                    fxManager.SaveAndSuspendFXForScene();
+                    fxManager.Init3DWarpDOTTunnel(0.0f, 0.0f, 1000.0f, 10.0f, 200.0f,
+                        TunnelSpinCycle::Clockwise, 100, false, 24, 100);
 
-                threadManager.PauseThread(THREAD_LOADER);
-                threadManager.threadVars.bLoaderTaskFinished.store(true);
-                fxManager.FadeToImage(1.0f, 0.08f);
-                break;
-            }
-#endif
+                    threadManager.PauseThread(THREAD_LOADER);
+                    threadManager.threadVars.bLoaderTaskFinished.store(true);
+                    fxManager.FadeToImage(1.0f, 0.08f);
+                    break;
+                }
+            #endif
 
             case SceneType::SCENE_INTRO:
             {
@@ -166,6 +168,8 @@ void OpenGLRenderer::LoaderTaskThread()
                 threadManager.threadVars.b2DTexturesLoaded.store(false);
                 debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene GameTitle.");
                 showStage(L"Loading textures...");
+
+                // Starting Positions
                 if (LoadAllKnownTextures())
                     threadManager.threadVars.b2DTexturesLoaded.store(true);
 
@@ -173,9 +177,11 @@ void OpenGLRenderer::LoaderTaskThread()
                 {
                     showStage(L"Initialising lighting...");
                     LightStruct sunLight{};
-#if defined(PLATFORM_WINDOWS)
-                    SecureZeroMemory(&sunLight, sizeof(LightStruct));
-#endif
+
+                    #if defined(PLATFORM_WINDOWS)
+                        SecureZeroMemory(&sunLight, sizeof(LightStruct));
+                    #endif
+
                     sunLight.active        = true;
                     // Position matches DX11/Vulkan: LH world space, light source sits deep
                     // behind the camera (negative Z), direction travels toward -Z so L = +Z
@@ -200,7 +206,7 @@ void OpenGLRenderer::LoaderTaskThread()
                         ThreadLockHelper preAllocLock(threadManager, "SceneManager_PreAllocation", 2000);
                         if (preAllocLock.IsLocked())
                         {
-                            scene.ParseGLTFScene(AssetsDir / L"splash-hover1.gltf");
+                            scene.ParseSceneAutoDetect(AssetsDir / L"splash-hover1.gltf");
                             if (!scene.bGltfCameraParsed) scene.AutoFrameSceneToCamera();
                         }
                     }
@@ -217,34 +223,44 @@ void OpenGLRenderer::LoaderTaskThread()
                                 camH = static_cast<float>(config.myConfig.resolutionHeight);
                                 break;
                             case 1:
-#if defined(PLATFORM_WINDOWS)
-                                camW = static_cast<float>(winMetrics.monitorFullArea.right  - winMetrics.monitorFullArea.left);
-                                camH = static_cast<float>(winMetrics.monitorFullArea.bottom - winMetrics.monitorFullArea.top);
-#else
-                                camW = static_cast<float>(iOrigWidth);
-                                camH = static_cast<float>(iOrigHeight);
-#endif
+                                #if defined(PLATFORM_WINDOWS)
+                                    camW = static_cast<float>(winMetrics.monitorFullArea.right  - winMetrics.monitorFullArea.left);
+                                    camH = static_cast<float>(winMetrics.monitorFullArea.bottom - winMetrics.monitorFullArea.top);
+                                #else
+                                    camW = static_cast<float>(iOrigWidth);
+                                    camH = static_cast<float>(iOrigHeight);
+                                #endif
+
                                 break;
-                            default:
-#if defined(PLATFORM_WINDOWS)
-                                camW = static_cast<float>(winMetrics.clientWidth);
-                                camH = static_cast<float>(winMetrics.clientHeight);
-#else
-                                camW = static_cast<float>(iOrigWidth);
-                                camH = static_cast<float>(iOrigHeight);
-#endif
+
+                                default:
+                                    #if defined(PLATFORM_WINDOWS)
+                                        camW = static_cast<float>(winMetrics.clientWidth);
+                                        camH = static_cast<float>(winMetrics.clientHeight);
+                                    #else
+                                        camW = static_cast<float>(iOrigWidth);
+                                        camH = static_cast<float>(iOrigHeight);
+                                    #endif
                                 break;
                         }
-                        myCamera.SetupDefaultCamera(camW, camH);
+                        // Only apply the generic default when ParseGLTFScene did not supply
+                        // a scene camera — mirrors DX11 IOStreamThread bCameraJumped guard.
+                        if (!myCamera.bCameraJumped)
+                            myCamera.SetupDefaultCamera(camW, camH);
                     }
-                    myCamera.SetPosition(-5.0f, 2.0f, -20.0f);
-                    myCamera.SetYawPitch(0.0f, 0.0f);
+
+                    // Fallback position only when no GLTF camera positioned the view.
+                    // When bCameraJumped is true the scene camera is already correct.
+                    if (!myCamera.bCameraJumped)
+                    {
+                        myCamera.SetPosition(cameraStart.x, cameraStart.y, cameraStart.z);
+                        myCamera.SetYawPitch(0.0f, 0.0f);
+                    }
 
                     showStage(L"Building interface...");
                     guiManager.CreateGameMenuWindow(L"winGameMenu");
 
                     showStage(L"Almost ready...");
-                    XMFLOAT3 starOrigin(-180.0f, 0.0f, 0.0f);
                     fxManager.CreateStarfield(100, 800.0f, 1000.0f, starOrigin, true);
                     fxManager.StopLoadingText();
                     fxManager.FadeToImage(1.0f, 0.08f);
@@ -260,35 +276,39 @@ void OpenGLRenderer::LoaderTaskThread()
                                 camW = static_cast<float>(config.myConfig.resolutionWidth);
                                 camH = static_cast<float>(config.myConfig.resolutionHeight);
                                 break;
-                            case 1:
-#if defined(PLATFORM_WINDOWS)
-                                camW = static_cast<float>(winMetrics.monitorFullArea.right  - winMetrics.monitorFullArea.left);
-                                camH = static_cast<float>(winMetrics.monitorFullArea.bottom - winMetrics.monitorFullArea.top);
-#else
-                                camW = static_cast<float>(iOrigWidth);
-                                camH = static_cast<float>(iOrigHeight);
-#endif
+
+                                case 1:
+                                    #if defined(PLATFORM_WINDOWS)
+                                        camW = static_cast<float>(winMetrics.monitorFullArea.right  - winMetrics.monitorFullArea.left);
+                                        camH = static_cast<float>(winMetrics.monitorFullArea.bottom - winMetrics.monitorFullArea.top);
+                                    #else
+                                        camW = static_cast<float>(iOrigWidth);
+                                        camH = static_cast<float>(iOrigHeight);
+                                    #endif
                                 break;
-                            default:
-#if defined(PLATFORM_WINDOWS)
-                                camW = static_cast<float>(winMetrics.clientWidth);
-                                camH = static_cast<float>(winMetrics.clientHeight);
-#else
-                                camW = static_cast<float>(iOrigWidth);
-                                camH = static_cast<float>(iOrigHeight);
-#endif
+
+                                default:
+                                    #if defined(PLATFORM_WINDOWS)
+                                        camW = static_cast<float>(winMetrics.clientWidth);
+                                        camH = static_cast<float>(winMetrics.clientHeight);
+                                    #else
+                                        camW = static_cast<float>(iOrigWidth);
+                                        camH = static_cast<float>(iOrigHeight);
+                                    #endif
                                 break;
                         }
-                        myCamera.SetupDefaultCamera(camW, camH);
+
+                        if (!myCamera.bCameraJumped)
+                            myCamera.SetupDefaultCamera(camW, camH);
                         myCamera.UpdateResolution(
                             static_cast<uint32_t>(camW),
                             static_cast<uint32_t>(camH),
                             camW / std::max(camH, 1.0f));
                     }
-                    myCamera.SetPosition(-5.0f, 2.0f, -20.0f);
+                    if (!myCamera.bCameraJumped)
+                        myCamera.SetPosition(cameraStart.x, cameraStart.y, cameraStart.z);
                     guiManager.OnWindowResize(iOrigWidth, iOrigHeight);
 
-                    XMFLOAT3 starOrigin(-180.0f, 0.0f, 0.0f);
                     fxManager.CreateStarfield(100, 800.0f, 1000.0f, starOrigin, true);
                     fxManager.StopLoadingText();
                 }
@@ -302,20 +322,20 @@ void OpenGLRenderer::LoaderTaskThread()
             case SceneType::SCENE_LOAD_MP3:
             {
                 try {
-#if defined(__USE_MP3PLAYER__) && defined(PLATFORM_WINDOWS)
-                    threadManager.threadVars.bLoaderTaskFinished.store(false);
-                    CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
-                    auto fileName = AssetsDir / SingleMP3Filename;
-                    if (player.loadFile(fileName)) {
-                        debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: MP3 loaded.");
-                        player.play();
-                        player.fadeIn(5000);
-                    }
-                    else {
-                        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[LOADER]: Failed to load MP3.");
-                    }
-                    sysUtils.GetMessageAndProcess();
-#endif
+                    #if defined(__USE_MP3PLAYER__) && defined(PLATFORM_WINDOWS)
+                        threadManager.threadVars.bLoaderTaskFinished.store(false);
+                        CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+                        auto fileName = AssetsDir / SingleMP3Filename;
+                        if (player.loadFile(fileName)) {
+                            debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: MP3 loaded.");
+                            player.play();
+                            player.fadeIn(5000);
+                        }
+                        else {
+                            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[LOADER]: Failed to load MP3.");
+                        }
+                        sysUtils.GetMessageAndProcess();
+                    #endif
                 }
                 catch (const std::exception& e) {
                     exceptionHandler.LogException(e, "[LOADER THREAD] SceneType::SCENE_LOAD_MP3");
@@ -324,9 +344,11 @@ void OpenGLRenderer::LoaderTaskThread()
                 }
                 threadManager.PauseThread(THREAD_LOADER);
                 threadManager.threadVars.bLoaderTaskFinished.store(true);
-#if defined(PLATFORM_WINDOWS) && defined(__USE_MP3PLAYER__)
-                CoUninitialize();
-#endif
+
+                #if defined(PLATFORM_WINDOWS) && defined(__USE_MP3PLAYER__)
+                    CoUninitialize();
+                #endif
+
                 break;
             }
 
@@ -358,9 +380,11 @@ void OpenGLRenderer::LoaderTaskThread()
                 {
                     showStage(L"Initialising lighting...");
                     LightStruct sunLight{};
-#if defined(PLATFORM_WINDOWS)
-                    SecureZeroMemory(&sunLight, sizeof(LightStruct));
-#endif
+
+                    #if defined(PLATFORM_WINDOWS)
+                        SecureZeroMemory(&sunLight, sizeof(LightStruct));
+                    #endif
+
                     sunLight.active        = true;
                     // Position matches DX11/Vulkan: negative Z (LH world space).
                     sunLight.position      = XMFLOAT3(10.0f, -3.0f, -100.0f);
@@ -392,9 +416,9 @@ void OpenGLRenderer::LoaderTaskThread()
                     try
                     {
                         Load_Music();
-#if defined(PLATFORM_WINDOWS)
-                        sysUtils.ProcessMessages();
-#endif
+                        #if defined(PLATFORM_WINDOWS)
+                            sysUtils.ProcessMessages();
+                        #endif
                     }
                     catch (const std::exception& e) {
                         exceptionHandler.LogException(e, "[LOADER THREAD] SceneType::GAMEPLAY");
@@ -412,41 +436,48 @@ void OpenGLRenderer::LoaderTaskThread()
                         float camW, camH;
                         switch (config.myConfig.displayMode)
                         {
+                            case 1:
+                                #if defined(PLATFORM_WINDOWS)
+                                    camW = static_cast<float>(winMetrics.monitorFullArea.right  - winMetrics.monitorFullArea.left);
+                                    camH = static_cast<float>(winMetrics.monitorFullArea.bottom - winMetrics.monitorFullArea.top);
+                                #else
+                                    camW = static_cast<float>(iOrigWidth);
+                                    camH = static_cast<float>(iOrigHeight);
+                                #endif
+
+                                break;
+
                             case 2:
                                 camW = static_cast<float>(config.myConfig.resolutionWidth);
                                 camH = static_cast<float>(config.myConfig.resolutionHeight);
                                 break;
-                            case 1:
-#if defined(PLATFORM_WINDOWS)
-                                camW = static_cast<float>(winMetrics.monitorFullArea.right  - winMetrics.monitorFullArea.left);
-                                camH = static_cast<float>(winMetrics.monitorFullArea.bottom - winMetrics.monitorFullArea.top);
-#else
-                                camW = static_cast<float>(iOrigWidth);
-                                camH = static_cast<float>(iOrigHeight);
-#endif
-                                break;
+
                             default:
-#if defined(PLATFORM_WINDOWS)
-                                camW = static_cast<float>(winMetrics.clientWidth);
-                                camH = static_cast<float>(winMetrics.clientHeight);
-#else
-                                camW = static_cast<float>(iOrigWidth);
-                                camH = static_cast<float>(iOrigHeight);
-#endif
-                                break;
+                                #if defined(PLATFORM_WINDOWS)
+                                    camW = static_cast<float>(winMetrics.clientWidth);
+                                    camH = static_cast<float>(winMetrics.clientHeight);
+                                #else
+                                    camW = static_cast<float>(iOrigWidth);
+                                    camH = static_cast<float>(iOrigHeight);
+                                #endif
+                            break;
                         }
+
                         myCamera.SetupDefaultCamera(camW, camH);
                         myCamera.UpdateResolution(
                             static_cast<uint32_t>(camW),
                             static_cast<uint32_t>(camH),
                             camW / std::max(camH, 1.0f));
                     }
+
                     guiManager.OnWindowResize(iOrigWidth, iOrigHeight);
                 }
 
                 fxManager.StopLoadingText();
                 fxManager.FadeToImage(1.0f, 0.08f);
+
                 glFlush();
+
                 threadManager.threadVars.bLoaderTaskFinished.store(true);
                 threadManager.PauseThread(THREAD_LOADER);
                 break;
@@ -473,13 +504,13 @@ void OpenGLRenderer::LoaderTaskThread()
     if (!threadManager.threadVars.bIsShuttingDown.load())
         wasResizing.store(false);
 
-#if defined(PLATFORM_WINDOWS)
-    // Flush all pending GL upload commands and release the loader context.
-    if (m_loaderGLContext) {
-        glFlush();
-        wglMakeCurrent(nullptr, nullptr);
-    }
-#endif
+        #if defined(PLATFORM_WINDOWS)
+            // Flush all pending GL upload commands and release the loader context.
+            if (m_loaderGLContext) {
+                glFlush();
+                wglMakeCurrent(nullptr, nullptr);
+            }
+        #endif
 
     debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene Loading Complete - Pausing Thread");
 }

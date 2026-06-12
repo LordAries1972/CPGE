@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1587*
+*Current Build Version: v0.0.1670*
 
 ---
 
@@ -55,7 +55,7 @@ lets make this Engine great!
 #### 2026
 
 - [June 2026](#june-2026---opengl-pipeline-fixes)
-  - [01](#june-01-2026) · [02](#june-02-2026) · [03](#june-03-2026) · [04](#june-04-2026) · [05](#june-05-2026) · [06](#june-06-2026) · [07](#june-07-2026) · [08](#june-08-2026)
+  - [01](#june-01-2026) · [02](#june-02-2026) · [03](#june-03-2026) · [04](#june-04-2026) · [05](#june-05-2026) · [06](#june-06-2026) · [07](#june-07-2026) · [08](#june-08-2026) · [11](#june-11-2026) · [12](#june-12-2026) · [13](#june-13-2026)
 - [May 2026](#may-2026---more-major-updates-and-fixes)
   - [02](#may-02-2026) · [03-04](#may-03-04-2026) · [06](#may-06-2026) · [08](#may-08-2026) · [10](#may-10-2026) · [11](#may-11-2026) · [14](#may-14-2026) · [15](#may-15-2026) · [16](#may-16-2026) · [17](#may-17-2026) · [18](#may-18-2026) · [19](#may-19-2026) · [20](#may-20-2026) · [21](#may-21-2026) · [22](#may-22-2026) · [23](#may-23-2026) · [24](#may-24-2026) · [28](#may-28-2026) · [29](#may-29-2026) · [30](#may-30-2026) · [31](#may-31-2026)
 - [April 2026](#april-2026---bug-fixes-and-updates)
@@ -3097,6 +3097,279 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
   **Tangent-W bitangent (GLTF handedness):** `VS_INPUT.tangent` changed from `float3` to `float4` in both HLSL and GLSL vertex shaders. Bitangent corrected from `cross(T, N)` to `normalize(cross(N, T.xyz)) × T.w` per the GLTF 2.0 specification — fixes incorrect lighting on mirrored UV islands (e.g., symmetric ship hulls). `ShaderManager.cpp` input layout updated from `R32G32B32_FLOAT` to `R32G32B32A32_FLOAT` at offset 32. `Models.h` `Vertex` struct extended: `float tangentW = 1.0f` (DX11/DX12); `float tangent[4]` (OpenGL/Vulkan).
   **`MaterialGPU` pad fields reused:** `pad4/pad5/pad6` replaced by `useDiffuseMap/useGlossMap/useEmissiveMap`. Struct size unchanged at 112 bytes. New `ShadowBufferGPU` struct (80 bytes) added.
 - *See: [`Assets/Shaders/ModelPixel.hlsl`](Assets/Shaders/ModelPixel.hlsl), [`Assets/Shaders/ModelVertex.hlsl`](Assets/Shaders/ModelVertex.hlsl), [`Assets/Shaders/ModelPixel.glsl`](Assets/Shaders/ModelPixel.glsl), [`Assets/Shaders/ModelVertex.glsl`](Assets/Shaders/ModelVertex.glsl), [`ConstantBuffer.h`](ConstantBuffer.h), [`Includes.h`](Includes.h), [`Models.h`](Models.h), [`ShaderManager.cpp`](ShaderManager.cpp), [`Models.cpp`](Models.cpp), [`DX12Models.cpp`](DX12Models.cpp), [`SceneManager.cpp`](SceneManager.cpp)*
+
+#### June 11, 2026
+
+- **Port — FBX Importer and new material fields cross-ported to DX12, Vulkan, and OpenGL pipelines** (`FBXImport.cpp`, `Includes.h`, `DX12Renderer.cpp`, `VULKAN_Renderer.cpp`, `Models.cpp`, `SceneManager.cpp`, `OpenGLRenderer.cpp`, `OpenGLRenderer.h`, `OpenGLRenderFrame.cpp`):
+  The FBX 7.x importer introduced in the previous commit used DX-specific vertex member types (`XMFLOAT3`, `XMFLOAT2`) throughout `ComputeTangents` and `TriangulateGeometry`, and the new material flags (`useDiffuseMap`, `useGlossMap`, `useEmissiveMap`) were wired only into the DX11 pipeline. This session completed the full cross-platform port and fixed the resulting Vulkan and OpenGL compilation failures.
+
+  **`Includes.h` — renderer default guard fix:** The old `#ifndef __USE_VULKAN__ / #define __USE_VULKAN__` chain caused CMake OpenGL builds to activate both `__USE_OPENGL__` and `__USE_VULKAN__` simultaneously, breaking every `#if`/`#elif` renderer guard across the codebase. Replaced the five individual `#ifndef` blocks with a single `#if !defined(any_renderer) … #define __USE_VULKAN__` guard so the IDE default (Vulkan) only fires when cmake-build.bat has not already injected a renderer define.
+
+  **`FBXImport.cpp` — cross-platform vertex field access:** `TriangulateGeometry` and `ComputeTangents` now guard all direct struct-member assignments with `#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)` / `#else` blocks. DX path uses `XMFLOAT3` members directly; OGL/Vulkan path uses the `float[]` array form. In `ComputeTangents`, the Gram–Schmidt orthogonalisation `t - n * dot(n, t)` extracts the dot product as a scalar via `XMVectorGetX` before the multiply — the stub `Vector4` has `operator*(float)` but not `operator*(Vector4)`, and `XMVectorGetX` works on both the stub and the real DX `__m128`.
+
+  **`SceneManager.cpp` — FBX camera API guards:** `ParseFBXCameras` and `GotoCamera` wrapped DX-specific camera calls (`XMFLOAT3 position`, `SetProjectionMatrix(XMMATRIX)`, `bCameraJumped`) in `#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)` / `#else glm` blocks, matching the existing pattern in `ParseGLTFCamera`.
+
+  **`DX12Renderer.cpp` — text centering precision fix:** Ported the `IDWriteTextLayout`-based pixel-perfect centering from DX11 to `DrawMyTextCentered`; replaced `DWRITE_TEXT_ALIGNMENT_CENTER` with a layout-metrics approach that computes the exact centred origin from `DWRITE_TEXT_METRICS::width` / `height`.
+
+  **`VULKAN_Renderer.cpp` — material UBO expansion and text fix:** Updated inline `k_glsl3DFrag` `MaterialUBO` from 64 to 80 bytes (added `useDiffuseMap`, `useGlossMap`, `useEmissiveMap`, `_pad` as the 5th std140 row); added gloss and emissive texture uniforms (`binding=4/5`) and their shader logic. Expanded `CreateDescriptorSetLayouts` from 4 to 6 sampler bindings and `CreateDescriptorPool` from 4096 to 6144 samplers. Ported `DrawMyTextCentered` precision fix using `m_d2dRenderTarget`.
+
+  **`Models.cpp` — Vulkan material UBO and fallback textures:** Updated `SetupModelForRendering` Vulkan path: `matUboSize` 64→80, `MatUBO` struct with 3 new flag fields + `_pad`, fallback view array 4→6 (slots 4/5 reuse the default diffuse view for gloss/emissive).
+
+  **`SceneManager.cpp` — Vulkan material writes:** Updated `VKMatUBO` struct to 80 bytes; added `useDiffuseMap`, `useGlossMap`, `useEmissiveMap` assignments; expanded `BindGLTFMaterialTexturesToModel` texture descriptor writes from 4 to 6 (gloss and emissive views with white fallback).
+
+  **`OpenGLRenderer.cpp` — inline shader gloss/emissive uniforms:** Added `uGlossMap`, `uEmissiveMap`, `uHasGlossMap`, `uHasEmissiveMap` uniforms to `k_3dFragGLSL`; gloss path derives `effectiveRoughness = 1.0 − glossMap.r`; emissive path samples `emissiveTex` when flag is set.
+
+  **`OpenGLRenderer.h` / `OpenGLRenderFrame.cpp` — uniform caching and binding:** Added four new `GLint` fields to `CachedUniforms3D`; wired gloss (GL_TEXTURE6) and emissive (GL_TEXTURE7) binding in both `UploadModelUniformsCached` and `UploadModelUniformsDynamic`.
+
+  All four pipelines (DX11, DX12, Vulkan, OpenGL) compile cleanly after these changes.
+- *See: [`FBXImport.cpp`](FBXImport.cpp), [`Includes.h`](Includes.h), [`DX12Renderer.cpp`](DX12Renderer.cpp), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`Models.cpp`](Models.cpp), [`SceneManager.cpp`](SceneManager.cpp), [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`OpenGLRenderer.h`](OpenGLRenderer.h), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp)*
+
+- **Fix — DX12 `CreateGraphicsPipelineState` E_INVALIDARG crash on startup** (`DX12Renderer.cpp`, `DX12Renderer.h`):
+  `CreatePipelineState()` was failing with `HRESULT 0x80070057` (E_INVALIDARG) at startup. Two rounds of fixes were required.
+
+  **Pass 1 — TANGENT input layout:** PSO declared `TANGENT` as `DXGI_FORMAT_R32G32B32_FLOAT` (3 floats) but the vertex shader reads `float4 tangent : TANGENT` (4 components). Fixed to `DXGI_FORMAT_R32G32B32A32_FLOAT`. Also removed a bogus `BITANGENT` input element (shader computes bitangent from N×T; no vertex input needed).
+
+  **Pass 2 — Root signature / sampler mismatch:** The pixel shader had been updated with PCF shadow mapping (`ShadowBuffer b6`, `shadowMap t8`, `SamplerComparisonState s2`) but the root signature was not updated to match. Three simultaneous issues:
+  - **Static sampler s2 type mismatch (primary E_INVALIDARG cause):** s2 was `D3D12_FILTER_ANISOTROPIC` (non-comparison). The shader uses s2 as `SamplerComparisonState` with `SampleCmpLevelZero`. D3D12 validates sampler type at PSO creation → E_INVALIDARG. Fixed to `D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT` / `LESS_EQUAL` / border white (lit outside shadow frustum).
+  - **Missing b6 root parameter:** shader reads `cbuffer ShadowBuffer : register(b6)` but root sig had no b6. Added root parameter 7 = `InitAsConstantBufferView(6, ...)`.
+  - **SRV table too small:** table covered t0–t5 only; shader now uses t0–t8 (+gloss t6, emissive t7, shadow depth t8). Expanded to 9 descriptors; null SRV pre-population expanded from 6 to 9 slots.
+
+  Supporting changes: `m_shadowBuffer` (b6) allocated in `CreateConstantBuffers` with `useShadowMap=0` (shadows disabled until a shadow map is provided); bound in `PopulateCommandList`; `Reset()` added to cleanup. `DX12Renderer.h`: added `DX12_ROOT_PARAM_SHADOW_BUFFER = 7` constant and `m_shadowBuffer` member.
+- *See: [`DX12Renderer.cpp`](DX12Renderer.cpp), [`DX12Renderer.h`](DX12Renderer.h)*
+
+- **Fix — `ModelPixel.hlsl` FXC X4000 shader compiler warnings** (`ModelPixel.hlsl`):
+  Two `warning X4000: use of potentially uninitialized variable` warnings were emitted by the FXC shader compiler.
+
+  - **`ProcessLight` (line 203):** FXC's out-parameter dataflow analysis does not track that `outDiff` and `outSpec` are assigned unconditionally at the top of the function (before any branch). It warns at each early-return statement that the `out` parameters might be unset. Fix: removed both early returns (`light.active == 0` and `NdotL <= 0.0001`). Replaced with nested `[branch]` if-blocks so the function has a single `return outDiff + outSpec;` at the bottom — FXC can now prove all paths set the `out` params. Logic unchanged.
+
+  - **`SampleShadow` (line 271):** `shadowUV` was declared as `float2 shadowUV;` then assigned component-by-component (`.x` then `.y`). FXC treats component-wise assignment differently from full initialisation and flags it as potentially uninitialised at the first control-flow exit in the function. Fix: changed to a constructor: `float2 shadowUV = float2(... , ...);`.
+- *See: [`ModelPixel.hlsl`](Assets/Shaders/ModelPixel.hlsl)*
+
+- **Fix — OpenGL GLTF/GLB vertex corruption, missing UBO uploads, and broken materials** (`OpenGLRenderFrame.cpp`, `OpenGLRenderer.cpp`, `OpenGLRenderer.h`, `SceneManager.cpp`, `Models.cpp`):
+  Six root-cause bugs were causing completely garbled geometry and black/incorrect materials on all GLTF/GLB models in the OpenGL pipeline.
+
+  **1. VAO stride mismatch (primary geometry corruption cause):** The `Vertex` struct for OpenGL builds (in `Includes.h`) stores tangent as `float tangent[4]` (xyz + handedness w) = 48 bytes per vertex. The VAO setup in `RenderGamePlay` used `(3+3+2+3)*sizeof(float)` = 44 bytes, causing every vertex after the first to be read at the wrong offset. Fixed to `(3+3+2+4)*sizeof(float)` = 48 bytes.
+
+  **2. Tangent attribute fed as vec3 instead of vec4:** `glVertexAttribPointer(3, 3, …)` fed only 3 components to the vertex shader attribute `layout(location=3) in vec4 aTangent`. The `.w` handedness component was always 0.0, causing `B = cross(N,T) * aTangent.w` to produce a zero bitangent everywhere. Fixed to 4 components.
+
+  **3. tangent.w never set in computed-tangent paths:** Both the GLTF primitive tangent generator (`SceneManager.cpp`) and the OBJ tangent generator (`Models.cpp`) wrote only `tangent[0..2]` and left `tangent[3]` at its default 0.0f. Added `tangent[3] = 1.0f` immediately after each `XMStoreFloat3` / direct assignment in the non-DX code paths.
+
+  **4. ConstantBuffer UBO (binding 0) never updated per frame:** `ModelVertex.glsl` reads world/view/projection matrices and camera position from a `layout(std140, binding=0) uniform ConstantBuffer`. The UBO was allocated in `Initialize()` but `UploadModelUniformsCached` searched for individual uniforms (`uModel`, `uView`, etc.) that don't exist as standalone uniforms — they're inside the UBO block — so all returned -1 and no matrices were ever written. Added a per-draw `glBufferSubData` upload in `RenderGamePlay` that writes the full `ConstantBuffer` struct (world, view, proj, camPos, scale) before each model draw.
+
+  **5. MaterialBuffer UBO (binding 4) not allocated or uploaded:** `ModelPixel.glsl` reads all PBR material properties (Kd, Ka, metallic, roughness, texture-presence flags, etc.) from `layout(std140, binding=4) uniform MaterialBuffer`. This UBO was never created, never bound to binding point 4, and never written. Added: allocation + `glBindBufferBase` in `Initialize()`; a `GLMaterialUBO` POD struct in `OpenGLRenderer.h` whose layout exactly matches the GLSL std140 declaration; a per-draw `glBufferSubData` upload in `RenderGamePlay` that populates all fields from the current `ModelInfo`.
+
+  **6. Texture sampler names wrong in LoadShaders:** `glGetUniformLocation` was querying `"uDiffuse"`, `"uNormalMap"`, `"uGlossMap"`, `"uEmissiveMap"` — none of which exist in the shader. The fragment shader declares `uniform sampler2D diffuseTexture`, `normalMap`, `glossMap`, `emissiveMap`. All lookups returned -1, so sampler uniforms were never set and no textures reached the shader. Rewrote `LoadShaders` to set all 9 sampler uniforms (`diffuseTexture` t0, `normalMap` t1, `metallicMap` t2, `roughnessMap` t3, `aoMap` t4, `environmentMap` t5, `glossMap` t6, `emissiveMap` t7, `shadowMap` t8) to their fixed texture units once after program link. Per-draw, only `glActiveTexture`/`glBindTexture` calls are needed.
+
+  **Additional initializations:** `LightBuffer` UBO (binding 1, per-model lights) was uninitialised — zeroed out so `numLights=0` prevents the per-model light loop from running on garbage data. `DebugBuffer` UBO (binding 2) was uninitialised — zeroed so `debugMode=0` enables full PBR output instead of a random debug visualisation. All expanded texture units (metallic t2, roughness t3, AO t4, environment t5) are now bound in both `UploadModelUniformsCached` and `UploadModelUniformsDynamic`.
+- *See: [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp), [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`OpenGLRenderer.h`](OpenGLRenderer.h), [`SceneManager.cpp`](SceneManager.cpp), [`Models.cpp`](Models.cpp)*
+
+- **Fix — OpenGL EnvBuffer and ShadowBuffer UBOs not allocated or uploaded** (`OpenGLRenderer.h`, `OpenGLRenderer.cpp`, `OpenGLRenderFrame.cpp`):
+  Brings the OpenGL UBO pipeline to full parity with the DX11 and DX12 pipelines. `ModelPixel.glsl` declares both `EnvBuffer` (binding 5) and `ShadowBuffer` (binding 6) but neither was allocated, bound to its GLSL binding point, or ever written — the GPU was reading uninitialised memory for environment intensity, tint, fresnel, shadow bias, and shadow enable flag.
+
+  **EnvBuffer (GLSL binding 5):** Added `GLEnvUBO` struct (48 bytes, `alignas(16)`, matching std140 layout: `float envIntensity + 12-byte pad + vec3 envTint + float mipLODBias + float fresnel0 + 4-byte pad + vec2 _padE`). The UBO is allocated in `Initialize()` with DX12-matching defaults (`envIntensity=1.0`, `envTint=white`, `fresnel0=0.04` — standard dielectric Fresnel F0) and bound to `GLSL_BINDING_ENV_BUFFER (5)`. **Per-draw upload** in `RenderGamePlay()` pushes per-model values from `mi.envIntensity`, `mi.envTint`, `mi.mipLODBias`, `mi.fresnel0`, matching DX11's `Model::UpdateEnvironmentBuffer()` call pattern.
+
+  **ShadowBuffer (GLSL binding 6):** Added `GLShadowUBO` struct (80 bytes, matching std140 layout: `mat4 lightViewProj (64B) + shadowBias + shadowStrength + useShadowMap + shadowMapSize`). The UBO is allocated in `Initialize()` zeroed (`useShadowMap=0.0` = shadows disabled). **Per-draw upload** in `RenderGamePlay()` writes `shadowBias=0.001f`, `shadowStrength=0.8f`, `shadowMapSize=2048.0f`, and `useShadowMap=(mi.shadowTexID != 0) ? 1.0 : 0.0` — matching DX11's per-model shadow setup. Shadow rendering activates automatically once a shadow depth map is loaded into `mi.shadowTexID` (t8).
+
+  **Shadow texture unit (t8):** Added `GL_TEXTURE8` binding in both `UploadModelUniformsCached` and `UploadModelUniformsDynamic`. Post-draw cleanup loop extended from units 0–7 to units 0–8.
+
+  **Header additions:** `UNIFORM_SHADOW_BUFFER = 2` (repurposed legacy unused slot), `GLSL_BINDING_SHADOW_BUFFER = 6`, comment for binding 6 added to the GLSL binding slot table.
+- *See: [`OpenGLRenderer.h`](OpenGLRenderer.h), [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp)*
+
+- **Fix — OpenGL SCENE_GAMETITLE ship invisible: GLTF camera position overwritten by loader default** (`OpenGLCamera.h`, `SceneManager.cpp`, `OpenGL_IOStreamThread.cpp`):
+  `SplashShip1` was not visible in `SCENE_GAMETITLE` in the OpenGL pipeline because the camera was always placed at `(0, 6, -80)` instead of the position extracted from the GLTF camera node. The ship sits at world position `(-485, 0, 145)`, which is entirely outside the view frustum from `(0, 6, -80)` with the default yaw.
+
+  **Root cause:** `DXCamera.h` exposes `bool bCameraJumped = false` to signal that a scene camera has positioned the view. The OpenGL loader guards `SetPosition(0,6,-80)` behind `!bCameraJumped` (matching DX11). However, the field did not exist in `OpenGLCamera.h` — it was added first, then the guards were added to `OpenGL_IOStreamThread.cpp`. That left one gap: `SceneManager::ParseGLTFCamera()` (called by `ParseGLTFScene` for `.gltf` files) only set `bGltfCameraParsed = true` but never `camera.bCameraJumped = true`. Because the flag was never set, the loader guards evaluated to `true` on every load and overwrote the GLTF camera with the default position.
+
+  A secondary gap was found in `GotoCamera()`: the `cam.bCameraJumped = true` assignment was wrapped in `#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)`, so runtime scripted camera jumps on OpenGL would also fail to prevent a loader override on subsequent scene reloads.
+
+  **Fix — four changes across two sessions:**
+  - **`OpenGLCamera.h`:** Added `bool bCameraJumped = false;` to the `Camera` class, mirroring `DXCamera.h:77`.
+  - **`OpenGL_IOStreamThread.cpp`:** Wrapped `SetupDefaultCamera`, `SetPosition(0,6,-80)`, and `SetYawPitch(0,0)` in `if (!myCamera.bCameraJumped)` guards in both the fresh-load and resize paths for `SCENE_GAMETITLE`, matching the identical pattern in `IOStreamDX11Thread.cpp` lines 281–285.
+  - **`SceneManager.cpp` — `ParseGLTFCamera`:** Added `camera.bCameraJumped = true;` immediately after `bGltfCameraParsed = true` (line 4148). This is the function actually invoked for `.gltf` files and is the decisive fix that makes the guards in the loader effective.
+  - **`SceneManager.cpp` — `GotoCamera`:** Removed the `#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)` guard around `cam.bCameraJumped = true` so runtime camera jumps signal the flag correctly for all renderer paths.
+
+  When `splash-hover1.gltf` is loaded, `ParseGLTFCamera` now sets `bCameraJumped = true` → loader guards skip the `(0,6,-80)` default → the GLTF scene camera aims at the ship → `SplashShip1` is visible.
+- *See: [`OpenGLCamera.h`](OpenGLCamera.h), [`SceneManager.cpp`](SceneManager.cpp), [`OpenGL_IOStreamThread.cpp`](OpenGL_IOStreamThread.cpp)*
+
+#### June 12, 2026
+
+- **Fix — models loaded with NO materials and NO textures on the first scene entry after engine startup (all renderers, all GLB/GLTF scenes)** (`SceneManager.cpp`):
+  Root cause of the `SCENE_GAMETITLE`/`SCENE_GAMEPLAY` "untextured grey ship on initial startup" report. `LoadCache()` (cache.dat, loaded in `main()` at startup) restores model **names, geometry and material-name strings** into `models[]` — but `Texture` objects and `Material` structs cannot be serialised to disk. The full-parse primitive loop in `ParseGLBScene`/`ParseGLTFScene` only calls `LoadGLTFMeshPrimitives()` (which performs the `BindGLTFMaterialTexturesToModel()` material/texture bind) when the primitive's `models[]` slot is **newly created**; after a cache.dat startup the slot is FOUND by name, the entire bind is skipped, and the model reaches `SetupModelForRendering()` with empty `m_materials` and empty `textures` — rendering as the untextured grey fallback. A later scene revisit recovered materials/textures only because the in-memory cache-restore Step 4 rebind ran. Fixed by detecting the found-slot/empty-materials case in BOTH the GLB and GLTF primitive loops and binding the primitive's material there (the cache.dat-restored material-name list is cleared first so the bind does not append a duplicate name). The bind happens BEFORE `SetupModelForRendering()`, so the DX12 native texture upload sees the textures on the very first load.
+- *See: [`SceneManager.cpp`](SceneManager.cpp)*
+
+- **Fix — DX12 `SCENE_GAMETITLE` starfield rendered OVER the 3D ship model; composition order corrected to BACKGROUND → LOGO → STARFIELD → MODELS** (`DX12RenderFrame.cpp`):
+  The background FX pass (`fxManager.Render(true)` — starfield/warp tunnel) ran inside the post-3D D2D pass (STEP 10), painting the stars over the already-rendered models. The STEP 3.5 background pre-pass now renders the starfield immediately after the background image and company logo blits — i.e. BEFORE the 3D models are drawn — and the STEP 10 pass skips the background FX when the pre-pass ran (the legacy post-3D path is retained for frames where the pre-pass is unavailable, e.g. while the background image is still loading).
+- *See: [`DX12RenderFrame.cpp`](DX12RenderFrame.cpp)*
+
+- **Fix — misleading `[DX12 TexUpload] ... uploaded 0x0` log on every successful texture upload** (`DX12Models.cpp`):
+  `UploadDX12ModelTextures()` logged the texture dimensions AFTER calling `ClearDX12Pixels()`, which zeroes `m_dx12Width`/`m_dx12Height` along with the staging pixels — so every successful upload printed `uploaded 0x0`, reading as a degenerate/failed texture during diagnosis when the upload was actually fine. The dimensions are now captured before the staging cache is cleared and the log prints the real size.
+- *See: [`DX12Models.cpp`](DX12Models.cpp)*
+
+- **Fix — DX12 `SCENE_GAMETITLE` models painted over by the background image; D2D background pre-pass added** (`DX12RenderFrame.cpp`):
+  The single post-3D D2D pass blitted the full-screen `IMG_GAMEINTRO1` background AFTER the 3D models had been drawn, painting straight over the ship — DX11 draws the background via `RenderBackgroundImage()` BEFORE `RenderGamePlay()`. Added **STEP 3.5** to `RenderFrame()`: when in `SCENE_GAMETITLE` with the loader finished, the PRESENT→RENDER_TARGET transition + clears are executed first, a dedicated D2D pass blits the background and company logo (acquire → blit → release returns the buffer to PRESENT), and the command list is re-opened on the same allocator for the 3D pass. STEP 6 then skips the RTV clear so the background survives underneath the models, and the post-3D D2D pass skips its background blit when the pre-pass ran (legacy blit retained as a fallback for frames where the background image is not yet loaded). File-header pipeline-order comment updated to match the real sequence.
+- *See: [`DX12RenderFrame.cpp`](DX12RenderFrame.cpp)*
+
+- **Fix — DX12 models untextured in `SCENE_GAMEPLAY` when loading via the cache-restore path** (`DX12Models.cpp`, `Models.h`, `SceneManager.cpp`):
+  Root cause (confirmed by deleting `cache.dat`, which made textures appear): the cache-restore rebind steps in `SceneManager` replace `m_modelInfo.textures`/`textureSRVs` AFTER `SetupModelForRendering()` has already run, so the native DX12 side (`d3d12TexResources[]` + descriptor heap slots) still held the pre-rebind state — NULL resources on a `cache.dat` restore. `RegisterDX12Textures()` then wrote NULL descriptors on first draw while every texture-load log reported success (the loads succeed on the DX11-on-12 side, which DX12 never samples). DX11 is immune because `Model::Render()` binds `textureSRVs` fresh every frame.
+  - **`DX12Models.cpp`** — extracted the texture-upload loop from `SetupModelForRendering()` into `Model::UploadDX12ModelTextures()` (now also clears stale `d3d12TexResources[]` before re-populating, so a rebind can never leave an old resource in a slot whose map no longer exists). Added `Model::RefreshDX12Textures()`: re-uploads the freshly rebound `Texture` objects and clears `d3d12TexturesRegistered` so the SRV descriptors are rewritten on the model's next draw.
+  - **`SceneManager.cpp`** — all three cache-restore rebind sites (GLB Step 4, GLTF Step 4, FBX Step 3) now call `scene_models[ti].RefreshDX12Textures()` immediately after rebinding, under `#if defined(__USE_DIRECTX_12__)`.
+  - **`Models.h`** — declared `UploadDX12ModelTextures()` / `RefreshDX12Textures()` in the DX12 section of `Model`.
+- *See: [`DX12Models.cpp`](DX12Models.cpp), [`Models.h`](Models.h), [`SceneManager.cpp`](SceneManager.cpp)*
+
+- **Hardening — DX12 texture fallback chain no longer fails silently; worst case now visible and traceable** (`DX12Models.cpp`):
+  Audit of the fallback chain found every failure layer silent: the upload loop `continue`d past unfindable/empty textures without logging, `RegisterDX12Textures()` logged *success* even when all six descriptors written were NULL, and the worst case was invisible geometry — a NULL SRV samples `(0,0,0,0)` and the alpha-blend PSO discards the fragment, so the shader's `Kd` solid-colour fallback never triggered (the material still said `useDiffuseMap=1`).
+  - **`UploadDX12ModelTextures()`** — unconditional `[DX12 TexUpload]` logging: a warning when an SRV exists but its owning `Texture` is not in `m_modelInfo.textures`, a warning when a slot has no pixel cache and no cached GPU resource, an info line per successful upload, and a per-model summary stating exactly which of the six slots reached the GPU.
+  - **`RegisterDX12Textures()`** — the silent heap-offset-0 early-out now logs a warning; the registration summary states real vs NULL descriptor counts; a dedicated warning fires for the worst case (`useDiffuseMap=1` with no diffuse resource on the heap).
+  - **`RenderDX12()`** — `useDiffuseMap` is now only passed to the shader when a diffuse resource actually reached the DX12 heap, so the worst case degrades to the visible `Kd` solid-colour fallback instead of an invisible model.
+- *See: [`DX12Models.cpp`](DX12Models.cpp)*
+
+- **Docs — `Model-Example-Usage.md`: new "DX12 Native Texture Pipeline" section** (`Docs/Model-Example-Usage.md`):
+  Documents the two-stage upload/registration flow, the t0–t5 slot map, the `RefreshDX12Textures()` requirement for any code that replaces a model's textures after setup, and the diffuse `Kd` fallback behaviour. TOC updated.
+- *See: [`Docs/Model-Example-Usage.md`](Docs/Model-Example-Usage.md)*
+
+- **Fix — DX12 ship not visible in `SCENE_GAMETITLE`; loader thread brought into full parity with the DX11 pipeline** (`IOStreamDX12Thread.cpp`):
+  The DX12 `SCENE_GAMETITLE` loader had diverged from DX11 in several ways that combined to push the ship out of the camera's view. All of the following now mirror `IOStreamDX11Thread.cpp` exactly:
+  - **Scene parsing:** `ParseGLTFScene()` + an unconditional `AutoFrameSceneToCamera()` call replaced with `ParseSceneAutoDetect(AssetsDir / L"splash-hover1.gltf")` — the same call DX11 uses. The auto-frame call was also pointless because the camera position was immediately overwritten afterwards.
+  - **Camera defaults:** the unconditional `SetPosition(-5.0f, 2.0f, -20.0f)` is now `SetPosition(0.0f, -4.0f, -20.0f)` / `SetYawPitch(0.0f, 0.0f)`, guarded by `!myCamera.bCameraJumped` and `!scene.bGltfCameraParsed` so a scene-supplied camera is never discarded. `SetupDefaultCamera()` is likewise guarded by `!myCamera.bCameraJumped`. The resize-path branch received the same guards and position.
+  - **Starfield destination:** `CreateStarfield(100, 800.0f, 1000.0f, XMFLOAT3(-180.0f, 0.0f, 0.0f), true)` corrected to the DX11 destination `XMFLOAT3(-380.0f, 300.0f, 0.0f)` in both the initial-load and resize branches.
+  - **Sun light position:** `(0, 5, 150)` corrected to the DX11 value `(0, 5, -150)` (deep background, slightly above centre).
+- *See: [`IOStreamDX12Thread.cpp`](IOStreamDX12Thread.cpp)*
+
+- **Change — `SCENE_GAMETITLE` debug camera now driven by gamepad/joystick instead of mouse-look (all platforms, DEBUG builds only)** (`main.cpp`, `DXRenderFrame.cpp`, `DX12RenderFrame.cpp`, `OpenGLRenderFrame.cpp`, `VULKAN_RenderFrame.cpp`):
+  Supersedes the mouse-look feature entry from earlier today. The hardcoded per-frame yaw/pitch adjustment in `SCENE_GAMETITLE` is gone for good on every pipeline, and the right-click mouse-look debug camera has been replaced by joystick movement.
+
+  **`main.cpp`:**
+  - The `SCENE_GAMETITLE` case of the main loop now contains a `#if defined(_DEBUG)` block: when at least one controller is active, it reads the deadzone-filtered axes via `js.getNormalizedAxes(PLAYER_1)` and only calls `js.processJoystickMovement(PLAYER_1)` when actual stick deflection is detected — an idle pad never disturbs the camera. Movement/rotation goes through the existing `Joystick` 3D mode (left stick = move, right stick = look), using the camera already bound via `js.setCamera()` at startup. Release builds compile the block away.
+  - Removed all `SCENE_GAMETITLE` mouse-movement debug code: the `WM_MOUSEMOVE` `SCENE_GAMETITLE` case, the `WM_RBUTTONDOWN` `SetCapture()` activation block, and the `WM_RBUTTONUP` `ReleaseCapture()` block. The `SCENE_GAMEPLAY` right-drag mouse camera is untouched.
+  - Removed the now-unconsumed `bDebugCameraActive` global and its reset in `SwitchToGamePlay()`.
+
+  **Render frames (all four pipelines):**
+  - Removed the dead `extern bool bDebugCameraActive` declarations and the commented-out hardcoded `myCamera.SetYawPitch(0.240f/0.260f, -0.28f)` blocks from the `SCENE_GAMETITLE` 2D branches of `DXRenderFrame.cpp`, `DX12RenderFrame.cpp`, `OpenGLRenderFrame.cpp`, and `VULKAN_RenderFrame.cpp`.
+  - All four pipelines (DX11, DX12, OpenGL, Vulkan) compiled clean after the change.
+- *See: [`main.cpp`](main.cpp), [`DXRenderFrame.cpp`](DXRenderFrame.cpp), [`DX12RenderFrame.cpp`](DX12RenderFrame.cpp), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp)*
+
+- **Feature — DEBUG free-look camera in `SCENE_GAMETITLE` for all four render pipelines** (`main.cpp`, `OpenGLRenderFrame.cpp`, `DXRenderFrame.cpp`, `DX12RenderFrame.cpp`, `VULKAN_RenderFrame.cpp`): *(superseded later the same day by the joystick debug camera above)*
+  Added a `_DEBUG`-only mouse-look camera to `SCENE_GAMETITLE` so the ship's world-space position can be inspected at runtime without switching scenes.
+
+  **`main.cpp`:**
+  - Added `bool bDebugCameraActive` (DEBUG-only global). Set to `true` on the first `WM_RBUTTONDOWN` while in `SCENE_GAMETITLE`; cleared to `false` in `SwitchToGamePlay()` on scene transition so re-entering the title screen starts fresh.
+  - `WM_MOUSEMOVE` — added a `#if defined(_DEBUG)` `SCENE_GAMETITLE` case that calls `renderer->myCamera.UpdateCameraFromMouseMovement()` using the same delta/sensitivity pattern as the existing `SCENE_GAMEPLAY` handler.
+  - `WM_RBUTTONDOWN` — added a `#if defined(_DEBUG)` block that calls `SetCapture(hwnd)` when in `SCENE_GAMETITLE`, ensuring mouse messages continue to arrive even if the cursor drifts outside the client area during a drag.
+  - `WM_RBUTTONUP` — added matching `ReleaseCapture()` when `bDebugCameraActive` is set, releasing the capture on button-up. The camera retains its current orientation (no snap-back) so the user can release and re-drag to refine the view.
+
+  **Render frames (all four pipelines):**
+  Added `extern bool bDebugCameraActive` (inside `#if defined(_DEBUG)`) to `OpenGLRenderFrame.cpp`, `DXRenderFrame.cpp`, `DX12RenderFrame.cpp`, and `VULKAN_RenderFrame.cpp`. In each file the per-frame `myCamera.SetYawPitch(...)` call inside the `SCENE_GAMETITLE` branch is now guarded: `#if defined(_DEBUG) if (!bDebugCameraActive) #endif myCamera.SetYawPitch(...)`. In Release builds the guard compiles away and behaviour is unchanged.
+- *See: [`main.cpp`](main.cpp), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp), [`DXRenderFrame.cpp`](DXRenderFrame.cpp), [`DX12RenderFrame.cpp`](DX12RenderFrame.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp)*
+
+- **Fix — OpenGL 3D models not rendering in `SCENE_GAMEPLAY` or `SCENE_GAMETITLE`** (`OpenGLRenderer.cpp`, `OpenGLRenderFrame.cpp`):
+  The root cause was that the embedded fallback vertex shader `k_3dVertGLSL` used standalone `uniform mat4 uModel/uView/uProjection` uniforms that were **never set** by the render code — which exclusively uploads transforms via UBO (binding 0). All vertex positions transformed to `(0,0,0,0)` → `w = 0` → degenerate clip-space positions → no geometry rendered.
+
+  **`OpenGLRenderer.cpp` — `LoadShaders()`:**
+  - Changed the 3D shader creation to load `Assets/Shaders/ModelVertex.glsl` and `Assets/Shaders/ModelPixel.glsl` from disk at runtime, instead of the embedded standalone-uniform strings.
+  - The external shaders use `layout(std140, binding=0) uniform ConstantBuffer { mat4 uWorld; mat4 uView; mat4 uProjection; ... }`, matching the per-model UBO uploads in `RenderGamePlay()`.
+  - The embedded `k_3dVertGLSL`/`k_3dFragGLSL` strings are retained as a last-resort fallback if the asset files cannot be read, with a LOG_ERROR warning that models may not render correctly.
+
+  **`OpenGLRenderFrame.cpp`:**
+  - Fixed a missing `#if defined(_DEBUG)` guard around the `if (!bDebugCameraActive)` line in the `SCENE_GAMETITLE` case of the 2D-overlay switch block. Without the guard, Release builds would fail to compile because `bDebugCameraActive` is conditionally declared.
+- *See: [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp)*
+
+- **Fix — `ModelVertex.glsl` / `ModelPixel.glsl` shader compile error: `layout(binding=N)` requires `#version 420`** (`Assets/Shaders/ModelVertex.glsl`, `Assets/Shaders/ModelPixel.glsl`):
+  Both shaders declared `#version 330 core` but used `layout(std140, binding=N)` on UBO blocks, which is a GLSL 4.2 feature. The NVIDIA driver rejected compilation with `error C7532: layout qualifier 'binding' requires "#version 420" or later`. Fixed by adding `#extension GL_ARB_shading_language_420pack : enable` immediately after the version directive in both files. This extension promotes the `layout(binding=N)` syntax to OpenGL 3.3 contexts without requiring a context version bump, and is universally supported on modern NVIDIA/AMD/Intel drivers.
+- *See: [`Assets/Shaders/ModelVertex.glsl`](Assets/Shaders/ModelVertex.glsl), [`Assets/Shaders/ModelPixel.glsl`](Assets/Shaders/ModelPixel.glsl)*
+
+- **Fix — `ConstantBuffer` uniform block mismatch between vertex and fragment shader** (`Assets/Shaders/ModelPixel.glsl`):
+  OpenGL requires every shared uniform block to have identical field names, types, and layout across all shader stages. `ModelPixel.glsl` declared `cameraPosition` / `_padCB` and omitted `uModelScale`/`_pad1`, while `ModelVertex.glsl` declared `uCameraPosition` / `_pad0` / `uModelScale` / `_pad1`. The linker rejected the program with "members of uniform block ConstantBuffer are not the same between shader stages". Fixed by updating `ModelPixel.glsl`'s `ConstantBuffer` block to exactly match `ModelVertex.glsl`, and renaming the one usage of `cameraPosition` → `uCameraPosition` in the fragment main function.
+- *See: [`Assets/Shaders/ModelPixel.glsl`](Assets/Shaders/ModelPixel.glsl)*
+
+- **Fix — OpenGL debug camera mouse movement had no effect (`SCENE_GAMETITLE`)** (`OpenGLRenderer.h`):
+  `OpenGLRenderer` redeclared `Camera myCamera` as its own member, shadowing the `Camera myCamera` inherited from the `Renderer` base class. `main.cpp` called `renderer->myCamera.UpdateCameraFromMouseMovement(...)` via the base-class pointer, updating the base member. But `OpenGLRenderFrame.cpp` used `myCamera` as a member of `OpenGLRenderer`, which resolved to the derived-class shadow — a completely separate object that was never touched by mouse input. The fix removes the redeclaration from `OpenGLRenderer.h`; all OpenGL render code now inherits and uses the single base-class camera that `main.cpp` also updates.
+- *See: [`OpenGLRenderer.h`](OpenGLRenderer.h)*
+
+- **Fix — OpenGL 3D models completely invisible (PBR UBO path and embedded fallback both broken)** (`OpenGLRenderer.cpp`, `OpenGLRenderFrame.cpp`):
+  Two compounding root causes — one for the UBO asset-shader path, one for the embedded fallback path — combined to render absolutely nothing in all OpenGL scenes.
+
+  **Root Cause 1 — UBO binding not explicit (asset shaders):** `layout(std140, binding=N)` in `ModelVertex.glsl` and `ModelPixel.glsl` relies on `GL_ARB_shading_language_420pack`. Without a matching `glUniformBlockBinding` call after shader linking, drivers that silently ignore the extension directive map ALL uniform blocks to binding point 0. Only the `ConstantBuffer` (legitimately at binding 0) received correct data; `MaterialBuffer`, `GlobalLightBuffer`, `EnvBuffer`, and `ShadowBuffer` all read from the ConstantBuffer, producing garbage material/light values. Fix: added explicit `glUniformBlockBinding(prog3D, blockIndex, N)` for every named UBO block immediately after `glLinkProgram` succeeds. Belt-and-suspenders with the in-shader directive — when the extension IS supported both paths agree; when it is not, `glUniformBlockBinding` is the authoritative source of truth.
+
+  **Root Cause 2 — individual uniform locations never populated (embedded fallback):** `LoadShaders()` was changed to load the PBR asset shaders from disk, with the embedded `k_3dVertGLSL` / `k_3dFragGLSL` strings kept only as a file-not-found fallback. The new code stopped populating `CachedUniforms3D m_uniforms3D` with `uModel`, `uView`, `uProjection`, and the per-light / material uniform locations. When the embedded fallback fires (asset files missing or on a driver that rejects `GL_ARB_shading_language_420pack` entirely), those locations were all `-1`. `UploadModelUniformsCached` was simultaneously gutted to only bind textures, so no matrix, light, or material data was ever sent to the shader. All vertex positions transformed with an uninitialised mat4 (OpenGL default = zero matrix) → clip-position `(0,0,0,0)` → all geometry degenerate → nothing visible.
+  Fix: `LoadShaders()` now queries and caches all individual uniform locations after linking (returns -1 for the UBO-based asset shaders, returns valid locations for the embedded fallback). `UploadModelUniformsCached` was restored to call `glUniform*` for every cached location that is `>= 0`, covering matrices, camera position, alpha, per-light data, and material scalars. For the asset-shader path all locations are -1 so every call is a no-op; for the embedded fallback path the data is correctly uploaded each draw. Sampler uniform names for the embedded fallback (`uDiffuse`, `uNormalMap`, `uGlossMap`, `uEmissiveMap`) are also set to their texture units in `LoadShaders()` alongside the asset-shader names.
+- *See: [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp)*
+
+- **Fix — OpenGL texture loading completely unimplemented (`Texture::LoadFromFile/LoadFromMemory/CreateSolidColorTexture`)** (`Models.cpp`, `OpenGLModels.cpp`, `SceneManager.cpp`):
+  All three `Texture` methods fell through to `#else return false;` for the OpenGL build. `OpenGLModels.cpp` already had fully working `OpenGLModelUtils::LoadGLTextureFromFile`, `LoadGLTextureFromMemory`, and `CreateSolidColourTexture` helpers (using `stb_image`), but they were never wired up to the shared `Texture` class. Added `#elif defined(__USE_OPENGL__)` branches to all three methods that delete any existing texture, then delegate to the respective `OpenGLModelUtils` helper and store the returned `GLuint` in `textureID`.
+  `stb_image.h` was not present in the project; added WIC as a Windows fallback in `OpenGLModels.cpp` (`OGL_USE_WIC_FALLBACK` path in `LoadGLTextureFromFile`/`LoadGLTextureFromMemory`) so textures load immediately. Also downloaded `stb_image.h` (v2.x, 283 KB) to the project root so the preferred stb path activates on the next build.
+  Fixed the misleading `device/WIC error` label in the `SceneManager::LoadGLTFImage` debug log — it now reads `decode/upload error` to correctly describe failures from any renderer path.
+- *See: [`Models.cpp`](Models.cpp), [`OpenGLModels.cpp`](OpenGLModels.cpp), [`SceneManager.cpp`](SceneManager.cpp)*
+
+- **Fix — Vulkan camera wrong include and missing `bCameraJumped` member** (`VULKAN_Renderer.h`, `VulkanCamera.h`):
+  `VULKAN_Renderer.h` was including `DXCamera.h` (a DirectXMath-based camera guarded by `__USE_DIRECTX_11__/__USE_DIRECTX_12__`) instead of `VulkanCamera.h`. Although harmless in isolation (the DX guard makes it a no-op for Vulkan builds), it was semantically wrong and masked the Vulkan renderer's camera dependency. Corrected the include to `VulkanCamera.h`.
+  Additionally, `VulkanCamera.h` was missing the `bool bCameraJumped = false;` member that `DXCamera.h` and `OpenGLCamera.h` both declare. `SceneManager.cpp` sets this flag (in `GotoCamera()` and `ParseGLTFCamera()`) for all renderer paths to prevent the loader thread from overriding a scene camera with the default position. Without the member the Vulkan build produced three `C2039: 'bCameraJumped': is not a member of 'Camera'` errors. Fixed by adding the member with its matching comment to `VulkanCamera.h` alongside `m_pitch`.
+- *See: [`VULKAN_Renderer.h`](VULKAN_Renderer.h), [`VulkanCamera.h`](VulkanCamera.h)*
+
+- **Fix — GLTF/GLB scene camera ignored the RH→LH coordinate conversion, making the whole scene appear X-mirrored on ALL pipelines** (`SceneManager.cpp`):
+  Geometry, node transforms and KHR lights are all converted from GLTF right-handed Y-up space to engine left-handed space (FLIP_Z via `BlenderImports`), but `ParseGLTFCamera()` consumed the camera node's `translation` and `rotation` **raw**. A Blender camera framing the model's front therefore ended up *behind* the Z-flipped scene, viewing every model from the back — which on screen reads as an X-axis mirror (and made yaw feel reversed).
+  - Camera eye position now runs through `BlenderImports::ConvertTranslation()` (same FLIP_Z as geometry/nodes/lights).
+  - Camera rotation quaternion now runs through `BlenderImports::ConvertQuat()` (same conversion `GetNodeWorldMatrix()` applies to node rotations).
+  - The GLTF camera's local forward (-Z in RH space) maps to +Z in engine LH space; the default and rotated forward vectors were updated accordingly.
+  - `camera.forward` is kept in sync and `SetYawPitchFromForward()` is called so the first right-drag mouse-look no longer snaps the camera back to the stale yaw=0/pitch=0 orientation.
+  - Result: models now display exactly as authored in Blender on every pipeline — Y up, -X to the viewer's left, and the model's front (+Z in the GLTF file) facing the camera. No X-axis flipping.
+- *See: [`SceneManager.cpp`](SceneManager.cpp)*
+
+- **Fix — OpenGL & Vulkan scene cameras built with right-handed `glm::lookAt`/`glm::perspective` (second X-mirror source)** (`SceneManager.cpp`):
+  Both `ParseGLTFCamera()` and the FBX camera apply-path built the view with `glm::lookAt` and the projection with `glm::perspective` — both **right-handed** — while every other view/projection in `OpenGLCamera`/`VulkanCamera` is left-handed (`glm::lookAtLH`, `perspectiveLH_NO`, `MakeVulkanProjection`). An RH lookAt with the same eye/target/up mirrors screen X relative to an LH one, so scene-defined cameras mirrored the world on these pipelines.
+  - View matrices now use `glm::lookAtLH` in both scene-camera paths.
+  - OpenGL projection now uses `glm::perspectiveLH_NO` (matches `OpenGLCamera`).
+  - Vulkan projection now goes through `SetNearFarPlanes()` + `SetFieldOfView()` + `UpdateProjectionMatrix()` so the camera's own LH [0,1]-depth, Y-down-NDC projection (`MakeVulkanProjection`) is used instead of GLM's RH [-1,1]-depth matrix.
+  - `cam.forward` is synced before `SetYawPitchFromForward()` in the FBX apply-path (it previously derived yaw/pitch from a stale forward vector).
+- *See: [`SceneManager.cpp`](SceneManager.cpp)*
+
+- **Fix — Mouse-look vertical axis inverted on all camera implementations** (`DXCamera.cpp`, `OpenGLCamera.cpp`, `VulkanCamera.cpp`):
+  `CalculateDirectionVectorsFromMouseDelta()` ADDED the raw screen-space `deltaY` to the pitch. Screen Y grows downward while pitch grows upward (`forward.y = sin(pitch)`), so dragging the mouse down pitched the camera **up** and vice-versa. Combined with the X-mirror above, both look axes felt wrong. The vertical delta is now SUBTRACTED in all three camera classes: mouse up = look up, mouse down = look down. Yaw was already correct (mouse right = turn right) once the scene mirror was fixed.
+- *See: [`DXCamera.cpp`](DXCamera.cpp), [`OpenGLCamera.cpp`](OpenGLCamera.cpp), [`VulkanCamera.cpp`](VulkanCamera.cpp)*
+
+- **Fix — FBX materials & textures never uploaded to the GPU on Vulkan; material flags missing on non-DX pipelines** (`SceneManager.cpp`, `SceneManager.h`):
+  On Vulkan, `SetupModelForRendering()` creates each model's material UBO and texture descriptor set with engine **defaults** (white diffuse, flat normal) — the GLTF path overwrites them afterwards via `BindGLTFMaterialTexturesToModel()`, but `ParseFBXScene()` had no equivalent step, so every FBX model rendered with the white fallback material regardless of its real textures/colours.
+  - Added `SceneManager::UploadFBXMaterialToVulkanModel()` — pushes the `FBXImporter::BuildMaterial()` result (Kd/Ka/metallic/roughness/emissive + diffuse/normal/ORM/AO image views) into the model's material UBO and texture descriptor set after `SetupModelForRendering()`, mirroring the GLTF post-setup bind. No-op on non-Vulkan builds.
+  - `useDiffuseMap` was only set inside the DX11/DX12 `#if` block; it now applies to all pipelines (the Vulkan material UBO reads it). Added `useMetallicMap`/`useRoughnessMap`/`useAOMap` flags from the loaded FBX maps so `useORM`/`useAO` resolve correctly.
+  - The WHITE 1x1 solid-colour stand-in texture is now created **before** the material is stored in `m_materials`, so OpenGL (which loads textures from `m_materials` during `SetupModelForRendering()`) and the cache paths see the final material including the opacity-carrying fallback.
+- *See: [`SceneManager.cpp`](SceneManager.cpp), [`SceneManager.h`](SceneManager.h)*
+
+- **Tweak — DX12 `SCENE_GAMETITLE` starfield speed doubled** (`DX12FXManager.cpp`):
+  Per-star speed range raised from [60, 180] to [120, 360] units/sec in `CreateStarfield()` and both particle-respawn sites in `UpdateStarfield()` (forward and reverse paths kept in sync). The DX12 starfield is only created by the `SCENE_GAMETITLE` loader path (`IOStreamDX12Thread.cpp`), so the change is scoped to the title screen on the DX12 pipeline.
+- *See: [`DX12FXManager.cpp`](DX12FXManager.cpp)*
+
+#### June 13, 2026
+
+- **Critical fix — OpenGL models invisible: view/projection matrices uploaded to the ConstantBuffer UBO in the wrong convention** (`OpenGLRenderFrame.cpp`):
+  Root cause of "models not rendering or shown" on the OpenGL pipeline. All `ModelInfo` matrices are stored in DX row-vector convention (row-major memory, built by the `XMMATRIX` stubs in `Includes.h`); when such a matrix's raw bytes are uploaded into a std140 `mat4`, OpenGL reads them column-major — an implicit transpose that yields exactly the column-vector matrix `ModelVertex.glsl` expects (`uProjection * uView * uWorld * p`). `mi.worldMatrix` arrived correctly via this rule, but the per-frame GLM→`Matrix4x4` conversion for view/projection used an index-SWAPPED copy (`m[r][c] = view[c][r]`), producing the OPPOSITE convention — the shader received `V^T`/`P^T` alongside a correct `W`, garbling `gl_Position` for every vertex and pushing all geometry off-screen. The conversion is now a matching-index copy (`m[r][c] = view[r][c]`, byte-identical to the GLM memory layout), the GL analogue of the DX11 path's proven `XMMatrixTranspose()`-on-upload pattern. The embedded-fallback shader path (which uploads GLM matrices directly via `glUniformMatrix4fv`) was already consistent and is unchanged.
+- *See: [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp)*
+
+- **Fix — OpenGL material UBO sent hardcoded white material instead of the parsed model materials** (`OpenGLRenderFrame.cpp`):
+  `RenderGamePlay()` filled `GLMaterialUBO` with fixed defaults (`Kd=1,1,1`, `Ka=0.35`, `Ns=32`, zero emissive) for every model, so solid-colour materials rendered white and all importer PBR scalars were ignored. Now mirrors DX11 `Model::Render()`: the first parsed material from `m_materials` supplies Ka/Kd/Ks/Ns/Metallic/Roughness/Reflection/emissive, the same Ka-from-Kd (15%) ambient derivation prevents flat-grey materials, and `useDiffuseMap` honours the importer's decision (`mi.useDiffuseMap`) with the DX12-style guard that sampling is never enabled without a bound texture — solid-colour materials now use `Kd` directly instead of sampling the white fallback.
+- *See: [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp)*
+
+- **Fix — OpenGL models untextured after cache-restore: GL texture handles never rebuilt after material rebind** (`OpenGLModels.cpp`, `Models.cpp`, `Models.h`, `SceneManager.cpp`):
+  The OpenGL twin of the June 12 DX12 cache-restore hole. The cache-restore Step 4 rebind (GLB and GLTF paths) clears `textureIDs`/`normalMapIDs`/PBR IDs and calls `BindGLTFMaterialTexturesToModel()` — but that function only creates `Texture` objects and `Material` entries; on OpenGL nothing wrote the GL handles back into `ModelInfo`, so the lists stayed empty and the model rendered untextured on every scene revisit. The metallic/roughness/AO/gloss/emissive handles were additionally never populated on ANY OpenGL path.
+  - **`OpenGLModels.cpp`** — new `Model::RefreshOpenGLTextures()` (OpenGL's analogue of `RefreshDX12Textures()`): rebuilds all GL texture-handle lists from `m_materials` (diffuse, normal, metallic/roughness ORM, AO, gloss, emissive), creates the 1x1 white diffuse fallback, and applies the importer's UV wrap modes.
+  - **`Models.cpp`** — the OpenGL branch of `SetupModelForRendering()` now delegates its inline diffuse/normal loop to `RefreshOpenGLTextures()`.
+  - **`SceneManager.cpp`** — both cache-restore Step 4 sites (GLB + GLTF) call `scene_models[ti].RefreshOpenGLTextures()` right after the rebind, under `#elif defined(__USE_OPENGL__)` beside the existing DX12 refresh; the models[] write-back now includes the gloss/emissive handles.
+  - **`Models.h`** — declared `RefreshOpenGLTextures()` in the OpenGL section of `Model`.
+- *See: [`OpenGLModels.cpp`](OpenGLModels.cpp), [`Models.cpp`](Models.cpp), [`Models.h`](Models.h), [`SceneManager.cpp`](SceneManager.cpp)*
+
+- **Fix — `ModelPixel.glsl` light array misaligned by std140 scalar-array padding** (`Assets/Shaders/ModelPixel.glsl`):
+  The GLSL `LightStruct` ended with `float _pad6[4]` intended as 16 bytes of tail padding (matching the 160-byte CPU struct) — but std140 gives scalar arrays a 16-byte element stride, inflating the GLSL struct to 208 bytes and shifting every light after index 0 onto garbage data. Scenes were unaffected only while a single global light existed. The padding is now a `vec4 _pad6` (a true 16 bytes), restoring the 160-byte stride parity with `Lights.h`.
+- *See: [`Assets/Shaders/ModelPixel.glsl`](Assets/Shaders/ModelPixel.glsl)*
+
+- **Feature — UV settings honoured on import for GLTF/GLB and FBX, applied on ALL render pipelines** (`SceneManager.cpp`, `FBXImport.cpp`, `FBXImport.h`, `Models.h`, `Models.cpp`, `DX12Models.cpp`, `OpenGLModels.cpp`, `VULKAN_Renderer.cpp`, `VULKAN_Renderer.h`):
+  - **GLTF/GLB `KHR_texture_transform`** — `LoadGLTFMeshPrimitives()` now reads the baseColorTexture's offset/rotation/scale extension and bakes it into the primitive's vertex UVs (spec order: scale → rotate → translate). Baking into vertex data makes the transform work identically on DX11, DX12, OpenGL and Vulkan with zero shader changes, and covers both `.gltf` and `.glb` since they share this loader.
+  - **GLTF/GLB sampler wrap modes** — `BindGLTFMaterialTexturesToModel()` parses the baseColor texture's `sampler` (`wrapS`/`wrapT`: REPEAT / CLAMP_TO_EDGE / MIRRORED_REPEAT) into new cross-platform `ModelInfo::uvWrapU`/`uvWrapV` fields (0=REPEAT 1=CLAMP 2=MIRROR).
+  - **FBX texture UV settings** — `FBXTexture` gains UV translation/scaling/rotation and `WrapModeU`/`WrapModeV` fields, parsed in `ExtractTexture()` from the texture node's Properties70 (with `ModelUVTranslation`/`ModelUVScaling` direct children taking precedence). `BuildMaterial()` carries them into the engine `Material` (new UV fields), and `ParseFBXScene()` bakes the diffuse texture's UV transform into each sub-mesh's vertex UVs and routes the wrap modes into `ModelInfo`.
+  - **Per-renderer wrap application** — DX11 (`Models.cpp`) and DX12 11on12 (`DX12Models.cpp`) build the per-model sampler from `uvWrapU/V`; OpenGL applies `glTexParameteri(GL_TEXTURE_WRAP_S/T)` in `RefreshOpenGLTextures()`; Vulkan gains `VulkanRenderer::GetSamplerForWrap(wrapU, wrapV)` — lazily-created, cached samplers (destroyed in `Cleanup()`) used by both GLTF and FBX texture descriptor writes in `SceneManager`. The DX12 native `RenderDX12()` path keeps its root-signature static `s0` WRAP sampler (per-model samplers there would require a sampler descriptor heap; the 11on12 sampler covers the 11on12-rendered content).
+  All four renderer targets (DX11, DX12, OpenGL, Vulkan) compiled clean after the change.
+- *See: [`SceneManager.cpp`](SceneManager.cpp), [`FBXImport.cpp`](FBXImport.cpp), [`FBXImport.h`](FBXImport.h), [`Models.h`](Models.h), [`Models.cpp`](Models.cpp), [`DX12Models.cpp`](DX12Models.cpp), [`OpenGLModels.cpp`](OpenGLModels.cpp), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`VULKAN_Renderer.h`](VULKAN_Renderer.h)*
+
+- **Docs — `Model-Example-Usage.md`: new "OpenGL Texture Pipeline" and "UV Settings (all pipelines)" sections** (`Docs/Model-Example-Usage.md`):
+  Documents the `RefreshOpenGLTextures()` requirement for post-setup material rebinds (mirroring the DX12 rule), the KHR_texture_transform / FBX UV-transform baking strategy, and the per-renderer wrap-mode application table.
+- *See: [`Docs/Model-Example-Usage.md`](Docs/Model-Example-Usage.md)*
 
 ---
 

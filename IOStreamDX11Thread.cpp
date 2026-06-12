@@ -51,6 +51,9 @@ void DX11Renderer::LoaderTaskThread()
 {
 	exceptionHandler.RecordFunctionCall("LoaderTaskThread");
 	std::lock_guard<std::mutex> lock(s_loaderMutex);
+	// Starting Positions
+	XMFLOAT3 cameraStart(0.0f, -4.0f, 20.0f);
+	XMFLOAT3 starOrigin(-380.0f, 300.0f, 0.0f);
 
     // Check the status of the Loader thread
     ThreadStatus status = threadManager.GetThreadStatus(THREAD_LOADER);
@@ -132,6 +135,7 @@ void DX11Renderer::LoaderTaskThread()
 				threadManager.threadVars.b2DTexturesLoaded.store(false);
 				debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene Intro.");
 				showStage(L"Loading textures...");
+
 				if (LoadAllKnownTextures())
 					// State that we have loade all our required 2D Textures.
 					threadManager.threadVars.b2DTexturesLoaded.store(true);
@@ -219,10 +223,10 @@ void DX11Renderer::LoaderTaskThread()
 					{
 						if (!scene.bGltfCameraParsed)
 						{
-							scene.AutoFrameSceneToCamera();
+//							scene.AutoFrameSceneToCamera();
+    						myCamera.SetPosition(cameraStart.x, cameraStart.y, cameraStart.z);
+     						myCamera.SetYawPitch(0.0f, 0.0f);
 						}
-						myCamera.SetPosition(0.0f, 6.0f, -120.0f);
-						myCamera.SetYawPitch(0.0f, 0.0f);
 					}
 
 					showStage(L"Building interface...");
@@ -230,7 +234,7 @@ void DX11Renderer::LoaderTaskThread()
 
 					showStage(L"Almost ready...");
 					// Reverse — stars start spread near camera and converge toward {0, 0, 0}
-					fxManager.CreateStarfield(100, 800.0f, 1000.0f, XMFLOAT3(-20.0f, -120.0f, -100.0f), true);
+					fxManager.CreateStarfield(100, 800.0f, 1000.0f, starOrigin, true);
 					// Create a starfield with 100 stars, a radius of 1000, and reset distance of 1000
 					// fxManager.CreateStarfield(100, 800.0f, 1000.0f);
 
@@ -283,11 +287,11 @@ void DX11Renderer::LoaderTaskThread()
 							myCamera.SetupDefaultCamera(camW, camH);
 					}
 					if (!myCamera.bCameraJumped)
-						myCamera.SetPosition(0.0f, 6.0f, -20.0f);
+						myCamera.SetPosition(cameraStart.x, cameraStart.y, cameraStart.z);
 					guiManager.OnWindowResize(iOrigWidth, iOrigHeight);
 
 					// Reverse — stars start spread near camera and converge toward {0, 0, 0}
-					fxManager.CreateStarfield(100, 800.0f, 1000.0f, XMFLOAT3(-20.0f, -120.0f, -100.0f), true);
+					fxManager.CreateStarfield(100, 800.0f, 1000.0f, starOrigin, true);
 					//fxManager.CreateStarfield(100, 1000.0f, 1000.0f);
 					fxManager.StopLoadingText();
 

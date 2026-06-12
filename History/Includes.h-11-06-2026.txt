@@ -1,0 +1,25 @@
+Includes.h - History - 11 June 2026
+=====================================
+
+Changes made on 11-06-2026:
+
+FIX - Renderer default selection guard replaced to prevent double-renderer activation in CMake builds.
+
+The previous implementation used individual #ifndef __USE_<RENDERER>__ / #define __USE_<RENDERER>__ blocks.
+For OpenGL CMake builds, CMake injects __USE_OPENGL__ but NOT __USE_VULKAN__, so the
+  #ifndef __USE_VULKAN__
+  #define __USE_VULKAN__
+  #endif
+block would fire — causing both __USE_OPENGL__ and __USE_VULKAN__ to be defined simultaneously.
+This broke every #if/#elif renderer guard in the codebase (imageView errors in Models.cpp destructor,
+Blit2DColoredPixel override mismatch in OpenGLRenderer.h, CreateSolidColorTexture signature mismatch, etc.)
+
+Fix: Replaced the five individual #ifndef blocks with a single compound condition:
+  #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__) &&
+      !defined(__USE_OPENGL__)     && !defined(__USE_VULKAN__)      &&
+      !defined(__USE_RADEON__)
+      #define __USE_VULKAN__   // Default renderer for bare IDE builds
+  #endif
+
+This ensures the IDE default (Vulkan) only fires when cmake-build.bat has not injected a renderer define,
+preventing accidental double-renderer activation in all CMake builds.

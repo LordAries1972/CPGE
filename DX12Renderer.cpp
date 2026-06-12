@@ -1040,8 +1040,8 @@ void DX12Renderer::CreateRootSignature() {
 #endif
 
     try {
-        // Define root parameters for the graphics pipeline (7 entries: b0-b5 CBVs + texture SRV table)
-        CD3DX12_ROOT_PARAMETER1 rootParameters[7];
+        // Define root parameters for the graphics pipeline (8 entries: b0-b5 CBVs + texture SRV table + b6 shadow CBV)
+        CD3DX12_ROOT_PARAMETER1 rootParameters[8];
 
         // Root Parameter 0: b0 — ConstantBuffer (camera/view/world matrices)
         rootParameters[DX12_ROOT_PARAM_CONST_BUFFER].InitAsConstantBufferView(
@@ -1092,11 +1092,12 @@ void DX12Renderer::CreateRootSignature() {
             D3D12_SHADER_VISIBILITY_PIXEL                                       // Pixel shader only
         );
 
-        // Root Parameter 6: Descriptor table — t0-t5 SRV textures
+        // Root Parameter 6: Descriptor table — t0-t8 SRV textures
+        // t0=diffuse, t1=normal, t2=metallic, t3=roughness, t4=AO, t5=envCube, t6=gloss, t7=emissive, t8=shadowMap
         CD3DX12_DESCRIPTOR_RANGE1 textureRanges[1];
         textureRanges[0].Init(
             D3D12_DESCRIPTOR_RANGE_TYPE_SRV,                                    // Shader Resource View
-            6,                                                                  // t0-t5 (6 descriptors)
+            9,                                                                  // t0-t8 (9 descriptors)
             0,                                                                  // Base register t0
             0,                                                                  // Register space 0
             D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE                           // Textures may be loaded/swapped
@@ -1104,7 +1105,15 @@ void DX12Renderer::CreateRootSignature() {
 
         rootParameters[DX12_ROOT_PARAM_TEXTURE_TABLE].InitAsDescriptorTable(
             1,                                                                  // 1 descriptor range
-            textureRanges,                                                      // Range: t0-t5
+            textureRanges,                                                      // Range: t0-t8
+            D3D12_SHADER_VISIBILITY_PIXEL                                       // Pixel shader only
+        );
+
+        // Root Parameter 7: b6 — ShadowBuffer (PCF shadow map data; useShadowMap=0 disables shadow rendering)
+        rootParameters[DX12_ROOT_PARAM_SHADOW_BUFFER].InitAsConstantBufferView(
+            6,                                                                  // Register b6
+            0,                                                                  // Register space 0
+            D3D12_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE,                           // Updated when shadow map changes
             D3D12_SHADER_VISIBILITY_PIXEL                                       // Pixel shader only
         );
 
@@ -1143,17 +1152,19 @@ void DX12Renderer::CreateRootSignature() {
             D3D12_SHADER_VISIBILITY_PIXEL                                       // Visible to pixel shader
         );
 
-        // Static Sampler 2: Anisotropic Sampler (s2)
+        // Static Sampler 2: PCF Shadow Comparison Sampler (s2)
+        // MUST be a comparison filter — ModelPShader declares "SamplerComparisonState shadowSampler : register(s2)"
+        // and uses SampleCmpLevelZero().  A non-comparison filter here causes E_INVALIDARG at PSO creation.
         staticSamplers[DX12_SAMPLER_ANISOTROPIC] = CD3DX12_STATIC_SAMPLER_DESC(
             2,                                                                  // Shader register s2
-            D3D12_FILTER_ANISOTROPIC,                                           // Anisotropic filtering
-            D3D12_TEXTURE_ADDRESS_MODE_WRAP,                                    // Wrap addressing mode U
-            D3D12_TEXTURE_ADDRESS_MODE_WRAP,                                    // Wrap addressing mode V
-            D3D12_TEXTURE_ADDRESS_MODE_WRAP,                                    // Wrap addressing mode W
+            D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT,                   // Bilinear PCF comparison filter
+            D3D12_TEXTURE_ADDRESS_MODE_BORDER,                                  // Border address mode U (shadow outside map = lit)
+            D3D12_TEXTURE_ADDRESS_MODE_BORDER,                                  // Border address mode V
+            D3D12_TEXTURE_ADDRESS_MODE_BORDER,                                  // Border address mode W
             0.0f,                                                               // Mip LOD bias
-            16,                                                                 // Max anisotropy
-            D3D12_COMPARISON_FUNC_NEVER,                                        // Comparison function
-            D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE,                             // Border color
+            1,                                                                  // Max anisotropy (unused for comparison)
+            D3D12_COMPARISON_FUNC_LESS_EQUAL,                                   // Lit when stored depth <= current depth
+            D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE,                             // Border = 1.0 (lit) outside shadow frustum
             0.0f,                                                               // Min LOD
             D3D12_FLOAT32_MAX,                                                  // Max LOD
             D3D12_SHADER_VISIBILITY_PIXEL                                       // Visible to pixel shader
@@ -1255,13 +1266,16 @@ void DX12Renderer::CreatePipelineState() {
             return;
         }
 
-        // Define the vertex input layout matching the Model vertex structure
+        // Define the vertex input layout matching the Model vertex structure.
+        // Vertex struct (DX11/DX12): position(12) + normal(12) + texCoord(8) + tangent(12) + tangentW(4) = 48 bytes.
+        // TANGENT must be R32G32B32A32_FLOAT (float4) to match the shader's "float4 tangent : TANGENT"
+        // and the struct layout of XMFLOAT3 tangent + float tangentW at offset 32.
+        // BITANGENT is NOT a vertex buffer input — the shader computes it from N and T.
         D3D12_INPUT_ELEMENT_DESC inputElementDescs[] = {
-            { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-            { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-            { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-            { "TANGENT", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-            { "BITANGENT", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 44, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
+            { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,    0,  0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+            { "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT,    0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+            { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,       0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+            { "TANGENT",  0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
         };
 
         // Create the Graphics Pipeline State Object (PSO) description
@@ -1476,9 +1490,43 @@ void DX12Renderer::CreateConstantBuffers() {
             }
         }
 
+        // Create ShadowBuffer (b6) — matches ModelPShader cbuffer ShadowBuffer : register(b6)
+        // Layout: float4x4 lightViewProj (64 bytes) + shadowBias + shadowStrength + useShadowMap + shadowMapSize (16 bytes) = 80 bytes
+        // useShadowMap is initialised to 0 so shadows are disabled until a shadow map is provided.
+        UINT shadowBufferSize = (80 + 255) & ~255;                              // 256-byte aligned
+        CD3DX12_RESOURCE_DESC shadowBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(shadowBufferSize);
+
+        hr = m_d3d12Device->CreateCommittedResource(
+            &heapProps,
+            D3D12_HEAP_FLAG_NONE,
+            &shadowBufferDesc,
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&m_shadowBuffer)
+        );
+
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"DX12Renderer: Failed to create ShadowBuffer (b6).");
+            ThrowError("CreateConstantBuffer failed for ShadowBuffer");
+            return;
+        }
+
+        m_shadowBuffer->SetName(L"DX12Renderer_ShadowBuffer");
+
+        // Zero-initialise — useShadowMap (offset 72) = 0.0f disables shadow sampling in shader
+        {
+            void* pData = nullptr;
+            CD3DX12_RANGE readRange(0, 0);
+            if (SUCCEEDED(m_shadowBuffer->Map(0, &readRange, &pData)))
+            {
+                memset(pData, 0, shadowBufferSize);
+                m_shadowBuffer->Unmap(0, nullptr);
+            }
+        }
+
 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Constant buffers created successfully. Camera CB Size: %d, Light CB Size: %d, Env CB Size: %d",
-            constantBufferSize, lightBufferSize, envBufferSize);
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Constant buffers created successfully. Camera CB Size: %d, Light CB Size: %d, Env CB Size: %d, Shadow CB Size: %d",
+            constantBufferSize, lightBufferSize, envBufferSize, shadowBufferSize);
 #endif
     }
     catch (const std::exception& e) {
@@ -1886,6 +1934,11 @@ void DX12Renderer::PopulateCommandList() {
         if (m_envBuffer) {
             m_commandList->SetGraphicsRootConstantBufferView(DX12_ROOT_PARAM_ENVIRONMENT_BUFFER,
                 m_envBuffer->GetGPUVirtualAddress());
+        }
+
+        if (m_shadowBuffer) {
+            m_commandList->SetGraphicsRootConstantBufferView(DX12_ROOT_PARAM_SHADOW_BUFFER,
+                m_shadowBuffer->GetGPUVirtualAddress());
         }
 
         // Set primitive topology
@@ -2433,9 +2486,10 @@ void DX12Renderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
         CreateSamplers();                                                       // Create samplers
         LoadShaders();                                                          // Load and validate shaders
 
-        // Pre-populate cbvSrvUavHeap slots 0–5 with null SRVs so that any draw
+        // Pre-populate cbvSrvUavHeap slots 0–8 with null SRVs so that any draw
         // that does not supply per-model textures can point the descriptor table
         // at heap slot 0 and receive a safe (black/zero) sample instead of UB.
+        // The descriptor table now covers t0-t8 (9 slots); all 9 are initialised here.
         // Slots 10+ are used by 3D scene textures (see UploadTextureData).
         if (m_d3d12Device && m_cbvSrvUavHeap.heap) {
             D3D12_SHADER_RESOURCE_VIEW_DESC nullSrv = {};
@@ -2443,12 +2497,12 @@ void DX12Renderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
             nullSrv.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
             nullSrv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
             nullSrv.Texture2D.MipLevels     = 1;
-            for (UINT s = 0; s < 6; ++s) {
+            for (UINT s = 0; s < 9; ++s) {
                 auto cpu = CD3DX12_CPU_DESCRIPTOR_HANDLE(
                     m_cbvSrvUavHeap.cpuStart, s, m_cbvSrvUavHeap.handleIncrementSize);
                 m_d3d12Device->CreateShaderResourceView(nullptr, &nullSrv, cpu);
             }
-            m_nullTextureGPUHandle = m_cbvSrvUavHeap.gpuStart;  // slots 0-5 are the 6 null SRVs
+            m_nullTextureGPUHandle = m_cbvSrvUavHeap.gpuStart;  // slots 0-8 are the 9 null SRVs
             // Initialise allocation cursor to the first per-model texture slot so that
             // Model::SetupModelForRendering() can allocate 6 consecutive SRV slots from here.
             m_cbvSrvUavHeap.currentOffset = DX12_MODEL_TEXTURE_HEAP_BASE;
@@ -2717,6 +2771,10 @@ void DX12Renderer::Cleanup() {
 
         if (m_envBuffer) {
             m_envBuffer.Reset();
+        }
+
+        if (m_shadowBuffer) {
+            m_shadowBuffer.Reset();
         }
 
         if (m_depthStencilBuffer) {
@@ -3880,8 +3938,9 @@ void DX12Renderer::DrawMyTextCentered(const std::wstring& text, const Vector2& p
             debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to get/create text format for centered text.");
             return;
         }
-        textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        // Use leading/near alignment — centering is computed from exact glyph metrics below.
+        textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
 
         float r = static_cast<float>(color.r) / 255.0f;
         float g = static_cast<float>(color.g) / 255.0f;
@@ -3893,17 +3952,28 @@ void DX12Renderer::DrawMyTextCentered(const std::wstring& text, const Vector2& p
             return;
         }
 
-        // Define control rectangle for centering
-        D2D1_RECT_F controlRect = D2D1::RectF(
-            position.x,                                                         // Left
-            position.y,                                                         // Top
-            position.x + controlWidth,                                          // Right
-            position.y + controlHeight                                          // Bottom
-        );
+        // Create a temporary text layout to measure exact glyph extents for pixel-perfect centering.
+        ComPtr<IDWriteTextLayout> textLayout;
+        HRESULT hr = m_dwriteFactory->CreateTextLayout(
+            text.c_str(), static_cast<UINT32>(text.size()),
+            textFormat, 10000.f, 1000.f, &textLayout);
+        if (FAILED(hr) || !textLayout) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to create text layout for centered text.");
+            return;
+        }
+
+        DWRITE_TEXT_METRICS metrics{};
+        textLayout->GetMetrics(&metrics);
+
+        // Pixel-perfect centering: offset by half control size minus half glyph size.
+        float centredX = position.x + (controlWidth  * 0.5f) - (metrics.width  * 0.5f);
+        float centredY = position.y + (controlHeight * 0.5f) - (metrics.height * 0.5f);
 
         m_d2dContext->DrawText(
             text.c_str(), static_cast<UINT32>(text.size()),
-            textFormat, controlRect, m_generalBrush.Get());
+            textFormat,
+            D2D1::RectF(centredX, centredY, centredX + metrics.width, centredY + metrics.height),
+            m_generalBrush.Get());
 
 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
         debug.logLevelMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Centered text drawn successfully.");

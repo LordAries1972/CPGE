@@ -1,0 +1,35 @@
+VULKAN_Renderer.cpp - History - 11 June 2026
+=============================================
+
+Changes made on 11-06-2026:
+
+1. PORT - MaterialUBO expanded from 64 to 80 bytes to match new material fields.
+
+   Inline GLSL k_glsl3DFrag MaterialUBO updated:
+     layout(set = 0, binding = 1) uniform MaterialUBO {
+         vec3  Kd;       float metallic;
+         vec3  Ka;       float roughness;
+         vec3  emissive; float emissiveStrength;
+         float normalScale; float useNormal;  float useORM;        float useAO;
+         float useDiffuseMap; float useGlossMap; float useEmissiveMap; float _pad;
+     } mat;
+
+   Added new texture sampler declarations:
+     layout(set = 1, binding = 4) uniform sampler2D glossTex;
+     layout(set = 1, binding = 5) uniform sampler2D emissiveTex;
+
+   Updated shader main() for new material flags:
+     - useDiffuseMap: vec4 albedo = mat.useDiffuseMap > 0.5 ? texture(diffuseTex, vTexCoord) : vec4(1.0)
+     - useGlossMap:   roughnessV = 1.0 - texture(glossTex, vTexCoord).r (when flag active)
+     - useEmissiveMap: samples emissiveTex vs uses mat.emissive constant
+
+2. PORT - Descriptor set layout expanded from 4 to 6 texture bindings.
+
+   CreateDescriptorSetLayouts: bindings 0-5 (0=diffuse, 1=normal, 2=ORM, 3=AO, 4=gloss, 5=emissive).
+   CreateDescriptorPool: sampler count 4096 -> 6144 (512 models x 6 textures + 2D headroom).
+
+3. PORT - DrawMyTextCentered IDWriteTextLayout pixel-perfect centering fix.
+
+   Uses IDWriteTextLayout + GetMetrics() to compute exact rendered text dimensions.
+   Positions text at (controlCenter - textSize/2) for pixel-accurate centering.
+   Uses m_d2dRenderTarget->DrawText (Vulkan uses d2dRenderTarget, not d2dContext as in DX11/DX12).

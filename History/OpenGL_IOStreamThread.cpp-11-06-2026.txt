@@ -1,0 +1,15 @@
+// History: OpenGL_IOStreamThread.cpp — 11 June 2026
+// Change: Guard SetupDefaultCamera / SetPosition / SetYawPitch with !myCamera.bCameraJumped
+//         in both the non-resize and resize paths for SCENE_GAMETITLE.
+//
+// Root cause: OpenGLCamera.h lacked the bCameraJumped field (added today) so the loader
+// always called SetPosition(0,6,-80) and SetYawPitch(0,0) unconditionally, overriding the
+// correct camera position extracted from the GLTF file by ParseGLTFCameras.  The ship
+// SplashShip1 is at world position (-485,0,145); from (0,6,-80) with yaw=0 it is entirely
+// outside the view frustum, making it invisible in SCENE_GAMETITLE.
+//
+// Fix: Wrapped SetupDefaultCamera, SetPosition, and SetYawPitch in `if (!myCamera.bCameraJumped)`
+// guards in both the fresh-load path (lines ~242-254) and the resize path (lines ~298-306),
+// matching the identical pattern in IOStreamDX11Thread.cpp lines 281-285.
+// When the GLTF scene camera is parsed, bCameraJumped is now set by SceneManager so the
+// default (0,6,-80) fallback is skipped and the scene camera remains active.

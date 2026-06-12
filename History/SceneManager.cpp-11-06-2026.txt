@@ -1,0 +1,22 @@
+// History: SceneManager.cpp -- 11 June 2026
+// Change 1: Added camera.bCameraJumped = true in ParseGLTFCamera() for all renderers.
+//
+// Root cause: ParseGLTFScene() calls ParseGLTFCamera() (singular) to apply the first
+// GLTF camera node. ParseGLTFCamera set bGltfCameraParsed = true but never set
+// camera.bCameraJumped = true. The bCameraJumped guards added to OpenGL_IOStreamThread.cpp
+// (and already present in IOStreamDX11Thread.cpp) checked !bCameraJumped to decide whether
+// to override with SetPosition(0,6,-80). Since ParseGLTFCamera never set the flag the
+// override always fired, placing the camera at (0,6,-80) and making SplashShip1 at
+// (-485,0,145) invisible in SCENE_GAMETITLE.
+//
+// Fix: Added camera.bCameraJumped = true immediately after bGltfCameraParsed = true in
+// ParseGLTFCamera(), so all renderer paths signal the loader correctly.
+//
+// Change 2: Removed the #if defined(__USE_DIRECTX_11__) || ... guard around
+// cam.bCameraJumped = true in GotoCamera(). The OpenGL path was silently skipping this
+// assignment, meaning runtime camera jumps (scripted) would not prevent the loader from
+// overriding the position on subsequent scene reloads.
+//
+// Change 3 (from earlier this session): Added cam.bCameraJumped = true in the #else
+// (OpenGL/Vulkan) branch of ParseFBXCameras(), mirroring the DX branch. No impact on
+// the GLTF path above but ensures FBX scenes also work correctly on OpenGL.

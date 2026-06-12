@@ -7,6 +7,7 @@
 //   Binding 0  (std140 UBO) — ConstantBuffer: world/view/proj matrices, camera pos, scale
 //
 #version 330 core
+#extension GL_ARB_shading_language_420pack : enable    // layout(binding=N) on UBOs — core in 4.2, extension on 3.3
 
 // ── Vertex Attributes ────────────────────────────────────────────────────────
 layout(location = 0) in vec3 aPosition;     // POSITION

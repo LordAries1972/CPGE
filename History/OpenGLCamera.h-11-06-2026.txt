@@ -1,0 +1,13 @@
+// History: OpenGLCamera.h — 11 June 2026
+// Change: Added bCameraJumped = false member to Camera class.
+//
+// Root cause: SceneManager::ParseGLTFCameras sets bCameraJumped = true for DX11/DX12 so
+// the loader thread does not override the scene camera with a hard-coded default position.
+// The #else (OpenGL/Vulkan) branch set cam.bCameraJumped too, but the field did not exist
+// in OpenGLCamera.h — the compiler would have rejected it.  Because the field was absent
+// the loader thread had no guard and ALWAYS called SetPosition(0,6,-80) + SetYawPitch(0,0)
+// after ParseGLTFScene, discarding the correct camera position extracted from the GLTF file.
+//
+// Fix: Added `bool bCameraJumped = false;` to the Camera class, matching DXCamera.h:77.
+// SceneManager.cpp now sets it in the non-DX branch; OpenGL_IOStreamThread.cpp guards
+// SetupDefaultCamera / SetPosition / SetYawPitch behind !bCameraJumped.

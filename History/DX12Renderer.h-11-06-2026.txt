@@ -1,0 +1,14 @@
+DX12Renderer.h - History - 11 June 2026
+========================================
+
+Changes made on 11-06-2026:
+
+FIX - Root signature / shader mismatch (see DX12Renderer.cpp-11-06-2026.txt for full detail):
+
+  Added:
+    - DX12_ROOT_PARAM_SHADOW_BUFFER = 7  (b6: ShadowBuffer PCF shadow data)
+    - m_shadowBuffer member (ComPtr<ID3D12Resource>)
+
+  Updated comments:
+    - DX12_ROOT_PARAM_TEXTURE_TABLE comment: now describes t0-t8 (was t0-t5)
+    - Heap slot layout comment: null SRVs occupy slots 0-8 (was 0-5)
