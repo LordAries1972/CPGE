@@ -1638,11 +1638,19 @@ bool VulkanRenderer::Resize(uint32_t width, uint32_t height)
     wasResizing.store(true);
     threadManager.threadVars.bIsResizing.store(true);
 
-    // bIsResizing=true causes the render thread to skip new frames. Spin-wait here until
-    // it finishes its current frame and sets bIsRendering=false so the queue is idle before
-    // we call vkDeviceWaitIdle — prevents the threading error from concurrent queue access.
-    for (int i = 0; i < 500 && threadManager.threadVars.bIsRendering.load(); ++i)
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    // Drain any in-progress render frame before tearing down D2D/Vulkan resources.
+    // The old spin-wait on bIsRendering had a TOCTOU race: the render thread checks
+    // bIsRendering=false and sets it to true AFTER the load(); Resize() could see the
+    // false window and proceed, resetting m_d2dRenderTarget while the render thread
+    // was between its null-check and DrawText() — producing the memcpy crash in DWrite.
+    //
+    // Acquiring the exclusive frame lock guarantees the render thread has fully released
+    // it (i.e. its current frame is complete) before we touch any shared D2D state.
+    // bIsResizing=true prevents a new frame from entering RenderFrame() while we work.
+    {
+        ThreadLockHelper frameLock(threadManager, m_renderFrameLockName, 2000);
+        // Lock acquired (or timed out after 2 s) — render thread is not mid-frame.
+    }
 
     WaitForGPUToFinish();
 

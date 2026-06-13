@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1681*
+*Current Build Version: v0.0.1682*
 
 ---
 
@@ -3408,6 +3408,45 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
   - **`DX11Renderer.h`** — `TextFormatKey` struct extended with a `DWRITE_FONT_WEIGHT weight` field and its hash updated to include it, so BOLD and NORMAL formats are stored as separate cache entries. `GetOrCreateTextFormat()` declaration gains a `weight` parameter (default = `DWRITE_FONT_WEIGHT_NORMAL`) for backward compatibility with all existing 2-arg callers.
   - **`DX11Renderer.cpp`** — `GetOrCreateTextFormat()` implementation updated to pass `weight` to both the cache key and `CreateTextFormat()`; `DrawMyTextCentered` now calls `GetOrCreateTextFormat(FontName, FontSize, DWRITE_FONT_WEIGHT_BOLD)` and uses the returned raw pointer directly, removing the per-frame COM allocation entirely. `IDWriteTextLayout` is still created per call (required to measure the specific text string).
 - *See: [`DX11Renderer.cpp`](DX11Renderer.cpp), [`DX11Renderer.h`](DX11Renderer.h)*
+
+- **Critical fix — DX12 `ResizeBuffers` failed with `DXGI_ERROR_INVALID_CALL` on window resize** (`DX12Renderer.cpp`):
+  The DX12 swap-chain resize path called `ResizeBuffers()` while per-frame D2D bitmaps (`m_d2dRenderTargets[]`) and 11on12 wrapped back-buffer resources (`m_wrappedBackBuffers[]`) still held live COM references to those back-buffer surfaces. DXGI requires all outstanding references to back-buffer resources to be released before `ResizeBuffers` is called, or it returns `DXGI_ERROR_INVALID_CALL`. These two arrays are not released by the normal RTV/DSV cleanup loop and persist across frames. The fix adds an explicit reset loop for both arrays before the existing render-target release pass:
+
+  ```cpp
+  for (UINT i = 0; i < FrameCount; ++i) {
+      m_d2dRenderTargets[i].Reset();
+      m_wrappedBackBuffers[i].Reset();
+  }
+  ```
+
+- *See: [`DX12Renderer.cpp`](DX12Renderer.cpp)*
+
+- **Fix — Normal maps applied as null GPU descriptors on DX11 and DX12 for untextured models** (`Models.cpp`):
+  Two separate failures caused the warning *"normal SRV present but its Texture object is NOT in m_modelInfo.textures — t1 will be a NULL descriptor (normals flat)"* on models using solid-colour fallback materials:
+  - **DX12 — flat normal not in `m_modelInfo.textures`**: `LoadFallbackNormalMap()` pushed the flat-normal SRV into `normalMapSRVs` but did not add the backing `Texture` object to `m_modelInfo.textures`. `UploadDX12Textures()`'s `findTex` lambda resolves GPU slots by matching SRV pointers against `textures`; without the entry, the SRV had no GPU upload path and slot t1 received a null descriptor. Fixed by adding the `shared_ptr<Texture>` to `textures` (with duplicate guard) inside `#if defined(__USE_DIRECTX_12__)`.
+  - **DX11 — `LoadFallbackNormalMap()` never called for untextured models**: The DX11 `SetupModelForRendering()` path called `LoadFallbackTexture()` but omitted the equivalent normal-map call, leaving `normalMapSRVs` empty and t1 unbound for models that had no normal map. Fixed by adding `if (m_modelInfo.normalMapSRVs.empty()) LoadFallbackNormalMap();` after the existing diffuse fallback block.
+- *See: [`Models.cpp`](Models.cpp)*
+
+- **Critical fix — Vulkan `DrawMyTextCentered` crash (access violation in `DWrite.dll::memcpy`) on window resize** (`VULKAN_Renderer.cpp`):
+  The Vulkan `Resize()` path used a spin-wait on `bIsRendering` to drain in-progress render frames before tearing down D2D resources. The spin had a TOCTOU window: the render thread checks `bIsRendering == false` then stores `true` as two separate operations; `Resize()` could observe `false` between those two ops, pass the spin, and reset `m_d2dRenderTarget` while the render thread was mid-frame between its null-check and `DrawText()` call. The resulting corruption produced an access violation in DWrite's internal `memcpy`. The spin-wait is replaced by acquiring the exclusive render-frame lock (`m_renderFrameLockName`), which the render thread holds for its entire frame duration. Acquiring the same lock in `Resize()` guarantees the current frame has fully completed — and no new frame can start (since `bIsResizing = true` blocks entry) — before any D2D teardown begins.
+- *See: [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp)*
+
+- **Fix — OpenGL GameMenu position incorrect after window resize** (`IOLoaderThread.cpp`):
+  After a window resize in `SCENE_GAMETITLE` and `SCENE_GAMEPLAY`, `guiManager.OnWindowResize(iOrigWidth, iOrigHeight)` was called to reposition the GameMenu. For OpenGL, `iOrigWidth` holds the value set by `OpenGLRenderer::Resize()` (= `LOWORD(lParam)` from `WM_SIZE`). The OpenGL render frame also updates `iOrigWidth = winMetrics.clientWidth` each frame, but this update is skipped while `bIsResizing = true` (the frame loop `continue`s before reaching that code). Once `bIsResizing` clears, the renderer uses `winMetrics.clientWidth` for its ortho matrix — if this differs from the `LOWORD` value, the GameMenu is positioned in a different coordinate space from the one the renderer uses, causing it to appear at the wrong X position. The fix uses `winMetrics.clientWidth / clientHeight` (updated by `GetWindowMetrics()` in `main.cpp` before either thread resumes) for OpenGL on Windows in both scenes, matching the coordinate space the renderer's ortho projection will use:
+
+  ```cpp
+  #if defined(__USE_OPENGL__) && defined(PLATFORM_WINDOWS)
+      guiManager.OnWindowResize(winMetrics.clientWidth, winMetrics.clientHeight);
+  #else
+      guiManager.OnWindowResize(iOrigWidth, iOrigHeight);
+  #endif
+  ```
+
+- *See: [`IOLoaderThread.cpp`](IOLoaderThread.cpp)*
+
+- **New — `Docs/About-CPGE.md`: Comprehensive engine overview document created** (`Docs/About-CPGE.md`):
+  A complete, fully-linked Markdown document covering all 38 engine subsystems in detail, written for developers and contributors joining the CPGE project. Includes a linked Table of Contents with back-to-TOC anchors at each section end. Sections cover: Introduction; Author; Project Philosophy (no third-party wrappers, conditional compilation, thread safety, 60fps target, debug-centric design, FOSS); Platform Support; Build System (prerequisites, directory layout, `cmake-build.bat` usage, renderer selection at compile time, Debug/Release configurations, IDE builds, output executable naming); all four Renderer backends (DX11, DX12, OpenGL, Vulkan) and RendererFactory; Shader Management; Camera; Scene Management (GLTF 2.0 parser, cache.dat, scene transitions); 3D Model System; GLTF Animation; Lighting; PBR Material & Texture System; Visual FX Manager (all effect types, queue architecture, scene-transition safety, backend parity); Threading (ThreadManager, ThreadLockHelper, named threads, graceful shutdown); IO Loader Thread; SoundManager; XMMODPlayer; WinMediaPlayer / MoviePlayer; TTSManager; Keyboard Handler; Joystick / GamePad; Physics Engine; MathPrecalculation; NetworkManager; GamingAI; ScriptManager (.cgs format and command reference); FileIO; Configuration (GameConfig.cfg, checksum, all key fields); ExceptionHandler & Debug (call-stack log, crash dumps, Debug logging); Console Window; GUI System (Intuition System); Screen Recorder; PUNPack; MyRandomizer; Blender Add-Ons; Steam (future); Licensing; Contact & Contributions.
+- *See: [`Docs/About-CPGE.md`](Docs/About-CPGE.md)*
 
 ---
 

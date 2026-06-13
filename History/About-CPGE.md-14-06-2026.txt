@@ -1,0 +1,37 @@
+# History Record — Docs/About-CPGE.md
+# Date: 14-06-2026
+# Changes this session:
+#
+#   1. Initial creation of Docs/About-CPGE.md — all 38 sections written.
+#
+#   2. Section 1 (Introduction) expanded with full sub-sections:
+#      - 1.1 What Is CPGE
+#      - 1.2 Multi-Backend Rendering Architecture (4-backend table, conditional-compilation explained)
+#      - 1.3 What CPGE Provides Out of the Box (5 categories: Rendering, Asset Pipeline,
+#            Audio, Game Logic, Infrastructure — each with full bullet lists as #### headings)
+#      - 1.4 How the Engine Starts Up (8-step startup sequence: WinMain, RendererFactory,
+#            renderer init, subsystem init order, IO loader thread, render loop,
+#            scene transitions, shutdown)
+#      - 1.5 How 2D and 3D Content Coexist (3-layer compositing: 3D -> FX -> Direct2D,
+#            shared DXGI surface, no copy overhead)
+#      - 1.6 Current Development Status (per-backend feature parity table)
+#
+#   3. Markdown linting fixed throughout Section 1:
+#      - Bold text used as headings converted to proper #### headings
+#      - Blank lines added around all bullet lists
+#      - Table separator rows corrected to use spaced pipes (| --- | --- |)
+#
+#   4. Section 2 (About the Author) expanded with full sub-sections:
+#      - 2.1 Professional Background (35+ year career, hardware-level thinking,
+#            embedded/multimedia pipeline experience as origin of engine decisions)
+#      - 2.2 What He Built Before CPGE (enterprise systems, embedded/real-time,
+#            multimedia pipelines, cross-platform analysis — each traced to CPGE design)
+#      - 2.3 Why He Built CPGE (5 motivations: knowledge preservation, no engine fees,
+#            full transparency, vehicle for The Shadows of Orion, community contribution)
+#      - 2.4 Engineering Principles (5 principles with direct codebase consequences:
+#            own what you ship; diagnostics mandatory; standards compliance;
+#            performance as design constraint; readability/comments mandatory)
+#      - 2.5 View on Gaming Industry (pricing ethics, FOSS rationale, gotcha-game problem)
+#      - 2.6 Current Focus (engine dev, game dev, docs, community — June 2026)
+#
+# See Docs/About-CPGE.md for full current content.

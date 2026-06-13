@@ -442,7 +442,17 @@ extern bool             Load_Music();                                           
                         }
                     #endif  // !__USE_VULKAN__
 
-                    guiManager.OnWindowResize(iOrigWidth, iOrigHeight);
+                    // OpenGL: RenderFrame skips the iOrigWidth = winMetrics.clientWidth update
+                    // while bIsResizing=true (it early-continues the loop), so iOrigWidth still
+                    // holds the Resize() value (LOWORD of lParam) which can differ from the
+                    // clientWidth that GetClientRect() returns and the renderer uses for its
+                    // ortho matrix once bIsResizing clears.  winMetrics is refreshed in main.cpp
+                    // before this thread runs, so it always reflects the correct new client size.
+                    #if defined(__USE_OPENGL__) && defined(PLATFORM_WINDOWS)
+                        guiManager.OnWindowResize(winMetrics.clientWidth, winMetrics.clientHeight);
+                    #else
+                        guiManager.OnWindowResize(iOrigWidth, iOrigHeight);
+                    #endif
 
                     // Starfield on resize
                     fxManager.CreateStarfield(100, 800.0f, 1000.0f, gtStarOrigin, true);
@@ -631,7 +641,14 @@ extern bool             Load_Music();                                           
                         }
                     #endif  // __USE_OPENGL__
 
-                    guiManager.OnWindowResize(iOrigWidth, iOrigHeight);
+                    // Same OpenGL coordinate-space fix as SCENE_GAMETITLE: use winMetrics
+                    // so the GameMenu is positioned against the same client width the renderer
+                    // will use for its ortho matrix (iOrigWidth is stale during bIsResizing).
+                    #if defined(__USE_OPENGL__) && defined(PLATFORM_WINDOWS)
+                        guiManager.OnWindowResize(winMetrics.clientWidth, winMetrics.clientHeight);
+                    #else
+                        guiManager.OnWindowResize(iOrigWidth, iOrigHeight);
+                    #endif
 
                     // DX11/DX12/Vulkan trigger their fade-in here in the resize path.
                     // OpenGL always triggers its fade-in after the if/else block below.
