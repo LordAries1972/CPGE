@@ -3,7 +3,7 @@
 **Author:** Daniel J. Hobson — Melbourne, Australia  
 **Current Build:** v0.0.1682  
 **Language:** C++17  
-**License:** Free-to-Use (Attribution Required) — See [Licensing](#licensing)
+**License:** Free-to-Use (Attribution Required) — See [Licensing](#37-licensing)
 
 ---
 
@@ -17,10 +17,15 @@
    - [5.1 Prerequisites](#51-prerequisites)
    - [5.2 Directory Layout](#52-directory-layout)
    - [5.3 cmake-build.bat — The Primary Build Script](#53-cmake-buildbat--the-primary-build-script)
-   - [5.4 Renderer Selection](#54-renderer-selection)
-   - [5.5 Debug vs Release Configurations](#55-debug-vs-release-configurations)
-   - [5.6 Visual Studio IDE Builds](#56-visual-studio-ide-builds)
-   - [5.7 Output Executables](#57-output-executables)
+   - [5.4 Renderer Selection — How It Works End to End](#54-renderer-selection--how-it-works-end-to-end)
+   - [5.5 Debug vs Release Configurations — Compiler Flags in Detail](#55-debug-vs-release-configurations--compiler-flags-in-detail)
+   - [5.6 CMakeLists.txt — Structure and Role](#56-cmakeliststxt--structure-and-role)
+   - [5.7 Debug vs Release — Behavioural Differences at Runtime](#57-debug-vs-release--behavioural-differences-at-runtime)
+   - [5.8 Visual Studio IDE Builds](#58-visual-studio-ide-builds)
+   - [5.9 HLSL Shader Pre-Compilation](#59-hlsl-shader-pre-compilation)
+   - [5.10 Output Executables](#510-output-executables)
+   - [5.11 Adding New Source Files](#511-adding-new-source-files)
+   - [5.12 Build Troubleshooting](#512-build-troubleshooting)
 6. [Renderer Architecture — Multi-Backend Overview](#6-renderer-architecture--multi-backend-overview)
    - [6.1 DirectX 11 Renderer](#61-directx-11-renderer)
    - [6.2 DirectX 12 Renderer](#62-directx-12-renderer)
@@ -85,7 +90,7 @@ CPGE is not a visual editor or a drag-and-drop tool — it is a **programmer's e
 CPGE targets the complete spectrum of modern graphics APIs in a **single unified codebase**. The same engine source compiles and runs against four separate rendering backends:
 
 | Backend | API | Primary Platform |
-|---|---|---|
+| --- | --- | --- |
 | DirectX 11 | Direct3D 11, Direct2D 1.1, DirectWrite | Windows |
 | DirectX 12 | Direct3D 12, 11on12, Direct2D 1.3 | Windows |
 | OpenGL | OpenGL 4.x via GLEW | Windows, Linux, macOS |
@@ -562,7 +567,7 @@ The `ExceptionHandler` class installs low-level OS exception hooks at startup th
 
 On any unhandled fault, the handler writes `Except-CallStack.log` to the process working directory. The log contains:
 
-```
+```text
 === CPGE Exception Report ===
 Exception Type  : Access Violation (0xC0000005)
 Fault Address   : 0x00007FF6A3B21F44
@@ -649,17 +654,255 @@ The attribution requirement exists not as a commercial condition but as a commun
 
 ## 4. Platform & Operating System Support
 
-CPGE is architectured for all major platforms. The graphics APIs that cover each platform are shown below.
+CPGE is designed from the ground up to target all major operating systems and graphics APIs through a single, unified C++ codebase. Platform support does not mean shipping a different engine per platform — it means the same source compiles correctly and runs correctly on each target, with platform-specific code isolated behind well-defined preprocessor guards.
 
-| Platform | Supported Renderers | Status |
-|---|---|---|
-| **Windows 10 / 11** | DirectX 11, DirectX 12, OpenGL, Vulkan | Primary — all backends compiling |
-| **Linux (Desktop)** | OpenGL, Vulkan | Planned — defines in place |
-| **Android** | OpenGL (ES), Vulkan | Planned — defines in place |
-| **macOS** | OpenGL | Planned — defines in place |
-| **iOS** | OpenGL (ES) | Planned — defines in place |
+---
 
-Platform detection uses the standard C/C++ predefined macros (`_WIN64`, `_WIN32`, `__linux__`, `__ANDROID__`, `__APPLE__`, `TARGET_OS_IPHONE`) and maps them to engine-internal `PLATFORM_WINDOWS`, `PLATFORM_LINUX`, `PLATFORM_ANDROID`, `PLATFORM_APPLE`, and `PLATFORM_IOS` definitions, all managed in [`Includes.h`](../Includes.h).
+### 4.1 Platform Overview
+
+| Platform | Supported Renderers | API Surface Available | Status |
+| --- | --- | --- | --- |
+| **Windows 10 / 11** | DirectX 11, DirectX 12, OpenGL, Vulkan | Full Win32, DirectX, Direct2D, DirectWrite, WIC, Media Foundation, WinSock2, DirectSound, XAudio2 | **Primary — all four backends compiling and running** |
+| **Linux (Desktop)** | OpenGL, Vulkan | X11/Wayland, Mesa OpenGL, LunarG Vulkan SDK, ALSA/PulseAudio | Planned — platform defines in place, window and audio backends to be wired |
+| **Android** | OpenGL ES, Vulkan | Android NDK, EGL, OpenGL ES 3.x, Vulkan (Android extensions) | Planned — platform defines in place |
+| **macOS** | OpenGL | Cocoa, OpenGL (deprecated but present), Core Audio | Planned — platform defines in place |
+| **iOS** | OpenGL ES | UIKit, OpenGL ES 3.x, Core Audio | Planned — platform defines in place |
+
+> **Note on platform completion:** Windows is the primary development and testing platform. Every non-Windows platform has its `PLATFORM_*` preprocessor define in place and its rendering API tokens selected in `Includes.h`, but the full set of platform-specific subsystem backends (audio, windowing, input, file I/O) is not yet wired for each target. These will be completed as development progresses to each platform — the architecture is deliberately structured so that adding a platform backend is a matter of filling in platform-specific blocks without restructuring any existing code.
+
+---
+
+### 4.2 How Platform Detection Works
+
+Platform detection is performed entirely through **standard C/C++ predefined compiler macros** — macros that all compliant C++ compilers define automatically based on the compilation target. CPGE does not use any custom detection scripts or CMake platform variables for this purpose. The detection logic lives entirely in [`Includes.h`](../Includes.h) and executes at compile time:
+
+```cpp
+#if defined(_WIN64) || defined(_WIN32)
+    #define PLATFORM_WINDOWS
+#elif defined(__linux__)
+    #define PLATFORM_LINUX
+#elif defined(__ANDROID__)
+    #define PLATFORM_ANDROID
+#elif defined(__APPLE__)
+    #define PLATFORM_APPLE      // macOS
+#elif defined(TARGET_OS_IPHONE) || defined(TARGET_IPHONE_SIMULATOR)
+    #define PLATFORM_IOS
+#endif
+```
+
+The `PLATFORM_*` token defined here propagates through every source file in the engine as a single, authoritative identifier for the current compilation target. All platform-specific code in subsystems outside `Includes.h` uses only the `PLATFORM_*` tokens — never the raw compiler macros — so if a new platform's detection macro changes or a new platform is added, the change is made in one place only.
+
+#### Compile-Time Platform Identity Strings
+
+`Includes.h` also defines wide-string identity tokens that the engine uses in version overlays and log output:
+
+```cpp
+#if defined(PLATFORM_WINDOWS)
+    #define PLATFORM_NAME_W L"Windows"
+#elif defined(PLATFORM_LINUX)
+    #define PLATFORM_NAME_W L"Linux"
+#elif defined(PLATFORM_ANDROID)
+    #define PLATFORM_NAME_W L"Android"
+#elif defined(PLATFORM_APPLE)
+    #define PLATFORM_NAME_W L"macOS"
+#elif defined(PLATFORM_IOS)
+    #define PLATFORM_NAME_W L"iOS"
+#endif
+```
+
+These combine with `GAME_NAME_W` and `RENDERER_NAME_W` to form the per-frame overlay string: for example, `CPGE Windows DirectX 11 v0.0.1682`.
+
+---
+
+### 4.3 Windows 10 / 11 — Primary Platform
+
+Windows is CPGE's primary development and testing platform. All four rendering backends (DirectX 11, DirectX 12, OpenGL, and Vulkan) are implemented, compiling, and actively maintained for Windows.
+
+#### Why Windows Is Primary
+
+Windows provides the richest graphics API surface of any consumer desktop platform. The DirectX family (Direct3D 11, Direct3D 12, DXGI, Direct2D, DirectWrite, WIC) is available only on Windows, making it uniquely suited as the platform where the widest range of renderer backends can be tested and compared side by side. The Vulkan SDK (LunarG) and OpenGL (via GLEW) are also first-class on Windows, giving CPGE a single platform on which all four backends can be validated before porting begins.
+
+#### Windows API Surface Used by CPGE
+
+The following Windows APIs are actively used by the engine on the Windows platform:
+
+| API / Library | Purpose | Renderer |
+| --- | --- | --- |
+| **Direct3D 11** (`d3d11.lib`) | 3D rendering device and command context | DX11 |
+| **Direct3D 12** (`d3d12.lib`) | Explicit 3D rendering with command queues | DX12 |
+| **DXGI 1.2 / 1.6** (`dxgi.lib`) | Swap chain, display mode enumeration, adapter selection | DX11, DX12 |
+| **D3D Shader Compiler** (`d3dcompiler.lib`) | Runtime HLSL shader compilation | DX11, DX12 |
+| **Direct2D 1.1 / 1.3** (`d2d1.lib`) | 2D vector rendering, GUI and text overlay | All backends |
+| **DirectWrite** (`dwrite.lib`) | High-quality font layout and text rendering | All backends |
+| **WIC** (`windowscodecs`) | PNG/JPEG texture decoding for loading | All backends |
+| **DirectX 11-on-12** (`d3d11on12.h`) | D2D/DWrite overlay layer for DX12 | DX12 |
+| **OpenGL 4.x via GLEW** (`glew32s.lib`, `opengl32.lib`) | 3D rendering | OpenGL |
+| **Vulkan 1.x** (`vulkan-1.lib`) | 3D rendering with explicit GPU control | Vulkan |
+| **XAudio2** (`xaudio2.lib`) | Audio device interface (used by XMMODPlayer) | DX11 |
+| **DirectSound** (`dsound.lib`) | SFX buffer playback (used by SoundManager) | DX11, DX12 |
+| **Media Foundation** (`mfapi.lib`, `mfreadwrite.lib`) | MP3/M4A streaming, MP4 video decode | All backends |
+| **WASAPI** (via Media Foundation) | System audio loopback for ScreenRecorder | All backends |
+| **WinSock2** (`ws2_32.lib`) | TCP/UDP network sockets | All (if networking enabled) |
+| **IP Helper API** (`iphlpapi.lib`) | Network interface enumeration | All (if networking enabled) |
+| **Speech API (SAPI)** | Text-to-speech output | All |
+| **Win32 window management** (`user32.lib`, `gdi32.lib`) | Window creation, message loop, WM_* events | All backends |
+| **DbgHelp** (`dbghelp.lib`) | Call-stack symbol resolution for crash logs | Debug builds |
+
+#### Minimum Windows Version
+
+CPGE targets **Windows 10 (version 1903 or later)** as the minimum. This minimum is dictated by:
+
+- Direct3D 12 requiring Windows 10 (it is not available on Windows 8.1 or earlier).
+- `std::filesystem` requiring a runtime that ships with Windows 10 1903+ for full path-operation support.
+- Media Foundation's H.264 hardware decoder being reliably available from Windows 10 onward.
+
+Windows 11 is fully supported and is the recommended development platform, as it includes the latest DXGI 1.6 features, up-to-date Vulkan ICD (Installable Client Driver) support from GPU vendors, and DirectX Agility SDK support for the latest DX12 features.
+
+#### Windows Build Process
+
+See [Section 5](#5-build-system--compilation) for the full build procedure. In summary: install Visual Studio 2022 with the Desktop C++ workload, run `cmake-build.bat <Renderer> <Config>`, and the corresponding executable is produced in `build\<Renderer>\<Config>\`.
+
+---
+
+### 4.4 Linux (Desktop) — Planned
+
+Linux support targets **mainstream x86-64 desktop distributions** — Ubuntu 22.04 LTS and later, Fedora 38+, Debian 12+, and any distribution shipping GCC 7+ or Clang 5+ with a current Mesa or vendor GPU driver.
+
+#### Planned Renderers on Linux
+
+| Renderer | API | Notes |
+| --- | --- | --- |
+| **OpenGL** | OpenGL 4.x via Mesa or vendor driver | Mature, well-supported on all Linux GPU drivers |
+| **Vulkan** | Vulkan 1.x via LunarG SDK or Mesa-Vulkan | Available on AMD (RADV), NVIDIA (proprietary), Intel (ANV) |
+
+DirectX is not available on Linux natively. The DirectX 11 and 12 backends will not be ported to Linux — OpenGL and Vulkan cover the Linux platform fully.
+
+#### What Needs to Be Wired for Linux
+
+The following subsystem components need Linux-specific implementations before the Linux build is production-ready:
+
+- **Windowing** — replace Win32 window creation (`CreateWindowEx`, `WM_*` message loop) with X11 (`XOpenDisplay`, `XCreateWindow`) or Wayland (`wl_display_connect`, `wl_surface_create`). GLFW (already a dependency for OpenGL on Windows) provides a cross-platform window abstraction that will handle this for the OpenGL build. The Vulkan build will use `VK_KHR_xcb_surface` or `VK_KHR_wayland_surface`.
+- **Audio** — replace DirectSound and XAudio2 with ALSA (low-level, for embedded-style targets) or PulseAudio (for desktop Linux). The SoundManager's WAV buffer filling logic is platform-independent; only the output device interface needs replacing.
+- **Input** — replace `GetAsyncKeyState` / `WM_KEYDOWN` with X11 `XQueryKeymap` / `XNextEvent`. The `KeyboardHandler` already has platform-specific blocks stubbed.
+- **File paths** — `std::filesystem` is platform-independent; the `./Assets/` relative path convention will work on Linux without changes.
+- **TTS** — replace the Windows SAPI COM calls with a Linux TTS engine such as eSpeak or Festival.
+
+#### Linux CMakeLists.txt
+
+A `Linux/CMakeLists.txt` is already present in the repository, providing the starting point for Linux build configuration. The renderer selection mechanism, source file list, and shader pipeline are structurally identical to the Windows version.
+
+---
+
+### 4.5 Android — Planned
+
+Android support targets **API level 21 (Android 5.0 Lollipop) or later** on ARM64 hardware, using the Android NDK (Native Development Kit) for C++ compilation.
+
+#### Planned Renderers on Android
+
+| Renderer | API | Notes |
+| --- | --- | --- |
+| **OpenGL ES 3.x** | via EGL (Embedded-system Graphics Library) | Supported on all Android devices with API 21+ |
+| **Vulkan** | Vulkan 1.0+ via Android Vulkan extensions | Available on Android API 24+ with Vulkan-capable GPU |
+
+#### Android-Specific Considerations
+
+- **EGL for OpenGL ES** — on Android, OpenGL ES contexts are created through EGL rather than WGL (Windows) or GLX (Linux). EGL initialises the display (`eglGetDisplay`), creates a window surface (`eglCreateWindowSurface`), and binds the context (`eglMakeCurrent`). The OpenGL renderer's window-management block will be wrapped in `#if defined(PLATFORM_ANDROID)` guards to swap in EGL calls.
+- **Android Activity lifecycle** — the Android NDK's `ANativeActivity` interface maps Android lifecycle events (`onStart`, `onStop`, `onResume`, `onPause`, `onWindowFocusChanged`, `onInputQueueCreated`) to the engine's own lifecycle signals. The render loop must handle `onPause` (suspend rendering, release EGL context) and `onResume` (recreate EGL context, reload GPU resources) correctly.
+- **Vulkan extensions on Android** — the Vulkan surface extension for Android is `VK_KHR_android_surface`. The Vulkan renderer's instance creation will add this extension when `PLATFORM_ANDROID` is defined.
+- **Audio on Android** — the SoundManager and XMMODPlayer will use Android's **AAudio** (API 26+) or **OpenSL ES** (API 21+) as the audio output backend instead of DirectSound/XAudio2.
+- **File access on Android** — the Android asset manager (`AAssetManager`) must be used for files packaged in the APK. Files in the app's internal storage (`/data/data/<package>/`) can be accessed via normal `std::filesystem` calls after the path is resolved.
+- **Crash logging** — `ExceptionHandler` on Android uses NDK signal handlers and resolves stack frames via `/proc/self/maps`, writing the crash log to `/data/local/tmp/Except-CallStack.log`.
+
+---
+
+### 4.6 macOS — Planned
+
+macOS support targets **macOS 12 Monterey or later** on Apple Silicon (ARM64) and Intel x86-64 hardware.
+
+#### Planned Renderer on macOS
+
+| Renderer | API | Notes |
+| --- | --- | --- |
+| **OpenGL** | OpenGL 4.1 (Apple's maximum supported version) | Available via the Cocoa `NSOpenGLView` or GLFW |
+
+> **Note on Metal:** Apple deprecated OpenGL on macOS in 2018 and recommends Metal as the native graphics API. However, CPGE's current scope does not include a Metal backend — the OpenGL path covers macOS sufficiently for the development target games. A Metal backend may be added in a future release if macOS becomes a primary distribution target.
+
+#### macOS-Specific Considerations
+
+- **Maximum OpenGL version** — Apple's OpenGL implementation is capped at **OpenGL 4.1** and does not support all OpenGL 4.x extensions available on Windows/Linux. CPGE's OpenGL renderer must be careful not to rely on functionality above 4.1 in code paths that will run on macOS.
+- **Cocoa window creation** — macOS applications use the Cocoa framework (`NSApplication`, `NSWindow`, `NSOpenGLView`) for windowing and event handling. GLFW abstracts this and is the recommended window management layer for the macOS build.
+- **Audio on macOS** — DirectSound and XAudio2 are not available. The audio backends will use **Core Audio** (`AudioUnit`, `AudioToolbox`) or a cross-platform abstraction over it.
+- **SAPI TTS replacement** — macOS provides a native TTS API through `NSSpeechSynthesizer` (deprecated in macOS 14) or the newer `AVSpeechSynthesizer`. The `TTSManager` will select the correct backend via `#if defined(PLATFORM_APPLE)`.
+- **File paths** — macOS uses POSIX paths. `std::filesystem` handles this transparently. Asset directories will resolve to the application bundle's `Contents/Resources/` folder.
+
+---
+
+### 4.7 iOS — Planned
+
+iOS support targets **iOS 14.0 or later** on ARM64 iPhone and iPad hardware.
+
+#### Planned Renderer on iOS
+
+| Renderer | API | Notes |
+| --- | --- | --- |
+| **OpenGL ES 3.x** | via EGL / `EAGLContext` | Available on all iOS 14+ devices |
+
+#### iOS-Specific Considerations
+
+- **App Sandbox** — iOS applications run in a strict sandbox. File system access is limited to the app's designated directories. The `ExceptionHandler`'s crash log is written to `$TMPDIR` (the app's sandbox temp folder, which is guaranteed writable). All asset files must be packaged within the app bundle.
+- **OpenGL ES context** — iOS uses `EAGLContext` (part of the `GLKit` framework) for OpenGL ES context creation, analogous to EGL on Android. The `EAGL` context must be destroyed and recreated on certain application lifecycle events (entering background, memory pressure warnings).
+- **Audio** — `AVAudioEngine` or `AVAudioPlayer` (part of the `AVFoundation` framework) will replace DirectSound/XAudio2 for the iOS audio backend.
+- **App Store requirements** — the iOS App Store SDK (`StoreKit`) is already planned for inclusion alongside the Steam SDK for the commercial release. It is excluded from all current builds.
+- **Input** — on iOS, touch events replace keyboard and mouse input. The `KeyboardHandler` will receive touch-mapped virtual key events from UIKit (`UITouch`, `UIEvent`) that have been translated to the engine's standard key codes, allowing game logic that uses `IsKeyDown()` to work without modification.
+
+---
+
+### 4.8 Renderer-to-Platform Mapping
+
+Not every renderer is available on every platform. The table below shows the complete supported mapping:
+
+| Renderer | Windows | Linux | Android | macOS | iOS |
+| --- | --- | --- | --- | --- | --- |
+| DirectX 11 | Yes | No | No | No | No |
+| DirectX 12 | Yes | No | No | No | No |
+| OpenGL 4.x | Yes | Yes | No | Yes (4.1 max) | No |
+| OpenGL ES 3.x | No | No | Yes | No | Yes |
+| Vulkan | Yes | Yes | Yes (API 24+) | No | No |
+
+This means a game targeting Windows, Linux, and Android can be covered entirely by the Vulkan backend — the same Vulkan source compiles for all three. A game targeting macOS and iOS needs the OpenGL / OpenGL ES path. A game targeting Windows exclusively has the full choice of all four backends.
+
+---
+
+### 4.9 Writing Platform-Safe Code
+
+Any code added to CPGE that uses platform-specific APIs must be wrapped in the appropriate `#if defined(PLATFORM_*)` guard. The same applies to platform-specific file paths, audio calls, input calls, and thread management calls. Unwrapped platform-specific code will cause compilation failures on other platforms and is treated as a bug.
+
+Example of correct platform-guarded code in a shared subsystem file:
+
+```cpp
+void SoundManager::InitializeAudioDevice(HWND hwnd)
+{
+#if defined(PLATFORM_WINDOWS)
+    // DirectSound initialisation
+    DirectSoundCreate8(nullptr, &m_pDirectSound, nullptr);
+    m_pDirectSound->SetCooperativeLevel(hwnd, DSSCL_PRIORITY);
+
+#elif defined(PLATFORM_LINUX)
+    // ALSA / PulseAudio initialisation (to be implemented)
+
+#elif defined(PLATFORM_ANDROID)
+    // AAudio / OpenSL ES initialisation (to be implemented)
+
+#elif defined(PLATFORM_APPLE)
+    // Core Audio initialisation (to be implemented)
+
+#else
+    #error "SoundManager: No audio backend defined for this platform."
+#endif
+}
+```
+
+The `#error` directive at the bottom ensures that if CPGE is compiled on a platform that has not yet had its audio backend implemented, the compiler produces a clear, actionable error rather than silently compiling a build with no audio.
 
 [Back to Table of Contents](#table-of-contents)
 
@@ -667,149 +910,376 @@ Platform detection uses the standard C/C++ predefined macros (`_WIN64`, `_WIN32`
 
 ## 5. Build System & Compilation
 
-CPGE uses **CMake 4.3.2** as its meta-build system, fronted by a convenience batch script (`cmake-build.bat`) that handles renderer selection, configuration, and MSBuild invocation. Understanding the build pipeline is essential before making any changes to source file lists or project structure.
+CPGE uses **CMake 4.3.2** as its meta-build system, fronted by a convenience batch script (`cmake-build.bat`) that handles renderer selection, `Includes.h` patching, HLSL shader pre-compilation, and the full CMake + MSBuild pipeline. Understanding the build system deeply is a prerequisite for any work that touches source file lists, preprocessor guards, or project structure.
 
 ### 5.1 Prerequisites
 
-Before building CPGE on Windows you need:
+Before building CPGE on Windows the following tools must be present:
 
 | Tool | Version | Notes |
-|---|---|---|
-| **CMake** | 4.3.2 | Located at `D:\Programs\CMake\bin\cmake.exe` |
-| **Visual Studio 2022** | Enterprise / Community | Must include the **Desktop Development with C++** workload |
-| **MSBuild** | Bundled with VS2022 | Path: `D:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe` |
-| **DirectX SDK** | Windows 10 SDK | Bundled with VS2022 when DX components are selected |
-| **Vulkan SDK** | Latest LunarG release | Required only for the Vulkan build; `vulkan-1.lib` and `shaderc` |
-| **GLEW** | 2.x (static) | Required only for the OpenGL build; `glew32s.lib` |
+| --- | --- | --- |
+| **CMake** | 4.3.2 | Discovered from `PATH` first; falls back to `D:\Programs\CMake\bin\cmake.exe` |
+| **Visual Studio 2022** | Enterprise or Community | Must include the **Desktop Development with C++** workload |
+| **MSBuild** | Bundled with VS2022 | Invoked internally by `cmake --build`; never called directly by contributors |
+| **Windows 10/11 SDK** | Latest via VS Installer | Provides `fxc.exe` for HLSL shader pre-compilation; required for all DX builds |
+| **Vulkan SDK** | Latest LunarG release | Required only for the Vulkan pipeline; provides `vulkan-1.lib`, `shaderc_shared.dll` |
+| **GLEW** | 2.x (static, bundled) | Required only for the OpenGL pipeline; `glew32s.lib` pre-bundled under `lib\` |
 
-> **Critical rule:** Never invoke MSBuild from the command line directly or in an ad-hoc manner. Always use `cmake-build.bat` to drive the full CMake + MSBuild pipeline. This ensures the `.vcxproj` and `CMakeLists.txt` are always in sync and that the correct preprocessor defines are injected.
+> **Critical rule:** Never invoke MSBuild directly from a terminal. Always use `cmake-build.bat`. Invoking MSBuild by hand bypasses `Includes.h` patching, and the resulting binary will silently compile against whichever renderer token happened to be active in the header at the time — producing a binary that is either wrong or refuses to link.
 
 ### 5.2 Directory Layout
 
-```
+```text
 CPGE2026\
-├── cmake-build.bat          ← Primary build script (always use this)
-├── CMakeLists.txt           ← CMake project definition
-├── CrossPlatformGameEngine.vcxproj   ← Visual Studio project (IDE builds)
-├── Includes.h               ← Master include / renderer selection header
-├── BuildInfo.h              ← Authoritative build number
-├── *.cpp / *.h              ← Engine source files
-├── Assets\                  ← Runtime assets (textures, shaders, models, music)
-│   └── Shaders\             ← HLSL / GLSL shader source files
-├── Docs\                    ← All subsystem documentation (this file lives here)
-├── History\                 ← Timestamped backup copies of modified files
-├── build\                   ← CMake-generated solution files (auto-created)
-│   ├── DX11\Debug\          ← DX11 Debug build artefacts
-│   ├── DX11\Release\        ← DX11 Release build artefacts
-│   ├── DX12\Debug\
-│   ├── OpenGL\Debug\
-│   └── Vulkan\Debug\
-└── steam\                   ← Steam SDK headers (excluded until release)
+├── cmake-build.bat                      ← Always use this to build
+├── install-debug.bat                    ← Post-build asset deploy for Debug
+├── install-release.bat                  ← Post-build asset deploy for Release
+├── CMakeLists.txt                       ← CMake project definition
+├── CrossPlatformGameEngine.vcxproj      ← Visual Studio project (IDE builds)
+├── Directory.Build.targets              ← VisualD/incremental build fix
+├── Includes.h                           ← Master include / renderer token header
+├── BuildInfo.h                          ← Authoritative build number (auto-incremented)
+├── Version.id                           ← Plain-text build counter
+├── *.cpp / *.h                          ← Engine source files (root level)
+├── Assets\                              ← Runtime assets: textures, shaders, models, music
+│   └── Shaders\                         ← HLSL / GLSL source files
+├── Docs\                                ← All subsystem documentation
+├── History\                             ← Timestamped backup copies of every modified file
+├── include\GL\                          ← Bundled GLEW headers
+├── lib\                                 ← Bundled static libraries (glew32s.lib etc.)
+├── build\                               ← CMake-generated solutions (auto-created)
+│   ├── DX11\Debug\CrossPlatformGameEngine.sln
+│   ├── DX11\Release\CrossPlatformGameEngine.sln
+│   ├── DX12\Debug\CrossPlatformGameEngine.sln
+│   ├── OpenGL\Debug\CrossPlatformGameEngine.sln
+│   └── Vulkan\Debug\CrossPlatformGameEngine.sln
+└── steam\                               ← Steam SDK (excluded from all builds until release)
 ```
 
-> **Important:** Two files must always be kept in sync when adding new source files to the engine — `CMakeLists.txt` (the `target_sources` block) and `CrossPlatformGameEngine.vcxproj` (the `<ClCompile>` / `<ClInclude>` item groups). Always search both files with `grep` before adding an entry; duplicate entries cause the `.vcxproj` to fail loading entirely.
+> **Two-file sync rule:** When adding any new `.cpp` or `.h` file to the engine you must update **both** `CMakeLists.txt` (the `set(SOURCES ...)` block) **and** `CrossPlatformGameEngine.vcxproj` (`<ClCompile>` / `<ClInclude>` item groups). Always grep both files first — duplicate entries cause the `.vcxproj` to fail loading entirely, and an entry missing from `CMakeLists.txt` means CMake silently produces an executable that omits your file without warning.
 
 ### 5.3 cmake-build.bat — The Primary Build Script
 
-`cmake-build.bat` is the single recommended way to build CPGE. It accepts two optional arguments:
+`cmake-build.bat` is the single authorised entry point for all build operations. It accepts one renderer argument and one optional configuration:
 
 ```bat
-cmake-build.bat [Renderer] [Configuration]
+cmake-build.bat <renderer> [Debug|Release]
 ```
 
 | Argument | Accepted Values | Default |
-|---|---|---|
-| Renderer | `DX11`, `DX12`, `OpenGL`, `Vulkan` | `DX11` |
-| Configuration | `Debug`, `Release` | `Debug` |
+| --- | --- | --- |
+| Renderer | `dx11`, `dx12`, `opengl`, `vulkan`, `all` | *(required — error if omitted)* |
+| Configuration | `debug`, `release` | `Debug` |
 
-**Examples:**
+Arguments are case-insensitive. Examples:
 
 ```bat
-REM Build the DirectX 11 Debug executable (most common during development)
-cmake-build.bat DX11 Debug
+:: Most common during development — DX11 Debug
+cmake-build.bat dx11 debug
 
-REM Build the Vulkan Release executable
-cmake-build.bat Vulkan Release
+:: Vulkan Release build
+cmake-build.bat vulkan release
 
-REM Build OpenGL in Debug mode
-cmake-build.bat OpenGL Debug
+:: Build all four renderer pipelines in Debug in sequence
+cmake-build.bat all debug
 
-REM Build DirectX 12 in Release mode
-cmake-build.bat DX12 Release
+:: Wipe all build artefacts and generated solutions
+cmake-build.bat clean
 ```
 
-**What the script does internally:**
+#### 5.3.1 Single-Renderer Build — Step by Step
 
-1. Selects the correct CMake cache variable (`-DRENDERER=DX11|DX12|OpenGL|Vulkan`).
-2. Runs `cmake -G "Visual Studio 17 2022" -A x64` to generate or update the solution under `build\<Renderer>\<Config>\`.
-3. Invokes MSBuild against the generated `CrossPlatformGameEngine.sln` with the correct `/p:Configuration=<Config>` and `/p:Platform=x64` arguments.
-4. Reports any build errors or warnings to the console using ASCII-only characters (no em-dashes or Unicode that would display as garbage on non-UTF-8 consoles).
+When a single renderer is requested (e.g. `cmake-build.bat dx11 debug`), the script executes the following sequence:
 
-The script also injects the renderer's preprocessor define (`__USE_DIRECTX_11__`, `__USE_DIRECTX_12__`, `__USE_OPENGL__`, or `__USE_VULKAN__`) via CMake's `add_compile_definitions()` call. This means the correct renderer token is always present in the compiled translation units — no manual `#define` editing in `Includes.h` is needed for CMake builds.
+1. **Locate CMake.** Searches `PATH` first; falls back to `D:\Programs\CMake\bin\cmake.exe`. Aborts with a clear error if CMake is not found.
+2. **Detect the OS.** Sets `DETECTED_OS=Windows` (or `Unknown` on non-Windows). DirectX renderers abort immediately if run on a non-Windows host.
+3. **Map the renderer argument** to two internal variables:
+   - `RENDERER` — the CMake string (`DX11`, `DX12`, `OpenGL`, `Vulkan`)
+   - `RENDERER_DEFINE` — the preprocessor token (`__USE_DIRECTX_11__`, etc.)
+4. **Kill stale compiler processes.** Calls the internal `:killcompiler` subroutine, which force-kills any running `cl.exe` and `mspdbsrv.exe` processes via `taskkill /F`. This releases file handles that a prior cancelled or failed build may have locked on `.obj`, `.pch`, or `.lib` files — preventing "file in use" errors at the start of the new build.
+5. **Patch `Includes.h`.** Runs a PowerShell one-liner that:
+   - Comments out **all** renderer `#define` lines in the Windows block of `Includes.h` using a single regex pass (`DIRECTX_11`, `DIRECTX_12`, `OPENGL`, `VULKAN`, `RADEON`).
+   - Uncomments **only** the line for `RENDERER_DEFINE`.
+   This makes the header consistent with what the CMake define injects, so the IDE and CMake builds agree on the active renderer. The patch is idempotent and reversible.
+6. **Create the build directory** (`build\<Renderer>\<Config>\`) if it does not exist.
+7. **Run CMake configure:** `cmake -S . -B build\<Renderer>\<Config> -G "Visual Studio 17 2022" -A x64 -DRENDERER:STRING=<Renderer>`. CMake reads `CMakeLists.txt`, resolves the renderer token, detects Vulkan SDK / GLEW / FXC, and generates the Visual Studio solution.
+8. **Run CMake build:** `cmake --build build\<Renderer>\<Config> --config <Config> --parallel`. This internally calls MSBuild with multi-processor compilation (`/MP`). All compilation errors appear in the console.
+9. **Run the post-build install script.** If `install-debug.bat` (or `install-release.bat`) exists and `SKIP_INSTALL` is not set, it is called to copy assets and shaders to the output directory. A warning is printed if the install script is absent — the build itself is still reported as successful.
 
-### 5.4 Renderer Selection
+#### 5.3.2 Building All Four Pipelines (`all`)
+
+`cmake-build.bat all debug` (or `release`) iterates over the four renderer names (`dx11 dx12 opengl vulkan`) and calls the script recursively for each one. Key behaviours:
+
+- DirectX pipelines are automatically skipped on non-Windows hosts — they will not error, they will print `[SKIP] dx11 (DirectX not supported on <OS>)`.
+- `SKIP_VERSION_INCREMENT` is set on the second and subsequent pipelines so that `BuildInfo.h` is incremented only once per `all` invocation.
+- After all pipelines complete, a one-line pass/fail summary is printed per pipeline.
+- The post-build install script runs **once** at the end of the `all` sequence — only if every pipeline succeeded.
+
+```text
+============================================================
+ Building ALL render pipelines  --  Config: Debug
+============================================================
+
+  ---- Building dx11 Debug ----
+  ...
+  ---- Building dx12 Debug ----
+  ...
+============================================================
+ ALL BUILD SUMMARY  --  14/06/2026  13:22:41
+   PASSED : dx11 dx12 opengl vulkan
+============================================================
+```
+
+#### 5.3.3 Clean (`clean`)
+
+`cmake-build.bat clean` deletes:
+
+- The entire `build\` directory tree (all CMake-generated solutions and build artefacts).
+- The `x64\` directory (artefacts from direct VS IDE builds).
+- The `CrossPla.2bd3f178\` directory (VS incremental build cache).
+- Stray `*.pdb`, `*.ilk`, `*.obj`, `*.pch`, and `*.idb` files in the project root.
+
+A clean build is often necessary after switching renderers or after significant source list changes.
+
+### 5.4 Renderer Selection — How It Works End to End
 
 The renderer is selected **at compile time** by exactly one of the following preprocessor tokens:
 
 | Token | Renderer | API Layer |
-|---|---|---|
+| --- | --- | --- |
 | `__USE_DIRECTX_11__` | DirectX 11 | Direct3D 11, Direct2D 1.1, XAudio2, DirectSound |
-| `__USE_DIRECTX_12__` | DirectX 12 | Direct3D 12 with 11on12 for D2D/DWrite |
-| `__USE_OPENGL__` | OpenGL | OpenGL 4.x via GLEW, GLFW |
-| `__USE_VULKAN__` | Vulkan | Vulkan 1.x, DirectXMath, D2D/DWrite overlay |
+| `__USE_DIRECTX_12__` | DirectX 12 | Direct3D 12 with 11on12 bridge for D2D/DWrite |
+| `__USE_OPENGL__` | OpenGL | OpenGL 4.x via GLEW (static), GLFW |
+| `__USE_VULKAN__` | Vulkan | Vulkan 1.x, DirectXMath, D2D/DWrite overlay via Win32 |
 
-These tokens gate large blocks in `Includes.h`, controlling which SDK headers are included, which libraries are linked, and which renderer-specific source files are compiled. Downstream subsystems (models, camera, FX manager, etc.) use the same tokens in their own `#if defined(...)` guards.
+The token travels through the build system in three parallel channels:
 
-For **IDE-only builds** (those that bypass `cmake-build.bat` and compile directly from Visual Studio), you must uncomment the corresponding `#define` line in `Includes.h` under the block that reads:
+**Channel 1 — CMake `add_compile_definitions()`**
+
+`CMakeLists.txt` passes `${RENDERER_DEFINE}` (e.g. `__USE_DIRECTX_12__`) via `target_compile_definitions()`. Every translation unit compiled by CMake sees this definition injected by the compiler, not by any source header. This is the authoritative channel for CMake builds.
+
+**Channel 2 — `Includes.h` header patch**
+
+`cmake-build.bat` patches `Includes.h` via PowerShell so that the `#define` matching the requested renderer is uncommented and all others are commented out. This keeps the header consistent for IDE IntelliSense and for any tool that reads the source directly. The block that is patched looks like:
+
+```cpp
+// ── Renderer selection (patched by cmake-build.bat) ─────────────────────
+    #define __USE_DIRECTX_11__
+//#define __USE_DIRECTX_12__
+//#define __USE_OPENGL__
+//#define __USE_VULKAN__
+```
+
+**Channel 3 — Safety fallback guard in `Includes.h`**
+
+A `#if !defined(...)` block at the bottom of the renderer-selection section issues a hard `#error` if none of the four tokens is defined. This catches the case where a developer builds with an IDE configuration that bypasses both channels 1 and 2 above:
 
 ```cpp
 #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__) && \
-    !defined(__USE_OPENGL__)     && !defined(__USE_VULKAN__)      && \
-    !defined(__USE_RADEON__)
-    // #define __USE_DIRECTX_11__   ← Uncomment exactly one line for IDE builds
+    !defined(__USE_OPENGL__)     && !defined(__USE_VULKAN__)
+    #error "No renderer selected. Define exactly one __USE_<RENDERER>__ token."
 #endif
 ```
 
-The build will issue a hard compiler error if none of the renderer tokens are defined, preventing silent incorrect binaries.
+#### How the Token Gates Code in Shared Files
 
-### 5.5 Debug vs Release Configurations
+Every file that contains renderer-specific code wraps those blocks with `#if defined(...)` guards. A typical shared file looks like:
 
-| Setting | Debug | Release |
-|---|---|---|
-| Optimisation | None (`/Od`) | Full speed (`/O2`) |
-| Symbols | Full PDB generated | Stripped |
-| Exception handler | Active — writes call-stack log to disk on crash | Disabled — no log output |
-| Debug overlays | Active — shows build version, FPS, renderer name | Disabled |
-| `_DEBUG` macro | Defined | Not defined |
-| Log verbosity | Full — `LOG_INFO` through `LOG_CRITICAL` | Reduced |
-| Assert macros | Active | Compiled out |
-
-Always build and test in Debug during development so that the exception handler, assert macros, and diagnostic overlays are active.
-
-### 5.6 Visual Studio IDE Builds
-
-The Visual Studio solution files are generated by CMake and live under `build\<Renderer>\<Config>\CrossPlatformGameEngine.sln`. When opening these in the Visual Studio IDE, the `.vcxproj` properties already contain the correct include paths, preprocessor defines, and library links for the selected renderer — you do not need to manually configure the project.
-
-A `Directory.Build.targets` file (the VisualD fix) is present to ensure that incremental builds and the VisualD extension work correctly alongside the CMake-generated project.
-
-### 5.7 Output Executables
-
-After a successful build the executable appears in:
-
-```
-build\<Renderer>\<Config>\CPGE\<Config>\
+```cpp
+void MySubsystem::Init()
+{
+    #if defined(__USE_DIRECTX_11__)
+        // D3D11-specific initialisation
+    #elif defined(__USE_DIRECTX_12__)
+        // D3D12-specific initialisation
+    #elif defined(__USE_OPENGL__)
+        // GL-specific initialisation
+    #elif defined(__USE_VULKAN__)
+        // Vulkan-specific initialisation
+    #endif
+}
 ```
 
-The executable is named according to the `GAME_NAME` define in `Includes.h` (default `"CPGE"`), prefixed by the renderer token:
+Files that are entirely renderer-specific (e.g. `DX12Renderer.cpp`, `VULKAN_Renderer.cpp`) are compiled unconditionally — they guard their own internals with the token — but only one of them links meaningful code at a time because the rest become empty translation units guarded at the top of the file.
+
+### 5.5 Debug vs Release Configurations — Compiler Flags in Detail
+
+`CMakeLists.txt` applies the following MSVC compiler and linker options:
+
+#### Always-active flags (Debug and Release)
+
+| Flag | Purpose |
+| --- | --- |
+| `/W3` | Warning level 3 — reports most significant warnings |
+| `/wd4244` | Suppresses C4244 (narrowing conversion) — expected in 3D maths code |
+| `/Zc:__cplusplus` | Forces `__cplusplus` to report the actual standard (C++17 = `201703L`), not `199711L` |
+| `/MP` | Multi-processor compilation — compiles translation units in parallel |
+| `/nologo` | Suppresses the MSVC banner in build output |
+| `/Zp16` | Aligns struct members on 16-byte boundaries — required for SIMD/SSE alignment of `XMMATRIX` and similar types |
+| `/sdl` | Enables additional Security Development Lifecycle checks |
+| `UNICODE`, `_UNICODE` | Enables the wide-character Win32 API surface (`wchar_t` strings throughout |
+| `GLEW_STATIC` | Selects `glew32s.lib` (static) over the DLL import, preventing `__declspec(dllimport)` mismatches |
+
+#### Debug-only flags
+
+| Flag | Purpose |
+| --- | --- |
+| `/MDd` | Links the debug CRT (`msvcrtd.dll`) — enables heap validation and iterator checking |
+| `/Od` | Disables all optimisation — ensures debugger step-through maps 1:1 to source |
+| `/FS` | Forces synchronous PDB writes — prevents simultaneous write conflicts during parallel `/MP` builds |
+| `/DEBUG` | Generates full PDB symbols for the linker output |
+| `/ASSEMBLYDEBUG` | Embeds `DebuggableAttribute` to assist managed/mixed-mode debugging |
+| `_DEBUG` | Activates `LOG_INFO`/`LOG_WARNING` log output, assert macros, the ExceptionHandler crash log, and the diagnostic overlay |
+| `/MAP` | Generates a `.map` file next to the executable — useful for tracking symbol sizes |
+
+#### Release-only flags
+
+| Flag | Purpose |
+| --- | --- |
+| `/MD` | Links the release CRT (`msvcrt.dll`) |
+| `/O2` | Maximum speed optimisation (enables `/Oi`, `/Ot`, and loop unrolling) |
+| `/Oi` | Replaces standard library calls with compiler intrinsics where possible |
+| `/Ob2` | Aggressive inlining — functions marked `inline` or `__forceinline` are expanded |
+| `/GF` | Eliminates duplicate string constants (read-only string pooling) |
+| `/GT` | Enables fibre-safe thread-local storage optimisation |
+| `INTERPROCEDURAL_OPTIMIZATION` | Whole-program optimisation (LTCG) — the linker re-optimises across translation unit boundaries |
+| `/OPT:REF` | Removes unreferenced functions and data from the linked binary |
+| `/OPT:ICF` | Collapses identical COMDAT sections (function folding) |
+| `NDEBUG` | Disables `assert()`, `_DEBUG` log output, crash log, and diagnostic overlays |
+
+> **LIBCMT suppression:** `glew32s.lib` is built with the `/MT` static CRT. CPGE uses `/MD`. Without the `/NODEFAULTLIB:LIBCMT` linker flag the linker would emit LNK4098 warnings about conflicting CRT libraries. This flag is applied in both Debug and Release to suppress the noise without changing behaviour.
+
+### 5.6 CMakeLists.txt — Structure and Role
+
+`CMakeLists.txt` is the authoritative project description that CMake translates into a Visual Studio solution. Its sections, in order:
+
+1. **Game identity** — `GAME_NAME` and `RENDERER` CMake cache variables. These drive the output executable name (`${RENDERER_PREFIX}${GAME_NAME}`) and the preprocessor define.
+2. **Source list** — the `set(SOURCES ...)` block lists every `.cpp` and `.rc` file. All four renderer source trees are always listed; the renderer token in each file guards which code is actually compiled.
+3. **`add_executable()`** — declares `CrossPlatformGameEngine WIN32 ${SOURCES}`. The `WIN32` flag sets the entry point to `WinMain` instead of `main`, suppressing the console subsystem window for Release builds (Debug still spawns a console via `_CONSOLE`).
+4. **Output name** — `set_target_properties(...OUTPUT_NAME "${EXE_OUTPUT_NAME}")` produces the renderer-prefixed executable name.
+5. **Vulkan SDK detection** — a four-step search: `VULKAN_SDK` env var → drive-root scan (`C:\..G:\VulkanSDK\*`) → `find_package(Vulkan)`. If Vulkan is required but not found, `FATAL_ERROR` prints a detailed install guide. The Vulkan SDK version is extracted from the path and printed to the console during configure.
+6. **OpenGL version detection** — scans `include/GL/glew.h` for `GLEW_VERSION_X_Y` defines to determine the maximum OpenGL API version exposed by the bundled headers. On Linux/macOS, `pkg-config` is also queried.
+7. **Include and library directories** — the project root (`CMAKE_CURRENT_SOURCE_DIR`), the bundled headers (`include\`), and the Vulkan SDK include path are added. The bundled `lib\` directory and Vulkan `Lib\` are added to the linker search path.
+8. **shaderc linkage** — for Vulkan builds on Windows, `shaderc_sharedd.lib` (Debug) or `shaderc_shared.lib` (Release) is linked. A `POST_BUILD` command copies the matching `shaderc_shared[d].dll` from the Vulkan SDK `Bin\` directory to the executable output folder so the exe finds it at runtime.
+9. **MSVC compiler options** — `/W3`, `/Zp16`, `/MP`, per-config `/MDd` vs `/MD`, optimisation and link flags as described in section 5.5.
+10. **HLSL shader pre-compilation** — a `PRE_BUILD` custom command compiles all `Assets\Shaders\*.hlsl` files to `.cso` bytecode using `fxc.exe` (see section 5.9).
+11. **Windows system libraries** — `d3d11.lib`, `d3d12.lib`, `dxgi.lib`, `d2d1.lib`, `dwrite.lib`, `dsound.lib`, `winmm.lib`, `opengl32.lib`, `vulkan-1.lib`, and others are linked depending on the renderer.
+
+### 5.7 Debug vs Release — Behavioural Differences at Runtime
+
+Beyond compiler flags, Debug and Release produce different engine behaviours at runtime:
+
+| Behaviour | Debug | Release |
+| --- | --- | --- |
+| Optimisation | None (`/Od`) — source-level debugger step-through | Full speed (`/O2`, LTCG, inlining) |
+| CRT | Debug CRT — heap validation, iterator checking | Release CRT — no overhead |
+| PDB symbols | Full PDB — breakpoints, watch windows, call stacks in VS | Stripped — no symbols |
+| ExceptionHandler | Active — writes crash log with 25 stack frames + breadcrumb trail to disk | Inactive |
+| Diagnostic overlay | Active — build number, FPS, renderer name, frame time on screen | Inactive |
+| `LOG_INFO` / `LOG_WARNING` | Printed to debug output and log file | Silent |
+| `LOG_ERROR` / `LOG_CRITICAL` | Active in both configurations | Active in both |
+| Assert macros | Trigger breakpoint + log on failure | Compiled out |
+| `_DEBUG` macro | Defined — enables all conditional debug code | Not defined |
+| `NDEBUG` macro | Not defined | Defined — disables standard library assertions |
+| Binary size | Larger — debug symbols, no dead-code stripping | Smallest — `/OPT:REF /OPT:ICF` remove unused code |
+| Map file | Generated — `CrossPlatformGameEngine.map` at project root | Not generated |
+
+### 5.8 Visual Studio IDE Builds
+
+The CMake-generated solution files under `build\<Renderer>\<Config>\CrossPlatformGameEngine.sln` can be opened in Visual Studio 2022 directly. When opened:
+
+- The `.vcxproj` already carries the correct include paths, preprocessor defines (including the renderer token injected by CMake), and library link paths for the selected renderer.
+- Building from within the IDE invokes MSBuild via the same `.vcxproj`; the renderer token is embedded so no manual `Includes.h` edits are needed for that session.
+- Switching renderers from the IDE requires either:
+  1. Generating a new CMake solution via `cmake-build.bat <new-renderer> debug` (recommended), or
+  2. Manually editing the `Preprocessor Definitions` field in the project properties and uncommenting the matching `#define` in `Includes.h`.
+
+#### `Directory.Build.targets` — the VisualD Fix
+
+A `Directory.Build.targets` file in the project root patches the MSBuild property graph to resolve an incompatibility between CMake-generated `.vcxproj` files and the VisualD extension (a D/C++ hybrid IDE plugin). Without this file, incremental builds from the Visual Studio IDE can silently recompile all translation units even when no source has changed. The fix is transparent — it requires no action from contributors.
+
+#### IDE-Only Builds (Bypassing cmake-build.bat)
+
+If `cmake-build.bat` has not been run first, the `Includes.h` header will not have been patched. In that case, manually uncomment exactly one renderer `#define` in `Includes.h` before building:
+
+```cpp
+    #define __USE_DIRECTX_11__   // ← uncomment this line for a DX11 IDE build
+//#define __USE_DIRECTX_12__
+//#define __USE_OPENGL__
+//#define __USE_VULKAN__
+```
+
+Leaving more than one uncommented results in a compile error — all shared files assume exactly one token is active.
+
+### 5.9 HLSL Shader Pre-Compilation
+
+All HLSL shaders in `Assets\Shaders\` are compiled to DirectX Shader Object (`.cso`) bytecode as a `PRE_BUILD` step before any C++ source file is compiled. The compiler used is `fxc.exe` (the DirectX effect compiler, bundled with the Windows SDK).
+
+**`fxc.exe` detection — four-priority search chain**
+
+`CMakeLists.txt` searches for `fxc.exe` in the following order, stopping at the first hit:
+
+1. **VS developer environment variables** — `WindowsSdkBinPath` and `WindowsSdkDir` + `WindowsSDKVersion`, set by `vcvars64.bat`. These always point to the exact SDK version in use.
+2. **CMake VS-generator detected version** — `CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION` is used to build a path under both `Program Files` and `Program Files (x86)`.
+3. **Windows registry** — `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows Kits\Installed Roots\KitsRoot10` is read to find the SDK install root; all versioned `bin\10.*\x64\` subdirectories are searched.
+4. **Broad glob** — both `Program Files` roots are searched recursively for `Windows Kits\10\bin\10.*\x64\fxc.exe`.
+
+If `fxc.exe` is still not found after all four searches, CMake issues a `FATAL_ERROR` with a detailed install guide explaining how to add it via the Visual Studio Installer or standalone SDK download.
+
+#### Shader Compilation at Build Time
+
+Each `.hlsl` file is compiled with a command of the form:
+
+```bat
+fxc.exe /T vs_5_0 /E VSMain /Fo output\VertexShader.cso Assets\Shaders\VertexShader.hlsl
+fxc.exe /T ps_5_0 /E PSMain /Fo output\PixelShader.cso  Assets\Shaders\PixelShader.hlsl
+```
+
+The `/T` flag specifies the shader target profile (`vs_5_0` = Vertex Shader Model 5, `ps_5_0` = Pixel Shader Model 5). The `.cso` files are written to the executable output directory so the engine can load them at startup with `D3DReadFileToBlob()`.
+
+Vulkan shaders (GLSL/SPIR-V) are handled differently: they are compiled at runtime by `shaderc` when the Vulkan renderer initialises.
+
+### 5.10 Output Executables
+
+After a successful build, the executable is placed in:
+
+```text
+build\<Renderer>\<Config>\<ExeName>\<Config>\<ExeName>.exe
+```
+
+The executable name is composed of the renderer prefix and the `GAME_NAME` CMake variable:
 
 | Renderer | Executable |
-|---|---|
+| --- | --- |
 | DirectX 11 | `DXCPGE.exe` |
 | DirectX 12 | `DX12CPGE.exe` |
 | OpenGL | `OpenGLCPGE.exe` |
 | Vulkan | `VulkanCPGE.exe` |
 
-To rename the game, change `GAME_NAME` in `Includes.h` and update the `<GameName>` tag in `CrossPlatformGameEngine.vcxproj` and the `GAME_NAME` CMake cache variable in `CMakeLists.txt`.
+`.cso` shader files are placed alongside the executable. `shaderc_shared[d].dll` is copied there automatically by the `POST_BUILD` step for Vulkan builds.
+
+To rename the shipped game, change the `GAME_NAME` CMake cache variable (`CMakeLists.txt` line 9), update the matching `#define GAME_NAME` in `Includes.h`, and update `<GameName>` in `CrossPlatformGameEngine.vcxproj`.
+
+### 5.11 Adding New Source Files
+
+Any new `.cpp` or `.h` file added to the engine requires **both** of the following edits before the next build:
+
+1. **`CMakeLists.txt`** — add the filename to the `set(SOURCES ...)` block. Without this, CMake's generated solution omits the file entirely and the executable silently links without it.
+2. **`CrossPlatformGameEngine.vcxproj`** — add a matching `<ClCompile Include="NewFile.cpp" />` or `<ClInclude Include="NewFile.h" />` item. Without this, Visual Studio IDE builds cannot see or compile the file, and the project may fail to load if a duplicate is introduced.
+
+Always `grep` both files for the new filename before adding it — adding a filename that already exists creates a duplicate entry, which causes the `.vcxproj` to fail loading entirely.
+
+### 5.12 Build Troubleshooting
+
+| Symptom | Likely Cause | Fix |
+| --- | --- | --- |
+| `#error "No renderer selected"` | No renderer token defined — build bypassed `Includes.h` patching | Uncomment the correct `#define` in `Includes.h` or run `cmake-build.bat` |
+| `LNK1104: cannot open file 'vulkan-1.lib'` | Vulkan SDK not installed or `VULKAN_SDK` not set | Install LunarG Vulkan SDK; restart terminal; re-run `cmake-build.bat vulkan` |
+| `CANNOT Compile Resources - Please Install MSSDK` | `fxc.exe` not found | Add "HLSL Tools" via VS Installer or install the standalone Windows SDK |
+| `EBUSY` / file locked after Ctrl+C | `cl.exe` still holds object file handles | `cmake-build.bat` kills `cl.exe` at startup automatically; if running manually, terminate `cl.exe` and `mspdbsrv.exe` via Task Manager |
+| `.vcxproj` fails to load | Duplicate `<ClCompile>` or `<ClInclude>` entry | `grep` the `.vcxproj` for the duplicated filename and remove the extra entry |
+| Executable links but renders black screen | Wrong renderer token active (e.g. DX11 token with DX12 `.sln`) | Run `cmake-build.bat <correct-renderer>` to regenerate and re-patch |
+| `LNK4098: defaultlib 'LIBCMT' conflicts` | GLEW static lib CRT mismatch | Already suppressed via `/NODEFAULTLIB:LIBCMT`; should not appear with current `CMakeLists.txt` |
 
 [Back to Table of Contents](#table-of-contents)
 
@@ -827,7 +1297,7 @@ CPGE's rendering layer is split into several distinct but structurally parallel 
 The rendering constant-buffer slot layout is fixed and shared across all backends:
 
 | Slot | Purpose |
-|---|---|
+| --- | --- |
 | `b0` | World / View / Projection matrix constant buffer |
 | `b1` | Per-model light buffer |
 | `b2` | Debug information buffer |
@@ -839,7 +1309,7 @@ The rendering constant-buffer slot layout is fixed and shared across all backend
 Texture slots for the pixel shader are equally fixed:
 
 | Slot | Purpose |
-|---|---|
+| --- | --- |
 | `t0` | Diffuse / Albedo texture |
 | `t1` | Normal map |
 | `t2` | Metallic map |
@@ -1097,7 +1567,7 @@ GLTF 2.0 animations are defined as a set of channels, each targeting a specific 
 CPGE supports all three GLTF-standard interpolation modes:
 
 | Mode | Behaviour |
-|---|---|
+| --- | --- |
 | `LINEAR` | Values are linearly interpolated between adjacent keyframes (LERP for translation/scale, SLERP for quaternion rotation). |
 | `STEP` | Value holds constant at the previous keyframe until the next keyframe is reached — produces snapping transitions. |
 | `CUBICSPLINE` | Uses GLTF cubic-spline tangent data for smooth, natural motion curves (Hermite interpolation). |
@@ -1132,7 +1602,7 @@ Real-time lighting requires both CPU-side management (creating, animating, and c
 ### Light Types
 
 | Type | Description |
-|---|---|
+| --- | --- |
 | **Directional** | Infinite-distance light with a direction vector; models the sun or moon. No position, no attenuation. |
 | **Point** | Omnidirectional light at a world-space position; attenuates with distance using a constant/linear/quadratic falloff model. |
 | **Spot** | Directed cone of light at a position; defined by a direction vector and inner/outer cone angles. |
@@ -1152,7 +1622,7 @@ Each light is packed into a `LightStruct` that respects the `std140` alignment r
 The `LightsManager` supports three built-in light animation modes:
 
 | Mode | Effect |
-|---|---|
+| --- | --- |
 | **Flicker** | Random-period intensity oscillation simulating a candle or failing lamp. |
 | **Pulse** | Sinusoidal intensity sweep for a breathing or heartbeat light effect. |
 | **Strobe** | Square-wave on/off toggling at a configurable frequency. |
@@ -1174,7 +1644,7 @@ The engine implements a **Physically Based Rendering (PBR)** material model foll
 ### PBR Material Properties
 
 | Property | Description | Default |
-|---|---|---|
+| --- | --- | --- |
 | `baseColorFactor` | RGBA multiplier applied to the albedo texture | `(1, 1, 1, 1)` |
 | `metallicFactor` | 0 = dielectric, 1 = full metal | `1.0` |
 | `roughnessFactor` | 0 = mirror-smooth, 1 = fully diffuse | `1.0` |
@@ -1210,7 +1680,7 @@ Visual transitions and effects are a fundamental part of any polished game — f
 ### Effect Types
 
 | Effect | Description |
-|---|---|
+| --- | --- |
 | **Color Fade** | Full-screen fade in/out to any RGBA colour. Used for scene transitions and death/respawn sequences. |
 | **Scroll Effect** | Horizontally or vertically scrolling background image at configurable pixel speeds. |
 | **Particle Explosion** | CPU-simulated burst of coloured point particles with velocity, gravity, and lifetime. |
@@ -1236,7 +1706,7 @@ The correct scene-transition ordering is: fire fade first → call `StopAllFX()`
 ### Backend Parity
 
 | Backend | Class | Status |
-|---|---|---|
+| --- | --- | --- |
 | DirectX 11 | `FXManager` | Complete — all effects supported |
 | DirectX 12 | `DX12FXManager` | Complete — all effects supported |
 | Vulkan | `VKFXManager` | Complete — all effects supported |
@@ -1581,7 +2051,7 @@ In a frame budget of ~16.7 ms (60 fps), calling `sinf` / `cosf` hundreds of time
 ### Fast-Path Macros
 
 | Macro | Equivalent |
-|---|---|
+| --- | --- |
 | `FAST_SIN(x)` | `sinf(x)` via lookup table |
 | `FAST_COS(x)` | `cosf(x)` via lookup table |
 | `FAST_TAN(x)` | `tanf(x)` via lookup table |
@@ -1601,7 +2071,7 @@ The system also provides:
 All standard interpolation types are provided:
 
 | Function | Description |
-|---|---|
+| --- | --- |
 | `Lerp(a, b, t)` | Linear interpolation |
 | `SmoothStep(t)` | Hermite smoothstep (3t² - 2t³) |
 | `SmootherStep(t)` | Ken Perlin's smoother step (6t⁵ - 15t⁴ + 10t³) |
@@ -1633,7 +2103,7 @@ Multiplayer games require reliable, low-latency network communication with sessi
 ### Dual Protocol Support
 
 | Protocol | Use Case |
-|---|---|
+| --- | --- |
 | **TCP** | Reliable, ordered delivery — login/auth, chat, game-state synchronisation for slow-changing data. |
 | **UDP** | Low-latency, best-effort — real-time position updates, input broadcasts, fast-changing game state. |
 
@@ -1747,7 +2217,7 @@ Followed by the script body.
 ### Command Reference
 
 | Command | Purpose |
-|---|---|
+| --- | --- |
 | `VAR` | Declare a typed variable (`int`, `float`, `bool`, `string`) |
 | `FOR / BEGIN / END` | Counted loop block |
 | `Execute` | Call a registered C++ engine function by name |
@@ -1845,7 +2315,7 @@ All configuration fields are nested inside a `MyConfig myConfig` member of the `
 ### Key Configuration Fields
 
 | Field | Type | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | `rendererType` | int | 0=DX11, 1=DX12, 2=OpenGL, 3=Vulkan |
 | `resolutionWidth/Height` | int | Window / fullscreen resolution |
 | `refreshRate` | int | Target refresh rate (Hz) |
@@ -1951,7 +2421,7 @@ The GUI system uses a **layered, priority-sorted blit queue**. Each GUI element 
 ### Built-In Elements
 
 | Element | Description |
-|---|---|
+| --- | --- |
 | Window | Resizable, draggable panel with title bar and close button |
 | Button | Rectangular or round click target with up/down/hover states |
 | Slider | Horizontal or vertical value slider |
@@ -2000,7 +2470,7 @@ IDXGISwapChain1::GetBuffer(0)           WASAPI loopback → IAudioCaptureClient
 ### Encoding Specifications
 
 | Parameter | Value |
-|---|---|
+| --- | --- |
 | Video codec | H.264 (AVC) via Media Foundation |
 | Audio codec | AAC via Media Foundation |
 | Container | MP4 (`.mp4`) |
@@ -2135,7 +2605,7 @@ The `nlohmann/json` library included in CPGE is independently licensed under the
 ## 38. Contact & Contributions
 
 | Channel | Link |
-|---|---|
+| --- | --- |
 | **GitHub Repository** | [https://github.com/LordAries1972/CPGE](https://github.com/LordAries1972/CPGE) |
 | **Project Website** | [https://ultimanium.com/](https://ultimanium.com/index.php?action=cpge) |
 | **JSON Parser (Niels Lohmann)** | [https://github.com/nlohmann/json](https://github.com/nlohmann/json) |
