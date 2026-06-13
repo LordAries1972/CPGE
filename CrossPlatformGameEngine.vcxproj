@@ -157,8 +157,7 @@
     <ClCompile Include="GUIConfigWindow.cpp" />
     <ClCompile Include="GUIManager.cpp" />
     <ClCompile Include="GUIWindows.cpp" />
-    <ClCompile Include="IOStreamDX11Thread.cpp" />
-    <ClCompile Include="IOStreamDX12Thread.cpp" />
+    <ClCompile Include="IOLoaderThread.cpp" />
     <ClCompile Include="Joystick.cpp" />
     <ClCompile Include="KBHandlersCode.cpp" />
     <ClCompile Include="KeyboardHandler.cpp" />
@@ -176,13 +175,11 @@
     <ClCompile Include="OpenGLRenderer.cpp" />
     <ClCompile Include="OpenGLFXManager.cpp" />
     <ClCompile Include="OpenGLRenderFrame.cpp" />
-    <ClCompile Include="OpenGL_IOStreamThread.cpp" />
     <ClCompile Include="VulkanCamera.cpp" />
     <ClCompile Include="VulkanModels.cpp" />
     <ClCompile Include="VULKAN_Renderer.cpp" />
     <ClCompile Include="VULKAN_RenderFrame.cpp" />
     <ClCompile Include="VULKAN_FXManager.cpp" />
-    <ClCompile Include="VULKAN_IOStreamThread.cpp" />
     <ClCompile Include="Physics.cpp" />
     <ClCompile Include="PUNPack.cpp" />
     <ClCompile Include="RendererFactory.cpp" />
@@ -218,8 +215,7 @@
     <ClInclude Include="GLTFAnimator.h" />
     <ClInclude Include="GUIManager.h" />
     <ClInclude Include="Includes.h" />
-    <ClInclude Include="IOStreamDX11Thread.h" />
-    <ClInclude Include="IOStreamDX12Thread.h" />
+    <ClInclude Include="IOLoaderThread.h" />
     <ClInclude Include="Joystick.h" />
     <ClInclude Include="KeyboardHandler.h" />
     <ClInclude Include="Lights.h" />
@@ -234,7 +230,6 @@
     <ClInclude Include="OpenGLModels.h" />
     <ClInclude Include="OpenGLRenderer.h" />
     <ClInclude Include="OpenGLFXManager.h" />
-    <ClInclude Include="OpenGL_IOStreamThread.h" />
     <ClInclude Include="Physics.h" />
     <ClInclude Include="PUNPack.h" />
     <ClInclude Include="Renderer.h" />
@@ -252,7 +247,6 @@
     <ClInclude Include="VulkanModels.h" />
     <ClInclude Include="VULKAN_Renderer.h" />
     <ClInclude Include="VULKAN_FXManager.h" />
-    <ClInclude Include="VULKAN_IOStreamThread.h" />
     <ClInclude Include="WinMediaPlayer.h" />
     <ClInclude Include="WinSystem.h" />
     <ClInclude Include="XMMODPlayer.h" />

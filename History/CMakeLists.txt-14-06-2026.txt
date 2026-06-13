@@ -1,0 +1,5 @@
+// CMakeLists.txt -- change log 14-06-2026
+// Replaced four per-pipeline IOStream source files with the unified IOLoaderThread.cpp:
+//   Removed: IOStreamDX11Thread.cpp, IOStreamDX12Thread.cpp,
+//            OpenGL_IOStreamThread.cpp, VULKAN_IOStreamThread.cpp
+//   Added:   IOLoaderThread.cpp

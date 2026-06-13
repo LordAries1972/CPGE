@@ -1,14 +1,14 @@
-﻿// -------------------------------------------------------------------------------------------------------------
+// -------------------------------------------------------------------------------------------------------------
 // Notes Last Modified: 07-03-2025
 //
 // This is the implementation of the DX11Renderer class, which is a concrete implementation of the Renderer.
 // It uses DirectX 11 for rendering 3D graphics and Direct2D/DirectWrite for 2D graphics and text rendering.
 // The class is responsible for initializing the rendering pipeline, loading shaders, and rendering 3D/2D objects.
-// 
+//
 // The DX11Renderer class is designed to be used in a multithreaded environment, where the rendering is done.
 // in a separate thread to avoid blocking the main thread. The class provides methods for rendering 2D and 3D
 // objects, as well as text rendering and texture loading.
-// 
+//
 // ============
 // PLEASE NOTE:
 // ============
@@ -98,7 +98,7 @@ class DeltaTimeSmoothing
         DeltaTimeSmoothing() : historyIndex(0), smoothedDelta(0.0f), frameTargetTime(1.0f / 60.0f),
             accumulatedError(0.0f), isInitialized(false)
         {
-            
+
             // Initialize delta history with target frame time
             for (int i = 0; i < HISTORY_SIZE; ++i)
             {
@@ -240,7 +240,7 @@ public:
 
     // Internal Help functions
     void* GetDevice() override;                                                 // Returns m_device.Get() as void* pointer
-    void* GetDeviceContext() override;                                          // Returns m_deviceContext.Get() as void* pointer  
+    void* GetDeviceContext() override;                                          // Returns m_deviceContext.Get() as void* pointer
     void* GetSwapChain() override;                                              // Returns m_swapChain.Get() as void* pointer
 
     // Our function and procedure definitions for this class.
@@ -267,18 +267,18 @@ public:
     // GuiManager Render functions.
     void DrawMyTextCentered(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize, float controlWidth, float controlHeight, bool bold = false) override;
 
-    // 2D clip rect — scissors all D2D drawing to the specified screen rectangle.
+    // 2D clip rect -- scissors all D2D drawing to the specified screen rectangle.
     void PushClipRect(float x, float y, float w, float h) override;
     void PopClipRect() override;
-    
+
     // Helper Functions
     bool SetFullScreen(void) override;
     bool SetFullExclusive(uint32_t width, uint32_t height) override;
     bool SetWindowedScreen(void) override;
-    
+
     // Window resize management function - waits for renderer completion then pauses render thread
     void WaitToFinishThenPauseThread() override;
-	
+
     // Base class overrides
     void DrawRectangle(const Vector2& position, const Vector2& size, const MyColor& color, bool is2D) override;
     void DrawCircle(const Vector2& center, float radius, const MyColor& color, bool filled = true) override;
@@ -310,7 +310,7 @@ private:
     bool bHasCleanedUp = false;
     bool m_supportsEffects = true;
 
-    // GPU capability flags — populated during swap-chain creation, used for adaptive quality
+    // GPU capability flags -- populated during swap-chain creation, used for adaptive quality
     UINT64 m_dedicatedVRAMMB   = 0;
     UINT64 m_sharedSystemMemMB = 0;
     bool   m_isUMA             = false;   // true for integrated/UMA architectures

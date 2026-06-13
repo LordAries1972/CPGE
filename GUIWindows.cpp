@@ -644,7 +644,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
 
                 // Screen is black — hand off to the loader thread which owns all
                 // scene initialisation (SaveAndSuspendFXForScene + Init3DWarpDOTTunnel
-                // + FadeToImage are all called from SCENE_EXPERIMENT in IOStreamDX11Thread).
+                // + FadeToImage are all called from SCENE_EXPERIMENT in IOLoaderThread.cpp).
                 scene.SetGotoScene(SCENE_EXPERIMENT);
                 scene.InitiateScene();
                 scene.SetGotoScene(SCENE_NONE);

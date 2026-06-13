@@ -1,0 +1,23 @@
+// DX11Renderer.cpp -- Change record for 13-06-2026
+// Full source: f:\Projects\C++\CPGE2026\DX11Renderer.cpp
+// Previous history: DX11Renderer.cpp-06-06-2026.txt
+//
+// === Changes made on 13-06-2026 ===
+//
+// 1. GetOrCreateTextFormat() -- Added DWRITE_FONT_WEIGHT parameter (default = NORMAL)
+//    Signature change:
+//      Before: IDWriteTextFormat* GetOrCreateTextFormat(const wchar_t* fontName, float fontSize)
+//      After:  IDWriteTextFormat* GetOrCreateTextFormat(const wchar_t* fontName, float fontSize,
+//                                                        DWRITE_FONT_WEIGHT weight = DWRITE_FONT_WEIGHT_NORMAL)
+//    Cache key now includes weight so BOLD and NORMAL formats are stored separately.
+//    All existing 2-arg callers are unaffected (default weight = NORMAL).
+//
+// 2. DrawMyTextCentered() -- Eliminated per-frame IDWriteTextFormat COM allocation
+//    Before: Created fresh IDWriteTextFormat via CreateTextFormat() on every call (expensive).
+//    After:  Uses GetOrCreateTextFormat(FontName, FontSize, DWRITE_FONT_WEIGHT_BOLD) -- cached.
+//    IDWriteTextLayout is still created per call (required to measure the specific text string).
+//    This eliminates one COM allocation per GUI element per frame, matching DX12/Vulkan behaviour.
+//
+// Key changed functions (approx. line numbers in current source):
+//   ~234: GetOrCreateTextFormat() -- signature + key now includes weight
+//   ~978: DrawMyTextCentered()    -- uses GetOrCreateTextFormat instead of raw CreateTextFormat

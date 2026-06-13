@@ -1,3 +1,0 @@
-WarpDotTunnel circular sway, Y axis, look-ahead 5 (Vulkan) — 16/05/2026 (fourth pass)
-
-Identical changes to DX_FXManager.cpp-16-05-2026d.txt applied to VKFXManager.

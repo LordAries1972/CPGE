@@ -1,0 +1,8 @@
+// CrossPlatformGameEngine.vcxproj -- change log 14-06-2026
+// Replaced four per-pipeline IOStream entries with unified IOLoaderThread:
+//   ClCompile: removed IOStreamDX11Thread.cpp, IOStreamDX12Thread.cpp,
+//              OpenGL_IOStreamThread.cpp, VULKAN_IOStreamThread.cpp
+//   ClCompile: added IOLoaderThread.cpp
+//   ClInclude: removed IOStreamDX11Thread.h, IOStreamDX12Thread.h,
+//              OpenGL_IOStreamThread.h, VULKAN_IOStreamThread.h
+//   ClInclude: added IOLoaderThread.h

@@ -1,5 +1,0 @@
-// History file for Includes.h — 18-05-2026c
-// Change: Added #define GLEW_STATIC before #include <GL/glew.h>
-//         Fixes LNK4217/LNK4286 — GLEW symbols were declared as __declspec(dllimport)
-//         because GLEW_STATIC was not defined in all translation units that include Includes.h
-//         (only OpenGLRenderer.h and OpenGLFXManager.h had it, but not the path through Includes.h).

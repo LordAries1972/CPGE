@@ -231,16 +231,17 @@ ComPtr<ID3D11DeviceContext> DX11Renderer::GetImmediateContext() const {
     return m_d3dContext;
 }
 
-IDWriteTextFormat* DX11Renderer::GetOrCreateTextFormat(const wchar_t* fontName, float fontSize)
+IDWriteTextFormat* DX11Renderer::GetOrCreateTextFormat(const wchar_t* fontName, float fontSize,
+                                                        DWRITE_FONT_WEIGHT weight)
 {
     if (!m_dwriteFactory) return nullptr;
-    TextFormatKey key{ fontName, fontSize };
+    TextFormatKey key{ fontName, fontSize, weight };
     auto it = m_textFormatCache.find(key);
     if (it != m_textFormatCache.end()) return it->second.Get();
 
     ComPtr<IDWriteTextFormat> fmt;
     HRESULT hr = m_dwriteFactory->CreateTextFormat(
-        fontName, nullptr, DWRITE_FONT_WEIGHT_NORMAL,
+        fontName, nullptr, weight,
         DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
         fontSize, L"en-us", &fmt);
     if (FAILED(hr)) return nullptr;
@@ -980,21 +981,18 @@ void DX11Renderer::DrawMyTextCentered(const std::wstring& text, const Vector2& p
     if (text.empty() || FontSize <= 0.0f) return;
 
     // Bold weight matches the DX12/Vulkan pipeline treatment.
-    // A fresh format per call is required because alignment is mutated below.
-    ComPtr<IDWriteTextFormat> textFormat;
-    HRESULT hr = m_dwriteFactory->CreateTextFormat(
-        FontName, nullptr, DWRITE_FONT_WEIGHT_BOLD,
-        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        FontSize, L"en-us", &textFormat);
-    if (FAILED(hr)) return;
+    // Format is cached per (font, size, weight) — only the layout (which captures the text
+    // string) is created per call, which is unavoidable for metric measurement.
+    IDWriteTextFormat* textFormat = GetOrCreateTextFormat(FontName, FontSize, DWRITE_FONT_WEIGHT_BOLD);
+    if (!textFormat) return;
 
     // Measure actual text extents via TextLayout so the centred position is
     // exact at any DPI.  DWRITE_PARAGRAPH_ALIGNMENT_CENTER alone is unreliable
     // on ID2D1RenderTarget (DXGI surface) at non-96-DPI system scales.
     ComPtr<IDWriteTextLayout> textLayout;
-    hr = m_dwriteFactory->CreateTextLayout(
+    HRESULT hr = m_dwriteFactory->CreateTextLayout(
         text.c_str(), static_cast<UINT32>(text.size()),
-        textFormat.Get(), 10000.0f, 1000.0f, &textLayout);
+        textFormat, 10000.0f, 1000.0f, &textLayout);
     if (FAILED(hr)) return;
 
     DWRITE_TEXT_METRICS metrics;
@@ -1012,7 +1010,7 @@ void DX11Renderer::DrawMyTextCentered(const std::wstring& text, const Vector2& p
 
     // Draw at the exact measured rect — horizontal and vertical centering is guaranteed
     m_d2dRenderTarget->DrawText(
-        text.c_str(), static_cast<UINT32>(text.size()), textFormat.Get(),
+        text.c_str(), static_cast<UINT32>(text.size()), textFormat,
         D2D1::RectF(centredX, centredY, centredX + metrics.width, centredY + metrics.height),
         m_pixelBrush.Get()
     );

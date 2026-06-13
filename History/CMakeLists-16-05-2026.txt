@@ -1,4 +1,0 @@
-CMakeLists.txt - Edited 16-05-2026
-===================================
-Changes:
-  - Added ConsoleWindow.cpp to the SOURCES list (between Configuration.cpp and Debug.cpp).

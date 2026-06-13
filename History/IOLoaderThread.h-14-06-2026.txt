@@ -1,0 +1,21 @@
+#pragma once
+
+/* ----------------------------------------------------------------
+   IOLoaderThread.h -- Unified I/O Loader Thread header.
+   Replaces the four per-pipeline headers:
+       IOStreamDX11Thread.h  / IOStreamDX12Thread.h
+       OpenGL_IOStreamThread.h / VULKAN_IOStreamThread.h
+   Only the block matching the active renderer define is compiled.
+---------------------------------------------------------------- */
+
+#include "Renderer.h"
+
+#if defined(__USE_DIRECTX_11__)
+    #include "DX11Renderer.h"
+#elif defined(__USE_DIRECTX_12__)
+    #include "DX12Renderer.h"
+#elif defined(__USE_OPENGL__)
+    #include "OpenGLRenderer.h"
+#elif defined(__USE_VULKAN__)
+    #include "VULKAN_Renderer.h"
+#endif

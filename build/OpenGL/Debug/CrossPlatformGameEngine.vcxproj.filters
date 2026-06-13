@@ -64,10 +64,7 @@
     <ClCompile Include="F:\Projects\C++\CPGE2026\GUIWindows.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="F:\Projects\C++\CPGE2026\IOStreamDX11Thread.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="F:\Projects\C++\CPGE2026\IOStreamDX12Thread.cpp">
+    <ClCompile Include="F:\Projects\C++\CPGE2026\IOLoaderThread.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="F:\Projects\C++\CPGE2026\Joystick.cpp">
@@ -115,9 +112,6 @@
     <ClCompile Include="F:\Projects\C++\CPGE2026\OpenGLRenderFrame.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="F:\Projects\C++\CPGE2026\OpenGL_IOStreamThread.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="F:\Projects\C++\CPGE2026\VulkanCamera.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -131,9 +125,6 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="F:\Projects\C++\CPGE2026\VULKAN_FXManager.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="F:\Projects\C++\CPGE2026\VULKAN_IOStreamThread.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="F:\Projects\C++\CPGE2026\Physics.cpp">

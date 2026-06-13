@@ -1477,7 +1477,11 @@ void VulkanRenderer::CreateOverlayResources(uint32_t width, uint32_t height)
     }
 
     if (overlayOk) {
-        hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, m_d2dFactory.GetAddressOf());
+        // MULTI_THREADED: the factory is created on the main thread (Initialize) but all D2D
+        // methods are called from THREAD_RENDERER (RenderFrame).  SINGLE_THREADED provides no
+        // internal locking, causing access violations inside DWrite when the render thread uses
+        // D2D resources derived from a factory that was created on a different thread.
+        hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_MULTI_THREADED, m_d2dFactory.GetAddressOf());
         if (FAILED(hr)) {
             debug.logLevelMessage(LogLevel::LOG_ERROR, L"[VulkanRenderer] D2D1CreateFactory failed — 2D overlay disabled.");
             overlayOk = false;

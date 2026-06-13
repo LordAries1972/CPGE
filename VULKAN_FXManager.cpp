@@ -175,7 +175,7 @@ void VKFXManager::StopAllFXForResize() {
 void VKFXManager::RestartFXAfterResize() {
     try {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        // Effects are restarted by the loader thread (see VULKAN_IOStreamThread)
+        // Effects are restarted by the loader thread (see IOLoaderThread.cpp — Vulkan block)
 #if defined(PLATFORM_WINDOWS)
         SecureZeroMemory(&m_savedFXState, sizeof(VKActiveFXState));
 #else

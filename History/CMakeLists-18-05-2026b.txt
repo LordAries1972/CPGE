@@ -1,5 +1,0 @@
-// History file for CMakeLists.txt — 18-05-2026b
-// Changes:
-//   1. Added GLEW_STATIC to target_compile_definitions — fixes LNK4217/LNK4286 for cmake builds
-//   2. Added /NODEFAULTLIB:LIBCMT to Debug link options — fixes LNK4098 (glew32s.lib built /MT, project uses /MTd)
-//   3. Added /ignore:4099 to link options — suppresses LNK4099 (glew32s.lib has no PDB)

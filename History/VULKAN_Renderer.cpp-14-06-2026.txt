@@ -1,0 +1,3 @@
+// VULKAN_Renderer.cpp -- change log 14-06-2026
+// Updated comment on line 51: s_loaderMutex ownership note now references
+// IOLoaderThread.cpp (__USE_VULKAN__ block) instead of the retired VULKAN_IOStreamThread.cpp.

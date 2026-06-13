@@ -61,8 +61,7 @@ set(SOURCES
     GUIConfigWindow.cpp
     GUIManager.cpp
     GUIWindows.cpp
-    IOStreamDX11Thread.cpp
-    IOStreamDX12Thread.cpp
+    IOLoaderThread.cpp
     Joystick.cpp
     KBHandlersCode.cpp
     KeyboardHandler.cpp
@@ -78,13 +77,11 @@ set(SOURCES
     OpenGLRenderer.cpp
     OpenGLFXManager.cpp
     OpenGLRenderFrame.cpp
-    OpenGL_IOStreamThread.cpp
     VulkanCamera.cpp
     VulkanModels.cpp
     VULKAN_Renderer.cpp
     VULKAN_RenderFrame.cpp
     VULKAN_FXManager.cpp
-    VULKAN_IOStreamThread.cpp
     Physics.cpp
     PUNPack.cpp
     RendererFactory.cpp

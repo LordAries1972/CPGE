@@ -1,8 +1,0 @@
-// History file for CrossPlatformGameEngine.vcxproj — 18-05-2026b
-// Changes:
-//   1. Added GLEW_STATIC to PreprocessorDefinitions in both Debug and Release ClCompile blocks
-//      — fixes LNK4217/LNK4286 (GLEW symbols treated as dllimport when using static glew32s.lib)
-//   2. Added <IgnoreSpecificDefaultLibraries>LIBCMT to Debug Link block
-//      — fixes LNK4098 (glew32s.lib built with /MT but debug build uses /MTd)
-//   3. Added <AdditionalOptions>/ignore:4099 to Debug and Release Link blocks
-//      — suppresses LNK4099 (prebuilt glew32s.lib has no PDB file)

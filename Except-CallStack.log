@@ -1,0 +1,96 @@
+===========================================================
+  EXCEPTION CALL-STACK LOG
+  Generated  : 2026-06-14 00:47:52
+===========================================================
+  Exception  : string too long
+  Address    : 0x0000000000000000
+  Thread ID  : 15168
+  Process ID : 9996
+  Platform   : Windows x64  [DEBUG BUILD]
+===============================================================
+  CALL STACK TRACE (17 of 17 frames captured, showing up to 100)
+===============================================================
+  #00  Address  : 0x00007FF60E16B8D1
+       Function : ExceptionHandler::GetCurrentStackTrace  +0xA1
+       Module   : OpenGLCPGE.exe
+       Source   : F:\Projects\C++\CPGE2026\ExceptionHandler.cpp  Line 492
+       --------
+  #01  Address  : 0x00007FF60E16B069
+       Function : ExceptionHandler::LogException  +0x179
+       Module   : OpenGLCPGE.exe
+       Source   : F:\Projects\C++\CPGE2026\ExceptionHandler.cpp  Line 384
+       --------
+  #02  Address  : 0x00007FF60E4FF9ED
+       Function : `OpenGLRenderer::RenderFrame'::`1'::catch$50  +0x160
+       Module   : OpenGLCPGE.exe
+       Source   : F:\Projects\C++\CPGE2026\OpenGLRenderFrame.cpp  Line 920
+       --------
+  #03  Address  : 0x00007FFE59BB6F40
+       Function : _CxxFrameHandler4  +0x300
+       Module   : VCRUNTIME140_1D.dll
+       --------
+  #04  Address  : 0x00007FFE59BB389E
+       Function : 0x7FFE59BB389E
+       Module   : VCRUNTIME140_1D.dll
+       --------
+  #05  Address  : 0x00007FFE72C156F6
+       Function : RtlCaptureContext2  +0x4A6
+       Module   : ntdll.dll
+       --------
+  #06  Address  : 0x00007FF60E35D88C
+       Function : OpenGLRenderer::RenderFrame  +0x1E8C
+       Module   : OpenGLCPGE.exe
+       Source   : F:\Projects\C++\CPGE2026\OpenGLRenderFrame.cpp  Line 852
+       --------
+  #07  Address  : 0x00007FF60E326CD0
+       Function : <lambda_e6c450932ffccfa2ac41fe0c81556deb>::operator()  +0x20
+       Module   : OpenGLCPGE.exe
+       Source   : F:\Projects\C++\CPGE2026\OpenGLRenderer.cpp  Line 372
+       --------
+  #08  Address  : 0x00007FF60E32CB94
+       Function : std::invoke<<lambda_e6c450932ffccfa2ac41fe0c81556deb> &>  +0x14
+       Module   : OpenGLCPGE.exe
+       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\type_traits  Line 1732
+       --------
+  #09  Address  : 0x00007FF60E32741B
+       Function : std::_Func_impl_no_alloc<<lambda_e6c450932ffccfa2ac41fe0c81556deb>,void>::_Do_call  +0x1B
+       Module   : OpenGLCPGE.exe
+       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\functional  Line 812
+       --------
+  #10  Address  : 0x00007FF60E21DD7F
+       Function : std::_Func_class<void>::operator()  +0x3F
+       Module   : OpenGLCPGE.exe
+       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\functional  Line 855
+       --------
+  #11  Address  : 0x00007FF60E436ED1
+       Function : <lambda_dd2697aa664ef728d133395579b41d2d>::operator()  +0x1D1
+       Module   : OpenGLCPGE.exe
+       Source   : F:\Projects\C++\CPGE2026\ThreadManager.cpp  Line 168
+       --------
+  #12  Address  : 0x00007FF60E43C2C4
+       Function : std::invoke<<lambda_dd2697aa664ef728d133395579b41d2d> >  +0x14
+       Module   : OpenGLCPGE.exe
+       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\type_traits  Line 1732
+       --------
+  #13  Address  : 0x00007FF60E43A666
+       Function : std::thread::_Invoke<std::tuple<<lambda_dd2697aa664ef728d133395579b41d2d> >,0>  +0x76
+       Module   : OpenGLCPGE.exe
+       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\thread  Line 61
+       --------
+  #14  Address  : 0x00007FFDDF3C2EC5
+       Function : register_onexit_function  +0xF5
+       Module   : ucrtbased.dll
+       --------
+  #15  Address  : 0x00007FFE70CD259D
+       Function : BaseThreadInitThunk  +0x1D
+       Module   : KERNEL32.DLL
+       --------
+  #16  Address  : 0x00007FFE72BCAF78
+       Function : RtlUserThreadStart  +0x28
+       Module   : ntdll.dll
+========================================================
+  BREADCRUMB TRAIL  (last RECORD_FUNCTION_CALL() entries
+========================================================
+  23.  WinMain
+  24.  LoaderTaskThread
+  25.  OpenGLRenderer::RenderFrame

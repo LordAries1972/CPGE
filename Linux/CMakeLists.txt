@@ -44,7 +44,7 @@ message(STATUS "Output     : ${EXE_OUTPUT_NAME}")
 # ── Sources ───────────────────────────────────────────────────────────────────
 # Windows-only files are excluded:
 #   DX11Renderer, DX12Renderer, DXCamera, DXRenderFrame, DX_FXManager,
-#   IOStreamDX11Thread, IOStreamDX12Thread, WinMediaPlayer, WinSystem
+#   WinMediaPlayer, WinSystem
 # CrossPlatformGameEngine.rc (Windows resource file) is also excluded.
 # MySteam is excluded (deferred to release).
 set(SOURCES
@@ -75,7 +75,7 @@ set(SOURCES
     ${SRC_DIR}/OpenGLModels.cpp
     ${SRC_DIR}/OpenGLRenderFrame.cpp
     ${SRC_DIR}/OpenGLRenderer.cpp
-    ${SRC_DIR}/OpenGL_IOStreamThread.cpp
+    ${SRC_DIR}/IOLoaderThread.cpp
     ${SRC_DIR}/Physics.cpp
     ${SRC_DIR}/PUNPack.cpp
     ${SRC_DIR}/RendererFactory.cpp
@@ -90,7 +90,7 @@ set(SOURCES
     ${SRC_DIR}/VulkanCamera.cpp
     ${SRC_DIR}/VulkanModels.cpp
     ${SRC_DIR}/VULKAN_FXManager.cpp
-    ${SRC_DIR}/VULKAN_IOStreamThread.cpp
+    # IOLoaderThread.cpp already listed above — covers both OpenGL and Vulkan paths
     ${SRC_DIR}/VULKAN_RenderFrame.cpp
     ${SRC_DIR}/VULKAN_Renderer.cpp
     ${SRC_DIR}/XMMODPlayer.cpp

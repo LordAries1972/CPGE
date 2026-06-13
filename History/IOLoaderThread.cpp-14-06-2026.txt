@@ -1,0 +1,7 @@
+// IOLoaderThread.cpp -- created 14-06-2026
+// Unified I/O Loader Thread: replaces IOStreamDX11Thread.cpp, IOStreamDX12Thread.cpp,
+// OpenGL_IOStreamThread.cpp, VULKAN_IOStreamThread.cpp.
+// All four pipelines share ONE LoaderTaskThread() function body.
+// Per-renderer divergences (OpenGL glFlush/wglMakeCurrent, Vulkan camera path,
+// platform-only system calls) are handled with inline #if guards.
+// See IOLoaderThread.cpp for full source.

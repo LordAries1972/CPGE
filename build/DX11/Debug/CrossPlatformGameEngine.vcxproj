@@ -808,8 +808,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="F:\Projects\C++\CPGE2026\GUIConfigWindow.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\GUIManager.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\GUIWindows.cpp" />
-    <ClCompile Include="F:\Projects\C++\CPGE2026\IOStreamDX11Thread.cpp" />
-    <ClCompile Include="F:\Projects\C++\CPGE2026\IOStreamDX12Thread.cpp" />
+    <ClCompile Include="F:\Projects\C++\CPGE2026\IOLoaderThread.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\Joystick.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\KBHandlersCode.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\KeyboardHandler.cpp" />
@@ -825,13 +824,11 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="F:\Projects\C++\CPGE2026\OpenGLRenderer.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\OpenGLFXManager.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\OpenGLRenderFrame.cpp" />
-    <ClCompile Include="F:\Projects\C++\CPGE2026\OpenGL_IOStreamThread.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\VulkanCamera.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\VulkanModels.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\VULKAN_Renderer.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\VULKAN_RenderFrame.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\VULKAN_FXManager.cpp" />
-    <ClCompile Include="F:\Projects\C++\CPGE2026\VULKAN_IOStreamThread.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\Physics.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\PUNPack.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\RendererFactory.cpp" />

@@ -1,7 +1,0 @@
-WarpDotTunnel sway fix + quartic speed (Vulkan) — 16/05/2026 (second pass)
-
-VKFXManager::UpdateWarpDotTunnel — identical fixes to DX counterpart:
-- Sway rewritten to pathT-based proportional offset; far rings carry full sway, near rings carry none.
-- Quartic speed: forward 0.1 + t^4 * 12.0, reverse 0.1 + t^4 * 6.0.
-- furthestIdx index scan removed; range-for loop restored.
-See DX_FXManager.cpp-16-05-2026b.txt for full explanation.

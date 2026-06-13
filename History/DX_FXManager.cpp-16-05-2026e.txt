@@ -1,6 +1,0 @@
-WarpDotTunnel look-ahead 20 — 16/05/2026 (fifth pass)
-
-UpdateWarpDotTunnel:
-- Camera look-ahead index changed from min(4,...) to min(19,...) — 20th-nearest ring
-  used as target; further lookahead to reduce visual jerkiness during fast approach.
-Same change applied to VULKAN_FXManager.cpp.

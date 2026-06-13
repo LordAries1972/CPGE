@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1670*
+*Current Build Version: v0.0.1681*
 
 ---
 
@@ -55,7 +55,7 @@ lets make this Engine great!
 #### 2026
 
 - [June 2026](#june-2026---opengl-pipeline-fixes)
-  - [01](#june-01-2026) · [02](#june-02-2026) · [03](#june-03-2026) · [04](#june-04-2026) · [05](#june-05-2026) · [06](#june-06-2026) · [07](#june-07-2026) · [08](#june-08-2026) · [11](#june-11-2026) · [12](#june-12-2026) · [13](#june-13-2026)
+  - [01](#june-01-2026) · [02](#june-02-2026) · [03](#june-03-2026) · [04](#june-04-2026) · [05](#june-05-2026) · [06](#june-06-2026) · [07](#june-07-2026) · [08](#june-08-2026) · [11](#june-11-2026) · [12](#june-12-2026) · [13](#june-13-2026) · [14](#june-14-2026)
 - [May 2026](#may-2026---more-major-updates-and-fixes)
   - [02](#may-02-2026) · [03-04](#may-03-04-2026) · [06](#may-06-2026) · [08](#may-08-2026) · [10](#may-10-2026) · [11](#may-11-2026) · [14](#may-14-2026) · [15](#may-15-2026) · [16](#may-16-2026) · [17](#may-17-2026) · [18](#may-18-2026) · [19](#may-19-2026) · [20](#may-20-2026) · [21](#may-21-2026) · [22](#may-22-2026) · [23](#may-23-2026) · [24](#may-24-2026) · [28](#may-28-2026) · [29](#may-29-2026) · [30](#may-30-2026) · [31](#may-31-2026)
 - [April 2026](#april-2026---bug-fixes-and-updates)
@@ -3367,9 +3367,47 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
   All four renderer targets (DX11, DX12, OpenGL, Vulkan) compiled clean after the change.
 - *See: [`SceneManager.cpp`](SceneManager.cpp), [`FBXImport.cpp`](FBXImport.cpp), [`FBXImport.h`](FBXImport.h), [`Models.h`](Models.h), [`Models.cpp`](Models.cpp), [`DX12Models.cpp`](DX12Models.cpp), [`OpenGLModels.cpp`](OpenGLModels.cpp), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`VULKAN_Renderer.h`](VULKAN_Renderer.h)*
 
+#### June 14, 2026
+
+- **Refactor — Consolidated all four per-pipeline I/O Loader Thread files into a single unified `IOLoaderThread.h` / `IOLoaderThread.cpp`** (`IOLoaderThread.h`, `IOLoaderThread.cpp`, `CMakeLists.txt`, `Linux/CMakeLists.txt`, `CrossPlatformGameEngine.vcxproj`):
+  The four renderer-specific loader source files (`IOStreamDX11Thread`, `IOStreamDX12Thread`, `OpenGL_IOStreamThread`, `VULKAN_IOStreamThread`) have been merged into one file pair for easier management. All four pipelines share a single `LoaderTaskThread()` function body — the function signature is selected via a `#if / #elif` chain on the renderer define (one definition is compiled per build), and per-pipeline divergences are handled by inline conditional guards only where they genuinely differ:
+  - **OpenGL** — `wglMakeCurrent` loader-context setup/teardown, `glFlush()` after texture uploads and at key scene boundaries, `SCENE_INTRO_MOVIE` case, camera-rebuild on resize, and the always-triggered `FadeToImage` after load.
+  - **Vulkan** — camera setup uses `iOrigWidth`/`iOrigHeight` directly (original behaviour preserved), starfield spread count of 150 on resize.
+  - **Platform** — `SecureZeroMemory`, `ProcessMessages`, `GetMessageAndProcess`, COM init/uninit, and `ShaderManager`/`WinSystem` includes all guarded by `#if defined(PLATFORM_WINDOWS)`.
+  - **DX11/DX12** — `player.Initialize(hwnd)` in the MP3 scene, `s_loaderMutex` definitions (DX12 keeps its definition in `DX12Renderer.cpp`; OpenGL keeps its in `OpenGLRenderer.cpp`).
+  The `fxManager` extern type is selected by a `#if / #elif` chain (`FXManager` / `GLFXManager` / `VKFXManager`). All build files updated: Windows `CMakeLists.txt`, `Linux/CMakeLists.txt`, and `CrossPlatformGameEngine.vcxproj` now reference `IOLoaderThread.cpp`/`.h` in place of the four retired files. Stale comments in `VULKAN_Renderer.cpp`, `VULKAN_FXManager.cpp`, and `GUIWindows.cpp` updated to reference `IOLoaderThread.cpp`.
+- *See: [`IOLoaderThread.h`](IOLoaderThread.h), [`IOLoaderThread.cpp`](IOLoaderThread.cpp), [`CMakeLists.txt`](CMakeLists.txt), [`Linux/CMakeLists.txt`](Linux/CMakeLists.txt), [`CrossPlatformGameEngine.vcxproj`](CrossPlatformGameEngine.vcxproj)*
+
 - **Docs — `Model-Example-Usage.md`: new "OpenGL Texture Pipeline" and "UV Settings (all pipelines)" sections** (`Docs/Model-Example-Usage.md`):
   Documents the `RefreshOpenGLTextures()` requirement for post-setup material rebinds (mirroring the DX12 rule), the KHR_texture_transform / FBX UV-transform baking strategy, and the per-renderer wrap-mode application table.
 - *See: [`Docs/Model-Example-Usage.md`](Docs/Model-Example-Usage.md)*
+
+- **Fix — Window resize revalidation now fully correct across all four render pipelines** (`main.cpp`, `IOStreamDX11Thread.cpp`, `IOStreamDX12Thread.cpp`, `VULKAN_IOStreamThread.cpp`):
+  Two proven bugs prevented resize from restoring the active scene correctly on DX12, OpenGL, and Vulkan:
+  - **`main.cpp` — `bIsMinimized` guard was DX11-only**: The `renderer->bIsMinimized.store(false)` call inside the resize scene-switch block was wrapped in `#if defined(__USE_DIRECTX_11__)`, so DX12/OpenGL/Vulkan pipelines never cleared the minimized flag during a valid resize and could silently skip render frames afterward. The guard is removed — all pipelines now clear the flag unconditionally for valid resize operations.
+  - **Loader threads (DX11/DX12/Vulkan) — SCENE_GAMEPLAY had no resize else-branch**: When `wasResizing` is true the loader must skip the heavy first-load work (lights, scene parse, audio) and instead perform only the resize-specific refresh. OpenGL's IOStreamThread already had a complete `else` branch (GUI refit + fade-in); DX11, DX12, and Vulkan lacked it entirely, leaving the resize path a no-op with no GUI update and no fade-in. Each thread now has an identical else-branch: `guiManager.OnWindowResize(iOrigWidth, iOrigHeight)` repositions GUI elements to the new client dimensions, followed by `fxManager.FadeToImage(1.0f, 0.08f)` for a smooth visual transition. `SetupDefaultCamera` is deliberately omitted from the GAMEPLAY else-branch — `RestoreCameraStateAfterResize()` (called earlier in WM_SIZE) already rebuilds the projection matrix from the new `winMetrics` dimensions while preserving the player's camera position.
+- *See: [`main.cpp`](main.cpp), [`IOStreamDX11Thread.cpp`](IOStreamDX11Thread.cpp), [`IOStreamDX12Thread.cpp`](IOStreamDX12Thread.cpp), [`VULKAN_IOStreamThread.cpp`](VULKAN_IOStreamThread.cpp)*
+
+- **Fix — DX12 `Camera::SetPosition` called with wrong argument type** (`IOStreamDX12Thread.cpp`):
+  Two call sites in the SCENE_GAMETITLE first-load and resize paths passed a single `XMFLOAT3` (`gtCameraStart`) to `Camera::SetPosition`, which only accepts `(float x, float y, float z)`. Both now expand to `gtCameraStart.x, gtCameraStart.y, gtCameraStart.z`, matching the call convention used by DX11, OpenGL, and Vulkan.
+- *See: [`IOStreamDX12Thread.cpp`](IOStreamDX12Thread.cpp)*
+
+- **Critical fix — Vulkan crash on startup: D2D factory created with wrong thread model** (`VULKAN_Renderer.cpp`):
+  `SEH 0xC0000005` access violation inside `memcpy` in DWrite's `DrawTextW` — the entire D2D + DWrite call chain was corrupted by a thread-safety violation. `CreateOverlayResources()` (called from `VulkanRenderer::Initialize`, which runs on the main/WinMain thread) created the D2D factory with `D2D1_FACTORY_TYPE_SINGLE_THREADED`. `D2D1_FACTORY_TYPE_SINGLE_THREADED` provides **no internal serialisation** — the caller is solely responsible for ensuring single-threaded access. However, all D2D draw calls (`DrawText`, `CreateSolidColorBrush`, `CreateTextFormat`, etc.) run inside `RenderFrame()` on `THREAD_RENDERER`, a separate thread. Cross-thread use of a `SINGLE_THREADED` factory is undefined behaviour; it manifests as a memcpy AV inside DWrite when the render thread races against the factory's internal (unsynchronised) heap structures. The factory type is now `D2D1_FACTORY_TYPE_MULTI_THREADED`, which adds fine-grained internal locking for concurrent access — matching the DX11 path that has always been `MULTI_THREADED` and has never exhibited this crash.
+- *See: [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp)*
+
+- **Fix — DX11 and DX12 GAMETITLE resize did not restore camera resolution tracking or title-screen orientation** (`IOStreamDX11Thread.cpp`, `IOStreamDX12Thread.cpp`):
+  After a window resize, the SCENE_GAMETITLE `else`-branch in both loader threads called `SetupDefaultCamera()` but omitted two calls that the working OpenGL and Vulkan resize paths both make:
+  - `myCamera.UpdateResolution(camW, camH, AR)` — OpenGL calls this unconditionally after `SetupDefaultCamera`; it writes the new width/height/aspect-ratio into the camera's internal tracking fields (`m_screenWidth/Height/m_aspectRatio`) and calls `UpdateProjectionMatrix()` + `UpdateViewMatrix()` from the current yaw/pitch. DX11 and DX12 omitted it, so `m_screenWidth/Height/m_aspectRatio` retained pre-resize values and the view matrix was rebuilt from stale state.
+  - `myCamera.SetYawPitch(gtStartPY.x, gtStartPY.y)` — Vulkan calls this in its resize path to restore the title-screen look direction; DX11 and DX12 only called it on first-load, so after a resize the camera kept whatever orientation it had at the moment of the resize rather than snapping back to the defined title-screen angle.
+  Both calls are now present in the GAMETITLE resize `else`-branch of each thread, bringing them to full parity with the OpenGL and Vulkan reference paths.
+- *See: [`IOStreamDX11Thread.cpp`](IOStreamDX11Thread.cpp), [`IOStreamDX12Thread.cpp`](IOStreamDX12Thread.cpp)*
+
+- **Optimisation — DX11 `DrawMyTextCentered` eliminated per-frame `IDWriteTextFormat` COM allocation** (`DX11Renderer.cpp`, `DX11Renderer.h`):
+  `DrawMyTextCentered` was calling `m_dwriteFactory->CreateTextFormat()` on every invocation — one fresh COM object per GUI button per frame — while the DX12 and Vulkan equivalents already used `GetOrCreateTextFormat()` to cache and reuse format objects. The fix brings DX11 into parity:
+  - **`DX11Renderer.h`** — `TextFormatKey` struct extended with a `DWRITE_FONT_WEIGHT weight` field and its hash updated to include it, so BOLD and NORMAL formats are stored as separate cache entries. `GetOrCreateTextFormat()` declaration gains a `weight` parameter (default = `DWRITE_FONT_WEIGHT_NORMAL`) for backward compatibility with all existing 2-arg callers.
+  - **`DX11Renderer.cpp`** — `GetOrCreateTextFormat()` implementation updated to pass `weight` to both the cache key and `CreateTextFormat()`; `DrawMyTextCentered` now calls `GetOrCreateTextFormat(FontName, FontSize, DWRITE_FONT_WEIGHT_BOLD)` and uses the returned raw pointer directly, removing the per-frame COM allocation entirely. `IDWriteTextLayout` is still created per call (required to measure the specific text string).
+- *See: [`DX11Renderer.cpp`](DX11Renderer.cpp), [`DX11Renderer.h`](DX11Renderer.h)*
 
 ---
 

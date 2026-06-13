@@ -1,5 +1,0 @@
-WarpDotTunnel bornCy + radius 60 (Vulkan) — 16/05/2026 (fourth pass)
-
-VKTunnelRing: added float bornCy = 0.0f
-VKWarpTunnelData: kSideWaveRadius 30 → 60
-Mirrors DX_FXManager.h changes.
