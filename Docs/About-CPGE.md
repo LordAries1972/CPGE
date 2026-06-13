@@ -78,6 +78,7 @@
 36. [Steam Integration (Future)](#36-steam-integration-future)
 37. [Licensing](#37-licensing)
 38. [Contact & Contributions](#38-contact--contributions)
+39. [Donations and Support](#39-donations-and-support)
 
 ---
 
@@ -1449,6 +1450,8 @@ A second thread, `LoaderTaskThread()`, handles IO-bound work (texture uploads, g
 **Source files:** [DX12Renderer.cpp](DX12Renderer.cpp) / [DX12Renderer.h](DX12Renderer.h), [DX12RenderFrame.cpp](DX12RenderFrame.cpp), [DX12Models.cpp](DX12Models.cpp), [DX12FXManager.cpp](DX12FXManager.cpp)
 
 The DirectX 12 backend implements the full explicit command-queue model that DX12 requires. Unlike DX11 where the driver manages resource state implicitly, DX12 requires the application to track every resource state and issue explicit `ResourceBarrier` transitions.
+
+Please note: Due to me NOT having a true supportive DirectX 12 Video Card and Computer System, I cannot fully utilise its full potential as of yet, as currently, my video card does not support FULL DX12.  A Donation of any kind would be greatly appreciated so I can achieve this goal for everyone and that all donations can be made here [Ultimanium Donation Page](https://www.ultimanium.com/index.php?action=makedonation) - A Special thank you to all who has provided donations for the cause.  More information about Donations and support can be [Clicked Here](#39-donations-and-support).
 
 #### Command recording and submission
 
@@ -3022,11 +3025,20 @@ The `nlohmann/json` library included in CPGE is independently licensed under the
 | --- | --- |
 | **GitHub Repository** | [https://github.com/LordAries1972/CPGE](https://github.com/LordAries1972/CPGE) |
 | **Project Website** | [https://ultimanium.com/](https://ultimanium.com/index.php?action=cpge) |
+| **Donations** | [https://ultimanium.com/](https://ultimanium.com/index.php?action=makedonation) |
 | **JSON Parser (Niels Lohmann)** | [https://github.com/nlohmann/json](https://github.com/nlohmann/json) |
 
 Contributions are welcome via Pull Request on GitHub (subject to management approval via the project website). Bug reports and feature requests may be raised as GitHub Issues or on the CPGE forum board on the project website.
 
 > **Note:** The project website blocks VPN and proxy connections. Please access it from a direct internet connection.
+
+## 39. Donations and Support
+
+All donations received for this project, will help assist in further development and enhancements to computer hardware so that the final goals can be achieved which utilises all latest technology at our descretion.  
+
+Your support means a lot to the community as well as myself, as we build a better gaming world and one where gaming engines remain free and freeing you from the licensing agreements that developers like to avoid.
+
+A Special Thank You goes to all our Supporters and donators.  A page on my website will soon be placed up once I have enough members to list.
 
 ---
 
