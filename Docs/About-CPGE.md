@@ -35,6 +35,16 @@
    - [6.6 Vulkan Renderer](#66-vulkan-renderer)
    - [6.7 RendererFactory — Instantiation and Hardware Checking](#67-rendererfactory--instantiation-and-hardware-checking)
 7. [Shader Management System](#7-shader-management-system)
+   - [7.1 Why a Dedicated Shader Manager Is Needed](#71-why-a-dedicated-shader-manager-is-needed)
+   - [7.2 Core Data Structures](#72-core-data-structures)
+   - [7.3 Shader Loading and Compilation Pipeline](#73-shader-loading-and-compilation-pipeline)
+   - [7.4 Shader Program Linking](#74-shader-program-linking)
+   - [7.5 Error Handling — Colour-Coded Fallback Shader](#75-error-handling--colour-coded-fallback-shader)
+   - [7.6 Hot-Reloading (Debug Builds)](#76-hot-reloading-debug-builds)
+   - [7.7 Thread Safety](#77-thread-safety)
+   - [7.8 Integration with Engine Subsystems](#78-integration-with-engine-subsystems)
+   - [7.9 Shader File Naming Convention](#79-shader-file-naming-convention)
+   - [7.10 Statistics and Diagnostics](#710-statistics-and-diagnostics)
 8. [Camera System](#8-camera-system)
 9. [Scene Management System](#9-scene-management-system)
 10. [3D Model System](#10-3d-model-system)
@@ -1626,33 +1636,212 @@ The factory validates the `rendererType` value against the compiled-in renderer 
 
 ## 7. Shader Management System
 
-**Source files:** `ShaderManager.cpp/.h`  
+**Source files:** [ShaderManager.cpp](ShaderManager.cpp) / [ShaderManager.h](ShaderManager.h), [ShaderLoaders.cpp](ShaderLoaders.cpp)
 **Documentation:** [ShaderManager-Example-Usage.md](ShaderManager-Example-Usage.md)
 
-The `ShaderManager` class is responsible for loading, compiling, caching, and hot-reloading all shader programs across all renderer backends.
+`ShaderManager` is the centralised shader lifecycle system for all four renderer backends. It handles loading HLSL or GLSL source files from disk, compiling them to backend-specific bytecode or GPU objects, linking multi-stage programs, caching compiled results, gracefully recovering from compilation failures, hot-reloading modified shaders in Debug builds, and providing per-shader reference counting for safe unloading. A companion file, `ShaderLoaders.cpp`, contains the global scene-specific shader registration routines.
 
-### Purpose
+### 7.1 Why a Dedicated Shader Manager Is Needed
 
-Managing shaders in a multi-backend engine is complex: HLSL shaders are compiled to DirectX bytecode; GLSL shaders are compiled at runtime for OpenGL and Vulkan. The `ShaderManager` abstracts this complexity and provides a single unified interface regardless of the backend in use.
+Each renderer backend handles shader compilation in a fundamentally different way:
 
-### Key Capabilities
+- **DirectX 11/12** — HLSL source is compiled to bytecode (`.cso`) either ahead-of-time by `fxc.exe` or at runtime by `D3DCompileFromFile()`. The bytecode is then loaded into typed GPU objects (`ID3D11VertexShader`, `ID3D11PixelShader`, etc.) and an input layout is created from the vertex shader reflection data.
+- **OpenGL** — GLSL source is compiled at runtime by the driver via `glCompileShader()`. Individual shader objects are linked into a `GLuint` program object by `glLinkProgram()`.
+- **Vulkan** — GLSL source is compiled to SPIR-V binary (`std::vector<uint32_t>`) at runtime via `shaderc`, then wrapped in a `VkShaderModule`. A separate pipeline compilation step references the module.
 
-- **Shader loading from file** — shaders are stored as plain text (`.hlsl` or `.glsl`) in `Assets/Shaders/`. The manager reads, compiles, and stores the bytecode or compiled object.
-- **Compile-time error reporting** — if a shader fails to compile, the error message is passed to the Debug system and a colour-coded fallback shader (rendering objects in a distinctive error colour) is substituted so the application remains running and the fault is visible immediately.
-- **Hot-reload support** — in Debug builds, the manager can detect file modification timestamps and recompile shaders on-the-fly without restarting the application, greatly accelerating shader iteration.
-- **Integration with the model pipeline** — the ShaderManager provides compiled shader objects to the Model class and the FXManager for all draw calls.
-- **Thread-safety** — shader compilation and cache access are protected by a mutex; the renderer thread may query shaders safely while the loader thread may simultaneously request a shader reload.
-- **Performance monitoring** — the manager tracks shader compilation times and cache hit/miss ratios, surfacing these in the Debug log.
+Without a managing layer, every subsystem (models, FX, GUI) would need to implement its own compilation, error handling, and caching — producing duplicated, fragile, backend-specific code. `ShaderManager` isolates all of this behind a name-based API: callers ask for a `ShaderProgram` by name and receive a compiled, linked, ready-to-bind object regardless of which backend is active.
 
-### Shader Slot Convention
+### 7.2 Core Data Structures
 
-The engine uses a fixed set of named shaders registered in `Includes.h`:
+#### ShaderType — Pipeline Stage Enumeration
+
+```cpp
+enum class ShaderType : int {
+    VERTEX_SHADER = 0,
+    PIXEL_SHADER,
+    GEOMETRY_SHADER,
+    HULL_SHADER,                    // DX11/12 tessellation hull stage
+    DOMAIN_SHADER,                  // DX11/12 tessellation domain stage
+    COMPUTE_SHADER,
+    TESSELLATION_CONTROL_SHADER,    // OpenGL equivalent of hull shader
+    TESSELLATION_EVALUATION_SHADER, // OpenGL equivalent of domain shader
+    UNKNOWN_SHADER
+};
+```
+
+#### ShaderPlatform — Target Backend
+
+```cpp
+enum class ShaderPlatform : int {
+    PLATFORM_DIRECTX11 = 0,
+    PLATFORM_DIRECTX12,
+    PLATFORM_OPENGL,
+    PLATFORM_VULKAN,
+    PLATFORM_AUTO_DETECT    // Inferred from the active renderer token at runtime
+};
+```
+
+`PLATFORM_AUTO_DETECT` is the default. `DetectPlatformFromRenderer()` resolves this at `Initialize()` time by reading the `renderer->RenderType` field, so callers never need to specify the platform explicitly.
+
+#### ShaderProfile — Compilation Settings
+
+```cpp
+struct ShaderProfile {
+    std::string entryPoint;         // e.g. "VSMain", "PSMain", "main"
+    std::string profileVersion;     // e.g. "vs_5_0", "ps_5_0", "330 core"
+    std::vector<std::string> defines; // Preprocessor definitions injected at compile time
+    bool optimized;                 // Enable compiler optimisation (default: true)
+    bool debugInfo;                 // Embed debug symbols in bytecode (default: false)
+};
+```
+
+The profile is optional — if not supplied, `ShaderManager` applies sensible defaults for the active platform (e.g. `vs_5_0` / `ps_5_0` for DX11).
+
+#### ShaderResource — Per-Shader Container
+
+Each loaded shader is stored as a `ShaderResource` in the `m_shaders` map. The structure holds:
+
+- **Identity** — `name` (unique string key), `filePath`, `type`, `platform`, `profile`.
+- **Backend-specific GPU handles** (conditionally compiled):
+  - DX11/12: `ComPtr<ID3D11VertexShader>`, `ComPtr<ID3D11PixelShader>`, `ComPtr<ID3D11GeometryShader>`, `ComPtr<ID3D11HullShader>`, `ComPtr<ID3D11DomainShader>`, `ComPtr<ID3D11ComputeShader>`, `ComPtr<ID3DBlob> shaderBlob`, `ComPtr<ID3D11InputLayout> inputLayout`.
+  - OpenGL: `GLuint openglShaderID`, `GLuint openglProgramID`.
+  - Vulkan: `VkShaderModule vulkanShaderModule`, `std::vector<uint32_t> spirvBytecode`.
+- **Status flags** — `isCompiled`, `isLoaded`, `compilationErrors` (string).
+- **Hot-reload support** — `lastModified` (`std::chrono::system_clock::time_point`) stores the file's modification timestamp; checked against the current timestamp on each hot-reload poll.
+- **Reference management** — `referenceCount` (number of models/passes currently using this shader), `isInUse` flag.
+
+#### ShaderProgram — Multi-Stage Combination
+
+A `ShaderProgram` groups named shader stages into a single bindable unit:
+
+```cpp
+struct ShaderProgram {
+    std::string programName;
+    std::string vertexShaderName;
+    std::string pixelShaderName;
+    std::string geometryShaderName;   // optional
+    std::string hullShaderName;       // optional (DX)
+    std::string domainShaderName;     // optional (DX)
+    std::string computeShaderName;    // optional
+    bool isLinked;
+    std::string linkingErrors;
+#if defined(__USE_OPENGL__)
+    GLuint openglProgramID;           // linked GL program object
+#endif
+};
+```
+
+On DX11/12 there is no explicit link step — individual shader objects are bound separately via the device context. On OpenGL, `glLinkProgram()` is called during `CreateShaderProgram()` and the result stored in `openglProgramID`.
+
+#### ShaderManagerStats — Performance Counters
+
+`ShaderManagerStats` tracks `totalShadersLoaded`, `totalProgramsLinked`, `compilationFailures`, `linkingFailures`, `memoryUsage` (bytes), and `lastActivity` timestamp. Retrieved via `GetStatistics()` and printed via `PrintDebugInfo()`.
+
+### 7.3 Shader Loading and Compilation Pipeline
+
+The full path from disk to GPU object for a single shader:
+
+1. **`LoadShader(name, filePath, type, profile)`** is called.
+2. **`ReadShaderFile(filePath, outContent)`** reads the raw source string via `FileIO`.
+3. **`ParseShaderProfile(source, profile)`** scans for in-source annotations (optional — callers may supply the profile directly).
+4. The source and profile are written into a new `ShaderResource` and stored in `m_shaders[name]`.
+5. The method routes to the backend-specific compiler:
+   - **`CompileHLSL(shader)`** → calls `D3DCompileFromFile()` (or loads a pre-built `.cso` if the file extension is `.cso`). On success, stores the compiled `ID3DBlob` and then calls the typed creation method (`CompileD3D11VertexShader`, `CompileD3D11PixelShader`, etc.) which calls `ID3D11Device::CreateVertexShader()` / `CreatePixelShader()` etc. For vertex shaders, `CreateInputLayoutForShader()` reflects the bytecode to build the `ID3D11InputLayout`.
+   - **`CompileGLSL(shader)`** → calls `glShaderSource()` + `glCompileShader()`. Queries the compile status via `glGetShaderiv(GL_COMPILE_STATUS)`. On failure, retrieves the error log via `glGetShaderInfoLog()`.
+   - **`CompileSPIRV(shader)`** → calls `shaderc::Compiler::CompileGlslToSpv()`. Stores the resulting `std::vector<uint32_t>` as `spirvBytecode`. Then calls `CreateVulkanShaderModule()` which wraps it in a `VkShaderModule` via `vkCreateShaderModule()`.
+6. On any compilation error, `HandleCompilationError()` is called (see section 7.4).
+7. `m_stats.totalShadersLoaded` is incremented on success.
+
+**Loading from a string** (`LoadShaderFromString`) bypasses step 2 and feeds the provided source directly into step 3. Used for inline shaders (e.g. the error fallback shader itself).
+
+### 7.4 Shader Program Linking
+
+After individual stages are compiled, they are combined into a named `ShaderProgram` via `CreateShaderProgram(programName, vertexName, pixelName, ...)`:
+
+- The method looks up each named `ShaderResource` from `m_shaders`.
+- **DX11/12**: no explicit link step — the program simply records the constituent stage names. At bind time (`UseShaderProgram`), the device context receives `VSSetShader()`, `PSSetShader()`, `IASetInputLayout()` calls.
+- **OpenGL**: `glCreateProgram()` → `glAttachShader()` for each stage → `glLinkProgram()`. Link errors are retrieved via `glGetProgramInfoLog()`. `DiagnoseShaderLinkageErrors()` provides additional context for common failures (unresolved uniforms, missing varyings).
+- The linked `ShaderProgram` is stored in `m_programs[programName]`.
+
+### 7.5 Error Handling — Colour-Coded Fallback Shader
+
+If a shader fails to compile or a program fails to link:
+
+1. `HandleCompilationError()` / `HandleLinkingError()` receives the error string.
+2. The full error is routed to `debug.logLevelMessage(LOG_ERROR, ...)` — it appears in the debug output and the on-screen diagnostic log.
+3. `m_stats.compilationFailures` is incremented.
+4. A **colour-coded fallback shader** (solid magenta or another distinctive colour not used by correct content) is substituted for the failed shader, so:
+   - The application keeps running — no crash.
+   - The broken model or FX renders in an immediately obvious error colour.
+   - The developer can read the error in the debug overlay without needing to attach a debugger.
+
+The fallback shader is compiled from an inline source string via `LoadShaderFromString()` and reused for all failure cases in the current session.
+
+### 7.6 Hot-Reloading (Debug Builds)
+
+Hot-reloading allows shader source files to be edited on disk while the engine is running, with the changes taking effect without restarting:
+
+1. `EnableHotReloading(true)` is called during `Initialize()` in Debug builds.
+2. `CheckForShaderFileChanges()` is called periodically (from the loader thread or a timer callback). For each `ShaderResource` with `isCompiled = true`, it calls `GetFileModificationTime(shader.filePath)` and compares against `shader.lastModified`.
+3. If the timestamp is newer, `ReloadShader(name)` is called: the existing GPU object is released, the file is re-read, and `CompileHLSL` / `CompileGLSL` / `CompileSPIRV` is invoked again.
+4. On success, `UpdateShaderFileTimestamp(shader)` writes the new timestamp.
+5. The shader lock (`AcquireShaderLock`) is held for the duration of the reload to prevent the render thread from binding a half-compiled object.
+
+Hot-reloading is disabled in Release builds via `m_hotReloadingEnabled = false`.
+
+### 7.7 Thread Safety
+
+`ShaderManager` uses the engine's `ThreadManager` / `ThreadLockHelper` system:
+
+- At `Initialize()`, a named lock is registered: `m_lockName` is unique to the shader manager instance.
+- `AcquireShaderLock(timeoutMs = 2000)` acquires the lock via `ThreadManager` with a 2-second timeout. If the lock cannot be acquired within the timeout, a `LOG_WARNING` is emitted to flag a potential deadlock.
+- `ReleaseShaderLock()` releases it.
+- All public methods that read or write `m_shaders` or `m_programs` acquire the lock first. This allows the render thread to call `GetShader()` and the loader thread to call `ReloadShader()` concurrently without data races.
+
+### 7.8 Integration with Engine Subsystems
+
+| Method | What it does |
+| --- | --- |
+| `BindShaderToModel(programName, model)` | Associates a named program with a `Model` object so `model->Draw()` automatically binds the correct shaders |
+| `SetupLightingShaders(lightManager)` | Populates the lighting uniform bindings in all loaded programs that reference the lighting constant buffer (`b1` / `b3`) |
+| `LoadSceneShaders(sceneManager)` | Loads the shader set required for a specific `SceneType` as declared in `SceneShaderManager` |
+| `UseShaderProgram(programName)` | Binds the named program to the active renderer pipeline; caches `m_currentProgramName` to skip redundant re-binds |
+| `UnbindShaderProgram()` | Clears the bound program; used between render passes |
+
+#### SceneShaderManager — Scene-to-Shader Mapping
+
+`ShaderLoaders.cpp` defines a helper class `SceneShaderManager` that maps each `SceneType` to the list of shader names it requires:
+
+```cpp
+m_sceneShaders[SCENE_GAMEPLAY] = { "ModelVertex", "ModelPixel" };
+```
+
+`LoadSceneShaders(sceneManager)` reads the active scene type, looks up the required shader list, and calls `LoadShader()` for any that are not already in the cache.
+
+### 7.9 Shader File Naming Convention
+
+All shader source files live in `Assets/Shaders/`. The naming convention is:
+
+| File | Registered Name | Stage |
+| --- | --- | --- |
+| `ModelVertex.hlsl` / `ModelVertex.glsl` | `"ModelVertex"` | Vertex shader — transforms geometry, outputs clip-space positions, normals, UVs, tangents |
+| `ModelPixel.hlsl` / `ModelPixel.glsl` | `"ModelPixel"` | Pixel/fragment shader — PBR lighting, texture sampling, shadow attenuation |
+| `DefaultVertex.hlsl` | `"DefaultVertex"` | Fallback vertex shader for un-textured geometry |
+| `DefaultPixel.hlsl` | `"DefaultPixel"` | Fallback pixel shader — solid colour output |
+
+The engine's master shader list in `Includes.h` declares the minimum required shaders for the model pipeline:
 
 ```cpp
 const std::vector<std::string> MyShaders = { "ModelVertex", "ModelPixel" };
 ```
 
-Additional shaders (for FX, GUI, shadows, particles) are registered by name in their respective subsystems. The `ShaderManager` resolves names to compiled objects at load time and caches the results for the lifetime of the session.
+Additional shaders (fade effects, starfield, particles, GUI) are registered by their respective subsystems when those systems initialise.
+
+### 7.10 Statistics and Diagnostics
+
+- **`GetStatistics()`** returns a `ShaderManagerStats` snapshot: total loaded shaders, linked programs, compilation and linking failure counts, estimated GPU memory usage, and timestamp of last activity.
+- **`PrintDebugInfo()`** formats the statistics as a human-readable block and routes it to the `Debug` system's console output.
+- **`ValidateAllShaders()`** iterates every loaded `ShaderResource` and confirms it has a valid GPU handle (`isCompiled && isLoaded`). Any invalid entry is logged at `LOG_WARNING`. Useful as a diagnostic step after scene changes or renderer re-initialisation.
 
 [Back to Table of Contents](#table-of-contents)
 
