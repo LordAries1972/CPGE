@@ -27,11 +27,13 @@
    - [5.11 Adding New Source Files](#511-adding-new-source-files)
    - [5.12 Build Troubleshooting](#512-build-troubleshooting)
 6. [Renderer Architecture — Multi-Backend Overview](#6-renderer-architecture--multi-backend-overview)
-   - [6.1 DirectX 11 Renderer](#61-directx-11-renderer)
-   - [6.2 DirectX 12 Renderer](#62-directx-12-renderer)
-   - [6.3 OpenGL Renderer](#63-opengl-renderer)
-   - [6.4 Vulkan Renderer](#64-vulkan-renderer)
-   - [6.5 RendererFactory — Runtime Backend Selection](#65-rendererfactory--runtime-backend-selection)
+   - [6.1 The Renderer Abstract Base Class](#61-the-renderer-abstract-base-class)
+   - [6.2 Shared Slot Layout](#62-shared-slot-layout)
+   - [6.3 DirectX 11 Renderer](#63-directx-11-renderer)
+   - [6.4 DirectX 12 Renderer](#64-directx-12-renderer)
+   - [6.5 OpenGL Renderer](#65-opengl-renderer)
+   - [6.6 Vulkan Renderer](#66-vulkan-renderer)
+   - [6.7 RendererFactory — Instantiation and Hardware Checking](#67-rendererfactory--instantiation-and-hardware-checking)
 7. [Shader Management System](#7-shader-management-system)
 8. [Camera System](#8-camera-system)
 9. [Scene Management System](#9-scene-management-system)
@@ -1287,14 +1289,80 @@ Always `grep` both files for the new filename before adding it — adding a file
 
 ## 6. Renderer Architecture — Multi-Backend Overview
 
-CPGE's rendering layer is split into several distinct but structurally parallel components for each backend. All four backends share:
+CPGE's rendering layer is built around a common abstract interface (`Renderer`) that all four backends implement. Game code, scene management, the FX manager, and the GUI system call through the `Renderer` interface and never reference a backend type directly — the concrete renderer (`DX11Renderer`, `DX12Renderer`, `OpenGLRenderer`, `VulkanRenderer`) is determined at startup from `GameConfig.cfg` and held in a `std::shared_ptr<Renderer> renderer` global.
 
-- A common base `Renderer` abstract interface that all backend renderer classes implement.
-- Per-frame render pipelines in dedicated `*RenderFrame.cpp` files.
-- A `RendererFactory` that instantiates the correct backend at runtime based on `GameConfig.cfg`.
-- Identical public-facing APIs for camera, models, lighting, FX, and 2D text/blit operations, so game code remains renderer-agnostic.
+Every backend shares the same:
 
-The rendering constant-buffer slot layout is fixed and shared across all backends:
+- Abstract `Renderer` base class and virtual method table (`Renderer.h`).
+- Per-frame render pipeline in a dedicated `*RenderFrame.cpp` file (included into the renderer translation unit at compile time, not as a separate `.obj`).
+- Fixed constant-buffer and texture-slot layout (see tables below) so shaders are portable with minimal changes.
+- `RendererFactory` (`RendererFactory.cpp`) for instantiation and hardware support checking.
+- Public API for camera, models, lighting, FX, 2D text/blit operations, scissor clipping, and screen-mode management.
+
+### 6.1 The Renderer Abstract Base Class
+
+**Source file:** [Renderer.h](Renderer.h)
+
+`Renderer` is a pure-virtual abstract base class. All concrete backends inherit it publicly and override every virtual method. The class is declared with a `protected` default constructor so it can only be instantiated via its derived classes.
+
+#### Key virtual methods
+
+| Method | Purpose |
+| --- | --- |
+| `Initialize(HWND, HINSTANCE)` | Full device + swap chain + subsystem init for the selected backend |
+| `RenderFrame()` | Per-frame render loop — runs as a dedicated renderer thread when `RENDERER_IS_THREAD` is defined |
+| `LoaderTaskThread()` | Background IO loader thread entry point — loads textures / geometry off the render thread |
+| `Resize(w, h)` | Rebuilds swap chain, RTVs, depth-stencil and all dependent resources for a new window size |
+| `SetFullScreen()` / `SetFullExclusive(w,h)` / `SetWindowedScreen()` | Display-mode transitions with fence draining and safe resource teardown |
+| `WaitForGPUToFinish()` | Blocks the CPU until all outstanding GPU work is complete — used before Cleanup |
+| `DrawRectangle` / `DrawCircle` / `DrawMyText` / `DrawTexture` | 2D drawing primitives dispatched through the Direct2D or OpenGL 2D path |
+| `DrawMyTextStyled` | Text rendering with per-call `TextRenderStyle` (font name, size, bold, italic, underline, centring) |
+| `PushClipRect` / `PopClipRect` | Scissor rectangle management for GUI tab-content clipping |
+| `GetDevice()` / `GetDeviceContext()` / `GetSwapChain()` | Return `void*` pointers castable to the backend's COM smart-pointer type |
+| `Cleanup()` | Ordered teardown: GPU drain → release resources → null COM pointers |
+
+#### Key public state
+
+| Member | Type | Purpose |
+| --- | --- | --- |
+| `bIsInitialized` | `std::atomic<bool>` | Set once `Initialize()` completes; guards render-thread startup |
+| `bIsDestroyed` | `std::atomic<bool>` | Set when Cleanup begins; prevents double-teardown |
+| `bIsMinimized` | `std::atomic<bool>` | Suppresses GPU work when the window is minimised |
+| `RenderType` | `RendererType` enum | Identifies the active backend (`RT_DirectX11`, `RT_DirectX12`, `RT_OpenGL`, `RT_Vulkan`) |
+| `myCamera` | `Camera` | The 3D camera object — same type used by FX, models, and the scene manager |
+| `bWireframeMode` | `bool` | Runtime wireframe toggle via F2; propagates to the 3D rasteriser state |
+| `bDebugOSDActive` | `bool` | Runtime diagnostic overlay toggle via F12 |
+
+#### The 2D blit queue
+
+All renderers expose a typed 2D blit queue backed by a `GFXObjQueue[MAX_2D_IMG_QUEUE_OBJS]` array (default capacity: 512 slots). Each entry carries:
+
+- `BlitObj2DType` — category (player, enemy, text, GUI button, progress bar, etc.)
+- `BlitObj2DDetails` — position, size, animation frame index, collidability flag
+- `BlitPhaseLevel` — render order (1–5); higher phases render on top of lower
+- `CanBlitType` — whether the entry is consumed once or persists across frames
+
+The queue is sorted by `BlitPhaseLevel` each frame. The 2D layer renders after all 3D and FX work, ensuring GUI and HUD are always drawn on top.
+
+#### The render loop (7-step pipeline — DX11 reference)
+
+The canonical per-frame order, as documented in [DXRenderFrame.cpp](DXRenderFrame.cpp):
+
+1. **Safety guards + exclusive lock** — acquire `s_renderMutex`, check `bIsInitialized`, `bIsMinimized`, `bResizeInProgress`.
+2. **Clear + delta-time** — clear render target and depth-stencil; calculate delta time for animation and FX updates.
+3. **Background image** — `RenderBackgroundImage()` via Direct2D before any 3D work (scene-transition guard applied).
+4. **3D scene** — `OMSetRenderTargets`, 3D model draw calls, animation, lighting (`RenderGamePlay()`).
+5. **FX layer** — `fxManager.Render()` — particles, starfield, warp dot tunnel, fade overlays, and other D3D/D2D effects.
+6. **GUI + text + 2D overlays** — Direct2D layer: GUI windows, FPS counter, cursor, recording indicator, debug OSD.
+7. **Present** — `IDXGISwapChain::Present(1, 0)` (VSync on) or `Present(0, 0)` (VSync off as configured).
+
+All other backends (DX12, OpenGL, Vulkan) follow the same 7-step ordering, with API-specific equivalents at each step.
+
+### 6.2 Shared Slot Layout
+
+The constant-buffer and texture-slot layout is fixed and identical across all four backends so that shaders can be ported between them with minimal changes.
+
+#### Constant-buffer slots
 
 | Slot | Purpose |
 | --- | --- |
@@ -1306,7 +1374,7 @@ The rendering constant-buffer slot layout is fixed and shared across all backend
 | `b5` | Environment / skybox settings buffer |
 | `b6` | Shadow map constant buffer |
 
-Texture slots for the pixel shader are equally fixed:
+#### Texture slots (pixel shader)
 
 | Slot | Purpose |
 | --- | --- |
@@ -1320,80 +1388,237 @@ Texture slots for the pixel shader are equally fixed:
 | `t7` | Emissive map |
 | `t8` | Shadow depth map (PCF) |
 
-### 6.1 DirectX 11 Renderer
+### 6.3 DirectX 11 Renderer
 
-**Source files:** `DX11Renderer.cpp/.h`, `DXRenderFrame.cpp`
+**Source files:** [DX11Renderer.cpp](DX11Renderer.cpp) / [DX11Renderer.h](DX11Renderer.h), [DXRenderFrame.cpp](DXRenderFrame.cpp)
 
-The DirectX 11 renderer is the primary, fully-featured backend against which all other subsystems are first developed and tested. It uses the following D3D11 device stack:
+The DirectX 11 renderer is the primary, fully-featured backend and the reference implementation against which all subsystems are first developed and tested. It is the most mature pipeline and exercises the widest breadth of the engine's feature set.
 
-- `ID3D11Device` / `ID3D11DeviceContext` — core GPU device and command submission.
-- `IDXGISwapChain1` — DXGI 1.2 swap chain with flip-model presentation (`DXGI_SWAP_EFFECT_FLIP_DISCARD`).
-- `ID3D11RenderTargetView` / `ID3D11DepthStencilView` — back buffer and depth buffer management.
-- **Direct2D 1.1** (`ID2D1DeviceContext`) — used for all 2D text rendering, GUI overlays, and the sprite blit queue; shares the same DXGI surface as the 3D swap chain so no GPU-to-CPU readback is required.
-- **DirectWrite** (`IDWriteFactory`) — high-quality text layout and rendering via the Direct2D layer.
-- **XAudio2** + **DirectSound** — audio output; XAudio2 for the XM module player's mixing pipeline and DirectSound for the SFX manager.
+#### Device stack
 
-The render loop for DX11 is organised as: Clear → 3D scene (models, lighting, shadows) → FX overlay (particles, starfield, fades) → 2D Direct2D layer (GUI, text, HUD) → Present.
+| Object | Role |
+| --- | --- |
+| `ID3D11Device` | Core GPU device — creates resources (buffers, textures, shaders, state objects) |
+| `ID3D11DeviceContext` | Immediate context — submits draw calls, sets pipeline state, maps buffers |
+| `IDXGISwapChain1` | DXGI 1.2 flip-model swap chain (`DXGI_SWAP_EFFECT_FLIP_DISCARD`) — low-latency presentation with the DWM compositor |
+| `ID3D11RenderTargetView` | View into the back buffer used as the colour render target |
+| `ID3D11DepthStencilView` | View into the depth-stencil buffer; recreated on every resize |
+| `ID2D1DeviceContext` | Direct2D 1.1 device context sharing the same DXGI surface as the swap chain — zero-copy 2D rendering |
+| `IDWriteFactory` | DirectWrite factory for high-quality text layout, font enumeration, and text measurement |
 
-Window resizing triggers a full swap-chain resize via `IDXGISwapChain::ResizeBuffers` with all dependent render-target views and depth-stencil views recreated atomically.
+#### 2D/3D layer sharing — zero-copy compositing
 
-### 6.2 DirectX 12 Renderer
+The key architectural detail in the DX11 path is that the 3D swap-chain back buffer and the Direct2D render target are the **same DXGI surface**. The DX11 device context writes 3D output to the back buffer; then Direct2D wraps that same surface as a `D2D1_BITMAP_PROPERTIES1` compatible target and draws 2D content directly on top — no GPU-to-CPU readback, no intermediate blit. The surface goes straight to `Present()` with both layers composited on the GPU.
 
-**Source files:** `DX12Renderer.cpp/.h`, `DX12RenderFrame.cpp`, `DX12Models.cpp/.h`, `DX12FXManager.cpp/.h`
+#### Audio integration
 
-The DirectX 12 backend implements the full explicit-command-queue model that DX12 requires:
+The DX11 path initialises both audio subsystems:
 
-- **Double-buffered command allocators** — one per frame in flight, reset only after the GPU signals the fence for that frame.
-- **ID3D12CommandQueue** / **ID3D12GraphicsCommandList** — explicit command recording and submission. No implicit state inheritance from previous frames.
-- **ID3D12Fence** + **HANDLE event** — CPU/GPU synchronisation; fences are signalled by the GPU after each Present and waited on before reusing command allocators for the next frame.
-- **Descriptor heaps** — CBV/SRV/UAV and RTV descriptor heaps managed explicitly; each resource (texture, constant buffer) occupies a reserved descriptor slot.
-- **Root signatures** — define the binding layout used by all shaders; each pipeline state object (PSO) references the root signature.
-- **Pipeline State Objects (PSOs)** — fully baked rasteriser state, input layout, vertex/pixel shader bytecode, and blend/depth state; created once at startup and cached.
+- **XAudio2** — used by `XMMODPlayer` for the software XM tracker mixing pipeline. XAudio2 provides a callback-driven audio graph: the XM player submits PCM buffers to an `IXAudio2SourceVoice` which XAudio2 mixes and sends to the master voice and hardware output.
+- **DirectSound** — used by `SoundManager` for SFX playback. Each sound effect is a `IDirectSoundBuffer8` with its own volume, pan, and frequency controls.
 
-**2D Overlay via 11on12:** Because DirectX 12 provides no built-in 2D API, CPGE's DX12 path uses the `D3D11On12CreateDevice()` pattern: a wrapped DX11 device is created over the DX12 command queue, and Direct2D / DirectWrite operate through that 11on12 device. Each back-buffer resource is acquired from DX12, wrapped, rendered to by D2D, and released back to DX12 before Present. This produces identical 2D text and GUI output to the DX11 path.
+#### Window resizing
 
-All per-frame COM allocations that were historically done inside `DrawVideoFrame` have been hoisted to class members and cached, with explicit `Reset()` calls in `Cleanup()` and `Resize()`, eliminating both per-frame heap pressure and clean-exit crashes that allocation loops previously caused.
+When the window is resized, DX11 executes the following sequence:
 
-### 6.3 OpenGL Renderer
+1. Set `bResizeInProgress = true` to block the render thread.
+2. Drain the GPU via `WaitForGPUToFinish()`.
+3. Release the RTV, DSV, and any Direct2D resources holding references to the back buffer.
+4. Call `IDXGISwapChain::ResizeBuffers(0, newW, newH, DXGI_FORMAT_UNKNOWN, 0)` — passing 0 for count and format preserves the existing buffer count and format.
+5. Recreate RTV, DSV, Direct2D render target, and viewport.
+6. Clear `bResizeInProgress` to resume rendering.
 
-**Source files:** `OpenGLRenderer.cpp/.h`, `OpenGLRenderFrame.cpp`, `OpenGLModels.cpp/.h`, `OpenGLFXManager.cpp/.h`, `OpenGLCamera.cpp/.h`
+#### Thread model
 
-The OpenGL backend uses OpenGL 4.x via **GLEW** (statically linked, `GLEW_STATIC`) with a GLFW window context for window creation and event handling on Windows. Key characteristics:
+`RenderFrame()` is defined as a dedicated renderer thread when `RENDERER_IS_THREAD` is active in `Renderer.h`. The thread runs continuously; it is paused via `WaitToFinishThenPauseThread()` during scene transitions, resizes, and fullscreen mode changes to prevent GPU race conditions.
 
-- **Vertex Array Objects (VAOs)** and **Vertex Buffer Objects (VBOs)** for all mesh geometry; **Element Buffer Objects (EBOs)** for indexed draws.
-- **Uniform Buffer Objects (UBOs)** for constant data that mirrors the DX11 constant-buffer slots. UBOs follow the `std140` layout rule — scalar arrays use a stride of 16 bytes per element; matrix arrays are row-major and uploaded raw without an implicit transpose, matching the `ModelInfo` matrix convention used throughout the engine.
-- **GLSL shaders** compiled at runtime from `.glsl` source files in `Assets/Shaders/`. Shader compilation errors are reported via the colour-coded diagnostic system.
-- **Texture management** follows the same slot convention as DX11 (`GL_TEXTURE0`–`GL_TEXTURE8`). After any texture rebind operation, `RefreshOpenGLTextures()` must be called to re-apply the sampler state — this is a known engine convention enforced by the OpenGL models layer.
-- **Sampler objects** — wrap modes (`GL_REPEAT`, `GL_CLAMP_TO_EDGE`) per texture are controlled via `ModelInfo::uvWrapU` / `ModelInfo::uvWrapV`, consistent with the DX11 and Vulkan paths.
+A second thread, `LoaderTaskThread()`, handles IO-bound work (texture uploads, geometry uploads, scene cache reads). It runs on the loader thread registered in `ThreadManager` and coordinates with the render thread via `s_loaderMutex` and `bIsRendering` atomic drain patterns.
 
-The 2D layer on OpenGL uses Direct2D in the same 11on12 style used by the DX12 backend on Windows, or a CPU-rasterised fallback path on Linux/Android.
+### 6.4 DirectX 12 Renderer
 
-### 6.4 Vulkan Renderer
+**Source files:** [DX12Renderer.cpp](DX12Renderer.cpp) / [DX12Renderer.h](DX12Renderer.h), [DX12RenderFrame.cpp](DX12RenderFrame.cpp), [DX12Models.cpp](DX12Models.cpp), [DX12FXManager.cpp](DX12FXManager.cpp)
 
-**Source files:** `VULKAN_Renderer.cpp/.h`, `VULKAN_RenderFrame.cpp`, `VulkanModels.cpp/.h`, `VULKAN_FXManager.cpp/.h`, `VulkanCamera.cpp/.h`
+The DirectX 12 backend implements the full explicit command-queue model that DX12 requires. Unlike DX11 where the driver manages resource state implicitly, DX12 requires the application to track every resource state and issue explicit `ResourceBarrier` transitions.
 
-The Vulkan backend uses the LunarG Vulkan SDK (`vulkan-1.lib`) and implements the full Vulkan initialisation chain:
+#### Command recording and submission
 
-- **Instance** with validation layers active in Debug builds.
-- **Physical device selection** — prefers discrete GPUs; falls back to integrated.
-- **Logical device** with graphics and presentation queue families.
-- **VkSwapchainKHR** — triple buffering where supported; surface format `VK_FORMAT_B8G8R8A8_SRGB` / `VK_COLOR_SPACE_SRGB_NONLINEAR_KHR`.
-- **Render pass** with colour and depth attachments.
-- **Framebuffers** — one per swap-chain image.
-- **Command pools** and **command buffers** — one primary command buffer per frame.
-- **Semaphores** (image available, render finished) and **fences** per frame for synchronisation.
-- **Descriptor sets** and **descriptor set layouts** — mirror the slot convention used by DX11.
-- **Pipeline objects** — one or more `VkPipeline` per material type.
+Each frame, CPGE:
 
-The fullscreen fade quad is rendered via an inline GLSL shader compiled at runtime by **libshaderc** (optional; degrades gracefully if shaderc is not present in the SDK). The 2D overlay on Windows uses the same D2D/DWrite layer described for DX12.
+1. Waits on the per-frame fence to confirm the GPU has finished using the previous frame's command allocator.
+2. Calls `ID3D12CommandAllocator::Reset()` to reclaim its memory.
+3. Opens the `ID3D12GraphicsCommandList`, records all draw calls (resource barriers, PSO binds, root constant-buffer updates, draw indexed calls), closes the list.
+4. Submits the list via `ID3D12CommandQueue::ExecuteCommandLists()`.
+5. Calls `IDXGISwapChain3::Present()`.
+6. Signals the fence with `ID3D12CommandQueue::Signal()`.
 
-**Parity tracking:** The Vulkan render frame (`VULKAN_RenderFrame.cpp`) is kept in structural sync with the DX11 render frame (`DXRenderFrame.cpp`). Whenever a visual feature is added to the DX11 path (starfield, console overlay, loading text, etc.) it must be ported to the Vulkan path before the task is marked complete.
+This **double-buffered allocator** pattern — one allocator per back buffer, reset only after its fence is signalled — means the CPU never stalls waiting for the GPU at the start of a new frame unless the GPU is more than one frame behind (which indicates a genuine perf problem).
 
-### 6.5 RendererFactory — Runtime Backend Selection
+#### Resource binding
 
-**Source file:** `RendererFactory.cpp/.h`
+DX12 uses an explicit **descriptor heap** model. CPGE maintains:
 
-Although each compiled executable targets only one renderer, the `RendererFactory` still plays a role in reading the `rendererType` field from `GameConfig.cfg` (0 = DX11, 1 = DX12, 2 = OpenGL, 3 = Vulkan) and constructing the appropriate concrete renderer instance at startup. This design allows for future multi-renderer executables without changing the game-code layer.
+- **CBV/SRV/UAV heap** — constant-buffer views (one per constant-buffer slot `b0`–`b6`) and shader-resource views for all textures (`t0`–`t8`) are written as descriptors into this heap at texture-load time.
+- **RTV heap** — one render-target view descriptor per back buffer.
+- **DSV heap** — one depth-stencil view descriptor.
+
+A **root signature** describes the binding layout expected by the shaders: which descriptor tables map to which parameter slots, and where inline root constants live. All PSOs in CPGE share a single root signature.
+
+**Pipeline State Objects (PSOs)** bundle the vertex and pixel shader bytecode, input layout, blend state, depth-stencil state, rasteriser state, and render-target format into an immutable GPU object. PSOs are created once during `Initialize()` from pre-compiled `.cso` bytecode (see section 5.9) and cached for the application lifetime.
+
+#### 2D overlay — 11on12 bridge
+
+DX12 provides no 2D drawing API. CPGE uses the `D3D11On12CreateDevice()` pattern:
+
+1. A wrapped DX11 device is created over the DX12 command queue at startup.
+2. Each back-buffer resource (`ID3D12Resource`) is wrapped via `ID3D11On12Device::CreateWrappedResource()` to produce an `ID3D11Resource` view of it.
+3. Before the 2D layer, the DX12 resource is transitioned to `D3D12_RESOURCE_STATE_RENDER_TARGET` and acquired by the 11on12 device.
+4. Direct2D and DirectWrite render to the wrapped resource.
+5. The resource is released back to DX12 and transitioned to `D3D12_RESOURCE_STATE_PRESENT` before `IDXGISwapChain::Present()`.
+
+This produces the same 2D text and GUI quality as the DX11 path with no visible difference to the end user.
+
+#### Performance-critical design decisions
+
+- All COM objects that would otherwise be allocated per frame inside draw calls (format converters, text format objects, brush objects) are hoisted to class-member `ComPtr<>` fields and initialised once. Explicit `Reset()` is called in `Cleanup()` and `Resize()`. This eliminated both per-frame heap churn and the clean-exit crashes that occurred when the allocator loop ran during shutdown.
+- `RefreshDX12Textures()` is called after any post-`Setup()` texture rebind to re-upload SRV descriptors to the CBV/SRV/UAV heap. Missing this call produces a grey render (sampling from an empty descriptor slot).
+
+### 6.5 OpenGL Renderer
+
+**Source files:** [OpenGLRenderer.cpp](OpenGLRenderer.cpp) / [OpenGLRenderer.h](OpenGLRenderer.h), [OpenGLRenderFrame.cpp](OpenGLRenderFrame.cpp), [OpenGLModels.cpp](OpenGLModels.cpp), [OpenGLFXManager.cpp](OpenGLFXManager.cpp), [OpenGLCamera.cpp](OpenGLCamera.cpp)
+
+The OpenGL backend uses OpenGL 4.x via **GLEW 2.x** (statically linked, `GLEW_STATIC` — uses `glew32s.lib`) and a GLFW window context for window management and OS event dispatch. OpenGL was chosen as the cross-platform path because it runs on Windows, Linux, Android, macOS, and iOS without requiring a vendor-specific SDK.
+
+#### Buffer objects
+
+All mesh geometry is stored in OpenGL buffer objects:
+
+- **VAO (Vertex Array Object)** — captures the vertex attribute layout (position, normal, UV, tangent) so it only needs to be described once per mesh.
+- **VBO (Vertex Buffer Object)** — the raw interleaved vertex data on the GPU.
+- **EBO (Element Buffer Object)** — 32-bit index buffer; all mesh draws use `glDrawElements()`.
+
+#### Uniform Buffer Objects (UBOs) and std140 layout
+
+Shader constants are uploaded via UBOs that mirror the DX11 constant-buffer slots. The `std140` layout rule governs how GLSL places struct members:
+
+- Scalar arrays have a base alignment and stride of **16 bytes per element** regardless of the element's natural size. A `float[4]` array occupies 64 bytes, not 16.
+- `mat4` members are column-major in GLSL but CPGE's `ModelInfo` matrices are stored row-major (matching DirectX convention). Matrices are uploaded **raw without an implicit transpose** — the shader is written to match the memory layout, not the other way around.
+- This convention is documented in engine memory (see [OpenGL matrix & texture conventions](../memory/project_opengl_matrix_texture_conventions.md)).
+
+#### GLSL shader pipeline
+
+GLSL shader source files (`.glsl`) live in `Assets/Shaders/`. At startup, the OpenGL renderer:
+
+1. Reads each `.glsl` file from disk via `FileIO`.
+2. Compiles it with `glShaderSource()` + `glCompileShader()`.
+3. Links pairs into a `GLuint` program object with `glLinkProgram()`.
+4. On compile or link error, queries the info log via `glGetShaderInfoLog()` / `glGetProgramInfoLog()`, reports it through the `Debug` system, and substitutes the colour-coded error shader (solid magenta) so the application remains running.
+5. Queries all uniform block indices and binds them to the UBO binding points matching the DX11 slot convention.
+
+#### Texture management and the RefreshOpenGLTextures() rule
+
+Texture units follow the same slot assignment as DX11: `GL_TEXTURE0` = diffuse, `GL_TEXTURE1` = normal map, and so on up to `GL_TEXTURE8` = shadow depth. After any texture rebind operation (new texture loaded, scene reload, cache restore), `RefreshOpenGLTextures()` **must** be called to re-apply all sampler bindings. Omitting this call causes samplers to read from previously-bound textures or stale state.
+
+UV wrap modes per texture are controlled via `ModelInfo::uvWrapU` / `ModelInfo::uvWrapV` (values map to `GL_REPEAT`, `GL_CLAMP_TO_EDGE`, etc.), consistent with the DX11 and Vulkan paths. The wrap mode is applied via `glTexParameteri()` on the texture object, not the sampler.
+
+#### 2D layer
+
+On Windows, the OpenGL renderer uses the same D2D/DWrite 11on12 overlay pattern as DX12 — DXGI interop is available even for an OpenGL context. On Linux and Android, a CPU-rasterised Direct2D fallback path is used (stub implementation pending full port).
+
+#### Additional linking (Windows)
+
+Beyond `opengl32.lib` and `glew32s.lib`, the OpenGL build links:
+
+- `glu32.lib` — GLU utilities.
+- `gdiplus.lib` — GDI+ used by the texture loader for non-DDS image formats.
+- `dxgi.lib` — for GPU adapter enumeration and VRAM capacity reporting (used in the diagnostics overlay).
+
+### 6.6 Vulkan Renderer
+
+**Source files:** [VULKAN_Renderer.cpp](VULKAN_Renderer.cpp) / [VULKAN_Renderer.h](VULKAN_Renderer.h), [VULKAN_RenderFrame.cpp](VULKAN_RenderFrame.cpp), [VulkanModels.cpp](VulkanModels.cpp), [VULKAN_FXManager.cpp](VULKAN_FXManager.cpp), [VulkanCamera.cpp](VulkanCamera.cpp)
+
+The Vulkan backend uses the LunarG Vulkan SDK (`vulkan-1.lib`) and is the most explicitly managed of the four pipelines. Every resource, synchronisation primitive, and command buffer must be created and destroyed by the application.
+
+#### Initialisation chain
+
+The Vulkan backend initialises in this order:
+
+1. **`VkInstance`** — created with the application name, engine name, and required instance extensions (`VK_KHR_surface`, `VK_KHR_win32_surface` on Windows). In Debug builds, `VK_EXT_debug_utils` is added and `VK_LAYER_KHRONOS_validation` is enabled via `k_validationLayers`.
+2. **Debug messenger** — `VkDebugUtilsMessengerEXT` is registered to route Vulkan validation errors and warnings through the `Debug` system's log. Only active when `k_enableValidation = true` (Debug builds only, controlled by `_DEBUG`).
+3. **`VkSurfaceKHR`** — created via `vkCreateWin32SurfaceKHR` on Windows; platform-specific surface creation on Linux/Android.
+4. **Physical device** — all available GPUs are enumerated; a score function prefers discrete GPUs over integrated ones, and verifies required device extensions (`VK_KHR_swapchain`) and queue families.
+5. **Logical device** (`VkDevice`) — created with graphics queue family and presentation queue family. If they are the same family (typical on Windows), one queue is used for both.
+6. **`VkSwapchainKHR`** — triple-buffered where the surface supports it; surface format `VK_FORMAT_B8G8R8A8_SRGB` / `VK_COLOR_SPACE_SRGB_NONLINEAR_KHR`; present mode `VK_PRESENT_MODE_FIFO_KHR` (VSync) or `VK_PRESENT_MODE_MAILBOX_KHR` (low-latency) as configured.
+7. **Render pass** — a single render pass with a colour attachment (swap-chain image format) and a depth attachment (`VK_FORMAT_D32_SFLOAT`).
+8. **Framebuffers** — one `VkFramebuffer` per swap-chain image, each referencing its image view and the shared depth image view.
+9. **Command pools + buffers** — one `VkCommandPool` per thread; one primary `VkCommandBuffer` per frame in flight.
+10. **Descriptor set layout** — describes the binding schema: UBO at binding 0, combined image-samplers at bindings 1–9 (mirroring `t0`–`t8`).
+11. **Descriptor pool + sets** — one descriptor set per swap-chain image; updated via `vkUpdateDescriptorSets()` when textures are bound.
+12. **Pipeline layout + `VkPipeline`** — the pipeline encodes vertex input state, rasteriser state, depth-stencil state, and colour blend state in an immutable object. GLSL shaders are compiled to SPIR-V at runtime via `shaderc` (see below).
+
+#### GLSL to SPIR-V — runtime shader compilation
+
+Unlike DX11/DX12 (which load pre-compiled `.cso` bytecode), the Vulkan renderer compiles GLSL shaders to SPIR-V at startup using **`shaderc`** (the runtime shader compiler bundled in the LunarG Vulkan SDK):
+
+1. GLSL source is read from `Assets/Shaders/`.
+2. `shaderc::Compiler::CompileGlslToSpv()` produces a `std::vector<uint32_t>` SPIR-V binary.
+3. A `VkShaderModule` is created from the SPIR-V binary.
+4. The shader module is referenced in the `VkPipelineShaderStageCreateInfo` for the pipeline.
+5. The module may be destroyed after the pipeline is created.
+
+If `shaderc` is not present (e.g. Vulkan SDK not installed), the renderer falls back to loading pre-compiled SPIR-V `.spv` files if they exist alongside the `.glsl` source.
+
+#### Synchronisation model
+
+Per-frame synchronisation uses both semaphores and fences:
+
+- **`imageAvailableSemaphore`** — signalled by `vkAcquireNextImageKHR()` when a swap-chain image is ready to render into.
+- **`renderFinishedSemaphore`** — waited on by `vkQueuePresentKHR()` to ensure rendering is complete before presentation.
+- **In-flight fence** — signalled by the queue submission; waited on at the start of the next frame that would reuse the same command buffer. This prevents overwriting a command buffer the GPU is still reading.
+
+#### 2D overlay on Windows
+
+The Vulkan render path on Windows uses the same D2D/DWrite overlay as the DX12 path: a DX11on12 device is created over the Vulkan queue (via a DXGI-compatible surface), and Direct2D renders text and GUI into the shared surface before `vkQueuePresentKHR()`.
+
+#### Render parity requirement
+
+The Vulkan render frame ([VULKAN_RenderFrame.cpp](VULKAN_RenderFrame.cpp)) must remain in structural sync with the DX11 render frame ([DXRenderFrame.cpp](DXRenderFrame.cpp)). Whenever a visual feature is added to the DX11 path (starfield, console overlay, loading text, etc.) it must be ported to the Vulkan path before that task is marked complete. The 7-step pipeline order is the same in both files.
+
+### 6.7 RendererFactory — Instantiation and Hardware Checking
+
+**Source file:** [RendererFactory.cpp](RendererFactory.cpp)
+
+`RendererFactory.cpp` contains a single function: `CreateRendererInstance()`. It is called during engine startup, before `Initialize()`, to select and instantiate the correct concrete renderer.
+
+#### How instantiation works
+
+1. `Configuration::ValidateRendererForPlatform(config.myConfig.rendererType)` converts the integer from `GameConfig.cfg` to a platform-legal renderer index. On Linux/Android, for example, DX indices 0 and 1 are re-mapped to OpenGL/Vulkan.
+2. A platform-keyed `switch` statement selects the renderer:
+
+   ```cpp
+   // Windows renderer map: 0=DX11, 1=DX12, 2=OpenGL, 3=Vulkan
+   switch (rendererType) {
+       case 0: renderer = std::make_shared<DX11Renderer>();   break;
+       case 1: renderer = std::make_shared<DX12Renderer>();   break;
+       case 2: renderer = std::make_shared<OpenGLRenderer>(); break;
+       case 3: renderer = std::make_shared<VulkanRenderer>(); break;
+   }
+   ```
+
+3. Before constructing a DX11 or DX12 renderer, a lightweight hardware support check is performed:
+   - **`IsDX11Supported()`** — calls `D3D11CreateDevice()` with `D3D_DRIVER_TYPE_HARDWARE` and checks that the returned feature level is `D3D_FEATURE_LEVEL_11_0` or higher.
+   - **`IsDX12Supported()`** — enumerates DXGI adapters via `IDXGIFactory4`, skips software adapters, and calls `D3D12CreateDevice()` with `D3D_FEATURE_LEVEL_12_0` to verify DX12 support.
+4. If the hardware check fails, `ShowUnsupportedRendererMessage()` displays a `MessageBoxW` error dialog naming the unsupported API and the engine exits cleanly.
+5. On success, `renderer` is populated and a `LOG_INFO` message is written via `debug.logLevelMessage()`.
+
+#### Platform-renderer mapping
+
+| Platform | Valid renderer indices |
+| --- | --- |
+| Windows | 0 = DX11, 1 = DX12, 2 = OpenGL, 3 = Vulkan |
+| Linux / Android | 0 = OpenGL, 1 = Vulkan |
+| macOS / iOS | 0 = OpenGL (only) |
+
+The factory validates the `rendererType` value against the compiled-in renderer token. If the config requests DX11 but the build token is `__USE_VULKAN__`, the case for DX11 is absent from the `switch` (it is inside `#if defined(__USE_DIRECTX_11__)`), and the `default:` branch logs a critical error and exits. This prevents a DX12 binary from accidentally initialising an OpenGL renderer because the `rendererType` field was set to 2 in `GameConfig.cfg`.
 
 [Back to Table of Contents](#table-of-contents)
 
@@ -1759,8 +1984,8 @@ All locking in the engine uses `ThreadManager`-created named `std::mutex` object
 // Lock is acquired on construction, released on destruction (even if an exception fires).
 ThreadLockHelper lock(threadManager.GetLock("SceneManager"));
 // ... protected operations ...
-```  
 // Lock is automatically released here when lock goes out of scope.
+```
 
 The `ThreadLockHelper` also supports **multiple-lock acquisition** with deadlock-avoidance ordering (always acquire locks in the same registered order), and **timeout-based acquisition** to detect potential deadlocks and report them to the Debug system.
 
@@ -2000,7 +2225,7 @@ Physics in CPGE is not an external engine (no Bullet, no PhysX, no Havok). It is
 
 ### Architecture
 
-```
+```text
 Physics System
 ├── Integration (Euler, Verlet, Runge-Kutta 4)
 ├── Collision Detection
