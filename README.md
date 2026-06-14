@@ -13,11 +13,13 @@ If you like to know more about me and my history, please goto my website at http
 ## Important Links
 
 👉 Read the original full author bio here → [docs/ABOUT.md](Docs/ABOUT.md)
+
 👉 Read the full document about CPGE → [docs/About-CPGE.md](Docs/About-CPGE.md)
 
 👉 [Blender Modelling System v4.3 - v5.2](https://www.blender.org/download/)
 
 👉 [Supporting me on my Website](https://www.ultimanium.com/).  Please do NOT use a VPN Accessing this site or you will be blocked!
+
 👉 Recorded Demos on our website → [CPGE Demos](https://www.ultimanium.com/index.php?action=cpge-demos)
 
 ## History Related Links
