@@ -1153,7 +1153,9 @@ if (m_d2dTextures[int(BlitObj2DIndexType::IMG_GAMEINTRO1)]) {
 
 ## Fireworks Effects
 
-The Fireworks effect launches coloured rockets upward from the bottom of the screen. Each rocket travels to a random target height (35%–75% of the screen height from the base), then triggers a particle burst. Up to 10 rockets are active simultaneously; new ones fire at the interval set by `freqRate`. The effect renders on the same 2D overlay layer as the starfield via `Render2D()`.
+The Fireworks effect launches coloured rockets upward from the bottom of the screen. Each rocket travels to a random target height (35%–75% of the screen height from the base), then triggers a particle burst. Up to 10 rockets are active simultaneously; new ones fire at the interval set by `freqRate`.
+
+The update and render passes are now separated. `Render2D()` calls `UpdateFireworks()` each frame to advance simulation state (timers, physics, particle positions). Pixel drawing is done by the standalone `RenderFireworks()`, which you call from `RenderFrame` at exactly the blit-order position you want — before the HUD, after the scene background, etc.
 
 ### API
 
@@ -1161,8 +1163,11 @@ The Fireworks effect launches coloured rockets upward from the bottom of the scr
 | --- | --- |
 | `StartFireworks(float freqRate)` | Begin the effect. `freqRate` is seconds between each new rocket launch (minimum 0.1 s). The first rocket fires immediately. |
 | `StopFireworks()` | Stop immediately and remove all rockets/particles. |
+| `RenderFireworks()` | Draw all currently active rockets and explosion particles. Call this from `RenderFrame` at the desired position in the blit order. Must be called every frame while fireworks are active. |
 
 The manager also exposes `int fireworksID` (0 when inactive), which mirrors `starfieldID` and `tunnelID` in purpose.
+
+The internal `UpdateFireworks(FXItem& fx)` and `DrawFireworksPixels(FXItem& fx)` helpers are private and called automatically — you do not call these directly.
 
 ### Behaviour Details
 
@@ -1186,8 +1191,34 @@ The manager also exposes `int fireworksID` (0 when inactive), which mirrors `sta
 // Start fireworks launching one rocket every 0.5 seconds
 fxManager.StartFireworks(0.5f);
 
+// Inside RenderFrame — call at the desired blit-order position each frame
+fxManager.RenderFireworks();
+
 // Stop the fireworks
 fxManager.StopFireworks();
+```
+
+### Controlling Blit Order
+
+Because `RenderFireworks()` is now a standalone call, you can place it at any point in your render frame. For example, to draw fireworks behind the HUD but in front of the scene background:
+
+```cpp
+void RenderFrame()
+{
+    // 1. Draw scene background / 3D geometry
+    RenderBackground();
+    Render3DScene();
+
+    // 2. Fireworks appear above the scene but below the HUD
+    fxManager.RenderFireworks();
+
+    // 3. HUD and UI on top
+    RenderHUD();
+    RenderUI();
+
+    // 4. General 2D FX overlay (scrollers, particles, text, etc.)
+    fxManager.Render2D();
+}
 ```
 
 ### Slow Ceremonial Display
@@ -1224,7 +1255,9 @@ fxManager.FadeOutThenCallback(
 ### Fireworks Renderer Notes
 
 - All four renderers (DX11, DX12, OpenGL, Vulkan) implement identical behaviour.
-- Fireworks are rendered via `Render2D()` using `renderer->Blit2DColoredPixel()` — no shader changes required.
+- `Render2D()` drives the simulation (`UpdateFireworks` internally) — it must still be called every frame.
+- `RenderFireworks()` only draws; it reads state that `Render2D` has already advanced. Always ensure `Render2D()` runs before or in the same frame as `RenderFireworks()`.
+- Pixel output uses `renderer->Blit2DColoredPixel()` — no shader changes required.
 - `StopAllFX()` and `StopAllFXForResize()` automatically stop and save/restore fireworks state.
 - `fireworksID` is reset to 0 when stopped. Check `fireworksID > 0` to test whether fireworks are running.
 

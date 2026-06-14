@@ -247,6 +247,19 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
     bLoadedFromCache = false;
     m_fbxCameras.clear();   // clear FBX camera list on every new scene load
 
+    // Loading-text progress helper -- same pattern as showStage in IOLoaderThread.
+    auto showStage = [](const wchar_t* msg) {
+        TextRenderStyle s;
+        s.fontName = LoadingTextFX::kFontName;
+        s.fontSize = 20.0f;
+        s.centered = true;
+        fxManager.ShowLoadingText(msg,
+            XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f),
+            0.2f, 0.05f,
+            XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f),
+            0.0f, -1.0f, &s);
+    };
+
     // =========================================================================
     // GEOMETRY PRE-CACHE FAST PATH
     // On second+ load of the same GLB, models[] already holds GPU-ready geometry
@@ -651,6 +664,9 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
         return false;
     }
 
+    // Show progress before the potentially slow file I/O begins.
+    showStage(L"Reading GLB file...");
+
     // Open the GLB file in binary mode for reading
     std::ifstream file(glbFile, std::ios::binary);
     if (!file.is_open()) {
@@ -921,6 +937,7 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
 
     // Parse camera, lights, and materials using existing GLTF parsing functions
     // NOTE: The embedded binary data in gltfBinaryData is now available for these functions
+    showStage(L"Parsing scene data...");
     ParseGLTFCamera(doc, myRenderer->myCamera, myRenderer->iOrigWidth, myRenderer->iOrigHeight);
     ParseGLTFLights(doc);
     ParseMaterialsFromGLTF(doc);
@@ -974,6 +991,7 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
     }
 
     // Start processing nodes recursively from the root nodes
+    showStage(L"Building scene geometry...");
     int instanceIndex = 0;
 
     #if defined(_DEBUG_SCENEMANAGER_)
@@ -1423,6 +1441,19 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
     bLoadedFromCache = false;
     m_fbxCameras.clear();   // clear FBX camera list on every new scene load
 
+    // Loading-text progress helper -- same pattern as showStage in IOLoaderThread.
+    auto showStage = [](const wchar_t* msg) {
+        TextRenderStyle s;
+        s.fontName = LoadingTextFX::kFontName;
+        s.fontSize = 20.0f;
+        s.centered = true;
+        fxManager.ShowLoadingText(msg,
+            XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f),
+            0.2f, 0.05f,
+            XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f),
+            0.0f, -1.0f, &s);
+    };
+
     // =========================================================================
     // GEOMETRY PRE-CACHE FAST PATH
     // Same structure as the GLB path: parse the GLTF document FIRST to restore
@@ -1807,6 +1838,9 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
         return false;
     }
 
+    // Show progress before the potentially slow file I/O begins.
+    showStage(L"Reading GLTF file...");
+
     // Open the GLTF file for reading
     std::ifstream file(gltfFile);
     if (!file.is_open()) {
@@ -1882,6 +1916,7 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
     }
 
     // Parse camera, lights, and materials using existing GLTF parsing functions
+    showStage(L"Parsing scene data...");
     ParseGLTFCamera(doc, myRenderer->myCamera, myRenderer->iOrigWidth, myRenderer->iOrigHeight);
     ParseGLTFLights(doc);
     ParseMaterialsFromGLTF(doc);
@@ -1938,6 +1973,7 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
     m_currentSceneFile = gltfFile;
 
     // Get reference to the nodes array for recursive parsing
+    showStage(L"Building scene geometry...");
     const auto& nodes = doc["nodes"];
     int instanceIndex = 0;                                                          // Counter for scene model instances
 
@@ -4701,6 +4737,19 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
     bLoadedFromCache = false;
     m_fbxCameras.clear();   // always start fresh — stale cameras from a prior scene must not persist
 
+    // Loading-text progress helper -- same pattern as showStage in IOLoaderThread.
+    auto showStage = [](const wchar_t* msg) {
+        TextRenderStyle s;
+        s.fontName = LoadingTextFX::kFontName;
+        s.fontSize = 20.0f;
+        s.centered = true;
+        fxManager.ShowLoadingText(msg,
+            XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f),
+            0.2f, 0.05f,
+            XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f),
+            0.0f, -1.0f, &s);
+    };
+
     // =========================================================================
     // FBX GEOMETRY CACHE FAST-PATH
     // On second+ visit to the same FBX scene (or after a cache.dat restore),
@@ -5092,6 +5141,9 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
         return false;
     }
 
+    // Show progress before the potentially slow FBX file parse begins.
+    showStage(L"Reading FBX file...");
+
     // Parse the FBX file
     if (!m_fbxImporter.LoadFile(fbxFile))
     {
@@ -5123,6 +5175,7 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
     // -------------------------------------------------------------------------
     // Extract all FBX cameras, convert to engine space, apply first one immediately.
     // ParseFBXCameras sets bGltfCameraParsed and myRenderer->myCamera.bCameraJumped.
+    showStage(L"Parsing scene data...");
     ParseFBXCameras(fbx);
 
     // -------------------------------------------------------------------------
@@ -5214,6 +5267,7 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
     // -------------------------------------------------------------------------
     // 4. Instantiate each model into scene_models[]
     // -------------------------------------------------------------------------
+    showStage(L"Building scene geometry...");
     for (int mi : sortedModelIdx)
     {
         if (instanceIndex >= MAX_SCENE_MODELS) break;
@@ -5724,6 +5778,7 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
     // -------------------------------------------------------------------------
     // 5. Animations
     // -------------------------------------------------------------------------
+    showStage(L"Loading animations...");
     bAnimationsLoaded = false;
     if (!fbx.animStacks.empty())
     {

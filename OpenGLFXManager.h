@@ -244,6 +244,7 @@ struct FireworkRocket {
     float startX   = 0.0f, startY = 0.0f;                                      // Launch position
     float targetY  = 0.0f;                                                     // Y at which explosion triggers
     float speed    = 4.0f;                                                     // Upward travel speed in px/frame
+    float vx       = 0.0f;                                                     // Horizontal drift velocity — used for centre-curve steering after 50% travel
     float r        = 1.0f, g = 1.0f, b = 1.0f;                                // Rocket dot colour
     bool  exploded = false;                                                     // True once burst has been triggered
     bool  done     = false;                                                     // True once all particles have completed
@@ -426,6 +427,7 @@ public:
     int  fireworksID = 0;                                                           // ID of the active fireworks effect (0 = none)
     void StartFireworks(float freqRate);                                            // Begin continuous fireworks; rockets launch every freqRate seconds
     void StopFireworks();                                                           // Immediately remove the fireworks effect
+    void RenderFireworks();                                                         // Draw all active rockets and particles at the current blit-order position in RenderFrame
 
     void StopAllFX();
     void SaveAndSuspendFXForScene();
@@ -525,7 +527,8 @@ public:
     bool HasActiveLoadingTextEffects() const;
 
 private:
-    void RenderFireworks(GLFXItem& fx);                                             // Per-frame update and draw of active rockets/particles
+    void UpdateFireworks(GLFXItem& fx);                                             // Advance timers, launch rockets, and update particle state each frame (called from Render2D)
+    void DrawFireworksPixels(GLFXItem& fx);                                         // Internal draw pass — blits rockets and particles for one Fireworks FXItem
 
     // WarpDotTunnel private helpers
     void UpdateWarpDotTunnel(GLFXItem& fx, float deltaTime);

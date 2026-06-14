@@ -64,8 +64,8 @@ events:
         - "D:\\Program Files\\PuTTY\\"
         - "D:\\Program Files\\PowerShell\\7\\"
         - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA App\\NvDLISR"
-        - "D:\\Program Files\\Git\\cmd"
         - "D:\\Program Files\\Git LFS"
+        - "D:\\Program Files\\Git\\cmd"
         - "D:\\Python\\Python313\\Scripts\\"
         - "D:\\Python\\Python313\\"
         - "C:\\Program Files\\MySQL\\MySQL Shell 8.0\\bin\\"
@@ -100,7 +100,7 @@ events:
       The output was:
       0
       MSBuild version 17.14.40+3e7442088 for .NET Framework
-      Build started 9/06/2026 11:02:30 PM.
+      Build started 14/06/2026 11:03:35 PM.
       
       Project "F:\\Projects\\C++\\CPGE2026\\build\\DX12\\Debug\\CMakeFiles\\4.3.2\\CompilerIdCXX\\CompilerIdCXX.vcxproj" on node 1 (default targets).
       PrepareForBuild:
@@ -132,7 +132,7 @@ events:
           0 Warning(s)
           0 Error(s)
       
-      Time Elapsed 00:00:01.83
+      Time Elapsed 00:00:01.85
       
       
       Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "CompilerIdCXX.exe"
@@ -194,8 +194,8 @@ events:
       - "D:/Program Files/PuTTY/"
       - "D:/Program Files/PowerShell/7/"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
-      - "D:/Program Files/Git/cmd/"
       - "D:/Program Files/Git LFS/"
+      - "D:/Program Files/Git/cmd/"
       - "D:/Python/Python313/Scripts/"
       - "D:/Python/Python313/"
       - "C:/Program Files/MySQL/MySQL Shell 8.0/bin/"
@@ -247,8 +247,8 @@ events:
         - "D:\\Program Files\\PuTTY\\"
         - "D:\\Program Files\\PowerShell\\7\\"
         - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA App\\NvDLISR"
-        - "D:\\Program Files\\Git\\cmd"
         - "D:\\Program Files\\Git LFS"
+        - "D:\\Program Files\\Git\\cmd"
         - "D:\\Python\\Python313\\Scripts\\"
         - "D:\\Python\\Python313\\"
         - "C:\\Program Files\\MySQL\\MySQL Shell 8.0\\bin\\"
@@ -319,8 +319,8 @@ events:
       - "D:/Program Files/PuTTY/"
       - "D:/Program Files/PowerShell/7/"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
-      - "D:/Program Files/Git/cmd/"
       - "D:/Program Files/Git LFS/"
+      - "D:/Program Files/Git/cmd/"
       - "D:/Python/Python313/Scripts/"
       - "D:/Python/Python313/"
       - "C:/Program Files/MySQL/MySQL Shell 8.0/bin/"
@@ -429,12 +429,12 @@ events:
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/lld-link.com"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/lld-link.exe"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/lld-link"
-      - "D:/Program Files/Git/cmd/lld-link.com"
-      - "D:/Program Files/Git/cmd/lld-link.exe"
-      - "D:/Program Files/Git/cmd/lld-link"
       - "D:/Program Files/Git LFS/lld-link.com"
       - "D:/Program Files/Git LFS/lld-link.exe"
       - "D:/Program Files/Git LFS/lld-link"
+      - "D:/Program Files/Git/cmd/lld-link.com"
+      - "D:/Program Files/Git/cmd/lld-link.exe"
+      - "D:/Program Files/Git/cmd/lld-link"
       - "D:/Python/Python313/Scripts/lld-link.com"
       - "D:/Python/Python313/Scripts/lld-link.exe"
       - "D:/Python/Python313/Scripts/lld-link"
@@ -518,8 +518,8 @@ events:
         - "D:\\Program Files\\PuTTY\\"
         - "D:\\Program Files\\PowerShell\\7\\"
         - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA App\\NvDLISR"
-        - "D:\\Program Files\\Git\\cmd"
         - "D:\\Program Files\\Git LFS"
+        - "D:\\Program Files\\Git\\cmd"
         - "D:\\Python\\Python313\\Scripts\\"
         - "D:\\Python\\Python313\\"
         - "C:\\Program Files\\MySQL\\MySQL Shell 8.0\\bin\\"
@@ -588,8 +588,8 @@ events:
       - "D:/Program Files/PuTTY/"
       - "D:/Program Files/PowerShell/7/"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
-      - "D:/Program Files/Git/cmd/"
       - "D:/Program Files/Git LFS/"
+      - "D:/Program Files/Git/cmd/"
       - "D:/Python/Python313/Scripts/"
       - "D:/Python/Python313/"
       - "C:/Program Files/MySQL/MySQL Shell 8.0/bin/"
@@ -641,8 +641,8 @@ events:
         - "D:\\Program Files\\PuTTY\\"
         - "D:\\Program Files\\PowerShell\\7\\"
         - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA App\\NvDLISR"
-        - "D:\\Program Files\\Git\\cmd"
         - "D:\\Program Files\\Git LFS"
+        - "D:\\Program Files\\Git\\cmd"
         - "D:\\Python\\Python313\\Scripts\\"
         - "D:\\Python\\Python313\\"
         - "C:\\Program Files\\MySQL\\MySQL Shell 8.0\\bin\\"
@@ -711,8 +711,8 @@ events:
       - "D:/Program Files/PuTTY/"
       - "D:/Program Files/PowerShell/7/"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
-      - "D:/Program Files/Git/cmd/"
       - "D:/Program Files/Git LFS/"
+      - "D:/Program Files/Git/cmd/"
       - "D:/Python/Python313/Scripts/"
       - "D:/Python/Python313/"
       - "C:/Program Files/MySQL/MySQL Shell 8.0/bin/"
@@ -821,12 +821,12 @@ events:
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/mt.com"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/mt.exe"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/mt"
-      - "D:/Program Files/Git/cmd/mt.com"
-      - "D:/Program Files/Git/cmd/mt.exe"
-      - "D:/Program Files/Git/cmd/mt"
       - "D:/Program Files/Git LFS/mt.com"
       - "D:/Program Files/Git LFS/mt.exe"
       - "D:/Program Files/Git LFS/mt"
+      - "D:/Program Files/Git/cmd/mt.com"
+      - "D:/Program Files/Git/cmd/mt.exe"
+      - "D:/Program Files/Git/cmd/mt"
       - "D:/Python/Python313/Scripts/mt.com"
       - "D:/Python/Python313/Scripts/mt.exe"
       - "D:/Python/Python313/Scripts/mt"
@@ -910,8 +910,8 @@ events:
         - "D:\\Program Files\\PuTTY\\"
         - "D:\\Program Files\\PowerShell\\7\\"
         - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA App\\NvDLISR"
-        - "D:\\Program Files\\Git\\cmd"
         - "D:\\Program Files\\Git LFS"
+        - "D:\\Program Files\\Git\\cmd"
         - "D:\\Python\\Python313\\Scripts\\"
         - "D:\\Python\\Python313\\"
         - "C:\\Program Files\\MySQL\\MySQL Shell 8.0\\bin\\"
@@ -980,8 +980,8 @@ events:
       - "D:/Program Files/PuTTY/"
       - "D:/Program Files/PowerShell/7/"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
-      - "D:/Program Files/Git/cmd/"
       - "D:/Program Files/Git LFS/"
+      - "D:/Program Files/Git/cmd/"
       - "D:/Python/Python313/Scripts/"
       - "D:/Python/Python313/"
       - "C:/Program Files/MySQL/MySQL Shell 8.0/bin/"
@@ -1033,8 +1033,8 @@ events:
         - "D:\\Program Files\\PuTTY\\"
         - "D:\\Program Files\\PowerShell\\7\\"
         - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA App\\NvDLISR"
-        - "D:\\Program Files\\Git\\cmd"
         - "D:\\Program Files\\Git LFS"
+        - "D:\\Program Files\\Git\\cmd"
         - "D:\\Python\\Python313\\Scripts\\"
         - "D:\\Python\\Python313\\"
         - "C:\\Program Files\\MySQL\\MySQL Shell 8.0\\bin\\"
@@ -1105,8 +1105,8 @@ events:
       - "D:/Program Files/PuTTY/"
       - "D:/Program Files/PowerShell/7/"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
-      - "D:/Program Files/Git/cmd/"
       - "D:/Program Files/Git LFS/"
+      - "D:/Program Files/Git/cmd/"
       - "D:/Python/Python313/Scripts/"
       - "D:/Python/Python313/"
       - "C:/Program Files/MySQL/MySQL Shell 8.0/bin/"
@@ -1173,8 +1173,8 @@ events:
         - "D:\\Program Files\\PuTTY\\"
         - "D:\\Program Files\\PowerShell\\7\\"
         - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA App\\NvDLISR"
-        - "D:\\Program Files\\Git\\cmd"
         - "D:\\Program Files\\Git LFS"
+        - "D:\\Program Files\\Git\\cmd"
         - "D:\\Python\\Python313\\Scripts\\"
         - "D:\\Python\\Python313\\"
         - "C:\\Program Files\\MySQL\\MySQL Shell 8.0\\bin\\"
@@ -1208,8 +1208,8 @@ events:
     checks:
       - "Detecting CXX compiler ABI info"
     directories:
-      source: "F:/Projects/C++/CPGE2026/build/DX12/Debug/CMakeFiles/CMakeScratch/TryCompile-813pho"
-      binary: "F:/Projects/C++/CPGE2026/build/DX12/Debug/CMakeFiles/CMakeScratch/TryCompile-813pho"
+      source: "F:/Projects/C++/CPGE2026/build/DX12/Debug/CMakeFiles/CMakeScratch/TryCompile-8uz528"
+      binary: "F:/Projects/C++/CPGE2026/build/DX12/Debug/CMakeFiles/CMakeScratch/TryCompile-8uz528"
     cmakeVariables:
       CMAKE_CXX_FLAGS: "/DWIN32 /D_WINDOWS /EHsc"
       CMAKE_CXX_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
@@ -1220,42 +1220,42 @@ events:
       variable: "CMAKE_CXX_ABI_COMPILED"
       cached: true
       stdout: |
-        Change Dir: 'F:/Projects/C++/CPGE2026/build/DX12/Debug/CMakeFiles/CMakeScratch/TryCompile-813pho'
+        Change Dir: 'F:/Projects/C++/CPGE2026/build/DX12/Debug/CMakeFiles/CMakeScratch/TryCompile-8uz528'
         
-        Run Build Command(s): "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_5832f.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        Run Build Command(s): "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_c5088.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
         MSBuild version 17.14.40+3e7442088 for .NET Framework
-        Build started 9/06/2026 11:02:33 PM.
+        Build started 14/06/2026 11:03:39 PM.
         
-        Project "F:\\Projects\\C++\\CPGE2026\\build\\DX12\\Debug\\CMakeFiles\\CMakeScratch\\TryCompile-813pho\\cmTC_5832f.vcxproj" on node 1 (default targets).
+        Project "F:\\Projects\\C++\\CPGE2026\\build\\DX12\\Debug\\CMakeFiles\\CMakeScratch\\TryCompile-8uz528\\cmTC_c5088.vcxproj" on node 1 (default targets).
         PrepareForBuild:
           Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
-          Creating directory "F:\\Projects\\C++\\CPGE2026\\build\\DX12\\Debug\\CMakeFiles\\CMakeScratch\\TryCompile-813pho\\Debug\\".
-          Creating directory "cmTC_5832f.dir\\Debug\\cmTC_5832f.tlog\\".
+          Creating directory "F:\\Projects\\C++\\CPGE2026\\build\\DX12\\Debug\\CMakeFiles\\CMakeScratch\\TryCompile-8uz528\\Debug\\".
+          Creating directory "cmTC_c5088.dir\\Debug\\cmTC_c5088.tlog\\".
         InitializeBuildStatus:
-          Creating "cmTC_5832f.dir\\Debug\\cmTC_5832f.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
-          Touching "cmTC_5832f.dir\\Debug\\cmTC_5832f.tlog\\unsuccessfulbuild".
+          Creating "cmTC_c5088.dir\\Debug\\cmTC_c5088.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_c5088.dir\\Debug\\cmTC_c5088.tlog\\unsuccessfulbuild".
         KillStaleCompilerProcesses:
           taskkill /F /IM cl.exe       >nul 2>&1 & exit /b 0
           taskkill /F /IM mspdbsrv.exe >nul 2>&1 & exit /b 0
         ClCompile:
-          D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /Fo"cmTC_5832f.dir\\Debug\\\\" /Fd"cmTC_5832f.dir\\Debug\\vc143.pdb" /external:W1 /TP /errorReport:queue "D:\\Programs\\CMake\\share\\cmake-4.3\\Modules\\CMakeCXXCompilerABI.cpp"
+          D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /Fo"cmTC_c5088.dir\\Debug\\\\" /Fd"cmTC_c5088.dir\\Debug\\vc143.pdb" /external:W1 /TP /errorReport:queue "D:\\Programs\\CMake\\share\\cmake-4.3\\Modules\\CMakeCXXCompilerABI.cpp"
           Microsoft (R) C/C++ Optimizing Compiler Version 19.38.33145 for x64
           Copyright (C) Microsoft Corporation.  All rights reserved.
-          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /Fo"cmTC_5832f.dir\\Debug\\\\" /Fd"cmTC_5832f.dir\\Debug\\vc143.pdb" /external:W1 /TP /errorReport:queue "D:\\Programs\\CMake\\share\\cmake-4.3\\Modules\\CMakeCXXCompilerABI.cpp"
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /Fo"cmTC_c5088.dir\\Debug\\\\" /Fd"cmTC_c5088.dir\\Debug\\vc143.pdb" /external:W1 /TP /errorReport:queue "D:\\Programs\\CMake\\share\\cmake-4.3\\Modules\\CMakeCXXCompilerABI.cpp"
           CMakeCXXCompilerABI.cpp
         Link:
-          D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\link.exe /OUT:"F:\\Projects\\C++\\CPGE2026\\build\\DX12\\Debug\\CMakeFiles\\CMakeScratch\\TryCompile-813pho\\Debug\\cmTC_5832f.exe" /INCREMENTAL /ILK:"cmTC_5832f.dir\\Debug\\cmTC_5832f.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"F:/Projects/C++/CPGE2026/build/DX12/Debug/CMakeFiles/CMakeScratch/TryCompile-813pho/Debug/cmTC_5832f.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"F:/Projects/C++/CPGE2026/build/DX12/Debug/CMakeFiles/CMakeScratch/TryCompile-813pho/Debug/cmTC_5832f.lib" /MACHINE:X64  /machine:x64 cmTC_5832f.dir\\Debug\\CMakeCXXCompilerABI.obj
-          cmTC_5832f.vcxproj -> F:\\Projects\\C++\\CPGE2026\\build\\DX12\\Debug\\CMakeFiles\\CMakeScratch\\TryCompile-813pho\\Debug\\cmTC_5832f.exe
+          D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\link.exe /OUT:"F:\\Projects\\C++\\CPGE2026\\build\\DX12\\Debug\\CMakeFiles\\CMakeScratch\\TryCompile-8uz528\\Debug\\cmTC_c5088.exe" /INCREMENTAL /ILK:"cmTC_c5088.dir\\Debug\\cmTC_c5088.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"F:/Projects/C++/CPGE2026/build/DX12/Debug/CMakeFiles/CMakeScratch/TryCompile-8uz528/Debug/cmTC_c5088.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"F:/Projects/C++/CPGE2026/build/DX12/Debug/CMakeFiles/CMakeScratch/TryCompile-8uz528/Debug/cmTC_c5088.lib" /MACHINE:X64  /machine:x64 cmTC_c5088.dir\\Debug\\CMakeCXXCompilerABI.obj
+          cmTC_c5088.vcxproj -> F:\\Projects\\C++\\CPGE2026\\build\\DX12\\Debug\\CMakeFiles\\CMakeScratch\\TryCompile-8uz528\\Debug\\cmTC_c5088.exe
         FinalizeBuildStatus:
-          Deleting file "cmTC_5832f.dir\\Debug\\cmTC_5832f.tlog\\unsuccessfulbuild".
-          Touching "cmTC_5832f.dir\\Debug\\cmTC_5832f.tlog\\cmTC_5832f.lastbuildstate".
-        Done Building Project "F:\\Projects\\C++\\CPGE2026\\build\\DX12\\Debug\\CMakeFiles\\CMakeScratch\\TryCompile-813pho\\cmTC_5832f.vcxproj" (default targets).
+          Deleting file "cmTC_c5088.dir\\Debug\\cmTC_c5088.tlog\\unsuccessfulbuild".
+          Touching "cmTC_c5088.dir\\Debug\\cmTC_c5088.tlog\\cmTC_c5088.lastbuildstate".
+        Done Building Project "F:\\Projects\\C++\\CPGE2026\\build\\DX12\\Debug\\CMakeFiles\\CMakeScratch\\TryCompile-8uz528\\cmTC_c5088.vcxproj" (default targets).
         
         Build succeeded.
             0 Warning(s)
             0 Error(s)
         
-        Time Elapsed 00:00:01.52
+        Time Elapsed 00:00:01.98
         
       exitCode: 0
   -
@@ -1290,7 +1290,7 @@ events:
     kind: "find-v1"
     backtrace:
       - "D:/Programs/CMake/share/cmake-4.3/Modules/FindVulkan.cmake:409 (find_path)"
-      - "CMakeLists.txt:124 (find_package)"
+      - "CMakeLists.txt:121 (find_package)"
     mode: "path"
     variable: "Vulkan_INCLUDE_DIR"
     description: "Path to a file."
@@ -1335,8 +1335,8 @@ events:
       - "D:/Program Files/PuTTY/"
       - "D:/Program Files/PowerShell/7/"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
-      - "D:/Program Files/Git/cmd/"
       - "D:/Program Files/Git LFS/"
+      - "D:/Program Files/Git/cmd/"
       - "D:/Python/Python313/Scripts/"
       - "D:/Python/Python313/"
       - "C:/Program Files/MySQL/MySQL Shell 8.0/bin/"
@@ -1394,8 +1394,8 @@ events:
         - "D:\\Program Files\\PuTTY\\"
         - "D:\\Program Files\\PowerShell\\7\\"
         - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA App\\NvDLISR"
-        - "D:\\Program Files\\Git\\cmd"
         - "D:\\Program Files\\Git LFS"
+        - "D:\\Program Files\\Git\\cmd"
         - "D:\\Python\\Python313\\Scripts\\"
         - "D:\\Python\\Python313\\"
         - "C:\\Program Files\\MySQL\\MySQL Shell 8.0\\bin\\"
@@ -1424,7 +1424,7 @@ events:
     kind: "find-v1"
     backtrace:
       - "D:/Programs/CMake/share/cmake-4.3/Modules/FindVulkan.cmake:416 (find_library)"
-      - "CMakeLists.txt:124 (find_package)"
+      - "CMakeLists.txt:121 (find_package)"
     mode: "library"
     variable: "Vulkan_LIBRARY"
     description: "Path to a library."
@@ -1469,8 +1469,8 @@ events:
       - "D:/Program Files/PuTTY/"
       - "D:/Program Files/PowerShell/7/"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
-      - "D:/Program Files/Git/cmd/"
       - "D:/Program Files/Git LFS/"
+      - "D:/Program Files/Git/cmd/"
       - "D:/Python/Python313/Scripts/"
       - "D:/Python/Python313/"
       - "C:/Program Files/MySQL/MySQL Shell 8.0/bin/"
@@ -1530,8 +1530,8 @@ events:
         - "D:\\Program Files\\PuTTY\\"
         - "D:\\Program Files\\PowerShell\\7\\"
         - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA App\\NvDLISR"
-        - "D:\\Program Files\\Git\\cmd"
         - "D:\\Program Files\\Git LFS"
+        - "D:\\Program Files\\Git\\cmd"
         - "D:\\Python\\Python313\\Scripts\\"
         - "D:\\Python\\Python313\\"
         - "C:\\Program Files\\MySQL\\MySQL Shell 8.0\\bin\\"
@@ -1564,7 +1564,7 @@ events:
     kind: "find-v1"
     backtrace:
       - "D:/Programs/CMake/share/cmake-4.3/Modules/FindVulkan.cmake:424 (find_program)"
-      - "CMakeLists.txt:124 (find_package)"
+      - "CMakeLists.txt:121 (find_package)"
     mode: "program"
     variable: "Vulkan_GLSLC_EXECUTABLE"
     description: "Path to a program."
@@ -1609,8 +1609,8 @@ events:
       - "D:/Program Files/PuTTY/"
       - "D:/Program Files/PowerShell/7/"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
-      - "D:/Program Files/Git/cmd/"
       - "D:/Program Files/Git LFS/"
+      - "D:/Program Files/Git/cmd/"
       - "D:/Python/Python313/Scripts/"
       - "D:/Python/Python313/"
       - "C:/Program Files/MySQL/MySQL Shell 8.0/bin/"
@@ -1674,8 +1674,8 @@ events:
         - "D:\\Program Files\\PuTTY\\"
         - "D:\\Program Files\\PowerShell\\7\\"
         - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA App\\NvDLISR"
-        - "D:\\Program Files\\Git\\cmd"
         - "D:\\Program Files\\Git LFS"
+        - "D:\\Program Files\\Git\\cmd"
         - "D:\\Python\\Python313\\Scripts\\"
         - "D:\\Python\\Python313\\"
         - "C:\\Program Files\\MySQL\\MySQL Shell 8.0\\bin\\"
@@ -1704,7 +1704,7 @@ events:
     kind: "find-v1"
     backtrace:
       - "D:/Programs/CMake/share/cmake-4.3/Modules/FindVulkan.cmake:432 (find_program)"
-      - "CMakeLists.txt:124 (find_package)"
+      - "CMakeLists.txt:121 (find_package)"
     mode: "program"
     variable: "Vulkan_GLSLANG_VALIDATOR_EXECUTABLE"
     description: "Path to a program."
@@ -1749,8 +1749,8 @@ events:
       - "D:/Program Files/PuTTY/"
       - "D:/Program Files/PowerShell/7/"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
-      - "D:/Program Files/Git/cmd/"
       - "D:/Program Files/Git LFS/"
+      - "D:/Program Files/Git/cmd/"
       - "D:/Python/Python313/Scripts/"
       - "D:/Python/Python313/"
       - "C:/Program Files/MySQL/MySQL Shell 8.0/bin/"
@@ -1814,8 +1814,8 @@ events:
         - "D:\\Program Files\\PuTTY\\"
         - "D:\\Program Files\\PowerShell\\7\\"
         - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA App\\NvDLISR"
-        - "D:\\Program Files\\Git\\cmd"
         - "D:\\Program Files\\Git LFS"
+        - "D:\\Program Files\\Git\\cmd"
         - "D:\\Python\\Python313\\Scripts\\"
         - "D:\\Python\\Python313\\"
         - "C:\\Program Files\\MySQL\\MySQL Shell 8.0\\bin\\"
@@ -1843,7 +1843,7 @@ events:
   -
     kind: "find-v1"
     backtrace:
-      - "CMakeLists.txt:382 (find_program)"
+      - "CMakeLists.txt:379 (find_program)"
     mode: "program"
     variable: "FXC_EXE"
     description: "HLSL shader compiler"
@@ -1895,8 +1895,8 @@ events:
       - "D:/Program Files/PuTTY/"
       - "D:/Program Files/PowerShell/7/"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
-      - "D:/Program Files/Git/cmd/"
       - "D:/Program Files/Git LFS/"
+      - "D:/Program Files/Git/cmd/"
       - "D:/Python/Python313/Scripts/"
       - "D:/Python/Python313/"
       - "C:/Program Files/MySQL/MySQL Shell 8.0/bin/"
@@ -1978,8 +1978,8 @@ events:
         - "D:\\Program Files\\PuTTY\\"
         - "D:\\Program Files\\PowerShell\\7\\"
         - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA App\\NvDLISR"
-        - "D:\\Program Files\\Git\\cmd"
         - "D:\\Program Files\\Git LFS"
+        - "D:\\Program Files\\Git\\cmd"
         - "D:\\Python\\Python313\\Scripts\\"
         - "D:\\Python\\Python313\\"
         - "C:\\Program Files\\MySQL\\MySQL Shell 8.0\\bin\\"
@@ -2007,7 +2007,7 @@ events:
   -
     kind: "find-v1"
     backtrace:
-      - "CMakeLists.txt:470 (find_program)"
+      - "CMakeLists.txt:467 (find_program)"
     mode: "program"
     variable: "GLSLANG_EXE"
     description: "Vulkan GLSL \u2192 SPIR-V compiler"
@@ -2052,8 +2052,8 @@ events:
       - "D:/Program Files/PuTTY/"
       - "D:/Program Files/PowerShell/7/"
       - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
-      - "D:/Program Files/Git/cmd/"
       - "D:/Program Files/Git LFS/"
+      - "D:/Program Files/Git/cmd/"
       - "D:/Python/Python313/Scripts/"
       - "D:/Python/Python313/"
       - "C:/Program Files/MySQL/MySQL Shell 8.0/bin/"
@@ -2117,8 +2117,8 @@ events:
         - "D:\\Program Files\\PuTTY\\"
         - "D:\\Program Files\\PowerShell\\7\\"
         - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA App\\NvDLISR"
-        - "D:\\Program Files\\Git\\cmd"
         - "D:\\Program Files\\Git LFS"
+        - "D:\\Program Files\\Git\\cmd"
         - "D:\\Python\\Python313\\Scripts\\"
         - "D:\\Python\\Python313\\"
         - "C:\\Program Files\\MySQL\\MySQL Shell 8.0\\bin\\"

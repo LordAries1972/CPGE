@@ -121,6 +121,7 @@ extern bool             Load_Music();                                           
 #elif defined(__USE_VULKAN__)
     void VulkanRenderer::LoaderTaskThread()
 #endif
+
 {
     exceptionHandler.RecordFunctionCall("LoaderTaskThread");
     std::lock_guard<std::mutex> lock(s_loaderMutex);
@@ -174,6 +175,7 @@ extern bool             Load_Music();                                           
                 case SceneType::SCENE_EXPERIMENT:
                 {
                     fxManager.StopZooming();                                        // In case we are returning from somewhere where a zooming effect maybe active.
+                    fxManager.StopFireworks();                                      // In case we are returning from somewhere where fireworks maybe active.
                     threadManager.threadVars.bLoaderTaskFinished.store(false);
                     threadManager.threadVars.b2DTexturesLoaded.store(false);
                     if (LoadAllKnownTextures())
@@ -227,6 +229,7 @@ extern bool             Load_Music();                                           
                 case SceneType::SCENE_INTRO_MOVIE:
                 {
                     fxManager.StopZooming();                                        // In case we are returning from somewhere where a zooming effect maybe active.
+                    fxManager.StopFireworks();                                      // In case we are returning from somewhere where fireworks maybe active.
                     threadManager.threadVars.bLoaderTaskFinished.store(false);
                     debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene Intro Movie.");
 
@@ -248,6 +251,7 @@ extern bool             Load_Music();                                           
             {
                 threadManager.threadVars.bLoaderTaskFinished.store(false);
                 fxManager.StopZooming();                                        // In case we are returning from somewhere where a zooming effect maybe active.
+                fxManager.StopFireworks();                                      // In case we are returning from somewhere where fireworks maybe active.
                 auto showStage = [](const wchar_t* msg) {
                     TextRenderStyle s;
                     s.fontName = LoadingTextFX::kFontName;
@@ -383,9 +387,10 @@ extern bool             Load_Music();                                           
 
                     fxManager.StopLoadingText();
                     fxManager.FadeToImage(1.0f, 0.08f);
-                    // Pulse the 2D Image Background with 30% depth
-                    fxManager.ZoomInitialise(ZoomFXFunction::Zoom2D, 0.30f, 0.15f, int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
+                    // Pulse the 2D Image Background with 20% depth
+                    fxManager.ZoomInitialise(ZoomFXFunction::Zoom2D, 0.20f, 0.15f, int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
                     fxManager.StartZoom(0.015f);
+                    fxManager.StartFireworks(0.25f);
                 }
                 else
                 {
@@ -463,9 +468,10 @@ extern bool             Load_Music();                                           
                     // Starfield on resize
                     fxManager.CreateStarfield(100, 800.0f, 1000.0f, gtStarOrigin, true);
                     fxManager.StopLoadingText();
-                    // Pulse the 2D Image Background with 30% depth
-                    fxManager.ZoomInitialise(ZoomFXFunction::Zoom2D, 0.30f, 0.15f, int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
+                    // Pulse the 2D Image Background with 20% depth
+                    fxManager.ZoomInitialise(ZoomFXFunction::Zoom2D, 0.20f, 0.15f, int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
                     fxManager.StartZoom(0.015f);
+                    fxManager.StartFireworks(0.25f);
                 }
 
                 /* OpenGL: flush pending GL commands before signalling the render thread. */
@@ -538,6 +544,7 @@ extern bool             Load_Music();                                           
             {
                 threadManager.threadVars.bLoaderTaskFinished.store(false);
                 fxManager.StopZooming();                                        // In case we are returning from somewhere where a zooming effect maybe active.
+                fxManager.StopFireworks();                                      // In case we are returning from somewhere where fireworks maybe active.
                 auto showStage = [](const wchar_t* msg) {
                     TextRenderStyle s;
                     s.fontName = LoadingTextFX::kFontName;
@@ -667,14 +674,17 @@ extern bool             Load_Music();                                           
                     #endif
                 }
 
-                fxManager.StopLoadingText();
-
                 /* OpenGL always triggers a fade-in after loading (first load or resize),
                    then flushes pending GL commands before signalling the render thread. */
                 #if defined(__USE_OPENGL__)
                     fxManager.FadeToImage(1.0f, 0.08f);
                     glFlush();
                 #endif
+
+                fxManager.StopLoadingText();
+                fxManager.ZoomInitialise(ZoomFXFunction::Zoom2D, 0.20f, 0.15f, int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
+                fxManager.StartZoom(0.015f);
+                fxManager.StartFireworks(2.0f);
 
                 threadManager.threadVars.bLoaderTaskFinished.store(true);
                 threadManager.PauseThread(THREAD_LOADER);
@@ -686,15 +696,17 @@ extern bool             Load_Music();                                           
             -------------------------------------------------------------- */
             case SceneType::SCENE_GAMEOVER:
             {
+                fxManager.StopFireworks();                                      // In case we are returning from somewhere where fireworks maybe active.
                 threadManager.threadVars.b2DTexturesLoaded.store(false);
                 debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene Game Over.");
                 threadManager.threadVars.bLoaderTaskFinished.store(true);
                 break;
             }
 
+            // Unhandled scene type -- mark loading complete so the engine does not stall.
             default:
             {
-                // Unhandled scene type -- mark loading complete so the engine does not stall.
+                fxManager.StopFireworks();                                      // In case we are returning from somewhere where fireworks maybe active.
                 threadManager.threadVars.bLoaderTaskFinished.store(true);
                 break;
             }

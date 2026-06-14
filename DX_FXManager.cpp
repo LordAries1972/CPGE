@@ -1812,10 +1812,10 @@ void FXManager::Render2D()
             UpdateZoomInOut(fx, deltaTime);
         }
 
-        // Fireworks — update timers, launch rockets, and render all active rockets/particles
+        // Fireworks — advance simulation state each frame; rendering is done via RenderFireworks()
         if (fx.type == FXType::Fireworks)
         {
-            RenderFireworks(fx);
+            UpdateFireworks(fx);
         }
     }
 
@@ -3875,16 +3875,17 @@ void FXManager::StopFireworks()
 }
 
 // ============================================================================================================
-// RenderFireworks — per-frame update and pixel draw of all active rockets and their explosion particles.
+// UpdateFireworks — per-frame simulation tick: advances timers, launches new rockets, moves rockets and
+//   particles, computes screen positions, then prunes completed rockets. Does NOT draw anything.
 //   Called from Render2D() each frame for the FXType::Fireworks item.
 // ============================================================================================================
-void FXManager::RenderFireworks(FXItem& fx)
+void FXManager::UpdateFireworks(FXItem& fx)
 {
     std::lock_guard<std::mutex> lock(m_effectsMutex);                   // Thread safety for rocket state mutation
 
     if (!renderer || fx.type != FXType::Fireworks) return;
 
-    // Compute delta time since last render tick
+    // Compute delta time since last simulation tick
     auto  now = std::chrono::steady_clock::now();
     float dt  = std::chrono::duration<float>(now - fx.lastUpdate).count();
     fx.lastUpdate = now;
@@ -3905,8 +3906,8 @@ void FXManager::RenderFireworks(FXItem& fx)
         r.startX = r.x;
         r.startY = r.y;
 
-        // Target height: 35%-75% of screen height measured from the bottom base
-        float heightFraction = 0.35f + (static_cast<float>(rand()) / RAND_MAX) * 0.40f;
+        // Target height: 35%-85% of screen height measured from the bottom base
+        float heightFraction = 0.35f + (static_cast<float>(rand()) / RAND_MAX) * 0.50f;
         r.targetY = fw.baseY - heightFraction * screenH;
 
         r.speed = 2.0f + (static_cast<float>(rand()) / RAND_MAX) * 6.0f;   // Random speed 2-8 px/frame
@@ -3914,9 +3915,9 @@ void FXManager::RenderFireworks(FXItem& fx)
         r.g     = static_cast<float>(rand()) / RAND_MAX;
         r.b     = static_cast<float>(rand()) / RAND_MAX;
 
-        // Random explosion radius up to 100 px; random particle count 1-15
-        r.expMaxRadius = 10.0f + (static_cast<float>(rand()) / RAND_MAX) * 90.0f;
-        int numParticles = 1 + rand() % 15;
+        // Random explosion radius up to 200 px; random particle count 1-35
+        r.expMaxRadius = 10.0f + (static_cast<float>(rand()) / RAND_MAX) * 110.0f;
+        int numParticles = 10 + rand() % 35;
 
         // Single shared random colour for the entire burst
         r.expR = static_cast<float>(rand()) / RAND_MAX;
@@ -3945,7 +3946,7 @@ void FXManager::RenderFireworks(FXItem& fx)
         fw.rockets.push_back(r);
     }
 
-    // Update and draw every active rocket and its explosion
+    // Advance every active rocket and its explosion particles
     for (auto& r : fw.rockets)
     {
         if (r.done) continue;
@@ -3955,6 +3956,21 @@ void FXManager::RenderFireworks(FXItem& fx)
             // Rocket travels upward (y decrements)
             r.y -= r.speed;
 
+            // After crossing 50% of the upward path, gradually steer toward the
+            // horizontal screen centre for a natural arcing trajectory.
+            float totalTravel = r.startY - r.targetY;
+            if (totalTravel > 0.0f)
+            {
+                float travelProgress = (r.startY - r.y) / totalTravel;
+                if (travelProgress >= 0.75f)
+                {
+                    float curvePhase = (travelProgress - 0.75f) * 4.0f;         // 0 at 75%, 1 at target
+                    r.vx += (screenW * 0.5f - r.x) * 0.002f * curvePhase;       // progressive pull toward centre
+                    r.vx *= 0.90f;                                               // dampen to prevent overshoot
+                }
+            }
+            r.x += r.vx;
+
             if (r.y <= r.targetY)
             {
                 // Target reached — trigger explosion
@@ -3962,26 +3978,21 @@ void FXManager::RenderFireworks(FXItem& fx)
                 r.explodeX = r.x;
                 r.explodeY = r.y;
             }
-            else
-            {
-                // Draw the rocket as a 2-pixel dot
-                XMFLOAT4 rocketColor(r.r, r.g, r.b, 1.0f);
-                renderer->Blit2DColoredPixel(static_cast<int>(r.x), static_cast<int>(r.y), 2.0f, rocketColor);
-            }
         }
 
         if (r.exploded)
         {
-            // Update all burst particles and draw those still expanding
+            // Advance all burst particles outward; store updated screen positions for the render pass
             bool allDone = true;
             for (auto& p : r.expParticles)
             {
                 if (p.completed) continue;
                 allDone = false;
 
-                // Acceleration: speed scales from 1 at origin to 5 at maxRadius
+                // Speed scales from 0.5 at burst origin to 2.5 at maxRadius — halved
+                // from the original 1-5 range for a slower, more visible detonation.
                 float distRatio = p.radius / p.maxRadius;
-                float curSpeed  = 1.0f + distRatio * 4.0f;
+                float curSpeed  = 0.5f + distRatio * 2.0f;
                 p.radius += curSpeed;
 
                 if (p.radius >= p.maxRadius)
@@ -3991,19 +4002,11 @@ void FXManager::RenderFireworks(FXItem& fx)
                     continue;
                 }
 
-                // Convert polar (angle, radius) to screen coordinates
+                // Convert polar (angle, radius) to screen coordinates for the render pass
                 float sinVal, cosVal;
                 FAST_MATH.FastSinCos(p.angle, sinVal, cosVal);
                 p.x = r.explodeX + cosVal * p.radius;
                 p.y = r.explodeY + sinVal * p.radius;
-
-                // Quadratic alpha fade: fully opaque at centre, transparent at maxRadius
-                distRatio    = p.radius / p.maxRadius;
-                float alpha  = p.a * (1.0f - distRatio * distRatio);
-                alpha        = std::max(0.0f, std::min(1.0f, alpha));
-
-                XMFLOAT4 partColor(p.r, p.g, p.b, alpha);
-                renderer->Blit2DColoredPixel(static_cast<int>(p.x), static_cast<int>(p.y), 2.0f, partColor);
             }
 
             if (allDone) r.done = true;
@@ -4016,6 +4019,68 @@ void FXManager::RenderFireworks(FXItem& fx)
                        [](const FireworkRocket& r) { return r.done; }),
         fw.rockets.end()
     );
+}
+
+// ============================================================================================================
+// DrawFireworksPixels — internal helper: pixel-draws all rockets and particles stored in one FXItem.
+//   Called by the public RenderFireworks(); must run after UpdateFireworks() has advanced state this frame.
+// ============================================================================================================
+void FXManager::DrawFireworksPixels(FXItem& fx)
+{
+    if (!renderer || fx.type != FXType::Fireworks) return;
+
+    FireworksData& fw = fx.fireworksData;
+
+    // Draw every active rocket and its explosion
+    for (auto& r : fw.rockets)
+    {
+        if (r.done) continue;
+
+        if (!r.exploded)
+        {
+            // Rocket rising — draw as a 2x2 pixel block
+            XMFLOAT4 rocketColor(r.r, r.g, r.b, 1.0f);
+            renderer->Blit2DColoredPixel(static_cast<int>(r.x), static_cast<int>(r.y), 4.0f, rocketColor);
+        }
+        else
+        {
+            // Explosion phase — draw each non-completed particle
+            for (auto& p : r.expParticles)
+            {
+                if (p.completed) continue;
+
+                // Quadratic alpha fade: fully opaque at centre, transparent at maxRadius
+                float distRatio = p.radius / p.maxRadius;
+                float alpha     = p.a * (1.0f - distRatio * distRatio);
+                alpha           = std::max(0.0f, std::min(1.0f, alpha));
+
+                XMFLOAT4 partColor(p.r, p.g, p.b, alpha);
+                renderer->Blit2DColoredPixel(static_cast<int>(p.x), static_cast<int>(p.y), 2.0f, partColor);
+            }
+        }
+    }
+}
+
+// ============================================================================================================
+// RenderFireworks — public entry point: pixel-draws all active firework rockets and their explosion particles.
+//   Call this from RenderFrame at the exact point in the blit order where fireworks should appear.
+//   UpdateFireworks() (invoked automatically via Render2D) must run first each frame to advance state.
+// ============================================================================================================
+void FXManager::RenderFireworks()
+{
+    if (!renderer || fireworksID <= 0) return;
+
+    std::lock_guard<std::mutex> lock(m_effectsMutex);
+
+    // Locate the active fireworks FXItem and draw it
+    for (auto& fx : effects)
+    {
+        if (fx.type == FXType::Fireworks && fx.fxID == fireworksID)
+        {
+            DrawFireworksPixels(fx);
+            break;
+        }
+    }
 }
 
 #pragma warning(pop)

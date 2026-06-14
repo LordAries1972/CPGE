@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1697*
+*Current Build Version: v0.0.1723*
 
 ---
 
@@ -55,7 +55,7 @@ lets make this Engine great!
 #### 2026
 
 - [June 2026](#june-2026---opengl-pipeline-fixes)
-  - [01](#june-01-2026) · [02](#june-02-2026) · [03](#june-03-2026) · [04](#june-04-2026) · [05](#june-05-2026) · [06](#june-06-2026) · [07](#june-07-2026) · [08](#june-08-2026) · [11](#june-11-2026) · [12](#june-12-2026) · [13](#june-13-2026) · [14](#june-14-2026)
+  - [01](#june-01-2026) · [02](#june-02-2026) · [03](#june-03-2026) · [04](#june-04-2026) · [05](#june-05-2026) · [06](#june-06-2026) · [07](#june-07-2026) · [08](#june-08-2026) · [11](#june-11-2026) · [12](#june-12-2026) · [13](#june-13-2026) · [14](#june-14-2026) · [15](#june-15-2026)
 - [May 2026](#may-2026---more-major-updates-and-fixes)
   - [02](#may-02-2026) · [03-04](#may-03-04-2026) · [06](#may-06-2026) · [08](#may-08-2026) · [10](#may-10-2026) · [11](#may-11-2026) · [14](#may-14-2026) · [15](#may-15-2026) · [16](#may-16-2026) · [17](#may-17-2026) · [18](#may-18-2026) · [19](#may-19-2026) · [20](#may-20-2026) · [21](#may-21-2026) · [22](#may-22-2026) · [23](#may-23-2026) · [24](#may-24-2026) · [28](#may-28-2026) · [29](#may-29-2026) · [30](#may-30-2026) · [31](#may-31-2026)
 - [April 2026](#april-2026---bug-fixes-and-updates)
@@ -3500,6 +3500,40 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
   - `int fireworksID` — 0 when inactive, mirrors `starfieldID`/`tunnelID` in pattern.
   `Docs/FXManager-Example-Usage.md` updated with a new **Fireworks Effects** section (TOC entry 13) covering the effect overview, full API table, behaviour-details table, and four usage examples (basic, slow ceremonial, rapid burst, fade-out sequence).
 - *See: [`DX_FXManager.h`](DX_FXManager.h), [`DX_FXManager.cpp`](DX_FXManager.cpp), [`DX12FXManager.h`](DX12FXManager.h), [`DX12FXManager.cpp`](DX12FXManager.cpp), [`OpenGLFXManager.h`](OpenGLFXManager.h), [`OpenGLFXManager.cpp`](OpenGLFXManager.cpp), [`VULKAN_FXManager.h`](VULKAN_FXManager.h), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp), [`Docs/FXManager-Example-Usage.md`](Docs/FXManager-Example-Usage.md)*
+
+---
+
+#### June 15, 2026
+
+- **Refactor — Fireworks FX: separated update and render into `UpdateFireworks()` and `RenderFireworks()` across all four render pipelines** (`DX_FXManager.h`, `DX_FXManager.cpp`, `DX12FXManager.h`, `DX12FXManager.cpp`, `OpenGLFXManager.h`, `OpenGLFXManager.cpp`, `VULKAN_FXManager.h`, `VULKAN_FXManager.cpp`, `Docs/FXManager-Example-Usage.md`):
+  The original `RenderFireworks(FXItem& fx)` private function performed both physics simulation and pixel drawing in a single pass called from `Render2D()`. This prevented callers from controlling where in the blit order fireworks pixels appear on screen. The implementation has been split into three functions across all four pipelines:
+  - **`UpdateFireworks(FXItem& fx)` (private)** — advances the simulation each frame: increments the launch timer, spawns new rockets when the interval elapses, moves rockets upward, triggers explosions on reaching `targetY`, advances particle radius and stores computed screen coordinates (`p.x`/`p.y`) ready for the render pass, and prunes completed rockets. No pixel output. Called automatically from `Render2D()`.
+  - **`DrawFireworksPixels(FXItem& fx)` (private)** — pixel-draws all active rockets (2-pixel coloured dot while rising) and their explosion particles (quadratic alpha fade from burst-centre to max radius) using pre-computed positions from `UpdateFireworks`. Called internally by the public `RenderFireworks()`.
+  - **`RenderFireworks()` (public, no args)** — locates the active fireworks `FXItem` by `fireworksID`, acquires the effects mutex, and delegates to `DrawFireworksPixels`. Intended to be called from `RenderFrame` at the exact position in the blit order where fireworks pixels should appear — before the HUD, after the background, etc. Must be called every frame while fireworks are active.
+  `Render2D()` in all four pipelines updated: the `FXType::Fireworks` dispatch now calls `UpdateFireworks(fx)` instead of the old combined function.
+  `Docs/FXManager-Example-Usage.md` updated: the Fireworks API table now includes `RenderFireworks()`, documents the update/render separation, and adds a "Controlling Blit Order" example showing how to place the call relative to background, HUD, and `Render2D()`.
+- *See: [`DX_FXManager.h`](DX_FXManager.h), [`DX_FXManager.cpp`](DX_FXManager.cpp), [`DX12FXManager.h`](DX12FXManager.h), [`DX12FXManager.cpp`](DX12FXManager.cpp), [`OpenGLFXManager.h`](OpenGLFXManager.h), [`OpenGLFXManager.cpp`](OpenGLFXManager.cpp), [`VULKAN_FXManager.h`](VULKAN_FXManager.h), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp), [`Docs/FXManager-Example-Usage.md`](Docs/FXManager-Example-Usage.md)*
+
+- **Enhancement — SceneManager: FXLoader status text progress during GLTF/GLB/FBX parsing** (`SceneManager.cpp`):
+  Each of the three scene parsers (`ParseGLBScene`, `ParseGLTFScene`, `ParseFBXScene`) now calls the `showStage` loading-text helper at the start of each major parse section, giving the user visible progress feedback during what can be a slow blocking load:
+  - `"Reading GLB/GLTF/FBX file..."` — before file I/O and header/JSON parsing begins.
+  - `"Parsing scene data..."` — before camera, lights, and material extraction.
+  - `"Building scene geometry..."` — before the node/model instantiation loop.
+  - `"Loading animations..."` *(FBX only)* — before the animation conversion pass.
+  The helper is defined as a local lambda at the top of each function, matching the `showStage` pattern in `IOLoaderThread.cpp`, and uses the same `fxManager.ShowLoadingText()` call (already an extern in `SceneManager.cpp`) with identical font, colour, and position parameters.
+- *See: [`SceneManager.cpp`](SceneManager.cpp)*
+
+- **Enhancement — Fireworks: rocket curving, larger dot, and slower detonation across all four render pipelines** (`DX12FXManager.h`, `DX12FXManager.cpp`, `DX_FXManager.h`, `DX_FXManager.cpp`, `OpenGLFXManager.h`, `OpenGLFXManager.cpp`, `VULKAN_FXManager.h`, `VULKAN_FXManager.cpp`):
+  Three realism improvements applied identically to all four FXManager pipelines:
+  - **`FireworkRocket::vx` field** added to all four `FireworkRocket` structs (defaulting to `0.0f`) to carry the horizontal drift velocity.
+  - **Centre-curve steering** in `UpdateFireworks()`: once a rocket has covered >= 75% of its upward travel path, a proportional force toward the screen centre is accumulated into `vx` each frame (`(screenW×0.5 − x) × 0.002 × curvePhase` where `curvePhase` ramps 0→1 over the final 25% of travel), damped by 0.90× per frame to prevent overshoot. Rockets on the left arc right; rockets on the right arc left. (Threshold raised from 50% and pull strength quartered from initial 0.008 after review.)
+  - **Larger rising-rocket dot**: `Blit2DColoredPixel` size changed from `2.0f` to `4.0f` in `DrawFireworksPixels()` — a visible 2×2 block instead of a single-pixel dot.
+  - **Slower burst detonation**: particle expansion speed formula changed from `1.0f + distRatio×4.0f` (range 1→5 px/frame) to `0.5f + distRatio×2.0f` (range 0.5→2.5 px/frame), halving the rate for a more lingering visible burst.
+- *See: [`DX12FXManager.h`](DX12FXManager.h), [`DX12FXManager.cpp`](DX12FXManager.cpp), [`DX_FXManager.h`](DX_FXManager.h), [`DX_FXManager.cpp`](DX_FXManager.cpp), [`OpenGLFXManager.h`](OpenGLFXManager.h), [`OpenGLFXManager.cpp`](OpenGLFXManager.cpp), [`VULKAN_FXManager.h`](VULKAN_FXManager.h), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp)*
+
+- **Fix — DX12 pipeline: `IMG_TSOO` not blitting and fireworks not rendering after the background pre-pass** (`DX12RenderFrame.cpp`):
+  When the STEP 3.5 background pre-pass ran (`bBackgroundPrePassDone == true`), the `if (bBackgroundPrePassDone)` block in STEP 10's first scene switch was empty — it intentionally skipped re-blitting the background and company logo (correct, to avoid painting over 3D models), but it also inadvertently skipped `fxManager.RenderFireworks()` and the `IMG_TSOO` blit. Both of those calls only existed in the `else if (bLoaderTaskFinished)` fallback branch, which is never reached when the pre-pass succeeds (i.e. every normal frame). The fix adds `fxManager.RenderFireworks()` and the `IMG_TSOO` centered blit inside the `if (bBackgroundPrePassDone)` block so they are drawn over the 3D models in the post-3D D2D pass regardless of which code path executed the background.
+- *See: [`DX12RenderFrame.cpp`](DX12RenderFrame.cpp)*
 
 ---
 

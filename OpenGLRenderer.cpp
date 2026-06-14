@@ -2178,6 +2178,13 @@ void OpenGLRenderer::RenderBackgroundImage()
                     if (fxManager.tunnelID > 0)
                         fxManager.RenderFX(fxManager.tunnelID, viewXM);
                 }
+
+                // Render our Fireworks here.
+                fxManager.RenderFireworks();
+
+                int startX = (iOrigWidth - 536) / 2; // Centered horizontally
+                int startY = (iOrigHeight - 466) / 2; // Centered horizontally
+                Blit2DObjectToSize(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
             }
             else
             {

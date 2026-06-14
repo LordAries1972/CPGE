@@ -293,6 +293,7 @@ struct FireworkRocket {
     float startX = 0.0f, startY = 0.0f;    // launch point
     float targetY = 0.0f;                   // screen Y where the rocket bursts
     float speed = 4.0f;                     // pixels per frame while rising (2–8)
+    float vx    = 0.0f;                     // horizontal drift velocity for centre-curve steering after 50% travel
     float r = 1.0f, g = 1.0f, b = 1.0f;   // dot colour while rising
 
     bool  exploded = false;                 // false = rising, true = burst
@@ -655,6 +656,7 @@ public:
     int  fireworksID = 0;                                                       // ID of the active Fireworks effect (0 = none)
     void StartFireworks(float freqRate);                                        // Start fireworks launching at freqRate seconds between rockets
     void StopFireworks();                                                       // Stop and remove the fireworks effect
+    void RenderFireworks();                                                     // Draw all active rockets and particles at the current blit-order position in RenderFrame
 
     // Text Scroller Utility Calls
     void CreateTextScrollerLTOR(const std::wstring& text, const std::wstring& fontName, float fontSize, XMFLOAT4 textColor,
@@ -722,8 +724,9 @@ private:
     void UpdateZoomInOut(FXItem& fx, float deltaTime);
     void ApplyZoom2D(FXItem& fx);
 
-    // Fireworks private helper
-    void RenderFireworks(FXItem& fx);                                           // Update & render one Fireworks FXItem (called from Render2D)
+    // Fireworks private helpers
+    void UpdateFireworks(FXItem& fx);                                           // Advance timers, launch rockets, and update particle state each frame (called from Render2D)
+    void DrawFireworksPixels(FXItem& fx);                                       // Internal draw pass — blits rockets and particles for one Fireworks FXItem
 
     // Pending zoom config (populated by ZoomInitialise, consumed by StartZoom)
     ZoomData m_zoomConfig;

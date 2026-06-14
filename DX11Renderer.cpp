@@ -2238,9 +2238,9 @@ void DX11Renderer::Clean2DTextures()
         if (m_d2dTextures[i])
         {
             m_d2dTextures[i].Reset();
-#if defined(_DEBUG_RENDERER_)
-            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERER]: 2D Texture [" + std::to_wstring(i) + L"] released.");
-#endif
+            #if defined(_DEBUG_RENDERER_)
+                debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERER]: 2D Texture [" + std::to_wstring(i) + L"] released.");
+            #endif
         }
     }
 }
@@ -2248,9 +2248,9 @@ void DX11Renderer::Clean2DTextures()
 // Set full screen mode.
 bool DX11Renderer::SetFullScreen(void)
 {
-#if defined(_DEBUG_RENDERER_)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"[RENDERER] SetFullScreen() called - beginning fullscreen transition");
-#endif
+    #if defined(_DEBUG_RENDERER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[RENDERER] SetFullScreen() called - beginning fullscreen transition");
+    #endif
 
     // Check if already in fullscreen transition to prevent race conditions
     if (bFullScreenTransition.load()) {
@@ -2274,10 +2274,10 @@ bool DX11Renderer::SetFullScreen(void)
         prevWindowedWidth = rc.right - rc.left;
         prevWindowedHeight = rc.bottom - rc.top;
 
-#if defined(_DEBUG_RENDERER_)
-        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERER] Saved windowed size: " +
-            std::to_wstring(prevWindowedWidth) + L"x" + std::to_wstring(prevWindowedHeight));
-#endif
+        #if defined(_DEBUG_RENDERER_)
+            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERER] Saved windowed size: " +
+                std::to_wstring(prevWindowedWidth) + L"x" + std::to_wstring(prevWindowedHeight));
+        #endif
 
         // Get the output (monitor) information
         ComPtr<IDXGIOutput> output;
@@ -2302,10 +2302,10 @@ bool DX11Renderer::SetFullScreen(void)
         UINT fullscreenWidth = outputDesc.DesktopCoordinates.right - outputDesc.DesktopCoordinates.left;
         UINT fullscreenHeight = outputDesc.DesktopCoordinates.bottom - outputDesc.DesktopCoordinates.top;
 
-#if defined(_DEBUG_RENDERER_)
-        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERER] Target fullscreen resolution: " +
-            std::to_wstring(fullscreenWidth) + L"x" + std::to_wstring(fullscreenHeight));
-#endif
+        #if defined(_DEBUG_RENDERER_)
+            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERER] Target fullscreen resolution: " +
+                std::to_wstring(fullscreenWidth) + L"x" + std::to_wstring(fullscreenHeight));
+        #endif
 
         // Set the fullscreen state first
         hr = m_swapChain->SetFullscreenState(TRUE, nullptr);
@@ -2470,15 +2470,17 @@ bool DX11Renderer::SetFullScreen(void)
 
 bool DX11Renderer::SetFullExclusive(uint32_t width, uint32_t height)
 {
-#if defined(_DEBUG_RENDERER_)
-    // Log the beginning of exclusive fullscreen transition with specified resolution
-    debug.logDebugMessage(LogLevel::LOG_INFO, L"[RENDERER] SetFullExclusive(%d, %d) called - beginning exclusive fullscreen transition", width, height);
-#endif
+    #if defined(_DEBUG_RENDERER_)
+        // Log the beginning of exclusive fullscreen transition with specified resolution
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[RENDERER] SetFullExclusive(%d, %d) called - beginning exclusive fullscreen transition", width, height);
+    #endif
 
     // Check if already in fullscreen transition to prevent race conditions
     if (bFullScreenTransition.load()) {
         // Log warning that transition is already in progress
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[RENDERER] Fullscreen transition already in progress");
+        #if defined(_DEBUG_RENDERER_)
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[RENDERER] Fullscreen transition already in progress");
+        #endif
         return false;
     }
 
@@ -2505,17 +2507,19 @@ bool DX11Renderer::SetFullExclusive(uint32_t width, uint32_t height)
         prevWindowedWidth = rc.right - rc.left;
         prevWindowedHeight = rc.bottom - rc.top;
 
-#if defined(_DEBUG_RENDERER_)
-        // Log the saved windowed size for debugging purposes
-        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[RENDERER] Saved windowed size: %dx%d", prevWindowedWidth, prevWindowedHeight);
-#endif
+        #if defined(_DEBUG_RENDERER_)
+            // Log the saved windowed size for debugging purposes
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[RENDERER] Saved windowed size: %dx%d", prevWindowedWidth, prevWindowedHeight);
+        #endif
 
         // Get the output (monitor) information to validate the requested resolution
         ComPtr<IDXGIOutput> output;
         HRESULT hr = m_swapChain->GetContainingOutput(&output);
         if (FAILED(hr)) {
             // Log error if we cannot get the containing output for the swap chain
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to get containing output for swap chain");
+            #if defined(_DEBUG_RENDERER_)
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to get containing output for swap chain");
+            #endif
             // Clear transition flags on failure
             bFullScreenTransition.store(false);
             threadManager.threadVars.bSettingFullScreen.store(false);
@@ -2527,7 +2531,9 @@ bool DX11Renderer::SetFullExclusive(uint32_t width, uint32_t height)
         hr = output->GetDesc(&outputDesc);
         if (FAILED(hr)) {
             // Log error if we cannot get the output description
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to get output description");
+            #if defined(_DEBUG_RENDERER_)
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to get output description");
+            #endif
             // Clear transition flags on failure
             bFullScreenTransition.store(false);
             threadManager.threadVars.bSettingFullScreen.store(false);
@@ -2542,7 +2548,9 @@ bool DX11Renderer::SetFullExclusive(uint32_t width, uint32_t height)
         hr = output->GetDisplayModeList(format, 0, &numModes, nullptr);
         if (FAILED(hr) || numModes == 0) {
             // Log error if we cannot enumerate display modes
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to enumerate display modes");
+            #if defined(_DEBUG_RENDERER_)
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to enumerate display modes");
+            #endif
             // Clear transition flags on failure
             bFullScreenTransition.store(false);
             threadManager.threadVars.bSettingFullScreen.store(false);
@@ -2556,7 +2564,9 @@ bool DX11Renderer::SetFullExclusive(uint32_t width, uint32_t height)
         hr = output->GetDisplayModeList(format, 0, &numModes, displayModes.data());
         if (FAILED(hr)) {
             // Log error if we cannot get the display mode list
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to get display mode list");
+            #if defined(_DEBUG_RENDERER_)
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to get display mode list");
+            #endif
             // Clear transition flags on failure
             bFullScreenTransition.store(false);
             threadManager.threadVars.bSettingFullScreen.store(false);
@@ -2582,12 +2592,12 @@ bool DX11Renderer::SetFullExclusive(uint32_t width, uint32_t height)
             return false;
         }
 
-#if defined(_DEBUG_RENDERER_)
-        // Log the closest matching mode found for debugging purposes
-        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[RENDERER] Closest matching mode: %dx%d @%dHz",
-            closestMode.Width, closestMode.Height,
-            closestMode.RefreshRate.Numerator / closestMode.RefreshRate.Denominator);
-#endif
+        #if defined(_DEBUG_RENDERER_)
+            // Log the closest matching mode found for debugging purposes
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[RENDERER] Closest matching mode: %dx%d @%dHz",
+                closestMode.Width, closestMode.Height,
+                closestMode.RefreshRate.Numerator / closestMode.RefreshRate.Denominator);
+        #endif
 
         // Set resizing flag to prevent other operations during buffer resize
         threadManager.threadVars.bIsResizing.store(true);
@@ -2696,7 +2706,9 @@ bool DX11Renderer::SetFullExclusive(uint32_t width, uint32_t height)
         hr = m_d3dDevice->CreateTexture2D(&depthDesc, nullptr, m_depthStencilBuffer.GetAddressOf());
         if (FAILED(hr)) {
             // Log error if creating depth stencil buffer fails
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to create depth stencil buffer after resize");
+            #if defined(_DEBUG_RENDERER_)
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to create depth stencil buffer after resize");
+            #endif
             // Clear resizing and transition flags on failure
             threadManager.threadVars.bIsResizing.store(false);
             bFullScreenTransition.store(false);
@@ -2743,10 +2755,10 @@ bool DX11Renderer::SetFullExclusive(uint32_t width, uint32_t height)
         bFullScreenTransition.store(false);
         threadManager.threadVars.bSettingFullScreen.store(false);
 
-#if defined(_DEBUG_RENDERER_)
-        // Log successful completion with actual resolution achieved
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"[RENDERER] Exclusive fullscreen mode set successfully at %dx%d", closestMode.Width, closestMode.Height);
-#endif
+        #if defined(_DEBUG_RENDERER_)
+            // Log successful completion with actual resolution achieved
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[RENDERER] Exclusive fullscreen mode set successfully at %dx%d", closestMode.Width, closestMode.Height);
+        #endif
 
         // Return success
         return true;
@@ -2767,9 +2779,9 @@ bool DX11Renderer::SetFullExclusive(uint32_t width, uint32_t height)
 
 bool DX11Renderer::SetWindowedScreen(void)
 {
-#if defined(_DEBUG_RENDERER_)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"[RENDERER] SetWindowedScreen() called - beginning windowed transition");
-#endif
+    #if defined(_DEBUG_RENDERER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[RENDERER] SetWindowedScreen() called - beginning windowed transition");
+    #endif
 
     // Check if already in fullscreen transition to prevent race conditions
     if (bFullScreenTransition.load()) {

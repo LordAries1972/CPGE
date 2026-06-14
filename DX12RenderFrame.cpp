@@ -459,9 +459,14 @@ void DX12Renderer::RenderFrame()
                         {
                             if (bBackgroundPrePassDone)
                             {
-                                // Background + company logo were drawn by the STEP 3.5
-                                // pre-pass so the 3D models render on top of them —
-                                // blitting them again here would paint over the models.
+                                fxManager.RenderFireworks();
+
+                                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_TSOO)]) 
+                                {
+                                    int startX = (iOrigWidth - 536) / 2; // Centered horizontally
+                                    int startY = (iOrigHeight - 466) / 2; // Centered horizontally
+                                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
+                                }
                             }
                             else if (threadManager.threadVars.bLoaderTaskFinished.load())
                             {
@@ -501,6 +506,7 @@ void DX12Renderer::RenderFrame()
                             }
                             break;
                         }
+
                         case SceneType::SCENE_GAMEPLAY:
                         {
                             if (!threadManager.threadVars.bLoaderTaskFinished.load() &&
@@ -518,6 +524,7 @@ void DX12Renderer::RenderFrame()
                             }
                             break;
                         }
+
                         default:
                             break;
                     }

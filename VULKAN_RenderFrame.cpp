@@ -436,18 +436,19 @@ void VulkanRenderer::RenderFrame()
             vkBeginCommandBuffer(cmd, &bi);
 
             // ---- Upload 2D overlay (Windows: D2D, Linux/Android: CPU buffer) ----
-#if defined(PLATFORM_WINDOWS)
-            // Begin D2D drawing for this frame
-            if (m_d2dRenderTarget) {
-                m_d2dRenderTarget->BeginDraw();
-                m_d2dRenderTarget->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f)); // transparent clear
-            }
-#endif
+            #if defined(PLATFORM_WINDOWS)
+                // Begin D2D drawing for this frame
+                if (m_d2dRenderTarget) {
+                    m_d2dRenderTarget->BeginDraw();
+                    m_d2dRenderTarget->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f)); // transparent clear
+                }
+            #endif
+
             // Render background image to the D2D overlay (or CPU buffer on Linux/Android)
             RenderBackgroundImage();
 
             // Scene-specific D2D overlay content
-#if defined(PLATFORM_WINDOWS)
+            #if defined(PLATFORM_WINDOWS)
             if (m_d2dRenderTarget) {
                 switch (scene.stSceneType) {
                     case SceneType::SCENE_INTRO:
@@ -458,9 +459,11 @@ void VulkanRenderer::RenderFrame()
                                 Blit2DObjectToSize(BlitObj2DIndexType::IMG_SPLASH1, 0, 0, iOrigWidth, iOrigHeight);
                         }
                         break;
+
                     case SceneType::SCENE_INTRO_MOVIE:
                         RenderIntroMovie();
                         break;
+
                     case SceneType::SCENE_GAMETITLE:
                         // Loading image when assets not yet ready (mirrors DX11/DX12)
                         if (!threadManager.threadVars.bLoaderTaskFinished.load() &&
@@ -475,8 +478,10 @@ void VulkanRenderer::RenderFrame()
                             else
                                 Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
                         }
+                        
                         fxManager.RenderLoadingText();
                         break;
+
                     case SceneType::SCENE_GAMEPLAY:
                         // Loading image while assets are loading (mirrors DX11/DX12)
                         if (!threadManager.threadVars.bLoaderTaskFinished.load() &&
@@ -637,6 +642,14 @@ void VulkanRenderer::RenderFrame()
                         if (fxManager.starfieldID > 0)
                             try { fxManager.RenderFX(fxManager.starfieldID, cmd, myCamera.GetViewMatrix()); } catch (...) {}
                         m_drawToBackground = false;
+
+                        // Render our Fireworks here.
+                        fxManager.RenderFireworks();
+
+                        int startX = (iOrigWidth - 536) / 2; // Centered horizontally
+                        int startY = (iOrigHeight - 466) / 2; // Centered horizontally
+                        Blit2DObjectToSize(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
+
                         m_bgD2dRenderTarget->EndDraw();
                         m_bgOverlayDirty = true;
                     }
@@ -672,17 +685,17 @@ void VulkanRenderer::RenderFrame()
                 m_d2dRenderTarget->EndDraw();
                 m_overlayDirty = true;
             } // m_d2dRenderTarget
-#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
-            // Linux/Android: scene 2D and GUI rendered via CPU rasterizer (stub)
-            try { fxManager.Render2D(); } catch (...) {}
-            try { guiManager.Render();  } catch (...) {}
-#endif
+            #elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+                // Linux/Android: scene 2D and GUI rendered via CPU rasterizer (stub)
+                try { fxManager.Render2D(); } catch (...) {}
+                try { guiManager.Render();  } catch (...) {}
+            #endif
 
             // Upload overlay textures to GPU (if dirty)
-#if defined(PLATFORM_WINDOWS)
-            UploadOverlayToVulkan(cmd);
-            UploadBgOverlayToVulkan(cmd);
-#endif
+            #if defined(PLATFORM_WINDOWS)
+                UploadOverlayToVulkan(cmd);
+                UploadBgOverlayToVulkan(cmd);
+            #endif
 
             // ---- Begin render pass ----
             VkClearValue clearValues[2];

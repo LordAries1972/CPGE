@@ -108,9 +108,9 @@ const bool USE_FPS_DISPLAY   = true;
 const bool USE_RENDERER_INFO = true;    // Bottom-right renderer name + version overlay; set false to hide
 
 // Starting Positions for SCENE_GAMETITLE
-const XMFLOAT3 gtStarOrigin(-380.0f, 30.0f, 0.0f);              // Ending/Starting Origin point for the starfield FX on the title screen — matches DX11/Vulkan exactly, OpenGL is adjusted in code to match the same view
-const XMFLOAT3 gtCameraStart(2.17f, 2.6f, -22.17f);             // Starting position for title screen camera — matches DX11/Vulkan exactly, OpenGL is adjusted in code to match the same view
-const XMFLOAT2 gtStartPY(0.0f, -0.29f);                         // Starting pitch/yaw for title screen camera — matches DX11/Vulkan exactly, OpenGL is adjusted in code to match the same view
+const XMFLOAT3 gtStarOrigin(-300.0f, -20.0f, 0.0f);              // Ending/Starting Origin point for the starfield FX on the title screen — matches DX11/Vulkan exactly, OpenGL is adjusted in code to match the same view
+const XMFLOAT3 gtCameraStart(3.34f, 4.32f, -28.03f);             // Starting position for title screen camera — matches DX11/Vulkan exactly, OpenGL is adjusted in code to match the same view
+const XMFLOAT2 gtStartPY(0.024f, -0.362f);                       // Starting pitch/yaw for title screen camera — matches DX11/Vulkan exactly, OpenGL is adjusted in code to match the same view
 
 // Screen-mode enumeration structs — shared by all renderer backends.
 struct AvailModes {
@@ -190,25 +190,24 @@ enum class BlitObj2DIndexType : int {
     NONE = -1,
     BLIT_ALWAYS_CURSOR = 0,
     BG_INTRO = 1,
-    BG_LOADER_CIRCLE,
-    IMG_WINFRAME1,
-    IMG_BUTTONUP1,
-    IMG_BTNCLOSEUP1,
-    IMG_BEVEL1,
-    IMG_TITLEBAR1,
-    IMG_TITLEBAR1HL,
-    IMG_SPLASH1,
-    IMG_GAMEINTRO1,
-    IMG_TITLEBAR2,
-    IMG_WINBODY2,
-    IMG_BUTTON2UP,
-    IMG_BUTTON2DOWN,
-    IMG_COMPANYLOGO,
-    IMG_TAB_RED,
-    IMG_TAB_GUNMETALGRAY,
-    IMG_LOADING,
-    IMG_BACKGROUND,
-    IMG_TSOO
+    BG_LOADER_CIRCLE = 2,
+    IMG_WINFRAME1 = 3,
+    IMG_BUTTONUP1 = 4,
+    IMG_BTNCLOSEUP1 = 5,
+    IMG_BEVEL1 = 6,
+    IMG_TITLEBAR1 = 7,
+    IMG_TITLEBAR1HL = 8,
+    IMG_SPLASH1 = 9,
+    IMG_GAMEINTRO1 = 10,
+    IMG_TITLEBAR2 = 11,
+    IMG_WINBODY2 = 12,
+    IMG_BUTTON2UP = 13,
+    IMG_BUTTON2DOWN = 14,
+    IMG_COMPANYLOGO = 15,
+    IMG_TAB_RED = 16,
+    IMG_TAB_GUNMETALGRAY = 17,
+    IMG_LOADING = 18,
+    IMG_TSOO = 19
 };
 
 struct BlitObj2DDetails
