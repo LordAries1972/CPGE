@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1682*
+*Current Build Version: v0.0.1687*
 
 ---
 
@@ -3447,6 +3447,12 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
 - **New — `Docs/About-CPGE.md`: Comprehensive engine overview document created** (`Docs/About-CPGE.md`):
   A complete, fully-linked Markdown document covering all 38 engine subsystems in detail, written for developers and contributors joining the CPGE project. Includes a linked Table of Contents with back-to-TOC anchors at each section end. Sections cover: Introduction; Author; Project Philosophy (no third-party wrappers, conditional compilation, thread safety, 60fps target, debug-centric design, FOSS); Platform Support; Build System (prerequisites, directory layout, `cmake-build.bat` usage, renderer selection at compile time, Debug/Release configurations, IDE builds, output executable naming); all four Renderer backends (DX11, DX12, OpenGL, Vulkan) and RendererFactory; Shader Management; Camera; Scene Management (GLTF 2.0 parser, cache.dat, scene transitions); 3D Model System; GLTF Animation; Lighting; PBR Material & Texture System; Visual FX Manager (all effect types, queue architecture, scene-transition safety, backend parity); Threading (ThreadManager, ThreadLockHelper, named threads, graceful shutdown); IO Loader Thread; SoundManager; XMMODPlayer; WinMediaPlayer / MoviePlayer; TTSManager; Keyboard Handler; Joystick / GamePad; Physics Engine; MathPrecalculation; NetworkManager; GamingAI; ScriptManager (.cgs format and command reference); FileIO; Configuration (GameConfig.cfg, checksum, all key fields); ExceptionHandler & Debug (call-stack log, crash dumps, Debug logging); Console Window; GUI System (Intuition System); Screen Recorder; PUNPack; MyRandomizer; Blender Add-Ons; Steam (future); Licensing; Contact & Contributions.
 - *See: [`Docs/About-CPGE.md`](Docs/About-CPGE.md)*
+
+- **Critical fix — DX12 crash on window resize: `D2D1Debug3.dll DebugBreak` caused by unnecessary full D2D stack teardown** (`DX12Renderer.h`, `DX12Renderer.cpp`):
+  `DX12Renderer::Resize()` was calling `CleanupDX11On12Compatibility()` + `InitializeDX11On12Compatibility()` to tear down and rebuild the entire D2D stack (factory, device, context, 11on12 device, DWrite factory) on every resize. None of these objects are tied to the swap-chain back buffers — they are independent of back-buffer size. Destroying them during resize opened a window where the render thread (still inside its frame loop) could encounter a released `m_d2dContext` or attempt to use brushes belonging to the destroyed device. The D2D debug layer (`D2D1Debug3.dll`) caught this and fired `DebugBreak`. Comparing against the DX11 resize path, which only releases and recreates the D2D render target (not the factory/device/context), confirms the teardown was unnecessary: the only D2D objects that must be replaced on a back-buffer resize are the per-frame `m_wrappedBackBuffers[]` and `m_d2dRenderTargets[]`, which are already reset before `ResizeBuffers()`. Two changes fix this:
+  - **`DX12Renderer.cpp` `Resize()`** — Replaced `CleanupDX11On12Compatibility()` + `InitializeDX11On12Compatibility()` + `CreateD2DRenderTargets()` with a single `CreateD2DRenderTargets()` call (guarded by `m_d2dContext && dx11On12Device`). This recreates only the back-buffer-bound D2D bitmaps and wrapped resources for the new swap-chain buffers, leaving the factory, device, context, and 11on12 device untouched.
+  - **`DX12Renderer.h` / `DX12Renderer.cpp` `Blit2DColoredPixel()`** — Replaced the `static ComPtr<ID2D1SolidColorBrush> pBrush` function-static local with a new member `m_pixelBrush` (reset in `Cleanup()`), matching the DX11 pattern.
+- *See: [`DX12Renderer.h`](DX12Renderer.h), [`DX12Renderer.cpp`](DX12Renderer.cpp)*
 
 ---
 

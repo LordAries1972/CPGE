@@ -2714,6 +2714,7 @@ void DX12Renderer::Cleanup() {
 
         // Release cached D2D resources before tearing down the device
         m_generalBrush.Reset();
+        m_pixelBrush.Reset();
         m_textFormatCache.clear();
 
         // Clean up DirectX 11-12 compatibility layer (and D2D)
@@ -3599,13 +3600,13 @@ void DX12Renderer::Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 co
         // Check for resize state
         if (threadManager.threadVars.bIsResizing.load()) return;
 
-        // Create or reuse a solid color brush for pixel rendering
-        static ComPtr<ID2D1SolidColorBrush> pBrush;
-        if (!pBrush)
+        // m_pixelBrush is a member reset in Resize()/Cleanup(), so it is always bound
+        // to the current D2D device — no cross-device aliasing risk (unlike a static local).
+        if (!m_pixelBrush)
         {
             HRESULT hr = m_d2dContext->CreateSolidColorBrush(
                 D2D1::ColorF(color.x, color.y, color.z, color.w),               // RGBA color
-                &pBrush                                                         // Output brush
+                &m_pixelBrush                                                   // Output brush
             );
             if (FAILED(hr)) {
                 debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to create solid color brush for pixel.");
@@ -3615,7 +3616,7 @@ void DX12Renderer::Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 co
         else
         {
             // Update existing brush color
-            pBrush->SetColor(D2D1::ColorF(color.x, color.y, color.z, color.w));
+            m_pixelBrush->SetColor(D2D1::ColorF(color.x, color.y, color.z, color.w));
         }
 
         // Define pixel rectangle
@@ -3627,7 +3628,7 @@ void DX12Renderer::Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 co
         );
 
         // Fill the pixel rectangle
-        m_d2dContext->FillRectangle(&pixelRect, pBrush.Get());
+        m_d2dContext->FillRectangle(&pixelRect, m_pixelBrush.Get());
 
 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
         debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Colored pixel drawn successfully.");
@@ -4994,14 +4995,16 @@ bool DX12Renderer::Resize(uint32_t width, uint32_t height)
         m_renderTargetWidth  = width;
         m_renderTargetHeight = height;
 
-        // Recreate DirectX 11-12 compatibility layer for 2D rendering
-        CleanupDX11On12Compatibility();
-        bool compatibilitySuccess = InitializeDX11On12Compatibility();
-        if (!compatibilitySuccess) {
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to reinitialize DirectX 11-12 compatibility after resize.");
-        }
-        else {
-            // Recreate per-frame D2D render targets for the new back buffers
+        // Recreate per-frame D2D render targets for the new back buffers.
+        // The D2D factory, device, context, and 11on12 device are NOT tied to the
+        // swap-chain back-buffer resources — only m_wrappedBackBuffers[] and
+        // m_d2dRenderTargets[] are, and both were reset above before ResizeBuffers().
+        // Tearing down and recreating the full D2D stack (CleanupDX11On12Compatibility
+        // + InitializeDX11On12Compatibility) on every resize is unnecessary and
+        // introduces a window where the render thread can access released D2D state.
+        // CreateD2DRenderTargets() wraps the new back-buffer resources and creates
+        // new per-frame D2D bitmaps — that is all a resize requires.
+        if (m_d2dContext && m_dx11Dx12Compat.dx11On12Device) {
             if (!CreateD2DRenderTargets())
                 debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to recreate D2D render targets after resize.");
         }

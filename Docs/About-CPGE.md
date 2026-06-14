@@ -1855,29 +1855,221 @@ Additional shaders (fade effects, starfield, particles, GUI) are registered by t
 **Source files:** `DXCamera.cpp/.h`, `VulkanCamera.cpp/.h`, `OpenGLCamera.cpp/.h`  
 **Documentation:** [DXCamera-Example-Usage.md](DXCamera-Example-Usage.md)
 
-The Camera system provides a full 3D camera with smooth animation, free-look, orbital, and history navigation capabilities.
+The Camera system provides a full 3D camera with smooth jump animation, continuous orbital rotation, history-based navigation, free-look mouse input, and robust state preservation across window resizes — all integrated safely with the multi-threaded render pipeline.
 
-### Purpose
+---
 
-A game camera must do more than just compute a view matrix — it must handle smooth movement between points, respond to player input, maintain target focus during movement, and integrate safely with the multi-threaded render pipeline. The CPGE Camera class handles all of this.
+### 8.1 Camera Backends
 
-### Architecture
+CPGE maintains one Camera class per rendering API family:
 
-Each renderer backend has its own camera class (DXCamera, VulkanCamera, OpenGLCamera) that shares the same behavioural logic but produces view/projection matrices in the format expected by its respective API. The camera produces:
-- A **view matrix** constructed from the camera position, target, and up vector using a left-handed look-at formulation.
-- A **projection matrix** computed from the field-of-view (configured in `GameConfig.cfg`), aspect ratio, near plane, and far plane values.
+| Class | Source Files | Used By |
+| --- | --- | --- |
+| `Camera` | `DXCamera.cpp/.h` | DirectX 11, DirectX 12 |
+| `Camera` | `VulkanCamera.cpp/.h` | Vulkan |
+| `Camera` | `OpenGLCamera.cpp/.h` | OpenGL |
 
-Both matrices are uploaded to the renderer's constant buffer at `b0` every frame.
+Each variant produces matrices in the format expected by its respective shader binding convention. All three expose an identical public API so that game code never needs to branch on the active renderer.
 
-### Key Features
+The camera instance is held as a public member of the renderer (`renderer->myCamera`) and accessed engine-wide through that reference. The `SceneManager`, `FXManager`, `GUIManager`, and input handlers all operate on the same camera instance through the renderer pointer.
 
-- **Smooth Jump Animation** — Bézier-curve-based positional movement with configurable interpolation speed. The camera arcs gracefully between positions rather than teleporting or sliding linearly.
-- **History System** — A ring buffer of previous camera positions allows the player (or game code) to step backward through the camera's movement history.
-- **Continuous Orbital Rotation** — The camera can orbit a target point at a configurable angular velocity for cinematic panning shots or automated demonstrations.
-- **Pitch / Yaw / Roll** — Full rotation support with configurable min/max pitch clamp (`minPitch` / `maxPitch` in `GameConfig.cfg`) to prevent gimbal issues.
-- **Joystick Integration** — The Camera class exposes a movement interface that the Joystick class drives directly for 3D navigation.
-- **MathPrecalculation Integration** — Trigonometric operations inside the camera's movement routines are routed through the `MathPrecalculation` fast-lookup system (see [Section 23](#23-mathematics-precalculation-system)) for optimal frame-rate performance.
-- **Thread Safety** — All camera state mutations are guarded by a mutex compatible with the `ThreadManager` / `ThreadLockHelper` system.
+---
+
+### 8.2 Core Camera State
+
+The `Camera` class maintains the following primary state fields:
+
+| Field | Type | Purpose |
+| --- | --- | --- |
+| `position` | `XMFLOAT3` | World-space position of the camera eye |
+| `target` | `XMFLOAT3` | World-space point the camera is looking at |
+| `up` | `XMFLOAT3` | Camera up vector (normally `(0, 1, 0)`) |
+| `forward` | `XMFLOAT3` | Computed forward direction vector (derived from target − position) |
+| `m_yaw` | `float` | Horizontal rotation angle in radians |
+| `m_pitch` | `float` | Vertical rotation angle in radians (clamped by `minPitch` / `maxPitch`) |
+| `viewMatrix` | `XMMATRIX` | Left-handed look-at view matrix, recomputed by `UpdateViewMatrix()` |
+| `projectionMatrix` | `XMMATRIX` | Perspective projection matrix, recomputed by `UpdateProjectionMatrix()` |
+| `worldMatrix` | `XMMATRIX` | Camera-to-world transform (inverse view, used for skybox and FX rendering) |
+| `bCameraJumped` | `bool` | Set by `ParseFBXCameras()` when an FBX-embedded camera is applied; the loader thread checks this flag to skip `SetupDefaultCamera()` so the imported camera position is preserved |
+
+All of `position`, `target`, `up`, and `forward` are in **left-handed, Y-up world space** — matching the DirectX and Vulkan (Windows) convention. The OpenGL variant applies the necessary coordinate conversion when building the view matrix.
+
+---
+
+### 8.3 View and Projection Matrices
+
+The camera produces two matrices each frame:
+
+**View matrix** — computed by `UpdateViewMatrix()` using a left-handed look-at formulation:
+
+```cpp
+viewMatrix = XMMatrixLookAtLH(
+    XMLoadFloat3(&position),   // eye position
+    XMLoadFloat3(&target),     // look-at point
+    XMLoadFloat3(&up)          // up vector
+);
+```
+
+**Projection matrix** — computed by `UpdateProjectionMatrix()` from the field-of-view angle (read from `GameConfig.cfg` as `fieldOfView`), the current aspect ratio (updated in `UpdateResolution()`), near plane, and far plane:
+
+```cpp
+projectionMatrix = XMMatrixPerspectiveFovLH(
+    m_fieldOfView,    // vertical FOV in radians
+    m_aspectRatio,    // width / height
+    m_nearPlane,      // near clipping plane
+    m_farPlane        // far clipping plane
+);
+```
+
+Both matrices are uploaded to the GPU's constant buffer at slot `b0` every frame, where the vertex shader computes `clip_pos = proj × view × world × local_pos`.
+
+The `fieldOfView`, `nearPlane`, and `farPlane` values can all be updated at runtime via `SetFieldOfView()`, `SetNearFarPlanes()`, and `SetNearFar()` — the projection matrix is recomputed automatically.
+
+---
+
+### 8.4 Movement API
+
+Basic camera movement is provided by six direction functions, each translating the camera's position along the specified world-space axis:
+
+```cpp
+camera.MoveUp(float distance);
+camera.MoveDown(float distance);
+camera.MoveRight(float distance);
+camera.MoveLeft(float distance);
+camera.MoveIn(float distance);      // Forward along the look direction
+camera.MoveOut(float distance);     // Backward along the look direction
+```
+
+These functions update `position` and (if `bFocusOnTarget` is active) adjust `target` to keep the look-at direction stable. They are called directly by the `Joystick` class each frame when the user navigates in 3D mode.
+
+`SetPosition(x, y, z)` performs an immediate non-animated relocation of the camera to a new world position and calls `UpdateViewMatrix()` synchronously.
+
+---
+
+### 8.5 JumpTo — Smooth Positional Animation
+
+The camera's most-used feature is the `JumpTo()` and `JumpToWithYawPitch()` API:
+
+```cpp
+// Move camera smoothly to world position (x, y, z) at speed 1–5.
+// If FocusOnTarget is true, keep looking at the current target throughout.
+camera.JumpTo(float x, float y, float z, int speed, bool FocusOnTarget);
+
+// As above, but also smoothly interpolates yaw and pitch to the specified angles.
+camera.JumpToWithYawPitch(float x, float y, float z, float newYaw, float newPitch,
+                          int speed, bool FocusOnTarget);
+```
+
+The `speed` parameter (1–5) controls the animation curve:
+- **Speed 1** — slow cinematic arc.
+- **Speed 2–3** — moderate game-speed camera transitions.
+- **Speed 4–5** — fast snap-like jumps, still with a brief smooth arc.
+
+Internally, `CalculateSmoothTravelPath()` generates a series of `XMFLOAT3` waypoints along a smooth interpolated path between the start and end positions. Each frame, `UpdateJumpAnimation()` is called by the render loop:
+
+1. The current path index is advanced based on elapsed time and the speed curve (`CalculateJumpAnimationSpeed(progress, speed)` returns an ease-in/ease-out multiplier).
+2. `position` is set to the next waypoint.
+3. If `FocusOnTarget` is true, `target` is held fixed at `m_originalTarget`; otherwise it tracks the movement direction.
+4. `UpdateViewMatrix()` is called to rebuild the view matrix for this frame.
+5. When the final waypoint is reached, `m_isJumping` is cleared and a `CameraJumpHistoryEntry` is added to `m_jumpHistory`.
+
+During an active jump, `IsJumping()` returns `true`. A jump can be cancelled at any time via `CancelJump()`, which immediately sets the camera to its current interpolated position and clears the animation state. `GetJumpProgress()` returns the completion fraction (`0.0–1.0`) for UI purposes.
+
+---
+
+### 8.6 Jump History
+
+Every completed `JumpTo()` call records a `CameraJumpHistoryEntry` in a ring buffer (`m_jumpHistory`, capacity 10):
+
+```cpp
+struct CameraJumpHistoryEntry {
+    XMFLOAT3 startPosition;              // Position before the jump
+    XMFLOAT3 endPosition;                // Position after the jump
+    std::vector<XMFLOAT3> travelPath;    // The smooth waypoint path taken
+    float totalDistance;                 // Total travel distance
+    int speed;                           // Speed setting used
+    bool focusOnTarget;                  // Whether focus was maintained
+    XMFLOAT3 originalTarget;             // The look-at target during the jump
+    std::chrono::system_clock::time_point timestamp;  // When the jump occurred
+};
+```
+
+`JumpBackHistory(int numOfJumps)` steps the camera back through history by the specified number of entries, replaying the jump in reverse. This enables a "fly back along your path" feature for exploration scenarios. History entries from a forward-jump are pruned when stepping back to prevent orphaned entries (`RemoveForwardHistoryEntries(fromIndex)`).
+
+`GetJumpHistoryCount()` returns the number of recorded entries. `ClearJumpHistory()` empties the ring buffer. `GetJumpHistory()` provides read-only access to the full entry vector for debugging or UI display.
+
+---
+
+### 8.7 Orbital Rotation
+
+The camera can orbit the current `target` point continuously:
+
+```cpp
+// Begin rotating around target on the specified axes at the current rotation speed.
+camera.MoveAroundTarget(bool x, bool y, bool z, bool continuous = true);
+
+// Same, but with an explicit speed in degrees per second.
+camera.MoveAroundTarget(bool x, bool y, bool z, float rotationSpeed, bool continuous = true);
+
+// Control the active rotation:
+camera.StopRotating();
+camera.PauseRotation();
+camera.ResumeRotation();
+camera.SetRotationSpeed(float degreesPerSecond);
+```
+
+When `continuous = true`, `UpdateContinuousRotation()` is called each frame from the render loop. It accumulates rotation angles in `m_currentRotationX/Y/Z` (degrees), calls `CalculateRotationPosition()` to compute the new camera position on the orbital sphere, and calls `UpdateViewMatrix()` to rebuild the view.
+
+For non-continuous rotation (e.g. rotate exactly 180° and stop), `m_targetRotationX/Y/Z` is set and rotation halts automatically when the target angle is reached.
+
+Status queries:
+
+| Method | Returns |
+| --- | --- |
+| `IsRotatingAroundTarget()` | `true` if an orbital rotation is active |
+| `IsRotationPaused()` | `true` if rotation has been paused but not stopped |
+| `GetRotationProgress()` | Completion fraction (`0.0–1.0`) for non-continuous rotation |
+| `GetCurrentRotationAngles()` | Accumulated X/Y/Z rotation angles as `XMFLOAT3` |
+| `GetRotationSpeeds()` | Current per-axis rotation speeds as `XMFLOAT3` |
+
+One-call wrappers for common rotations:
+
+```cpp
+camera.RotateX(float degrees, int speed, bool FocusOnTarget = true);
+camera.RotateY(float degrees, int speed, bool FocusOnTarget = true);
+camera.RotateZ(float degrees, int speed, bool FocusOnTarget = true);
+camera.RotateXYZ(float xDeg, float yDeg, float zDeg, int speed, bool FocusOnTarget = true);
+camera.RotateToOppositeSide(int speed = 2);  // Exactly 180 degrees Y rotation
+```
+
+---
+
+### 8.8 Mouse and Joystick Integration
+
+**Mouse free-look** — `UpdateCameraFromMouseMovement(float mouseDeltaX, float mouseDeltaY, float sensitivity)` updates yaw and pitch from mouse delta movement, calls `CalculateDirectionVectors()` to rebuild the forward, right, and up vectors, and calls `UpdateViewMatrix()`. Pitch is clamped to `[minPitch, maxPitch]` (configured in `GameConfig.cfg`) to prevent gimbal flip at vertical extremes.
+
+`CalculateDirectionVectorsFromMouseDelta()` exposes the intermediate calculation for callers that need the new direction vectors without immediately applying them to the camera state. `UpdateDirectionVectors()` applies pre-computed forward/right/up vectors directly.
+
+**Joystick** — the `Joystick` class calls `MoveIn()`, `MoveOut()`, `MoveLeft()`, `MoveRight()`, `MoveUp()`, `MoveDown()`, and `SetYawPitch()` in response to thumbstick and D-pad input. The camera class has no direct dependency on `Joystick`; the input handler drives it through the public movement API.
+
+**Yaw/pitch synchronisation** — `SetYawPitchFromForward()` extracts yaw and pitch from the current `forward` vector via `UpdateYawPitchFromDirection()`. This is called after `SetPosition()` + `SetTarget()` to synchronise `m_yaw` / `m_pitch` with the new look direction, ensuring that subsequent mouse or joystick deltas are applied relative to the correct orientation.
+
+`DeterminePrimaryLookDirection()` returns a char (`'N'`, `'S'`, `'E'`, `'W'`, `'U'`, `'D'`) identifying the dominant world-axis the camera is currently facing — used by the in-game diagnostic overlay to annotate camera state.
+
+---
+
+### 8.9 Resize State Preservation
+
+When the window is resized, the camera's current state must be saved before GPU resource teardown and restored afterward to prevent a momentary reset:
+
+```cpp
+camera.SaveCameraStateForResize();       // Saves position, target, up, yaw, pitch, FOV, near, far
+camera.RestoreCameraStateAfterResize();  // Restores from saved state and rebuilds both matrices
+```
+
+`SaveCameraStateForResize()` is called at the start of the resize handler before any GPU resources are released. `RestoreCameraStateAfterResize()` is called after the new swap chain, render target view, and depth-stencil view are fully set up. The saved state lives in the file-level `static CameraResizeState savedCameraState` (initially `isValid = false`), preventing a spurious restore before any resize has occurred.
+
+`UpdateResolution(uint32_t newWidth, uint32_t newHeight, float newAspectRatio)` is called as part of the resize path to update `m_aspectRatio` and rebuild the projection matrix for the new viewport dimensions.
 
 [Back to Table of Contents](#table-of-contents)
 
@@ -1888,39 +2080,230 @@ Both matrices are uploaded to the renderer's constant buffer at `b0` every frame
 **Source files:** `SceneManager.cpp/.h`  
 **Documentation:** [SceneManager-Example-Usage.md](SceneManager-Example-Usage.md)
 
-The `SceneManager` is the engine's high-level world organiser — it defines what is visible in the game world at any given moment by loading, caching, and managing scenes described by GLTF 2.0 files.
+`SceneManager` is the engine's high-level world organiser. It defines what is visible in the game world at any given moment by loading, caching, and transitioning between scenes described by GLTF 2.0, GLB, or FBX asset files. It owns the engine's model budget, all animation state, and all scene-level camera and light data.
 
-### Purpose
+---
 
-A scene in CPGE is a self-contained unit containing models, lights, cameras, and metadata. The SceneManager orchestrates the transition between scenes (with fade-out / fade-in sequences), maintains a binary cache of parsed geometry to avoid re-parsing the same GLTF on every startup, and provides the renderer with a frame-consistent snapshot of all objects to draw.
+### 9.1 Scene Type Hierarchy
 
-### GLTF 2.0 Parser
+Every possible game state maps to a `SceneType` enum value. The active scene type drives which 3D file is loaded, which scripts are active, and which rendering configuration (background, lighting, FX) is in use:
 
-CPGE includes a **fully in-house GLTF 2.0 parser** supporting both `.gltf` (JSON + separate binary) and `.glb` (binary-embedded) files. The parser handles:
+| Enum | Purpose |
+| --- | --- |
+| `SCENE_NONE` | No scene loaded — engine is in pre-initialisation state |
+| `SCENE_INITIALISE` | Engine startup scene — subsystem init and first-run checks |
+| `SCENE_GAMETITLE` | Game title / main menu scene |
+| `SCENE_INTRO` | Story / lore introduction scene |
+| `SCENE_INTRO_MOVIE` | Full-screen video cutscene (routes to `MoviePlayer`) |
+| `SCENE_GAMEPLAY` | Primary gameplay world |
+| `SCENE_GAMEOVER` | End-of-run game over screen |
+| `SCENE_CREDITS` | Credits roll scene |
+| `SCENE_HIGHSCORES` | High score leaderboard scene |
+| `SCENE_EDITOR` | In-engine level editor (when editor features are compiled in) |
+| `SCENE_LOAD_MP3` | Standalone MP3 streaming / music player scene |
+| `SCENE_EXPERIMENT` *(Debug only)* | Sandbox for in-development feature testing; stripped from Release builds |
 
-- **Mesh primitives** — including multi-primitive nodes (one node with several mesh sections, each with its own material). Each primitive past the first is given the parent model's ID and an identity TRS so that full-model animation moves all primitives in concert.
-- **Materials** — PBR metallic-roughness, including base colour factor, metallic factor, roughness factor, emissive factor, alpha mode, and double-sided flag.
-- **Textures and samplers** — including `KHR_texture_transform` extension support; UV transforms are baked into vertex UV coordinates at parse time so no special shader variant is needed at runtime.
-- **Lights** — `KHR_lights_punctual` extension for point, directional, and spot lights embedded in the scene file.
-- **Cameras** — GLTF-defined perspective cameras are imported and available as named camera objects.
-- **Animations** — keyframe animation data (translation, rotation, scale per node) is extracted and handed off to the `GLTFAnimator` (see [Section 11](#11-gltf-animation-system)).
-- **FBX Import** — `FBXImport.cpp/.h` provides an additional in-house FBX format parser so that assets exported directly from tools like Maya or 3ds Max can be loaded alongside GLTF content.
+`SetGotoScene(SceneType)` queues a transition to the specified scene. `GetGotoScene()` queries the pending destination. `InitiateScene()` is called by the IO Loader Thread to execute the transition.
 
-### Geometry Cache (`cache.dat`)
+---
 
-After a scene's GLTF file is parsed for the first time, the resulting geometry (vertex buffers, index buffers, material data) is serialised to a binary `cache.dat` file in the working directory. On subsequent runs, `cache.dat` is read at startup and the geometry is reconstructed directly — bypassing the JSON parse step entirely. This can reduce load times significantly for scenes with many large meshes.
+### 9.2 Scene Model Budget
 
-**Important:** When models are restored from `cache.dat`, the material/texture binding step that normally happens inside the full GLTF parse loop must be explicitly re-executed. The engine's `SceneManager` contains dedicated re-bind logic (`RefreshDX12Textures()` on DX12, `RefreshOpenGLTextures()` on OpenGL) that is called immediately after cache restoration to prevent grey-geometry rendering.
+```cpp
+constexpr int MAX_SCENE_MODELS = MAX_MODELS;  // 2048
+Model scene_models[MAX_SCENE_MODELS];
+```
 
-### Scene Transition
+The engine maintains a fixed-capacity `scene_models[2048]` array. Every 3D object visible in the current scene occupies one slot. This fixed budget means no heap allocation is ever performed while adding models to the scene — all memory is committed at startup. Slots are cleared via `CleanUp()` when the scene changes.
 
-Scene transitions follow a fixed sequence to prevent use-after-free on GPU resources:
-1. Begin fade-out (FXManager `AddColorFadeEffect`).
-2. Await fade completion (drain `bIsRendering` flag on all active FX).
-3. Call `StopAllFX()` to cleanly terminate active effects.
-4. Unload current scene geometry and GPU resources.
-5. Load next scene and restore FX state via `RestoreFXAfterScene()`.
-6. Begin fade-in.
+The `bLoadedFromCache` flag is set `true` when a fast-path cache restore was used. Callers that detect this flag must **not** clear `models[]` (the global pre-parsed geometry store) because the cache path bypasses the full 3D file parse and the GPU-ready geometry is already resident.
+
+---
+
+### 9.3 Scene File Parsing — Auto-Detection
+
+CPGE supports three 3D scene formats, selected automatically by `ParseSceneAutoDetect()`:
+
+```cpp
+// Accepts .gltf, .glb, and .fbx; auto-detects format from extension and binary magic.
+bool SceneManager::ParseSceneAutoDetect(const std::wstring& sceneFile);
+```
+
+The detection logic:
+
+1. The file extension is checked first (`.glb`, `.gltf`, `.fbx`).
+2. For `.glb` vs. `.gltf` ambiguity, the first 4 bytes of the file are read — GLB files begin with the magic value `0x46546C67` (`glTF`).
+3. The detected exporter is stored in `m_lastDetectedExporter` (accessible via `GetLastDetectedExporter()`), and a `LOG_INFO` message identifies the format.
+4. The corresponding parser (`ParseGLTFScene`, `ParseGLBScene`, or `ParseFBXScene`) is called.
+
+---
+
+### 9.4 GLTF 2.0 Parser
+
+CPGE includes a **completely in-house GLTF 2.0 parser** (no external importer library) that handles both text-format `.gltf` files and binary-embedded `.glb` files.
+
+The parser uses **`nlohmann/json`** (the engine's sole permitted external library) to deserialise the JSON document from either the `.gltf` file directly or from the embedded JSON chunk in a `.glb` binary container. The binary buffer (`.bin` for `.gltf`, or the embedded `BIN` chunk for `.glb`) is held in `gltfBinaryData` during the parse pass.
+
+#### Mesh Primitives
+
+GLTF nodes may contain meshes with multiple primitives, each referencing a separate material. The parser calls `LoadGLTFMeshPrimitives(meshIndex, doc, model, primitiveFilter)` for each mesh node:
+
+- **Single primitive** — produces one `Model` entry in `scene_models[]`.
+- **Multiple primitives** — the first primitive is loaded as the primary model with the node's world TRS. Every subsequent primitive receives `iParentModelID = firstPrimIndex` and `gltfNodeIndex = -1` with an identity TRS, so the GLTF animation system drives all primitives from the parent's animated matrix. This is the required pattern for multi-section meshes such as a player ship with separate engine and hull geometry.
+
+The node hierarchy is traversed recursively via `ParseGLTFNodeRecursive()` / `ParseGLBNodeRecursive()`, which carry the accumulated `parentTransform` matrix down through every level so that each child's local TRS is pre-multiplied into world space.
+
+#### Materials and Textures
+
+`ParseMaterialsFromGLTF()` reads all `materials[]` entries from the GLTF document, populating `Material` structs for each. Material properties include:
+
+- PBR metallic-roughness: `baseColorFactor`, `metallicFactor`, `roughnessFactor`.
+- Emissive: `emissiveFactor` and the `KHR_materials_emissive_strength` extension.
+- Alpha: `alphaMode` (`OPAQUE`, `MASK`, `BLEND`), `alphaCutoff`.
+- Double-sided flag.
+- Advanced extensions: `KHR_materials_clearcoat`, `KHR_materials_ior`, `KHR_materials_specular`, `KHR_materials_sheen`.
+
+Textures are loaded via `LoadGLTFImage()`, which resolves each image from either a URI file reference (`./textures/albedo.png`) or an embedded `bufferView` in the GLB binary blob.
+
+`KHR_texture_transform` UV offset, rotation, and scale data is read from each texture reference and **baked into the vertex UV coordinates** during mesh parsing — no shader variant or additional uniform is required at runtime.
+
+`BindGLTFMaterialTexturesToModel()` applies the loaded `Material` to the target `ModelInfo`, populating all 9 texture slot handles and the PBR material scalar properties. The Vulkan-specific material UBO binding (`UploadFBXMaterialToVulkanModel()`) is handled separately after the common bind step.
+
+#### Lights
+
+`ParseGLTFLights()` reads the `KHR_lights_punctual` extension from the GLTF document. Point, directional, and spot lights defined in the scene file are imported and registered with the `LightsManager`, making them immediately available to the render pipeline under their scene names.
+
+#### Cameras
+
+`ParseGLTFCamera()` reads GLTF-defined perspective cameras and applies them to the engine's `Camera` instance. The `bGltfCameraParsed` flag is set when a GLTF camera was found and applied; the loader thread checks this to determine whether to run the default camera setup or preserve the imported position.
+
+#### Animations
+
+GLTF animation data (channels targeting node translation, rotation, and scale across time) is extracted and handed off to the `GLTFAnimator` instance (`gltfAnimator`) for per-frame evaluation. `bAnimationsLoaded` is set `true` when at least one animation was successfully parsed. `UpdateSceneAnimations(float deltaTime)` is called from the render loop to advance all active animations each frame.
+
+#### Exporter Detection
+
+`DetectGLTFExporter()` reads the GLTF `asset.generator` field and records the DCC tool name in `m_lastDetectedExporter` (e.g. `"Blender 4.1"`, `"Maya 2025"`, `"Sketchfab"`). The `isSketchfab` flag enables special-case handling for Sketchfab's coordinate convention when that exporter is detected.
+
+---
+
+### 9.5 FBX Parser
+
+`ParseFBXScene()` invokes the in-house FBX parser (`FBXImporter m_fbxImporter`) to handle binary or ASCII FBX 7.x files from Maya, 3ds Max, and compatible DCC tools. The FBX parser:
+
+- Extracts mesh geometry (vertices, normals, UVs, tangents) and populates `ModelInfo`.
+- Reads material definitions and texture paths, building `Material` structs compatible with the engine's 9-slot texture layout.
+- Bakes UV transforms (translation, scaling, rotation read from FBX layer element data) into vertex UV coordinates.
+- Extracts camera definitions (see section 9.8).
+- Extracts light definitions and registers them with `LightsManager`.
+
+The common `ParseSceneAutoDetect()` entry point routes `.fbx` files to this path automatically.
+
+---
+
+### 9.6 Geometry Cache (`cache.dat`)
+
+After a scene's 3D file is parsed for the first time, the resulting geometry is serialised to `cache.dat` via `SaveCache()`. On subsequent runs, `LoadCache()` restores it, bypassing the JSON or FBX parse step entirely:
+
+```cpp
+bool SceneManager::SaveCache(const std::string& filepath);   // Serialises vertex/index/material data
+bool SceneManager::LoadCache(const std::string& filepath);   // Restores and sets bLoadedFromCache=true
+```
+
+Each model entry is stored as a `SceneModelStateBinary` record:
+
+```cpp
+struct SceneModelStateBinary {
+    int32_t ID;
+    wchar_t name[64];
+    float position[3];
+    float rotation[3];
+    float scale[3];
+};
+```
+
+**Critical cache-restore requirement:** When models are restored from `cache.dat`, the material/texture binding step that normally runs inside the full GLTF parse loop must be explicitly re-executed. The `SceneManager` calls the appropriate refresh function immediately after restoration:
+
+- **DX12** — `RefreshDX12Textures()` re-uploads SRV descriptors into the CBV/SRV/UAV heap. Without this, the descriptor table points to empty slots and models render grey.
+- **OpenGL** — `RefreshOpenGLTextures()` rebuilds the `textureIDs` / `normalMapIDs` lists from the parsed `m_materials` set. Without this, `textureIDs` stays empty and models render untextured.
+
+---
+
+### 9.7 Scene State Persistence
+
+Beyond the geometry cache, CPGE supports saving and restoring the full scene state (model positions, rotations, scales) at arbitrary points during gameplay:
+
+```cpp
+bool SceneManager::SaveSceneState(const std::wstring& path);
+bool SceneManager::LoadSceneState(const std::wstring& path);
+```
+
+This writes and reads binary `SceneModelStateBinary` records for each active model in `scene_models[]`. Use cases include mid-session state saves, editor undo/redo stacks, and multi-scene persistent object placement.
+
+---
+
+### 9.8 Camera Import from FBX
+
+FBX files authored in Blender, Maya, or 3ds Max may embed named camera objects. `ParseFBXCameras()` extracts all camera definitions from the FBX scene, converts them from FBX's right-handed Y-up coordinate system to the engine's left-handed Y-up system, and stores them in `m_fbxCameras`:
+
+```cpp
+struct ParsedFBXCamera {
+    std::wstring name;
+    XMFLOAT3     position  = { 0.0f, 0.0f, -10.0f };  // Camera eye in engine space
+    XMFLOAT3     target    = { 0.0f, 0.0f,   0.0f };  // Look-at point in engine space
+    XMFLOAT3     up        = { 0.0f, 1.0f,   0.0f };  // Camera up vector
+    float        fovYDeg   = 60.0f;                   // Vertical FOV in degrees
+    float        nearPlane = 0.1f;
+    float        farPlane  = 10000.0f;
+};
+```
+
+After parsing, `GotoCamera()` navigates to any named camera:
+
+```cpp
+// AnimateTowards=false: instant jump (position and orientation applied immediately).
+// AnimateTowards=true: camera.JumpTo() is called with the FBX camera's position.
+bool SceneManager::GotoCamera(const std::wstring& cameraName, bool AnimateTowards);
+```
+
+The `Camera::bCameraJumped` flag is set `true` when an FBX camera is applied. The IO Loader Thread checks this flag to skip `SetupDefaultCamera()` so the imported camera position survives the scene load completion sequence. `GetFBXCameras()` provides read-only access to the full parsed camera list for tooling and debug display.
+
+---
+
+### 9.9 Scene Transitions
+
+Scene transitions follow a strict, ordered sequence to prevent GPU use-after-free on effects and model buffers:
+
+1. **Fade out** — `fxManager.AddColorFadeEffect(...)` initiates a full-screen colour fade.
+2. **Drain** — wait for the `bIsRendering` atomic to reach `false` on all active FX effects.
+3. **Stop effects** — `StopAllFX()` cleanly terminates all effects.
+4. **Unload** — `CleanUp()` tears down current scene GPU resources and resets `scene_models[]`.
+5. **Load next scene** — the IO Loader Thread calls `ParseSceneAutoDetect()` or restores from `cache.dat`.
+6. **Restore FX** — `RestoreFXAfterScene()` reinstates persistent effects (e.g. continuous starfield) once the new scene is ready.
+7. **Fade in** — a second `AddColorFadeEffect(...)` fades up from black.
+
+The `bSceneSwitching` flag is set for the duration of this sequence to prevent the render thread from drawing the old scene while it is being torn down.
+
+---
+
+### 9.10 Auto-Framing and Scene Utilities
+
+`AutoFrameSceneToCamera()` automatically positions the camera to frame all visible models within the configured field of view:
+
+```cpp
+// Computes the bounding sphere of all active models in scene_models[],
+// then positions the camera at the distance required to fit the sphere
+// in the FOV with the given padding factor.
+void SceneManager::AutoFrameSceneToCamera(
+    float fovYRadians = XMConvertToRadians(60.0f),
+    float padding = 1.2f);
+```
+
+This is used for developer diagnostics (F key in Debug builds), automated scene previews, and as a fallback when no FBX/GLTF camera is embedded in the scene file.
+
+`FindParentModelID(const std::wstring& modelName)` retrieves the parent model's ID from a model name string — used during multi-primitive assembly and animation channel resolution.
+
+`DiagnoseGLBParsing()` is a debug-build tool that runs a diagnostic pass over a GLB file and logs structural information about its chunks, mesh count, node hierarchy, and material layout — useful when investigating import issues with a new asset.
 
 [Back to Table of Contents](#table-of-contents)
 
@@ -1931,39 +2314,290 @@ Scene transitions follow a fixed sequence to prevent use-after-free on GPU resou
 **Source files:** `Models.cpp/.h`, `DX12Models.cpp/.h`, `OpenGLModels.cpp/.h`, `VulkanModels.cpp/.h`  
 **Documentation:** [Model-Example-Usage.md](Model-Example-Usage.md)
 
-The Model system manages individual 3D geometry objects — from their raw vertex/index data through GPU buffer upload, material binding, texture loading, and per-frame constant buffer updates.
+The Model system is the engine's 3D geometry substrate. Every renderable 3D object in CPGE — regardless of source format or rendering backend — is represented as a `ModelInfo` data record owned by a `Model` instance. The Model subsystem owns the full lifecycle of every 3D object: parsing raw geometry, uploading it to GPU buffers, binding PBR material resources, updating per-frame constant buffers, and tearing everything down cleanly on scene change.
 
-### Purpose
+---
 
-Every rendered 3D entity in CPGE (whether loaded from GLTF, OBJ, or FBX) is represented as a `ModelInfo` structure (or a class wrapping it, depending on the backend). The Model subsystem owns the lifecycle of these objects from load-time through destruction.
+### 10.1 The Model Budget
 
-### ModelInfo Structure
+```cpp
+const int MAX_MODELS = 2048;
+```
 
-`ModelInfo` is the central data record for a 3D model. It contains:
+`MAX_MODELS` is the hard cap on unique 3D model records the engine can hold in memory at any one time. The global `models[]` array and `SceneManager::scene_models[]` are both sized at 2048 slots. Every slot is committed at startup — no allocation occurs during scene loading or object instantiation. The 2048-slot budget covers complex multi-primitive scenes (a GLTF with 20 multi-primitive meshes of 5 sections each occupies 100 slots) with room to spare for typical game world sizes.
 
-- **Geometry** — vertex buffer, index buffer, vertex count, index count, and primitive topology.
-- **Transform** — world matrix (position, rotation, scale) stored as a row-vector `Matrix4x4`, uploaded raw (without an implicit transpose) to the `std140` UBO in OpenGL/Vulkan, and directly to the DX11 constant buffer.
-- **Material** — base colour RGBA, metallic factor, roughness factor, emissive factor, ambient occlusion scale, and flags for double-sided rendering, alpha blending, and emissive emission.
-- **Textures** — handles (or IDs) for each of the 9 texture slots defined in `Includes.h`.
-- **UV wrap modes** — `uvWrapU` / `uvWrapV` per model, applied as sampler parameters on each backend.
-- **Animation state** — a pointer to the `GLTFAnimator` instance and the current keyframe time.
-- **Rendering flags** — visible, cast shadow, receive shadow, instance index.
-- **Parent model ID** — for multi-primitive GLTF nodes, all child primitives reference the first primitive's ID so that full-model transforms propagate correctly.
+---
 
-### Instanced Rendering
+### 10.2 The Vertex Structure
 
-Each model instance maintains its own copy of the `ModelInfo` structure, isolated from the base asset. This means two ships loaded from the same `.gltf` file share vertex and index buffers on the GPU (read-only) but have independent world matrices, material overrides, and animation states. The base asset is never mutated by instance operations.
+All geometry in CPGE uses the `Vertex` struct as the atomic unit:
 
-### Wavefront OBJ Support
+```cpp
+// DX11 / DX12 (DirectXMath-based):
+struct Vertex {
+    XMFLOAT3 position  = { 0.0f, 0.0f, 0.0f };   // Local-space XYZ position
+    XMFLOAT3 normal    = { 0.0f, 0.0f, 0.0f };   // Surface normal for lighting
+    XMFLOAT2 texCoord  = { 0.0f, 0.0f };          // Primary UV (post-KHR_texture_transform bake)
+    XMFLOAT3 tangent   = { 1.0f, 0.0f, 0.0f };   // Tangent XYZ for normal-map TBN matrix
+    float    tangentW  = 1.0f;                    // GLTF handedness sign (+1 or -1) for bitangent
+};
 
-In addition to GLTF, the engine includes a built-in `.obj` / `.mtl` parser for simpler geometry needs. OBJ files are parsed into the same `ModelInfo` record and follow the identical lifecycle.
+// OpenGL / Vulkan (portable float arrays):
+struct Vertex {
+    float position[3];
+    float normal[3];
+    float texCoord[2];
+    float tangent[4] = {1.0f, 0.0f, 0.0f, 1.0f}; // xyz=tangent, w=handedness sign
+};
+```
 
-### Backend-Specific Upload
+The `tangentW` (or `tangent[3]`) sign field preserves the GLTF-specified handedness of the tangent frame. The fragment/pixel shader computes the bitangent as `cross(normal, tangent.xyz) * tangent.w` rather than storing it redundantly per vertex, keeping the vertex stride at 48 bytes for DX and 52 bytes for OpenGL/Vulkan (including the extra `w` element in the float4 tangent).
 
-- **DX11** — vertex and index buffers are created as immutable `D3D11_USAGE_DEFAULT` resources, uploaded via `ID3D11DeviceContext::UpdateSubresource` at load time.
-- **DX12** — vertex and index buffers are uploaded through an intermediate upload heap (`D3D12_HEAP_TYPE_UPLOAD`) and then copied to a default heap (`D3D12_HEAP_TYPE_DEFAULT`) via `CopyBufferRegion` on the copy command queue.
-- **OpenGL** — buffers are created as VAO / VBO / EBO objects. The OpenGL models layer lives exclusively in `OpenGLModels.cpp` (not in the shared `Models.cpp`) to keep backend-specific GL calls cleanly separated.
-- **Vulkan** — `VkBuffer` objects for vertex and index data, backed by `VkDeviceMemory` with `VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT`.
+All `texCoord` values are **post-bake** — `KHR_texture_transform` UV transforms (and FBX UV transforms) are applied to vertex UV data at parse time. The GPU never needs to know about per-material UV transforms; the shader accesses the final UV directly.
+
+The `Vertex` struct is used for both **static geometry** (read from the mesh file at load time and never modified) and **animation vertices** (`animationVertices` in `ModelInfo`), which receive skinned or morph-target positions each frame.
+
+---
+
+### 10.3 Animation Data Structures
+
+Animation data extracted from GLTF 2.0 is stored in a hierarchy of structs within `ModelInfo`:
+
+```
+GLTFAnimation
+  ├── std::vector<AnimationSampler>
+  │     ├── std::vector<AnimationKeyframe>   // time + values (3 floats T/S, 4 floats R quaternion)
+  │     ├── AnimationInterpolation           // LINEAR / STEP / CUBICSPLINE
+  │     └── minTime / maxTime               // Clip time bounds in seconds
+  └── std::vector<AnimationChannel>
+        ├── samplerIndex                    // Index into this animation's samplers[]
+        ├── targetNodeIndex                 // GLTF node index being animated
+        └── targetPath                      // TRANSLATION / ROTATION / SCALE / WEIGHTS
+```
+
+Playback state is tracked in `AnimationInstance`:
+
+```cpp
+struct AnimationInstance {
+    int   animationIndex;    // Index into the scene's GLTFAnimation array
+    float currentTime;       // Current playback position in seconds
+    float playbackSpeed;     // Multiplier (1.0 = normal, 0.5 = half speed)
+    bool  isPlaying;
+    bool  isLooping;
+    int   parentModelID;     // The root model this animation drives
+};
+```
+
+`ModelInfo::iAnimationIndex` stores the index of the active `AnimationInstance` for this model slot, linking it to its playback state. Models with `iAnimationIndex == -1` have no animation and are not evaluated by `UpdateSceneAnimations()`.
+
+---
+
+### 10.4 The Texture Class
+
+`Texture` is a reference-counted (`std::shared_ptr<Texture>`) GPU texture resource wrapper. It abstracts the backend-specific handle behind a common interface:
+
+```cpp
+Texture tex;
+tex.LoadFromFile(L"Assets/Textures/ship_diffuse.png");  // Decode PNG/JPEG via WIC
+tex.LoadFromMemory(data, size);                          // Load from in-memory buffer (GLB embedded)
+tex.CreateSolidColorTexture(4, 4, color);                // 4x4 solid placeholder
+```
+
+Backend-specific accessor methods:
+
+| Backend | Accessor | Return Type |
+| --- | --- | --- |
+| DX11 / DX12 | `GetSRV()` | `ID3D11ShaderResourceView*` |
+| DX12 (additional) | `GetDX12Resource()` | `ComPtr<ID3D12Resource>&` |
+| OpenGL | `GetTextureID()` | `GLuint` |
+| Vulkan | `GetImageView()` | `VkImageView` |
+
+The DX12 path caches decoded pixel data in `m_dx12PixelCache` (a `std::vector<uint8_t>`) at load time, making the pixel data available when the default-heap GPU resource is created on the render thread. `ClearDX12Pixels()` releases the CPU-side copy after the GPU upload completes.
+
+`Texture` objects are non-copyable (`Texture(const Texture&) = delete`) — they are always managed through `std::shared_ptr`. The underlying GPU resource is freed only when the last model referencing it is destroyed, preventing premature release of shared assets.
+
+---
+
+### 10.5 The Material Struct
+
+`Material` is the CPU-side representation of a 3D model's surface appearance, covering the full PBR metallic-roughness workflow plus extended properties:
+
+| Group | Key Fields |
+| --- | --- |
+| **Diffuse / base colour** | `Kd` (RGB factor), `diffuseTexture` (`t0`) |
+| **Normal mapping** | `normalMap` (`t1`), `normalScale` |
+| **PBR metallic-roughness** | `Metallic`, `Roughness`, `metallicMap` (`t2`), `roughnessMap` (`t3`) |
+| **Ambient occlusion** | `aoMap` (`t4`) |
+| **Environment / reflections** | *(via ModelInfo `useEnvironmentMap`; slot `t5`)* |
+| **Gloss / smoothness** | `glossMap` (`t6`), relates to roughness as `roughness = 1 − gloss.r` |
+| **Emissive** | `emissiveFactor` (RGB), `emissiveStrength`, `emissiveMap` (`t7`) |
+| **Transparency** | `alphaMode` (`OPAQUE` / `MASK` / `BLEND`), `AlphaCutoff`, `dissolve` |
+| **Double-sided** | `doubleSided` — skips backface culling for this material |
+| **UV transform** | `uvTranslationU/V`, `uvScalingU/V`, `uvRotationDeg`, `uvWrapU/V` |
+| **Extensions** | `clearcoatFactor`, `clearcoatRoughness`, `ior`, `specularFactor`, `sheenColorFactor`, `sheenRoughness` |
+
+Each `Model` instance maintains an `std::unordered_map<std::string, Material>` keyed by material name. `BindGLTFMaterialTexturesToModel()` reads from this map and writes into the corresponding `ModelInfo` texture slot handles.
+
+---
+
+### 10.6 ModelInfo — The Central Data Record
+
+`ModelInfo` is the flat, CPU-side data record for a single 3D model. It is the most data-dense structure in the engine — every piece of information about a 3D object except the `Model` class's housekeeping state lives here.
+
+#### Identity and Hierarchy
+
+| Field | Purpose |
+| --- | --- |
+| `ID` | Unique integer identifier for this model slot |
+| `iParentModelID` | For multi-primitive nodes, the ID of the first primitive; -1 for root models |
+| `gltfNodeIndex` | The GLTF node index; -1 for synthetic child primitives |
+| `bIsTransformOnly` | True for GLTF empty/transform nodes that carry no geometry |
+| `bIsTransformProxy` | True for proxy nodes that apply a parent transform without their own mesh |
+| `name` | Model name from GLTF node name or FBX object name |
+| `sourceSceneFile` | The GLTF/GLB/FBX path that produced this entry |
+| `bGpuReady` | True once GPU buffers and SRVs are valid and ready to render |
+| `cachedInstanceIndex` | The `scene_models[]` slot used when this was last instanced (for fast-path cache restore) |
+
+#### Transform
+
+All four renderers use the same transform field names (`position`, `scale`, `rotation`, `worldMatrix`, etc.). The type differs per token: `XMFLOAT3` / `XMMATRIX` on DX11, DX12, and Windows Vulkan; `float[3]` / `Matrix4x4` on OpenGL and non-Windows Vulkan. The `XMFLOAT3` type aliases to the engine's `Vector3` on non-Windows targets via `Includes.h`.
+
+The **local TRS animation system** uses separate `baseLocal*` fields (static GLTF rest pose) and `animLocal*` fields (current frame output from `GLTFAnimator`) to build the final animated world matrix, so that game-code-driven world-position changes and GLTF animation can coexist on the same model without interfering.
+
+#### Geometry and Animation
+
+| Field | Purpose |
+| --- | --- |
+| `vertices` | CPU-side `std::vector<Vertex>` — cleared after GPU upload to free RAM |
+| `indices` | CPU-side `std::vector<uint32_t>` index data — cleared after GPU upload |
+| `animationVertices` | Per-frame skinned/morph vertex positions (maintained while animation is active) |
+| `gltfBinaryBuffer` | Temporary storage for the `.bin` buffer during parse (cleared after mesh assembly) |
+| `iAnimationIndex` | Index into the scene's `AnimationInstance` array; -1 = not animated |
+| `fxActive / fxID` | Visual FX binding state for this model |
+
+#### Textures, UV, and Lighting
+
+| Field | Purpose |
+| --- | --- |
+| `textures` | Ordered `std::vector<std::shared_ptr<Texture>>` for the 9 PBR texture slots |
+| `uvWrapU / uvWrapV` | Sampler wrap mode: 0 = REPEAT, 1 = CLAMP_TO_EDGE, 2 = MIRRORED_REPEAT |
+| `localLights` | `std::vector<LightStruct>` for per-model light data; uploaded to constant buffer `b1` |
+
+---
+
+### 10.7 The Model Class
+
+`Model` is the owner wrapper around `ModelInfo`. It holds lifecycle state and the complete operation API:
+
+```cpp
+class Model {
+public:
+    bool         m_isLoaded;             // Geometry has been parsed from the source file
+    bool         bInitialized;           // GPU buffers are set up and ready to render
+    bool         bIsDestroyed;           // Cleanup has been called; object is no longer usable
+    float        m_animationTime;        // Current animation playback time for this model
+    LightsManager lighting;              // Per-model light manager (feeds b1 light constant buffer)
+    ModelInfo    m_modelInfo;            // All geometry, material, and transform data
+    std::unordered_map<std::string, Material> m_materials;  // All material variants
+    std::mutex   m_ModelMutex;           // Guards concurrent setup vs. render access
+    std::atomic<bool> bIsSettingUpModel; // True while SetupModelForRendering() is in progress
+};
+```
+
+#### Key Operations
+
+| Method | Purpose |
+| --- | --- |
+| `LoadModel(filename, ID)` | Dispatches to the appropriate format parser (`LoadOBJ`, or routes via `SceneManager`) |
+| `LoadOBJ(path)` | In-house Wavefront OBJ + MTL parser; populates `m_modelInfo.vertices`, `.indices`, `m_materials` |
+| `SetupModelForRendering()` | Creates GPU buffers and binds shaders; called from the IO Loader Thread |
+| `UpdateConstantBuffer()` | Uploads current transform matrices and material properties to the GPU constant buffer |
+| `Render(deviceContext, deltaTime)` | Issues the per-frame draw call for DX11 |
+| `RenderDX12(cmdList, dx12, deltaTime)` | Issues the per-frame draw call for DX12 via `ID3D12GraphicsCommandList` |
+| `Render(deltaTime)` | Issues the per-frame draw call for OpenGL / Vulkan |
+| `DestroyModel()` | Releases all GPU resources and marks the model as destroyed |
+| `CopyFrom(other)` | Deep-copies `ModelInfo` geometry and material data for multi-instance support |
+| `IsActive()` | Returns `m_isLoaded && bInitialized && !bIsDestroyed` — safe to render |
+| `HasGeometry()` | Returns `!m_modelInfo.vertices.empty()` — safe to upload |
+
+`SetupModelForRendering()` runs on the IO Loader Thread. It is protected by `m_ModelMutex` and the `bIsSettingUpModel` atomic to prevent the render thread from calling `Render()` before setup completes.
+
+---
+
+### 10.8 Backend-Specific GPU Resources
+
+`ModelInfo` holds backend-specific GPU resource fields guarded by the renderer conditional compilation tokens:
+
+**DX11 / DX12 (shared):**
+- `ComPtr<ID3D11Buffer> vertexBuffer` — immutable vertex data, `D3D11_USAGE_DEFAULT`.
+- `ComPtr<ID3D11Buffer> indexBuffer` — 32-bit index buffer.
+- `ComPtr<ID3D11Buffer> constantBuffer` — per-model world/view/projection matrices (slot `b0`).
+- `ComPtr<ID3D11Buffer> materialBuffer` — PBR material properties (slot `b4`).
+- `ComPtr<ID3D11Buffer> lightConstantBuffer` — per-model lights array (slot `b1`).
+- `std::vector<ComPtr<ID3D11ShaderResourceView>> textureSRVs` — SRV array for texture slots `t0`–`t8`.
+- `ComPtr<ID3D11SamplerState> samplerState` — configures UV wrap mode from `uvWrapU/V`.
+
+**DX12 additions** (inside `#if defined(__USE_DIRECTX_12__)`):
+- `ComPtr<ID3D12Resource> d3d12VertexBuffer` — default-heap vertex buffer (GPU-local, upload-heap copy).
+- `ComPtr<ID3D12Resource> d3d12IndexBuffer` — default-heap index buffer.
+- `ComPtr<ID3D12Resource> d3d12ConstantBuffer` — persistently-mapped upload-heap CB for `b0`.
+- `ComPtr<ID3D12Resource> d3d12LightBuffer` — upload-heap CB for `b1`.
+- `ComPtr<ID3D12Resource> d3d12MaterialBuffer` — upload-heap CB for `b4`.
+- `D3D12_GPU_DESCRIPTOR_HANDLE d3d12TextureGPUHandle` — descriptor table handle for texture SRVs in the renderer's CBV/SRV/UAV heap.
+- `bool d3d12TexturesRegistered` — cleared by `RefreshDX12Textures()` to force SRV re-registration on the next draw call.
+
+`RegisterDX12Textures(cmdList, dx12)` runs on the first draw call for a newly loaded model. It unwraps the DX11-on-12 SRVs into native `ID3D12Resource` objects, writes SRV descriptors into the pre-allocated heap slots, and records `COMMON → PIXEL_SHADER_RESOURCE` resource barriers on `cmdList`.
+
+**OpenGL:**
+- `GLuint VAO` — vertex array object capturing the attribute layout description.
+- `GLuint VBO` — vertex buffer object.
+- `GLuint EBO` — element (index) buffer object.
+- `GLuint shaderProgram` — linked vertex + fragment program.
+- `std::vector<GLuint> textureIDs` — per-material diffuse texture handles.
+- `std::vector<GLuint> normalMapIDs` — per-material normal map handles.
+- Individual `GLuint` handles for metallic (`metallicTexID`), roughness (`roughnessTexID`), AO (`aoTexID`), environment (`envTexID`), gloss (`glossTexID`), emissive (`emissiveTexID`), and shadow (`shadowTexID`) maps.
+
+**Vulkan:**
+- `VkBuffer vertexBuffer / indexBuffer` — device-local geometry buffers.
+- `VkDeviceMemory vertexBufferMemory / indexBufferMemory` — backing device memory.
+- `VkBuffer uniformBuffer` — transform UBO (set=0, binding=0): model/view/proj/camPos/scale.
+- `VkBuffer materialUniformBuffer` — PBR material UBO (set=0, binding=1): Kd/Ka/metallic/roughness/emissive/flags.
+- `VkBuffer shadowUniformBuffer` — shadow data UBO (set=0, binding=2): lightViewProj/bias/strength/flags.
+- `VkDescriptorSet descriptorSet` — set=0 descriptor set binding the three UBOs.
+- `VkDescriptorSet textureDescriptorSet` — set=1 descriptor set binding all texture samplers.
+
+---
+
+### 10.9 PBR Extension Methods
+
+`Model` exposes a dedicated PBR surface extension API for loading advanced texture maps beyond the base diffuse and normal pair:
+
+```cpp
+model.LoadEnvironmentMap(L"Assets/Textures/env_cube.dds");  // Cube map for reflections (t5)
+model.LoadMetallicMap(L"Assets/Textures/ship_metallic.png"); // Metallic map (t2)
+model.LoadRoughnessMap(L"Assets/Textures/ship_roughness.png"); // Roughness map (t3)
+model.LoadAOMap(L"Assets/Textures/ship_ao.png");              // Ambient occlusion map (t4)
+
+model.SetPBRProperties(float metallic, float roughness, float reflectionStrength);
+model.SetEnvironmentProperties(float intensity, XMFLOAT3 tint, float mipBias, float fresnel0);
+model.UpdateEnvironmentBuffer();  // Uploads environment settings to the b5 constant buffer
+```
+
+Boolean flags in `ModelInfo` control which maps are active:
+
+| Flag | Slot | Fallback when false |
+| --- | --- | --- |
+| `useDiffuseMap` | `t0` | Uses `Kd` scalar colour factor |
+| `useMetallicMap` | `t2` | Uses `metallic` scalar factor |
+| `useRoughnessMap` | `t3` | Uses `roughness` scalar factor |
+| `useAOMap` | `t4` | Occlusion factor = 1.0 (no AO) |
+| `useEnvironmentMap` | `t5` | No environment reflection |
+| `useGlossMap` | `t6` | Uses `roughness` directly |
+| `useEmissiveMap` | `t7` | Uses `emissiveFactor` scalar |
+
+If a flag is `false`, the pixel shader uses the corresponding scalar factor for that channel, allowing assets without baked PBR maps to still receive physically-plausible shading without any shader branching overhead — the flag drives a `uint` in the material constant buffer that the shader reads as a multiplier.
+
+`LoadFallbackTexture()` and `LoadFallbackNormalMap()` (private methods) create solid-colour placeholder textures on the GPU when a requested file is not found. These replace the missing-texture black render with a visible grey surface and a flat neutral normal, making missing-asset faults immediately diagnosable without crashing the application.
 
 [Back to Table of Contents](#table-of-contents)
 
