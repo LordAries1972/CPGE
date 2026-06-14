@@ -39,7 +39,7 @@ With our First Release, you can now create a full working 2D game using the 2D /
 
 - CMAKE & VS2022 compiling are currently supported, other compiler support will soon come.
 - Game Configuration Management, 
-- Multiple Render Support Pipelines (DirectX11, DirectX12, OpenGL, Vulkan & Radeon (DirectX11 & Vulkan confirmed and working) ),
+- Multiple Render Support Pipelines (DirectX11, DirectX12, OpenGL, Vulkan & Radeon (DirectX11, DirectX12, Vulkan & OpenGL confirmed working)),
 - Various Debug and Console options (F8 Key) / debug.h
 - In System Configuration Window (Allows you to modify startup/runtime options),
 - Music & Sounds Management System, 
@@ -66,13 +66,15 @@ Basically everything you need to create a standard 2D & 3D Based Looking Gaming 
 - Documents and example usages to this project can be found within the Docs folder (constantly been updated).
 
 ## Demos
-Update 22nd May, 2026: I will be adding demo videos soon to my website and YouTube for public viewing so you can see the full power of the CPGE Engine.
+Demo Recordings can now be found on our website on the below link, please do not use a VPN accessing this site or you will be blocked.
+
+👉 Recorded Demos on our website → [CPGE Demos](https://www.ultimanium.com/index.php?action=cpge-demos)
 
 ## Known Issues 03rd June, 2026:
 These are the following known issues and will be resolved as humanly possible.
 
-1) Models are still not been fully imported right (Investigating as it maybe possible I am not doing exports properly with Blender).
-2) DX12 Window Resizing is causing a crash
+1) Models are still not been fully imported right (Currently Investigating, as it may relate that I am actually not doing exports properly (Likely Reason) with Blender).
+2) DX12 Window Resizing is causing a crash.  The other platforms are working fine, so should be a simple fix.
 
 ## Getting Started
 
@@ -90,7 +92,7 @@ To get started with CPGE, follow these steps:
    management at our web site and make a pull request.
 
    If you are wanting to just start a project of your own, please copy the CPGE folder to a new location
-   and use that instead with your chosen IDE / Compiling system.  If you are NOT using Visual Studio
-   2019/2022 then you may need to setup the project in your chosen IDE (CMAKE building now available).
+   on your drive and use that instead with your chosen IDE / Compiling system.  If you are NOT using
+   Visual Studio 2019/2022 then you may need to setup the project in your chosen IDE (CMAKE building now available).
    ```
 ---
