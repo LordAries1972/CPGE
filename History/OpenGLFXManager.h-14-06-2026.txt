@@ -1,0 +1,8 @@
+// OpenGLFXManager.h -- change log 14-06-2026
+// ZoomInOut FX support added:
+//   - ZoomFXFunction enum, GLZoomData struct, ZoomInOut FXType
+//   - GLZoomData zoomData member in GLFXItem
+//   - Public API on GLFXManager: zoomID, ZoomInitialise, StartZoom, StopZooming,
+//                                 IsImageZoomActive, GetCurrent3DZoomFactor
+//   - Private: UpdateZoomInOut(GLFXItem&, float), ApplyZoom2D(GLFXItem&),
+//              GLZoomData m_zoomConfig, bool m_hasZoomConfig

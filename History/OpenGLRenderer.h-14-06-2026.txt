@@ -1,0 +1,5 @@
+// OpenGLRenderer.h -- change log 14-06-2026
+// Added declaration for Blit2DCenteredZoom:
+//   void Blit2DCenteredZoom(BlitObj2DIndexType iIndex,
+//                           int iDestX, int iDestY, int iDestW, int iDestH,
+//                           float zoomFactor);

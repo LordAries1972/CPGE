@@ -2806,6 +2806,30 @@ void VulkanRenderer::Blit2DWrappedObjectAtOffset(BlitObj2DIndexType iIndex, int 
     (void)iIndex; (void)iBlitX; (void)iBlitY; (void)iXOffset; (void)iYOffset; (void)iTileSizeX; (void)iTileSizeY;
 }
 
+void VulkanRenderer::Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, int iDestY, int iDestW, int iDestH, float zoomFactor)
+{
+    int idx = static_cast<int>(iIndex);
+    if (idx < 0 || idx >= MAX_TEXTURE_BUFFERS) return;
+    ComPtr<ID2D1Bitmap>       bitmap = m_d2dTextures[idx];
+    ComPtr<ID2D1RenderTarget> rt     = m_d2dRenderTarget;
+    if (!bitmap || !rt) return;
+
+    // Clamp zoom factor to valid range (0.0–0.75)
+    float z    = std::clamp(zoomFactor, 0.0f, 0.75f);
+    D2D1_SIZE_F sz = bitmap->GetSize();
+    float srcW = sz.width  * (1.0f - z);                                       // Cropped source width
+    float srcH = sz.height * (1.0f - z);                                       // Cropped source height
+    float srcX = (sz.width  - srcW) * 0.5f;                                   // Centre-aligned source X
+    float srcY = (sz.height - srcH) * 0.5f;                                   // Centre-aligned source Y
+
+    D2D1_RECT_F srcRect  = D2D1::RectF(srcX, srcY, srcX + srcW, srcY + srcH);
+    D2D1_RECT_F destRect = D2D1::RectF(
+        static_cast<float>(iDestX),          static_cast<float>(iDestY),
+        static_cast<float>(iDestX + iDestW), static_cast<float>(iDestY + iDestH)
+    );
+    rt->DrawBitmap(bitmap.Get(), destRect, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, srcRect);
+}
+
 void VulkanRenderer::Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 color)
 {
     if (m_drawToBackground ? !m_bgD2dRenderTarget : !m_d2dRenderTarget) return;

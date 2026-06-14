@@ -1,0 +1,8 @@
+// VULKAN_FXManager.h -- change log 14-06-2026
+// ZoomInOut FX support added:
+//   - ZoomFXFunction enum, VKZoomData struct, ZoomInOut FXType
+//   - VKZoomData zoomData member in VKFXItem
+//   - Public API on VKFXManager: zoomID, ZoomInitialise, StartZoom, StopZooming,
+//                                 IsImageZoomActive, GetCurrent3DZoomFactor
+//   - Private: UpdateZoomInOut(VKFXItem&, float), ApplyZoom2D(VKFXItem&),
+//              VKZoomData m_zoomConfig, bool m_hasZoomConfig

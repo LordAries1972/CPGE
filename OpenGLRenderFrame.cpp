@@ -544,10 +544,12 @@ inline void OpenGLRenderer::RenderIntroMovie()
             movieTexID);
     }
 
-    // Company logo overlay: half size, bottom-left corner (mirrors DX11 behaviour)
+    // Company logo overlay: half size, bottom-left corner (skip if zoom FX is rendering it)
     {
         int logoIdx = int(BlitObj2DIndexType::IMG_COMPANYLOGO);
-        if (logoIdx >= 0 && logoIdx < MAX_TEXTURE_BUFFERS && m_2dTextures[logoIdx].isLoaded) {
+        if (logoIdx >= 0 && logoIdx < MAX_TEXTURE_BUFFERS &&
+            m_2dTextures[logoIdx].isLoaded &&
+            !fxManager.IsImageZoomActive(logoIdx)) {
             int halfW = m_2dTextures[logoIdx].width  / 2;
             int halfH = m_2dTextures[logoIdx].height / 2;
             Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO,
@@ -712,7 +714,9 @@ void OpenGLRenderer::RenderFrame()
             switch (scene.stSceneType)
             {
                 case SceneType::SCENE_INTRO:
-                    if (m_2dTextures[int(BlitObj2DIndexType::IMG_SPLASH1)].isLoaded)
+                    // Skip normal blit when zoom FX is rendering the splash image
+                    if (m_2dTextures[int(BlitObj2DIndexType::IMG_SPLASH1)].isLoaded &&
+                        !fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_SPLASH1)))
                         Blit2DObjectToSize(BlitObj2DIndexType::IMG_SPLASH1, 0, 0, iOrigWidth, iOrigHeight);
                     break;
 

@@ -305,6 +305,7 @@ public:
     void Blit2DObjectToSize(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight); // Render 2D object scaled to size
     void Blit2DObjectAtOffset(BlitObj2DIndexType iIndex, int iBlitX, int iBlitY, int iXOffset, int iYOffset, int iTileSizeX, int iTileSizeY); // Render 2D object with texture offset
     void Blit2DWrappedObjectAtOffset(BlitObj2DIndexType iIndex, int iBlitX, int iBlitY, int iXOffset, int iYOffset, int iTileSizeX, int iTileSizeY); // Render wrapped 2D object with offset
+    void Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, int iDestY, int iDestW, int iDestH, float zoomFactor); // Render 2D object with centered zoom crop
     void Clear2DBlitQueue();                                                    // Clear all objects from 2D rendering queue
     void ResumeLoader(bool isResizing = false) override;                        // Resume asset loading thread
 

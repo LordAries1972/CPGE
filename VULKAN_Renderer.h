@@ -266,6 +266,7 @@ public:
 
 #if defined(PLATFORM_WINDOWS)
     void Blit2DWrappedObjectAtOffset(BlitObj2DIndexType iIndex, int iBlitX, int iBlitY, int iXOffset, int iYOffset, int iTileSizeX, int iTileSizeY) override;
+    void Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, int iDestY, int iDestW, int iDestH, float zoomFactor) override;
     void Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 color) override;
 #endif
 

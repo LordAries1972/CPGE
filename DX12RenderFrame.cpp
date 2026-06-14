@@ -295,11 +295,13 @@ void DX12Renderer::RenderFrame()
                 m_d2dContext->SetTarget(m_d2dRenderTargets[m_frameIndex].Get());
                 m_d2dContext->BeginDraw();
 
-                // Full-screen title background
-                Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
+                // Full-screen title background (skip if zoom FX is rendering it)
+                if (!fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_GAMEINTRO1)))
+                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
 
-                // Company logo overlay at half size, bottom-left corner
-                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)])
+                // Company logo overlay at half size, bottom-left corner (skip if zoom FX is rendering it)
+                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)] &&
+                    !fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_COMPANYLOGO)))
                 {
                     D2D1_SIZE_F bgLogoSz = m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]->GetSize();
                     Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO,
@@ -461,10 +463,12 @@ void DX12Renderer::RenderFrame()
                             {
                                 // Pre-pass unavailable this frame (e.g. background image
                                 // not loaded yet) — legacy post-3D blit as a fallback.
-                                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_GAMEINTRO1)])
+                                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_GAMEINTRO1)] &&
+                                    !fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_GAMEINTRO1)))
                                     Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
 
-                                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)])
+                                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)] &&
+                                    !fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_COMPANYLOGO)))
                                 {
                                     D2D1_SIZE_F sz = m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]->GetSize();
                                     Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO,
@@ -481,7 +485,9 @@ void DX12Renderer::RenderFrame()
                                         threadManager.threadVars.bInitiateFader.store(false);
                                         fxManager.FadeToImage(1.0f, 0.1f);
                                     }
-                                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
+                                    // Skip normal blit when zoom FX is rendering the loading image
+                                    if (!fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_LOADING)))
+                                        Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
                                 }
                             }
                             break;
@@ -496,7 +502,9 @@ void DX12Renderer::RenderFrame()
                                     threadManager.threadVars.bInitiateFader.store(false);
                                     fxManager.FadeToImage(1.0f, 0.1f);
                                 }
-                                Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
+                                // Skip normal blit when zoom FX is rendering the loading image
+                                if (!fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_LOADING)))
+                                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
                             }
                             break;
                         }
@@ -522,7 +530,8 @@ void DX12Renderer::RenderFrame()
                                 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
                                     debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[DX12 RENDERFRAME] Rendering splash screen 2D elements");
                                 #endif
-                                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_SPLASH1)])
+                                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_SPLASH1)] &&
+                                    !fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_SPLASH1)))
                                     Blit2DObjectToSize(BlitObj2DIndexType::IMG_SPLASH1, 0, 0, iOrigWidth, iOrigHeight);
                                 break;
                             }
@@ -893,8 +902,9 @@ inline void DX12Renderer::RenderIntroMovie()
     moviePlayer.UpdateFrame();
     moviePlayer.Render(Vector2(0, 0), Vector2(iOrigWidth, iOrigHeight));
 
-    // Company logo overlay at half size, bottom-left corner
-    if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)])
+    // Company logo overlay at half size, bottom-left corner (skip if zoom FX is rendering it)
+    if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)] &&
+        !fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_COMPANYLOGO)))
     {
         D2D1_SIZE_F logoSz = m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]->GetSize();
         int halfW = static_cast<int>(logoSz.width  * 0.5f);
@@ -944,11 +954,14 @@ void DX12Renderer::RenderBackgroundImage()
         {
             if (threadManager.threadVars.bLoaderTaskFinished.load())
             {
-                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_GAMEINTRO1)])
+                // Skip normal blit when zoom FX is rendering the image
+                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_GAMEINTRO1)] &&
+                    !fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_GAMEINTRO1)))
                     Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
 
-                // Company logo overlay at half size, bottom-left corner
-                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)])
+                // Company logo overlay at half size, bottom-left corner (skip if zoom FX is rendering it)
+                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)] &&
+                    !fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_COMPANYLOGO)))
                 {
                     D2D1_SIZE_F logoSz = m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]->GetSize();
                     int halfW = static_cast<int>(logoSz.width  * 0.5f);
@@ -968,7 +981,9 @@ void DX12Renderer::RenderBackgroundImage()
                         threadManager.threadVars.bInitiateFader.store(false);
                         fxManager.FadeToImage(1.0f, 0.1f);
                     }
-                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
+                    // Skip normal blit when zoom FX is rendering the loading image
+                    if (!fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_LOADING)))
+                        Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
                 }
             }
             break;
@@ -985,7 +1000,9 @@ void DX12Renderer::RenderBackgroundImage()
                         threadManager.threadVars.bInitiateFader.store(false);
                         fxManager.FadeToImage(1.0f, 0.1f);
                     }
-                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
+                    // Skip normal blit when zoom FX is rendering the loading image
+                    if (!fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_LOADING)))
+                        Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
                 }
             }
             break;

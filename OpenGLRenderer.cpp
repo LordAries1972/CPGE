@@ -1462,6 +1462,25 @@ void OpenGLRenderer::Blit2DObjectToSize(BlitObj2DIndexType iIndex, int iX, int i
                  0, 0, tex.width, tex.height, MyColor(255,255,255,255), false);
 }
 
+void OpenGLRenderer::Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, int iDestY, int iDestW, int iDestH, float zoomFactor)
+{
+    int idx = static_cast<int>(iIndex);
+    if (idx < 0 || idx >= MAX_TEXTURE_BUFFERS) return;
+    const auto& tex = m_2dTextures[idx];
+    if (!tex.isLoaded) return;
+
+    // Clamp zoom factor to valid range (0.0–0.75)
+    float z     = std::clamp(zoomFactor, 0.0f, 0.75f);
+    float srcW  = static_cast<float>(tex.width)  * (1.0f - z);  // Cropped source width
+    float srcH  = static_cast<float>(tex.height) * (1.0f - z);  // Cropped source height
+    int   srcX  = static_cast<int>((tex.width  - srcW) * 0.5f); // Centre-aligned source X
+    int   srcY  = static_cast<int>((tex.height - srcH) * 0.5f); // Centre-aligned source Y
+
+    Render2DQuad(tex.textureID, iDestX, iDestY, iDestW, iDestH,
+                 srcX, srcY, static_cast<int>(srcW), static_cast<int>(srcH),
+                 MyColor(255, 255, 255, 255), false);
+}
+
 void OpenGLRenderer::Blit2DObjectAtOffset(BlitObj2DIndexType iIndex,
     int iBlitX, int iBlitY, int iXOff, int iYOff, int iTileSzX, int iTileSzY)
 {

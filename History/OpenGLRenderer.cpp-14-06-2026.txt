@@ -1,0 +1,5 @@
+// OpenGLRenderer.cpp -- change log 14-06-2026
+// Added Blit2DCenteredZoom implementation:
+//   Computes center crop via srcX/srcY/srcW/srcH from tex dimensions and zoom factor,
+//   then calls Render2DQuad(textureID, destX, destY, destW, destH, srcX, srcY, srcW, srcH, ...).
+//   Placed before Blit2DObjectAtOffset.

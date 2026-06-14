@@ -50,6 +50,7 @@ enum class FXType {
     TextScroller,
     WarpDotTunnel,
     TextFadeInOut,                                                              // Loading-screen text with per-frame fade in / fade out
+    ZoomInOut,                                                                  // Pulsing zoom-in / zoom-out loop on 2D image and/or 3D scene
 };
 
 enum class FXSubType {
@@ -67,6 +68,13 @@ enum class TunnelSpinCycle {
     None,
     Clockwise,
     AntiClockwise,
+};
+
+// Zoom FX function scope
+enum class ZoomFXFunction {
+    Zoom2D,                                                                        // Zoom only the linked 2D blit image
+    Zoom3D,                                                                        // Zoom only the 3D scene (via FOV/projection)
+    ZoomBoth,                                                                      // Zoom both 2D image and 3D scene simultaneously
 };
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -217,6 +225,23 @@ struct VKTextFadeData {
     }
 };
 
+// Per-effect state for ZoomInOut (Vulkan)
+struct VKZoomData {
+    ZoomFXFunction  function         = ZoomFXFunction::Zoom2D;                    // 2D, 3D, or BOTH operation
+    float           depth            = 0.25f;                                     // Maximum zoom depth 0.0–0.75
+    float           speed            = 1.0f;                                      // Zoom speed in units per second
+    int             link2DImg        = -1;                                        // Blit image ID to zoom (-1 = unused)
+    float           currentZoomLevel = 0.0f;                                      // Current applied zoom factor
+    bool            zoomingIn        = true;                                      // True = zooming inward; false = zooming outward
+    bool            stopRequested    = false;                                     // Set by StopZooming()
+    int             destX            = 0;                                         // Destination blit X for the 2D image
+    int             destY            = 0;                                         // Destination blit Y for the 2D image
+    int             destW            = 0;                                         // Destination blit width for the 2D image
+    int             destH            = 0;                                         // Destination blit height for the 2D image
+
+    VKZoomData() = default;
+};
+
 struct VKFXItem {
     int        fxID;
     int        nextEffectID;
@@ -261,6 +286,9 @@ struct VKFXItem {
 
     // TextFadeInOut
     VKTextFadeData textFadeData;
+
+    // ZoomInOut support
+    VKZoomData zoomData;                                                           // State for zoom-in / zoom-out pulsing effect
 };
 
 struct VKScrollTween {
@@ -416,6 +444,16 @@ public:
     void UpdateTextScroller(VKFXItem& fxItem, float deltaTime);
     void RenderTextScroller(VKFXItem& fxItem);
 
+    // ZoomInOut Utility Calls
+    int zoomID = -1;                                                               // ID of the active zoom effect (-1 = none)
+    void ZoomInitialise(ZoomFXFunction function, float depth, float speed,
+                        int link2DImg = -1,
+                        int destX = 0, int destY = 0, int destW = 0, int destH = 0);
+    void StartZoom(float speed);
+    void StopZooming();
+    bool IsImageZoomActive(int imgID) const;
+    float GetCurrent3DZoomFactor() const;
+
     // Loading-screen TextFadeInOut
     int  ShowLoadingText(const std::wstring& text,
                          XMFLOAT4 endColor       = { 1.0f, 1.0f, 1.0f, 1.0f },
@@ -436,6 +474,14 @@ private:
     // TextFadeInOut private helpers
     void UpdateTextFadeInOut(VKFXItem& fx, float deltaTime);
     void RenderTextFadeInOut(VKFXItem& fx);
+
+    // ZoomInOut private helpers
+    void UpdateZoomInOut(VKFXItem& fx, float deltaTime);
+    void ApplyZoom2D(VKFXItem& fx);
+
+    // Pending zoom config (populated by ZoomInitialise, consumed by StartZoom)
+    VKZoomData m_zoomConfig;
+    bool       m_hasZoomConfig = false;
 
     // Internal helpers
     void ApplyColorFader(VKFXItem& fxItem);

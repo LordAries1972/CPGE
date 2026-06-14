@@ -13,12 +13,13 @@
 9. [Warp Dot Tunnel Effects](#warp-dot-tunnel-effects)
 10. [Text Scroller Effects](#text-scroller-effects)
 11. [Loading Screen Text Fade Effect](#loading-screen-text-fade-effect)
-12. [Advanced Features](#advanced-features)
-13. [Window Resize Handling](#window-resize-handling)
-14. [Thread Safety](#thread-safety)
-15. [Performance Considerations](#performance-considerations)
-16. [Troubleshooting](#troubleshooting)
-17. [Code Examples](#code-examples)
+12. [ZoomInOut Effects](#zoominout-effects)
+13. [Advanced Features](#advanced-features)
+14. [Window Resize Handling](#window-resize-handling)
+15. [Thread Safety](#thread-safety)
+16. [Performance Considerations](#performance-considerations)
+17. [Troubleshooting](#troubleshooting)
+18. [Code Examples](#code-examples)
 
 ---
 
@@ -979,6 +980,161 @@ OnLoadStageChanged(L"Spawning entities...");
 | DX11 (`FXManager`) | IDWriteTextFormat weight/style | IDWriteTextLayout range flags | Windows only |
 | Vulkan (`VKFXManager`) | IDWriteTextFormat (Windows); stub on Linux/Android | IDWriteTextLayout (Windows) | Windows + Linux + Android |
 | OpenGL (`GLFXManager`) | GDI `CreateFontW` FW_BOLD / italic BOOL | GDI underline/strikethrough BOOL → DIB texture | Windows; fallback to `DrawMyTextWithFont` on Linux/Android |
+
+---
+
+## ZoomInOut Effects
+
+The ZoomInOut FX applies a pulsing center-crop zoom to a 2D blit image and/or adjusts the 3D camera FOV. It bounces continuously between 0% and a configurable maximum depth until stopped, producing a heartbeat-style zoom loop.
+
+### ZoomInOut — How It Works
+
+- **2D path** — the FXManager intercepts the normal `Blit2DObjectToSize` call for the linked image. On each frame it crops from the image center by the current zoom factor, then scales the cropped region back to the original destination rect using `Blit2DCenteredZoom`. The RenderFrame skips the normal blit for that image while the FX is active.
+- **3D path** — `GetCurrent3DZoomFactor()` returns the live zoom level so the render pipeline can narrow the camera FOV proportionally.
+- **Bounce loop** — the zoom animates in to `depth`, reverses outward to 0, then repeats. Calling `StopZooming()` sets a flag; the effect completes its current outward journey before removing itself cleanly.
+
+### ZoomFXFunction Enum
+
+| Value | Description |
+|---|---|
+| `ZoomFXFunction::Zoom2D` | Zoom the linked 2D blit image only |
+| `ZoomFXFunction::Zoom3D` | Adjust 3D camera FOV only |
+| `ZoomFXFunction::ZoomBoth` | Apply zoom to both 2D image and 3D camera |
+
+### ZoomData / GLZoomData / VKZoomData Struct
+
+| Field | Type | Description |
+|---|---|---|
+| `function` | `ZoomFXFunction` | Which dimension(s) are zoomed |
+| `depth` | `float` | Maximum zoom depth, clamped 0.0–0.75 (fraction of image dims) |
+| `speed` | `float` | Zoom speed in units per second |
+| `link2DImg` | `int` | `BlitObj2DIndexType` cast to int; -1 = unused |
+| `currentZoomLevel` | `float` | Live zoom factor (managed internally) |
+| `zoomingIn` | `bool` | Internal bounce direction flag |
+| `stopRequested` | `bool` | Set by `StopZooming()`; clears after outward journey |
+| `destX/Y/W/H` | `int` | Destination rect for the zoomed blit |
+
+### ZoomInOut — API Reference
+
+#### `ZoomInitialise`
+
+```cpp
+void ZoomInitialise(ZoomFXFunction function, float depth, float speed,
+                    int link2DImg = -1,
+                    int destX = 0, int destY = 0, int destW = 0, int destH = 0);
+```
+
+Stores the zoom configuration ready for `StartZoom()`. `depth` is clamped to `[0.0, 0.75]`. `link2DImg` is the integer value of the `BlitObj2DIndexType` enum entry for the image to zoom.
+
+#### `StartZoom`
+
+```cpp
+void StartZoom(float speed = 0.0f);
+```
+
+Creates and activates the ZoomInOut effect using the stored configuration. Pass `speed > 0` to override the speed set in `ZoomInitialise`. Stops any currently running zoom first. Sets `fxManager.zoomID` to the new effect ID.
+
+#### `StopZooming`
+
+```cpp
+void StopZooming();
+```
+
+Signals the active zoom to stop cleanly. The effect continues its current outward journey to zero before being removed — there is no abrupt pop.
+
+#### `IsImageZoomActive`
+
+```cpp
+bool IsImageZoomActive(int imgID) const;
+```
+
+Returns `true` when a ZoomInOut effect is actively zooming the specified image ID. The RenderFrame uses this to skip the normal `Blit2DObjectToSize` call for that image so the zoomed version rendered by the FXManager is not overdrawn.
+
+#### `GetCurrent3DZoomFactor`
+
+```cpp
+float GetCurrent3DZoomFactor() const;
+```
+
+Returns the live zoom level (0.0–depth) for any active 3D or BOTH zoom effect. Returns 0.0 when no 3D zoom is active.
+
+### Basic Usage — 2D Image Zoom
+
+```cpp
+// Zoom the game-title background image with a 30% max depth at medium speed
+fxManager.ZoomInitialise(
+    ZoomFXFunction::Zoom2D,       // 2D image only
+    0.30f,                        // max zoom depth (30%)
+    0.25f,                        // speed (units/sec)
+    int(BlitObj2DIndexType::IMG_GAMEINTRO1),  // image to zoom
+    0, 0, iOrigWidth, iOrigHeight // destination rect
+);
+fxManager.StartZoom();            // begin the bounce loop
+```
+
+To stop it later:
+```cpp
+fxManager.StopZooming();          // completes current outward journey then removes
+```
+
+### Basic Usage — 3D Camera Zoom
+
+```cpp
+// Pulse the 3D scene FOV with 20% depth
+fxManager.ZoomInitialise(ZoomFXFunction::Zoom3D, 0.20f, 0.15f);
+fxManager.StartZoom();
+```
+
+Then in the render pipeline, read `GetCurrent3DZoomFactor()` and apply it to the camera FOV:
+```cpp
+float z = fxManager.GetCurrent3DZoomFactor();  // 0.0 = no zoom
+float fovDeg = baseFOV * (1.0f - z * 0.5f);   // e.g. tighten FOV by half the depth
+myCamera.SetFOV(fovDeg);
+```
+
+### Basic Usage — Combined 2D + 3D
+
+```cpp
+fxManager.ZoomInitialise(
+    ZoomFXFunction::ZoomBoth,
+    0.25f, 0.20f,
+    int(BlitObj2DIndexType::IMG_GAMEINTRO1),
+    0, 0, iOrigWidth, iOrigHeight
+);
+fxManager.StartZoom(0.30f);       // override speed at start time
+```
+
+### Stopping with a Speed Override
+
+```cpp
+// Existing zoom runs at 0.25 speed; stop it and restart faster
+fxManager.StopZooming();
+fxManager.ZoomInitialise(ZoomFXFunction::Zoom2D, 0.30f, 0.50f,
+    int(BlitObj2DIndexType::IMG_GAMEINTRO1),
+    0, 0, iOrigWidth, iOrigHeight);
+fxManager.StartZoom();
+```
+
+### RenderFrame Integration
+
+The RenderFrame files already guard each `Blit2DObjectToSize` call automatically:
+
+```cpp
+// Guard added by the engine — game code needs no changes here:
+if (m_d2dTextures[int(BlitObj2DIndexType::IMG_GAMEINTRO1)] &&
+    !fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_GAMEINTRO1)))
+    Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, w, h);
+```
+
+When `IsImageZoomActive` returns `true`, `ApplyZoom2D` inside `Render2D()` renders the zoomed version to the same destination rect via `Blit2DCenteredZoom`.
+
+### ZoomInOut Features
+
+- **Bounce loop** — automatically reverses at max depth and 0%; no manual control needed
+- **Clean stop** — `StopZooming()` never produces a visual pop; always exits at zoom = 0
+- **Simultaneous 2D + 3D** — `ZoomBoth` animates both the blit image crop and the camera FOV in lock-step
+- **Per-image guard** — `IsImageZoomActive(imgID)` returns false for any image not linked to the active zoom, so other blits are unaffected
+- **Speed override** — `StartZoom(speed)` lets callers override the speed at the point of activation without recalling `ZoomInitialise`
 
 ---
 

@@ -248,6 +248,11 @@ void FXManager::RemoveCompletedEffects() {
             if (progressCompleted) indicesToRemove.push_back(i);
             continue;
         }
+        // ZoomInOut — only remove once UpdateZoomInOut marks progress=1.0
+        if (fx.type == FXType::ZoomInOut) {
+            if (progressCompleted) indicesToRemove.push_back(i);
+            continue;
+        }
         if (fx.type == FXType::TextScroller && fx.subtype == FXSubType::TXT_SCROLL_CONSISTANT) {
             if (fx.duration != FLT_MAX && timedOut) indicesToRemove.push_back(i);
         }
@@ -684,6 +689,15 @@ void FXManager::Render2D() {
         if (fx.type == FXType::TextScroller) {
             UpdateTextScroller(fx, deltaTime);
             RenderTextScroller(fx);
+        }
+        // ZoomInOut — update zoom level then blit zoomed 2D image
+        if (fx.type == FXType::ZoomInOut) {
+            UpdateZoomInOut(fx, deltaTime);
+            if (fx.zoomData.link2DImg >= 0 &&
+                fx.zoomData.function != ZoomFXFunction::Zoom3D &&
+                fx.progress < 1.0f) {
+                ApplyZoom2D(fx);
+            }
         }
     }
     lastTweenTime = now;
@@ -1620,6 +1634,124 @@ bool FXManager::HasActiveLoadingTextEffects() const {
         return true;
     }
     return false;
+}
+
+// =============================================================================
+// ZoomInOut FX — pulsing center-crop zoom loop for 2D image and/or 3D scene
+// =============================================================================
+
+void FXManager::ZoomInitialise(ZoomFXFunction function, float depth, float speed,
+                                int link2DImg,
+                                int destX, int destY, int destW, int destH)
+{
+    m_zoomConfig.function         = function;
+    m_zoomConfig.depth            = std::clamp(depth, 0.0f, 0.75f);
+    m_zoomConfig.speed            = std::max(speed, 0.001f);
+    m_zoomConfig.link2DImg        = link2DImg;
+    m_zoomConfig.currentZoomLevel = 0.0f;
+    m_zoomConfig.zoomingIn        = true;
+    m_zoomConfig.stopRequested    = false;
+    m_zoomConfig.destX            = destX;
+    m_zoomConfig.destY            = destY;
+    m_zoomConfig.destW            = destW;
+    m_zoomConfig.destH            = destH;
+    m_hasZoomConfig               = true;
+}
+
+void FXManager::StartZoom(float speed)
+{
+    if (!m_hasZoomConfig) {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[DX12FXManager] StartZoom called before ZoomInitialise -- ignored.");
+        return;
+    }
+    StopZooming();
+    if (speed > 0.0f) m_zoomConfig.speed = speed;
+
+    FXItem fx;
+    fx.fxID        = static_cast<int>(effects.size()) + 1000;
+    fx.type        = FXType::ZoomInOut;
+    fx.subtype     = FXSubType::FadeIntoColor;
+    fx.progress    = 0.0f;
+    fx.duration    = 0.0f;
+    fx.delay       = 0.0f;
+    fx.timeout     = 0.0f;
+    fx.pixelSize   = 0;
+    fx.startTime   = std::chrono::steady_clock::now();
+    fx.lastUpdate  = fx.startTime;
+    fx.zoomData    = m_zoomConfig;
+
+    zoomID = fx.fxID;
+    AddEffect(fx);
+}
+
+void FXManager::StopZooming()
+{
+    for (auto& fx : effects) {
+        if (fx.type == FXType::ZoomInOut)
+            fx.zoomData.stopRequested = true;
+    }
+}
+
+bool FXManager::IsImageZoomActive(int imgID) const
+{
+    for (const auto& fx : effects) {
+        if (fx.type != FXType::ZoomInOut) continue;
+        if (fx.progress >= 1.0f)           continue;
+        if (fx.zoomData.link2DImg != imgID) continue;
+        if (fx.zoomData.stopRequested && fx.zoomData.currentZoomLevel <= 0.0f) continue;
+        return true;
+    }
+    return false;
+}
+
+float FXManager::GetCurrent3DZoomFactor() const
+{
+    for (const auto& fx : effects) {
+        if (fx.type != FXType::ZoomInOut) continue;
+        if (fx.progress >= 1.0f)           continue;
+        if (fx.zoomData.function == ZoomFXFunction::Zoom3D ||
+            fx.zoomData.function == ZoomFXFunction::ZoomBoth)
+            return fx.zoomData.currentZoomLevel;
+    }
+    return 0.0f;
+}
+
+void FXManager::UpdateZoomInOut(FXItem& fx, float deltaTime)
+{
+    ZoomData& z = fx.zoomData;
+    if (z.zoomingIn) {
+        z.currentZoomLevel += z.speed * deltaTime;
+        if (z.currentZoomLevel >= z.depth) {
+            z.currentZoomLevel = z.depth;
+            z.zoomingIn        = false;
+        }
+    } else {
+        z.currentZoomLevel -= z.speed * deltaTime;
+        if (z.currentZoomLevel <= 0.0f) {
+            z.currentZoomLevel = 0.0f;
+            if (z.stopRequested) {
+                fx.progress = 1.0f;
+                zoomID      = -1;
+                return;
+            }
+            z.zoomingIn = true;
+        }
+    }
+}
+
+void FXManager::ApplyZoom2D(FXItem& fx)
+{
+    if (!renderer)           return;
+    ZoomData& z = fx.zoomData;
+    if (z.link2DImg < 0)    return;
+
+#if defined(_WIN64) || defined(_WIN32)
+    renderer->Blit2DCenteredZoom(
+        static_cast<BlitObj2DIndexType>(z.link2DImg),
+        z.destX, z.destY, z.destW, z.destH,
+        z.currentZoomLevel
+    );
+#endif
 }
 
 #pragma warning(pop)

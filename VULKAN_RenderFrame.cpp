@@ -277,7 +277,9 @@ inline void VulkanRenderer::RenderIntroMovie()
                                    D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
 
     // Company logo overlay at half size, bottom-left corner (mirrors DX11 RenderIntroMovie)
-    if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]) {
+    // Skip normal blit when zoom FX is rendering the logo
+    if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)] &&
+        !fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_COMPANYLOGO))) {
         D2D1_SIZE_F logoSz = m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]->GetSize();
         int halfW = static_cast<int>(logoSz.width  * 0.5f);
         int halfH = static_cast<int>(logoSz.height * 0.5f);
@@ -448,7 +450,9 @@ void VulkanRenderer::RenderFrame()
             if (m_d2dRenderTarget) {
                 switch (scene.stSceneType) {
                     case SceneType::SCENE_INTRO:
-                        if (m_d2dTextures[int(BlitObj2DIndexType::IMG_SPLASH1)])
+                        // Skip normal blit when zoom FX is rendering the splash image
+                        if (m_d2dTextures[int(BlitObj2DIndexType::IMG_SPLASH1)] &&
+                            !fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_SPLASH1)))
                             Blit2DObjectToSize(BlitObj2DIndexType::IMG_SPLASH1, 0, 0, iOrigWidth, iOrigHeight);
                         break;
                     case SceneType::SCENE_INTRO_MOVIE:

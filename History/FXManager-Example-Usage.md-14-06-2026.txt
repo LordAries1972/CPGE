@@ -1,0 +1,12 @@
+// FXManager-Example-Usage.md -- change log 14-06-2026
+// Added full ZoomInOut Effects section covering:
+//   - ZoomInOut -- How It Works (2D crop path, 3D FOV path, bounce loop)
+//   - ZoomFXFunction enum reference table
+//   - ZoomData / GLZoomData / VKZoomData struct field table
+//   - ZoomInOut -- API Reference: ZoomInitialise, StartZoom, StopZooming,
+//                                  IsImageZoomActive, GetCurrent3DZoomFactor
+//   - Usage examples: 2D image zoom, 3D camera zoom, combined 2D+3D, speed override
+//   - RenderFrame integration note (IsImageZoomActive guard pattern)
+//   - ZoomInOut Features summary
+// Updated Table of Contents with entry 12 (ZoomInOut Effects);
+// renumbered entries 12-17 to 13-18.

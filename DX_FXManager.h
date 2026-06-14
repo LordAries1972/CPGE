@@ -36,6 +36,7 @@ enum class FXType {
     TextScroller,                                                               // Text scroller effect type
     WarpDotTunnel,                                                              // 3D rotating dot-circle warp tunnel
     TextFadeInOut,                                                              // Loading-screen text with per-frame fade in / fade out
+    ZoomInOut,                                                                  // Pulsing zoom-in / zoom-out loop on 2D image and/or 3D scene
 };
 
 enum class FXSubType {
@@ -76,6 +77,13 @@ enum class TunnelSpinCycle {
     None,
     Clockwise,
     AntiClockwise,
+};
+
+// Zoom FX function scope — determines whether 2D image, 3D scene, or both are zoomed
+enum class ZoomFXFunction {
+    Zoom2D,                                                                        // Zoom only the linked 2D blit image
+    Zoom3D,                                                                        // Zoom only the 3D scene (via FOV/projection)
+    ZoomBoth,                                                                      // Zoom both 2D image and 3D scene simultaneously
 };
 
 // Structure representing an individual animated particle for explosions
@@ -250,6 +258,23 @@ struct TextFadeData {
     }
 };
 
+// Per-effect state for ZoomInOut
+struct ZoomData {
+    ZoomFXFunction  function         = ZoomFXFunction::Zoom2D;                    // 2D, 3D, or BOTH operation
+    float           depth            = 0.25f;                                     // Maximum zoom depth 0.0–0.75 (fraction of image dims)
+    float           speed            = 1.0f;                                      // Zoom speed in units per second
+    int             link2DImg        = -1;                                        // Blit image ID to zoom (-1 = unused)
+    float           currentZoomLevel = 0.0f;                                      // Current applied zoom factor (0 = none, depth = max)
+    bool            zoomingIn        = true;                                      // True = zooming inward; false = zooming outward
+    bool            stopRequested    = false;                                     // Set by StopZooming(); completes outward journey then stops
+    int             destX            = 0;                                         // Destination blit X for the 2D image
+    int             destY            = 0;                                         // Destination blit Y for the 2D image
+    int             destW            = 0;                                         // Destination blit width for the 2D image
+    int             destH            = 0;                                         // Destination blit height for the 2D image
+
+    ZoomData() = default;
+};
+
 struct FXItem {
     int fxID; 												        // FX ID number
     int nextEffectID; 										        // Next FX ID number, used for chaining
@@ -297,6 +322,9 @@ struct FXItem {
 
     // TextFadeInOut support
     TextFadeData textFadeData;                                      // State for loading-screen text fade effect (only used when type == TextFadeInOut)
+
+    // ZoomInOut support
+    ZoomData zoomData;                                              // State for zoom-in / zoom-out pulsing effect (only used when type == ZoomInOut)
 };
 
 struct ScrollTween {
@@ -588,6 +616,16 @@ public:
     void UpdateTextScroller(FXItem& fxItem, float deltaTime);
     void RenderTextScroller(FXItem& fxItem);
 
+    // ZoomInOut Utility Calls
+    int zoomID = -1;                                                             // ID of the active zoom effect (-1 = none)
+    void ZoomInitialise(ZoomFXFunction function, float depth, float speed,
+                        int link2DImg = -1,
+                        int destX = 0, int destY = 0, int destW = 0, int destH = 0); // Configures zoom parameters
+    void StartZoom(float speed);                                                  // Starts the zoom loop using stored config
+    void StopZooming();                                                           // Gracefully stops: completes outward journey to 0 then removes
+    bool IsImageZoomActive(int imgID) const;                                      // Returns true if a ZoomInOut FX is active for the given image ID
+    float GetCurrent3DZoomFactor() const;                                         // Returns the current zoom factor for 3D scene effects
+
     // Loading-screen TextFadeInOut Utility Calls
     // ShowLoadingText: starts a fade-in of new text. If text is already showing it is faded out first.
     //   posX / posY = -1.0f → bottom-left safe area. Set fontStyle->centered = true for horizontal centering.
@@ -615,6 +653,14 @@ private:
     // TextFadeInOut private helpers
     void UpdateTextFadeInOut(FXItem& fx, float deltaTime);
     void RenderTextFadeInOut(FXItem& fx);
+
+    // ZoomInOut private helpers
+    void UpdateZoomInOut(FXItem& fx, float deltaTime);
+    void ApplyZoom2D(FXItem& fx);
+
+    // Pending zoom config (populated by ZoomInitialise, consumed by StartZoom)
+    ZoomData m_zoomConfig;
+    bool     m_hasZoomConfig = false;
 
     // Internal Helper functions
     void ApplyColorFader(FXItem& fxItem);

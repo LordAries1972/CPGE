@@ -3454,6 +3454,23 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
   - **`DX12Renderer.h` / `DX12Renderer.cpp` `Blit2DColoredPixel()`** — Replaced the `static ComPtr<ID2D1SolidColorBrush> pBrush` function-static local with a new member `m_pixelBrush` (reset in `Cleanup()`), matching the DX11 pattern.
 - *See: [`DX12Renderer.h`](DX12Renderer.h), [`DX12Renderer.cpp`](DX12Renderer.cpp)*
 
+- **New — ZoomInOut FX: pulsing center-crop zoom for 2D images and/or 3D camera FOV across all four render pipelines** (`DX_FXManager.h`, `DX_FXManager.cpp`, `DX12FXManager.h`, `DX12FXManager.cpp`, `OpenGLFXManager.h`, `OpenGLFXManager.cpp`, `VULKAN_FXManager.h`, `VULKAN_FXManager.cpp`, `Renderer.h`, `DX11Renderer.h`, `DX11Renderer.cpp`, `DX12Renderer.h`, `DX12Renderer.cpp`, `OpenGLRenderer.h`, `OpenGLRenderer.cpp`, `VULKAN_Renderer.h`, `VULKAN_Renderer.cpp`, `DXRenderFrame.cpp`, `DX12RenderFrame.cpp`, `OpenGLRenderFrame.cpp`, `VULKAN_RenderFrame.cpp`, `Docs/FXManager-Example-Usage.md`):
+  A new `ZoomInOut` effect type has been added to all four FXManagers. The effect bounces continuously between 0% and a configurable maximum zoom depth (up to 75%) until `StopZooming()` is called, then completes its current outward journey and removes cleanly (no visual pop). Supports three modes via `ZoomFXFunction`:
+  - **Zoom2D** — intercepts the 2D `Blit2DObjectToSize` call for a linked `BlitObj2DIndexType` image; replaces it with a center-cropped blit rendered via the new `Blit2DCenteredZoom` virtual renderer method. The normal blit is suppressed by an `IsImageZoomActive()` guard in each RenderFrame file.
+  - **Zoom3D** — exposes the live zoom level via `GetCurrent3DZoomFactor()` for the render pipeline to narrow the camera FOV proportionally.
+  - **ZoomBoth** — applies both the 2D crop and the 3D FOV adjustment simultaneously.
+  New API (all four FXManagers):
+  - `ZoomInitialise(function, depth, speed, link2DImg, destX, destY, destW, destH)` — stores configuration ready for `StartZoom()`.
+  - `StartZoom(speed)` — activates the bounce loop; optional `speed` override.
+  - `StopZooming()` — signals a clean stop after the current outward journey.
+  - `IsImageZoomActive(imgID)` — used by RenderFrame to gate each image blit.
+  - `GetCurrent3DZoomFactor()` — returns live level for 3D FOV use.
+  New renderer method `Blit2DCenteredZoom` implemented in all four renderer backends:
+  - **DX11/DX12/Vulkan** — D2D `DrawBitmap` with a centered `srcRect` proportional to `1 - zoomFactor`.
+  - **OpenGL** — `Render2DQuad` with integer source-rect offsets derived from `tex.width/height * (1 - zoomFactor)`.
+  `Docs/FXManager-Example-Usage.md` updated with a new **ZoomInOut Effects** section covering how-it-works, struct fields, full API reference, and usage examples for all three modes.
+- *See: [`DX_FXManager.h`](DX_FXManager.h), [`DX_FXManager.cpp`](DX_FXManager.cpp), [`DX12FXManager.h`](DX12FXManager.h), [`DX12FXManager.cpp`](DX12FXManager.cpp), [`OpenGLFXManager.h`](OpenGLFXManager.h), [`OpenGLFXManager.cpp`](OpenGLFXManager.cpp), [`VULKAN_FXManager.h`](VULKAN_FXManager.h), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp), [`Renderer.h`](Renderer.h), [`DX11Renderer.h`](DX11Renderer.h), [`DX11Renderer.cpp`](DX11Renderer.cpp), [`DX12Renderer.h`](DX12Renderer.h), [`DX12Renderer.cpp`](DX12Renderer.cpp), [`OpenGLRenderer.h`](OpenGLRenderer.h), [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`VULKAN_Renderer.h`](VULKAN_Renderer.h), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`DXRenderFrame.cpp`](DXRenderFrame.cpp), [`DX12RenderFrame.cpp`](DX12RenderFrame.cpp), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`Docs/FXManager-Example-Usage.md`](Docs/FXManager-Example-Usage.md)*
+
 ---
 
 ## Future Development

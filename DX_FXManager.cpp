@@ -822,6 +822,12 @@ void FXManager::RemoveCompletedEffects() {
             continue;
         }
 
+        // ZoomInOut is managed by StopZooming() — only remove once UpdateZoomInOut marks progress=1.0.
+        if (fx.type == FXType::ZoomInOut) {
+            if (progressCompleted) indicesToRemove.push_back(i);
+            continue;
+        }
+
         // Special handling for text scrollers that should loop (consistent type)
         if (fx.type == FXType::TextScroller && fx.subtype == FXSubType::TXT_SCROLL_CONSISTANT) {
             // Only remove if duration is not infinite and timed out
@@ -1775,6 +1781,19 @@ void FXManager::Render2D()
         {
             UpdateTextScroller(fx, deltaTime);                      // Update text scroller position and state
             RenderTextScroller(fx);                                 // Render text scroller to screen
+        }
+
+        // ZoomInOut — update zoom level then blit zoomed 2D image
+        if (fx.type == FXType::ZoomInOut)
+        {
+            UpdateZoomInOut(fx, deltaTime);
+            // Render 2D zoom when a linked image is configured and the scope includes 2D
+            if (fx.zoomData.link2DImg >= 0 &&
+                fx.zoomData.function != ZoomFXFunction::Zoom3D &&
+                fx.progress < 1.0f)
+            {
+                ApplyZoom2D(fx);
+            }
         }
     }
 
@@ -3593,6 +3612,164 @@ bool FXManager::HasActiveLoadingTextEffects() const
         return true;
     }
     return false;
+}
+
+// =============================================================================
+// ZoomInOut FX — pulsing center-crop zoom loop for 2D image and/or 3D scene
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// ZoomInitialise — stores zoom configuration; call before StartZoom().
+// -----------------------------------------------------------------------------
+void FXManager::ZoomInitialise(ZoomFXFunction function, float depth, float speed,
+                                int link2DImg,
+                                int destX, int destY, int destW, int destH)
+{
+    m_zoomConfig.function         = function;
+    m_zoomConfig.depth            = std::clamp(depth, 0.0f, 0.75f);
+    m_zoomConfig.speed            = std::max(speed, 0.001f);
+    m_zoomConfig.link2DImg        = link2DImg;
+    m_zoomConfig.currentZoomLevel = 0.0f;
+    m_zoomConfig.zoomingIn        = true;
+    m_zoomConfig.stopRequested    = false;
+    m_zoomConfig.destX            = destX;
+    m_zoomConfig.destY            = destY;
+    m_zoomConfig.destW            = destW;
+    m_zoomConfig.destH            = destH;
+    m_hasZoomConfig               = true;
+}
+
+// -----------------------------------------------------------------------------
+// StartZoom — creates and activates the ZoomInOut effect using stored config.
+// speed overrides the config speed (0 = use the value from ZoomInitialise).
+// -----------------------------------------------------------------------------
+void FXManager::StartZoom(float speed)
+{
+    if (!m_hasZoomConfig) {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] StartZoom called before ZoomInitialise — ignored.");
+        return;
+    }
+
+    // Stop any existing zoom FX first
+    StopZooming();
+
+    if (speed > 0.0f)
+        m_zoomConfig.speed = speed;
+
+    // Build the FXItem
+    FXItem fx;
+    fx.fxID            = static_cast<int>(effects.size()) + 1000; // Unique ID above normal range
+    fx.type            = FXType::ZoomInOut;
+    fx.subtype         = FXSubType::FadeIntoColor;                 // Unused placeholder
+    fx.progress        = 0.0f;
+    fx.duration        = 0.0f;                                     // Infinite until stopped
+    fx.delay           = 0.0f;
+    fx.timeout         = 0.0f;                                     // Do not auto-remove
+    fx.pixelSize       = 0;
+    fx.startTime       = std::chrono::steady_clock::now();
+    fx.lastUpdate      = fx.startTime;
+    fx.zoomData        = m_zoomConfig;
+
+    zoomID = fx.fxID;
+    AddEffect(fx);
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] ZoomInOut FX started (ID=" + std::to_wstring(zoomID) + L")");
+}
+
+// -----------------------------------------------------------------------------
+// StopZooming — signals the zoom to complete its outward journey to 0 then stop.
+// -----------------------------------------------------------------------------
+void FXManager::StopZooming()
+{
+    for (auto& fx : effects) {
+        if (fx.type == FXType::ZoomInOut) {
+            fx.zoomData.stopRequested = true;
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// IsImageZoomActive — returns true when a zoom is active for the given image ID.
+// Use in RenderFrame to skip the normal blit; FXManager::Render2D() renders the
+// zoomed version instead.
+// -----------------------------------------------------------------------------
+bool FXManager::IsImageZoomActive(int imgID) const
+{
+    for (const auto& fx : effects) {
+        if (fx.type != FXType::ZoomInOut) continue;
+        if (fx.progress >= 1.0f)          continue;
+        if (fx.zoomData.link2DImg != imgID) continue;
+        if (fx.zoomData.stopRequested && fx.zoomData.currentZoomLevel <= 0.0f) continue;
+        return true;
+    }
+    return false;
+}
+
+// -----------------------------------------------------------------------------
+// GetCurrent3DZoomFactor — returns the active 3D zoom factor (0 = no zoom).
+// Query this each frame in the render pipeline to adjust camera FOV.
+// -----------------------------------------------------------------------------
+float FXManager::GetCurrent3DZoomFactor() const
+{
+    for (const auto& fx : effects) {
+        if (fx.type != FXType::ZoomInOut) continue;
+        if (fx.progress >= 1.0f)          continue;
+        if (fx.zoomData.function == ZoomFXFunction::Zoom3D ||
+            fx.zoomData.function == ZoomFXFunction::ZoomBoth) {
+            return fx.zoomData.currentZoomLevel;
+        }
+    }
+    return 0.0f;
+}
+
+// -----------------------------------------------------------------------------
+// UpdateZoomInOut — advances the zoom level each frame, bouncing between 0 and depth.
+// When stopRequested the bounce completes to 0 and the effect is marked done.
+// -----------------------------------------------------------------------------
+void FXManager::UpdateZoomInOut(FXItem& fx, float deltaTime)
+{
+    ZoomData& z = fx.zoomData;
+
+    if (z.zoomingIn) {
+        // Zoom inward
+        z.currentZoomLevel += z.speed * deltaTime;
+        if (z.currentZoomLevel >= z.depth) {
+            z.currentZoomLevel = z.depth;
+            z.zoomingIn        = false;           // Start reversing outward
+        }
+    } else {
+        // Zoom outward
+        z.currentZoomLevel -= z.speed * deltaTime;
+        if (z.currentZoomLevel <= 0.0f) {
+            z.currentZoomLevel = 0.0f;
+            if (z.stopRequested) {
+                // Fully rewound and stop was requested — mark effect complete
+                fx.progress = 1.0f;
+                zoomID      = -1;
+                return;
+            }
+            z.zoomingIn = true;                   // Start next inward pulse
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// ApplyZoom2D — blits the linked 2D image with a centered zoom crop applied.
+// Called by Render2D() when a ZoomInOut FX is active with a 2D image linked.
+// -----------------------------------------------------------------------------
+void FXManager::ApplyZoom2D(FXItem& fx)
+{
+    if (!renderer)                       return;
+    ZoomData& z = fx.zoomData;
+    if (z.link2DImg < 0)                 return;
+
+#if defined(_WIN64) || defined(_WIN32)
+    renderer->Blit2DCenteredZoom(
+        static_cast<BlitObj2DIndexType>(z.link2DImg),
+        z.destX, z.destY, z.destW, z.destH,
+        z.currentZoomLevel
+    );
+#endif
 }
 
 #pragma warning(pop)

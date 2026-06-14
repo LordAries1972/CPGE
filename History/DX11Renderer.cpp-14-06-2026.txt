@@ -1,0 +1,7 @@
+// DX11Renderer.cpp -- change log 14-06-2026
+// Added Blit2DCenteredZoom implementation:
+//   Uses D2D DrawBitmap with a centered source rect computed as:
+//     srcW = imgW*(1-z), srcH = imgH*(1-z)
+//     srcX = (imgW-srcW)*0.5f, srcY = (imgH-srcH)*0.5f
+//   Scaled to the full destination rect, producing a zoomed-in center-crop effect.
+//   Placed before Blit2DWrappedObjectAtOffset.
