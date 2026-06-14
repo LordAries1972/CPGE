@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.0.1696*
+*Current Build Version: v0.0.1697*
 
 ---
 
@@ -3487,6 +3487,19 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
   - **Stars covered by the zoomed image**: `OpenGLRenderer::RenderBackgroundImage()` already handles `IMG_GAMEINTRO1` and the starfield — it blits the background first, then renders the starfield on top. The blit added to the 3D-section switch in the previous fix was a duplicate that ran AFTER `RenderBackground()` had already drawn the stars, overwriting them. The fix removes the duplicate from the 3D section and adds a zoom-aware if/else to `RenderBackgroundImage()` instead, so the zoomed blit lands before the starfield pass as intended. The same duplicate problem applied to `IMG_LOADING` in both `SCENE_GAMETITLE` and `SCENE_GAMEPLAY`; both blits are removed from the 2D-overlay switch (the loading image is already handled by `RenderBackgroundImage()`), leaving only the `RenderLoadingText()` call.
   - **Jaggy/blocky zoom appearance**: `Blit2DCenteredZoom` used whatever filter mode the texture had at bind time (typically `GL_NEAREST`). When the center-cropped region is magnified to fill the destination rectangle, nearest-neighbour interpolation produces a visible blocky artifact. `GL_LINEAR` min and mag filters are now set on the texture before `Render2DQuad` is called, giving bilinear interpolation during magnification. Integer source coordinates also changed from `trunc` to `round` (+0.5f) to reduce 1-pixel snap artifacts in the UV mapping as the zoom factor animates.
 - *See: [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp)*
+
+- **New — Fireworks FX: continuous particle fireworks display across all four render pipelines** (`DX_FXManager.h`, `DX_FXManager.cpp`, `DX12FXManager.h`, `DX12FXManager.cpp`, `OpenGLFXManager.h`, `OpenGLFXManager.cpp`, `VULKAN_FXManager.h`, `VULKAN_FXManager.cpp`, `Docs/FXManager-Example-Usage.md`):
+  A new `Fireworks` effect type has been added to all four FXManagers. Rockets launch from the bottom of the screen at random X positions, travel upward to a random target height (35%–75% of screen height), then trigger a particle burst explosion. Up to 10 rockets are active simultaneously; launch frequency is controlled by `freqRate` seconds. The effect renders on the same 2D overlay layer as the starfield via `Render2D()` using `Blit2DColoredPixel` — no shader or render frame changes required.
+  - **Rockets**: random X position, random target height (35-75%), random speed 2-8 px/frame, random dot colour.
+  - **Explosion**: random burst radius 10-100 px, random particle count 1-15, one shared random colour per burst.
+  - **Particle physics**: initial speed 1 px/step, accelerates linearly to 5 px/step as radius approaches max; alpha fades quadratically to zero (`alpha = 1 - (r/maxR)^2`); completed rockets pruned each frame.
+  New structs added to all four FX headers (no renderer prefix — headers compile independently): `FireworkParticle`, `FireworkRocket`, `FireworksData`. New `fireworksData` member added to each FXItem/GLFXItem/VKFXItem. `ActiveFXState`/`GLActiveFXState`/`VKActiveFXState` updated with `fireworksActive`/`fireworksID` for save/restore on resize. `StopAllFX()` and `StopAllFXForResize()` automatically stop and save the fireworks state on all four pipelines.
+  New API (all four FXManagers):
+  - `StartFireworks(float freqRate)` — begin the display; first rocket fires immediately.
+  - `StopFireworks()` — immediately remove all rockets and particles.
+  - `int fireworksID` — 0 when inactive, mirrors `starfieldID`/`tunnelID` in pattern.
+  `Docs/FXManager-Example-Usage.md` updated with a new **Fireworks Effects** section (TOC entry 13) covering the effect overview, full API table, behaviour-details table, and four usage examples (basic, slow ceremonial, rapid burst, fade-out sequence).
+- *See: [`DX_FXManager.h`](DX_FXManager.h), [`DX_FXManager.cpp`](DX_FXManager.cpp), [`DX12FXManager.h`](DX12FXManager.h), [`DX12FXManager.cpp`](DX12FXManager.cpp), [`OpenGLFXManager.h`](OpenGLFXManager.h), [`OpenGLFXManager.cpp`](OpenGLFXManager.cpp), [`VULKAN_FXManager.h`](VULKAN_FXManager.h), [`VULKAN_FXManager.cpp`](VULKAN_FXManager.cpp), [`Docs/FXManager-Example-Usage.md`](Docs/FXManager-Example-Usage.md)*
 
 ---
 

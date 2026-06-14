@@ -7,3 +7,14 @@
 //   - Added RenderZoomedImage(imgID, destX, destY, destW, destH): public blit entry point
 //     for OpenGLRenderFrame; acquires m_effectsMutex, finds active ZoomInOut FX for imgID,
 //     calls renderer->Blit2DCenteredZoom() with caller-supplied dest rect.
+//
+// Fireworks FX implementation added (third pass, same date):
+//   - RemoveCompletedEffects(): added Fireworks guard in remove_if lambda (only on progress>=1.0)
+//   - Render2D(): added case FXType::Fireworks dispatching to RenderFireworks(fx)
+//   - StopAllFX(): added `fireworksID = 0;` after SafelyClearAllEffects()
+//   - StopAllFXForResize(): added fireworks save-and-stop block
+//   - StartFireworks(float freqRate): creates GLFXItem of type Fireworks;
+//     acquires m_effectsMutex (recursive_mutex)
+//   - StopFireworks(): acquires m_effectsMutex, erases Fireworks GLFXItem, resets fireworksID
+//   - RenderFireworks(GLFXItem& fx): identical render logic to DX11; no inner mutex acquire
+//     (Render2D already holds the recursive mutex; re-entry is safe)

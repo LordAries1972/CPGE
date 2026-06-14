@@ -14,12 +14,13 @@
 10. [Text Scroller Effects](#text-scroller-effects)
 11. [Loading Screen Text Fade Effect](#loading-screen-text-fade-effect)
 12. [ZoomInOut Effects](#zoominout-effects)
-13. [Advanced Features](#advanced-features)
-14. [Window Resize Handling](#window-resize-handling)
-15. [Thread Safety](#thread-safety)
-16. [Performance Considerations](#performance-considerations)
-17. [Troubleshooting](#troubleshooting)
-18. [Code Examples](#code-examples)
+13. [Fireworks Effects](#fireworks-effects)
+14. [Advanced Features](#advanced-features)
+15. [Window Resize Handling](#window-resize-handling)
+16. [Thread Safety](#thread-safety)
+17. [Performance Considerations](#performance-considerations)
+18. [Troubleshooting](#troubleshooting)
+19. [Code Examples](#code-examples)
 
 ---
 
@@ -1149,6 +1150,85 @@ if (m_d2dTextures[int(BlitObj2DIndexType::IMG_GAMEINTRO1)]) {
 - **Correct render order** — `RenderZoomedImage()` is called at the exact position of the normal blit, so effects like the 3D starfield that follow in the frame still render on top as expected
 - **Per-image guard** — `IsImageZoomActive(imgID)` returns false for any image not linked to the active zoom, so other blits are unaffected
 - **Speed override** — `StartZoom(speed)` lets callers override the speed at the point of activation without recalling `ZoomInitialise`
+
+---
+
+## Fireworks Effects
+
+The Fireworks effect launches coloured rockets upward from the bottom of the screen. Each rocket travels to a random target height (35%–75% of the screen height from the base), then triggers a particle burst. Up to 10 rockets are active simultaneously; new ones fire at the interval set by `freqRate`. The effect renders on the same 2D overlay layer as the starfield via `Render2D()`.
+
+### API
+
+| Method | Description |
+| --- | --- |
+| `StartFireworks(float freqRate)` | Begin the effect. `freqRate` is seconds between each new rocket launch (minimum 0.1 s). The first rocket fires immediately. |
+| `StopFireworks()` | Stop immediately and remove all rockets/particles. |
+
+The manager also exposes `int fireworksID` (0 when inactive), which mirrors `starfieldID` and `tunnelID` in purpose.
+
+### Behaviour Details
+
+| Property | Value |
+| --- | --- |
+| Max simultaneous rockets | 10 |
+| Launch X | Random across full screen width |
+| Target height | 35%–75% of screen height from the bottom base |
+| Rocket speed | 2–8 px/frame (random per rocket) |
+| Rocket colour | Random RGB per rocket |
+| Explosion radius | 10–100 px (random per rocket) |
+| Particle count | 1–15 per explosion (random) |
+| Burst colour | One shared random RGB per explosion |
+| Particle initial speed | 1 px/step at origin |
+| Particle max speed | 5 px/step at max radius (linear acceleration) |
+| Particle alpha fade | Quadratic: `alpha = 1 - (radius/maxRadius)^2` |
+
+### Fireworks Basic Usage
+
+```cpp
+// Start fireworks launching one rocket every 0.5 seconds
+fxManager.StartFireworks(0.5f);
+
+// Stop the fireworks
+fxManager.StopFireworks();
+```
+
+### Slow Ceremonial Display
+
+```cpp
+// One rocket every 2 seconds — grand finale pacing
+fxManager.StartFireworks(2.0f);
+```
+
+### Rapid Burst Display
+
+```cpp
+// New rocket every 0.2 seconds — dense celebration effect
+fxManager.StartFireworks(0.2f);
+```
+
+### With a Fade-Out Sequence
+
+```cpp
+// Start fireworks, then fade to black and stop after 5 seconds
+fxManager.StartFireworks(0.4f);
+
+fxManager.FadeOutThenCallback(
+    XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f),
+    1.5f,   // Fade duration
+    5.0f,   // Delay — let fireworks run for 5 s first
+    [this]() {
+        fxManager.StopFireworks();
+        sceneManager.LoadNextScene();
+    }
+);
+```
+
+### Fireworks Renderer Notes
+
+- All four renderers (DX11, DX12, OpenGL, Vulkan) implement identical behaviour.
+- Fireworks are rendered via `Render2D()` using `renderer->Blit2DColoredPixel()` — no shader changes required.
+- `StopAllFX()` and `StopAllFXForResize()` automatically stop and save/restore fireworks state.
+- `fireworksID` is reset to 0 when stopped. Check `fireworksID > 0` to test whether fireworks are running.
 
 ---
 

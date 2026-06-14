@@ -15,3 +15,13 @@
 //   - StartZoom(): removed erroneous `m_hasZoomConfig = false` at end of function.
 //     This flag was preventing zoom from being re-started without re-calling ZoomInitialise().
 //     DX12 and OpenGL FXManagers do not set this flag; Vulkan was inconsistent.
+//
+// Fireworks FX implementation added (fourth pass, same date):
+//   - RemoveCompletedEffects(): added Fireworks type guard (only remove on progress>=1.0)
+//   - Render2D(): added Fireworks dispatch block (calls RenderFireworks(fx))
+//   - StopAllFX(): added `if (fireworksID > 0) StopFireworks();`
+//   - StopAllFXForResize(): added fireworks save-and-stop block
+//   - StartFireworks(float freqRate): creates VKFXItem of type Fireworks;
+//     acquires m_effectsMutex (std::mutex)
+//   - StopFireworks(): erases Fireworks VKFXItem from effects, resets fireworksID
+//   - RenderFireworks(VKFXItem& fx): identical render logic to DX11/DX12

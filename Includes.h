@@ -102,7 +102,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
         #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__) && \
             !defined(__USE_OPENGL__)     && !defined(__USE_VULKAN__)      && \
             !defined(__USE_RADEON__)
-//            #define __USE_DIRECTX_11__  // Change this to switch the default for IDE-only builds
+            #define __USE_DIRECTX_11__  // Change this to switch the default for IDE-only builds
         #endif
 
         #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__) && !defined(__USE_OPENGL__) && !defined(__USE_VULKAN__)
@@ -256,7 +256,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
         #define PLATFORM_IOS
     #endif // !PLATFORM_IOS
     // iOS — OpenGL only
-    #define __USE_OPENGL__
+//    #define __USE_OPENGL__
 #endif // !PLATFORM_WINDOWS, PLATFORM_LINUX, PLATFORM_ANDROID, PLATFORM_APPLE, PLATFORM_IOS
 
 // ---------------------------------------------------------------------------
@@ -735,7 +735,7 @@ inline const std::wstring texFilename[] = {
     L"winclosebut1up.png", L"bevel1.png", L"titlebar1a.png", L"titlebar1.png",
     L"splash1.png", L"gameintro1.png",
     L"titlebar2.png", L"winbody2.png", L"button2up.png", L"button2down.png", L"logo.png",
-    L"tab2red.png", L"tab1gmg.png", L"loading.png"
+    L"tab2red.png", L"tab1gmg.png", L"loading.png", L"tsoo.jpg"
 };
 
 // 3D Textures

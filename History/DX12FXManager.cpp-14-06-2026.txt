@@ -5,3 +5,12 @@
 //   - Render2D() ZoomInOut block: removed ApplyZoom2D(); only UpdateZoomInOut() remains.
 //   - Added RenderZoomedImage(imgID, destX, destY, destW, destH): public blit entry point
 //     called by DX12RenderFrame at the correct render-order position.
+//
+// Fireworks FX implementation added (third pass, same date):
+//   - RemoveCompletedEffects(): added Fireworks type guard (only remove on progress>=1.0)
+//   - Render2D(): added Fireworks dispatch block (calls RenderFireworks(fx))
+//   - StopAllFX(): added `if (fireworksID > 0) StopFireworks();`
+//   - StopAllFXForResize(): added fireworks save-and-stop block
+//   - StartFireworks(float freqRate): creates FXItem of type Fireworks (DX12 pattern)
+//   - StopFireworks(): erases Fireworks FXItem from effects, resets fireworksID
+//   - RenderFireworks(FXItem& fx): identical logic to DX11; uses m_effectsMutex (std::mutex)

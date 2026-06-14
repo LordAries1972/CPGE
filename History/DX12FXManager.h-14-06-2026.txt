@@ -5,3 +5,12 @@
 //   - Public API: zoomID, ZoomInitialise, StartZoom, StopZooming,
 //                 IsImageZoomActive, RenderZoomedImage, GetCurrent3DZoomFactor
 //   - Private: UpdateZoomInOut, ApplyZoom2D, m_zoomConfig, m_hasZoomConfig
+//
+// Fireworks FX support added (second pass, same date):
+//   - Fireworks added to FXType enum
+//   - FireworkParticle, FireworkRocket, FireworksData structs added before FXItem
+//   - FireworksData fireworksData member added to FXItem (after zoomData)
+//   - fireworksActive / fireworksID added to ActiveFXState; all five
+//     constructors/operators updated to initialise and transfer the new fields
+//   - Public API: fireworksID, StartFireworks(float freqRate), StopFireworks()
+//   - Private: RenderFireworks(FXItem& fx)

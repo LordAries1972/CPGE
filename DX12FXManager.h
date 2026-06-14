@@ -32,6 +32,7 @@ enum class FXType {
     WarpDotTunnel,
     TextFadeInOut,
     ZoomInOut,                                                                     // Pulsing zoom-in / zoom-out loop on 2D image and/or 3D scene
+    Fireworks,                                                                     // Firework rockets that launch, travel, and burst into particles
 };
 
 enum class FXSubType {
@@ -221,6 +222,43 @@ struct TextFadeData {
     }
 };
 
+// ---- Fireworks effect data structures ----
+
+// Single expanding particle from a rocket burst
+struct FireworkParticle {
+    float x         = 0.0f;
+    float y         = 0.0f;
+    float angle     = 0.0f;                                                        // Launch angle in radians
+    float radius    = 0.0f;                                                        // Current distance from burst origin
+    float maxRadius = 0.0f;                                                        // Distance at which the particle fades to zero
+    float r         = 1.0f, g = 1.0f, b = 1.0f;                                   // Particle colour (shared across burst)
+    float a         = 1.0f;                                                        // Base alpha (fades quadratically to 0)
+    bool  completed = false;                                                       // True when radius >= maxRadius
+};
+
+// A single rocket plus its explosion state
+struct FireworkRocket {
+    float x        = 0.0f, y      = 0.0f;                                         // Current screen position
+    float startX   = 0.0f, startY = 0.0f;                                         // Launch position
+    float targetY  = 0.0f;                                                        // Y at which explosion triggers
+    float speed    = 4.0f;                                                        // Upward travel speed in px/frame
+    float r        = 1.0f, g = 1.0f, b = 1.0f;                                   // Rocket dot colour
+    bool  exploded = false;                                                        // True once burst has been triggered
+    bool  done     = false;                                                        // True once all particles have completed
+    float explodeX = 0.0f, explodeY = 0.0f;                                       // Screen position where burst occurred
+    float expMaxRadius = 50.0f;                                                    // Maximum burst radius (up to 100 px)
+    float expR     = 1.0f, expG = 1.0f, expB = 1.0f;                             // Shared colour for all burst particles
+    std::vector<FireworkParticle> expParticles;                                    // Explosion particle set
+};
+
+// Top-level data block stored inside FXItem for a running fireworks effect
+struct FireworksData {
+    float freqRate    = 1.0f;                                                      // Seconds between rocket launches
+    float launchTimer = 0.0f;                                                      // Accumulates dt; fires when >= freqRate
+    float baseY       = 0.0f;                                                      // Y coordinate of launch base (bottom of screen)
+    std::vector<FireworkRocket> rockets;                                           // All currently active rockets (max 10)
+};
+
 // Per-effect state for ZoomInOut
 struct ZoomData {
     ZoomFXFunction  function         = ZoomFXFunction::Zoom2D;                    // 2D, 3D, or BOTH operation
@@ -277,6 +315,9 @@ struct FXItem {
 
     // ZoomInOut support
     ZoomData zoomData;                                                             // State for zoom-in / zoom-out pulsing effect
+
+    // Fireworks support
+    FireworksData fireworksData;                                                   // State for active fireworks rockets and particles
 };
 
 struct ScrollTween {
@@ -304,6 +345,8 @@ struct ActiveFXState {
     int starfieldID;
     bool tunnelActive;
     int tunnelID;
+    bool fireworksActive;                                                           // Whether fireworks were running before resize
+    int fireworksID;                                                               // ID of the saved fireworks effect
     bool textScrollerActive;
     std::vector<int> textScrollerIDs;
     bool fadeEffectActive;
@@ -312,6 +355,7 @@ struct ActiveFXState {
 
     ActiveFXState()
         : starfieldActive(false), starfieldID(0), tunnelActive(false), tunnelID(0)
+        , fireworksActive(false), fireworksID(0)
         , textScrollerActive(false), fadeEffectActive(false), scrollEffectsActive(false)
     {
         textScrollerIDs.clear();
@@ -323,6 +367,7 @@ struct ActiveFXState {
     ActiveFXState(const ActiveFXState& other)
         : starfieldActive(other.starfieldActive), starfieldID(other.starfieldID)
         , tunnelActive(other.tunnelActive), tunnelID(other.tunnelID)
+        , fireworksActive(other.fireworksActive), fireworksID(other.fireworksID)
         , textScrollerActive(other.textScrollerActive), textScrollerIDs(other.textScrollerIDs)
         , fadeEffectActive(other.fadeEffectActive), scrollEffectsActive(other.scrollEffectsActive)
         , activeScrollTextures(other.activeScrollTextures)
@@ -334,6 +379,8 @@ struct ActiveFXState {
             starfieldID = other.starfieldID;
             tunnelActive = other.tunnelActive;
             tunnelID = other.tunnelID;
+            fireworksActive = other.fireworksActive;
+            fireworksID = other.fireworksID;
             textScrollerActive = other.textScrollerActive;
             textScrollerIDs = other.textScrollerIDs;
             fadeEffectActive = other.fadeEffectActive;
@@ -346,12 +393,14 @@ struct ActiveFXState {
     ActiveFXState(ActiveFXState&& other) noexcept
         : starfieldActive(other.starfieldActive), starfieldID(other.starfieldID)
         , tunnelActive(other.tunnelActive), tunnelID(other.tunnelID)
+        , fireworksActive(other.fireworksActive), fireworksID(other.fireworksID)
         , textScrollerActive(other.textScrollerActive), textScrollerIDs(std::move(other.textScrollerIDs))
         , fadeEffectActive(other.fadeEffectActive), scrollEffectsActive(other.scrollEffectsActive)
         , activeScrollTextures(std::move(other.activeScrollTextures))
     {
         other.starfieldActive = false; other.starfieldID = 0;
         other.tunnelActive = false; other.tunnelID = 0;
+        other.fireworksActive = false; other.fireworksID = 0;
         other.textScrollerActive = false;
         other.fadeEffectActive = false; other.scrollEffectsActive = false;
     }
@@ -360,12 +409,14 @@ struct ActiveFXState {
         if (this != &other) {
             starfieldActive = other.starfieldActive; starfieldID = other.starfieldID;
             tunnelActive = other.tunnelActive; tunnelID = other.tunnelID;
+            fireworksActive = other.fireworksActive; fireworksID = other.fireworksID;
             textScrollerActive = other.textScrollerActive;
             textScrollerIDs = std::move(other.textScrollerIDs);
             fadeEffectActive = other.fadeEffectActive; scrollEffectsActive = other.scrollEffectsActive;
             activeScrollTextures = std::move(other.activeScrollTextures);
             other.starfieldActive = false; other.starfieldID = 0;
             other.tunnelActive = false; other.tunnelID = 0;
+            other.fireworksActive = false; other.fireworksID = 0;
             other.textScrollerActive = false;
             other.fadeEffectActive = false; other.scrollEffectsActive = false;
         }
@@ -438,6 +489,12 @@ public:
     void RenderStarfield(FXItem& fxItem);
 
     int tunnelID = 0;
+
+    // Fireworks effect
+    int fireworksID = 0;                                                           // ID of the active fireworks effect (0 = none)
+    void StartFireworks(float freqRate);                                           // Begin continuous fireworks; rockets launch every freqRate seconds
+    void StopFireworks();                                                          // Immediately remove the fireworks effect
+
     void StopAllFX();
     void SaveAndSuspendFXForScene();
     void RestoreFXAfterScene();
@@ -519,6 +576,8 @@ public:
     bool HasActiveLoadingTextEffects() const;
 
 private:
+    void RenderFireworks(FXItem& fx);                                              // Per-frame update and draw of active rockets/particles
+
     void UpdateWarpDotTunnel(FXItem& fx, float deltaTime);
     void RenderWarpDotTunnel(FXItem& fx);
 

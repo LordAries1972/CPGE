@@ -8,3 +8,12 @@
 //
 // RenderZoomedImage added: public method called by RenderFrame at the correct
 // render-order position (replaces Blit2DObjectToSize when zoom is active).
+//
+// Fireworks FX support added (second pass, same date):
+//   - Fireworks added to FXType enum
+//   - FireworkParticle, FireworkRocket, FireworksData structs added before FXItem
+//   - FireworksData fireworksData member added to FXItem (after zoomData)
+//   - fireworksActive / fireworksID added to ActiveFXState; all five
+//     constructors/operators (default, copy, copy-assign, move, move-assign) updated
+//   - Public API: fireworksID, StartFireworks(float freqRate), StopFireworks()
+//   - Private: RenderFireworks(FXItem& fx)

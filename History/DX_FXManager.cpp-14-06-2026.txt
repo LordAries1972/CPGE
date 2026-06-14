@@ -10,3 +10,18 @@
 //   - Added RenderZoomedImage(imgID, destX, destY, destW, destH): iterates effects,
 //     finds the active ZoomInOut effect for imgID, calls renderer->Blit2DCenteredZoom()
 //     with the caller-supplied dest rect (matches the Blit2DObjectToSize call it replaces).
+//
+// Fireworks FX implementation added (third pass, same date):
+//   - RemoveCompletedEffects(): added Fireworks type guard (continue; only remove on progress>=1.0)
+//   - Render2D(): added Fireworks dispatch block (calls RenderFireworks(fx))
+//   - StopAllFX(): added `if (fireworksID > 0) StopFireworks();`
+//   - StopAllFXForResize(): added fireworks save-and-stop block (saves fireworksActive/fireworksID,
+//     calls StopFireworks(), wrapped in try/catch with debug logging)
+//   - StartFireworks(float freqRate): creates FXItem of type Fireworks; pre-sets launchTimer to
+//     freqRate so first rocket fires immediately; stores baseY = iOrigHeight
+//   - StopFireworks(): erases the Fireworks FXItem from effects vector, resets fireworksID to 0
+//   - RenderFireworks(FXItem& fx): per-frame update; advances launchTimer by dt; spawns rockets
+//     (random X, random target height 35-75%, random speed 2-8 px/frame, random colours);
+//     moves rocket upward; on targetY reached triggers explosion (random burst radius 10-100 px,
+//     1-15 particles, shared burst colour); particles accelerate from speed 1 to 5 as radius grows,
+//     alpha fades quadratically; completed rockets pruned each frame; max 10 active simultaneously

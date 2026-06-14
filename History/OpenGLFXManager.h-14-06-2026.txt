@@ -5,3 +5,12 @@
 //   - Public API: zoomID, ZoomInitialise, StartZoom, StopZooming,
 //                 IsImageZoomActive, RenderZoomedImage, GetCurrent3DZoomFactor
 //   - Private: UpdateZoomInOut, ApplyZoom2D, m_zoomConfig, m_hasZoomConfig
+//
+// Fireworks FX support added (second pass, same date):
+//   - Fireworks added to FXType enum
+//   - FireworkParticle, FireworkRocket, FireworksData structs added (no GL prefix --
+//     headers compile independently so no ODR conflict)
+//   - FireworksData fireworksData member added to GLFXItem (after zoomData)
+//   - fireworksActive / fireworksID added to GLActiveFXState
+//   - Public API in GLFXManager: fireworksID, StartFireworks(float freqRate), StopFireworks()
+//   - Private: RenderFireworks(GLFXItem& fx)

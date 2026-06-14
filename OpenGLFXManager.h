@@ -53,6 +53,7 @@ enum class FXType {
     WarpDotTunnel,
     TextFadeInOut,                                                              // Loading-screen text with per-frame fade in / fade out
     ZoomInOut,                                                                  // Pulsing zoom-in / zoom-out loop on 2D image and/or 3D scene
+    Fireworks,                                                                  // Firework rockets that launch, travel, and burst into particles
 };
 
 enum class FXSubType {
@@ -221,6 +222,45 @@ struct GLTextFadeData {
     }
 };
 
+// ---------------------------------------------------------------------------------------------------------------
+// Fireworks effect data structures (no GL prefix — each renderer header compiles independently)
+// ---------------------------------------------------------------------------------------------------------------
+
+// Single expanding particle from a rocket burst
+struct FireworkParticle {
+    float x         = 0.0f;
+    float y         = 0.0f;
+    float angle     = 0.0f;                                                     // Launch angle in radians
+    float radius    = 0.0f;                                                     // Current distance from burst origin
+    float maxRadius = 0.0f;                                                     // Distance at which the particle fades to zero
+    float r         = 1.0f, g = 1.0f, b = 1.0f;                                // Particle colour (shared across burst)
+    float a         = 1.0f;                                                     // Base alpha (fades quadratically to 0)
+    bool  completed = false;                                                    // True when radius >= maxRadius
+};
+
+// A single rocket plus its explosion state
+struct FireworkRocket {
+    float x        = 0.0f, y      = 0.0f;                                      // Current screen position
+    float startX   = 0.0f, startY = 0.0f;                                      // Launch position
+    float targetY  = 0.0f;                                                     // Y at which explosion triggers
+    float speed    = 4.0f;                                                     // Upward travel speed in px/frame
+    float r        = 1.0f, g = 1.0f, b = 1.0f;                                // Rocket dot colour
+    bool  exploded = false;                                                     // True once burst has been triggered
+    bool  done     = false;                                                     // True once all particles have completed
+    float explodeX = 0.0f, explodeY = 0.0f;                                    // Screen position where burst occurred
+    float expMaxRadius = 50.0f;                                                 // Maximum burst radius (up to 100 px)
+    float expR     = 1.0f, expG = 1.0f, expB = 1.0f;                          // Shared colour for all burst particles
+    std::vector<FireworkParticle> expParticles;                                 // Explosion particle set
+};
+
+// Top-level data block stored inside GLFXItem for a running fireworks effect
+struct FireworksData {
+    float freqRate    = 1.0f;                                                   // Seconds between rocket launches
+    float launchTimer = 0.0f;                                                   // Accumulates dt; fires when >= freqRate
+    float baseY       = 0.0f;                                                   // Y coordinate of launch base (bottom of screen)
+    std::vector<FireworkRocket> rockets;                                        // All currently active rockets (max 10)
+};
+
 // Per-effect state for ZoomInOut (OpenGL)
 struct GLZoomData {
     ZoomFXFunction  function         = ZoomFXFunction::Zoom2D;                    // 2D, 3D, or BOTH operation
@@ -287,6 +327,9 @@ struct GLFXItem {
 
     // ZoomInOut support
     GLZoomData zoomData;                                                           // State for zoom-in / zoom-out pulsing effect
+
+    // Fireworks support
+    FireworksData fireworksData;                                                   // State for active fireworks rockets and particles
 };
 
 struct GLScrollTween {
@@ -301,6 +344,8 @@ struct GLActiveFXState {
     int   starfieldID         = 0;
     bool  tunnelActive        = false;
     int   tunnelID            = 0;
+    bool  fireworksActive     = false;                                              // Whether fireworks were running before resize
+    int   fireworksID         = 0;                                                 // ID of the saved fireworks effect
     bool  textScrollerActive  = false;
     std::vector<int> textScrollerIDs;
     bool  fadeEffectActive    = false;
@@ -376,6 +421,12 @@ public:
     // WarpDotTunnel
     int              tunnelID       = 0;
     std::vector<int> m_tunnelSortBuf;   // reused each frame to avoid per-frame allocation
+
+    // Fireworks effect
+    int  fireworksID = 0;                                                           // ID of the active fireworks effect (0 = none)
+    void StartFireworks(float freqRate);                                            // Begin continuous fireworks; rockets launch every freqRate seconds
+    void StopFireworks();                                                           // Immediately remove the fireworks effect
+
     void StopAllFX();
     void SaveAndSuspendFXForScene();
     void RestoreFXAfterScene();
@@ -474,6 +525,8 @@ public:
     bool HasActiveLoadingTextEffects() const;
 
 private:
+    void RenderFireworks(GLFXItem& fx);                                             // Per-frame update and draw of active rockets/particles
+
     // WarpDotTunnel private helpers
     void UpdateWarpDotTunnel(GLFXItem& fx, float deltaTime);
     void RenderWarpDotTunnel(GLFXItem& fx);

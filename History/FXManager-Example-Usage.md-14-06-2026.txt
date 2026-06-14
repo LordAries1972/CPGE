@@ -10,3 +10,11 @@
 //   - RenderFrame Integration example updated from skip-only to if/else pattern
 //   - Render2D() role clarified (animation update only; no blit)
 //   - ZoomInOut Features: added "Correct render order" bullet
+//
+// Pass 3 (Fireworks, same date):
+//   - TOC updated: Fireworks Effects inserted as entry 13; Advanced Features-onwards renumbered
+//   - Added "## Fireworks Effects" section with:
+//       overview paragraph, API table (StartFireworks/StopFireworks), fireworksID note,
+//       Behaviour Details table (all randomisation ranges and physics parameters),
+//       four usage examples (basic, slow ceremonial, rapid burst, fade-out sequence),
+//       Renderer Notes (all four renderers, Render2D layer, StopAllFX integration)

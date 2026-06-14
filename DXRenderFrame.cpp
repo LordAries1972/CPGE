@@ -985,6 +985,13 @@ void DX11Renderer::RenderBackgroundImage()
                     fxManager.RenderFX(fxManager.starfieldID, m_d3dContext.Get(), myCamera.GetViewMatrix());
                 }
 
+                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_TSOO)]) {
+                    if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_TSOO)))
+                        fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_TSOO), 0, 0, iOrigWidth, iOrigHeight);
+                    else
+                        Blit2DObjectToSize(BlitObj2DIndexType::IMG_TSOO, 0, 0, iOrigWidth, iOrigHeight);
+                }
+
                 // Render 3D warp dot tunnel if active
                 if (fxManager.tunnelID > 0) {
                     fxManager.RenderFX(fxManager.tunnelID, m_d3dContext.Get(), myCamera.GetViewMatrix());
