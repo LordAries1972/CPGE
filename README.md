@@ -12,13 +12,19 @@ If you like to know more about me and my history, please goto my website at http
 
 ## Important Links
 
-👉 [Read the full author bio here → docs/ABOUT.md](Docs/ABOUT.md)
+👉 Read the original full author bio here → [docs/ABOUT.md](Docs/ABOUT.md)
+👉 Read the full document about CPGE → [docs/About-CPGE.md](Docs/About-CPGE.md)
 
-👉 [Blender Modelling System v4.3 - v5.1](https://www.blender.org/download/)
+👉 [Blender Modelling System v4.3 - v5.2](https://www.blender.org/download/)
 
-👉 [Supporting me on my Website](https://www.ultimanium.com/).  Please do NOT use a VPN Accessing this site ok or you will be blocked!
+👉 [Supporting me on my Website](https://www.ultimanium.com/).  Please do NOT use a VPN Accessing this site or you will be blocked!
+👉 Recorded Demos on our website → [CPGE Demos](https://www.ultimanium.com/index.php?action=cpge-demos)
 
-## Important Links
+## History Related Links
+
+We keep approxiametely about one months of code changes in the 'History' folder so users can see exactly what code changes have been made directly, but we 
+record a build history file as well and can be found here below:-
+
 👉 [Release History](ReleaseInfo.md)
 
 ## Features
@@ -66,8 +72,7 @@ Update 22nd May, 2026: I will be adding demo videos soon to my website and YouTu
 These are the following known issues and will be resolved as humanly possible.
 
 1) Models are still not been fully imported right (Investigating as it maybe possible I am not doing exports properly with Blender).
-2) Lighting in OpenGL Pipeline is not working correctly as expected (Investigating).
-3) No models are showing on the DX12 Pipeline current (Investigating).
+2) DX12 Window Resizing is causing a crash
 
 ## Getting Started
 
