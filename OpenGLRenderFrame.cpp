@@ -544,16 +544,16 @@ inline void OpenGLRenderer::RenderIntroMovie()
             movieTexID);
     }
 
-    // Company logo overlay: half size, bottom-left corner (skip if zoom FX is rendering it)
+    // Company logo overlay: half size, bottom-left corner
     {
         int logoIdx = int(BlitObj2DIndexType::IMG_COMPANYLOGO);
-        if (logoIdx >= 0 && logoIdx < MAX_TEXTURE_BUFFERS &&
-            m_2dTextures[logoIdx].isLoaded &&
-            !fxManager.IsImageZoomActive(logoIdx)) {
+        if (logoIdx >= 0 && logoIdx < MAX_TEXTURE_BUFFERS && m_2dTextures[logoIdx].isLoaded) {
             int halfW = m_2dTextures[logoIdx].width  / 2;
             int halfH = m_2dTextures[logoIdx].height / 2;
-            Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO,
-                               0, iOrigHeight - halfH, halfW, halfH);
+            if (fxManager.IsImageZoomActive(logoIdx))
+                fxManager.RenderZoomedImage(logoIdx, 0, iOrigHeight - halfH, halfW, halfH);
+            else
+                Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - halfH, halfW, halfH);
         }
     }
 
@@ -691,6 +691,8 @@ void OpenGLRenderer::RenderFrame()
 
                 case SceneType::SCENE_GAMETITLE:
                     if (threadManager.threadVars.bLoaderTaskFinished.load()) {
+                        // Background image is blitted by RenderBackgroundImage() before the
+                        // starfield pass so the zoom lands under the stars, not on top of them
                         int iModelID = scene.FindParentModelID(SplashShipName);
                         if (scene.gltfAnimator.IsAnimationPlaying(iModelID))
                             scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS);
@@ -714,10 +716,12 @@ void OpenGLRenderer::RenderFrame()
             switch (scene.stSceneType)
             {
                 case SceneType::SCENE_INTRO:
-                    // Skip normal blit when zoom FX is rendering the splash image
-                    if (m_2dTextures[int(BlitObj2DIndexType::IMG_SPLASH1)].isLoaded &&
-                        !fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_SPLASH1)))
-                        Blit2DObjectToSize(BlitObj2DIndexType::IMG_SPLASH1, 0, 0, iOrigWidth, iOrigHeight);
+                    if (m_2dTextures[int(BlitObj2DIndexType::IMG_SPLASH1)].isLoaded) {
+                        if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_SPLASH1)))
+                            fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_SPLASH1), 0, 0, iOrigWidth, iOrigHeight);
+                        else
+                            Blit2DObjectToSize(BlitObj2DIndexType::IMG_SPLASH1, 0, 0, iOrigWidth, iOrigHeight);
+                    }
                     break;
 
                 case SceneType::SCENE_INTRO_MOVIE:
@@ -725,13 +729,13 @@ void OpenGLRenderer::RenderFrame()
                     break;
 
                 case SceneType::SCENE_GAMETITLE:
+                    // Loading image blit is handled by RenderBackgroundImage(); only render loading text here
                     if (!threadManager.threadVars.bLoaderTaskFinished.load())
-                    {
                         fxManager.RenderLoadingText();
-                    }
                     break;
 
                 case SceneType::SCENE_GAMEPLAY:
+                    // Loading image blit is handled by RenderBackgroundImage(); only render loading text here
                     if (!threadManager.threadVars.bLoaderTaskFinished.load() ||
                         fxManager.HasActiveLoadingTextEffects())
                         fxManager.RenderLoadingText();

@@ -1,7 +1,23 @@
 // OpenGLRenderFrame.cpp -- change log 14-06-2026
-// ZoomInOut FX guard added: IsImageZoomActive() check wraps each Blit2DObjectToSize call
-// so the normal image blit is skipped when the FXManager is rendering the zoomed version.
+// ZoomInOut FX render-order integration (two passes):
 //
-// Guarded image blits:
-//   - IMG_COMPANYLOGO (intro movie overlay)
-//   - IMG_SPLASH1 (SCENE_INTRO)
+// Pass 1: IsImageZoomActive() guards added.
+// Pass 2: Converted to if/else — RenderZoomedImage() called when zoom is active.
+//         Images affected: IMG_COMPANYLOGO (intro movie overlay), IMG_SPLASH1 (SCENE_INTRO).
+//
+// Pass 3 (ZoomInOut OpenGL/Vulkan fix -- root-cause: missing image blits):
+//   3D scene SCENE_GAMETITLE: added IMG_GAMEINTRO1 blit BEFORE RenderGamePlay()
+//     so 3D models composite on top (was not rendered at all in OpenGL -- mirrors DX11/DX12).
+//   2D overlay SCENE_GAMETITLE / SCENE_GAMEPLAY: added IMG_LOADING blit with zoom
+//     support for both scenes when loader is still running (was missing from OpenGL).
+//
+// Fix (ZoomInOut OpenGL pass 4 -- stars overdrawn + jagginess):
+//   Root cause: OpenGL already handles IMG_GAMEINTRO1 and IMG_LOADING in
+//   RenderBackgroundImage() (OpenGLRenderer.cpp); the blits added in pass 3 were
+//   DUPLICATE and ran AFTER the starfield, overwriting it.
+//   3D section SCENE_GAMETITLE: removed the IMG_GAMEINTRO1 blit block entirely;
+//     zoom is now handled in RenderBackgroundImage() before the starfield pass.
+//   2D overlay SCENE_GAMETITLE: removed duplicate IMG_LOADING blit + fader logic;
+//     RenderLoadingText() is now the only call inside the !bLoaderTaskFinished guard.
+//   2D overlay SCENE_GAMEPLAY: removed duplicate IMG_LOADING blit + fader logic;
+//     retained RenderLoadingText() with HasActiveLoadingTextEffects() guard.

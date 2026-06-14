@@ -504,6 +504,7 @@ public:
     void StartZoom(float speed);
     void StopZooming();
     bool IsImageZoomActive(int imgID) const;
+    void RenderZoomedImage(int imgID, int destX, int destY, int destW, int destH);
     float GetCurrent3DZoomFactor() const;
 
     int  ShowLoadingText(const std::wstring& text,

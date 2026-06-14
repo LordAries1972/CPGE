@@ -1,12 +1,12 @@
 // FXManager-Example-Usage.md -- change log 14-06-2026
-// Added full ZoomInOut Effects section covering:
-//   - ZoomInOut -- How It Works (2D crop path, 3D FOV path, bounce loop)
-//   - ZoomFXFunction enum reference table
-//   - ZoomData / GLZoomData / VKZoomData struct field table
-//   - ZoomInOut -- API Reference: ZoomInitialise, StartZoom, StopZooming,
-//                                  IsImageZoomActive, GetCurrent3DZoomFactor
-//   - Usage examples: 2D image zoom, 3D camera zoom, combined 2D+3D, speed override
-//   - RenderFrame integration note (IsImageZoomActive guard pattern)
-//   - ZoomInOut Features summary
-// Updated Table of Contents with entry 12 (ZoomInOut Effects);
-// renumbered entries 12-17 to 13-18.
+// Pass 1: Added full ZoomInOut Effects section (TOC entry 12):
+//   ZoomInOut How It Works, ZoomFXFunction enum, ZoomData struct, API Reference,
+//   usage examples for 2D/3D/Both/speed-override, RenderFrame integration, features.
+//
+// Pass 2: Updated ZoomInOut section to reflect render-order redesign:
+//   - IsImageZoomActive API description updated (no longer used to skip; used with RenderZoomedImage)
+//   - Added RenderZoomedImage() API entry with full description of design rationale
+//     (blits at correct render-order position so starfield etc. still layer above it)
+//   - RenderFrame Integration example updated from skip-only to if/else pattern
+//   - Render2D() role clarified (animation update only; no blit)
+//   - ZoomInOut Features: added "Correct render order" bullet

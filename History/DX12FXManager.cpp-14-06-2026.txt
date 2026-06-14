@@ -1,7 +1,7 @@
 // DX12FXManager.cpp -- change log 14-06-2026
-// ZoomInOut FX implementation added (mirrors DX_FXManager.cpp):
-//   - Render2D(): ZoomInOut case with UpdateZoomInOut() + ApplyZoom2D()
-//   - RemoveCompletedEffects(): ZoomInOut type guard
-//   - ZoomInitialise, StartZoom, StopZooming, IsImageZoomActive, GetCurrent3DZoomFactor
-//   - UpdateZoomInOut, ApplyZoom2D (using DX12 m_d2dContext->DrawBitmap)
-//   All using FXManager class name and FXItem/ZoomData types (shared with DX11).
+// ZoomInOut FX implementation added (original session, mirrors DX_FXManager.cpp).
+//
+// Render order fix (second pass):
+//   - Render2D() ZoomInOut block: removed ApplyZoom2D(); only UpdateZoomInOut() remains.
+//   - Added RenderZoomedImage(imgID, destX, destY, destW, destH): public blit entry point
+//     called by DX12RenderFrame at the correct render-order position.

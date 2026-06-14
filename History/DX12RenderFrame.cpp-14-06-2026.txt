@@ -1,9 +1,9 @@
 // DX12RenderFrame.cpp -- change log 14-06-2026
-// ZoomInOut FX guard added: IsImageZoomActive() check wraps each Blit2DObjectToSize call
-// so the normal image blit is skipped when the FXManager is rendering the zoomed version.
+// ZoomInOut FX render-order integration (two passes):
 //
-// Guarded image blits (both main 2D pass and RenderBackgroundImage pre-pass):
-//   - IMG_GAMEINTRO1 (pre-pass background, fallback post-3D blit, RenderBackgroundImage)
-//   - IMG_COMPANYLOGO (pre-pass overlay, fallback post-3D blit, movie overlay, RenderBackgroundImage)
-//   - IMG_SPLASH1 (SCENE_INTRO)
-//   - IMG_LOADING (SCENE_GAMETITLE + SCENE_GAMEPLAY loading branches, both passes)
+// Pass 1: IsImageZoomActive() guards skipping Blit2DObjectToSize when FX active.
+//
+// Pass 2: All guards converted to if/else — RenderZoomedImage() called with same
+//         dest parameters when IsImageZoomActive() returns true.
+//         Images affected (both main pass and RenderBackgroundImage pre-pass):
+//           IMG_GAMEINTRO1, IMG_COMPANYLOGO, IMG_SPLASH1, IMG_LOADING (multiple paths).

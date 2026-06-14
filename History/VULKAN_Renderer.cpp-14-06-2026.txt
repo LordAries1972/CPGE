@@ -2928,3 +2928,12 @@ void VulkanRenderer::RenderBackgroundImage()
 // ---------------------------------------------------------------------------------------------------------------
 
 #endif // __USE_VULKAN__
+
+// ---------------------------------------------------------------------------------------------------------------
+// Change log entry -- 14-06-2026 (Pass 3 -- ZoomInOut OpenGL/Vulkan fix)
+// ---------------------------------------------------------------------------------------------------------------
+// Blit2DCenteredZoom(): updated to route D2D blit to m_bgD2dRenderTarget when
+//   m_drawToBackground is true (required for IMG_GAMEINTRO1 zoom in Vulkan, which
+//   must composite BEFORE 3D models, matching the starfield render-order pattern).
+//   Also sets m_bgOverlayDirty = true when routing to bg overlay, so
+//   UploadBgOverlayToVulkan() sees the change on the next frame.

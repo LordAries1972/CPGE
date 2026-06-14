@@ -1048,7 +1048,17 @@ Signals the active zoom to stop cleanly. The effect continues its current outwar
 bool IsImageZoomActive(int imgID) const;
 ```
 
-Returns `true` when a ZoomInOut effect is actively zooming the specified image ID. The RenderFrame uses this to skip the normal `Blit2DObjectToSize` call for that image so the zoomed version rendered by the FXManager is not overdrawn.
+Returns `true` when a ZoomInOut effect is actively zooming the specified image ID. Used by the RenderFrame alongside `RenderZoomedImage` to decide which path to take at each image blit.
+
+#### `RenderZoomedImage`
+
+```cpp
+void RenderZoomedImage(int imgID, int destX, int destY, int destW, int destH);
+```
+
+Blits the zoomed version of `imgID` at the exact render-order position where the normal `Blit2DObjectToSize` call would occur. Called directly from the RenderFrame when `IsImageZoomActive` returns `true`. The dest parameters must match those that would be passed to `Blit2DObjectToSize` so the zoomed image occupies the same screen area. Internally finds the active ZoomInOut effect for `imgID` and calls `Blit2DCenteredZoom` with the current zoom level.
+
+This design ensures the zoomed image is composited in the correct frame order — after any background content that precedes it and before any 3D starfield or overlay that follows, exactly preserving the visual layering of the original scene.
 
 #### `GetCurrent3DZoomFactor`
 
@@ -1117,22 +1127,26 @@ fxManager.StartZoom();
 
 ### RenderFrame Integration
 
-The RenderFrame files already guard each `Blit2DObjectToSize` call automatically:
+Each `Blit2DObjectToSize` call in the RenderFrame is replaced by an `IsImageZoomActive` / `RenderZoomedImage` if-else branch. When zoom is active the zoomed version is blitted at exactly the same render-order position — preserving layer ordering with effects like the 3D starfield that follow. No game-code changes are needed:
 
 ```cpp
-// Guard added by the engine — game code needs no changes here:
-if (m_d2dTextures[int(BlitObj2DIndexType::IMG_GAMEINTRO1)] &&
-    !fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_GAMEINTRO1)))
-    Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, w, h);
+// Pattern used in all four RenderFrame files — game code does not need to change this:
+if (m_d2dTextures[int(BlitObj2DIndexType::IMG_GAMEINTRO1)]) {
+    if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_GAMEINTRO1)))
+        fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, w, h);
+    else
+        Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, w, h);
+}
 ```
 
-When `IsImageZoomActive` returns `true`, `ApplyZoom2D` inside `Render2D()` renders the zoomed version to the same destination rect via `Blit2DCenteredZoom`.
+`Render2D()` still runs `UpdateZoomInOut()` each frame to advance the bounce animation, but no longer calls `ApplyZoom2D()` for the 2D blit — that is handled entirely at the call site above.
 
 ### ZoomInOut Features
 
 - **Bounce loop** — automatically reverses at max depth and 0%; no manual control needed
 - **Clean stop** — `StopZooming()` never produces a visual pop; always exits at zoom = 0
 - **Simultaneous 2D + 3D** — `ZoomBoth` animates both the blit image crop and the camera FOV in lock-step
+- **Correct render order** — `RenderZoomedImage()` is called at the exact position of the normal blit, so effects like the 3D starfield that follow in the frame still render on top as expected
 - **Per-image guard** — `IsImageZoomActive(imgID)` returns false for any image not linked to the active zoom, so other blits are unaffected
 - **Speed override** — `StartZoom(speed)` lets callers override the speed at the point of activation without recalling `ZoomInitialise`
 

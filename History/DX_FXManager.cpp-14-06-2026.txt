@@ -1,11 +1,12 @@
 // DX_FXManager.cpp -- change log 14-06-2026
-// ZoomInOut FX implementation added:
-//   - Render2D(): added ZoomInOut case — UpdateZoomInOut() + ApplyZoom2D() per frame
-//   - RemoveCompletedEffects(): added ZoomInOut type guard (only remove on progress >= 1.0)
-//   - ZoomInitialise(): stores function, depth, speed, link2DImg, destX/Y/W/H in m_zoomConfig
-//   - StartZoom(): stops existing zoom, builds FXItem, calls AddEffect(); sets zoomID
-//   - StopZooming(): sets stopRequested on all ZoomInOut effects
-//   - IsImageZoomActive(): returns true when 2D/BOTH zoom is active for given imgID
-//   - GetCurrent3DZoomFactor(): returns live zoom level for 3D/BOTH effects
-//   - UpdateZoomInOut(): bounce logic; marks progress=1.0 when stop completes at 0
-//   - ApplyZoom2D(): calls renderer->Blit2DCenteredZoom() with stored dest rect and zoom factor
+// ZoomInOut FX implementation added (original session):
+//   - Render2D(), RemoveCompletedEffects(), ZoomInitialise, StartZoom, StopZooming,
+//     IsImageZoomActive, GetCurrent3DZoomFactor, UpdateZoomInOut, ApplyZoom2D
+//
+// Render order fix (second pass):
+//   - Render2D() ZoomInOut block: removed ApplyZoom2D() call; now only runs UpdateZoomInOut().
+//     The 2D blit is handled by the RenderFrame at the correct render-order position
+//     via the new public RenderZoomedImage() method.
+//   - Added RenderZoomedImage(imgID, destX, destY, destW, destH): iterates effects,
+//     finds the active ZoomInOut effect for imgID, calls renderer->Blit2DCenteredZoom()
+//     with the caller-supplied dest rect (matches the Blit2DObjectToSize call it replaces).

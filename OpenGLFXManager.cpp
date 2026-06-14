@@ -454,16 +454,11 @@ void GLFXManager::Render2D() {
             }
             case FXType::ZoomInOut:
             {
-                // Update zoom level then blit zoomed 2D image
+                // Advance animation only; 2D blit is done by RenderFrame via RenderZoomedImage()
                 auto now = std::chrono::steady_clock::now();
                 float dt = std::chrono::duration<float>(now - fx.lastUpdate).count();
                 fx.lastUpdate = now;
                 UpdateZoomInOut(fx, dt);
-                if (fx.zoomData.link2DImg >= 0 &&
-                    fx.zoomData.function != ZoomFXFunction::Zoom3D &&
-                    fx.progress < 1.0f) {
-                    ApplyZoom2D(fx);
-                }
                 break;
             }
             default: break;
@@ -1751,6 +1746,28 @@ void GLFXManager::ApplyZoom2D(GLFXItem& fx)
         z.currentZoomLevel
     );
 #endif
+}
+
+// RenderZoomedImage — public entry called from RenderFrame at the correct render-order
+// position so the zoomed blit lands before any following 3D or FX layers.
+void GLFXManager::RenderZoomedImage(int imgID, int destX, int destY, int destW, int destH)
+{
+    if (!renderer) return;
+    std::lock_guard<std::recursive_mutex> lk(m_effectsMutex);
+    for (auto& fx : effects) {
+        if (fx.type != FXType::ZoomInOut)                                    continue;
+        if (fx.progress >= 1.0f)                                             continue;
+        if (fx.zoomData.link2DImg != imgID)                                  continue;
+        if (fx.zoomData.function == ZoomFXFunction::Zoom3D)                  continue;
+        if (fx.zoomData.stopRequested && fx.zoomData.currentZoomLevel <= 0.0f) continue;
+
+        renderer->Blit2DCenteredZoom(
+            static_cast<BlitObj2DIndexType>(imgID),
+            destX, destY, destW, destH,
+            fx.zoomData.currentZoomLevel
+        );
+        return; // Only one zoom effect per image
+    }
 }
 
 #pragma warning(pop)

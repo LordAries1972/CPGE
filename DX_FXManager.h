@@ -624,6 +624,7 @@ public:
     void StartZoom(float speed);                                                  // Starts the zoom loop using stored config
     void StopZooming();                                                           // Gracefully stops: completes outward journey to 0 then removes
     bool IsImageZoomActive(int imgID) const;                                      // Returns true if a ZoomInOut FX is active for the given image ID
+    void RenderZoomedImage(int imgID, int destX, int destY, int destW, int destH); // Blits zoomed imgID at the correct render-order position in RenderFrame
     float GetCurrent3DZoomFactor() const;                                         // Returns the current zoom factor for 3D scene effects
 
     // Loading-screen TextFadeInOut Utility Calls

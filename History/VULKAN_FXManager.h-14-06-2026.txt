@@ -2,7 +2,6 @@
 // ZoomInOut FX support added:
 //   - ZoomFXFunction enum, VKZoomData struct, ZoomInOut FXType
 //   - VKZoomData zoomData member in VKFXItem
-//   - Public API on VKFXManager: zoomID, ZoomInitialise, StartZoom, StopZooming,
-//                                 IsImageZoomActive, GetCurrent3DZoomFactor
-//   - Private: UpdateZoomInOut(VKFXItem&, float), ApplyZoom2D(VKFXItem&),
-//              VKZoomData m_zoomConfig, bool m_hasZoomConfig
+//   - Public API: zoomID, ZoomInitialise, StartZoom, StopZooming,
+//                 IsImageZoomActive, RenderZoomedImage, GetCurrent3DZoomFactor
+//   - Private: UpdateZoomInOut, ApplyZoom2D, m_zoomConfig, m_hasZoomConfig

@@ -1,7 +1,7 @@
 // DX12FXManager.h -- change log 14-06-2026
-// ZoomInOut FX support added (identical to DX_FXManager.h additions):
+// ZoomInOut FX support added (mirrors DX_FXManager.h):
 //   - ZoomFXFunction enum, ZoomData struct, ZoomInOut FXType
 //   - ZoomData zoomData member in FXItem
 //   - Public API: zoomID, ZoomInitialise, StartZoom, StopZooming,
-//                 IsImageZoomActive, GetCurrent3DZoomFactor
+//                 IsImageZoomActive, RenderZoomedImage, GetCurrent3DZoomFactor
 //   - Private: UpdateZoomInOut, ApplyZoom2D, m_zoomConfig, m_hasZoomConfig

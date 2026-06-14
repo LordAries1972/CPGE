@@ -3,3 +3,13 @@
 //   Computes center crop via srcX/srcY/srcW/srcH from tex dimensions and zoom factor,
 //   then calls Render2DQuad(textureID, destX, destY, destW, destH, srcX, srcY, srcW, srcH, ...).
 //   Placed before Blit2DObjectAtOffset.
+//
+// Fix (ZoomInOut OpenGL pass 4 -- stars overdrawn + jagginess):
+//   Blit2DCenteredZoom(): added GL_LINEAR min/mag filter on the texture before Render2DQuad
+//     call to prevent blocky/jaggy appearance during zoom magnification.
+//     Also changed int truncation to round-to-nearest (+0.5) for srcX/srcY/srcW/srcH
+//     to reduce per-pixel snap artifacts in the UV coordinates.
+//   RenderBackgroundImage() SCENE_GAMETITLE: added zoom-aware if/else for IMG_GAMEINTRO1
+//     so fxManager.RenderZoomedImage() is called when zoom is active; the zoomed blit
+//     now lands BEFORE the starfield (fxManager.RenderFX starfieldID call that follows),
+//     not after it.

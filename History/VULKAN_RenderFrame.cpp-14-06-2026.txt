@@ -1,7 +1,14 @@
 // VULKAN_RenderFrame.cpp -- change log 14-06-2026
-// ZoomInOut FX guard added: IsImageZoomActive() check wraps each Blit2DObjectToSize call
-// so the normal image blit is skipped when the FXManager is rendering the zoomed version.
+// ZoomInOut FX render-order integration (two passes):
 //
-// Guarded image blits:
-//   - IMG_COMPANYLOGO (intro movie overlay)
-//   - IMG_SPLASH1 (SCENE_INTRO)
+// Pass 1: IsImageZoomActive() guards added.
+// Pass 2: Converted to if/else — RenderZoomedImage() called when zoom is active.
+//         Images affected: IMG_COMPANYLOGO (intro movie overlay), IMG_SPLASH1 (SCENE_INTRO).
+//
+// Pass 3 (ZoomInOut OpenGL/Vulkan fix -- root-cause: missing image blits):
+//   SCENE_GAMETITLE / SCENE_GAMEPLAY D2D section: added IMG_LOADING blit with zoom
+//     support (was not rendered at all in Vulkan -- mirrors DX11/DX12).
+//   Background overlay section: expanded to also draw IMG_GAMEINTRO1 zoom BEFORE
+//     starfield when zoom is active (bGameintroZoom flag); Vulkan GPU 2D pipeline
+//     has no source-rect support so zoom must go through D2D/bg-overlay path.
+//   GPU blit section: skip when bBgZoomActive -- D2D bg-overlay path handles it.

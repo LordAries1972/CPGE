@@ -173,6 +173,7 @@ extern bool             Load_Music();                                           
             #if defined(_DEBUG)
                 case SceneType::SCENE_EXPERIMENT:
                 {
+                    fxManager.StopZooming();                                        // In case we are returning from somewhere where a zooming effect maybe active.
                     threadManager.threadVars.bLoaderTaskFinished.store(false);
                     threadManager.threadVars.b2DTexturesLoaded.store(false);
                     if (LoadAllKnownTextures())
@@ -225,6 +226,7 @@ extern bool             Load_Music();                                           
             #if defined(__USE_OPENGL__)
                 case SceneType::SCENE_INTRO_MOVIE:
                 {
+                    fxManager.StopZooming();                                        // In case we are returning from somewhere where a zooming effect maybe active.
                     threadManager.threadVars.bLoaderTaskFinished.store(false);
                     debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene Intro Movie.");
 
@@ -245,6 +247,7 @@ extern bool             Load_Music();                                           
             case SceneType::SCENE_GAMETITLE:
             {
                 threadManager.threadVars.bLoaderTaskFinished.store(false);
+                fxManager.StopZooming();                                        // In case we are returning from somewhere where a zooming effect maybe active.
                 auto showStage = [](const wchar_t* msg) {
                     TextRenderStyle s;
                     s.fontName = LoadingTextFX::kFontName;
@@ -380,6 +383,9 @@ extern bool             Load_Music();                                           
 
                     fxManager.StopLoadingText();
                     fxManager.FadeToImage(1.0f, 0.08f);
+                    // Pulse the 2D Image Background with 30% depth
+                    fxManager.ZoomInitialise(ZoomFXFunction::Zoom2D, 0.30f, 0.15f, int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
+                    fxManager.StartZoom(0.015f);
                 }
                 else
                 {
@@ -457,6 +463,9 @@ extern bool             Load_Music();                                           
                     // Starfield on resize
                     fxManager.CreateStarfield(100, 800.0f, 1000.0f, gtStarOrigin, true);
                     fxManager.StopLoadingText();
+                    // Pulse the 2D Image Background with 30% depth
+                    fxManager.ZoomInitialise(ZoomFXFunction::Zoom2D, 0.30f, 0.15f, int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
+                    fxManager.StartZoom(0.015f);
                 }
 
                 /* OpenGL: flush pending GL commands before signalling the render thread. */
@@ -528,6 +537,7 @@ extern bool             Load_Music();                                           
             case SceneType::SCENE_GAMEPLAY:
             {
                 threadManager.threadVars.bLoaderTaskFinished.store(false);
+                fxManager.StopZooming();                                        // In case we are returning from somewhere where a zooming effect maybe active.
                 auto showStage = [](const wchar_t* msg) {
                     TextRenderStyle s;
                     s.fontName = LoadingTextFX::kFontName;

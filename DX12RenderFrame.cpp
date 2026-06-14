@@ -295,18 +295,22 @@ void DX12Renderer::RenderFrame()
                 m_d2dContext->SetTarget(m_d2dRenderTargets[m_frameIndex].Get());
                 m_d2dContext->BeginDraw();
 
-                // Full-screen title background (skip if zoom FX is rendering it)
-                if (!fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_GAMEINTRO1)))
+                // Full-screen title background — render zoomed version at same position if FX is active
+                if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_GAMEINTRO1)))
+                    fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
+                else
                     Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
 
-                // Company logo overlay at half size, bottom-left corner (skip if zoom FX is rendering it)
-                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)] &&
-                    !fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_COMPANYLOGO)))
+                // Company logo overlay at half size, bottom-left corner
+                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)])
                 {
                     D2D1_SIZE_F bgLogoSz = m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]->GetSize();
-                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO,
-                        0, iOrigHeight - static_cast<int>(bgLogoSz.height * 0.5f),
-                        static_cast<int>(bgLogoSz.width * 0.5f), static_cast<int>(bgLogoSz.height * 0.5f));
+                    int bgLogoW = static_cast<int>(bgLogoSz.width * 0.5f);
+                    int bgLogoH = static_cast<int>(bgLogoSz.height * 0.5f);
+                    if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_COMPANYLOGO)))
+                        fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_COMPANYLOGO), 0, iOrigHeight - bgLogoH, bgLogoW, bgLogoH);
+                    else
+                        Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - bgLogoH, bgLogoW, bgLogoH);
                 }
 
                 // 3D starfield (background FX pass) — drawn AFTER the background and
@@ -463,17 +467,21 @@ void DX12Renderer::RenderFrame()
                             {
                                 // Pre-pass unavailable this frame (e.g. background image
                                 // not loaded yet) — legacy post-3D blit as a fallback.
-                                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_GAMEINTRO1)] &&
-                                    !fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_GAMEINTRO1)))
-                                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
+                                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_GAMEINTRO1)]) {
+                                    if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_GAMEINTRO1)))
+                                        fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
+                                    else
+                                        Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
+                                }
 
-                                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)] &&
-                                    !fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_COMPANYLOGO)))
-                                {
+                                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]) {
                                     D2D1_SIZE_F sz = m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]->GetSize();
-                                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO,
-                                        0, iOrigHeight - static_cast<int>(sz.height * 0.5f),
-                                        static_cast<int>(sz.width * 0.5f), static_cast<int>(sz.height * 0.5f));
+                                    int fbW = static_cast<int>(sz.width * 0.5f);
+                                    int fbH = static_cast<int>(sz.height * 0.5f);
+                                    if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_COMPANYLOGO)))
+                                        fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_COMPANYLOGO), 0, iOrigHeight - fbH, fbW, fbH);
+                                    else
+                                        Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - fbH, fbW, fbH);
                                 }
                             }
                             else
@@ -485,8 +493,9 @@ void DX12Renderer::RenderFrame()
                                         threadManager.threadVars.bInitiateFader.store(false);
                                         fxManager.FadeToImage(1.0f, 0.1f);
                                     }
-                                    // Skip normal blit when zoom FX is rendering the loading image
-                                    if (!fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_LOADING)))
+                                    if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_LOADING)))
+                                        fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_LOADING), 0, 0, iOrigWidth, iOrigHeight);
+                                    else
                                         Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
                                 }
                             }
@@ -502,8 +511,9 @@ void DX12Renderer::RenderFrame()
                                     threadManager.threadVars.bInitiateFader.store(false);
                                     fxManager.FadeToImage(1.0f, 0.1f);
                                 }
-                                // Skip normal blit when zoom FX is rendering the loading image
-                                if (!fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_LOADING)))
+                                if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_LOADING)))
+                                    fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_LOADING), 0, 0, iOrigWidth, iOrigHeight);
+                                else
                                     Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
                             }
                             break;
@@ -530,9 +540,12 @@ void DX12Renderer::RenderFrame()
                                 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
                                     debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[DX12 RENDERFRAME] Rendering splash screen 2D elements");
                                 #endif
-                                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_SPLASH1)] &&
-                                    !fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_SPLASH1)))
-                                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_SPLASH1, 0, 0, iOrigWidth, iOrigHeight);
+                                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_SPLASH1)]) {
+                                    if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_SPLASH1)))
+                                        fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_SPLASH1), 0, 0, iOrigWidth, iOrigHeight);
+                                    else
+                                        Blit2DObjectToSize(BlitObj2DIndexType::IMG_SPLASH1, 0, 0, iOrigWidth, iOrigHeight);
+                                }
                                 break;
                             }
 
@@ -902,14 +915,16 @@ inline void DX12Renderer::RenderIntroMovie()
     moviePlayer.UpdateFrame();
     moviePlayer.Render(Vector2(0, 0), Vector2(iOrigWidth, iOrigHeight));
 
-    // Company logo overlay at half size, bottom-left corner (skip if zoom FX is rendering it)
-    if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)] &&
-        !fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_COMPANYLOGO)))
+    // Company logo overlay at half size, bottom-left corner
+    if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)])
     {
         D2D1_SIZE_F logoSz = m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]->GetSize();
         int halfW = static_cast<int>(logoSz.width  * 0.5f);
         int halfH = static_cast<int>(logoSz.height * 0.5f);
-        Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - halfH, halfW, halfH);
+        if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_COMPANYLOGO)))
+            fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_COMPANYLOGO), 0, iOrigHeight - halfH, halfW, halfH);
+        else
+            Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - halfH, halfW, halfH);
     }
 
     // Space bar to skip movie
@@ -954,19 +969,24 @@ void DX12Renderer::RenderBackgroundImage()
         {
             if (threadManager.threadVars.bLoaderTaskFinished.load())
             {
-                // Skip normal blit when zoom FX is rendering the image
-                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_GAMEINTRO1)] &&
-                    !fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_GAMEINTRO1)))
-                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
+                // Background image — render zoomed version at same position if FX is active
+                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_GAMEINTRO1)]) {
+                    if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_GAMEINTRO1)))
+                        fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
+                    else
+                        Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
+                }
 
-                // Company logo overlay at half size, bottom-left corner (skip if zoom FX is rendering it)
-                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)] &&
-                    !fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_COMPANYLOGO)))
+                // Company logo overlay at half size, bottom-left corner
+                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)])
                 {
                     D2D1_SIZE_F logoSz = m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]->GetSize();
                     int halfW = static_cast<int>(logoSz.width  * 0.5f);
                     int halfH = static_cast<int>(logoSz.height * 0.5f);
-                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - halfH, halfW, halfH);
+                    if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_COMPANYLOGO)))
+                        fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_COMPANYLOGO), 0, iOrigHeight - halfH, halfW, halfH);
+                    else
+                        Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - halfH, halfW, halfH);
                 }
 
                 // 3D starfield and warp-dot tunnel are rendered via fxManager once DX12
@@ -981,8 +1001,9 @@ void DX12Renderer::RenderBackgroundImage()
                         threadManager.threadVars.bInitiateFader.store(false);
                         fxManager.FadeToImage(1.0f, 0.1f);
                     }
-                    // Skip normal blit when zoom FX is rendering the loading image
-                    if (!fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_LOADING)))
+                    if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_LOADING)))
+                        fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_LOADING), 0, 0, iOrigWidth, iOrigHeight);
+                    else
                         Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
                 }
             }
@@ -1000,8 +1021,9 @@ void DX12Renderer::RenderBackgroundImage()
                         threadManager.threadVars.bInitiateFader.store(false);
                         fxManager.FadeToImage(1.0f, 0.1f);
                     }
-                    // Skip normal blit when zoom FX is rendering the loading image
-                    if (!fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_LOADING)))
+                    if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_LOADING)))
+                        fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_LOADING), 0, 0, iOrigWidth, iOrigHeight);
+                    else
                         Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
                 }
             }

@@ -690,14 +690,9 @@ void FXManager::Render2D() {
             UpdateTextScroller(fx, deltaTime);
             RenderTextScroller(fx);
         }
-        // ZoomInOut — update zoom level then blit zoomed 2D image
+        // ZoomInOut — advance animation only; 2D blit done by RenderFrame via RenderZoomedImage()
         if (fx.type == FXType::ZoomInOut) {
             UpdateZoomInOut(fx, deltaTime);
-            if (fx.zoomData.link2DImg >= 0 &&
-                fx.zoomData.function != ZoomFXFunction::Zoom3D &&
-                fx.progress < 1.0f) {
-                ApplyZoom2D(fx);
-            }
         }
     }
     lastTweenTime = now;
@@ -1752,6 +1747,30 @@ void FXManager::ApplyZoom2D(FXItem& fx)
         z.currentZoomLevel
     );
 #endif
+}
+
+// RenderZoomedImage — public entry called from RenderFrame at the correct render-order
+// position (where Blit2DObjectToSize would normally run) so the zoom blit lands before
+// any overlying 3D content or FX that follows in the frame.
+void FXManager::RenderZoomedImage(int imgID, int destX, int destY, int destW, int destH)
+{
+    if (!renderer) return;
+    for (auto& fx : effects) {
+        if (fx.type != FXType::ZoomInOut)                                    continue;
+        if (fx.progress >= 1.0f)                                             continue;
+        if (fx.zoomData.link2DImg != imgID)                                  continue;
+        if (fx.zoomData.function == ZoomFXFunction::Zoom3D)                  continue;
+        if (fx.zoomData.stopRequested && fx.zoomData.currentZoomLevel <= 0.0f) continue;
+
+#if defined(_WIN64) || defined(_WIN32)
+        renderer->Blit2DCenteredZoom(
+            static_cast<BlitObj2DIndexType>(imgID),
+            destX, destY, destW, destH,
+            fx.zoomData.currentZoomLevel
+        );
+#endif
+        return; // Only one zoom effect per image
+    }
 }
 
 #pragma warning(pop)

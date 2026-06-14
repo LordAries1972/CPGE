@@ -1783,17 +1783,11 @@ void FXManager::Render2D()
             RenderTextScroller(fx);                                 // Render text scroller to screen
         }
 
-        // ZoomInOut — update zoom level then blit zoomed 2D image
+        // ZoomInOut — advance the animation only; the 2D blit is handled by
+        // RenderFrame at the correct render-order position via RenderZoomedImage().
         if (fx.type == FXType::ZoomInOut)
         {
             UpdateZoomInOut(fx, deltaTime);
-            // Render 2D zoom when a linked image is configured and the scope includes 2D
-            if (fx.zoomData.link2DImg >= 0 &&
-                fx.zoomData.function != ZoomFXFunction::Zoom3D &&
-                fx.progress < 1.0f)
-            {
-                ApplyZoom2D(fx);
-            }
         }
     }
 
@@ -3754,6 +3748,33 @@ void FXManager::UpdateZoomInOut(FXItem& fx, float deltaTime)
 }
 
 // -----------------------------------------------------------------------------
+// RenderZoomedImage — public entry point called from RenderFrame at the exact
+// render-order position where the normal Blit2DObjectToSize would occur.
+// Finds the active ZoomInOut effect for imgID and blits the center-cropped version.
+// dest parameters mirror the Blit2DObjectToSize call they replace.
+// -----------------------------------------------------------------------------
+void FXManager::RenderZoomedImage(int imgID, int destX, int destY, int destW, int destH)
+{
+    if (!renderer) return;
+    for (auto& fx : effects)
+    {
+        if (fx.type != FXType::ZoomInOut)                               continue;
+        if (fx.progress >= 1.0f)                                        continue;
+        if (fx.zoomData.link2DImg != imgID)                             continue;
+        if (fx.zoomData.function == ZoomFXFunction::Zoom3D)             continue;
+        if (fx.zoomData.stopRequested && fx.zoomData.currentZoomLevel <= 0.0f) continue;
+
+#if defined(_WIN64) || defined(_WIN32)
+        renderer->Blit2DCenteredZoom(
+            static_cast<BlitObj2DIndexType>(imgID),
+            destX, destY, destW, destH,
+            fx.zoomData.currentZoomLevel
+        );
+#endif
+        return; // Only one zoom effect per image
+    }
+}
+
 // ApplyZoom2D — blits the linked 2D image with a centered zoom crop applied.
 // Called by Render2D() when a ZoomInOut FX is active with a 2D image linked.
 // -----------------------------------------------------------------------------

@@ -2811,7 +2811,10 @@ void VulkanRenderer::Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, i
     int idx = static_cast<int>(iIndex);
     if (idx < 0 || idx >= MAX_TEXTURE_BUFFERS) return;
     ComPtr<ID2D1Bitmap>       bitmap = m_d2dTextures[idx];
-    ComPtr<ID2D1RenderTarget> rt     = m_d2dRenderTarget;
+    // Route to background overlay when m_drawToBackground is active (e.g. GAMEINTRO1 zoom)
+    ComPtr<ID2D1RenderTarget> rt     = (m_drawToBackground && m_bgD2dRenderTarget)
+                                           ? m_bgD2dRenderTarget
+                                           : m_d2dRenderTarget;
     if (!bitmap || !rt) return;
 
     // Clamp zoom factor to valid range (0.0–0.75)
@@ -2828,6 +2831,9 @@ void VulkanRenderer::Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, i
         static_cast<float>(iDestX + iDestW), static_cast<float>(iDestY + iDestH)
     );
     rt->DrawBitmap(bitmap.Get(), destRect, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, srcRect);
+    // Mark the appropriate overlay dirty so UploadBgOverlayToVulkan sees the change
+    if (m_drawToBackground)
+        m_bgOverlayDirty = true;
 }
 
 void VulkanRenderer::Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 color)

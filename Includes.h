@@ -256,7 +256,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
         #define PLATFORM_IOS
     #endif // !PLATFORM_IOS
     // iOS — OpenGL only
-//    #define __USE_OPENGL__
+    #define __USE_OPENGL__
 #endif // !PLATFORM_WINDOWS, PLATFORM_LINUX, PLATFORM_ANDROID, PLATFORM_APPLE, PLATFORM_IOS
 
 // ---------------------------------------------------------------------------

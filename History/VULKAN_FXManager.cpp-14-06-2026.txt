@@ -1,14 +1,17 @@
 // VULKAN_FXManager.cpp -- change log 14-06-2026
-// Updated comment in RestartFXAfterResize(): loader thread reference updated
-// from VULKAN_IOStreamThread to IOLoaderThread.cpp (Vulkan block).
+// Updated comment in RestartFXAfterResize(): loader thread reference updated.
 //
-// ZoomInOut FX implementation added (continued from previous session):
-//   - RemoveCompletedEffects(): added ZoomInOut type guard (only remove on progress >= 1.0)
-//   - Render2D(): added ZoomInOut case — calls UpdateZoomInOut() + ApplyZoom2D() per frame
-//   - ZoomInitialise(): stores full zoom config (function, depth, speed, link2DImg, destX/Y/W/H)
-//   - StartZoom(): creates VKFXItem of type ZoomInOut; stops any running zoom first
-//   - StopZooming(): sets stopRequested flag on all active ZoomInOut effects
-//   - IsImageZoomActive(): returns true when a 2D/BOTH zoom is active for the given image ID
-//   - GetCurrent3DZoomFactor(): returns live zoom level for 3D/BOTH zoom effects
-//   - UpdateZoomInOut(): bounce-loop logic; sets progress=1.0 and zoomID=-1 when stopRequested lands at 0
-//   - ApplyZoom2D(): calls renderer->Blit2DCenteredZoom() with the stored dest rect and live zoom factor
+// ZoomInOut FX implementation added (original session): RemoveCompletedEffects guard,
+// Render2D ZoomInOut hook, ZoomInitialise, StartZoom, StopZooming, IsImageZoomActive,
+// GetCurrent3DZoomFactor, UpdateZoomInOut, ApplyZoom2D.
+//
+// Render order fix (second pass):
+//   - Render2D() ZoomInOut block: removed ApplyZoom2D(); only UpdateZoomInOut() remains.
+//   - Added RenderZoomedImage(imgID, destX, destY, destW, destH): public blit entry point
+//     for VULKAN_RenderFrame; acquires m_effectsMutex, finds active ZoomInOut FX for imgID,
+//     calls renderer->Blit2DCenteredZoom() with caller-supplied dest rect.
+//
+// Pass 3 (ZoomInOut OpenGL/Vulkan fix):
+//   - StartZoom(): removed erroneous `m_hasZoomConfig = false` at end of function.
+//     This flag was preventing zoom from being re-started without re-calling ZoomInitialise().
+//     DX12 and OpenGL FXManagers do not set this flag; Vulkan was inconsistent.

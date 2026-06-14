@@ -277,13 +277,14 @@ inline void VulkanRenderer::RenderIntroMovie()
                                    D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
 
     // Company logo overlay at half size, bottom-left corner (mirrors DX11 RenderIntroMovie)
-    // Skip normal blit when zoom FX is rendering the logo
-    if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)] &&
-        !fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_COMPANYLOGO))) {
+    if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]) {
         D2D1_SIZE_F logoSz = m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]->GetSize();
         int halfW = static_cast<int>(logoSz.width  * 0.5f);
         int halfH = static_cast<int>(logoSz.height * 0.5f);
-        Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - halfH, halfW, halfH);
+        if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_COMPANYLOGO)))
+            fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_COMPANYLOGO), 0, iOrigHeight - halfH, halfW, halfH);
+        else
+            Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - halfH, halfW, halfH);
     }
 
     // Spacebar: fade to black FIRST, then stop the movie once the screen is fully black.
@@ -450,18 +451,46 @@ void VulkanRenderer::RenderFrame()
             if (m_d2dRenderTarget) {
                 switch (scene.stSceneType) {
                     case SceneType::SCENE_INTRO:
-                        // Skip normal blit when zoom FX is rendering the splash image
-                        if (m_d2dTextures[int(BlitObj2DIndexType::IMG_SPLASH1)] &&
-                            !fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_SPLASH1)))
-                            Blit2DObjectToSize(BlitObj2DIndexType::IMG_SPLASH1, 0, 0, iOrigWidth, iOrigHeight);
+                        if (m_d2dTextures[int(BlitObj2DIndexType::IMG_SPLASH1)]) {
+                            if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_SPLASH1)))
+                                fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_SPLASH1), 0, 0, iOrigWidth, iOrigHeight);
+                            else
+                                Blit2DObjectToSize(BlitObj2DIndexType::IMG_SPLASH1, 0, 0, iOrigWidth, iOrigHeight);
+                        }
                         break;
                     case SceneType::SCENE_INTRO_MOVIE:
                         RenderIntroMovie();
                         break;
                     case SceneType::SCENE_GAMETITLE:
+                        // Loading image when assets not yet ready (mirrors DX11/DX12)
+                        if (!threadManager.threadVars.bLoaderTaskFinished.load() &&
+                            m_d2dTextures[int(BlitObj2DIndexType::IMG_LOADING)])
+                        {
+                            if (threadManager.threadVars.bInitiateFader.load()) {
+                                threadManager.threadVars.bInitiateFader.store(false);
+                                fxManager.FadeToImage(1.0f, 0.1f);
+                            }
+                            if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_LOADING)))
+                                fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_LOADING), 0, 0, iOrigWidth, iOrigHeight);
+                            else
+                                Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
+                        }
                         fxManager.RenderLoadingText();
                         break;
                     case SceneType::SCENE_GAMEPLAY:
+                        // Loading image while assets are loading (mirrors DX11/DX12)
+                        if (!threadManager.threadVars.bLoaderTaskFinished.load() &&
+                            m_d2dTextures[int(BlitObj2DIndexType::IMG_LOADING)])
+                        {
+                            if (threadManager.threadVars.bInitiateFader.load()) {
+                                threadManager.threadVars.bInitiateFader.store(false);
+                                fxManager.FadeToImage(1.0f, 0.1f);
+                            }
+                            if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_LOADING)))
+                                fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_LOADING), 0, 0, iOrigWidth, iOrigHeight);
+                            else
+                                Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
+                        }
                         break;
                     default: break;
                 }
@@ -586,26 +615,35 @@ void VulkanRenderer::RenderFrame()
                     try { fxManager.RenderFX(fxManager.tunnelID, cmd, myCamera.GetViewMatrix()); } catch (...) {}
                 }
 
-                // 3D starfield — only render when SCENE_GAMETITLE is fully loaded (matches DX11/OpenGL).
-                // Redirect into the bg overlay so stars composite BEFORE 3D models; fall back to the
-                // main overlay if the bg render target is unavailable.
-                // Never shown during the loader screen regardless of loading direction.
-                if (fxManager.starfieldID > 0 &&
-                    scene.stSceneType == SceneType::SCENE_GAMETITLE &&
-                    threadManager.threadVars.bLoaderTaskFinished.load())
+                // Background image zoom + 3D starfield — both composite BEFORE 3D models.
+                // IMG_GAMEINTRO1 zoom goes into the bg overlay so the D2D crop blit lands under
+                // the 3D ship; starfield renders on top of the background image.
+                // Neither is shown during the loader phase.
+                bool bGametitleLoaded = (scene.stSceneType == SceneType::SCENE_GAMETITLE &&
+                                         threadManager.threadVars.bLoaderTaskFinished.load());
+                bool bGameintroZoom   = (bGametitleLoaded &&
+                                         fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_GAMEINTRO1)));
+                if ((fxManager.starfieldID > 0 || bGameintroZoom) && bGametitleLoaded)
                 {
                     if (m_bgD2dRenderTarget)
                     {
                         m_bgD2dRenderTarget->BeginDraw();
                         m_bgD2dRenderTarget->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f));
                         m_drawToBackground = true;
-                        try { fxManager.RenderFX(fxManager.starfieldID, cmd, myCamera.GetViewMatrix()); } catch (...) {}
+                        // Zoomed background image first — starfield appears on top
+                        if (bGameintroZoom)
+                            fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
+                        // Starfield
+                        if (fxManager.starfieldID > 0)
+                            try { fxManager.RenderFX(fxManager.starfieldID, cmd, myCamera.GetViewMatrix()); } catch (...) {}
                         m_drawToBackground = false;
                         m_bgD2dRenderTarget->EndDraw();
+                        m_bgOverlayDirty = true;
                     }
                     else
                     {
-                        try { fxManager.RenderFX(fxManager.starfieldID, cmd, myCamera.GetViewMatrix()); } catch (...) {}
+                        if (fxManager.starfieldID > 0)
+                            try { fxManager.RenderFX(fxManager.starfieldID, cmd, myCamera.GetViewMatrix()); } catch (...) {}
                     }
                 }
 
@@ -688,7 +726,9 @@ void VulkanRenderer::RenderFrame()
                     threadManager.threadVars.bLoaderTaskFinished.load())
                     bgIdx = int(BlitObj2DIndexType::IMG_GAMEINTRO1);
 
-                if (bgIdx >= 0 && bgIdx < MAX_TEXTURE_BUFFERS && m_textures2D[bgIdx].isValid)
+                // Skip GPU blit when zoom is active — the D2D bg-overlay path handles it instead
+                bool bBgZoomActive = (bgIdx >= 0 && fxManager.IsImageZoomActive(bgIdx));
+                if (bgIdx >= 0 && bgIdx < MAX_TEXTURE_BUFFERS && m_textures2D[bgIdx].isValid && !bBgZoomActive)
                 {
                     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_2dPipeline);
 

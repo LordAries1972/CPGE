@@ -1470,14 +1470,21 @@ void OpenGLRenderer::Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, i
     if (!tex.isLoaded) return;
 
     // Clamp zoom factor to valid range (0.0–0.75)
-    float z     = std::clamp(zoomFactor, 0.0f, 0.75f);
-    float srcW  = static_cast<float>(tex.width)  * (1.0f - z);  // Cropped source width
-    float srcH  = static_cast<float>(tex.height) * (1.0f - z);  // Cropped source height
-    int   srcX  = static_cast<int>((tex.width  - srcW) * 0.5f); // Centre-aligned source X
-    int   srcY  = static_cast<int>((tex.height - srcH) * 0.5f); // Centre-aligned source Y
+    float z    = std::clamp(zoomFactor, 0.0f, 0.75f);
+    float srcW = static_cast<float>(tex.width)  * (1.0f - z);           // Cropped source width
+    float srcH = static_cast<float>(tex.height) * (1.0f - z);           // Cropped source height
+    int   srcX = static_cast<int>((static_cast<float>(tex.width)  - srcW) * 0.5f + 0.5f); // Round to nearest pixel
+    int   srcY = static_cast<int>((static_cast<float>(tex.height) - srcH) * 0.5f + 0.5f); // Round to nearest pixel
+
+    // Force bilinear filtering — cropped region is magnified to fill the dest rect;
+    // GL_NEAREST would produce a blocky/jaggy appearance during the zoom animation
+    glBindTexture(GL_TEXTURE_2D, tex.textureID);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glBindTexture(GL_TEXTURE_2D, 0);
 
     Render2DQuad(tex.textureID, iDestX, iDestY, iDestW, iDestH,
-                 srcX, srcY, static_cast<int>(srcW), static_cast<int>(srcH),
+                 srcX, srcY, static_cast<int>(srcW + 0.5f), static_cast<int>(srcH + 0.5f),
                  MyColor(255, 255, 255, 255), false);
 }
 
@@ -2138,9 +2145,13 @@ void OpenGLRenderer::RenderBackgroundImage()
         {
             if (threadManager.threadVars.bLoaderTaskFinished.load())
             {
-                // Game title background
-                if (m_2dTextures[int(BlitObj2DIndexType::IMG_GAMEINTRO1)].isLoaded)
-                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
+                // Game title background — zoom-aware so the zoomed blit lands before the starfield
+                if (m_2dTextures[int(BlitObj2DIndexType::IMG_GAMEINTRO1)].isLoaded) {
+                    if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_GAMEINTRO1)))
+                        fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
+                    else
+                        Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
+                }
 
                 // Company logo — half size, bottom-left corner (mirrors DX11)
                 int logoIdx = int(BlitObj2DIndexType::IMG_COMPANYLOGO);
