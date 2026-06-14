@@ -43,18 +43,16 @@ The FXManager class is a comprehensive visual effects system designed for real-t
 
 ⚠️ **RENDERER COMPATIBILITY NOTE** ⚠️
 
-**The engine currently ships two fully-featured FXManager implementations:**
+**The engine currently ships four fully-featured FXManager implementations:**
 
 | Class | File | Renderer |
 |---|---|---|
 | `FXManager` | `DX_FXManager.h/.cpp` | DirectX 11 |
+| `FXManager` | `DX12FXManager.h/.cpp` | DirectX 12 |
 | `VKFXManager` | `VULKAN_FXManager.h/.cpp` | Vulkan (Windows/Linux/Android) |
 | `GLFXManager` | `OpenGLFXManager.h/.cpp` | OpenGL |
 
-All three implementations provide identical public APIs and support all effect types including WarpDotTunnel and TextFadeInOut. The global `fxManager` instance is automatically the correct type for the active renderer — game code does not need to branch on the renderer.
-
-**Renderers still requiring FXManager ports:**
-- DirectX 12
+All four implementations provide identical public APIs and support all effect types including that is based in the DX11 FXManager. The global `fxManager` instance is automatically the correct type for the active renderer — game code does not need to branch on the renderer.
 
 **Key DirectX 11 Dependencies (DX path only):**
 - Uses `ID3D11Device` and `ID3D11DeviceContext` for rendering operations
