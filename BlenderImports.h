@@ -57,16 +57,12 @@ public:
 
     // ----------------------------------------------------------
     // Axis-flip flags
-    //   GLTF_TO_DX  = FLIP_Z   (negate Z for DirectX LH world space)
-    //   GLTF_TO_GL  = FLIP_Z   (OpenGL renderer uses glm::lookAtLH — LH, same as DX)
-    //   GLTF_TO_VK  = FLIP_Z   (Windows Vulkan uses DirectXMath LH world space, same as DX)
+    //   GLTF_DEFAULT_FLIP = FLIP_Z
+    //     FLIP_X — mirrors X axis to correct model facing direction.
+    //     FLIP_Y — mirrors Y axis.
+    //     FLIP_Z — negates Z to convert GLTF RH to engine LH world space.
     //
-    // NOTE: The original FLIP_NONE for OpenGL assumed standard RH OpenGL.  This engine's
-    // OpenGL renderer uses glm::lookAtLH / glm::perspectiveLH_NO (left-handed), so it
-    // requires the same GLTF→LH Z-negation as DX11/DX12/Vulkan.  Without FLIP_Z:
-    //   • model normals point in the WRONG direction (Z mirrored) → incorrect lighting
-    //   • winding order is not reversed → back-faces face camera with GL_CW front-face
-    //   • model geometry is mirrored along Z axis
+    // NOTE: Three flips (odd parity) → NeedsWindingFlip() = true → winding correction active.
     // ----------------------------------------------------------
     enum AxisFlipFlags : uint32_t
     {
@@ -76,8 +72,10 @@ public:
         FLIP_Z    = 1u << 2,
     };
 
-    // All renderers in this engine use left-handed world space: GLTF (RH) → LH requires FLIP_Z.
-    static constexpr AxisFlipFlags GLTF_DEFAULT_FLIP = FLIP_Z;
+    // Z flip.
+    // Odd parity (1 flip) → NeedsWindingFlip() = true → winding correction active.
+    static constexpr AxisFlipFlags GLTF_DEFAULT_FLIP =
+        static_cast<AxisFlipFlags>(FLIP_Z);
 
     // Legacy alias kept for existing call sites
     static constexpr AxisFlipFlags GLTF_TO_DX = FLIP_Z;
@@ -116,11 +114,11 @@ public:
     // Full 4×4 node matrix conversion.
     // Windows+Vulkan uses DirectXMath (XMMATRIX) same as DX11/DX12.
     // Non-Windows Vulkan and OpenGL use the portable Matrix4x4 stub type.
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__) || (defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))
-    static XMMATRIX ConvertNodeMatrix(const XMMATRIX& m, AxisFlipFlags f) noexcept;
-#elif defined(__USE_OPENGL__) || (defined(__USE_VULKAN__) && !defined(PLATFORM_WINDOWS))
-    static Matrix4x4 ConvertNodeMatrix(const Matrix4x4& m, AxisFlipFlags f) noexcept;
-#endif
+    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__) || (defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))
+        static XMMATRIX ConvertNodeMatrix(const XMMATRIX& m, AxisFlipFlags f) noexcept;
+    #elif defined(__USE_OPENGL__) || (defined(__USE_VULKAN__) && !defined(PLATFORM_WINDOWS))
+        static Matrix4x4 ConvertNodeMatrix(const Matrix4x4& m, AxisFlipFlags f) noexcept;
+    #endif
 
     // ---- Winding order ----------------------------------------
     static bool NeedsWindingFlip(AxisFlipFlags f) noexcept;
@@ -148,6 +146,6 @@ public:
 private:
     BlenderImports() = delete;
 
-    static XMFLOAT3 ApplyAxisFlip   (XMFLOAT3 v, AxisFlipFlags f) noexcept;
+    static XMFLOAT3 ApplyAxisFlip   (XMFLOAT3 v, AxisFlipFlags f)  noexcept;
     static int      CountFlippedAxes(AxisFlipFlags f)              noexcept;
 };

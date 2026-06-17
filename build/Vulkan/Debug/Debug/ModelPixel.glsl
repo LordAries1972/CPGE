@@ -450,9 +450,8 @@ void main()
     if (useEnvMap > 0.5)
         finalColor += envRefl;
 
-    // === Tone mapping (Reinhard) + gamma correction
-    finalColor = finalColor / (finalColor + vec3(1.0));
-    finalColor = pow(clamp(finalColor, 0.0, 1.0), vec3(1.0 / 2.2));
-
+    // Linear output — matches DX12/DX11 which do not apply tone mapping or
+    // gamma correction in the shader (the display / sRGB framebuffer handles it).
+    // Manual Reinhard + pow(1/2.2) caused over-brightness vs the DX12 reference.
     fragColor = vec4(finalColor, albedoColor.a);
 }

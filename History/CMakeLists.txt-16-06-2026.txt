@@ -1,0 +1,138 @@
+cmake_minimum_required(VERSION 3.20)
+project(CrossPlatformGameEngine LANGUAGES CXX RC)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# ── Game identity & renderer selection ───────────────────────────────────────
+# GameName must match #define GAME_NAME in Includes.h and <GameName> in the vcxproj.
+set(GAME_NAME "CPGE" CACHE STRING "Base game name used in the output executable")
+# Renderer: DX11 | DX12 | OpenGL | Vulkan
+set(RENDERER "DX11" CACHE STRING "Active renderer (DX11, DX12, OpenGL, Vulkan)")
+
+if(RENDERER STREQUAL "DX11")
+    set(RENDERER_PREFIX "DX")
+    set(RENDERER_DEFINE "__USE_DIRECTX_11__")
+elseif(RENDERER STREQUAL "DX12")
+    set(RENDERER_PREFIX "DX12")
+    set(RENDERER_DEFINE "__USE_DIRECTX_12__")
+elseif(RENDERER STREQUAL "OpenGL")
+    set(RENDERER_PREFIX "OpenGL")
+    set(RENDERER_DEFINE "__USE_OPENGL__")
+elseif(RENDERER STREQUAL "Vulkan")
+    set(RENDERER_PREFIX "Vulkan")
+    set(RENDERER_DEFINE "__USE_VULKAN__")
+else()
+    message(FATAL_ERROR "Unknown RENDERER '${RENDERER}'. Valid values: DX11, DX12, OpenGL, Vulkan")
+endif()
+
+# Platform-appropriate output name:
+#   Windows  : DX{name}.exe / OpenGL{name}.exe / Vulkan{name}.exe  (.exe added by CMake)
+#   macOS    : DX{name}.app / OpenGL{name}.app / Vulkan{name}.app   (bundle; .app added by CMake)
+#   iOS      : {name}.app bundle via Xcode signing pipeline
+#   Linux    : OpenGL{name} / Vulkan{name}  (no extension on ELF)
+#   Android  : library name only; packaging to .apk is handled by the Android build toolchain
+set(EXE_OUTPUT_NAME "${RENDERER_PREFIX}${GAME_NAME}")
+
+message(STATUS "Game name  : ${GAME_NAME}")
+message(STATUS "Renderer   : ${RENDERER}  (define: ${RENDERER_DEFINE})")
+message(STATUS "Output exe : ${EXE_OUTPUT_NAME}")
+
+# ── x86/64 assembly (MASM) -- Windows/MSVC only ──────────────────────────────
+# ml64.exe (MASM for x64) is part of the VC++ build tools; CMake discovers it
+# automatically when ASM_MASM is enabled.  Must be called before add_executable.
+if(MSVC AND WIN32)
+    enable_language(ASM_MASM)
+endif()
+
+# ── Sources ──────────────────────────────────────────────────────────────────
+set(SOURCES
+    BlenderImports.cpp
+    FBXImport.cpp
+    Configuration.cpp
+    ConsoleWindow.cpp
+    Debug.cpp
+    DX11Renderer.cpp
+    DX12Renderer.cpp
+    DX12RenderFrame.cpp
+    DXCamera.cpp
+    DXRenderFrame.cpp
+    DX_FXManager.cpp
+    DX12FXManager.cpp
+    DX12Models.cpp
+    ExceptionHandler.cpp
+    FileIO.cpp
+    GamePlayer.cpp
+    GamingAI.cpp
+    GLTFAnimator.cpp
+    GUIConfigWindow.cpp
+    GUIManager.cpp
+    GUIWindows.cpp
+    IOLoaderThread.cpp
+    Joystick.cpp
+    KBHandlersCode.cpp
+    KeyboardHandler.cpp
+    Lights.cpp
+    main.cpp
+    MathPrecalculation.cpp
+    Models.cpp
+    MoviePlayer.cpp
+    MyRandomizer.cpp
+    NetworkManager.cpp
+    OpenGLCamera.cpp
+    OpenGLModels.cpp
+    OpenGLRenderer.cpp
+    OpenGLFXManager.cpp
+    OpenGLRenderFrame.cpp
+    VulkanCamera.cpp
+    VulkanModels.cpp
+    VULKAN_Renderer.cpp
+    VULKAN_RenderFrame.cpp
+    VULKAN_FXManager.cpp
+    Physics.cpp
+    PUNPack.cpp
+    RendererFactory.cpp
+    SceneManager.cpp
+    ScriptManager.cpp
+    ScreenRecorder.cpp
+    ShaderLoaders.cpp
+    ShaderManager.cpp
+    SoundManager.cpp
+    ThreadManager.cpp
+    TTSManager.cpp
+    WinMediaPlayer.cpp
+    WinSystem.cpp
+    XMMODPlayer.cpp
+    CrossPlatformGameEngine.rc
+)
+
+# x86/64 assembly optimisation routines (assembly.asm) -- ml64.exe / MASM only
+if(MSVC AND WIN32)
+    list(APPEND SOURCES assembly.asm)
+endif()
+
+add_executable(CrossPlatformGameEngine WIN32 ${SOURCES})
+
+# ── MSVC compile options ──────────────────────────────────────────────────────
+# (Second edit today: wrapped all CL-only flags in $<COMPILE_LANGUAGE:CXX> to
+#  prevent ml64.exe/MASM from receiving MSVC-only options -- fixes A4018 warnings)
+if(MSVC)
+    target_compile_options(CrossPlatformGameEngine PRIVATE
+        $<$<COMPILE_LANGUAGE:CXX>:/W3>
+        $<$<COMPILE_LANGUAGE:CXX>:/wd4244>
+        $<$<COMPILE_LANGUAGE:CXX>:/Zc:__cplusplus>
+        $<$<COMPILE_LANGUAGE:CXX>:/MP>
+        $<$<COMPILE_LANGUAGE:CXX>:/nologo>
+        $<$<COMPILE_LANGUAGE:CXX>:/Zp16>
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Debug>>:/MDd>
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Debug>>:/sdl>
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Debug>>:/FS>
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:/MD>
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:/sdl>
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:/Oi>
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:/Ob2>
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:/GF>
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:/GT>
+        $<$<COMPILE_LANGUAGE:ASM_MASM>:/nologo>
+    )
+endif()

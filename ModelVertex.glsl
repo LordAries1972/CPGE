@@ -7,12 +7,13 @@
 //   Binding 0  (std140 UBO) — ConstantBuffer: world/view/proj matrices, camera pos, scale
 //
 #version 330 core
+#extension GL_ARB_shading_language_420pack : enable    // layout(binding=N) on UBOs — core in 4.2, extension on 3.3
 
 // ── Vertex Attributes ────────────────────────────────────────────────────────
 layout(location = 0) in vec3 aPosition;     // POSITION
 layout(location = 1) in vec3 aNormal;       // NORMAL
 layout(location = 2) in vec2 aTexCoord;     // TEXCOORD
-layout(location = 3) in vec3 aTangent;      // TANGENT
+layout(location = 3) in vec4 aTangent;      // TANGENT: xyz = tangent, w = handedness sign (+1 or -1)
 
 // ── Uniform Block: ConstantBuffer (binding 0) ────────────────────────────────
 layout(std140, binding = 0) uniform ConstantBuffer
@@ -55,12 +56,15 @@ void main()
     vWorldPosition = worldPos.xyz;
 
     // Shear-safe normal transform using inverse of world 3×3
-    mat3 world3 = mat3(uWorld);
+    mat3 world3   = mat3(uWorld);
     mat3 normalMat = transpose(inverse3x3(world3));
 
     vec3 N = normalize(normalMat * aNormal);
-    vec3 T = normalize(normalMat * aTangent);
-    vec3 B = normalize(cross(T, N));   // bitangent corrected for GLTF handedness
+    vec3 T = normalize(normalMat * aTangent.xyz);
+
+    // GLTF spec: bitangent = cross(N, T.xyz) * T.w
+    // T.w is +1 for standard winding, -1 for mirrored UV islands.
+    vec3 B = normalize(cross(N, T)) * aTangent.w;
 
     vNormal    = N;
     vTangent   = T;

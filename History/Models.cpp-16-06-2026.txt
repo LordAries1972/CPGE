@@ -1,0 +1,17 @@
+// Models.cpp history -- 2026-06-16
+// ============================================================
+// EDIT: 2026-06-16 -- DX11 lighting double-count fix (ApplyDefaultLightingFromManager)
+//
+// ApplyDefaultLightingFromManager() now returns immediately for DX11 builds.
+//
+// Root cause: DX11 RenderGamePlay() uploads ALL global lights to cbuffer b3
+// (SLOT_GLOBAL_LIGHT_BUFFER). ApplyDefaultLightingFromManager() was also filling
+// localLights with the same global lights, which UpdateModelLighting() then uploaded
+// to cbuffer b1 (SLOT_LIGHT_BUFFER). The ModelPixel.hlsl shader accumulates b1 and
+// b3 into the same directLighting variable, causing every scene light to be processed
+// twice -- making models 2x too bright compared to DX12.
+//
+// Fix: DX11 path skips localLights population. b1 stays empty; b3 alone carries all
+// scene lights. DX12/OpenGL/Vulkan paths are unaffected (they don't use localLights
+// for per-frame light uploads anyway).
+// ============================================================

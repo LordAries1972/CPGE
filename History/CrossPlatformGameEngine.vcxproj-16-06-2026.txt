@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- CrossPlatformGameEngine.vcxproj -- snapshot 16-06-2026 -->
+<!-- Changes: Added MASM build customisation (masm.props/masm.targets),
+     assembly.h ClInclude, and MASM ItemGroup for assembly.asm -->
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <!-- ExtensionSettings now imports masm.props for ml64.exe support -->
+  <ImportGroup Label="ExtensionSettings">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.props" />
+  </ImportGroup>
+  <!-- ExtensionTargets now imports masm.targets for ml64.exe compile rules -->
+  <ImportGroup Label="ExtensionTargets">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.targets" />
+  </ImportGroup>
+  <!-- MASM item for assembly.asm -->
+  <ItemGroup>
+    <MASM Include="assembly.asm" />
+  </ItemGroup>
+  <!-- assembly.h ClInclude -->
+  <ItemGroup>
+    <ClInclude Include="assembly.h" />
+  </ItemGroup>
+</Project>

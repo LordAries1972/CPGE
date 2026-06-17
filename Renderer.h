@@ -108,9 +108,9 @@ const bool USE_FPS_DISPLAY   = true;
 const bool USE_RENDERER_INFO = true;    // Bottom-right renderer name + version overlay; set false to hide
 
 // Starting Positions for SCENE_GAMETITLE
-const XMFLOAT3 gtStarOrigin(-300.0f, -20.0f, 0.0f);              // Ending/Starting Origin point for the starfield FX on the title screen — matches DX11/Vulkan exactly, OpenGL is adjusted in code to match the same view
-const XMFLOAT3 gtCameraStart(3.34f, 4.32f, -28.03f);             // Starting position for title screen camera — matches DX11/Vulkan exactly, OpenGL is adjusted in code to match the same view
-const XMFLOAT2 gtStartPY(0.024f, -0.362f);                       // Starting pitch/yaw for title screen camera — matches DX11/Vulkan exactly, OpenGL is adjusted in code to match the same view
+const XMFLOAT3 gtStarOrigin(0.0f, 0.0f, 0.0f);              // Ending/Starting Origin point for the starfield FX on the title screen — matches DX11/Vulkan exactly, OpenGL is adjusted in code to match the same view
+const XMFLOAT3 gtCameraStart(-0.24f, -0.099f, -3.59f);              // Starting position for title screen camera — matches DX11/Vulkan exactly, OpenGL is adjusted in code to match the same view
+const XMFLOAT2 gtStartPY(0.4175f, -0.21f);                            // Starting pitch/yaw for title screen camera — matches DX11/Vulkan exactly, OpenGL is adjusted in code to match the same view
 
 // Screen-mode enumeration structs — shared by all renderer backends.
 struct AvailModes {

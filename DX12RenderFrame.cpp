@@ -11,9 +11,10 @@
 // 2) Wait for previous frame, reset command allocator + list
 // 3) Camera update + delta time
 // 3.5) SCENE_GAMETITLE only: D2D background pre-pass — transition + clear is
-//      executed, the background image is blitted via D2D, then the command
-//      list is re-opened so the 3D models render ON TOP of the background
-//      (DX11 parity: DXRenderFrame calls RenderBackgroundImage before 3D)
+//      executed, the background image, logo, starfield, and fireworks are
+//      blitted via D2D, then the command list is re-opened so the 3D models
+//      render ON TOP of all of these elements.  Composition order:
+//      BACKGROUND → LOGO → STARFIELD → FIREWORKS → 3D MODELS → TSOO
 // 4) Set root signature & heaps, viewport, scissor
 // 5) TransitionResource PRESENT → RENDER_TARGET
 // 6) Clear RT (skipped when the pre-pass drew the background) + DSV
@@ -21,6 +22,8 @@
 // 8) Scene-specific 3D rendering (RenderGamePlay)
 // 9) Close + execute 3D command list (back buffer left in RENDER_TARGET)
 // 10) Single D2D pass: loading images, FX, overlays, text, FPS, cursor
+//     (bLoaderTaskFinished cached once as bLoaderDone; fireworks already drawn
+//      in step 3.5 so only TSOO blit remains for SCENE_GAMETITLE post-3D)
 // 11) Release wrapped resources (transition to PRESENT)
 // 12) Present frame via PresentFrame() + MoveToNextFrame()
 
@@ -315,10 +318,15 @@ void DX12Renderer::RenderFrame()
 
                 // 3D starfield (background FX pass) — drawn AFTER the background and
                 // logo but BEFORE the 3D models so the composition order is
-                // BACKGROUND IMG → LOGO → 3D STARFIELD → MODELS.  Previously the
-                // starfield was only rendered in the post-3D D2D pass (STEP 10),
-                // which painted the stars OVER the ship model.
+                // BACKGROUND IMG → LOGO → 3D STARFIELD → FIREWORKS → MODELS → TSOO.
+                // Previously the starfield was only rendered in the post-3D D2D pass
+                // (STEP 10), which painted the stars OVER the ship model.
                 try { fxManager.Render(true); }
+                catch (const std::exception&) {}
+
+                // Fireworks — rendered in the pre-pass so they appear BEHIND the 3D
+                // ship model and BEFORE the TSOO blit in the post-3D D2D pass.
+                try { fxManager.RenderFireworks(); }
                 catch (const std::exception&) {}
 
                 HRESULT bgHr = m_d2dContext->EndDraw();
@@ -370,6 +378,10 @@ void DX12Renderer::RenderFrame()
                 m_commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
             m_commandList->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 
+            // Animate lights (pulse / flicker / strobe) each frame before updating
+            // the global light buffer — mirrors the DX11, OpenGL, and Vulkan render paths.
+            lightsManager.AnimateLights(deltaTime);
+
             // STEP 7: Update + bind constant buffers via root descriptors
             UpdateConstantBuffers();
 
@@ -399,6 +411,8 @@ void DX12Renderer::RenderFrame()
                 #endif
 
                 case SceneType::SCENE_INTRO:
+                    break;
+                    
                 case SceneType::SCENE_INTRO_MOVIE:
                     break;
 
@@ -453,22 +467,27 @@ void DX12Renderer::RenderFrame()
                     bIsInitialized.load())
                 {
                     m_d2dContext->BeginDraw();
+
+                    // Cache the loader state once — bLoaderTaskFinished only ever
+                    // transitions false→true, so a single read per BeginDraw is safe
+                    // and saves three redundant atomic loads within this block.
+                    const bool bLoaderDone = threadManager.threadVars.bLoaderTaskFinished.load();
+
                     switch (scene.stSceneType)
                     {
                         case SceneType::SCENE_GAMETITLE:
                         {
                             if (bBackgroundPrePassDone)
                             {
-                                fxManager.RenderFireworks();
-
-                                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_TSOO)]) 
+                                // Fireworks moved to STEP 3.5 pre-pass — rendered before 3D models.
+                                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_TSOO)])
                                 {
                                     int startX = (iOrigWidth - 536) / 2; // Centered horizontally
-                                    int startY = (iOrigHeight - 466) / 2; // Centered horizontally
+                                    int startY = (iOrigHeight - 466) / 2; // Centered vertically
                                     Blit2DObjectToSize(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
                                 }
                             }
-                            else if (threadManager.threadVars.bLoaderTaskFinished.load())
+                            else if (bLoaderDone)
                             {
                                 // Pre-pass unavailable this frame (e.g. background image
                                 // not loaded yet) — legacy post-3D blit as a fallback.
@@ -509,7 +528,7 @@ void DX12Renderer::RenderFrame()
 
                         case SceneType::SCENE_GAMEPLAY:
                         {
-                            if (!threadManager.threadVars.bLoaderTaskFinished.load() &&
+                            if (!bLoaderDone &&
                                 m_d2dTextures[int(BlitObj2DIndexType::IMG_LOADING)])
                             {
                                 if (threadManager.threadVars.bInitiateFader.load())
@@ -544,21 +563,21 @@ void DX12Renderer::RenderFrame()
                     {
                             case SceneType::SCENE_INTRO:
                             {
-                                #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-                                    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[DX12 RENDERFRAME] Rendering splash screen 2D elements");
-                                #endif
-                                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_SPLASH1)]) {
+                                if (moviePlayer.IsPlaying())
+                                    RenderIntroMovie();
+                                /*if (m_d2dTextures[int(BlitObj2DIndexType::IMG_SPLASH1)]) {
                                     if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_SPLASH1)))
                                         fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_SPLASH1), 0, 0, iOrigWidth, iOrigHeight);
                                     else
                                         Blit2DObjectToSize(BlitObj2DIndexType::IMG_SPLASH1, 0, 0, iOrigWidth, iOrigHeight);
-                                }
+                                } */
                                 break;
                             }
 
                             case SceneType::SCENE_INTRO_MOVIE:
                             {
-                                RenderIntroMovie();
+                                if (moviePlayer.IsPlaying())
+                                    RenderIntroMovie();
                                 break;
                             }
 
@@ -576,8 +595,7 @@ void DX12Renderer::RenderFrame()
                                 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
                                     debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[DX12 RENDERFRAME] Rendering gameplay 2D elements");
                                 #endif
-                                if (!threadManager.threadVars.bLoaderTaskFinished.load() ||
-                                    fxManager.HasActiveLoadingTextEffects())
+                                if (!bLoaderDone || fxManager.HasActiveLoadingTextEffects())
                                 {
                                     fxManager.RenderLoadingText();
                                 }
@@ -591,35 +609,40 @@ void DX12Renderer::RenderFrame()
                     // FPS display + debug info overlay
                     if (USE_FPS_DISPLAY && config.myConfig.showDebugInfo)
                     {
-                        static auto lastFrameTimeFPS = std::chrono::steady_clock::now();
-                        static auto lastFPSTime      = lastFrameTimeFPS;
-                        static int  fpsFrameCounter  = 0;
+                        // Reuse the per-frame timestamp already captured for delta-time —
+                        // avoids a second steady_clock::now() call per frame.
+                        static auto lastFPSTime     = now;
+                        static int  fpsFrameCounter = 0;
 
-                        auto  currentTime   = std::chrono::steady_clock::now();
-                        float elapsedForFPS = std::chrono::duration<float>(currentTime - lastFPSTime).count();
-
-                        lastFrameTimeFPS = currentTime;
+                        float elapsedForFPS = std::chrono::duration<float>(now - lastFPSTime).count();
                         fpsFrameCounter++;
 
                         if (elapsedForFPS >= 1.0f)
                         {
-                            fps            = static_cast<float>(fpsFrameCounter) / elapsedForFPS;
+                            fps             = static_cast<float>(fpsFrameCounter) / elapsedForFPS;
                             fpsFrameCounter = 0;
-                            lastFPSTime    = currentTime;
+                            lastFPSTime     = now;
                         }
 
-                        XMFLOAT3 Coords = myCamera.GetPosition();
+                        const XMFLOAT3 Coords = myCamera.GetPosition();
 
-                        std::wstring fpsText =
-                            L"FPS: " + std::to_wstring(fps) +
-                            L"\nMOUSE: x" + std::to_wstring(myMouseCoords.x) + L", y" + std::to_wstring(myMouseCoords.y) +
-                            L"\nClient Width: " + std::to_wstring(iOrigWidth) + L", Client Height:" + std::to_wstring(iOrigHeight) +
-                            L"\nCamera X: " + std::to_wstring(Coords.x) + L", Y: " + std::to_wstring(Coords.y) + L", Z: " + std::to_wstring(Coords.z) +
-                            L", Yaw: " + std::to_wstring(myCamera.m_yaw) + L", Pitch: " + std::to_wstring(myCamera.m_pitch) + L"\n" +
-                            L"Global Light Count: " + std::to_wstring(lightsManager.GetLightCount()) + L"\n";
+                        // Fixed stack buffer avoids ~10 per-frame heap allocations
+                        // that the previous wstring concatenation chain produced.
+                        wchar_t fpsBuf[512];
+                        swprintf_s(fpsBuf, _countof(fpsBuf),
+                            L"FPS: %.2f\nMOUSE: x%.0f, y%.0f"
+                            L"\nClient Width: %d, Client Height:%d"
+                            L"\nCamera X: %.3f, Y: %.3f, Z: %.3f, Yaw: %.3f, Pitch: %.3f"
+                            L"\nGlobal Light Count: %d\n",
+                            fps,
+                            myMouseCoords.x, myMouseCoords.y,
+                            iOrigWidth, iOrigHeight,
+                            Coords.x, Coords.y, Coords.z,
+                            myCamera.m_yaw, myCamera.m_pitch,
+                            lightsManager.GetLightCount());
 
                         const float dbgFontSize = std::clamp(height / 108.0f, 8.0f, 12.0f);
-                        DrawMyText(fpsText, Vector2(0, 0), MyColor(255, 255, 255, 255), dbgFontSize);
+                        DrawMyText(fpsBuf, Vector2(0, 0), MyColor(255, 255, 255, 255), dbgFontSize);
                     }
 
                     // Renderer info overlay — bottom-right corner
@@ -639,11 +662,26 @@ void DX12Renderer::RenderFrame()
                             const float riFontSize = std::clamp(
                                 static_cast<float>(iOrigHeight) / 72.0f, 10.0f, 16.0f);
 
+                            // e.g. "Debug CPGE v0.0.1723 15-06-2026"
+                            static const std::wstring buildDate = []() -> std::wstring {
+                                const char* d = __DATE__; // "Mmm DD YYYY", e.g. "Jun 15 2026"
+                                const char* m = "JanFebMarAprMayJunJulAugSepOctNovDec";
+                                int mon = 1;
+                                for (int i = 0; i < 12; i++) {
+                                    if (d[0]==m[i*3] && d[1]==m[i*3+1] && d[2]==m[i*3+2]) { mon=i+1; break; }
+                                }
+                                int day  = (d[4]==' ') ? (d[5]-'0') : ((d[4]-'0')*10+(d[5]-'0'));
+                                int year = (d[7]-'0')*1000+(d[8]-'0')*100+(d[9]-'0')*10+(d[10]-'0');
+                                wchar_t buf[12];
+                                swprintf_s(buf, 12, L"%02d-%02d-%04d", day, mon, year);
+                                return std::wstring(buf);
+                            }();
                             const std::wstring riText =
-                                std::wstring(GAME_NAME_W L" " PLATFORM_NAME_W L" " RENDERER_NAME_W L" v") +
+                                std::wstring(BUILD_TYPE_W L" " RENDERER_NAME_W L" " GAME_NAME_W L" v") +
                                 std::to_wstring(CURRENT_BUILD_VERSION)    + L"." +
                                 std::to_wstring(CURRENT_BUILD_SUBVERSION) + L"." +
-                                std::to_wstring(CURRENT_BUILD);
+                                std::to_wstring(CURRENT_BUILD)            + L" " +
+                                buildDate;
 
                             IDWriteTextFormat* riFmt = GetOrCreateTextFormat(FontName, riFontSize);
                             if (riFmt)
@@ -693,7 +731,7 @@ void DX12Renderer::RenderFrame()
                     }
 
                     // Animated loading circle while assets are loading
-                    if (!threadManager.threadVars.bLoaderTaskFinished.load())
+                    if (!bLoaderDone)
                     {
                         delay++;
                         if (delay > 3) { loadIndex++; if (loadIndex > 9) { loadIndex = 0; } delay = 0; }
@@ -887,16 +925,20 @@ inline void DX12Renderer::RenderGamePlay(float deltaTime)
         if (m_pipelineState)
             m_commandList->SetPipelineState(m_pipelineState.Get());
 
+        // Hoist camera reads once per frame — calling the getters inside the loop
+        // would invoke them once per loaded model each frame.
+        const auto viewMat = myCamera.GetViewMatrix();
+        const auto projMat = myCamera.GetProjectionMatrix();
+        const auto camPos  = myCamera.GetPosition();
+
         for (int i = 0; i < MAX_SCENE_MODELS; ++i)
         {
             if (scene.scene_models[i].m_isLoaded && !scene.scene_models[i].m_modelInfo.bIsTransformProxy)
             {
-                // Push current camera matrices and state into the model info so
-                // RenderDX12() can compute the world-view-projection.
                 scene.scene_models[i].m_modelInfo.fxActive        = false;
-                scene.scene_models[i].m_modelInfo.viewMatrix       = myCamera.GetViewMatrix();
-                scene.scene_models[i].m_modelInfo.projectionMatrix = myCamera.GetProjectionMatrix();
-                scene.scene_models[i].m_modelInfo.cameraPosition   = myCamera.GetPosition();
+                scene.scene_models[i].m_modelInfo.viewMatrix       = viewMat;
+                scene.scene_models[i].m_modelInfo.projectionMatrix = projMat;
+                scene.scene_models[i].m_modelInfo.cameraPosition   = camPos;
 
                 // Draw via the DX12 native command-list path.
                 // RenderDX12() binds the upload-heap VB/IB/CB directly on the

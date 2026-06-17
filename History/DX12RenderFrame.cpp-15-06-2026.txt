@@ -459,15 +459,12 @@ void DX12Renderer::RenderFrame()
                         {
                             if (bBackgroundPrePassDone)
                             {
-                                // Background + company logo were drawn by the STEP 3.5 pre-pass
-                                // so the 3D models render on top of them -- do not re-blit here.
-                                // Fireworks and TSOO logo are overlays drawn over the 3D models.
                                 fxManager.RenderFireworks();
 
-                                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_TSOO)])
+                                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_TSOO)]) 
                                 {
-                                    int startX = (iOrigWidth  - 536) / 2; // Centered horizontally
-                                    int startY = (iOrigHeight - 466) / 2; // Centered vertically
+                                    int startX = (iOrigWidth - 536) / 2; // Centered horizontally
+                                    int startY = (iOrigHeight - 466) / 2; // Centered horizontally
                                     Blit2DObjectToSize(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
                                 }
                             }
@@ -490,15 +487,6 @@ void DX12Renderer::RenderFrame()
                                         fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_COMPANYLOGO), 0, iOrigHeight - fbH, fbW, fbH);
                                     else
                                         Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - fbH, fbW, fbH);
-                                }
-
-                                fxManager.RenderFireworks();
-                                
-                                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_TSOO)]) 
-                                {
-                                    int startX = (iOrigWidth - 536) / 2; // Centered horizontally
-                                    int startY = (iOrigHeight - 466) / 2; // Centered horizontally
-                                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
                                 }
                             }
                             else
@@ -651,11 +639,26 @@ void DX12Renderer::RenderFrame()
                             const float riFontSize = std::clamp(
                                 static_cast<float>(iOrigHeight) / 72.0f, 10.0f, 16.0f);
 
+                            // e.g. "Debug CPGE v0.0.1723 15-06-2026"
+                            static const std::wstring buildDate = []() -> std::wstring {
+                                const char* d = __DATE__; // "Mmm DD YYYY", e.g. "Jun 15 2026"
+                                const char* m = "JanFebMarAprMayJunJulAugSepOctNovDec";
+                                int mon = 1;
+                                for (int i = 0; i < 12; i++) {
+                                    if (d[0]==m[i*3] && d[1]==m[i*3+1] && d[2]==m[i*3+2]) { mon=i+1; break; }
+                                }
+                                int day  = (d[4]==' ') ? (d[5]-'0') : ((d[4]-'0')*10+(d[5]-'0'));
+                                int year = (d[7]-'0')*1000+(d[8]-'0')*100+(d[9]-'0')*10+(d[10]-'0');
+                                wchar_t buf[12];
+                                swprintf_s(buf, 12, L"%02d-%02d-%04d", day, mon, year);
+                                return std::wstring(buf);
+                            }();
                             const std::wstring riText =
-                                std::wstring(GAME_NAME_W L" " PLATFORM_NAME_W L" " RENDERER_NAME_W L" v") +
+                                std::wstring(BUILD_TYPE_W L" " RENDERER_NAME_W L" " GAME_NAME_W L" v") +
                                 std::to_wstring(CURRENT_BUILD_VERSION)    + L"." +
                                 std::to_wstring(CURRENT_BUILD_SUBVERSION) + L"." +
-                                std::to_wstring(CURRENT_BUILD);
+                                std::to_wstring(CURRENT_BUILD)            + L" " +
+                                buildDate;
 
                             IDWriteTextFormat* riFmt = GetOrCreateTextFormat(FontName, riFontSize);
                             if (riFmt)

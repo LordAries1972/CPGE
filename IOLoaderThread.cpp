@@ -56,6 +56,7 @@
 #include "SoundManager.h"
 #include "SceneManager.h"
 #include "GUIManager.h"
+#include "MoviePlayer.h"
 #include "Configuration.h"
 
 using namespace SoundSystem;
@@ -68,11 +69,13 @@ extern ThreadManager    threadManager;
 extern SceneManager     scene;
 extern SoundManager     soundManager;
 extern GUIManager       guiManager;
+extern MoviePlayer moviePlayer;
 extern Model            models[MAX_MODELS];
 extern LightsManager    lightsManager;
 extern bool             bResizing;
 extern int              textScrollerEffectID;
 extern bool             Load_Music();                                               // Declared in main.cpp
+extern std::wstring     baseDir;
 
 /* fxManager type varies by renderer -- only one extern is compiled. */
 #if defined(__USE_OPENGL__)
@@ -205,27 +208,16 @@ extern bool             Load_Music();                                           
                 if (LoadAllKnownTextures())
                     threadManager.threadVars.b2DTexturesLoaded.store(true);
 
-                /* OpenGL: flush pending upload commands so the render thread does not
-                   race against in-flight glTexImage2D calls. */
-                #if defined(__USE_OPENGL__)
-                    glFlush();
-                #endif
-
                 threadManager.PauseThread(THREAD_LOADER);
                 threadManager.threadVars.bLoaderTaskFinished.store(true);
-                // The main-loop timer fires FadeOutThenCallback which:
-                //   1. Fades to black on the render thread.
-                //   2. Calls scene.InitiateScene(SCENE_INTRO_MOVIE) [OpenGL] or SCENE_GAMETITLE.
-                //   3. Calls OpenMovieAndPlay() + renderer->ResumeLoader().
                 break;
             }
 
             /* ------------------------------------------------------------
                INTRO MOVIE SCENE -- OpenGL pipeline only.
                All 2D textures are already in VRAM from SCENE_INTRO.
-               The movie was opened by FadeOutThenCallback.
+               The movie was opened by the timeout in main.cpp
             -------------------------------------------------------------- */
-            #if defined(__USE_OPENGL__)
                 case SceneType::SCENE_INTRO_MOVIE:
                 {
                     fxManager.StopZooming();                                        // In case we are returning from somewhere where a zooming effect maybe active.
@@ -233,14 +225,15 @@ extern bool             Load_Music();                                           
                     threadManager.threadVars.bLoaderTaskFinished.store(false);
                     debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene Intro Movie.");
 
-                    // Flush any outstanding GL commands so the render thread sees a clean state.
-                    glFlush();
+                    #if defined(__USE_OPENGL__)
+                        // Flush any outstanding GL commands so the render thread sees a clean state.
+                        glFlush();
+                    #endif
 
                     threadManager.threadVars.bLoaderTaskFinished.store(true);
                     threadManager.PauseThread(THREAD_LOADER);
                     break;
                 }
-            #endif
 
             /* ------------------------------------------------------------
                GAME TITLE SCENE
@@ -290,19 +283,26 @@ extern bool             Load_Music();                                           
                         SecureZeroMemory(&sunLight, sizeof(LightStruct));
                     #endif
                     sunLight.active        = true;
-                    sunLight.position      = XMFLOAT3(0.0f, 5.0f, -150.0f);        // deep background, slightly above centre
+                    sunLight.position      = XMFLOAT3(0.0f, -10.0f, -10.0f);        // deep background, slightly above centre
                     // Normalise direction manually: (0, -0.25, -1) / length = (0, -0.2425, -0.9701)
-                    sunLight.direction     = XMFLOAT3(0.0f, -0.2425f, -0.9701f);
+                    sunLight.direction     = XMFLOAT3(0.0f, -0.1f, 0.0f);
                     sunLight.color         = XMFLOAT3(1.0f, 0.95f, 0.85f);         // warm white -- sun-like
+
                     // Raised ambient gives camera-facing surfaces a visible base colour even
                     // before direct light reaches them.  Slight cool-blue tint reads as
                     // outer-space fill light and prevents the dark side going pure black.
-                    sunLight.ambient       = XMFLOAT3(0.32f, 0.32f, 0.38f);
-                    sunLight.intensity     = 1.1f;
-                    sunLight.baseIntensity = 0.4f;
+                    #if defined(__USE_DIRECTX11__) || defined(__USE_DIRECTX_12__) || defined(__USE_VULKAN__)
+                        sunLight.ambient       = XMFLOAT3(0.0f, 0.0f, 0.0f);
+                        sunLight.intensity     = 1.0f;
+                        sunLight.baseIntensity = 0.8f;
+                    #elif defined(__USE_OPENGL__)
+                        sunLight.ambient       = XMFLOAT3(0.0f, 0.0f, 0.0f);
+                        sunLight.intensity     = 0.7f;
+                        sunLight.intensity     = 0.3f;
+                    #endif
                     sunLight.Shiningness   = 0.0f;
                     sunLight.Reflection    = 0.0f;
-                    sunLight.lightFalloff  = 0.1f;
+                    sunLight.lightFalloff  = 0.2f;
                     sunLight.innerCone     = 30.0f;
                     sunLight.outerCone     = 60.0f;
                     sunLight.range         = 2000.0f;
@@ -382,15 +382,14 @@ extern bool             Load_Music();                                           
 
                     showStage(L"Almost ready...");
                     // Reverse -- stars start spread near camera and converge toward the origin.
-                    // Star count differs per original: 120 on DX11/DX12, 100 on OpenGL/Vulkan.
-                    fxManager.CreateStarfield(100, 800.0f, 1000.0f, gtStarOrigin, true);
+                    fxManager.CreateStarfield(80, 800.0f, 1000.0f, gtStarOrigin, true);
 
                     fxManager.StopLoadingText();
                     fxManager.FadeToImage(1.0f, 0.08f);
                     // Pulse the 2D Image Background with 20% depth
                     fxManager.ZoomInitialise(ZoomFXFunction::Zoom2D, 0.20f, 0.15f, int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
                     fxManager.StartZoom(0.015f);
-                    fxManager.StartFireworks(0.25f);
+                    fxManager.StartFireworks(0.5f);
                 }
                 else
                 {
@@ -466,12 +465,12 @@ extern bool             Load_Music();                                           
                     #endif
 
                     // Starfield on resize
-                    fxManager.CreateStarfield(100, 800.0f, 1000.0f, gtStarOrigin, true);
+                    fxManager.CreateStarfield(80, 800.0f, 1000.0f, gtStarOrigin, true);
                     fxManager.StopLoadingText();
                     // Pulse the 2D Image Background with 20% depth
                     fxManager.ZoomInitialise(ZoomFXFunction::Zoom2D, 0.20f, 0.15f, int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
                     fxManager.StartZoom(0.015f);
-                    fxManager.StartFireworks(0.25f);
+                    fxManager.StartFireworks(0.5f);
                 }
 
                 /* OpenGL: flush pending GL commands before signalling the render thread. */

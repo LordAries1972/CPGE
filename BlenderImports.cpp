@@ -81,15 +81,15 @@ BlenderImports::ImportConfig BlenderImports::BuildConfig(const std::string& gene
 
     if (cfg.isBlenderFile)
     {
-#if defined(__USE_VULKAN__)
-        debug.logDebugMessage(LogLevel::LOG_INFO,
-            L"[BlenderImports] Detected Blender %ls - GLTF->Vulkan Z-flip active.",
-            cfg.version.valid ? cfg.version.ToWString().c_str() : L"(version unknown)");
-#else
-        debug.logDebugMessage(LogLevel::LOG_INFO,
-            L"[BlenderImports] Detected Blender %ls - GLTF->DX Z-flip + winding correction active.",
-            cfg.version.valid ? cfg.version.ToWString().c_str() : L"(version unknown)");
-#endif
+        #if defined(__USE_VULKAN__)
+            debug.logDebugMessage(LogLevel::LOG_INFO,
+                L"[BlenderImports] Detected Blender %ls - GLTF->Vulkan Z flip + winding correction active.",
+                cfg.version.valid ? cfg.version.ToWString().c_str() : L"(version unknown)");
+        #else
+            debug.logDebugMessage(LogLevel::LOG_INFO,
+                L"[BlenderImports] Detected Blender %ls - GLTF->DX Z flip + winding correction active.",
+                cfg.version.valid ? cfg.version.ToWString().c_str() : L"(version unknown)");
+        #endif
     }
 
     return cfg;

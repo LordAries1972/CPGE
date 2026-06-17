@@ -1,25 +1,30 @@
 // ModelPixel.glsl — OpenGL Fragment Shader
 // Converted from ModelPixel.hlsl (HLSL 5.0) for OpenGL 3.3+ core profile.
-// Compiler: OpenGL / Windows SDK (opengl32.lib + glew)
+// Full conditional map support, tangent-W bitangent, PCF shadow, gloss map, emissive texture.
 // Shader Version: GLSL 330 core
 //
 // Texture binding slots mirror HLSL register(tN) / register(sN) mapping:
-//   t0  diffuseTexture   (sampler2D, binding 0)
-//   t1  normalMap        (sampler2D, binding 1)
-//   t2  metallicMap      (sampler2D, binding 2)
-//   t3  roughnessMap     (sampler2D, binding 3)
-//   t4  aoMap            (sampler2D, binding 4)
-//   t5  environmentMap   (samplerCube, binding 5)
+//   t0  diffuseTexture     (sampler2D, binding 0)
+//   t1  normalMap          (sampler2D, binding 1)
+//   t2  metallicMap        (sampler2D, binding 2)
+//   t3  roughnessMap       (sampler2D, binding 3)
+//   t4  aoMap              (sampler2D, binding 4)
+//   t5  environmentMap     (samplerCube, binding 5)
+//   t6  glossMap           (sampler2D, binding 6)
+//   t7  emissiveMap        (sampler2D, binding 7)
+//   t8  shadowMap          (sampler2DShadow, binding 8)
 //
 // Uniform block binding slots mirror HLSL register(bN):
-//   b0  ConstantBuffer   (binding 0)
-//   b1  LightBuffer      (binding 1)
-//   b2  DebugBuffer      (binding 2)
-//   b3  GlobalLightBuffer (binding 3)
-//   b4  MaterialBuffer   (binding 4)
-//   b5  EnvBuffer        (binding 5)
+//   b0  ConstantBuffer     (binding 0)
+//   b1  LightBuffer        (binding 1)
+//   b2  DebugBuffer        (binding 2)
+//   b3  GlobalLightBuffer  (binding 3)
+//   b4  MaterialBuffer     (binding 4)
+//   b5  EnvBuffer          (binding 5)
+//   b6  ShadowBuffer       (binding 6)
 //
 #version 330 core
+#extension GL_ARB_shading_language_420pack : enable    // layout(binding=N) on UBOs — core in 4.2, extension on 3.3
 
 // ── Outputs ──────────────────────────────────────────────────────────────────
 out vec4 fragColor;
@@ -32,31 +37,38 @@ in vec3 vViewDirection;
 in vec3 vTangent;
 in vec3 vBitangent;
 
-// ── Texture Samplers (OpenGL combines Texture + Sampler) ─────────────────────
-uniform sampler2D   diffuseTexture;     // t0
-uniform sampler2D   normalMap;          // t1
-uniform sampler2D   metallicMap;        // t2
-uniform sampler2D   roughnessMap;       // t3
-uniform sampler2D   aoMap;              // t4
-uniform samplerCube environmentMap;     // t5
+// ── Texture Samplers ─────────────────────────────────────────────────────────
+uniform sampler2D       diffuseTexture;     // t0
+uniform sampler2D       normalMap;          // t1
+uniform sampler2D       metallicMap;        // t2
+uniform sampler2D       roughnessMap;       // t3
+uniform sampler2D       aoMap;              // t4
+uniform samplerCube     environmentMap;     // t5
+uniform sampler2D       glossMap;           // t6: gloss/smoothness (roughness = 1 - gloss.r)
+uniform sampler2D       emissiveMap;        // t7: emissive texture (multiplied by EmissiveFactor)
+uniform sampler2DShadow shadowMap;          // t8: shadow depth map (hardware PCF)
 
 #define MAX_LIGHTS        8
 #define MAX_GLOBAL_LIGHTS 8
 #define PI 3.14159265359
 
 // ── ConstantBuffer (binding 0) ───────────────────────────────────────────────
+// MUST match ModelVertex.glsl exactly — field names, types, and padding must be
+// identical in every shader stage that declares this block.
 layout(std140, binding = 0) uniform ConstantBuffer
 {
     mat4  uWorld;
     mat4  uView;
     mat4  uProjection;
-    vec3  cameraPosition;
-    float _padCB;
+    vec3  uCameraPosition;
+    float _pad0;
+    vec3  uModelScale;
+    float _pad1;
 };
 
 // ── DebugBuffer (binding 2) ──────────────────────────────────────────────────
 // Debug modes:
-//   0=Full  1=Normals  2=TextureOnly  3=LightingOnly  4=SpecularOnly
+//   0=Full  1=Normals  2=TextureOnly  3=LightingOnly(diffuse)  4=SpecularOnly
 //   5=NoLighting  6=MaterialsOnly  7=ShadowsOnly  8=ReflectionOnly  9=MetallicOnly
 layout(std140, binding = 2) uniform DebugBuffer
 {
@@ -95,7 +107,11 @@ struct LightStruct
     float Reflection;
     float _pad5;
 
-    float _pad6[4];
+    // Final 16 bytes of padding to match the CPU LightStruct (160 bytes).
+    // MUST be a vec4, not float[4]: std140 gives scalar arrays a 16-byte
+    // element stride, which would inflate the struct to 208 bytes and
+    // misalign every light after index 0.
+    vec4 _pad6;
 };
 
 // ── LightBuffer (binding 1) ──────────────────────────────────────────────────
@@ -130,9 +146,9 @@ layout(std140, binding = 4) uniform MaterialBuffer
     float useEnvMap;
     vec3  EmissiveFactor; float EmissiveStrength;
     float NormalScale;
-    float _padM4;
-    float _padM5;
-    float _padM6;
+    float useDiffuseMap;            // 1.0 = sample t0 * Kd; 0.0 = use Kd directly
+    float useGlossMap;              // 1.0 = use t6 gloss map (roughness = 1 - gloss.r)
+    float useEmissiveMap;           // 1.0 = use t7 emissive texture (* EmissiveFactor)
 };
 
 // ── EnvBuffer (binding 5) ────────────────────────────────────────────────────
@@ -145,7 +161,21 @@ layout(std140, binding = 5) uniform EnvBuffer
     vec2  _padE;
 };
 
-// ── PBR Helper Functions ─────────────────────────────────────────────────────
+// ── ShadowBuffer (binding 6) ─────────────────────────────────────────────────
+layout(std140, binding = 6) uniform ShadowBuffer
+{
+    mat4  lightViewProj;            // Light view-projection matrix
+    float shadowBias;               // Depth bias to prevent shadow acne
+    float shadowStrength;           // Shadow darkness multiplier [0-1]
+    float useShadowMap;             // 1.0 = shadow map at t8 is active
+    float shadowMapSize;            // Shadow map resolution (e.g. 2048.0) for PCF texel offset
+};
+
+#define LIGHT_TYPE_DIRECTIONAL 0
+#define LIGHT_TYPE_POINT       1
+#define LIGHT_TYPE_SPOT        2
+
+// ── PBR Helpers ───────────────────────────────────────────────────────────────
 
 vec3 FresnelSchlick(float cosTheta, vec3 F0)
 {
@@ -177,13 +207,14 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
     return GeometrySchlickGGX(NdotV, roughness) * GeometrySchlickGGX(NdotL, roughness);
 }
 
-#define LIGHT_TYPE_DIRECTIONAL 0
-#define LIGHT_TYPE_POINT       1
-#define LIGHT_TYPE_SPOT        2
-
+// ── Process Light — returns combined contribution; outDiff/outSpec for debug ─
 vec3 ProcessLight(LightStruct light, vec3 N, vec3 V, vec3 worldPos,
-                  float roughness, float metallic, vec3 albedo, vec3 F0)
+                  float roughness, float metallic, vec3 albedo, vec3 F0,
+                  out vec3 outDiff, out vec3 outSpec)
 {
+    outDiff = vec3(0.0);
+    outSpec = vec3(0.0);
+
     if (light.lActive == 0)
         return vec3(0.0);
 
@@ -207,12 +238,12 @@ vec3 ProcessLight(LightStruct light, vec3 N, vec3 V, vec3 worldPos,
         }
         else if (light.type == LIGHT_TYPE_SPOT)
         {
-            vec3  spotDir    = normalize(-light.direction);
-            float spotCos    = dot(spotDir, -L);
-            float inner      = cos(light.innerCone);
-            float outer      = cos(light.outerCone);
-            float spotFall   = smoothstep(outer, inner, spotCos);
-            float distFall   = 1.0 / (1.0 + pow(dist, light.lightFalloff));
+            vec3  spotDir  = normalize(-light.direction);
+            float spotCos  = dot(spotDir, -L);
+            float inner    = cos(light.innerCone);
+            float outer    = cos(light.outerCone);
+            float spotFall = smoothstep(outer, inner, spotCos);
+            float distFall = 1.0 / (1.0 + pow(dist, light.lightFalloff));
             attenuation = spotFall * distFall;
         }
     }
@@ -224,15 +255,15 @@ vec3 ProcessLight(LightStruct light, vec3 N, vec3 V, vec3 worldPos,
     if (NdotL <= 0.0001)
         return vec3(0.0);
 
-    vec3  H = normalize(V + L);
+    vec3  H      = normalize(V + L);
     float reflAdj = 1.0 + light.Reflection;
     vec3  F   = FresnelSchlick(max(dot(H, V), 0.0), F0 * reflAdj);
     float NDF = DistributionGGX(N, H, roughness / (1.0 + light.Shiningness));
     float G   = GeometrySmith(N, V, L, roughness);
 
-    vec3 numerator   = NDF * G * F;
-    float denominator= 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.001;
-    vec3 specular    = numerator / denominator;
+    vec3  numerator    = NDF * G * F;
+    float denominator  = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.001;
+    vec3  specular     = numerator / denominator;
 
     vec3 kS = F;
     vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
@@ -240,56 +271,110 @@ vec3 ProcessLight(LightStruct light, vec3 N, vec3 V, vec3 worldPos,
     vec3 diffuseColor  = kD * albedo / PI;
     vec3 specularColor = specular * light.specularColor * reflAdj;
 
-    return (diffuseColor + specularColor) * light.color * NdotL * attenuation;
+    outDiff = diffuseColor  * light.color * NdotL * attenuation;
+    outSpec = specularColor * light.color * NdotL * attenuation;
+
+    return outDiff + outSpec;
+}
+
+// ── PCF Shadow (sampler2DShadow: hardware PCF on supported drivers) ───────────
+// Returns 1.0 = lit, 0.0 = fully shadowed.
+float SampleShadow(vec3 worldPos)
+{
+    if (useShadowMap < 0.5)
+        return 1.0;
+
+    vec4 lightClip  = lightViewProj * vec4(worldPos, 1.0);
+    vec3 projCoords = lightClip.xyz / lightClip.w;
+
+    // Discard outside shadow frustum
+    if (projCoords.z > 1.0 || projCoords.z < 0.0)  return 1.0;
+    if (abs(projCoords.x) > 1.0)                    return 1.0;
+    if (abs(projCoords.y) > 1.0)                    return 1.0;
+
+    // NDC [-1,1] → texture [0,1]; flip Y for OpenGL clip convention
+    vec2 shadowUV;
+    shadowUV.x = projCoords.x * 0.5 + 0.5;
+    shadowUV.y = projCoords.y * 0.5 + 0.5;   // OpenGL Y is not flipped
+
+    float currentDepth = projCoords.z - shadowBias;
+
+    // 3x3 PCF kernel
+    float shadow    = 0.0;
+    float texelSize = 1.0 / max(shadowMapSize, 1.0);
+    for (int x = -1; x <= 1; ++x)
+    {
+        for (int y = -1; y <= 1; ++y)
+        {
+            // sampler2DShadow: texture() returns 0 or 1 (hardware PCF comparison)
+            shadow += texture(shadowMap, vec3(shadowUV + vec2(float(x), float(y)) * texelSize, currentDepth));
+        }
+    }
+    shadow /= 9.0;
+
+    return mix(1.0 - shadowStrength, 1.0, shadow);
 }
 
 // ── Fragment Shader Main ─────────────────────────────────────────────────────
 void main()
 {
-    // === Sample albedo texture
-    vec4 albedoColor = texture(diffuseTexture, vTexCoord);
-    albedoColor.rgb *= Kd;
+    // === Albedo: conditional diffuse map or direct Kd
+    vec4 albedoColor;
+    if (useDiffuseMap > 0.5)
+        albedoColor = texture(diffuseTexture, vTexCoord) * vec4(Kd, 1.0);
+    else
+        albedoColor = vec4(Kd, 1.0);
 
     if (debugMode == 2) { fragColor = albedoColor; return; }
 
-    // === Sample PBR maps (GLTF ORM pack: G=roughness, B=metallic, R=AO)
+    // === Sample PBR maps (GLTF ORM pack: G=roughness, B=metallic)
     float metallicValue  = (useMetallicMap  > 0.5) ? texture(metallicMap,  vTexCoord).b : Metallic;
     float roughnessValue = (useRoughnessMap > 0.5) ? texture(roughnessMap, vTexCoord).g : Roughness;
-    float aoValue        = (useAOMap        > 0.5) ? texture(aoMap,        vTexCoord).r : 1.0;
 
-    if (debugMode == 9)
+    // Gloss map overrides roughness: roughness = 1 - gloss.r
+    if (useGlossMap > 0.5)
+        roughnessValue = 1.0 - texture(glossMap, vTexCoord).r;
+
+    float aoValue = (useAOMap > 0.5) ? texture(aoMap, vTexCoord).r : 1.0;
+
+    if (debugMode == 9) { fragColor = vec4(vec3(metallicValue), 1.0); return; }
+
+    // === Resolve world-space normal
+    // NormalScale <= 0 means no normal map — use geometry vertex normal directly.
+    vec3 normalWS;
+    if (NormalScale <= 0.0)
     {
-        fragColor = vec4(vec3(metallicValue), 1.0);
-        return;
+        normalWS = normalize(vNormal);
     }
+    else
+    {
+        vec3 normalTS = texture(normalMap, vTexCoord).xyz;
+        normalTS = normalTS * 2.0 - 1.0;
+        normalTS.y = -normalTS.y;           // DirectX → OpenGL G-channel correction
+        normalTS.xy *= NormalScale;
 
-    // === Normal mapping
-    vec3 normalTS = texture(normalMap, vTexCoord).xyz;
-    normalTS = normalTS * 2.0 - 1.0;
-    normalTS.y = -normalTS.y;           // DirectX → OpenGL G-channel correction
-    normalTS.xy *= NormalScale;
-
-    vec3 N = normalize(vNormal);
-    vec3 T = normalize(vTangent);
-    vec3 B = normalize(vBitangent);
-    mat3 TBN = mat3(T, B, N);
-    vec3 normalWS = normalize(TBN * normalTS);
+        vec3 N = normalize(vNormal);
+        vec3 T = normalize(vTangent);
+        vec3 B = normalize(vBitangent);     // Already includes tangent.w handedness from VS
+        mat3 TBN = mat3(T, B, N);
+        normalWS = normalize(TBN * normalTS);
+    }
 
     if (debugMode == 1) { fragColor = vec4(abs(normalWS), 1.0); return; }
 
     // === View direction
-    vec3 V = normalize(cameraPosition - vWorldPosition);
+    vec3 V = normalize(uCameraPosition - vWorldPosition);
 
     // === F0 for Fresnel
     vec3 F0 = mix(vec3(fresnel0), albedoColor.rgb * Ks, metallicValue);
 
     // === Environment reflection
-    vec3 reflDir    = reflect(-V, normalWS);
+    vec3 reflDir = reflect(-V, normalWS);
     float roughMip  = roughnessValue * 5.0 + mipLODBias;
-    vec3 envRefl    = vec3(0.0);
+    vec3 envRefl = vec3(0.0);
     if (useEnvMap > 0.5)
     {
-        envRefl = textureLod(environmentMap, reflDir, roughMip).rgb;
+        envRefl  = textureLod(environmentMap, reflDir, roughMip).rgb;
         envRefl *= envTint * envIntensity;
         vec3 fresnelF = FresnelSchlick(max(dot(normalWS, V), 0.0), F0);
         envRefl *= fresnelF * ReflectionStrength;
@@ -309,41 +394,64 @@ void main()
         return;
     }
 
-    // === Local lights
+    // === Accumulate lights
+    vec3 diffuseAccum  = vec3(0.0);
+    vec3 specularAccum = vec3(0.0);
     vec3 directLighting = vec3(0.0);
     vec3 lightAmbient   = vec3(0.0);
+
     for (int i = 0; i < numLights; ++i)
     {
         if (lights[i].lActive != 0)
             lightAmbient += lights[i].ambient;
+
+        vec3 ld, ls;
         directLighting += ProcessLight(lights[i], normalWS, V, vWorldPosition,
-                                       roughnessValue, metallicValue, albedoColor.rgb, F0);
+                                       roughnessValue, metallicValue, albedoColor.rgb, F0,
+                                       ld, ls);
+        diffuseAccum  += ld;
+        specularAccum += ls;
     }
 
-    // === Global lights
     for (int gi = 0; gi < globalLightCount; ++gi)
     {
+        vec3 ld, ls;
         directLighting += ProcessLight(globalLights[gi], normalWS, V, vWorldPosition,
-                                       roughnessValue, metallicValue, albedoColor.rgb, F0);
+                                       roughnessValue, metallicValue, albedoColor.rgb, F0,
+                                       ld, ls);
+        diffuseAccum  += ld;
+        specularAccum += ls;
     }
 
-    // === Combine
-    vec3 additionalAmbient = Ka * albedoColor.rgb * aoValue * max(length(lightAmbient), 0.0);
-    finalColor += directLighting + additionalAmbient;
+    // === Debug: separate diffuse / specular visualisation
+    if (debugMode == 3) { fragColor = vec4(diffuseAccum, albedoColor.a); return; }
+    if (debugMode == 4) { fragColor = vec4(specularAccum, albedoColor.a); return; }
+    if (debugMode == 6)
+    {
+        fragColor = vec4(metallicValue, 1.0 - roughnessValue, aoValue, 1.0);
+        return;
+    }
 
-    if (debugMode == 3) { fragColor = vec4(directLighting, 1.0); return; }
+    // === PCF shadow factor
+    float shadowFactor = SampleShadow(vWorldPosition);
+
+    if (debugMode == 7) { fragColor = vec4(vec3(shadowFactor), 1.0); return; }
+
+    // === Combine: material ambient + per-light ambient + direct (shadow-modulated)
+    finalColor += lightAmbient * albedoColor.rgb * aoValue
+               + directLighting * shadowFactor;
 
     // === Emissive
-    vec3 emissive = EmissiveFactor * EmissiveStrength;
+    vec3 emissiveTex = (useEmissiveMap > 0.5) ? texture(emissiveMap, vTexCoord).rgb : vec3(1.0);
+    vec3 emissive = EmissiveFactor * emissiveTex * EmissiveStrength;
     finalColor += emissive;
 
     // === Environment reflection
     if (useEnvMap > 0.5)
         finalColor += envRefl;
 
-    // === Tone mapping (simple Reinhard) + gamma correction
-    finalColor = finalColor / (finalColor + vec3(1.0));
-    finalColor = pow(clamp(finalColor, 0.0, 1.0), vec3(1.0 / 2.2));
-
+    // Linear output — matches DX12/DX11 which do not apply tone mapping or
+    // gamma correction in the shader (the display / sRGB framebuffer handles it).
+    // Manual Reinhard + pow(1/2.2) caused over-brightness vs the DX12 reference.
     fragColor = vec4(finalColor, albedoColor.a);
 }

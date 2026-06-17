@@ -1,0 +1,14 @@
+#pragma once
+
+// Authoritative build identity — update these on every release.
+// Format: v<BUILD_VERSION>.<BUILD_SUBVERSION>.<BUILD_NUMBER>
+constexpr int CURRENT_BUILD_VERSION    = 0;
+constexpr int CURRENT_BUILD_SUBVERSION = 0;
+constexpr int CURRENT_BUILD            = 1724;
+
+// Version overlay build-type prefix: "Debug" in _DEBUG builds, "Release" otherwise.
+#if defined(_DEBUG)
+    #define BUILD_TYPE_W L"Debug"
+#else
+    #define BUILD_TYPE_W L"Release"
+#endif

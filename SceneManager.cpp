@@ -246,6 +246,7 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
 
     bLoadedFromCache = false;
     m_fbxCameras.clear();   // clear FBX camera list on every new scene load
+    lightsManager.ClearLights(); // clear lights from any prior scene before parsing new ones
 
     // Loading-text progress helper -- same pattern as showStage in IOLoaderThread.
     auto showStage = [](const wchar_t* msg) {
@@ -348,6 +349,7 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
                 if (myRenderer)
                     ParseGLTFCamera(miniDoc, myRenderer->myCamera, myRenderer->iOrigWidth, myRenderer->iOrigHeight);
                 ParseGLTFLights(miniDoc);
+                EnsureDefaultSunLight();
                 ParseMaterialsFromGLTF(miniDoc);
                 gltfAnimator.ClearAllAnimations();
                 bAnimationsLoaded = gltfAnimator.ParseAnimationsFromGLTF(miniDoc, gltfBinaryData);
@@ -390,56 +392,56 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
                         // bGpuReady can be true on a models[] entry whose handles were freed
                         // by a prior CleanUp() (stale-after-free crash on next scene visit).
                         bool gpuRebuildNeeded = false;
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-                        if (!scene_models[idx].m_modelInfo.vertexBuffer  ||
-                            !scene_models[idx].m_modelInfo.indexBuffer   ||
-                            !scene_models[idx].m_modelInfo.constantBuffer)
-                            gpuRebuildNeeded = true;
-#elif defined(__USE_VULKAN__)
-                        if (scene_models[idx].m_modelInfo.vertexBuffer  == VK_NULL_HANDLE ||
-                            scene_models[idx].m_modelInfo.indexBuffer   == VK_NULL_HANDLE ||
-                            scene_models[idx].m_modelInfo.uniformBuffer == VK_NULL_HANDLE)
-                            gpuRebuildNeeded = true;
-#elif defined(__USE_OPENGL__)
-                        if (scene_models[idx].m_modelInfo.VAO == 0 ||
-                            scene_models[idx].m_modelInfo.VBO == 0 ||
-                            scene_models[idx].m_modelInfo.EBO == 0)
-                            gpuRebuildNeeded = true;
-#endif
+                        #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                            if (!scene_models[idx].m_modelInfo.vertexBuffer  ||
+                                !scene_models[idx].m_modelInfo.indexBuffer   ||
+                                !scene_models[idx].m_modelInfo.constantBuffer)
+                                gpuRebuildNeeded = true;
+                        #elif defined(__USE_VULKAN__)
+                            if (scene_models[idx].m_modelInfo.vertexBuffer  == VK_NULL_HANDLE ||
+                                scene_models[idx].m_modelInfo.indexBuffer   == VK_NULL_HANDLE ||
+                                scene_models[idx].m_modelInfo.uniformBuffer == VK_NULL_HANDLE)
+                                gpuRebuildNeeded = true;
+                        #elif defined(__USE_OPENGL__)
+                            if (scene_models[idx].m_modelInfo.VAO == 0 ||
+                                scene_models[idx].m_modelInfo.VBO == 0 ||
+                                scene_models[idx].m_modelInfo.EBO == 0)
+                                gpuRebuildNeeded = true;
+                        #endif
                         if (gpuRebuildNeeded && !scene_models[idx].m_modelInfo.vertices.empty())
                         {
                             scene_models[idx].SetupModelForRendering(idx);
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-                            models[m].m_modelInfo.constantBuffer      = scene_models[idx].m_modelInfo.constantBuffer;
-                            models[m].m_modelInfo.vertexBuffer        = scene_models[idx].m_modelInfo.vertexBuffer;
-                            models[m].m_modelInfo.indexBuffer         = scene_models[idx].m_modelInfo.indexBuffer;
-                            models[m].m_modelInfo.lightConstantBuffer = scene_models[idx].m_modelInfo.lightConstantBuffer;
-                            models[m].m_modelInfo.materialBuffer      = scene_models[idx].m_modelInfo.materialBuffer;
-                            models[m].m_modelInfo.debugConstantBuffer = scene_models[idx].m_modelInfo.debugConstantBuffer;
-                            models[m].m_modelInfo.samplerState        = scene_models[idx].m_modelInfo.samplerState;
-                            models[m].m_modelInfo.textureSRVs         = scene_models[idx].m_modelInfo.textureSRVs;
-                            models[m].m_modelInfo.normalMapSRVs       = scene_models[idx].m_modelInfo.normalMapSRVs;
-#elif defined(__USE_VULKAN__)
-                            models[m].m_modelInfo.vertexBuffer        = scene_models[idx].m_modelInfo.vertexBuffer;
-                            models[m].m_modelInfo.vertexBufferMemory  = scene_models[idx].m_modelInfo.vertexBufferMemory;
-                            models[m].m_modelInfo.indexBuffer         = scene_models[idx].m_modelInfo.indexBuffer;
-                            models[m].m_modelInfo.indexBufferMemory   = scene_models[idx].m_modelInfo.indexBufferMemory;
-                            models[m].m_modelInfo.uniformBuffer               = scene_models[idx].m_modelInfo.uniformBuffer;
-                            models[m].m_modelInfo.uniformBufferMemory         = scene_models[idx].m_modelInfo.uniformBufferMemory;
-                            models[m].m_modelInfo.uniformBufferMapped         = scene_models[idx].m_modelInfo.uniformBufferMapped;
-                            models[m].m_modelInfo.materialUniformBuffer       = scene_models[idx].m_modelInfo.materialUniformBuffer;
-                            models[m].m_modelInfo.materialUniformBufferMemory = scene_models[idx].m_modelInfo.materialUniformBufferMemory;
-                            models[m].m_modelInfo.materialUniformBufferMapped = scene_models[idx].m_modelInfo.materialUniformBufferMapped;
-                            models[m].m_modelInfo.pipeline                    = scene_models[idx].m_modelInfo.pipeline;
-                            models[m].m_modelInfo.pipelineLayout              = scene_models[idx].m_modelInfo.pipelineLayout;
-                            models[m].m_modelInfo.descriptorSet               = scene_models[idx].m_modelInfo.descriptorSet;
-                            models[m].m_modelInfo.textureDescriptorSet        = scene_models[idx].m_modelInfo.textureDescriptorSet;
-#elif defined(__USE_OPENGL__)
-                            models[m].m_modelInfo.VAO           = scene_models[idx].m_modelInfo.VAO;
-                            models[m].m_modelInfo.VBO           = scene_models[idx].m_modelInfo.VBO;
-                            models[m].m_modelInfo.EBO           = scene_models[idx].m_modelInfo.EBO;
-                            models[m].m_modelInfo.shaderProgram = scene_models[idx].m_modelInfo.shaderProgram;
-#endif
+                            #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                                models[m].m_modelInfo.constantBuffer      = scene_models[idx].m_modelInfo.constantBuffer;
+                                models[m].m_modelInfo.vertexBuffer        = scene_models[idx].m_modelInfo.vertexBuffer;
+                                models[m].m_modelInfo.indexBuffer         = scene_models[idx].m_modelInfo.indexBuffer;
+                                models[m].m_modelInfo.lightConstantBuffer = scene_models[idx].m_modelInfo.lightConstantBuffer;
+                                models[m].m_modelInfo.materialBuffer      = scene_models[idx].m_modelInfo.materialBuffer;
+                                models[m].m_modelInfo.debugConstantBuffer = scene_models[idx].m_modelInfo.debugConstantBuffer;
+                                models[m].m_modelInfo.samplerState        = scene_models[idx].m_modelInfo.samplerState;
+                                models[m].m_modelInfo.textureSRVs         = scene_models[idx].m_modelInfo.textureSRVs;
+                                models[m].m_modelInfo.normalMapSRVs       = scene_models[idx].m_modelInfo.normalMapSRVs;
+                            #elif defined(__USE_VULKAN__)
+                                models[m].m_modelInfo.vertexBuffer        = scene_models[idx].m_modelInfo.vertexBuffer;
+                                models[m].m_modelInfo.vertexBufferMemory  = scene_models[idx].m_modelInfo.vertexBufferMemory;
+                                models[m].m_modelInfo.indexBuffer         = scene_models[idx].m_modelInfo.indexBuffer;
+                                models[m].m_modelInfo.indexBufferMemory   = scene_models[idx].m_modelInfo.indexBufferMemory;
+                                models[m].m_modelInfo.uniformBuffer               = scene_models[idx].m_modelInfo.uniformBuffer;
+                                models[m].m_modelInfo.uniformBufferMemory         = scene_models[idx].m_modelInfo.uniformBufferMemory;
+                                models[m].m_modelInfo.uniformBufferMapped         = scene_models[idx].m_modelInfo.uniformBufferMapped;
+                                models[m].m_modelInfo.materialUniformBuffer       = scene_models[idx].m_modelInfo.materialUniformBuffer;
+                                models[m].m_modelInfo.materialUniformBufferMemory = scene_models[idx].m_modelInfo.materialUniformBufferMemory;
+                                models[m].m_modelInfo.materialUniformBufferMapped = scene_models[idx].m_modelInfo.materialUniformBufferMapped;
+                                models[m].m_modelInfo.pipeline                    = scene_models[idx].m_modelInfo.pipeline;
+                                models[m].m_modelInfo.pipelineLayout              = scene_models[idx].m_modelInfo.pipelineLayout;
+                                models[m].m_modelInfo.descriptorSet               = scene_models[idx].m_modelInfo.descriptorSet;
+                                models[m].m_modelInfo.textureDescriptorSet        = scene_models[idx].m_modelInfo.textureDescriptorSet;
+                            #elif defined(__USE_OPENGL__)
+                                models[m].m_modelInfo.VAO           = scene_models[idx].m_modelInfo.VAO;
+                                models[m].m_modelInfo.VBO           = scene_models[idx].m_modelInfo.VBO;
+                                models[m].m_modelInfo.EBO           = scene_models[idx].m_modelInfo.EBO;
+                                models[m].m_modelInfo.shaderProgram = scene_models[idx].m_modelInfo.shaderProgram;
+                            #endif
                             models[m].m_modelInfo.bGpuReady = true;
                             #if defined(_DEBUG_SCENEMANAGER_)
                                 debug.logDebugMessage(LogLevel::LOG_INFO,
@@ -514,81 +516,85 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
                         {
                             if (matsArr[mi].value("name", "") != matName) continue;
 
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-                            scene_models[ti].m_modelInfo.textures.clear();
-                            scene_models[ti].m_modelInfo.textureSRVs.clear();
-                            scene_models[ti].m_modelInfo.normalMapSRVs.clear();
-                            scene_models[ti].m_modelInfo.metallicMapSRV.Reset();
-                            scene_models[ti].m_modelInfo.roughnessMapSRV.Reset();
-                            scene_models[ti].m_modelInfo.aoMapSRV.Reset();
-#elif defined(__USE_OPENGL__)
-                            scene_models[ti].m_modelInfo.textureIDs.clear();
-                            scene_models[ti].m_modelInfo.normalMapIDs.clear();
-                            scene_models[ti].m_modelInfo.metallicTexID  = 0;
-                            scene_models[ti].m_modelInfo.roughnessTexID = 0;
-                            scene_models[ti].m_modelInfo.aoTexID        = 0;
-#elif defined(__USE_VULKAN__)
-                            // Clear the textures vector so BindGLTFMaterialTexturesToModel
-                            // starts fresh — without this, textures accumulate on every
-                            // scene revisit (same bug as the DX11 path would have without
-                            // textureSRVs.clear()).
-                            scene_models[ti].m_modelInfo.textures.clear();
-                            scene_models[ti].m_modelInfo.descriptorSet = VK_NULL_HANDLE;
-#endif
+                            #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                                scene_models[ti].m_modelInfo.textures.clear();
+                                scene_models[ti].m_modelInfo.textureSRVs.clear();
+                                scene_models[ti].m_modelInfo.normalMapSRVs.clear();
+                                scene_models[ti].m_modelInfo.metallicMapSRV.Reset();
+                                scene_models[ti].m_modelInfo.roughnessMapSRV.Reset();
+                                scene_models[ti].m_modelInfo.aoMapSRV.Reset();
+                            #elif defined(__USE_OPENGL__)
+                                scene_models[ti].m_modelInfo.textureIDs.clear();
+                                scene_models[ti].m_modelInfo.normalMapIDs.clear();
+                                scene_models[ti].m_modelInfo.metallicTexID  = 0;
+                                scene_models[ti].m_modelInfo.roughnessTexID = 0;
+                                scene_models[ti].m_modelInfo.aoTexID        = 0;
+                            #elif defined(__USE_VULKAN__)
+                                // Clear the textures vector so BindGLTFMaterialTexturesToModel
+                                // starts fresh — without this, textures accumulate on every
+                                // scene revisit (same bug as the DX11 path would have without
+                                // textureSRVs.clear()).
+                                // NOTE: Do NOT null descriptorSet here — BindGLTFMaterialTexturesToModel
+                                // only rebuilds textureDescriptorSet (set=1); descriptorSet (set=0)
+                                // holds the UBO bindings allocated in SetupModelForRendering and must
+                                // remain valid, otherwise the draw guard in VULKAN_RenderFrame always
+                                // fails and nothing renders.
+                                scene_models[ti].m_modelInfo.textures.clear();
+                            #endif
                             BindGLTFMaterialTexturesToModel(mi, scene_models[ti].m_modelInfo, scene_models[ti], miniDoc);
 
-#if defined(__USE_DIRECTX_12__)
-                            // DX12: the rebind above only refreshes the DX11-on-12 SRVs.
-                            // SetupModelForRendering already ran in Step 3 (before this
-                            // rebind), so the native DX12 side still holds the pre-rebind
-                            // state — NULL resources on a cache.dat restore.  Re-upload
-                            // the new Texture objects and force the descriptor heap slots
-                            // to be rewritten on the next draw, otherwise the model
-                            // renders untextured/invisible while all texture-load logs
-                            // report success.
-                            scene_models[ti].RefreshDX12Textures();
-#elif defined(__USE_OPENGL__)
-                            // OpenGL: same hole as DX12 — the rebind above only creates
-                            // Texture objects and Material entries; the GL handles in
-                            // ModelInfo (textureIDs / normalMapIDs / PBR IDs) were
-                            // cleared before the rebind and stay empty unless rebuilt
-                            // here, leaving the model untextured on every scene revisit.
-                            scene_models[ti].RefreshOpenGLTextures();
-#endif
+                            #if defined(__USE_DIRECTX_12__)
+                                // DX12: the rebind above only refreshes the DX11-on-12 SRVs.
+                                // SetupModelForRendering already ran in Step 3 (before this
+                                // rebind), so the native DX12 side still holds the pre-rebind
+                                // state — NULL resources on a cache.dat restore.  Re-upload
+                                // the new Texture objects and force the descriptor heap slots
+                                // to be rewritten on the next draw, otherwise the model
+                                // renders untextured/invisible while all texture-load logs
+                                // report success.
+                                scene_models[ti].RefreshDX12Textures();
+                            #elif defined(__USE_OPENGL__)
+                                // OpenGL: same hole as DX12 — the rebind above only creates
+                                // Texture objects and Material entries; the GL handles in
+                                // ModelInfo (textureIDs / normalMapIDs / PBR IDs) were
+                                // cleared before the rebind and stay empty unless rebuilt
+                                // here, leaving the model untextured on every scene revisit.
+                                scene_models[ti].RefreshOpenGLTextures();
+                            #endif
 
                             for (int m2 = 0; m2 < MAX_MODELS; ++m2)
                             {
                                 if (models[m2].m_modelInfo.cachedInstanceIndex == ti &&
                                     models[m2].m_modelInfo.sourceSceneFile    == glbFile)
                                 {
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-                                    models[m2].m_modelInfo.textures        = scene_models[ti].m_modelInfo.textures;
-                                    models[m2].m_modelInfo.textureSRVs     = scene_models[ti].m_modelInfo.textureSRVs;
-                                    models[m2].m_modelInfo.normalMapSRVs   = scene_models[ti].m_modelInfo.normalMapSRVs;
-                                    models[m2].m_modelInfo.metallicMapSRV  = scene_models[ti].m_modelInfo.metallicMapSRV;
-                                    models[m2].m_modelInfo.roughnessMapSRV = scene_models[ti].m_modelInfo.roughnessMapSRV;
-                                    models[m2].m_modelInfo.aoMapSRV        = scene_models[ti].m_modelInfo.aoMapSRV;
-                                    models[m2].m_materials                 = scene_models[ti].m_materials;
-#elif defined(__USE_OPENGL__)
-                                    models[m2].m_modelInfo.textureIDs      = scene_models[ti].m_modelInfo.textureIDs;
-                                    models[m2].m_modelInfo.normalMapIDs    = scene_models[ti].m_modelInfo.normalMapIDs;
-                                    models[m2].m_modelInfo.metallicTexID   = scene_models[ti].m_modelInfo.metallicTexID;
-                                    models[m2].m_modelInfo.roughnessTexID  = scene_models[ti].m_modelInfo.roughnessTexID;
-                                    models[m2].m_modelInfo.aoTexID         = scene_models[ti].m_modelInfo.aoTexID;
-                                    models[m2].m_modelInfo.glossTexID      = scene_models[ti].m_modelInfo.glossTexID;
-                                    models[m2].m_modelInfo.emissiveTexID   = scene_models[ti].m_modelInfo.emissiveTexID;
-                                    models[m2].m_materials                 = scene_models[ti].m_materials;
-#elif defined(__USE_VULKAN__)
-                                    // Write textures back to the models[] cache so subsequent
-                                    // scene visits restore the correct Vulkan texture handles.
-                                    models[m2].m_modelInfo.textures               = scene_models[ti].m_modelInfo.textures;
-                                    models[m2].m_modelInfo.descriptorSet          = scene_models[ti].m_modelInfo.descriptorSet;
-                                    models[m2].m_modelInfo.textureDescriptorSet   = scene_models[ti].m_modelInfo.textureDescriptorSet;
-                                    models[m2].m_modelInfo.materialUniformBuffer       = scene_models[ti].m_modelInfo.materialUniformBuffer;
-                                    models[m2].m_modelInfo.materialUniformBufferMemory = scene_models[ti].m_modelInfo.materialUniformBufferMemory;
-                                    models[m2].m_modelInfo.materialUniformBufferMapped = scene_models[ti].m_modelInfo.materialUniformBufferMapped;
-                                    models[m2].m_materials                 = scene_models[ti].m_materials;
-#endif
+                                    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                                        models[m2].m_modelInfo.textures        = scene_models[ti].m_modelInfo.textures;
+                                        models[m2].m_modelInfo.textureSRVs     = scene_models[ti].m_modelInfo.textureSRVs;
+                                        models[m2].m_modelInfo.normalMapSRVs   = scene_models[ti].m_modelInfo.normalMapSRVs;
+                                        models[m2].m_modelInfo.metallicMapSRV  = scene_models[ti].m_modelInfo.metallicMapSRV;
+                                        models[m2].m_modelInfo.roughnessMapSRV = scene_models[ti].m_modelInfo.roughnessMapSRV;
+                                        models[m2].m_modelInfo.aoMapSRV        = scene_models[ti].m_modelInfo.aoMapSRV;
+                                        models[m2].m_materials                 = scene_models[ti].m_materials;
+                                    #elif defined(__USE_OPENGL__)
+                                        models[m2].m_modelInfo.textureIDs      = scene_models[ti].m_modelInfo.textureIDs;
+                                        models[m2].m_modelInfo.normalMapIDs    = scene_models[ti].m_modelInfo.normalMapIDs;
+                                        models[m2].m_modelInfo.metallicTexID   = scene_models[ti].m_modelInfo.metallicTexID;
+                                        models[m2].m_modelInfo.roughnessTexID  = scene_models[ti].m_modelInfo.roughnessTexID;
+                                        models[m2].m_modelInfo.aoTexID         = scene_models[ti].m_modelInfo.aoTexID;
+                                        models[m2].m_modelInfo.glossTexID      = scene_models[ti].m_modelInfo.glossTexID;
+                                        models[m2].m_modelInfo.emissiveTexID   = scene_models[ti].m_modelInfo.emissiveTexID;
+                                        models[m2].m_materials                 = scene_models[ti].m_materials;
+                                    #elif defined(__USE_VULKAN__)
+                                        // Write textures back to the models[] cache so subsequent
+                                        // scene visits restore the correct Vulkan texture handles.
+                                        models[m2].m_modelInfo.textures               = scene_models[ti].m_modelInfo.textures;
+                                        models[m2].m_modelInfo.descriptorSet          = scene_models[ti].m_modelInfo.descriptorSet;
+                                        models[m2].m_modelInfo.textureDescriptorSet   = scene_models[ti].m_modelInfo.textureDescriptorSet;
+                                        models[m2].m_modelInfo.materialUniformBuffer       = scene_models[ti].m_modelInfo.materialUniformBuffer;
+                                        models[m2].m_modelInfo.materialUniformBufferMemory = scene_models[ti].m_modelInfo.materialUniformBufferMemory;
+                                        models[m2].m_modelInfo.materialUniformBufferMapped = scene_models[ti].m_modelInfo.materialUniformBufferMapped;
+                                        models[m2].m_materials                 = scene_models[ti].m_materials;
+                                    #endif
                                     #if defined(_DEBUG_SCENEMANAGER_)
                                         debug.logDebugMessage(LogLevel::LOG_INFO,
                                             L"[SceneManager] TEXTURE-RELOAD '%ls' — written back to models[%d]",
@@ -940,6 +946,7 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
     showStage(L"Parsing scene data...");
     ParseGLTFCamera(doc, myRenderer->myCamera, myRenderer->iOrigWidth, myRenderer->iOrigHeight);
     ParseGLTFLights(doc);
+    EnsureDefaultSunLight();
     ParseMaterialsFromGLTF(doc);
 
     // Parse animations from GLB document and store them in the global animator
@@ -1269,11 +1276,20 @@ void SceneManager::ParseGLBNodeRecursive(const json& node, int nodeIndex, const 
             scene_models[instanceIndex].SetupModelForRendering(instanceIndex);
 #if defined(__USE_VULKAN__)
             // SetupModelForRendering created the material UBO and texture descriptor set with defaults.
-            // Now that those GPU buffers exist, upload the real GLTF material data into them.
-            // BindGLTFMaterialTexturesToModel was called earlier inside LoadGLTFMeshPrimitives but
-            // silently no-oped because materialUniformBufferMapped was null at that point.
-            if (doc.contains("meshes") && meshIndex < (int)doc["meshes"].size())
+            // Upload the real material data now that those GPU buffers exist.
+            // Prefer textures already resident in m_materials (loaded by LoadGLTFMeshPrimitives /
+            // BindGLTFMaterialTexturesToModel via CopyFrom) to avoid a second disk/memory decode.
+            // Fall back to a fresh BindGLTFMaterialTexturesToModel only if m_materials is empty.
+            if (!scene_models[instanceIndex].m_materials.empty())
             {
+                // Use whichever material was stored during the first bind pass; for single-material
+                // GLTF meshes this is always the first (and only) entry in the map.
+                for (auto& [matName, mat] : scene_models[instanceIndex].m_materials)
+                    UploadFBXMaterialToVulkanModel(mat, scene_models[instanceIndex].m_modelInfo);
+            }
+            else if (doc.contains("meshes") && meshIndex < (int)doc["meshes"].size())
+            {
+                // Fallback: first bind pass produced no materials; try a fresh load from the GLTF doc.
                 const auto& glbPrims = doc["meshes"][meshIndex]["primitives"];
                 if (glbPrims.is_array() && primIdx < (int)glbPrims.size())
                 {
@@ -1440,6 +1456,7 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
 
     bLoadedFromCache = false;
     m_fbxCameras.clear();   // clear FBX camera list on every new scene load
+    lightsManager.ClearLights(); // clear lights from any prior scene before parsing new ones
 
     // Loading-text progress helper -- same pattern as showStage in IOLoaderThread.
     auto showStage = [](const wchar_t* msg) {
@@ -1513,6 +1530,7 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
                 if (myRenderer)
                     ParseGLTFCamera(miniDoc, myRenderer->myCamera, myRenderer->iOrigWidth, myRenderer->iOrigHeight);
                 ParseGLTFLights(miniDoc);
+                EnsureDefaultSunLight();
                 ParseMaterialsFromGLTF(miniDoc);
                 gltfAnimator.ClearAllAnimations();
                 // Reload external .bin file before animation parsing — the cache path only
@@ -1720,7 +1738,9 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
                             scene_models[ti].m_modelInfo.aoTexID        = 0;
 #elif defined(__USE_VULKAN__)
                             scene_models[ti].m_modelInfo.textures.clear();
-                            scene_models[ti].m_modelInfo.descriptorSet = VK_NULL_HANDLE;
+                            // NOTE: Do NOT null descriptorSet here — same reason as GLB cache-restore
+                            // Step 4: BindGLTFMaterialTexturesToModel only rebuilds textureDescriptorSet
+                            // (set=1); nulling descriptorSet (set=0) permanently breaks the draw guard.
 #endif
                             BindGLTFMaterialTexturesToModel(mi, scene_models[ti].m_modelInfo, scene_models[ti], miniDoc);
 
@@ -1919,6 +1939,7 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
     showStage(L"Parsing scene data...");
     ParseGLTFCamera(doc, myRenderer->myCamera, myRenderer->iOrigWidth, myRenderer->iOrigHeight);
     ParseGLTFLights(doc);
+    EnsureDefaultSunLight();
     ParseMaterialsFromGLTF(doc);
 
     // Parse animations from GLTF document and store them in the global animator
@@ -2265,11 +2286,20 @@ void SceneManager::ParseGLTFNodeRecursive(const json& node, int nodeIndex, const
             scene_models[instanceIndex].SetupModelForRendering(instanceIndex);
 #if defined(__USE_VULKAN__)
             // SetupModelForRendering created the material UBO and texture descriptor set with defaults.
-            // Now that those GPU buffers exist, upload the real GLTF material data into them.
-            // BindGLTFMaterialTexturesToModel was called earlier inside LoadGLTFMeshPrimitives but
-            // silently no-oped because materialUniformBufferMapped was null at that point.
-            if (doc.contains("meshes") && meshIndex < (int)doc["meshes"].size())
+            // Upload the real material data now that those GPU buffers exist.
+            // Prefer textures already resident in m_materials (loaded by LoadGLTFMeshPrimitives /
+            // BindGLTFMaterialTexturesToModel via CopyFrom) to avoid a second disk/memory decode.
+            // Fall back to a fresh BindGLTFMaterialTexturesToModel only if m_materials is empty.
+            if (!scene_models[instanceIndex].m_materials.empty())
             {
+                // Use whichever material was stored during the first bind pass; for single-material
+                // GLTF meshes this is always the first (and only) entry in the map.
+                for (auto& [matName, mat] : scene_models[instanceIndex].m_materials)
+                    UploadFBXMaterialToVulkanModel(mat, scene_models[instanceIndex].m_modelInfo);
+            }
+            else if (doc.contains("meshes") && meshIndex < (int)doc["meshes"].size())
+            {
+                // Fallback: first bind pass produced no materials; try a fresh load from the GLTF doc.
                 const auto& gltfPrims = doc["meshes"][meshIndex]["primitives"];
                 if (gltfPrims.is_array() && primIdx < (int)gltfPrims.size())
                 {
@@ -3153,15 +3183,15 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
             const uint32_t idx = rawIndices[ii];        // Validated index.
             const Vertex& v = rawVertices[(size_t)idx]; // Safe vertex fetch.
             VertexKey key;                               // Vertex key for hashing.
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-            key.pos  = v.position;
-            key.norm = v.normal;
-            key.uv   = v.texCoord;
-#else
-            key.pos  = { v.position[0], v.position[1], v.position[2] };
-            key.norm = { v.normal[0], v.normal[1], v.normal[2] };
-            key.uv   = { v.texCoord[0], v.texCoord[1] };
-#endif
+            #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                key.pos  = v.position;
+                key.norm = v.normal;
+                key.uv   = v.texCoord;
+            #else
+                key.pos  = { v.position[0], v.position[1], v.position[2] };
+                key.norm = { v.normal[0], v.normal[1], v.normal[2] };
+                key.uv   = { v.texCoord[0], v.texCoord[1] };
+            #endif
 
             auto it = uniqueVerts.find(key);             // Find existing vertex mapping.
             if (it != uniqueVerts.end())
@@ -3215,27 +3245,27 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
                 const Vertex& v1 = model.m_modelInfo.vertices[(size_t)i1]; // Vertex 1.
                 const Vertex& v2 = model.m_modelInfo.vertices[(size_t)i2]; // Vertex 2.
 
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-                XMVECTOR p0 = XMLoadFloat3(&v0.position);
-                XMVECTOR p1 = XMLoadFloat3(&v1.position);
-                XMVECTOR p2 = XMLoadFloat3(&v2.position);
-#else
-                XMVECTOR p0 = XMLoadFloat3(reinterpret_cast<const XMFLOAT3*>(v0.position));
-                XMVECTOR p1 = XMLoadFloat3(reinterpret_cast<const XMFLOAT3*>(v1.position));
-                XMVECTOR p2 = XMLoadFloat3(reinterpret_cast<const XMFLOAT3*>(v2.position));
-#endif
+                #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                    XMVECTOR p0 = XMLoadFloat3(&v0.position);
+                    XMVECTOR p1 = XMLoadFloat3(&v1.position);
+                    XMVECTOR p2 = XMLoadFloat3(&v2.position);
+                #else
+                    XMVECTOR p0 = XMLoadFloat3(reinterpret_cast<const XMFLOAT3*>(v0.position));
+                    XMVECTOR p1 = XMLoadFloat3(reinterpret_cast<const XMFLOAT3*>(v1.position));
+                    XMVECTOR p2 = XMLoadFloat3(reinterpret_cast<const XMFLOAT3*>(v2.position));
+                #endif
 
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-                float du1 = v1.texCoord.x - v0.texCoord.x;
-                float dv1 = v1.texCoord.y - v0.texCoord.y;
-                float du2 = v2.texCoord.x - v0.texCoord.x;
-                float dv2 = v2.texCoord.y - v0.texCoord.y;
-#else
-                float du1 = v1.texCoord[0] - v0.texCoord[0];
-                float dv1 = v1.texCoord[1] - v0.texCoord[1];
-                float du2 = v2.texCoord[0] - v0.texCoord[0];
-                float dv2 = v2.texCoord[1] - v0.texCoord[1];
-#endif
+                #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                    float du1 = v1.texCoord.x - v0.texCoord.x;
+                    float dv1 = v1.texCoord.y - v0.texCoord.y;
+                    float du2 = v2.texCoord.x - v0.texCoord.x;
+                    float dv2 = v2.texCoord.y - v0.texCoord.y;
+                #else
+                    float du1 = v1.texCoord[0] - v0.texCoord[0];
+                    float dv1 = v1.texCoord[1] - v0.texCoord[1];
+                    float du2 = v2.texCoord[0] - v0.texCoord[0];
+                    float dv2 = v2.texCoord[1] - v0.texCoord[1];
+                #endif
 
                 XMVECTOR deltaPos1 = p1 - p0;              // Position delta 0->1.
                 XMVECTOR deltaPos2 = p2 - p0;              // Position delta 0->2.
@@ -3255,18 +3285,18 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
 
             for (size_t i = 0; i < model.m_modelInfo.vertices.size(); ++i)
             {
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-                XMVECTOR tan = XMLoadFloat3(&tangentAccum[i]);
-                tan = XMVector3Normalize(tan);
-                XMStoreFloat3(&model.m_modelInfo.vertices[i].tangent, tan);
-#else
-                XMVECTOR tan = XMLoadFloat3(reinterpret_cast<const XMFLOAT3*>(&tangentAccum[i]));
-                tan = XMVector3Normalize(tan);
-                XMStoreFloat3(reinterpret_cast<XMFLOAT3*>(model.m_modelInfo.vertices[i].tangent), tan);
-                // tangent[3] is the handedness sign used by the GLSL shader to compute bitangent.
-                // B = cross(N, T) * tangent.w — must be non-zero or bitangent is always zero.
-                model.m_modelInfo.vertices[i].tangent[3] = 1.0f;
-#endif
+                #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                    XMVECTOR tan = XMLoadFloat3(&tangentAccum[i]);
+                    tan = XMVector3Normalize(tan);
+                    XMStoreFloat3(&model.m_modelInfo.vertices[i].tangent, tan);
+                #else
+                    XMVECTOR tan = XMLoadFloat3(reinterpret_cast<const XMFLOAT3*>(&tangentAccum[i]));
+                    tan = XMVector3Normalize(tan);
+                    XMStoreFloat3(reinterpret_cast<XMFLOAT3*>(model.m_modelInfo.vertices[i].tangent), tan);
+                    // tangent[3] is the handedness sign used by the GLSL shader to compute bitangent.
+                    // B = cross(N, T) * tangent.w — must be non-zero or bitangent is always zero.
+                    model.m_modelInfo.vertices[i].tangent[3] = 1.0f;
+                #endif
             }
         }
 
@@ -3338,19 +3368,19 @@ XMMATRIX SceneManager::GetNodeWorldMatrix(const json& node,
             T = XMMatrixTranslation(dxT.x, dxT.y, dxT.z);
             hasValidTransform = true;
 
-#if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_DEBUG,
-                L"[SceneManager] Translation GLTF=(%.3f,%.3f,%.3f) → DX=(%.3f,%.3f,%.3f)",
-                rawT.x, rawT.y, rawT.z, dxT.x, dxT.y, dxT.z);
-#endif
+            #if defined(_DEBUG_SCENEMANAGER_)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                    L"[SceneManager] Translation GLTF=(%.3f,%.3f,%.3f) → DX=(%.3f,%.3f,%.3f)",
+                    rawT.x, rawT.y, rawT.z, dxT.x, dxT.y, dxT.z);
+            #endif
         }
     }
 
     if (!hasValidTransform)
     {
-#if defined(_DEBUG_SCENEMANAGER_)
-        debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] Node has no transform. Using identity.");
-#endif
+        #if defined(_DEBUG_SCENEMANAGER_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] Node has no transform. Using identity.");
+        #endif
     }
 
     XMMATRIX finalMatrix = T * R * S;
@@ -3375,9 +3405,9 @@ bool SceneManager::ParseMaterialsFromGLTF(const json& doc)
     if (!doc.contains("materials") || !doc["materials"].is_array())
         return false;
 
-#if defined(_DEBUG_SCENEMANAGER_)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"[SceneManager] Parsing GLTF materials[] array.");
-#endif
+    #if defined(_DEBUG_SCENEMANAGER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[SceneManager] Parsing GLTF materials[] array.");
+    #endif
 
     const auto& materials = doc["materials"];
     for (size_t i = 0; i < materials.size(); ++i)
@@ -3406,12 +3436,14 @@ bool SceneManager::ParseMaterialsFromGLTF(const json& doc)
         hasNormalTex = mat.contains("normalTexture");
         hasAoTex     = mat.contains("occlusionTexture");
 
-        debug.logDebugMessage(LogLevel::LOG_DEBUG,
-            L"[SceneManager] Material[%d] \"%hs\"  Kd=(%.2f,%.2f,%.2f,%.2f)  M=%.2f R=%.2f  "
-            L"alpha=%hs  tex=[diff:%d norm:%d orm:%d ao:%d]",
-            (int)i, matName.c_str(), r, g, b, a, metallic, roughness,
-            alphaMode.c_str(),
-            (int)hasDiffuseTex, (int)hasNormalTex, (int)hasOrmTex, (int)hasAoTex);
+        #if defined(_DEBUG_SCENEMANAGER_)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                L"[SceneManager] Material[%d] \"%hs\"  Kd=(%.2f,%.2f,%.2f,%.2f)  M=%.2f R=%.2f  "
+                L"alpha=%hs  tex=[diff:%d norm:%d orm:%d ao:%d]",
+                (int)i, matName.c_str(), r, g, b, a, metallic, roughness,
+                alphaMode.c_str(),
+                (int)hasDiffuseTex, (int)hasNormalTex, (int)hasOrmTex, (int)hasAoTex);
+        #endif
     }
 
     return true;
@@ -3489,8 +3521,10 @@ std::shared_ptr<Texture> SceneManager::LoadGLTFImage(const json& imageEntry, con
         return tex;
     }
 
-    debug.logDebugMessage(LogLevel::LOG_WARNING,
-        L"[SceneManager] LoadGLTFImage: failed to decode embedded image from bufferView %d", bvIdx);
+    #if defined(_DEBUG_SCENEMANAGER_)
+        debug.logDebugMessage(LogLevel::LOG_WARNING,
+            L"[SceneManager] LoadGLTFImage: failed to decode embedded image from bufferView %d", bvIdx);
+    #endif
     return nullptr;
 }
 
@@ -3597,11 +3631,11 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
 
                         if (looksLikeNormal && !hasExplicitNormal)
                         {
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-                            // Register the SRV so DX11/DX12 SetupModelForRendering can find
-                            // this Texture via findTex() and upload it to the GPU correctly.
-                            info.normalMapSRVs.push_back(tex->GetSRV());
-#endif
+                            #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                                // Register the SRV so DX11/DX12 SetupModelForRendering can find
+                                // this Texture via findTex() and upload it to the GPU correctly.
+                                info.normalMapSRVs.push_back(tex->GetSRV());
+                            #endif
                             newMat.normalMap     = tex;
                             newMat.normalMapPath = uri;
                             hasDiffuseTexture    = false;
@@ -3614,13 +3648,13 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
                         }
                         else
                         {
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-                            // Register the SRV so DX11/DX12 SetupModelForRendering can find
-                            // this Texture via findTex() and upload it to the GPU correctly.
-                            // Without this, DX12 sees textureSRVs as empty and loads the
-                            // brick fallback instead of the model's actual diffuse image.
-                            info.textureSRVs.push_back(tex->GetSRV());
-#endif
+                            #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                                // Register the SRV so DX11/DX12 SetupModelForRendering can find
+                                // this Texture via findTex() and upload it to the GPU correctly.
+                                // Without this, DX12 sees textureSRVs as empty and loads the
+                                // brick fallback instead of the model's actual diffuse image.
+                                info.textureSRVs.push_back(tex->GetSRV());
+                            #endif
                             newMat.diffuseTexture = tex;
                             newMat.diffuseMapPath = uri.empty() ? "(embedded)" : uri;
                             hasDiffuseTexture     = true;
@@ -3663,16 +3697,16 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
                     {
                         info.textures.push_back(tex);
                         // Both slots share the same texture; shader samples G for roughness, B for metallic
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-                        info.metallicMap     = tex;
-                        info.roughnessMap    = tex;
-                        info.metallicMapSRV  = tex->GetSRV();
-                        info.roughnessMapSRV = tex->GetSRV();
-#elif defined(__USE_VULKAN__)
-                        // Vulkan: texture view is resolved from newMat.metallicMap in
-                        // the BindGLTFMaterialTexturesToModel Vulkan section below.
-                        // useMetallicMap/useRoughnessMap drive matData.useORM in the material UBO.
-#endif
+                        #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                            info.metallicMap     = tex;
+                            info.roughnessMap    = tex;
+                            info.metallicMapSRV  = tex->GetSRV();
+                            info.roughnessMapSRV = tex->GetSRV();
+                        #elif defined(__USE_VULKAN__)
+                            // Vulkan: texture view is resolved from newMat.metallicMap in
+                            // the BindGLTFMaterialTexturesToModel Vulkan section below.
+                            // useMetallicMap/useRoughnessMap drive matData.useORM in the material UBO.
+                        #endif
                         info.useMetallicMap  = true;
                         info.useRoughnessMap = true;
                         newMat.metallicMap   = tex;
@@ -3728,9 +3762,10 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
         bool solidOk = fallbackTex->CreateSolidColorTexture(1, 1, XMFLOAT4(1.0f, 1.0f, 1.0f, alpha));
 
         info.textures.push_back(fallbackTex);
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-        info.textureSRVs.push_back(fallbackTex->GetSRV());
-#endif
+        #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+            info.textureSRVs.push_back(fallbackTex->GetSRV());
+        #endif
+
         newMat.diffuseTexture = fallbackTex;
         newMat.diffuseMapPath = "SOLID_COLOR";
         info.useDiffuseMap    = false;          // solid-colour: shader uses Kd directly, not texture sample
@@ -3768,9 +3803,9 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
                 {
                     std::string uri = images[imgIndex].value("uri", "");
                     info.textures.push_back(tex);
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-                    info.normalMapSRVs.push_back(tex->GetSRV());
-#endif
+                    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                        info.normalMapSRVs.push_back(tex->GetSRV());
+                    #endif
                     newMat.normalMap     = tex;
                     newMat.normalMapPath = uri.empty() ? "(embedded)" : uri;
 
@@ -3808,14 +3843,14 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
                 {
                     std::string uri = images[imgIndex].value("uri", "");
                     info.textures.push_back(tex);
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-                    info.aoMap    = tex;
-                    info.aoMapSRV = tex->GetSRV();
-#elif defined(__USE_VULKAN__)
-                    // Vulkan: texture view is resolved from newMat.aoMap in the
-                    // BindGLTFMaterialTexturesToModel Vulkan section below.
-                    // useAOMap drives matData.useAO in the material UBO.
-#endif
+                    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                        info.aoMap    = tex;
+                        info.aoMapSRV = tex->GetSRV();
+                    #elif defined(__USE_VULKAN__)
+                        // Vulkan: texture view is resolved from newMat.aoMap in the
+                        // BindGLTFMaterialTexturesToModel Vulkan section below.
+                        // useAOMap drives matData.useAO in the material UBO.
+                    #endif
                     info.useAOMap = true;
                     newMat.aoMap  = tex;
 
@@ -3845,104 +3880,104 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
     info.materials.push_back(newMat.name);
     model.m_materials[newMat.name] = newMat;
 
-#if defined(__USE_VULKAN__)
-    // ---- Vulkan: Upload material UBO and update texture descriptor set ----
-    // The model's materialUniformBuffer was created in SetupModelForRendering with defaults.
-    // Now overwrite it with the actual parsed material values.
-    if (info.materialUniformBufferMapped)
-    {
-        struct VKMatUBO {
-            float Kd[3];       float metallic;
-            float Ka[3];       float roughness;
-            float emissive[3]; float emissiveStrength;
-            float normalScale; float useNormal;  float useORM;        float useAO;
-            float useDiffuseMap; float useGlossMap; float useEmissiveMap; float _pad;
-        };
-        VKMatUBO matData{};
-        matData.Kd[0]            = newMat.Kd.x;
-        matData.Kd[1]            = newMat.Kd.y;
-        matData.Kd[2]            = newMat.Kd.z;
-        matData.metallic         = newMat.Metallic;
-        matData.Ka[0]            = newMat.Ka.x;
-        matData.Ka[1]            = newMat.Ka.y;
-        matData.Ka[2]            = newMat.Ka.z;
-        matData.roughness        = newMat.Roughness;
-        matData.emissive[0]      = newMat.emissiveFactor.x;
-        matData.emissive[1]      = newMat.emissiveFactor.y;
-        matData.emissive[2]      = newMat.emissiveFactor.z;
-        matData.emissiveStrength = newMat.emissiveStrength;
-        matData.normalScale      = newMat.normalScale > 0.0f ? newMat.normalScale : 1.0f;
-        matData.useNormal        = (newMat.normalMap  != nullptr) ? 1.0f : 0.0f;
-        matData.useORM           = (info.useMetallicMap || info.useRoughnessMap) ? 1.0f : 0.0f;
-        matData.useAO            = info.useAOMap ? 1.0f : 0.0f;
-        matData.useDiffuseMap    = info.useDiffuseMap  ? 1.0f : 0.0f;
-        matData.useGlossMap      = info.useGlossMap    ? 1.0f : 0.0f;
-        matData.useEmissiveMap   = info.useEmissiveMap ? 1.0f : 0.0f;
-        std::memcpy(info.materialUniformBufferMapped, &matData, sizeof(matData));
-
-        debug.logDebugMessage(LogLevel::LOG_DEBUG,
-            L"[SceneManager] Model[%d] material \"%hs\" UBO uploaded: "
-            L"Kd=(%.2f,%.2f,%.2f) M=%.2f R=%.2f emit=(%.2f,%.2f,%.2f)x%.2f "
-            L"useNorm=%d useORM=%d useAO=%d useDiff=%d useGloss=%d useEmit=%d",
-            info.ID, newMat.name.c_str(),
-            matData.Kd[0], matData.Kd[1], matData.Kd[2],
-            matData.metallic, matData.roughness,
-            matData.emissive[0], matData.emissive[1], matData.emissive[2], matData.emissiveStrength,
-            (int)matData.useNormal, (int)matData.useORM, (int)matData.useAO,
-            (int)matData.useDiffuseMap, (int)matData.useGlossMap, (int)matData.useEmissiveMap);
-    }
-
-    // Update the per-model texture descriptor set (set=1) with actual textures.
-    // textureDescriptorSet was allocated in SetupModelForRendering with fallback images.
-    if (info.textureDescriptorSet != VK_NULL_HANDLE)
-    {
-        auto vkrPtr = std::dynamic_pointer_cast<VulkanRenderer>(renderer);
-        if (vkrPtr)
+    #if defined(__USE_VULKAN__)
+        // ---- Vulkan: Upload material UBO and update texture descriptor set ----
+        // The model's materialUniformBuffer was created in SetupModelForRendering with defaults.
+        // Now overwrite it with the actual parsed material values.
+        if (info.materialUniformBufferMapped)
         {
-            VkDevice  device  = vkrPtr->GetVkDevice();
-            // UV settings: honour the importer's wrap modes (GLTF sampler
-            // wrapS/wrapT) — falls back to the default REPEAT sampler.
-            VkSampler sampler = vkrPtr->GetSamplerForWrap(info.uvWrapU, info.uvWrapV);
+            struct VKMatUBO {
+                float Kd[3];       float metallic;
+                float Ka[3];       float roughness;
+                float emissive[3]; float emissiveStrength;
+                float normalScale; float useNormal;  float useORM;        float useAO;
+                float useDiffuseMap; float useGlossMap; float useEmissiveMap; float _pad;
+            };
+            VKMatUBO matData{};
+            matData.Kd[0]            = newMat.Kd.x;
+            matData.Kd[1]            = newMat.Kd.y;
+            matData.Kd[2]            = newMat.Kd.z;
+            matData.metallic         = newMat.Metallic;
+            matData.Ka[0]            = newMat.Ka.x;
+            matData.Ka[1]            = newMat.Ka.y;
+            matData.Ka[2]            = newMat.Ka.z;
+            matData.roughness        = newMat.Roughness;
+            matData.emissive[0]      = newMat.emissiveFactor.x;
+            matData.emissive[1]      = newMat.emissiveFactor.y;
+            matData.emissive[2]      = newMat.emissiveFactor.z;
+            matData.emissiveStrength = newMat.emissiveStrength;
+            matData.normalScale      = newMat.normalScale > 0.0f ? newMat.normalScale : 1.0f;
+            matData.useNormal        = (newMat.normalMap  != nullptr) ? 1.0f : 0.0f;
+            matData.useORM           = (info.useMetallicMap || info.useRoughnessMap) ? 1.0f : 0.0f;
+            matData.useAO            = info.useAOMap ? 1.0f : 0.0f;
+            matData.useDiffuseMap    = info.useDiffuseMap  ? 1.0f : 0.0f;
+            matData.useGlossMap      = info.useGlossMap    ? 1.0f : 0.0f;
+            matData.useEmissiveMap   = info.useEmissiveMap ? 1.0f : 0.0f;
+            std::memcpy(info.materialUniformBufferMapped, &matData, sizeof(matData));
 
-            // Resolve views for each slot — fall back to renderer defaults when absent.
-            VkImageView diffuseView = newMat.diffuseTexture && newMat.diffuseTexture->GetImageView() != VK_NULL_HANDLE
-                                    ? newMat.diffuseTexture->GetImageView()
-                                    : vkrPtr->GetDefaultDiffuseView();
-            VkImageView normalView  = newMat.normalMap     && newMat.normalMap->GetImageView()     != VK_NULL_HANDLE
-                                    ? newMat.normalMap->GetImageView()
-                                    : vkrPtr->GetDefaultNormalView();
-            VkImageView ormView     = newMat.metallicMap   && newMat.metallicMap->GetImageView()   != VK_NULL_HANDLE
-                                    ? newMat.metallicMap->GetImageView()
-                                    : vkrPtr->GetDefaultOrmView();
-            VkImageView aoView      = newMat.aoMap         && newMat.aoMap->GetImageView()         != VK_NULL_HANDLE
-                                    ? newMat.aoMap->GetImageView()
-                                    : vkrPtr->GetDefaultAoView();
-            // Gloss/emissive: fall back to white diffuse texture; shader skips sampling when use*Map==0.
-            VkImageView glossView    = newMat.glossMap    && newMat.glossMap->GetImageView()    != VK_NULL_HANDLE
-                                    ? newMat.glossMap->GetImageView()
-                                    : vkrPtr->GetDefaultDiffuseView();
-            VkImageView emissiveView = newMat.emissiveMap && newMat.emissiveMap->GetImageView() != VK_NULL_HANDLE
-                                    ? newMat.emissiveMap->GetImageView()
-                                    : vkrPtr->GetDefaultDiffuseView();
-
-            VkImageView views[6] = { diffuseView, normalView, ormView, aoView, glossView, emissiveView };
-            std::array<VkWriteDescriptorSet, 6> writes{};
-            std::array<VkDescriptorImageInfo,  6> imgInfos{};
-            for (uint32_t b = 0; b < 6; ++b) {
-                imgInfos[b].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                imgInfos[b].imageView   = views[b];
-                imgInfos[b].sampler     = sampler;
-                writes[b].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                writes[b].dstSet          = info.textureDescriptorSet;
-                writes[b].dstBinding      = b;
-                writes[b].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                writes[b].descriptorCount = 1;
-                writes[b].pImageInfo      = &imgInfos[b];
-            }
-            vkUpdateDescriptorSets(device, 6, writes.data(), 0, nullptr);
+            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                L"[SceneManager] Model[%d] material \"%hs\" UBO uploaded: "
+                L"Kd=(%.2f,%.2f,%.2f) M=%.2f R=%.2f emit=(%.2f,%.2f,%.2f)x%.2f "
+                L"useNorm=%d useORM=%d useAO=%d useDiff=%d useGloss=%d useEmit=%d",
+                info.ID, newMat.name.c_str(),
+                matData.Kd[0], matData.Kd[1], matData.Kd[2],
+                matData.metallic, matData.roughness,
+                matData.emissive[0], matData.emissive[1], matData.emissive[2], matData.emissiveStrength,
+                (int)matData.useNormal, (int)matData.useORM, (int)matData.useAO,
+                (int)matData.useDiffuseMap, (int)matData.useGlossMap, (int)matData.useEmissiveMap);
         }
-    }
-#endif
+
+        // Update the per-model texture descriptor set (set=1) with actual textures.
+        // textureDescriptorSet was allocated in SetupModelForRendering with fallback images.
+        if (info.textureDescriptorSet != VK_NULL_HANDLE)
+        {
+            auto vkrPtr = std::dynamic_pointer_cast<VulkanRenderer>(renderer);
+            if (vkrPtr)
+            {
+                VkDevice  device  = vkrPtr->GetVkDevice();
+                // UV settings: honour the importer's wrap modes (GLTF sampler
+                // wrapS/wrapT) — falls back to the default REPEAT sampler.
+                VkSampler sampler = vkrPtr->GetSamplerForWrap(info.uvWrapU, info.uvWrapV);
+
+                // Resolve views for each slot — fall back to renderer defaults when absent.
+                VkImageView diffuseView = newMat.diffuseTexture && newMat.diffuseTexture->GetImageView() != VK_NULL_HANDLE
+                                        ? newMat.diffuseTexture->GetImageView()
+                                        : vkrPtr->GetDefaultDiffuseView();
+                VkImageView normalView  = newMat.normalMap     && newMat.normalMap->GetImageView()     != VK_NULL_HANDLE
+                                        ? newMat.normalMap->GetImageView()
+                                        : vkrPtr->GetDefaultNormalView();
+                VkImageView ormView     = newMat.metallicMap   && newMat.metallicMap->GetImageView()   != VK_NULL_HANDLE
+                                        ? newMat.metallicMap->GetImageView()
+                                        : vkrPtr->GetDefaultOrmView();
+                VkImageView aoView      = newMat.aoMap         && newMat.aoMap->GetImageView()         != VK_NULL_HANDLE
+                                        ? newMat.aoMap->GetImageView()
+                                        : vkrPtr->GetDefaultAoView();
+                // Gloss/emissive: fall back to white diffuse texture; shader skips sampling when use*Map==0.
+                VkImageView glossView    = newMat.glossMap    && newMat.glossMap->GetImageView()    != VK_NULL_HANDLE
+                                        ? newMat.glossMap->GetImageView()
+                                        : vkrPtr->GetDefaultDiffuseView();
+                VkImageView emissiveView = newMat.emissiveMap && newMat.emissiveMap->GetImageView() != VK_NULL_HANDLE
+                                        ? newMat.emissiveMap->GetImageView()
+                                        : vkrPtr->GetDefaultDiffuseView();
+
+                VkImageView views[6] = { diffuseView, normalView, ormView, aoView, glossView, emissiveView };
+                std::array<VkWriteDescriptorSet, 6> writes{};
+                std::array<VkDescriptorImageInfo,  6> imgInfos{};
+                for (uint32_t b = 0; b < 6; ++b) {
+                    imgInfos[b].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                    imgInfos[b].imageView   = views[b];
+                    imgInfos[b].sampler     = sampler;
+                    writes[b].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                    writes[b].dstSet          = info.textureDescriptorSet;
+                    writes[b].dstBinding      = b;
+                    writes[b].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                    writes[b].descriptorCount = 1;
+                    writes[b].pImageInfo      = &imgInfos[b];
+                }
+                vkUpdateDescriptorSets(device, 6, writes.data(), 0, nullptr);
+            }
+        }
+    #endif
 }
 
 // ============================================================================
@@ -3956,100 +3991,104 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
 // ============================================================================
 void SceneManager::UploadFBXMaterialToVulkanModel(const Material& mat, ModelInfo& info)
 {
-#if defined(__USE_VULKAN__)
-    // ---- Material UBO: overwrite the defaults written by SetupModelForRendering ----
-    if (info.materialUniformBufferMapped)
-    {
-        // Layout must match the MatUBO struct in SetupModelForRendering and the shader.
-        struct VKMatUBO {
-            float Kd[3];       float metallic;
-            float Ka[3];       float roughness;
-            float emissive[3]; float emissiveStrength;
-            float normalScale; float useNormal;  float useORM;        float useAO;
-            float useDiffuseMap; float useGlossMap; float useEmissiveMap; float _pad;
-        };
-        VKMatUBO matData{};
-        matData.Kd[0]            = mat.Kd.x;
-        matData.Kd[1]            = mat.Kd.y;
-        matData.Kd[2]            = mat.Kd.z;
-        matData.metallic         = mat.Metallic;
-        matData.Ka[0]            = mat.Ka.x;
-        matData.Ka[1]            = mat.Ka.y;
-        matData.Ka[2]            = mat.Ka.z;
-        matData.roughness        = mat.Roughness;
-        matData.emissive[0]      = mat.emissiveFactor.x;
-        matData.emissive[1]      = mat.emissiveFactor.y;
-        matData.emissive[2]      = mat.emissiveFactor.z;
-        matData.emissiveStrength = mat.emissiveStrength;
-        matData.normalScale      = mat.normalScale > 0.0f ? mat.normalScale : 1.0f;
-        matData.useNormal        = (mat.normalMap != nullptr) ? 1.0f : 0.0f;
-        matData.useORM           = (info.useMetallicMap || info.useRoughnessMap) ? 1.0f : 0.0f;
-        matData.useAO            = info.useAOMap      ? 1.0f : 0.0f;
-        matData.useDiffuseMap    = info.useDiffuseMap ? 1.0f : 0.0f;
-        matData.useGlossMap      = 0.0f;   // FBX importer does not load gloss textures
-        matData.useEmissiveMap   = 0.0f;   // FBX importer does not load emissive textures
-        std::memcpy(info.materialUniformBufferMapped, &matData, sizeof(matData));
-
-        debug.logDebugMessage(LogLevel::LOG_DEBUG,
-            L"[SceneManager] FBX model[%d] material \"%hs\" UBO uploaded: "
-            L"Kd=(%.2f,%.2f,%.2f) M=%.2f R=%.2f useNorm=%d useORM=%d useAO=%d useDiff=%d",
-            info.ID, mat.name.c_str(),
-            matData.Kd[0], matData.Kd[1], matData.Kd[2],
-            matData.metallic, matData.roughness,
-            (int)matData.useNormal, (int)matData.useORM, (int)matData.useAO,
-            (int)matData.useDiffuseMap);
-    }
-
-    // ---- Texture descriptor set (set=1): replace the fallback views ----
-    if (info.textureDescriptorSet != VK_NULL_HANDLE)
-    {
-        auto vkrPtr = std::dynamic_pointer_cast<VulkanRenderer>(renderer);
-        if (vkrPtr)
+    #if defined(__USE_VULKAN__)
+        // ---- Material UBO: overwrite the defaults written by SetupModelForRendering ----
+        if (info.materialUniformBufferMapped)
         {
-            VkDevice  device  = vkrPtr->GetVkDevice();
-            // UV settings: honour the importer's wrap modes (FBX WrapModeU/V)
-            // — falls back to the default REPEAT sampler.
-            VkSampler sampler = vkrPtr->GetSamplerForWrap(info.uvWrapU, info.uvWrapV);
+            // Layout must match the MatUBO struct in SetupModelForRendering and the shader.
+            struct VKMatUBO {
+                float Kd[3];       float metallic;
+                float Ka[3];       float roughness;
+                float emissive[3]; float emissiveStrength;
+                float normalScale; float useNormal;  float useORM;        float useAO;
+                float useDiffuseMap; float useGlossMap; float useEmissiveMap; float _pad;
+            };
+            VKMatUBO matData{};
+            matData.Kd[0]            = mat.Kd.x;
+            matData.Kd[1]            = mat.Kd.y;
+            matData.Kd[2]            = mat.Kd.z;
+            matData.metallic         = mat.Metallic;
+            matData.Ka[0]            = mat.Ka.x;
+            matData.Ka[1]            = mat.Ka.y;
+            matData.Ka[2]            = mat.Ka.z;
+            matData.roughness        = mat.Roughness;
+            matData.emissive[0]      = mat.emissiveFactor.x;
+            matData.emissive[1]      = mat.emissiveFactor.y;
+            matData.emissive[2]      = mat.emissiveFactor.z;
+            matData.emissiveStrength = mat.emissiveStrength;
+            matData.normalScale      = mat.normalScale > 0.0f ? mat.normalScale : 1.0f;
+            matData.useNormal        = (mat.normalMap != nullptr) ? 1.0f : 0.0f;
+            matData.useORM           = (info.useMetallicMap || info.useRoughnessMap) ? 1.0f : 0.0f;
+            matData.useAO            = info.useAOMap      ? 1.0f : 0.0f;
+            matData.useDiffuseMap    = info.useDiffuseMap ? 1.0f : 0.0f;
+            matData.useGlossMap      = info.useGlossMap    ? 1.0f : 0.0f;   // GLTF may have gloss; FBX defaults false
+            matData.useEmissiveMap   = info.useEmissiveMap ? 1.0f : 0.0f;   // GLTF may have emissive; FBX defaults false
+            std::memcpy(info.materialUniformBufferMapped, &matData, sizeof(matData));
 
-            // Resolve views for each slot -- fall back to renderer defaults when absent.
-            VkImageView diffuseView = mat.diffuseTexture && mat.diffuseTexture->GetImageView() != VK_NULL_HANDLE
-                                    ? mat.diffuseTexture->GetImageView()
-                                    : vkrPtr->GetDefaultDiffuseView();
-            VkImageView normalView  = mat.normalMap     && mat.normalMap->GetImageView()     != VK_NULL_HANDLE
-                                    ? mat.normalMap->GetImageView()
-                                    : vkrPtr->GetDefaultNormalView();
-            VkImageView ormView     = mat.metallicMap   && mat.metallicMap->GetImageView()   != VK_NULL_HANDLE
-                                    ? mat.metallicMap->GetImageView()
-                                    : vkrPtr->GetDefaultOrmView();
-            VkImageView aoView      = mat.aoMap         && mat.aoMap->GetImageView()         != VK_NULL_HANDLE
-                                    ? mat.aoMap->GetImageView()
-                                    : vkrPtr->GetDefaultAoView();
-            // Gloss/emissive: white diffuse fallback; shader skips sampling when use*Map==0.
-            VkImageView glossView    = vkrPtr->GetDefaultDiffuseView();
-            VkImageView emissiveView = vkrPtr->GetDefaultDiffuseView();
-
-            VkImageView views[6] = { diffuseView, normalView, ormView, aoView, glossView, emissiveView };
-            std::array<VkWriteDescriptorSet, 6> writes{};
-            std::array<VkDescriptorImageInfo,  6> imgInfos{};
-            for (uint32_t b = 0; b < 6; ++b) {
-                imgInfos[b].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                imgInfos[b].imageView   = views[b];
-                imgInfos[b].sampler     = sampler;
-                writes[b].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                writes[b].dstSet          = info.textureDescriptorSet;
-                writes[b].dstBinding      = b;
-                writes[b].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                writes[b].descriptorCount = 1;
-                writes[b].pImageInfo      = &imgInfos[b];
-            }
-            vkUpdateDescriptorSets(device, 6, writes.data(), 0, nullptr);
+            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                L"[SceneManager] FBX model[%d] material \"%hs\" UBO uploaded: "
+                L"Kd=(%.2f,%.2f,%.2f) M=%.2f R=%.2f useNorm=%d useORM=%d useAO=%d useDiff=%d",
+                info.ID, mat.name.c_str(),
+                matData.Kd[0], matData.Kd[1], matData.Kd[2],
+                matData.metallic, matData.roughness,
+                (int)matData.useNormal, (int)matData.useORM, (int)matData.useAO,
+                (int)matData.useDiffuseMap);
         }
-    }
-#else
-    // Non-Vulkan builds: material data flows through m_materials / SRV slots instead.
-    (void)mat;
-    (void)info;
-#endif
+
+        // ---- Texture descriptor set (set=1): replace the fallback views ----
+        if (info.textureDescriptorSet != VK_NULL_HANDLE)
+        {
+            auto vkrPtr = std::dynamic_pointer_cast<VulkanRenderer>(renderer);
+            if (vkrPtr)
+            {
+                VkDevice  device  = vkrPtr->GetVkDevice();
+                // UV settings: honour the importer's wrap modes (FBX WrapModeU/V)
+                // — falls back to the default REPEAT sampler.
+                VkSampler sampler = vkrPtr->GetSamplerForWrap(info.uvWrapU, info.uvWrapV);
+
+                // Resolve views for each slot -- fall back to renderer defaults when absent.
+                VkImageView diffuseView = mat.diffuseTexture && mat.diffuseTexture->GetImageView() != VK_NULL_HANDLE
+                                        ? mat.diffuseTexture->GetImageView()
+                                        : vkrPtr->GetDefaultDiffuseView();
+                VkImageView normalView  = mat.normalMap     && mat.normalMap->GetImageView()     != VK_NULL_HANDLE
+                                        ? mat.normalMap->GetImageView()
+                                        : vkrPtr->GetDefaultNormalView();
+                VkImageView ormView     = mat.metallicMap   && mat.metallicMap->GetImageView()   != VK_NULL_HANDLE
+                                        ? mat.metallicMap->GetImageView()
+                                        : vkrPtr->GetDefaultOrmView();
+                VkImageView aoView      = mat.aoMap         && mat.aoMap->GetImageView()         != VK_NULL_HANDLE
+                                        ? mat.aoMap->GetImageView()
+                                        : vkrPtr->GetDefaultAoView();
+                // Gloss/emissive: use loaded views when present; shader skips sampling when use*Map==0.
+                VkImageView glossView    = mat.glossMap    && mat.glossMap->GetImageView()    != VK_NULL_HANDLE
+                                        ? mat.glossMap->GetImageView()
+                                        : vkrPtr->GetDefaultDiffuseView();
+                VkImageView emissiveView = mat.emissiveMap && mat.emissiveMap->GetImageView() != VK_NULL_HANDLE
+                                        ? mat.emissiveMap->GetImageView()
+                                        : vkrPtr->GetDefaultDiffuseView();
+
+                VkImageView views[6] = { diffuseView, normalView, ormView, aoView, glossView, emissiveView };
+                std::array<VkWriteDescriptorSet, 6> writes{};
+                std::array<VkDescriptorImageInfo,  6> imgInfos{};
+                for (uint32_t b = 0; b < 6; ++b) {
+                    imgInfos[b].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                    imgInfos[b].imageView   = views[b];
+                    imgInfos[b].sampler     = sampler;
+                    writes[b].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                    writes[b].dstSet          = info.textureDescriptorSet;
+                    writes[b].dstBinding      = b;
+                    writes[b].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                    writes[b].descriptorCount = 1;
+                    writes[b].pImageInfo      = &imgInfos[b];
+                }
+                vkUpdateDescriptorSets(device, 6, writes.data(), 0, nullptr);
+            }
+        }
+    #else
+        // Non-Vulkan builds: material data flows through m_materials / SRV slots instead.
+        (void)mat;
+        (void)info;
+    #endif
 }
 
 // ============================================================================
@@ -4149,51 +4188,51 @@ void SceneManager::ParseFBXCameras(const FBXScene& fbx)
         cam.SetFieldOfView(first.fovYDeg);
 
         // Camera apply: DX uses XMMATRIX/XMFLOAT3; Vulkan/OpenGL uses glm types.
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-        cam.position = first.position;
-        cam.target   = first.target;
-        cam.up       = first.up;
+        #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+            cam.position = first.position;
+            cam.target   = first.target;
+            cam.up       = first.up;
 
-        cam.SetProjectionMatrix(XMMatrixPerspectiveFovLH(fovRad, aspect, first.nearPlane, first.farPlane));
+            cam.SetProjectionMatrix(XMMatrixPerspectiveFovLH(fovRad, aspect, first.nearPlane, first.farPlane));
 
-        const XMVECTOR eye = XMVectorSet(first.position.x, first.position.y, first.position.z, 1.0f);
-        const XMVECTOR tgt = XMVectorSet(first.target.x,   first.target.y,   first.target.z,   1.0f);
-        const XMVECTOR up  = XMVectorSet(first.up.x,       first.up.y,       first.up.z,        0.0f);
-        cam.SetViewMatrix(XMMatrixLookAtLH(eye, tgt, up));
+            const XMVECTOR eye = XMVectorSet(first.position.x, first.position.y, first.position.z, 1.0f);
+            const XMVECTOR tgt = XMVectorSet(first.target.x,   first.target.y,   first.target.z,   1.0f);
+            const XMVECTOR up  = XMVectorSet(first.up.x,       first.up.y,       first.up.z,        0.0f);
+            cam.SetViewMatrix(XMMatrixLookAtLH(eye, tgt, up));
 
-        // Keep forward in sync so SetYawPitchFromForward() below uses the new view
-        XMStoreFloat3(&cam.forward, XMVector3Normalize(XMVectorSubtract(tgt, eye)));
+            // Keep forward in sync so SetYawPitchFromForward() below uses the new view
+            XMStoreFloat3(&cam.forward, XMVector3Normalize(XMVectorSubtract(tgt, eye)));
 
-        // Flag so the loader thread does not override with SetupDefaultCamera
-        cam.bCameraJumped = true;
-#else
-        cam.position = glm::vec3(first.position.x, first.position.y, first.position.z);
-        cam.target   = glm::vec3(first.target.x,   first.target.y,   first.target.z);
-        cam.up       = glm::vec3(first.up.x,        first.up.y,       first.up.z);
+            // Flag so the loader thread does not override with SetupDefaultCamera
+            cam.bCameraJumped = true;
+        #else
+            cam.position = glm::vec3(first.position.x, first.position.y, first.position.z);
+            cam.target   = glm::vec3(first.target.x,   first.target.y,   first.target.z);
+            cam.up       = glm::vec3(first.up.x,        first.up.y,       first.up.z);
 
-    #if defined(__USE_OPENGL__)
-        // Left-handed projection -- matches OpenGLCamera's perspectiveLH_NO convention
-        cam.SetProjectionMatrix(glm::perspectiveLH_NO(fovRad, aspect, first.nearPlane, first.farPlane));
-    #elif defined(__USE_VULKAN__)
-        // Vulkan LH [0,1]-depth projection with Y-down NDC flip -- rebuilt internally
-        // from the near/far/FOV values applied via SetNearFarPlanes/SetFieldOfView above
-        cam.UpdateProjectionMatrix();
-    #endif
+            #if defined(__USE_OPENGL__)
+                // Left-handed projection -- matches OpenGLCamera's perspectiveLH_NO convention
+                cam.SetProjectionMatrix(glm::perspectiveLH_NO(fovRad, aspect, first.nearPlane, first.farPlane));
+            #elif defined(__USE_VULKAN__)
+                // Vulkan LH [0,1]-depth projection with Y-down NDC flip -- rebuilt internally
+                // from the near/far/FOV values applied via SetNearFarPlanes/SetFieldOfView above
+                cam.UpdateProjectionMatrix();
+            #endif
 
-        // lookAtLH: glm::lookAt (RH) mirrored the scene on screen X relative to the
-        // left-handed view matrices used everywhere else in the GL/Vulkan camera code.
-        cam.viewMatrix = glm::lookAtLH(
-            glm::vec3(first.position.x, first.position.y, first.position.z),
-            glm::vec3(first.target.x,   first.target.y,   first.target.z),
-            glm::vec3(first.up.x,       first.up.y,       first.up.z));
+            // lookAtLH: glm::lookAt (RH) mirrored the scene on screen X relative to the
+            // left-handed view matrices used everywhere else in the GL/Vulkan camera code.
+            cam.viewMatrix = glm::lookAtLH(
+                glm::vec3(first.position.x, first.position.y, first.position.z),
+                glm::vec3(first.target.x,   first.target.y,   first.target.z),
+                glm::vec3(first.up.x,       first.up.y,       first.up.z));
 
-        // Keep forward in sync so SetYawPitchFromForward() below uses the new view
-        cam.forward = glm::normalize(cam.target - cam.position);
+            // Keep forward in sync so SetYawPitchFromForward() below uses the new view
+            cam.forward = glm::normalize(cam.target - cam.position);
 
-        // Flag so the loader thread does not override with SetupDefaultCamera / SetPosition.
-        // Mirrors the DX11/DX12 branch above — must be set for all renderer paths.
-        cam.bCameraJumped = true;
-#endif
+            // Flag so the loader thread does not override with SetupDefaultCamera / SetPosition.
+            // Mirrors the DX11/DX12 branch above — must be set for all renderer paths.
+            cam.bCameraJumped = true;
+        #endif
 
         // Derive yaw/pitch from the computed forward vector so mouse look stays consistent
         cam.SetYawPitchFromForward();
@@ -4257,34 +4296,35 @@ bool SceneManager::GotoCamera(const std::wstring& cameraName, bool AnimateToward
     cam.SetNearFarPlanes(found->nearPlane, found->farPlane);
     cam.SetFieldOfView(found->fovYDeg);
 
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-    cam.SetProjectionMatrix(XMMatrixPerspectiveFovLH(fovRad, aspect, found->nearPlane, found->farPlane));
-#else
-    cam.SetProjectionMatrix(glm::perspective(fovRad, aspect, found->nearPlane, found->farPlane));
-#endif
+    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+        cam.SetProjectionMatrix(XMMatrixPerspectiveFovLH(fovRad, aspect, found->nearPlane, found->farPlane));
+    #else
+        cam.SetProjectionMatrix(glm::perspective(fovRad, aspect, found->nearPlane, found->farPlane));
+    #endif
 
     if (!AnimateTowards)
     {
         // Instant jump: apply position, target, and view matrix in one step
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-        cam.position = found->position;
-        cam.target   = found->target;
-        cam.up       = found->up;
+        #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+            cam.position = found->position;
+            cam.target   = found->target;
+            cam.up       = found->up;
 
-        const XMVECTOR eye = XMVectorSet(found->position.x, found->position.y, found->position.z, 1.0f);
-        const XMVECTOR tgt = XMVectorSet(found->target.x,   found->target.y,   found->target.z,   1.0f);
-        const XMVECTOR up  = XMVectorSet(found->up.x,       found->up.y,       found->up.z,        0.0f);
-        cam.SetViewMatrix(XMMatrixLookAtLH(eye, tgt, up));
-#else
-        cam.position = glm::vec3(found->position.x, found->position.y, found->position.z);
-        cam.target   = glm::vec3(found->target.x,   found->target.y,   found->target.z);
-        cam.up       = glm::vec3(found->up.x,        found->up.y,       found->up.z);
+            const XMVECTOR eye = XMVectorSet(found->position.x, found->position.y, found->position.z, 1.0f);
+            const XMVECTOR tgt = XMVectorSet(found->target.x,   found->target.y,   found->target.z,   1.0f);
+            const XMVECTOR up  = XMVectorSet(found->up.x,       found->up.y,       found->up.z,        0.0f);
+            cam.SetViewMatrix(XMMatrixLookAtLH(eye, tgt, up));
+        #else
+            cam.position = glm::vec3(found->position.x, found->position.y, found->position.z);
+            cam.target   = glm::vec3(found->target.x,   found->target.y,   found->target.z);
+            cam.up       = glm::vec3(found->up.x,        found->up.y,       found->up.z);
 
-        cam.viewMatrix = glm::lookAt(
-            glm::vec3(found->position.x, found->position.y, found->position.z),
-            glm::vec3(found->target.x,   found->target.y,   found->target.z),
-            glm::vec3(found->up.x,       found->up.y,       found->up.z));
-#endif
+            cam.viewMatrix = glm::lookAt(
+                glm::vec3(found->position.x, found->position.y, found->position.z),
+                glm::vec3(found->target.x,   found->target.y,   found->target.z),
+                glm::vec3(found->up.x,       found->up.y,       found->up.z));
+        #endif
+
         cam.SetYawPitchFromForward();
 
         #if defined(_DEBUG_SCENEMANAGER_)
@@ -4296,13 +4336,14 @@ bool SceneManager::GotoCamera(const std::wstring& cameraName, bool AnimateToward
     else
     {
         // Animated jump: set target and up immediately; JumpTo() handles smooth position animation.
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-        cam.target = found->target;
-        cam.up     = found->up;
-#else
-        cam.target = glm::vec3(found->target.x, found->target.y, found->target.z);
-        cam.up     = glm::vec3(found->up.x,     found->up.y,     found->up.z);
-#endif
+        #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+            cam.target = found->target;
+            cam.up     = found->up;
+        #else
+            cam.target = glm::vec3(found->target.x, found->target.y, found->target.z);
+            cam.up     = glm::vec3(found->up.x,     found->up.y,     found->up.z);
+        #endif
+
         cam.JumpTo(found->position.x, found->position.y, found->position.z,
                    2 /*speed*/, true /*FocusOnTarget*/);
 
@@ -4329,9 +4370,9 @@ void SceneManager::ParseGLTFCamera(const nlohmann::json& gltf, Camera& camera, f
         bGltfCameraParsed = false;
         if (!gltf.contains("nodes") || !gltf.contains("cameras"))
         {
-#if defined(_DEBUG_CAMERA_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[GLTF]: No cameras or nodes found. Reverting to SetupDefaultCamera().");
-#endif
+            #if defined(_DEBUG_CAMERA_)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[GLTF]: No cameras or nodes found. Reverting to SetupDefaultCamera().");
+            #endif
     		camera.SetupDefaultCamera(windowWidth, windowHeight);
 
             return;
@@ -4353,9 +4394,10 @@ void SceneManager::ParseGLTFCamera(const nlohmann::json& gltf, Camera& camera, f
 
         if (cameraNodeIndex == -1)
         {
-#if defined(_DEBUG_CAMERA_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[GLTF]: No camera node found. Reverting to SetupDefaultCamera().");
-#endif
+            #if defined(_DEBUG_CAMERA_)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[GLTF]: No camera node found. Reverting to SetupDefaultCamera().");
+            #endif
+
             camera.SetupDefaultCamera(windowWidth, windowHeight);
             return;
         }
@@ -4365,9 +4407,9 @@ void SceneManager::ParseGLTFCamera(const nlohmann::json& gltf, Camera& camera, f
 
         if (camIndex < 0 || camIndex >= (int)cameras.size())
         {
-#if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[GLTF]: Invalid camera index (%d). Reverting to default.", camIndex);
-#endif
+            #if defined(_DEBUG_CAMERA_)
+                debug.logDebugMessage(LogLevel::LOG_WARNING, L"[GLTF]: Invalid camera index (%d). Reverting to default.", camIndex);
+            #endif
             camera.SetupDefaultCamera(windowWidth, windowHeight);
             return;
         }
@@ -4375,9 +4417,10 @@ void SceneManager::ParseGLTFCamera(const nlohmann::json& gltf, Camera& camera, f
         const auto& cam = cameras[camIndex];
         if (!cam.contains("type") || cam["type"] != "perspective" || !cam.contains("perspective"))
         {
-#if defined(_DEBUG_CAMERA_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[GLTF]: Unsupported camera type or missing perspective.");
-#endif
+            #if defined(_DEBUG_CAMERA_)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[GLTF]: Unsupported camera type or missing perspective.");
+            #endif
+
             camera.SetupDefaultCamera(windowWidth, windowHeight);
             return;
         }
@@ -4395,21 +4438,21 @@ void SceneManager::ParseGLTFCamera(const nlohmann::json& gltf, Camera& camera, f
 
         float aspect = persp.value("aspectRatio", windowWidth / windowHeight);
 
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-        camera.SetProjectionMatrix(XMMatrixPerspectiveFovLH(yfov, aspect, nearZ, farZ));
-#elif defined(__USE_OPENGL__)
-        // Left-handed projection to match OpenGLCamera's perspectiveLH_NO convention.
-        // glm::perspective is right-handed and mirrors the scene on screen X relative
-        // to every other view/projection build in the engine.
-        camera.SetProjectionMatrix(glm::perspectiveLH_NO(yfov, aspect, nearZ, farZ));
-#elif defined(__USE_VULKAN__)
-        // Vulkan requires the left-handed [0,1]-depth projection with the Y-down NDC
-        // flip (VulkanCamera::MakeVulkanProjection).  Feed the GLTF parameters through
-        // the camera's own rebuild path instead of glm::perspective (RH, [-1,1] depth).
-        camera.SetNearFarPlanes(nearZ, farZ);
-        camera.SetFieldOfView(glm::degrees(yfov));
-        camera.UpdateProjectionMatrix();
-#endif
+        #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+            camera.SetProjectionMatrix(XMMatrixPerspectiveFovLH(yfov, aspect, nearZ, farZ));
+        #elif defined(__USE_OPENGL__)
+            // Left-handed projection to match OpenGLCamera's perspectiveLH_NO convention.
+            // glm::perspective is right-handed and mirrors the scene on screen X relative
+            // to every other view/projection build in the engine.
+            camera.SetProjectionMatrix(glm::perspectiveLH_NO(yfov, aspect, nearZ, farZ));
+        #elif defined(__USE_VULKAN__)
+            // Vulkan requires the left-handed [0,1]-depth projection with the Y-down NDC
+            // flip (VulkanCamera::MakeVulkanProjection).  Feed the GLTF parameters through
+            // the camera's own rebuild path instead of glm::perspective (RH, [-1,1] depth).
+            camera.SetNearFarPlanes(nearZ, farZ);
+            camera.SetFieldOfView(glm::degrees(yfov));
+            camera.UpdateProjectionMatrix();
+        #endif
 
         // --- Eye Position
         XMFLOAT3 eyePos = { 0.0f, 0.0f, -5.0f };
@@ -4425,9 +4468,9 @@ void SceneManager::ParseGLTFCamera(const nlohmann::json& gltf, Camera& camera, f
                 eyePos.y *= 0.01f;
                 eyePos.z *= 0.01f;
 
-#if defined(_DEBUG_CAMERA_)
-                debug.logLevelMessage(LogLevel::LOG_INFO, L"[SceneManager] Sketchfab Camera: Applied 0.01 scale to eye position.");
-#endif
+                #if defined(_DEBUG_CAMERA_)
+                    debug.logLevelMessage(LogLevel::LOG_INFO, L"[SceneManager] Sketchfab Camera: Applied 0.01 scale to eye position.");
+                #endif
             }
 
             // GLTF node translation is RH Y-up -- convert to engine LH space with the
@@ -4462,18 +4505,18 @@ void SceneManager::ParseGLTFCamera(const nlohmann::json& gltf, Camera& camera, f
             forward = XMVector3TransformNormal(XMVectorSet(0, 0, 1, 0), rotMatrix);
             target = XMVectorAdd(eye, forward);
 
-#if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_INFO, L"[GLTF CAMERA] Forward Quaternion = (%.3f, %.3f, %.3f, %.3f)", qx, qy, qz, qw);
-            debug.logDebugMessage(LogLevel::LOG_INFO, L"[GLTF CAMERA] EyePos = (%.3f, %.3f, %.3f)", eyePos.x, eyePos.y, eyePos.z);
-            debug.logDebugMessage(LogLevel::LOG_INFO, L"[GLTF CAMERA] Forward Vector = (%.3f, %.3f, %.3f)",
-                XMVectorGetX(forward), XMVectorGetY(forward), XMVectorGetZ(forward));
-#endif
+            #if defined(_DEBUG_CAMERA_)
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"[GLTF CAMERA] Forward Quaternion = (%.3f, %.3f, %.3f, %.3f)", qx, qy, qz, qw);
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"[GLTF CAMERA] EyePos = (%.3f, %.3f, %.3f)", eyePos.x, eyePos.y, eyePos.z);
+                debug.logDebugMessage(LogLevel::LOG_INFO, L"[GLTF CAMERA] Forward Vector = (%.3f, %.3f, %.3f)",
+                    XMVectorGetX(forward), XMVectorGetY(forward), XMVectorGetZ(forward));
+            #endif
         }
         else
         {
-#if defined(_DEBUG_CAMERA_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[GLTF CAMERA] Missing rotation quaternion, using default forward.");
-#endif
+            #if defined(_DEBUG_CAMERA_)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[GLTF CAMERA] Missing rotation quaternion, using default forward.");
+            #endif
             target = XMVectorAdd(eye, forward);                                 // Use initialized default forward vector.
         }
 
@@ -4485,9 +4528,9 @@ void SceneManager::ParseGLTFCamera(const nlohmann::json& gltf, Camera& camera, f
             forward = XMVectorScale(forward, 0.01f);                    // scale camera's forward distance too
             target = XMVectorAdd(eye, forward);
 
-#if defined(_DEBUG_CAMERA_)
-            debug.logLevelMessage(LogLevel::LOG_INFO, L"[SceneManager] Sketchfab camera forward vector rotated +90°X to match model patch.");
-#endif
+            #if defined(_DEBUG_CAMERA_)
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"[SceneManager] Sketchfab camera forward vector rotated +90°X to match model patch.");
+            #endif
         }
 
         // --- Final View Matrix
@@ -4495,22 +4538,22 @@ void SceneManager::ParseGLTFCamera(const nlohmann::json& gltf, Camera& camera, f
         XMMATRIX view = XMMatrixLookAtLH(eye, target, upVec);
 
         // --- FIX: Enforce GLTF start position and orientation
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-        camera.viewMatrix = view;
-        camera.position = eyePos;
-        camera.target = XMFLOAT3(XMVectorGetX(target), XMVectorGetY(target), XMVectorGetZ(target));
-        XMStoreFloat3(&camera.forward, XMVector3Normalize(forward));           // Keep forward in sync with the view
-#else
-        // lookAtLH: every other view-matrix build in the OpenGL/Vulkan camera code is
-        // left-handed -- glm::lookAt (RH) here mirrored the scene on screen X.
-        camera.viewMatrix = glm::lookAtLH(
-            glm::vec3(eyePos.x, eyePos.y, eyePos.z),
-            glm::vec3(XMVectorGetX(target), XMVectorGetY(target), XMVectorGetZ(target)),
-            glm::vec3(0.0f, 1.0f, 0.0f));
-        camera.position = glm::vec3(eyePos.x, eyePos.y, eyePos.z);
-        camera.target   = glm::vec3(XMVectorGetX(target), XMVectorGetY(target), XMVectorGetZ(target));
-        camera.forward  = glm::normalize(camera.target - camera.position);     // Keep forward in sync with the view
-#endif
+        #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+            camera.viewMatrix = view;
+            camera.position = eyePos;
+            camera.target = XMFLOAT3(XMVectorGetX(target), XMVectorGetY(target), XMVectorGetZ(target));
+            XMStoreFloat3(&camera.forward, XMVector3Normalize(forward));           // Keep forward in sync with the view
+        #else
+            // lookAtLH: every other view-matrix build in the OpenGL/Vulkan camera code is
+            // left-handed -- glm::lookAt (RH) here mirrored the scene on screen X.
+            camera.viewMatrix = glm::lookAtLH(
+                glm::vec3(eyePos.x, eyePos.y, eyePos.z),
+                glm::vec3(XMVectorGetX(target), XMVectorGetY(target), XMVectorGetZ(target)),
+                glm::vec3(0.0f, 1.0f, 0.0f));
+            camera.position = glm::vec3(eyePos.x, eyePos.y, eyePos.z);
+            camera.target   = glm::vec3(XMVectorGetX(target), XMVectorGetY(target), XMVectorGetZ(target));
+            camera.forward  = glm::normalize(camera.target - camera.position);     // Keep forward in sync with the view
+        #endif
         // Sync yaw/pitch with the scene-defined view so the first mouse-look does not
         // snap the camera back to the stale yaw=0/pitch=0 orientation.
         camera.SetYawPitchFromForward();
@@ -4538,9 +4581,9 @@ bool SceneManager::ParseGLTFLights(const json& doc)
     if (!doc.contains("extensions") || !doc["extensions"].contains("KHR_lights_punctual"))
         return false;
 
-#if defined(_DEBUG_SCENEMANAGER_)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"[SceneManager] Parsing KHR_lights_punctual extension.");
-#endif
+    #if defined(_DEBUG_SCENEMANAGER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[SceneManager] Parsing KHR_lights_punctual extension.");
+    #endif
 
     const auto& ext = doc["extensions"]["KHR_lights_punctual"];
     const auto& lights = ext["lights"];
@@ -4614,13 +4657,13 @@ bool SceneManager::ParseGLTFLights(const json& doc)
         std::wstring lightName = L"GLTF_Light_" + std::to_wstring(lightIndex);
         lightsManager.CreateLight(lightName, lref);
 
-#if defined(_DEBUG_SCENEMANAGER_)
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Light[%d] Bound: Type=%d Pos=(%.2f, %.2f, %.2f) Dir=(%.2f, %.2f, %.2f) Color=(%.2f, %.2f, %.2f)",
-            (int)lightIndex, lref.type,
-            lref.position.x, lref.position.y, lref.position.z,
-            lref.direction.x, lref.direction.y, lref.direction.z,
-            lref.color.x, lref.color.y, lref.color.z);
-#endif
+        #if defined(_DEBUG_SCENEMANAGER_)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Light[%d] Bound: Type=%d Pos=(%.2f, %.2f, %.2f) Dir=(%.2f, %.2f, %.2f) Color=(%.2f, %.2f, %.2f)",
+                (int)lightIndex, lref.type,
+                lref.position.x, lref.position.y, lref.position.z,
+                lref.direction.x, lref.direction.y, lref.direction.z,
+                lref.color.x, lref.color.y, lref.color.z);
+        #endif
     }
 
     // --- Register unbound lights as globals ---
@@ -4635,17 +4678,48 @@ bool SceneManager::ParseGLTFLights(const json& doc)
         std::wstring lightName = L"GLTF_Light_" + std::to_wstring(i);
         lightsManager.CreateLight(lightName, lref);
 
-#if defined(_DEBUG_SCENEMANAGER_)
-        debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] Light[%d] Unbound: Defaulted to origin and forward.", (int)i);
-#endif
+        #if defined(_DEBUG_SCENEMANAGER_)
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] Light[%d] Unbound: Defaulted to origin and forward.", (int)i);
+        #endif
     }
 
-#if defined(_DEBUG_SCENEMANAGER_)
-    debug.logDebugMessage(LogLevel::LOG_INFO,
-        L"[SceneManager] ParseGLTFLights() completed. Total lights created: %d", (int)parsedLights.size());
-#endif
+    #if defined(_DEBUG_SCENEMANAGER_)
+        debug.logDebugMessage(LogLevel::LOG_INFO,
+            L"[SceneManager] ParseGLTFLights() completed. Total lights created: %d", (int)parsedLights.size());
+    #endif
 
     return !parsedLights.empty();
+}
+
+// ==================================================================================================
+// SceneManager::EnsureDefaultSunLight()
+// Called after every scene lights-parse step. If the lightsManager is still empty (the scene had
+// no embedded lights), injects a single default directional sun so that DX11/DX12/GL/Vulkan shaders
+// never receive globalLightCount == 0 and render models black.
+// ==================================================================================================
+void SceneManager::EnsureDefaultSunLight()
+{
+    if (lightsManager.GetLightCount() > 0)
+        return;
+
+    LightStruct sun    = {};
+    sun.type           = int(LightType::DIRECTIONAL);
+    sun.active         = 1;
+    sun.color          = XMFLOAT3(1.0f, 0.95f, 0.88f);  // warm white sunlight
+    sun.ambient        = XMFLOAT3(0.25f, 0.25f, 0.28f); // soft blue-grey fill light
+    sun.intensity      = 1.5f;
+    sun.baseIntensity  = 1.5f;
+    sun.direction      = XMFLOAT3(0.3f, -0.7f, -0.6f);  // from upper-left front
+    sun.range          = 10000.0f;
+    sun.animMode       = int(LightAnimMode::None);
+    sun.Shiningness    = 32.0f;
+    sun.Reflection     = 0.5f;
+
+    lightsManager.CreateLight(L"DefaultSun", sun);
+    #if defined(_DEBUG_SCENEMANAGER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO,
+            L"[SceneManager] No scene lights found -- injected DefaultSun directional light");
+    #endif
 }
 
 // ==================================================================================================
@@ -4736,6 +4810,7 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
 
     bLoadedFromCache = false;
     m_fbxCameras.clear();   // always start fresh — stale cameras from a prior scene must not persist
+    lightsManager.ClearLights(); // clear lights from any prior scene before parsing new ones
 
     // Loading-text progress helper -- same pattern as showStage in IOLoaderThread.
     auto showStage = [](const wchar_t* msg) {
@@ -4829,6 +4904,7 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
                     }
                     lightsManager.CreateLight(L"FBX_Light_" + std::to_wstring(li), ls);
                 }
+                EnsureDefaultSunLight();
 
                 debug.logLevelMessage(LogLevel::LOG_INFO,
                     (L"[SceneManager] FBX CACHE-RESTORE: parsed OK -- models=" +
@@ -4866,55 +4942,55 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
 
                         // GPU rebuild check -- device reset / cache.dat restore
                         bool gpuRebuildNeeded = false;
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-                        if (!scene_models[idx].m_modelInfo.vertexBuffer  ||
-                            !scene_models[idx].m_modelInfo.indexBuffer   ||
-                            !scene_models[idx].m_modelInfo.constantBuffer)
-                            gpuRebuildNeeded = true;
-#elif defined(__USE_VULKAN__)
-                        if (scene_models[idx].m_modelInfo.vertexBuffer  == VK_NULL_HANDLE ||
-                            scene_models[idx].m_modelInfo.indexBuffer   == VK_NULL_HANDLE ||
-                            scene_models[idx].m_modelInfo.uniformBuffer == VK_NULL_HANDLE)
-                            gpuRebuildNeeded = true;
-#elif defined(__USE_OPENGL__)
-                        if (scene_models[idx].m_modelInfo.VAO == 0 ||
-                            scene_models[idx].m_modelInfo.VBO == 0 ||
-                            scene_models[idx].m_modelInfo.EBO == 0)
-                            gpuRebuildNeeded = true;
-#endif
+                        #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                            if (!scene_models[idx].m_modelInfo.vertexBuffer  ||
+                                !scene_models[idx].m_modelInfo.indexBuffer   ||
+                                !scene_models[idx].m_modelInfo.constantBuffer)
+                                gpuRebuildNeeded = true;
+                        #elif defined(__USE_VULKAN__)
+                            if (scene_models[idx].m_modelInfo.vertexBuffer  == VK_NULL_HANDLE ||
+                                scene_models[idx].m_modelInfo.indexBuffer   == VK_NULL_HANDLE ||
+                                scene_models[idx].m_modelInfo.uniformBuffer == VK_NULL_HANDLE)
+                                gpuRebuildNeeded = true;
+                        #elif defined(__USE_OPENGL__)
+                            if (scene_models[idx].m_modelInfo.VAO == 0 ||
+                                scene_models[idx].m_modelInfo.VBO == 0 ||
+                                scene_models[idx].m_modelInfo.EBO == 0)
+                                gpuRebuildNeeded = true;
+                        #endif
                         if (gpuRebuildNeeded && !scene_models[idx].m_modelInfo.vertices.empty())
                         {
                             scene_models[idx].SetupModelForRendering(idx);
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-                            models[m].m_modelInfo.vertexBuffer        = scene_models[idx].m_modelInfo.vertexBuffer;
-                            models[m].m_modelInfo.indexBuffer         = scene_models[idx].m_modelInfo.indexBuffer;
-                            models[m].m_modelInfo.constantBuffer      = scene_models[idx].m_modelInfo.constantBuffer;
-                            models[m].m_modelInfo.lightConstantBuffer = scene_models[idx].m_modelInfo.lightConstantBuffer;
-                            models[m].m_modelInfo.materialBuffer      = scene_models[idx].m_modelInfo.materialBuffer;
-                            models[m].m_modelInfo.samplerState        = scene_models[idx].m_modelInfo.samplerState;
-                            models[m].m_modelInfo.textureSRVs         = scene_models[idx].m_modelInfo.textureSRVs;
-                            models[m].m_modelInfo.normalMapSRVs       = scene_models[idx].m_modelInfo.normalMapSRVs;
-#elif defined(__USE_VULKAN__)
-                            models[m].m_modelInfo.vertexBuffer               = scene_models[idx].m_modelInfo.vertexBuffer;
-                            models[m].m_modelInfo.vertexBufferMemory         = scene_models[idx].m_modelInfo.vertexBufferMemory;
-                            models[m].m_modelInfo.indexBuffer                = scene_models[idx].m_modelInfo.indexBuffer;
-                            models[m].m_modelInfo.indexBufferMemory          = scene_models[idx].m_modelInfo.indexBufferMemory;
-                            models[m].m_modelInfo.uniformBuffer              = scene_models[idx].m_modelInfo.uniformBuffer;
-                            models[m].m_modelInfo.uniformBufferMemory        = scene_models[idx].m_modelInfo.uniformBufferMemory;
-                            models[m].m_modelInfo.uniformBufferMapped        = scene_models[idx].m_modelInfo.uniformBufferMapped;
-                            models[m].m_modelInfo.materialUniformBuffer      = scene_models[idx].m_modelInfo.materialUniformBuffer;
-                            models[m].m_modelInfo.materialUniformBufferMemory= scene_models[idx].m_modelInfo.materialUniformBufferMemory;
-                            models[m].m_modelInfo.materialUniformBufferMapped= scene_models[idx].m_modelInfo.materialUniformBufferMapped;
-                            models[m].m_modelInfo.pipeline                   = scene_models[idx].m_modelInfo.pipeline;
-                            models[m].m_modelInfo.pipelineLayout             = scene_models[idx].m_modelInfo.pipelineLayout;
-                            models[m].m_modelInfo.descriptorSet              = scene_models[idx].m_modelInfo.descriptorSet;
-                            models[m].m_modelInfo.textureDescriptorSet       = scene_models[idx].m_modelInfo.textureDescriptorSet;
-#elif defined(__USE_OPENGL__)
-                            models[m].m_modelInfo.VAO           = scene_models[idx].m_modelInfo.VAO;
-                            models[m].m_modelInfo.VBO           = scene_models[idx].m_modelInfo.VBO;
-                            models[m].m_modelInfo.EBO           = scene_models[idx].m_modelInfo.EBO;
-                            models[m].m_modelInfo.shaderProgram = scene_models[idx].m_modelInfo.shaderProgram;
-#endif
+                            #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                                models[m].m_modelInfo.vertexBuffer        = scene_models[idx].m_modelInfo.vertexBuffer;
+                                models[m].m_modelInfo.indexBuffer         = scene_models[idx].m_modelInfo.indexBuffer;
+                                models[m].m_modelInfo.constantBuffer      = scene_models[idx].m_modelInfo.constantBuffer;
+                                models[m].m_modelInfo.lightConstantBuffer = scene_models[idx].m_modelInfo.lightConstantBuffer;
+                                models[m].m_modelInfo.materialBuffer      = scene_models[idx].m_modelInfo.materialBuffer;
+                                models[m].m_modelInfo.samplerState        = scene_models[idx].m_modelInfo.samplerState;
+                                models[m].m_modelInfo.textureSRVs         = scene_models[idx].m_modelInfo.textureSRVs;
+                                models[m].m_modelInfo.normalMapSRVs       = scene_models[idx].m_modelInfo.normalMapSRVs;
+                            #elif defined(__USE_VULKAN__)
+                                models[m].m_modelInfo.vertexBuffer               = scene_models[idx].m_modelInfo.vertexBuffer;
+                                models[m].m_modelInfo.vertexBufferMemory         = scene_models[idx].m_modelInfo.vertexBufferMemory;
+                                models[m].m_modelInfo.indexBuffer                = scene_models[idx].m_modelInfo.indexBuffer;
+                                models[m].m_modelInfo.indexBufferMemory          = scene_models[idx].m_modelInfo.indexBufferMemory;
+                                models[m].m_modelInfo.uniformBuffer              = scene_models[idx].m_modelInfo.uniformBuffer;
+                                models[m].m_modelInfo.uniformBufferMemory        = scene_models[idx].m_modelInfo.uniformBufferMemory;
+                                models[m].m_modelInfo.uniformBufferMapped        = scene_models[idx].m_modelInfo.uniformBufferMapped;
+                                models[m].m_modelInfo.materialUniformBuffer      = scene_models[idx].m_modelInfo.materialUniformBuffer;
+                                models[m].m_modelInfo.materialUniformBufferMemory= scene_models[idx].m_modelInfo.materialUniformBufferMemory;
+                                models[m].m_modelInfo.materialUniformBufferMapped= scene_models[idx].m_modelInfo.materialUniformBufferMapped;
+                                models[m].m_modelInfo.pipeline                   = scene_models[idx].m_modelInfo.pipeline;
+                                models[m].m_modelInfo.pipelineLayout             = scene_models[idx].m_modelInfo.pipelineLayout;
+                                models[m].m_modelInfo.descriptorSet              = scene_models[idx].m_modelInfo.descriptorSet;
+                                models[m].m_modelInfo.textureDescriptorSet       = scene_models[idx].m_modelInfo.textureDescriptorSet;
+                            #elif defined(__USE_OPENGL__)
+                                models[m].m_modelInfo.VAO           = scene_models[idx].m_modelInfo.VAO;
+                                models[m].m_modelInfo.VBO           = scene_models[idx].m_modelInfo.VBO;
+                                models[m].m_modelInfo.EBO           = scene_models[idx].m_modelInfo.EBO;
+                                models[m].m_modelInfo.shaderProgram = scene_models[idx].m_modelInfo.shaderProgram;
+                            #endif
                             models[m].m_modelInfo.bGpuReady = true;
 
                             debug.logLevelMessage(LogLevel::LOG_INFO,
@@ -4990,20 +5066,20 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
                     m_fbxImporter.BuildMaterial(*fbxMat, cBaseDir, cEngMat);
 
                     // Clear stale SRV handles from prior session / cache.dat restore
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-                    scene_models[ti].m_modelInfo.textures.clear();
-                    scene_models[ti].m_modelInfo.textureSRVs.clear();
-                    scene_models[ti].m_modelInfo.normalMapSRVs.clear();
-                    scene_models[ti].m_modelInfo.metallicMapSRV.Reset();
-                    scene_models[ti].m_modelInfo.roughnessMapSRV.Reset();
-                    scene_models[ti].m_modelInfo.aoMapSRV.Reset();
-#elif defined(__USE_OPENGL__)
-                    scene_models[ti].m_modelInfo.textureIDs.clear();
-                    scene_models[ti].m_modelInfo.normalMapIDs.clear();
-                    scene_models[ti].m_modelInfo.metallicTexID  = 0;
-                    scene_models[ti].m_modelInfo.roughnessTexID = 0;
-                    scene_models[ti].m_modelInfo.aoTexID        = 0;
-#endif
+                    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                        scene_models[ti].m_modelInfo.textures.clear();
+                        scene_models[ti].m_modelInfo.textureSRVs.clear();
+                        scene_models[ti].m_modelInfo.normalMapSRVs.clear();
+                        scene_models[ti].m_modelInfo.metallicMapSRV.Reset();
+                        scene_models[ti].m_modelInfo.roughnessMapSRV.Reset();
+                        scene_models[ti].m_modelInfo.aoMapSRV.Reset();
+                    #elif defined(__USE_OPENGL__)
+                        scene_models[ti].m_modelInfo.textureIDs.clear();
+                        scene_models[ti].m_modelInfo.normalMapIDs.clear();
+                        scene_models[ti].m_modelInfo.metallicTexID  = 0;
+                        scene_models[ti].m_modelInfo.roughnessTexID = 0;
+                        scene_models[ti].m_modelInfo.aoTexID        = 0;
+                    #endif
 
                     // No file texture -- create WHITE 1x1 so shader reads Kd unchanged
                     // (white x Kd = Kd; using Kd colour in both texture and Kd would darken via Kd*Kd)
@@ -5027,44 +5103,45 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
                     cAddTex(cEngMat.aoMap);
 
                     // Bind SRVs / texture IDs per renderer
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-                    if (cEngMat.diffuseTexture)
-                        scene_models[ti].m_modelInfo.textureSRVs.push_back(cEngMat.diffuseTexture->GetSRV());
-                    if (cEngMat.normalMap)
-                        scene_models[ti].m_modelInfo.normalMapSRVs.push_back(cEngMat.normalMap->GetSRV());
-                    if (cEngMat.roughnessMap)
-                        scene_models[ti].m_modelInfo.roughnessMapSRV = cEngMat.roughnessMap->GetSRV();
-                    if (cEngMat.metallicMap)
-                        scene_models[ti].m_modelInfo.metallicMapSRV  = cEngMat.metallicMap->GetSRV();
-                    if (cEngMat.aoMap)
-                        scene_models[ti].m_modelInfo.aoMapSRV        = cEngMat.aoMap->GetSRV();
-#endif
+                    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                        if (cEngMat.diffuseTexture)
+                            scene_models[ti].m_modelInfo.textureSRVs.push_back(cEngMat.diffuseTexture->GetSRV());
+                        if (cEngMat.normalMap)
+                            scene_models[ti].m_modelInfo.normalMapSRVs.push_back(cEngMat.normalMap->GetSRV());
+                        if (cEngMat.roughnessMap)
+                            scene_models[ti].m_modelInfo.roughnessMapSRV = cEngMat.roughnessMap->GetSRV();
+                        if (cEngMat.metallicMap)
+                            scene_models[ti].m_modelInfo.metallicMapSRV  = cEngMat.metallicMap->GetSRV();
+                        if (cEngMat.aoMap)
+                            scene_models[ti].m_modelInfo.aoMapSRV        = cEngMat.aoMap->GetSRV();
+                    #endif
 
                     // Update material struct and metallic/roughness scalars
                     scene_models[ti].m_materials[matName]          = cEngMat;
                     scene_models[ti].m_modelInfo.metallic           = cEngMat.Metallic;
                     scene_models[ti].m_modelInfo.roughness          = cEngMat.Roughness;
 
-#if defined(__USE_DIRECTX_12__)
-                    // DX12: re-upload the rebound textures to the native D3D12 heap and
-                    // force descriptor rewrite — the SRV rebind above only fixes the
-                    // DX11-on-12 side (see GLB cache-restore Step 4 for details).
-                    scene_models[ti].RefreshDX12Textures();
-#endif
+                    #if defined(__USE_DIRECTX_12__)
+                        // DX12: re-upload the rebound textures to the native D3D12 heap and
+                        // force descriptor rewrite — the SRV rebind above only fixes the
+                        // DX11-on-12 side (see GLB cache-restore Step 4 for details).
+                        scene_models[ti].RefreshDX12Textures();
+                    #endif
 
                     // Write texture handles back to models[] so the next reload gets them too
                     for (int m2 = 0; m2 < MAX_MODELS; ++m2)
                     {
                         if (models[m2].m_modelInfo.cachedInstanceIndex != ti) continue;
                         if (models[m2].m_modelInfo.sourceSceneFile     != fbxFile) continue;
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-                        models[m2].m_modelInfo.textures        = scene_models[ti].m_modelInfo.textures;
-                        models[m2].m_modelInfo.textureSRVs     = scene_models[ti].m_modelInfo.textureSRVs;
-                        models[m2].m_modelInfo.normalMapSRVs   = scene_models[ti].m_modelInfo.normalMapSRVs;
-                        models[m2].m_modelInfo.metallicMapSRV  = scene_models[ti].m_modelInfo.metallicMapSRV;
-                        models[m2].m_modelInfo.roughnessMapSRV = scene_models[ti].m_modelInfo.roughnessMapSRV;
-                        models[m2].m_modelInfo.aoMapSRV        = scene_models[ti].m_modelInfo.aoMapSRV;
-#endif
+                        #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                            models[m2].m_modelInfo.textures        = scene_models[ti].m_modelInfo.textures;
+                            models[m2].m_modelInfo.textureSRVs     = scene_models[ti].m_modelInfo.textureSRVs;
+                            models[m2].m_modelInfo.normalMapSRVs   = scene_models[ti].m_modelInfo.normalMapSRVs;
+                            models[m2].m_modelInfo.metallicMapSRV  = scene_models[ti].m_modelInfo.metallicMapSRV;
+                            models[m2].m_modelInfo.roughnessMapSRV = scene_models[ti].m_modelInfo.roughnessMapSRV;
+                            models[m2].m_modelInfo.aoMapSRV        = scene_models[ti].m_modelInfo.aoMapSRV;
+                        #endif
+
                         models[m2].m_materials                 = scene_models[ti].m_materials;
                         break;
                     }
@@ -5242,6 +5319,7 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
                 static_cast<int>(li), fl.name.c_str(), ls.type, ls.intensity);
         #endif
     }
+    EnsureDefaultSunLight();
 
     // -------------------------------------------------------------------------
     // 3. Build a map from FBX model ID -> parent ID for hierarchy resolution,
@@ -5597,17 +5675,17 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
                     const float sr = sinf(uvRotRad);
                     for (auto& uvV : scene_models[subInstIdx].m_modelInfo.vertices)
                     {
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-                        float u0 = uvV.texCoord.x * engineMat.uvScalingU;
-                        float v0 = uvV.texCoord.y * engineMat.uvScalingV;
-                        uvV.texCoord.x =  cr * u0 + sr * v0 + engineMat.uvTranslationU;
-                        uvV.texCoord.y = -sr * u0 + cr * v0 + engineMat.uvTranslationV;
-#else
-                        float u0 = uvV.texCoord[0] * engineMat.uvScalingU;
-                        float v0 = uvV.texCoord[1] * engineMat.uvScalingV;
-                        uvV.texCoord[0] =  cr * u0 + sr * v0 + engineMat.uvTranslationU;
-                        uvV.texCoord[1] = -sr * u0 + cr * v0 + engineMat.uvTranslationV;
-#endif
+                        #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                            float u0 = uvV.texCoord.x * engineMat.uvScalingU;
+                            float v0 = uvV.texCoord.y * engineMat.uvScalingV;
+                            uvV.texCoord.x =  cr * u0 + sr * v0 + engineMat.uvTranslationU;
+                            uvV.texCoord.y = -sr * u0 + cr * v0 + engineMat.uvTranslationV;
+                        #else
+                            float u0 = uvV.texCoord[0] * engineMat.uvScalingU;
+                            float v0 = uvV.texCoord[1] * engineMat.uvScalingV;
+                            uvV.texCoord[0] =  cr * u0 + sr * v0 + engineMat.uvTranslationU;
+                            uvV.texCoord[1] = -sr * u0 + cr * v0 + engineMat.uvTranslationV;
+                        #endif
                     }
                     // Keep the models[] cache copy in sync with the baked UVs.
                     models[subMdlSlot].m_modelInfo.vertices = scene_models[subInstIdx].m_modelInfo.vertices;
@@ -5634,33 +5712,33 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
                 addTex(engineMat.aoMap);
 
                 // Populate DX SRV slots required by SetupModelForRendering
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-                if (engineMat.diffuseTexture)
-                {
-                    scene_models[subInstIdx].m_modelInfo.textureSRVs.push_back(engineMat.diffuseTexture->GetSRV());
-                    models[subMdlSlot].m_modelInfo.textureSRVs.push_back(engineMat.diffuseTexture->GetSRV());
-                }
-                if (engineMat.normalMap)
-                {
-                    scene_models[subInstIdx].m_modelInfo.normalMapSRVs.push_back(engineMat.normalMap->GetSRV());
-                    models[subMdlSlot].m_modelInfo.normalMapSRVs.push_back(engineMat.normalMap->GetSRV());
-                }
-                if (engineMat.roughnessMap)
-                {
-                    scene_models[subInstIdx].m_modelInfo.roughnessMapSRV = engineMat.roughnessMap->GetSRV();
-                    models[subMdlSlot].m_modelInfo.roughnessMapSRV       = engineMat.roughnessMap->GetSRV();
-                }
-                if (engineMat.metallicMap)
-                {
-                    scene_models[subInstIdx].m_modelInfo.metallicMapSRV = engineMat.metallicMap->GetSRV();
-                    models[subMdlSlot].m_modelInfo.metallicMapSRV       = engineMat.metallicMap->GetSRV();
-                }
-                if (engineMat.aoMap)
-                {
-                    scene_models[subInstIdx].m_modelInfo.aoMapSRV = engineMat.aoMap->GetSRV();
-                    models[subMdlSlot].m_modelInfo.aoMapSRV       = engineMat.aoMap->GetSRV();
-                }
-#endif
+                #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                    if (engineMat.diffuseTexture)
+                    {
+                        scene_models[subInstIdx].m_modelInfo.textureSRVs.push_back(engineMat.diffuseTexture->GetSRV());
+                        models[subMdlSlot].m_modelInfo.textureSRVs.push_back(engineMat.diffuseTexture->GetSRV());
+                    }
+                    if (engineMat.normalMap)
+                    {
+                        scene_models[subInstIdx].m_modelInfo.normalMapSRVs.push_back(engineMat.normalMap->GetSRV());
+                        models[subMdlSlot].m_modelInfo.normalMapSRVs.push_back(engineMat.normalMap->GetSRV());
+                    }
+                    if (engineMat.roughnessMap)
+                    {
+                        scene_models[subInstIdx].m_modelInfo.roughnessMapSRV = engineMat.roughnessMap->GetSRV();
+                        models[subMdlSlot].m_modelInfo.roughnessMapSRV       = engineMat.roughnessMap->GetSRV();
+                    }
+                    if (engineMat.metallicMap)
+                    {
+                        scene_models[subInstIdx].m_modelInfo.metallicMapSRV = engineMat.metallicMap->GetSRV();
+                        models[subMdlSlot].m_modelInfo.metallicMapSRV       = engineMat.metallicMap->GetSRV();
+                    }
+                    if (engineMat.aoMap)
+                    {
+                        scene_models[subInstIdx].m_modelInfo.aoMapSRV = engineMat.aoMap->GetSRV();
+                        models[subMdlSlot].m_modelInfo.aoMapSRV       = engineMat.aoMap->GetSRV();
+                    }
+                #endif
 
                 // useDiffuseMap: true = real texture at t0; false = shader uses Kd directly.
                 // Set for ALL pipelines -- the DX shaders read it from the material constant
@@ -5705,46 +5783,46 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
             }
             else
             {
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-                models[subMdlSlot].m_modelInfo.vertexBuffer        = scene_models[subInstIdx].m_modelInfo.vertexBuffer;
-                models[subMdlSlot].m_modelInfo.indexBuffer         = scene_models[subInstIdx].m_modelInfo.indexBuffer;
-                models[subMdlSlot].m_modelInfo.constantBuffer      = scene_models[subInstIdx].m_modelInfo.constantBuffer;
-                models[subMdlSlot].m_modelInfo.lightConstantBuffer = scene_models[subInstIdx].m_modelInfo.lightConstantBuffer;
-                models[subMdlSlot].m_modelInfo.materialBuffer      = scene_models[subInstIdx].m_modelInfo.materialBuffer;
-                models[subMdlSlot].m_modelInfo.samplerState        = scene_models[subInstIdx].m_modelInfo.samplerState;
-                models[subMdlSlot].m_modelInfo.textureSRVs         = scene_models[subInstIdx].m_modelInfo.textureSRVs;
-                models[subMdlSlot].m_modelInfo.normalMapSRVs       = scene_models[subInstIdx].m_modelInfo.normalMapSRVs;
-#elif defined(__USE_VULKAN__)
-                models[subMdlSlot].m_modelInfo.vertexBuffer                = scene_models[subInstIdx].m_modelInfo.vertexBuffer;
-                models[subMdlSlot].m_modelInfo.vertexBufferMemory          = scene_models[subInstIdx].m_modelInfo.vertexBufferMemory;
-                models[subMdlSlot].m_modelInfo.indexBuffer                 = scene_models[subInstIdx].m_modelInfo.indexBuffer;
-                models[subMdlSlot].m_modelInfo.indexBufferMemory           = scene_models[subInstIdx].m_modelInfo.indexBufferMemory;
-                models[subMdlSlot].m_modelInfo.uniformBuffer               = scene_models[subInstIdx].m_modelInfo.uniformBuffer;
-                models[subMdlSlot].m_modelInfo.uniformBufferMemory         = scene_models[subInstIdx].m_modelInfo.uniformBufferMemory;
-                models[subMdlSlot].m_modelInfo.uniformBufferMapped         = scene_models[subInstIdx].m_modelInfo.uniformBufferMapped;
-                models[subMdlSlot].m_modelInfo.materialUniformBuffer       = scene_models[subInstIdx].m_modelInfo.materialUniformBuffer;
-                models[subMdlSlot].m_modelInfo.materialUniformBufferMemory = scene_models[subInstIdx].m_modelInfo.materialUniformBufferMemory;
-                models[subMdlSlot].m_modelInfo.materialUniformBufferMapped = scene_models[subInstIdx].m_modelInfo.materialUniformBufferMapped;
-                models[subMdlSlot].m_modelInfo.pipeline                    = scene_models[subInstIdx].m_modelInfo.pipeline;
-                models[subMdlSlot].m_modelInfo.pipelineLayout              = scene_models[subInstIdx].m_modelInfo.pipelineLayout;
-                models[subMdlSlot].m_modelInfo.descriptorSet               = scene_models[subInstIdx].m_modelInfo.descriptorSet;
-                models[subMdlSlot].m_modelInfo.textureDescriptorSet        = scene_models[subInstIdx].m_modelInfo.textureDescriptorSet;
+                #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                    models[subMdlSlot].m_modelInfo.vertexBuffer        = scene_models[subInstIdx].m_modelInfo.vertexBuffer;
+                    models[subMdlSlot].m_modelInfo.indexBuffer         = scene_models[subInstIdx].m_modelInfo.indexBuffer;
+                    models[subMdlSlot].m_modelInfo.constantBuffer      = scene_models[subInstIdx].m_modelInfo.constantBuffer;
+                    models[subMdlSlot].m_modelInfo.lightConstantBuffer = scene_models[subInstIdx].m_modelInfo.lightConstantBuffer;
+                    models[subMdlSlot].m_modelInfo.materialBuffer      = scene_models[subInstIdx].m_modelInfo.materialBuffer;
+                    models[subMdlSlot].m_modelInfo.samplerState        = scene_models[subInstIdx].m_modelInfo.samplerState;
+                    models[subMdlSlot].m_modelInfo.textureSRVs         = scene_models[subInstIdx].m_modelInfo.textureSRVs;
+                    models[subMdlSlot].m_modelInfo.normalMapSRVs       = scene_models[subInstIdx].m_modelInfo.normalMapSRVs;
+                #elif defined(__USE_VULKAN__)
+                    models[subMdlSlot].m_modelInfo.vertexBuffer                = scene_models[subInstIdx].m_modelInfo.vertexBuffer;
+                    models[subMdlSlot].m_modelInfo.vertexBufferMemory          = scene_models[subInstIdx].m_modelInfo.vertexBufferMemory;
+                    models[subMdlSlot].m_modelInfo.indexBuffer                 = scene_models[subInstIdx].m_modelInfo.indexBuffer;
+                    models[subMdlSlot].m_modelInfo.indexBufferMemory           = scene_models[subInstIdx].m_modelInfo.indexBufferMemory;
+                    models[subMdlSlot].m_modelInfo.uniformBuffer               = scene_models[subInstIdx].m_modelInfo.uniformBuffer;
+                    models[subMdlSlot].m_modelInfo.uniformBufferMemory         = scene_models[subInstIdx].m_modelInfo.uniformBufferMemory;
+                    models[subMdlSlot].m_modelInfo.uniformBufferMapped         = scene_models[subInstIdx].m_modelInfo.uniformBufferMapped;
+                    models[subMdlSlot].m_modelInfo.materialUniformBuffer       = scene_models[subInstIdx].m_modelInfo.materialUniformBuffer;
+                    models[subMdlSlot].m_modelInfo.materialUniformBufferMemory = scene_models[subInstIdx].m_modelInfo.materialUniformBufferMemory;
+                    models[subMdlSlot].m_modelInfo.materialUniformBufferMapped = scene_models[subInstIdx].m_modelInfo.materialUniformBufferMapped;
+                    models[subMdlSlot].m_modelInfo.pipeline                    = scene_models[subInstIdx].m_modelInfo.pipeline;
+                    models[subMdlSlot].m_modelInfo.pipelineLayout              = scene_models[subInstIdx].m_modelInfo.pipelineLayout;
+                    models[subMdlSlot].m_modelInfo.descriptorSet               = scene_models[subInstIdx].m_modelInfo.descriptorSet;
+                    models[subMdlSlot].m_modelInfo.textureDescriptorSet        = scene_models[subInstIdx].m_modelInfo.textureDescriptorSet;
 
-                // SetupModelForRendering created the material UBO and texture descriptor
-                // set with engine DEFAULTS (white diffuse, flat normal).  Upload the real
-                // FBX material values and texture views now -- mirrors the post-setup
-                // BindGLTFMaterialTexturesToModel call in the GLTF path.  Without this,
-                // FBX models render with the white fallback material on Vulkan.
-                // models[subMdlSlot] shares the same mapped UBO pointer and descriptor
-                // set handles (copied above), so one upload covers both entries.
-                if (hasEngineMat)
-                    UploadFBXMaterialToVulkanModel(engineMat, scene_models[subInstIdx].m_modelInfo);
-#elif defined(__USE_OPENGL__)
-                models[subMdlSlot].m_modelInfo.VAO           = scene_models[subInstIdx].m_modelInfo.VAO;
-                models[subMdlSlot].m_modelInfo.VBO           = scene_models[subInstIdx].m_modelInfo.VBO;
-                models[subMdlSlot].m_modelInfo.EBO           = scene_models[subInstIdx].m_modelInfo.EBO;
-                models[subMdlSlot].m_modelInfo.shaderProgram = scene_models[subInstIdx].m_modelInfo.shaderProgram;
-#endif
+                    // SetupModelForRendering created the material UBO and texture descriptor
+                    // set with engine DEFAULTS (white diffuse, flat normal).  Upload the real
+                    // FBX material values and texture views now -- mirrors the post-setup
+                    // BindGLTFMaterialTexturesToModel call in the GLTF path.  Without this,
+                    // FBX models render with the white fallback material on Vulkan.
+                    // models[subMdlSlot] shares the same mapped UBO pointer and descriptor
+                    // set handles (copied above), so one upload covers both entries.
+                    if (hasEngineMat)
+                        UploadFBXMaterialToVulkanModel(engineMat, scene_models[subInstIdx].m_modelInfo);
+                #elif defined(__USE_OPENGL__)
+                    models[subMdlSlot].m_modelInfo.VAO           = scene_models[subInstIdx].m_modelInfo.VAO;
+                    models[subMdlSlot].m_modelInfo.VBO           = scene_models[subInstIdx].m_modelInfo.VBO;
+                    models[subMdlSlot].m_modelInfo.EBO           = scene_models[subInstIdx].m_modelInfo.EBO;
+                    models[subMdlSlot].m_modelInfo.shaderProgram = scene_models[subInstIdx].m_modelInfo.shaderProgram;
+                #endif
 
                 models[subMdlSlot].m_modelInfo.bGpuReady          = true;
                 models[subMdlSlot].m_modelInfo.cachedInstanceIndex = subInstIdx;
@@ -5872,11 +5950,12 @@ void SceneManager::AutoFrameSceneToCamera(float fovYRadians, float padding)
 
         for (const auto& v : verts)
         {
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-            XMVECTOR pos = XMLoadFloat3(&v.position);
-#else
-            XMVECTOR pos = XMVectorSet(v.position[0], v.position[1], v.position[2], 0.0f);
-#endif
+            #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                XMVECTOR pos = XMLoadFloat3(&v.position);
+            #else
+                XMVECTOR pos = XMVectorSet(v.position[0], v.position[1], v.position[2], 0.0f);
+            #endif
+
             pos = XMVector3TransformCoord(pos, wm);
             XMFLOAT3 worldPos;
             XMStoreFloat3(&worldPos, pos);
@@ -5919,11 +5998,12 @@ void SceneManager::AutoFrameSceneToCamera(float fovYRadians, float padding)
         if (!myRenderer->wasResizing.load())
         {
             myRenderer->myCamera.SetPosition(camPos.x, camPos.y, camPos.z);
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-            myRenderer->myCamera.SetTarget(center);
-#else
-            myRenderer->myCamera.SetTarget(glm::vec3(center.x, center.y, center.z));
-#endif
+            #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                myRenderer->myCamera.SetTarget(center);
+            #else
+                myRenderer->myCamera.SetTarget(glm::vec3(center.x, center.y, center.z));
+            #endif
+            
             myRenderer->myCamera.SetNearFar(0.1f, std::max(1000.0f, radius * 5.0f));
         }
 
@@ -6027,15 +6107,16 @@ bool SceneManager::SaveSceneState(const std::wstring& path)
     outFile.write(reinterpret_cast<const char*>(exporterName), sizeof(exporterName));
 
     // === Write Camera Position and Target ===
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-    XMFLOAT3 camPos    = myRenderer->myCamera.GetPosition();
-    XMFLOAT3 camTarget = myRenderer->myCamera.target;
-#else
-    glm::vec3 _gp = myRenderer->myCamera.GetPosition();
-    glm::vec3 _gt = myRenderer->myCamera.target;
-    XMFLOAT3 camPos    = { _gp.x, _gp.y, _gp.z };
-    XMFLOAT3 camTarget = { _gt.x, _gt.y, _gt.z };
-#endif
+    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+        XMFLOAT3 camPos    = myRenderer->myCamera.GetPosition();
+        XMFLOAT3 camTarget = myRenderer->myCamera.target;
+    #else
+        glm::vec3 _gp = myRenderer->myCamera.GetPosition();
+        glm::vec3 _gt = myRenderer->myCamera.target;
+        XMFLOAT3 camPos    = { _gp.x, _gp.y, _gp.z };
+        XMFLOAT3 camTarget = { _gt.x, _gt.y, _gt.z };
+    #endif
+
     outFile.write(reinterpret_cast<const char*>(&camPos), sizeof(XMFLOAT3));
     outFile.write(reinterpret_cast<const char*>(&camTarget), sizeof(XMFLOAT3));
 
@@ -6065,6 +6146,7 @@ bool SceneManager::SaveSceneState(const std::wstring& path)
     #if defined(_DEBUG_SCENEMANAGER_) && defined(_DEBUG)
         debug.logLevelMessage(LogLevel::LOG_INFO, L"[SceneManager] Scene state saved to " + path);
     #endif
+
     return true;
 }
 
@@ -6098,11 +6180,12 @@ bool SceneManager::LoadSceneState(const std::wstring& path)
     if (myRenderer && !threadManager.threadVars.bIsResizing.load())
     {
         myRenderer->myCamera.SetPosition(camPos.x, camPos.y, camPos.z);
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-        myRenderer->myCamera.SetTarget(camTarget);
-#else
-        myRenderer->myCamera.SetTarget(glm::vec3(camTarget.x, camTarget.y, camTarget.z));
-#endif
+        #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+            myRenderer->myCamera.SetTarget(camTarget);
+        #else
+            myRenderer->myCamera.SetTarget(glm::vec3(camTarget.x, camTarget.y, camTarget.z));
+        #endif
+        
         myRenderer->myCamera.UpdateViewMatrix();
     }
 
@@ -6402,15 +6485,15 @@ bool SceneManager::SaveCache(const std::string& filepath)
         return true;
     }
 
-#if defined(PLATFORM_WINDOWS)
-    std::ofstream f(filepath, std::ios::binary | std::ios::trunc);
-#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
-    std::ofstream f(filepath, std::ios::binary | std::ios::trunc);
-#elif defined(PLATFORM_APPLE) || defined(PLATFORM_IOS)
-    std::ofstream f(filepath, std::ios::binary | std::ios::trunc);
-#else
-    std::ofstream f(filepath, std::ios::binary | std::ios::trunc);
-#endif
+    #if defined(PLATFORM_WINDOWS)
+        std::ofstream f(filepath, std::ios::binary | std::ios::trunc);
+    #elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+        std::ofstream f(filepath, std::ios::binary | std::ios::trunc);
+    #elif defined(PLATFORM_APPLE) || defined(PLATFORM_IOS)
+        std::ofstream f(filepath, std::ios::binary | std::ios::trunc);
+    #else
+        std::ofstream f(filepath, std::ios::binary | std::ios::trunc);
+    #endif
 
     if (!f.is_open())
     {
@@ -6546,15 +6629,15 @@ bool SceneManager::SaveCache(const std::string& filepath)
 bool SceneManager::LoadCache(const std::string& filepath)
 {
     // --- Platform-specific file existence check ---
-#if defined(PLATFORM_WINDOWS)
-    bool cacheExists = (GetFileAttributesA(filepath.c_str()) != INVALID_FILE_ATTRIBUTES);
-#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
-    bool cacheExists = (::access(filepath.c_str(), F_OK) == 0);
-#elif defined(PLATFORM_APPLE) || defined(PLATFORM_IOS)
-    bool cacheExists = (::access(filepath.c_str(), F_OK) == 0);
-#else
-    bool cacheExists = std::filesystem::exists(filepath);
-#endif
+    #if defined(PLATFORM_WINDOWS)
+        bool cacheExists = (GetFileAttributesA(filepath.c_str()) != INVALID_FILE_ATTRIBUTES);
+    #elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+        bool cacheExists = (::access(filepath.c_str(), F_OK) == 0);
+    #elif defined(PLATFORM_APPLE) || defined(PLATFORM_IOS)
+        bool cacheExists = (::access(filepath.c_str(), F_OK) == 0);
+    #else
+        bool cacheExists = std::filesystem::exists(filepath);
+    #endif
 
     if (!cacheExists)
     {
@@ -6567,15 +6650,15 @@ bool SceneManager::LoadCache(const std::string& filepath)
         return false;
     }
 
-#if defined(PLATFORM_WINDOWS)
-    std::ifstream f(filepath, std::ios::binary);
-#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
-    std::ifstream f(filepath, std::ios::binary);
-#elif defined(PLATFORM_APPLE) || defined(PLATFORM_IOS)
-    std::ifstream f(filepath, std::ios::binary);
-#else
-    std::ifstream f(filepath, std::ios::binary);
-#endif
+    #if defined(PLATFORM_WINDOWS)
+        std::ifstream f(filepath, std::ios::binary);
+    #elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+        std::ifstream f(filepath, std::ios::binary);
+    #elif defined(PLATFORM_APPLE) || defined(PLATFORM_IOS)
+        std::ifstream f(filepath, std::ios::binary);
+    #else
+        std::ifstream f(filepath, std::ios::binary);
+    #endif
 
     if (!f.is_open())
     {
@@ -6723,13 +6806,13 @@ bool SceneManager::LoadCache(const std::string& filepath)
         // we just deserialised so the fast-path has valid buffers to copy on first load.
         // Texture SRVs fall back to solid-colour stand-ins until the first full scene
         // parse re-binds the actual asset textures and writes them back via CopyFrom.
-#if defined(__USE_DIRECTX_11__)
-        if (!info.bIsTransformOnly && !info.vertices.empty())
-        {
-            if (mdl.SetupModelForRendering())
-                info.bGpuReady = true;
-        }
-#endif
+        #if defined(__USE_DIRECTX_11__)
+            if (!info.bIsTransformOnly && !info.vertices.empty())
+            {
+                if (mdl.SetupModelForRendering())
+                    info.bGpuReady = true;
+            }
+        #endif
     }
 
     f.close();

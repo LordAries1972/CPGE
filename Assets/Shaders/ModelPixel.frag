@@ -136,10 +136,9 @@ void main()
     vec3 ambient  = mat.Ka * albedoColor.rgb * aoV * lpc.ambientStrength;
     vec3 emissive = mat.emissive * mat.emissiveStrength;
 
-    // Reinhard tone-map + gamma correction
+    // Linear output — the SRGB swap chain (VK_FORMAT_B8G8R8A8_SRGB) applies
+    // hardware gamma correction automatically; manual tone-map + pow(1/2.2)
+    // would cause double gamma and produce an over-bright result vs DX12.
     vec3 color = ambient + direct + emissive;
-    color = color / (color + vec3(1.0));
-    color = pow(clamp(color, 0.0, 1.0), vec3(1.0 / 2.2));
-
     fragColor = vec4(color, albedoColor.a);
 }

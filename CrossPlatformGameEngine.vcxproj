@@ -36,7 +36,10 @@
     <EnableASAN>false</EnableASAN>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="ExtensionSettings">
+    <!-- MASM build customisation: enables ml64.exe for .asm files -->
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.props" />
+  </ImportGroup>
   <ImportGroup Label="Shared">
   </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
@@ -196,6 +199,7 @@
     <ClCompile Include="XMMODPlayer.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="assembly.h" />
     <ClInclude Include="BuildInfo.h" />
     <ClInclude Include="Color.h" />
     <ClInclude Include="ConsoleWindow.h" />
@@ -250,6 +254,10 @@
     <ClInclude Include="WinMediaPlayer.h" />
     <ClInclude Include="WinSystem.h" />
     <ClInclude Include="XMMODPlayer.h" />
+  </ItemGroup>
+  <!-- x86/64 assembly optimisation routines -- assembled by ml64.exe (MASM) -->
+  <ItemGroup>
+    <MASM Include="assembly.asm" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="CrossPlatformGameEngine.ico" />
@@ -336,7 +344,10 @@
   <Target Name="ComputeLinkImportLibraryOutputsForClean" Condition=" '$(TargetFramework)' != '' ">
     <!-- Add a default or no-op action here -->
   </Target>
-  <ImportGroup Label="ExtensionTargets" />
+  <ImportGroup Label="ExtensionTargets">
+    <!-- MASM build customisation: ml64.exe compile rules for .asm files -->
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.targets" />
+  </ImportGroup>
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>
       <ErrorText>This project references NuGet package(s) that are missing on this computer. Use NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>

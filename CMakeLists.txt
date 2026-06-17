@@ -38,6 +38,13 @@ message(STATUS "Game name  : ${GAME_NAME}")
 message(STATUS "Renderer   : ${RENDERER}  (define: ${RENDERER_DEFINE})")
 message(STATUS "Output exe : ${EXE_OUTPUT_NAME}")
 
+# ── x86/64 assembly (MASM) -- Windows/MSVC only ──────────────────────────────
+# ml64.exe (MASM for x64) is part of the VC++ build tools; CMake discovers it
+# automatically when ASM_MASM is enabled.  Must be called before add_executable.
+if(MSVC AND WIN32)
+    enable_language(ASM_MASM)
+endif()
+
 # ── Sources ──────────────────────────────────────────────────────────────────
 set(SOURCES
     BlenderImports.cpp
@@ -98,6 +105,11 @@ set(SOURCES
     XMMODPlayer.cpp
     CrossPlatformGameEngine.rc
 )
+
+# x86/64 assembly optimisation routines (assembly.asm) -- ml64.exe / MASM only
+if(MSVC AND WIN32)
+    list(APPEND SOURCES assembly.asm)
+endif()
 
 add_executable(CrossPlatformGameEngine WIN32 ${SOURCES})
 
@@ -287,14 +299,25 @@ endif()
 # ── MSVC compile options ──────────────────────────────────────────────────────
 if(MSVC)
     target_compile_options(CrossPlatformGameEngine PRIVATE
-        /W3          # Warning level 3
-        /wd4244      # Disable C4244 (conversion, possible data loss)
-        /Zc:__cplusplus
-        /MP          # Multi-processor compilation
-        /nologo
-        /Zp16        # Struct member alignment 16 bytes
-        $<$<CONFIG:Debug>:/MDd /sdl /FS>
-        $<$<CONFIG:Release>:/MD /sdl /Oi /Ob2 /GF /GT>
+        # CXX-only flags: ml64.exe (MASM) does not understand MSVC CL options,
+        # so every C++-specific flag must be guarded with $<COMPILE_LANGUAGE:CXX>.
+        $<$<COMPILE_LANGUAGE:CXX>:/W3>          # Warning level 3
+        $<$<COMPILE_LANGUAGE:CXX>:/wd4244>      # Disable C4244 (conversion, possible data loss)
+        $<$<COMPILE_LANGUAGE:CXX>:/Zc:__cplusplus>
+        $<$<COMPILE_LANGUAGE:CXX>:/MP>          # Multi-processor compilation
+        $<$<COMPILE_LANGUAGE:CXX>:/nologo>
+        $<$<COMPILE_LANGUAGE:CXX>:/Zp16>        # Struct member alignment 16 bytes
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Debug>>:/MDd>
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Debug>>:/sdl>
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Debug>>:/FS>
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:/MD>
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:/sdl>
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:/Oi>
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:/Ob2>
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:/GF>
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:/GT>
+        # ASM_MASM flags: only /nologo is meaningful to ml64.exe here
+        $<$<COMPILE_LANGUAGE:ASM_MASM>:/nologo>
     )
 
     target_compile_definitions(CrossPlatformGameEngine PRIVATE

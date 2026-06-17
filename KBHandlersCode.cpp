@@ -73,6 +73,13 @@ extern ScreenRecorder    screenRecorder;
 extern GUIManager        guiManager;
 extern ConsoleWindow     consoleWindow;
 
+// Application window handle — used to gate the recording toggle to our own window.
+// The WH_KEYBOARD_LL / CGEventTap hooks fire for all system key presses; without
+// this guard, pressing Home in any other app starts the recorder unexpectedly.
+#if defined(PLATFORM_WINDOWS)
+    extern HWND hwnd;
+#endif
+
 void SetMyKeyUpHandler(KeyboardHandler& keyboard)
 { 
     // Register key up handler for release events
@@ -368,9 +375,18 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
                 // Toggle screen recording with HOME key.
                 // Only set a flag here — actual MF initialisation happens in the main
                 // game loop so the WH_KEYBOARD_LL hook returns immediately and never hangs.
+                // Guard with a foreground-window check: the low-level hook fires for
+                // ALL system key presses, so pressing Home in another application or
+                // on the desktop would start the recorder unexpectedly, which can corrupt
+                // the MF pipeline state and cause system instability / shutdowns.
                 case KeyCode::KEY_HOME:
                 {
-                    bRecordingToggleRequested.store(true);
+                    #if defined(PLATFORM_WINDOWS)
+                        if (GetForegroundWindow() == hwnd)
+                            bRecordingToggleRequested.store(true);
+                    #else
+                        bRecordingToggleRequested.store(true);
+                    #endif
                     break;
                 }
 

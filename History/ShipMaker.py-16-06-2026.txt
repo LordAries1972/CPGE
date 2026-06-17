@@ -1,0 +1,25 @@
+File: Python/ShipMaker.py
+Date: 16-06-2026
+Action: CREATED then REWRITTEN (v2.0)
+
+New Blender Python add-on "Ship Maker" (v1.0.0) added to Python/ folder.
+
+Summary:
+- Blender 5.0+ compatible add-on that procedurally generates sci-fi fighter ships.
+- Three distinct ship archetypes: Interceptor, Heavy Fighter, Assault Corvette.
+- Each ship built via bmesh: extruded profiled hull, wing geometry, engine nacelles,
+  cockpit canopy, tail fins, chin guns, armour cheeks (type-dependent).
+- Post-generation greeble pass (random inset panel raises) for hard-surface tech detail.
+- PBR Principled BSDF material per ship: procedural noise/wave panel-line base colour,
+  metallic noise ramp, roughness noise ramp, animatable Emission Strength value node.
+- Cockpit canopy uses separate semi-transparent Principled BSDF material.
+- Three animation actions per ship pushed to NLA:
+    Idle   - emission strength pulse (60 fr, looping, material node anim)
+    Patrol - gentle roll + yaw oscillation (120 fr, looping, object transform)
+    Combat - sharp banking roll (80 fr, looping, object transform)
+- Smart UV Project unwrap before baking.
+- Cycles bake pass: BaseColor, Roughness, Normal, Metallic (4 PNG files per ship).
+- FBX export (Blender binary 7.4 - closest available to FBX 7.0).
+- Output to Assets/ folder, textures to Assets/textures/.
+- UI panel in View3D sidebar (Tab: Ship Maker) with folder picker, ship count,
+  seed, texture resolution, bake/export toggles, and large Generate button.

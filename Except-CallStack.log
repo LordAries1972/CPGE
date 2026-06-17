@@ -1,0 +1,46 @@
+===========================================================
+  EXCEPTION CALL-STACK LOG
+  Generated  : 2026-06-17 16:46:19
+===========================================================
+  Exception  : Unknown Exception Code (0x0000087D)
+  Code       : 0x0000087D
+  Address    : 0x00007FFE6FD1055C
+  Thread ID  : 8476
+  Process ID : 16060
+  Platform   : Windows x64  [DEBUG BUILD]
+===============================================================
+  CALL STACK TRACE (7 of 7 frames captured, showing up to 100)
+===============================================================
+  #00  Address  : 0x00007FFE6FD1055C
+       Function : RaiseException  +0x6C
+       Module   : KERNELBASE.dll
+       --------
+  #01  Address  : 0x00007FFE1124BF0B
+       Function : 0x7FFE1124BF0B
+       Module   : D3D11_3SDKLayers.dll
+       --------
+  #02  Address  : 0x000000000000087D
+       Function : 0x87D
+       Module   : Unknown
+       --------
+  #03  Address  : 0x00007FFE11264CB8
+       Function : 0x7FFE11264CB8
+       Module   : D3D11_3SDKLayers.dll
+       --------
+  #04  Address  : 0x0000000000000001
+       Function : 0x1
+       Module   : Unknown
+       --------
+  #05  Address  : 0x6D697420656D6173
+       Function : 0x6D697420656D6173
+       Module   : Unknown
+       --------
+  #06  Address  : 0x207369680000001C
+       Function : 0x207369680000001C
+       Module   : Unknown
+========================================================
+  BREADCRUMB TRAIL  (last RECORD_FUNCTION_CALL() entries
+========================================================
+  23.  WinMain
+  24.  LoaderTaskThread
+  25.  RenderFrame

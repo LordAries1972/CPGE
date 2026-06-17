@@ -1,0 +1,13 @@
+// ModelPixel.glsl — OpenGL Fragment Shader
+// 17-06-2026: Removed Reinhard tone-map + pow(1/2.2) gamma correction from both
+//             ModelPixel.glsl (root) and Assets\Shaders\ModelPixel.glsl.
+//             Manual gamma caused over-brightness vs DX12; matches DX11/DX12 HLSL
+//             which outputs linear values and relies on the display/framebuffer for gamma.
+//
+// (Root copy shown below — Assets\Shaders copy has same change.)
+// ── Fragment Shader Main tail (only changed section) ─────────────────────────
+
+    // Linear output — matches DX12/DX11 which do not apply tone mapping or
+    // gamma correction in the shader (the display / sRGB framebuffer handles it).
+    // Manual Reinhard + pow(1/2.2) caused over-brightness vs the DX12 reference.
+    fragColor = vec4(finalColor, albedoColor.a);

@@ -238,6 +238,10 @@ inline void OpenGLRenderer::RenderGamePlay(float deltaTime)
     glm::mat4 view   = myCamera.GetViewMatrix();
     glm::mat4 proj   = myCamera.GetProjectionMatrix();
 
+    // Animate lights (pulse / flicker / strobe) each frame before uploading
+    // the light buffer — mirrors the DX11 and Vulkan render paths.
+    lightsManager.AnimateLights(deltaTime);
+
     auto allLights = lightsManager.GetAllLights();
     int  lightCount = static_cast<int>(allLights.size());
     if (lightCount > MAX_GLOBAL_LIGHTS) lightCount = MAX_GLOBAL_LIGHTS;
@@ -249,8 +253,13 @@ inline void OpenGLRenderer::RenderGamePlay(float deltaTime)
     {
         GlobalLightBuffer glbuf{};
         glbuf.numLights = lightCount;
-        for (int i = 0; i < lightCount; ++i)
-            memcpy(&glbuf.lights[i], &allLights[i], sizeof(LightStruct));
+        // Bulk copy all lights in one pass — replaces the per-element memcpy loop
+        #if defined(_WIN64)
+            MemoryCopy(allLights.data(), glbuf.lights, static_cast<size_t>(lightCount) * sizeof(LightStruct));
+        #else
+            for (int i = 0; i < lightCount; ++i)
+                memcpy(&glbuf.lights[i], &allLights[i], sizeof(LightStruct));
+        #endif
 
         GLuint uboID = m_uniformBuffers[UNIFORM_GLOBAL_LIGHT_BUFFER].bufferID;
         if (uboID != 0)
@@ -716,16 +725,21 @@ void OpenGLRenderer::RenderFrame()
             switch (scene.stSceneType)
             {
                 case SceneType::SCENE_INTRO:
-                    if (m_2dTextures[int(BlitObj2DIndexType::IMG_SPLASH1)].isLoaded) {
+                    if (moviePlayer.IsPlaying())
+                        RenderIntroMovie(); // also draws the video frame to the D2D overlay    
+
+                    /* if (m_d2dTextures[int(BlitObj2DIndexType::IMG_SPLASH1)]) {
                         if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_SPLASH1)))
                             fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_SPLASH1), 0, 0, iOrigWidth, iOrigHeight);
                         else
                             Blit2DObjectToSize(BlitObj2DIndexType::IMG_SPLASH1, 0, 0, iOrigWidth, iOrigHeight);
-                    }
+                    } */
                     break;
 
                 case SceneType::SCENE_INTRO_MOVIE:
-                    RenderIntroMovie();
+                    if (moviePlayer.IsPlaying())
+                       RenderIntroMovie();
+   
                     break;
 
                 case SceneType::SCENE_GAMETITLE:
@@ -827,12 +841,26 @@ void OpenGLRenderer::RenderFrame()
                         const float riFontSize = std::clamp(
                             static_cast<float>(iOrigHeight) / 86.0f, 8.0f, 12.0f);
 
-                        // Full version string — identical format to DXRenderFrame.cpp
+                        // e.g. "Debug CPGE v0.0.1723 15-06-2026"
+                        static const std::wstring buildDate = []() -> std::wstring {
+                            const char* d = __DATE__; // "Mmm DD YYYY", e.g. "Jun 15 2026"
+                            const char* m = "JanFebMarAprMayJunJulAugSepOctNovDec";
+                            int mon = 1;
+                            for (int i = 0; i < 12; i++) {
+                                if (d[0]==m[i*3] && d[1]==m[i*3+1] && d[2]==m[i*3+2]) { mon=i+1; break; }
+                            }
+                            int day  = (d[4]==' ') ? (d[5]-'0') : ((d[4]-'0')*10+(d[5]-'0'));
+                            int year = (d[7]-'0')*1000+(d[8]-'0')*100+(d[9]-'0')*10+(d[10]-'0');
+                            wchar_t buf[12];
+                            swprintf_s(buf, 12, L"%02d-%02d-%04d", day, mon, year);
+                            return std::wstring(buf);
+                        }();
                         const std::wstring riText =
-                            std::wstring(GAME_NAME_W L" " PLATFORM_NAME_W L" " RENDERER_NAME_W L" v") +
+                            std::wstring(BUILD_TYPE_W L" " RENDERER_NAME_W L" " GAME_NAME_W L" v") +
                             std::to_wstring(CURRENT_BUILD_VERSION)    + L"." +
                             std::to_wstring(CURRENT_BUILD_SUBVERSION) + L"." +
-                            std::to_wstring(CURRENT_BUILD);
+                            std::to_wstring(CURRENT_BUILD)            + L" " +
+                            buildDate;
 
                         int tw = 0, th = 0;
                         GLuint riTex = RenderTextToTexture(riText, L"Arial", riFontSize,
