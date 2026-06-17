@@ -58,6 +58,7 @@
 #include "GUIManager.h"
 #include "MoviePlayer.h"
 #include "Configuration.h"
+#include "GamePlayer.h"
 
 using namespace SoundSystem;
 
@@ -72,6 +73,7 @@ extern GUIManager       guiManager;
 extern MoviePlayer moviePlayer;
 extern Model            models[MAX_MODELS];
 extern LightsManager    lightsManager;
+extern GamePlayer       gamePlayer;
 extern bool             bResizing;
 extern int              textScrollerEffectID;
 extern bool             Load_Music();                                               // Declared in main.cpp
@@ -293,15 +295,15 @@ extern std::wstring     baseDir;
                     // outer-space fill light and prevents the dark side going pure black.
                     #if defined(__USE_DIRECTX11__) || defined(__USE_DIRECTX_12__) || defined(__USE_VULKAN__)
                         sunLight.ambient       = XMFLOAT3(0.0f, 0.0f, 0.0f);
-                        sunLight.intensity     = 1.0f;
-                        sunLight.baseIntensity = 0.8f;
+                        sunLight.intensity     = 0.7f;
+                        sunLight.baseIntensity = 0.3f;
                     #elif defined(__USE_OPENGL__)
                         sunLight.ambient       = XMFLOAT3(0.0f, 0.0f, 0.0f);
                         sunLight.intensity     = 0.7f;
-                        sunLight.intensity     = 0.3f;
+                        sunLight.baseIntensity = 0.3f;
                     #endif
-                    sunLight.Shiningness   = 0.0f;
-                    sunLight.Reflection    = 0.0f;
+                    sunLight.Shiningness   = 1.0f;
+                    sunLight.Reflection    = 1.0f;
                     sunLight.lightFalloff  = 0.2f;
                     sunLight.innerCone     = 30.0f;
                     sunLight.outerCone     = 60.0f;
