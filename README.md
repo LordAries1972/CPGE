@@ -37,11 +37,11 @@ record a build history file as well and can be found here below:-
 - Extensive documentation and tutorials
 
 ## What you could achieve with CPGE so far!
-With our First Release, you can now create a full working 2D game using the 2D / 3D Rendering system via DirectX 11 & Vulkan (DirectX 12, OpenGL and Radeon will be soon) under the Windows Platform.  
+With our First Release, you can now create a full working 2D game using the 2D / 3D Rendering system via DirectX 11, DirectX12, OpenGL & Vulkan under the Windows Platform.  (Other OS's will be introduced at a later time).
 
 - CMAKE & VS2022 compiling are currently supported, other compiler support will soon come.
 - Game Configuration Management, 
-- Multiple Render Support Pipelines (DirectX11, DirectX12, OpenGL, Vulkan & Radeon (DirectX11, DirectX12, Vulkan & OpenGL confirmed working)),
+- Multiple Render Support Pipelines (DirectX11, DirectX12, OpenGL, Vulkan (DirectX11, DirectX12, Vulkan & OpenGL confirmed working)),
 - Various Debug and Console options (F8 Key) / debug.h
 - In System Configuration Window (Allows you to modify startup/runtime options),
 - Music & Sounds Management System, 
@@ -62,7 +62,7 @@ With our First Release, you can now create a full working 2D game using the 2D /
 
 Basically everything you need to create a standard 2D & 3D Based Looking Gaming system on the Windows 10 SP1 / 11 64bit Operating Systems.  Please note that Win32 is not supported (Well not by me anyways)!
 
-- We are now using scenes which consist of all models (including textures, bumps etc), Camera and lighting within a 3D Project.  For you to use this successfully, consider using a 3D Modeller package that can export GLTF 2.0 formats.  I, myself, uses Blender v4.3 and above which is also free to use.  You can find it under the 'Important Links' section above.  I will add other supportive formats later when the overall system is functioning as it should.
+- We are now using scenes which consist of all models (including textures, bumps etc), Camera and lighting within a 3D Project.  For you to use this successfully, consider using a 3D Modeller package that can export GLTF/GLB 2.0 & FBX formats.  I, myself, uses Blender v4.3 and above which is also free to use.  You can find it under the 'Important Links' section above.  I will add other supportive formats later when the overall system is functioning as it should.
 
 ## Documentation
 - Documents and example usages to this project can be found within the Docs folder (constantly been updated).
@@ -72,11 +72,10 @@ Demo Recordings can now be found on our website on the below link, please do not
 
 👉 Recorded Demos on our website → [CPGE Demos](https://www.ultimanium.com/index.php?action=cpge-demos)
 
-## Known Issues 03rd June, 2026:
+## Known Issues 17th June, 2026:
 These are the following known issues and will be resolved as humanly possible.
 
-1) Models are still not been fully imported right (Currently Investigating, as it may relate that I am actually not doing exports properly (Likely Reason) with Blender).
-2) DX12 Window Resizing is causing a crash.  The other platforms are working fine, so should be a simple fix.
+1) DX12 Window Resizing is causing a crash.  The other platforms are working fine, so should be a simple fix.
 
 ## Getting Started
 
