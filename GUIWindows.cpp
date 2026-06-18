@@ -73,6 +73,9 @@ void GUIManager::CreateAlertWindow(const std::wstring& message) {
         return;
     }
 
+    // Hide during setup — same race guard as CreateConfigWindow.
+    alertWindow->isVisible = false;
+
     // Add Title Bar control with corrected lambda handlers
     GUIControl titleBar; // Use stack-allocated control instead of shared_ptr to avoid circular references
     titleBar.type = GUIControlType::TitleBar;
@@ -209,6 +212,9 @@ void GUIManager::CreateAlertWindow(const std::wstring& message) {
     }; // End of mouse down handler
     
     alertWindow->AddControl(btnClose);
+
+    // All controls added — safe to make visible now.
+    alertWindow->isVisible = true;
 }
 
 void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
@@ -241,6 +247,9 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
         debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateGameMenuWindow - Failed to create game menu window");
         return;
     }
+
+    // Hide during setup — same race guard as CreateConfigWindow.
+    gameMenuWindow->isVisible = false;
 
     // Create weak reference to prevent circular references in lambda handlers
     std::weak_ptr<GUIWindow> weakGameMenuWindow = gameMenuWindow;
@@ -662,6 +671,9 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
         gameMenuWindow->AddControl(experimentalButton);
     #endif
 
+    // All controls added — safe to make visible now.
+    gameMenuWindow->isVisible = true;
+
     // Log successful completion of game menu window creation
     debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Game menu window created successfully with %d controls",
         static_cast<int>(gameMenuWindow->controls.size()));
@@ -695,6 +707,12 @@ void GUIManager::CreateDifficultyWindow() {
         debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateDifficultyWindow - Failed to retrieve window after creation");
         return;
     }
+
+    // Hide during setup: the render thread snapshots windows every frame and
+    // could pick up this window before AddControl finishes, causing a data race
+    // on the controls vector (reallocation while iterating → dangling iterator).
+    // Mirror the pattern used in CreateConfigWindow.
+    diffWindow->isVisible = false;
 
     std::weak_ptr<GUIWindow> weakDiffWindow = diffWindow;
 
@@ -979,6 +997,9 @@ void GUIManager::CreateDifficultyWindow() {
     };
     diffWindow->AddControl(mateButton);
 
+    // All controls added — safe to make visible now (matches CreateConfigWindow pattern).
+    diffWindow->isVisible = true;
+
     debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateDifficultyWindow - Difficulty window created successfully with %d controls",
         static_cast<int>(diffWindow->controls.size()));
 }
@@ -1009,6 +1030,9 @@ void GUIManager::CreateGamePlayTypesWindow() {
         debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateGamePlayTypesWindow - Failed to retrieve window after creation");
         return;
     }
+
+    // Hide during setup — same race guard as CreateConfigWindow / CreateDifficultyWindow.
+    gptWindow->isVisible = false;
 
     std::weak_ptr<GUIWindow> weakGptWindow = gptWindow;
 
@@ -1198,6 +1222,9 @@ void GUIManager::CreateGamePlayTypesWindow() {
     lifeMissionButton.isVisible      = true;
     lifeMissionButton.isClickHandled = false;
     gptWindow->AddControl(lifeMissionButton);
+
+    // All controls added — safe to make visible now.
+    gptWindow->isVisible = true;
 
     debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGamePlayTypesWindow - Game play types window created successfully with %d controls",
         static_cast<int>(gptWindow->controls.size()));

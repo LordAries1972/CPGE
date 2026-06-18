@@ -952,8 +952,8 @@ inline void DX11Renderer::RenderIntroMovie()
                 Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - halfH, halfW, halfH);
         }
 
-        // Check for spacebar input to skip movie
-        if (GetAsyncKeyState(' ') & 0x8000)
+        // Check for spacebar input to skip movie — only in SCENE_INTRO_MOVIE, not splash SCENE_INTRO
+        if (scene.stSceneType == SceneType::SCENE_INTRO_MOVIE && (GetAsyncKeyState(' ') & 0x8000))
         {
             // Stop movie playback to trigger scene transition
             moviePlayer.Stop();

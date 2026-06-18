@@ -566,8 +566,8 @@ inline void OpenGLRenderer::RenderIntroMovie()
         }
     }
 
-    // Spacebar to skip movie — mirrors DX11 skip check
-    if (GetAsyncKeyState(' ') & 0x8000)
+    // Spacebar to skip movie — only active in SCENE_INTRO_MOVIE, not the splash SCENE_INTRO
+    if (scene.stSceneType == SceneType::SCENE_INTRO_MOVIE && (GetAsyncKeyState(' ') & 0x8000))
     {
         moviePlayer.Stop();
         scene.bSceneSwitching = true;

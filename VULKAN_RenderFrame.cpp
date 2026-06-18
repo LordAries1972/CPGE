@@ -305,10 +305,11 @@ inline void VulkanRenderer::RenderIntroMovie()
     }
 
     // Spacebar: fade to black FIRST, then stop the movie once the screen is fully black.
+    // Only active in SCENE_INTRO_MOVIE — not the splash SCENE_INTRO.
     // m_movieSkipFrames == -1 → not skipping; >= 0 → frame counter since fade started.
     // FadeToBlack(1.0, 0.04) takes ~25 frames at 60fps to reach full black.
     // We wait 50 frames before stopping to ensure the fade visually completes.
-    if ((GetAsyncKeyState(' ') & 0x8000) && m_movieSkipFrames < 0)
+    if (scene.stSceneType == SceneType::SCENE_INTRO_MOVIE && (GetAsyncKeyState(' ') & 0x8000) && m_movieSkipFrames < 0)
     {
         fxManager.FadeToBlack(1.0f, 0.04f);
         m_movieSkipFrames = 0;
