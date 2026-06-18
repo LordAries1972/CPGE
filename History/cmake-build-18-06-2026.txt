@@ -1,0 +1,14 @@
+cmake-build.bat - 18 June 2026
+-------------------------------
+Extended the version-increment PowerShell one-liner (SKIP_VERSION_INCREMENT block) to also
+update the *Current Build Version: vX.Y.Z* line at the top of ReleaseInfo.md.
+
+Previously the block wrote only Version.id and BuildInfo.h; the header line in ReleaseInfo.md
+drifted behind after every build. Now all three files are kept in sync atomically within the
+same PowerShell invocation:
+  1. Version.id                  - unchanged behaviour
+  2. BuildInfo.h                 - unchanged behaviour
+  3. ReleaseInfo.md line 6       - regex replaces *Current Build Version: vOLD* with vNEW*
+
+The SKIP_VERSION_INCREMENT guard is unchanged, so "cmake-build all" still increments exactly
+once (first pipeline only) and all three files are updated together on that single increment.

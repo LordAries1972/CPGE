@@ -177,6 +177,11 @@ SceneManager scene;
 ShaderManager shaderManager;
 MoviePlayer moviePlayer;
 ScreenRecorder screenRecorder;
+
+// Our externals we require
+extern const std::string DIFFICULTY_WINDOW_NAME;
+extern const std::string GameMenu_WindowName;
+extern const std::string GAMEPLAYTYPES_WINDOW_NAME;
 extern ConsoleWindow consoleWindow;
 
 #ifdef __USE_SCRIPT_MANAGER__
@@ -256,6 +261,7 @@ extern std::shared_ptr<Renderer> renderer;
 // Forward Declarations
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 void SwitchToGamePlay();
+void StartGame();
 void SwitchToGameIntro();
 void SwitchToMovieIntro();
 void OpenStartMovieAndPlay();
@@ -2429,6 +2435,28 @@ bool Load_Music()
     #endif
 
     return true;
+}
+
+void StartGame()
+{
+    // Start Game
+    // Initiate fade to black effect with proper timing
+    fxManager.FadeToBlack(1.0f, 0.06f);
+
+    // Wait for fade effect to complete with proper timeout to prevent infinite loop
+    int fadeTimeout = 0;
+    const int MAX_FADE_TIMEOUT = 300; // 3 seconds maximum wait time (300 * 10ms)
+    while (fxManager.IsFadeActive() && fadeTimeout < MAX_FADE_TIMEOUT) {
+        Sleep(10); // Sleep for 10 milliseconds
+        fadeTimeout++;
+    }
+
+    // Remove the game menu window safely before application shutdown
+    guiManager.RemoveWindow(GameMenu_WindowName);
+
+    // Switch to GamePlay Scene.
+    SwitchToGamePlay();
+
 }
 
 #pragma warning(pop)

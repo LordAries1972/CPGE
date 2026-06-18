@@ -1,0 +1,94 @@
+===========================================================
+  EXCEPTION CALL-STACK LOG
+  Generated  : 2026-06-18 10:48:04
+===========================================================
+  Exception  : Access Violation - Invalid memory access
+  Code       : 0xC0000005
+  Address    : 0x00007FF7E339DF9D
+  Thread ID  : 25992
+  Process ID : 9132
+  Platform   : Windows x64  [DEBUG BUILD]
+===============================================================
+  CALL STACK TRACE (16 of 16 frames captured, showing up to 100)
+===============================================================
+  #00  Address  : 0x00007FF7E339DF9D
+       Function : <lambda_61adc1fe2a30196c5ea34dd5a42c5e5b>::operator()  +0x6D
+       Module   : DXCPGE.exe
+       Source   : F:\Projects\C++\CPGE2026\GUIWindows.cpp  Line 754
+       --------
+  #01  Address  : 0x00007FF7E33B1594
+       Function : std::invoke<<lambda_61adc1fe2a30196c5ea34dd5a42c5e5b> &>  +0x14
+       Module   : DXCPGE.exe
+       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\type_traits  Line 1732
+       --------
+  #02  Address  : 0x00007FF7E33A3FAB
+       Function : std::_Func_impl_no_alloc<<lambda_61adc1fe2a30196c5ea34dd5a42c5e5b>,void>::_Do_call  +0x1B
+       Module   : DXCPGE.exe
+       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\functional  Line 812
+       --------
+  #03  Address  : 0x00007FF7E32D394F
+       Function : std::_Func_class<void>::operator()  +0x3F
+       Module   : DXCPGE.exe
+       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\functional  Line 855
+       --------
+  #04  Address  : 0x00007FF7E33819C9
+       Function : GUIWindow::HandleMouseClick  +0x309
+       Module   : DXCPGE.exe
+       Source   : F:\Projects\C++\CPGE2026\GUIManager.cpp  Line 588
+       --------
+  #05  Address  : 0x00007FF7E3384806
+       Function : GUIManager::HandleAllInput  +0x646
+       Module   : DXCPGE.exe
+       Source   : F:\Projects\C++\CPGE2026\GUIManager.cpp  Line 336
+       --------
+  #06  Address  : 0x00007FF7E33E5987
+       Function : WindowProc  +0x407
+       Module   : DXCPGE.exe
+       Source   : F:\Projects\C++\CPGE2026\main.cpp  Line 1795
+       --------
+  #07  Address  : 0x00007FFE70AA8EB8
+       Function : DispatchMessageW  +0x948
+       Module   : USER32.dll
+       --------
+  #08  Address  : 0x00007FFE70AA8771
+       Function : DispatchMessageW  +0x201
+       Module   : USER32.dll
+       --------
+  #09  Address  : 0x00007FF7E33E17B5
+       Function : WinMain  +0x10A5
+       Module   : DXCPGE.exe
+       Source   : F:\Projects\C++\CPGE2026\main.cpp  Line 857
+       --------
+  #10  Address  : 0x00007FF7E359A422
+       Function : invoke_main  +0x32
+       Module   : DXCPGE.exe
+       Source   : D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_common.inl  Line 107
+       --------
+  #11  Address  : 0x00007FF7E359A2CE
+       Function : __scrt_common_main_seh  +0x12E
+       Module   : DXCPGE.exe
+       Source   : D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_common.inl  Line 288
+       --------
+  #12  Address  : 0x00007FF7E359A18E
+       Function : __scrt_common_main  +0xE
+       Module   : DXCPGE.exe
+       Source   : D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_common.inl  Line 331
+       --------
+  #13  Address  : 0x00007FF7E359A4BE
+       Function : WinMainCRTStartup  +0xE
+       Module   : DXCPGE.exe
+       Source   : D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_winmain.cpp  Line 17
+       --------
+  #14  Address  : 0x00007FFE70CD259D
+       Function : BaseThreadInitThunk  +0x1D
+       Module   : KERNEL32.DLL
+       --------
+  #15  Address  : 0x00007FFE72BCAF78
+       Function : RtlUserThreadStart  +0x28
+       Module   : ntdll.dll
+========================================================
+  BREADCRUMB TRAIL  (last RECORD_FUNCTION_CALL() entries
+========================================================
+  23.  WinMain
+  24.  LoaderTaskThread
+  25.  RenderFrame

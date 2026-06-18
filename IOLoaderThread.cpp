@@ -108,6 +108,9 @@ extern std::wstring     baseDir;
     std::mutex VulkanRenderer::s_loaderMutex;
 #endif
 
+// Forward Declarations
+PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, const Vector2& startPosition);
+
 /* ================================================================
    UNIFIED LoaderTaskThread() -- one body covers all pipelines.
 
@@ -268,48 +271,6 @@ extern std::wstring     baseDir;
                 if (!wasResizing.load())
                 {
                     // ---- First load ---- //
-
-                    // Title-screen back light: positioned deep in the background behind
-                    // the ship, angled slightly downward toward the viewer.  This creates
-                    // a dramatic rim/halo on the ship silhouette while the raised ambient
-                    // keeps all material colours visible on the camera-facing surfaces.
-                    //
-                    // Direction convention: the vector is the direction the light TRAVELS.
-                    // Shader computes L = -direction, so (0, -0.25, -1) normalised means
-                    // light travels slightly down and INTO the screen; L points upward and
-                    // toward the camera -- illuminating the ship's front-upper geometry and
-                    // creating bright specular highlights on any metallic parts.
-                    showStage(L"Initialising lighting...");
-                    LightStruct sunLight{};
-                    #if defined(PLATFORM_WINDOWS)
-                        SecureZeroMemory(&sunLight, sizeof(LightStruct));
-                    #endif
-                    sunLight.active        = true;
-                    sunLight.position      = XMFLOAT3(0.0f, -10.0f, -10.0f);        // deep background, slightly above centre
-                    // Normalise direction manually: (0, -0.25, -1) / length = (0, -0.2425, -0.9701)
-                    sunLight.direction     = XMFLOAT3(0.0f, -0.1f, 0.0f);
-                    sunLight.color         = XMFLOAT3(1.0f, 0.95f, 0.85f);         // warm white -- sun-like
-
-                    // Raised ambient gives camera-facing surfaces a visible base colour even
-                    // before direct light reaches them.  Slight cool-blue tint reads as
-                    // outer-space fill light and prevents the dark side going pure black.
-                    #if defined(__USE_DIRECTX11__) || defined(__USE_DIRECTX_12__) || defined(__USE_VULKAN__)
-                        sunLight.ambient       = XMFLOAT3(0.0f, 0.0f, 0.0f);
-                        sunLight.intensity     = 0.7f;
-                        sunLight.baseIntensity = 0.3f;
-                    #elif defined(__USE_OPENGL__)
-                        sunLight.ambient       = XMFLOAT3(0.0f, 0.0f, 0.0f);
-                        sunLight.intensity     = 0.7f;
-                        sunLight.baseIntensity = 0.3f;
-                    #endif
-                    sunLight.Shiningness   = 1.0f;
-                    sunLight.Reflection    = 1.0f;
-                    sunLight.lightFalloff  = 0.2f;
-                    sunLight.innerCone     = 30.0f;
-                    sunLight.outerCone     = 60.0f;
-                    sunLight.range         = 2000.0f;
-                    sunLight.type          = int(LightType::DIRECTIONAL);
-                    lightsManager.CreateLight(L"Sun", sunLight);
 
                     // Parse the splash / title scene.
                     showStage(L"Parsing scene...");
@@ -729,4 +690,84 @@ extern std::wstring     baseDir;
     #endif
 
     debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene Loading Complete - Pausing Thread");
+}
+
+//==============================================================================
+// Example Helper Functions
+//==============================================================================
+
+// Example function to create a basic shoot-em-up player configuration
+PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, const Vector2& startPosition) {
+    PlayerInfo player;                                                  // Create new player information structure
+    
+    // Basic player identification
+    player.playerID = playerID;                                         // Set unique player identifier
+    player.playerName = playerName;                                     // Set player display name
+    player.playerTag = "PILOT";                                         // Set player tag for shoot-em-up theme
+    player.playerColor = MyColor(0, 255, 0, 255);                      // Green color for player ship
+    
+    // Visual representation for 2D shoot-em-up
+    player.portraitImageIndex = BlitObj2DIndexType::IMG_COMPANYLOGO;    // Use logo as portrait placeholder
+    player.frameImageIndex = BlitObj2DIndexType::IMG_WINFRAME1;         // Use window frame for UI
+    
+    // Position and movement setup
+    player.position2D = startPosition;                                  // Set starting 2D position
+    player.position3D = Vector3(startPosition.x, startPosition.y, 0.0f); // Convert to 3D position
+    player.velocity2D = Vector2(0.0f, 0.0f);                           // No initial velocity
+    player.velocity3D = Vector3(0.0f, 0.0f, 0.0f);                     // No initial 3D velocity
+    player.mapPosition = startPosition;                                 // Set map position same as world position
+    player.rotation = 0.0f;                                             // No initial rotation
+    
+    // Player state configuration
+    player.currentState = PlayerState::ACTIVE;                         // Set player as active
+    player.isDead = false;                                              // Player starts alive
+    player.isActive = true;                                             // Player participates in game
+    player.deathAnimation = DeathAnimationState::NONE;                  // No death animation initially
+    
+    // Health and combat statistics for shoot-em-up
+    player.health = 100;                                                // Standard health amount
+    player.maxHealth = 100;                                             // Maximum health capacity
+    player.armour = 50;                                                 // Ship armour protection
+    player.maxArmour = 100;                                             // Maximum armour capacity
+    player.shield = 75;                                                 // Energy shield strength
+    player.maxShield = 100;                                             // Maximum shield capacity
+    
+    // Scoring and progression
+    player.score = 0;                                                   // Start with no score
+    player.highScore = 0;                                               // No high score initially
+    player.lives = 3;                                                   // Standard 3 lives for shoot-em-up
+    player.level = 1;                                                   // Start at level 1
+    player.experience = 0;                                              // No initial experience
+    player.experienceToNext = 1000;                                     // 1000 XP needed for next level
+    
+    // Combat attributes for shoot-em-up gameplay
+    player.attackPower = 25;                                            // Ship weapon damage
+    player.defenseRating = 15;                                          // Ship defensive rating
+    player.criticalChance = 10;                                         // 10% critical hit chance
+    player.criticalMultiplier = 2;                                      // 2x critical damage
+    player.attackSpeed = 2.5f;                                          // 2.5 attacks per second
+    player.movementSpeed = 200.0f;                                      // 200 pixels per second movement
+    
+    // Resource management
+    player.ammunition = 100;                                            // Starting ammunition count
+    player.maxAmmunition = 150;                                         // Maximum ammunition capacity
+    player.energy = 100;                                                // Energy for special weapons
+    player.maxEnergy = 100;                                             // Maximum energy capacity
+    
+    // Timer system setup (useful for power-up durations, invincibility, etc.)
+    player.timerActive = false;                                         // Timer not active initially
+    player.timerStart = std::chrono::steady_clock::now();               // Initialize timer start
+    player.timerCurrent = player.timerStart;                            // Initialize current time
+    player.totalTimeElapsed = std::chrono::milliseconds(0);             // No elapsed time initially
+    
+    // Network player settings
+    player.isNetworkPlayer = false;                                     // Local player by default
+    player.networkSessionID = "";                                       // No network session initially
+    player.networkLatency = 0;                                          // No network latency for local player
+    
+    #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"Shoot-em-up player %d created successfully", playerID);
+    #endif
+    
+    return player;                                                      // Return configured player
 }

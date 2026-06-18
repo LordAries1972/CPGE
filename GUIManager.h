@@ -185,6 +185,8 @@ public:
     void Initialize(Renderer* renderer);                                    // Updated to accept Renderer
     void CreateAlertWindow(const std::wstring& message);                    // No longer needs Renderer parameter
     void CreateGameMenuWindow(const std::wstring& message);
+    void CreateDifficultyWindow();
+    void CreateGamePlayTypesWindow();
     void CreateConfigWindow();
     void CreateMyWindow(const std::string& name, GUIWindowType type,
         const Vector2& position, const Vector2& size,
