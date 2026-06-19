@@ -744,7 +744,7 @@ const int PLAYER_1 = 0;
 //const int PLAYER_4 = 3;
 
 // Maximum number of Players supported (1-8)
-const int MAX_PLAYERS = 1;
+constexpr int MAX_PLAYERS = 8;
 
 // 2D Textures
 inline const std::wstring texFilename[] = {

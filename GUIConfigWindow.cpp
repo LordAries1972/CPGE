@@ -4,11 +4,11 @@
 #include <thread>
 
 #if defined(__USE_OPENGL__)
-#include "OpenGLFXManager.h"
+    #include "OpenGLFXManager.h"
 #elif defined(__USE_VULKAN__)
-#include "VULKAN_FXManager.h"
+    #include "VULKAN_FXManager.h"
 #else
-#include "DX_FXManager.h"
+    #include "DX_FXManager.h"
 #endif
 
 #include "ThreadManager.h"
@@ -21,17 +21,18 @@
 extern std::shared_ptr<Renderer> renderer;
 extern SoundManager soundManager;
 #if defined(__USE_OPENGL__)
-extern GLFXManager fxManager;
+    extern GLFXManager fxManager;
 #elif defined(__USE_VULKAN__)
-extern VKFXManager fxManager;
+    extern VKFXManager fxManager;
 #else
-extern FXManager fxManager;
+    extern FXManager fxManager;
 #endif
+
 extern ThreadManager threadManager;
 
 // Forward-declared in main.cpp (no longer static)
 #if defined(PLATFORM_WINDOWS)
-void ApplySystemMasterVolume(int vol64);
+    void ApplySystemMasterVolume(int vol64);
 #endif
 
 // ---------------------------------------------------------------------------
@@ -95,22 +96,25 @@ static const wchar_t* const DISP_MODE_NAMES[3] = {
 // Linux/Android: only compiled-in backends are shown; slider hidden when count == 1.
 struct RendererEntry { int type; const wchar_t* name; };
 #if defined(PLATFORM_WINDOWS)
-static const RendererEntry AVAILABLE_RENDERERS[] = {
-    { 0, L"DirectX 11" },
-    { 1, L"DirectX 12" },
-    { 2, L"OpenGL"     },
-    { 3, L"Vulkan"     },
-};
+    static const RendererEntry AVAILABLE_RENDERERS[] = {
+        { 0, L"DirectX 11" },
+        { 1, L"DirectX 12" },
+        { 2, L"OpenGL"     },
+        { 3, L"Vulkan"     },
+    };
 #else
-static const RendererEntry AVAILABLE_RENDERERS[] = {
-#  if defined(__USE_OPENGL__)
-    { 0, L"OpenGL" },
-#  endif
-#  if defined(__USE_VULKAN__)
-    { 1, L"Vulkan" },
-#  endif
-};
+    static const RendererEntry AVAILABLE_RENDERERS[] = {
+        #if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+            { 0, L"OpenGL" },
+            { 1, L"Vulkan" },
+        #elif defined(PLATFORM_APPLE) || defined(PLATFORM_IOS)
+            { 0, L"OpenGL" },
+        #else
+            #error "AVAILABLE_RENDERERS is not defined for this platform"
+        #endif
+    };
 #endif
+
 static constexpr int RENDERER_COUNT =
     (int)(sizeof(AVAILABLE_RENDERERS) / sizeof(AVAILABLE_RENDERERS[0]));
 

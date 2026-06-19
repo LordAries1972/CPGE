@@ -485,7 +485,6 @@ private:
     std::atomic<bool> m_hasCleanedUp;                                       // Cleanup completion flag
 
     // Player Data Storage (supporting up to 8 players)
-    static const int MAX_PLAYERS = 8;                                       // Maximum supported players
     PlayerInfo m_players[MAX_PLAYERS];                                      // Array of player information
     bool m_playerSlotActive[MAX_PLAYERS];                                   // Track which player slots are in use
 

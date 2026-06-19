@@ -145,9 +145,9 @@
 //------------------------------------------
 // Constants
 //------------------------------------------
-const LPCWSTR MY_WINDOW_CLASS_NAME = L"CPGE2026_WindowClass";
-const LPCWSTR MY_WINDOW_TITLE = L"CPGE by Daniel J. Hobson of Australia 2023-2026";
-const LPCWSTR lpDEFAULT_NAME = L"CPGE_";
+const LPCWSTR MY_WINDOW_CLASS_NAME = L"TSOO2026_WindowClass";
+const LPCWSTR MY_WINDOW_TITLE = L"TSOO by Daniel J. Hobson of Australia 2026-2027";
+const LPCWSTR lpDEFAULT_NAME = L"TSOO_";
 
 //--------------------------------------------------------
 // Required Class Instantiations / Declarations
@@ -2453,6 +2453,8 @@ void StartGame()
 
     // Remove the game menu window safely before application shutdown
     guiManager.RemoveWindow(GameMenu_WindowName);
+
+    // Initialize Player #1 for Game Play.
 
     // Switch to GamePlay Scene.
     SwitchToGamePlay();
