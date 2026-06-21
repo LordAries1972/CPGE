@@ -1515,7 +1515,7 @@ int GLFXManager::ShowLoadingText(const std::wstring& text,
                                         : fDEFAULT_WINDOW_HEIGHT * LOADER_TEXT_Y_RATIO) : posY;
     if (fontStyle) d.fontStyle = *fontStyle;
 
-    effects.push_back(std::move(fx));
+    AddEffect(fx);
     return newID;
 }
 

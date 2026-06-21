@@ -11,7 +11,7 @@
 //==============================================================================
 // Constant Declarations
 //==============================================================================
-const int MAX_MODELS = 2048;                                                        // Maximum number of unique models in the scene
+const int MAX_MODELS = 8192;                                                        // Maximum number of unique models in the scene
 const int MAX_MODEL_LIGHTS = MAX_LIGHTS;                                            // Maximum number of lights per model
 const std::wstring ShipName = L"Ship1";
 const std::wstring SplashShipName = L"SplashShip1";
@@ -20,7 +20,7 @@ const std::wstring SplashShipName = L"SplashShip1";
 // namespaces
 //==============================================================================
 #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-using namespace DirectX;
+    using namespace DirectX;
 #endif
 
 //==============================================================================
@@ -409,12 +409,12 @@ struct ModelInfo {
     void*                    d3d12DebugMapped    = nullptr;
 
     // Texture descriptor table for this model in the renderer's CBV/SRV/UAV heap.
-    // Six consecutive SRV slots (t0=diffuse, t1=normal, t2=metallic, t3=roughness, t4=AO, t5=env)
+    // Nine consecutive SRV slots (t0=diffuse t1=normal t2=metallic t3=roughness t4=AO t5=env t6=gloss t7=emissive t8=shadow)
     // are allocated in SetupModelForRendering and written by RegisterDX12Textures() on first render.
     D3D12_GPU_DESCRIPTOR_HANDLE d3d12TextureGPUHandle   = { 0 };
     UINT                        d3d12TextureHeapOffset  = 0;
     bool                        d3d12TexturesRegistered = false;
-    ComPtr<ID3D12Resource>      d3d12TexResources[6];   // Underlying D3D12 resources [0..5]
+    ComPtr<ID3D12Resource>      d3d12TexResources[9];   // Underlying D3D12 resources [0..8] (t0-t8)
 #endif
 
 #elif defined(__USE_OPENGL__)
@@ -550,8 +550,8 @@ public:
     // COMMON -> PIXEL_SHADER_RESOURCE barriers on cmdList.  Sets d3d12TexturesRegistered=true.
     void RegisterDX12Textures(ID3D12GraphicsCommandList* cmdList, class DX12Renderer* dx12);
 
-    // Uploads every Texture referenced by m_modelInfo (diffuse/normal/metallic/roughness/AO)
-    // to a native D3D12 DEFAULT-heap resource in d3d12TexResources[0..5].  Shared by
+    // Uploads every Texture referenced by m_modelInfo (diffuse/normal/metallic/roughness/AO/gloss/emissive)
+    // to a native D3D12 DEFAULT-heap resource in d3d12TexResources[0..8].  Shared by
     // SetupModelForRendering (first load, loader thread) and RefreshDX12Textures
     // (cache-restore rebind).  Logs every skipped slot so missing-texture failures
     // can be traced immediately instead of failing silently to NULL descriptors.

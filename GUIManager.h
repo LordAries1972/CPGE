@@ -194,6 +194,7 @@ public:
         int backgroundTextureId);                                           // No longer needs Renderer parameter
 
     void RemoveWindow(const std::string& name);
+    void CloseAllWindows();
     void OnWindowResize(int newWidth, int newHeight);
     void Render();
     void HandleInput(const std::string& windowName, const Vector2& mousePosition, bool& isLeftClick);
@@ -217,6 +218,9 @@ public:
     void ApplyWindowFade(GUIWindowFadeType winfadeType, float overTimePeriod, const std::string& windowName);
     void ApplyWindowFadeCallback(GUIWindowFadeType winfadeType, float overTimePeriod, const std::string& windowName, std::function<void()> callback);
 
+    // Returns the visible, non-destroyed window with the highest zOrder (the focused window).
+    std::shared_ptr<GUIWindow> GetFocusedWindow();
+
 private:
     bool bHasCleanedUp = false;
     char buffer[256] = { 0 };
@@ -236,8 +240,5 @@ private:
 
 
     friend class GUIWindow;
-
-    // Returns the visible, non-destroyed window with the highest zOrder (the focused window).
-    std::shared_ptr<GUIWindow> GetFocusedWindow();
 };
 

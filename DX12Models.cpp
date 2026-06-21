@@ -622,18 +622,18 @@ bool Model::SetupModelForRendering()
         }
     }
 
-    // Allocate 6 consecutive SRV descriptor slots in the renderer's CBV/SRV/UAV heap for
-    // this model's textures (t0=diffuse, t1=normal, t2=metallic, t3=roughness, t4=AO, t5=env).
+    // Allocate 9 consecutive SRV descriptor slots in the renderer's CBV/SRV/UAV heap for
+    // this model's textures (t0=diffuse, t1=normal, t2=metallic, t3=roughness, t4=AO, t5=env, t6=gloss, t7=emissive, t8=shadow).
     // Actual SRV creation is deferred to RegisterDX12Textures() on the first render frame
     // (it needs an open command list for resource barriers).
     if (m_modelInfo.d3d12TextureHeapOffset == 0)
     {
         const UINT heapCap = DX12_MODEL_TEXTURE_HEAP_BASE + DX12_MODEL_TEXTURE_HEAP_CAPACITY;
         std::lock_guard<std::mutex> heapLock(dx12->globalMutex);
-        if (dx12->m_cbvSrvUavHeap.currentOffset + 6 <= heapCap)
+        if (dx12->m_cbvSrvUavHeap.currentOffset + 9 <= heapCap)
         {
             m_modelInfo.d3d12TextureHeapOffset = dx12->m_cbvSrvUavHeap.currentOffset;
-            dx12->m_cbvSrvUavHeap.currentOffset += 6;
+            dx12->m_cbvSrvUavHeap.currentOffset += 9;
             m_modelInfo.d3d12TextureGPUHandle.ptr =
                 dx12->m_cbvSrvUavHeap.gpuStart.ptr +
                 static_cast<UINT64>(m_modelInfo.d3d12TextureHeapOffset) *
@@ -661,8 +661,8 @@ bool Model::SetupModelForRendering()
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Model::UploadDX12ModelTextures — uploads the model's Texture objects to native
-// D3D12 DEFAULT-heap resources (d3d12TexResources[0..5]).
-// Slot map: t0=diffuse, t1=normal, t2=metallic, t3=roughness, t4=AO, t5=env.
+// D3D12 DEFAULT-heap resources (d3d12TexResources[0..8]).
+// Slot map: t0=diffuse, t1=normal, t2=metallic, t3=roughness, t4=AO, t5=env, t6=gloss, t7=emissive, t8=shadow.
 // Called from SetupModelForRendering (loader thread, first load) and from
 // RefreshDX12Textures (cache-restore rebind).  UploadDX12TextureToGPU uses a
 // private fence, so the render thread's m_fenceValue is never touched.
@@ -675,8 +675,8 @@ void Model::UploadDX12ModelTextures(DX12Renderer* dx12)
 {
     if (!dx12) return;
 
-    // Slot names for diagnostic logging (t0..t5 shader register order)
-    static const wchar_t* kSlotNames[6] = { L"diffuse", L"normal", L"metallic", L"roughness", L"ao", L"env" };
+    // Slot names for diagnostic logging (t0..t8 shader register order)
+    static const wchar_t* kSlotNames[9] = { L"diffuse", L"normal", L"metallic", L"roughness", L"ao", L"env", L"gloss", L"emissive", L"shadow" };
 
     // Locate the Texture object whose SRV matches a given raw SRV pointer.
     auto findTex = [&](ID3D11ShaderResourceView* srv) -> std::shared_ptr<Texture> {
@@ -689,13 +689,16 @@ void Model::UploadDX12ModelTextures(DX12Renderer* dx12)
     ID3D11ShaderResourceView* diffuseSRV = m_modelInfo.textureSRVs.empty()   ? nullptr : m_modelInfo.textureSRVs[0].Get();
     ID3D11ShaderResourceView* normalSRV  = m_modelInfo.normalMapSRVs.empty() ? nullptr : m_modelInfo.normalMapSRVs[0].Get();
 
-    std::shared_ptr<Texture> texSlots[6] = {
+    std::shared_ptr<Texture> texSlots[9] = {
         findTex(diffuseSRV),
         findTex(normalSRV),
         m_modelInfo.metallicMap,
         m_modelInfo.roughnessMap,
         m_modelInfo.aoMap,
-        nullptr,  // slot 5 (env) — no Texture object; null SRV used
+        nullptr,                          // slot 5 (env) — TextureCube, no Texture object
+        m_modelInfo.glossMap,             // slot 6 (t6): gloss/smoothness map
+        m_modelInfo.emissiveMapTexture,   // slot 7 (t7): emissive texture
+        nullptr,                          // slot 8 (shadow) — set externally by shadow pass
     };
 
     // TRACE: an SRV that exists but whose owning Texture is not in m_modelInfo.textures
@@ -714,12 +717,12 @@ void Model::UploadDX12ModelTextures(DX12Renderer* dx12)
     // Drop GPU resources from a previous texture set so a rebind can never leave a
     // stale resource in a slot whose map no longer exists.  Shared Texture objects
     // keep their own cached resource (GetDX12Resource), so reuse below still works.
-    for (int i = 0; i < 6; ++i)
+    for (int i = 0; i < 9; ++i)
         m_modelInfo.d3d12TexResources[i].Reset();
 
     int populatedSlots = 0;                                  // diagnostic summary counter
 
-    for (int slot = 0; slot < 6; ++slot) {
+    for (int slot = 0; slot < 9; ++slot) {
         if (!texSlots[slot]) continue;                       // map genuinely absent — normal
 
         // If this Texture object was already uploaded (either earlier in this loop
@@ -730,7 +733,7 @@ void Model::UploadDX12ModelTextures(DX12Renderer* dx12)
             continue;
         }
 
-        // Within this model's 6 slots, check if an earlier slot already uploaded
+        // Within this model's 9 slots, check if an earlier slot already uploaded
         // the same Texture object (handles metallic==roughness combined maps).
         bool reused = false;
         for (int j = 0; j < slot; ++j) {
@@ -792,13 +795,15 @@ void Model::UploadDX12ModelTextures(DX12Renderer* dx12)
     // Per-model summary: which texture slots reached the GPU.  diffuse=0 with
     // useDiffuseMap=1 is the worst case — flagged again in RegisterDX12Textures.
     debug.logDebugMessage(LogLevel::LOG_INFO,
-        L"[DX12 TexUpload] Model %d '%ls': %d/6 slots on GPU "
-        L"(diffuse=%d normal=%d metallic=%d roughness=%d ao=%d env=%d) useDiffuseMap=%d",
+        L"[DX12 TexUpload] Model %d '%ls': %d/9 slots on GPU "
+        L"(diffuse=%d normal=%d metallic=%d roughness=%d ao=%d env=%d gloss=%d emissive=%d shadow=%d) useDiffuseMap=%d useEmissiveMap=%d",
         m_modelInfo.ID, m_modelInfo.name.c_str(), populatedSlots,
         m_modelInfo.d3d12TexResources[0] ? 1 : 0, m_modelInfo.d3d12TexResources[1] ? 1 : 0,
         m_modelInfo.d3d12TexResources[2] ? 1 : 0, m_modelInfo.d3d12TexResources[3] ? 1 : 0,
         m_modelInfo.d3d12TexResources[4] ? 1 : 0, m_modelInfo.d3d12TexResources[5] ? 1 : 0,
-        m_modelInfo.useDiffuseMap ? 1 : 0);
+        m_modelInfo.d3d12TexResources[6] ? 1 : 0, m_modelInfo.d3d12TexResources[7] ? 1 : 0,
+        m_modelInfo.d3d12TexResources[8] ? 1 : 0,
+        m_modelInfo.useDiffuseMap ? 1 : 0, m_modelInfo.useEmissiveMap ? 1 : 0);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -950,9 +955,9 @@ void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
             matGPU->useRoughnessMap  = (m_modelInfo.roughnessMapSRV   != nullptr) ? 1.0f : 0.0f;
             matGPU->useAOMap         = (m_modelInfo.aoMapSRV          != nullptr) ? 1.0f : 0.0f;
             matGPU->useEnvMap        = (m_modelInfo.environmentMapSRV  != nullptr) ? 1.0f : 0.0f;
-            matGPU->useDiffuseMap    = m_modelInfo.useDiffuseMap   ? 1.0f : 0.0f;
-            matGPU->useGlossMap      = m_modelInfo.useGlossMap     ? 1.0f : 0.0f;
-            matGPU->useEmissiveMap   = m_modelInfo.useEmissiveMap  ? 1.0f : 0.0f;
+            matGPU->useDiffuseMap    = m_modelInfo.useDiffuseMap    ? 1.0f : 0.0f;
+            matGPU->useGlossMap      = (m_modelInfo.useGlossMap    && m_modelInfo.d3d12TexResources[6]) ? 1.0f : 0.0f;
+            matGPU->useEmissiveMap   = (m_modelInfo.useEmissiveMap && m_modelInfo.d3d12TexResources[7]) ? 1.0f : 0.0f;
             // NormalScale == 0 tells the shader to use vertex normal (no normal map present)
             if (m_modelInfo.normalMapSRVs.empty())
                 matGPU->NormalScale = 0.0f;
@@ -1212,7 +1217,7 @@ void Model::RegisterDX12Textures(ID3D12GraphicsCommandList* cmdList, DX12Rendere
     int realSRVs = 0;                                        // descriptors backed by a GPU resource
     int nullSRVs = 0;                                        // null (black/zero) descriptors written
 
-    for (int i = 0; i < 6; ++i)
+    for (int i = 0; i < 9; ++i)
     {
         const D3D12_CPU_DESCRIPTOR_HANDLE slotCPU = {
             cpuBase.ptr + static_cast<SIZE_T>(i) * incSize
@@ -1336,10 +1341,9 @@ void Model::RenderDX12(ID3D12GraphicsCommandList* cmdList, DX12Renderer* dx12, f
         // actually reached the DX12 heap.  A null SRV samples (0,0,0,0); with the
         // alpha-blend PSO that made models invisible instead of showing the Kd
         // solid-colour fallback (warned once in RegisterDX12Textures).
-        matGPU.useDiffuseMap    = (m_modelInfo.useDiffuseMap &&
-                                   m_modelInfo.d3d12TexResources[0]) ? 1.0f : 0.0f;
-        matGPU.useGlossMap      = m_modelInfo.useGlossMap    ? 1.0f : 0.0f;
-        matGPU.useEmissiveMap   = m_modelInfo.useEmissiveMap ? 1.0f : 0.0f;
+        matGPU.useDiffuseMap    = (m_modelInfo.useDiffuseMap    && m_modelInfo.d3d12TexResources[0]) ? 1.0f : 0.0f;
+        matGPU.useGlossMap      = (m_modelInfo.useGlossMap      && m_modelInfo.d3d12TexResources[6]) ? 1.0f : 0.0f;
+        matGPU.useEmissiveMap   = (m_modelInfo.useEmissiveMap   && m_modelInfo.d3d12TexResources[7]) ? 1.0f : 0.0f;
         memcpy(m_modelInfo.d3d12MaterialMapped, &matGPU, sizeof(MaterialGPU));
         cmdList->SetGraphicsRootConstantBufferView(
             DX12_ROOT_PARAM_MATERIAL_BUFFER,

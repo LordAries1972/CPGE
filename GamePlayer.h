@@ -32,6 +32,7 @@
 // Forward declarations
 extern Debug debug;
 extern PUNPack punPack;
+constexpr int MAX_PLAYERS = 8;                                          // Maximum supported players
 
 //==============================================================================
 // Game Type Enumeration - Defines various game genres and styles
@@ -98,6 +99,27 @@ enum class DifficultyLevel : uint8_t {
     DIFFICULTY_HELL = 4
 };
 
+enum class PlayerAction : uint8_t {
+    ACTION_NONE = 0,
+    ACTION_MOVE_UP = 1,
+    ACTION_MOVE_DOWN = 2,
+    ACTION_MOVE_LEFT = 3,
+    ACTION_MOVE_RIGHT = 4,
+    ACTION_JUMP = 5,
+    ACTION_SHOOT = 6,
+    ACTION_SPECIAL = 7
+};
+
+enum class GameMode : uint8_t {
+    MODE_CAMPAIGN = 0,
+    MODE_ARCADE = 1,
+    MODE_TIMERUSH = 2,
+    MODE_COCKPIT = 3,
+    MODE_RANDOM = 4,
+    MODE_STAGESELECT = 5,
+    MODE_ONEMAN_MISSION = 6
+};
+
 //==============================================================================
 // Comprehensive Player Information Structure
 // Contains all data necessary for player management across different game types
@@ -139,6 +161,7 @@ struct PlayerInfo {
     uint64_t score;                                                     // Player current score
     uint64_t highScore;                                                 // Player best score
     DifficultyLevel Difficulty;
+    GameMode gameMode;                                                  // The Mode the game is to run under
     int lives;                                                          // Remaining lives count
     int level;                                                          // Current player level
     uint64_t experience;                                                // Experience points earned

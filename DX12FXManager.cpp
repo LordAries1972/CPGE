@@ -159,7 +159,7 @@ void FXManager::RestartFXAfterResize()
 {
     try {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        SecureZeroMemory(&savedFXState, sizeof(ActiveFXState));
+        savedFXState = ActiveFXState{};
     }
     catch (...) {}
 }
@@ -1542,7 +1542,12 @@ int FXManager::ShowLoadingText(const std::wstring& text, XMFLOAT4 endColor, floa
                                         : fDEFAULT_WINDOW_HEIGHT * LOADER_TEXT_Y_RATIO) : posY;
     if (fontStyle) d.fontStyle = *fontStyle;
 
-    effects.push_back(std::move(fx));
+    if (bIsRendering.load()) {
+        std::lock_guard<std::mutex> lock(m_effectsMutex);
+        m_pendingEffects.push_back(std::move(fx));
+    } else {
+        effects.push_back(std::move(fx));
+    }
     return newID;
 }
 

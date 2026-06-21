@@ -56,9 +56,11 @@ const int DX12_ROOT_PARAM_SHADOW_BUFFER = 7;                                   /
 // Slots 9     : reserved
 // Slots 10 .. 10+MAX_TEXTURE_BUFFERS_3D-1 : scene-level 3D texture SRVs (see CreateTextureResources)
 // Slots DX12_MODEL_TEXTURE_HEAP_BASE .. +DX12_MODEL_TEXTURE_HEAP_CAPACITY-1 : per-model texture SRVs
-// Each loaded model gets 6 consecutive slots (t0=diffuse, t1=normal, t2=metallic, t3=roughness, t4=AO, t5=env).
+// Each loaded model gets 9 consecutive slots (t0=diffuse, t1=normal, t2=metallic, t3=roughness, t4=AO, t5=env, t6=gloss, t7=emissive, t8=shadow).
 const UINT DX12_MODEL_TEXTURE_HEAP_BASE     = 10 + MAX_TEXTURE_BUFFERS_3D;  // First slot available for model textures
-const UINT DX12_MODEL_TEXTURE_HEAP_CAPACITY = 12288;                         // 2048 models * 6 SRV slots each
+const UINT DX12_MODEL_TEXTURE_HEAP_CAPACITY = 18432;                         // 2048 models * 9 SRV slots each
+// 3 SRV slots immediately after model textures — one per swap-chain frame, for the D2D off-screen composite
+const UINT DX12_D2D_COMPOSITE_SRV_BASE      = DX12_MODEL_TEXTURE_HEAP_BASE + DX12_MODEL_TEXTURE_HEAP_CAPACITY;
 
 // Reserved Descriptor Table Slots for DirectX 12 Textures
 const int DX12_DESCRIPTOR_DIFFUSE_TEXTURE = 0;                                 // Diffuse Textures
@@ -67,6 +69,9 @@ const int DX12_DESCRIPTOR_METALLIC_MAP = 2;                                    /
 const int DX12_DESCRIPTOR_ROUGHNESS_MAP = 3;                                   // Roughness Mappings
 const int DX12_DESCRIPTOR_AO_MAP = 4;                                          // Ambient Occlusion Mapping
 const int DX12_DESCRIPTOR_ENVIRONMENT_MAP = 5;                                 // Environment Mappings for Reflections
+const int DX12_DESCRIPTOR_GLOSS_MAP = 6;                                       // Gloss/smoothness map (roughness = 1-gloss.r)
+const int DX12_DESCRIPTOR_EMISSIVE_MAP = 7;                                    // Emissive texture map
+const int DX12_DESCRIPTOR_SHADOW_MAP = 8;                                      // Shadow depth map (PCF)
 
 // Reserved Sampler Slots for DirectX 12
 const int DX12_SAMPLER_LINEAR = 0;                                             // Linear Sampler
@@ -88,6 +93,7 @@ using namespace DirectX;
 // DirectX 12 specific structures
 struct DX12FrameContext {
     ComPtr<ID3D12CommandAllocator> commandAllocator;                            // Command allocator for this frame
+    ComPtr<ID3D12CommandAllocator> compositeAllocator;                          // Second allocator for the D2D composite pass
     ComPtr<ID3D12Resource> renderTarget;                                        // Render target for this frame
     D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle;                                      // RTV handle for this frame
     UINT64 fenceValue;                                                          // Fence value for this frame
@@ -169,6 +175,20 @@ public:
     // Per-frame D2D render targets (one per swap chain back buffer)
     ComPtr<ID3D11Resource> m_wrappedBackBuffers[FrameCount];                   // DX12 back buffers wrapped as DX11 resources
     ComPtr<ID2D1Bitmap1>   m_d2dRenderTargets[FrameCount];                     // D2D target bitmaps backed by each back buffer
+
+    // Off-screen D2D compositing (replaces direct back-buffer wrapping, eliminating PRESENT-state transitions)
+    ComPtr<ID3D12Resource>      m_d2dOffscreenTex[FrameCount];                 // Per-frame RGBA off-screen textures (DX12)
+    ComPtr<ID3D11Resource>      m_d2dWrappedOffscreen[FrameCount];             // DX11 wrappers: InState=RT, OutState=SR
+    ComPtr<ID2D1Bitmap1>        m_d2dOffscreenBitmap[FrameCount];              // D2D bitmaps targeting above textures
+    D3D12_GPU_DESCRIPTOR_HANDLE m_d2dOffscreenSRV[FrameCount] = {};            // SRV handles in cbvSrvUavHeap
+
+    // Alpha-blend full-screen composite PSO (off-screen D2D → back buffer)
+    ComPtr<ID3D12RootSignature> m_compositeRS;
+    ComPtr<ID3D12PipelineState> m_compositePSO;
+
+#ifdef _DEBUG
+    ComPtr<ID3D12InfoQueue> m_infoQueue;                                         // Cached info-queue for routing D3D12 validation errors to our log
+#endif
 
     // Null SRV GPU handle: points at the 6 null SRV descriptors in slots 0-5 of
     // m_cbvSrvUavHeap.  Bound as the default texture descriptor table for model
@@ -415,6 +435,18 @@ private:
 
     // D2D per-frame target setup — called after init and after each resize
     bool CreateD2DRenderTargets();
+
+    // Off-screen D2D composite pipeline
+    bool CreateD2DOffscreenTargets();               // Create off-screen textures + wrapped resources + bitmaps
+    bool CreateD2DCompositePSO();                   // Compile + create alpha-blend full-screen-quad PSO
+    void CompositeD2DToBackBuffer(                  // Record composite draw onto an already-open command list
+        D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle,
+        const D3D12_VIEWPORT&       vp,
+        const D3D12_RECT&           scissor);
+
+#ifdef _DEBUG
+    void DrainInfoQueue();                          // Drain m_infoQueue and route pending D3D12 validation messages to the game log
+#endif
 
     // Mutexes for thread safety
     static std::mutex s_loaderMutex;                                            // Static loader mutex

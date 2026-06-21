@@ -181,11 +181,7 @@ void VKFXManager::RestartFXAfterResize() {
     try {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         // Effects are restarted by the loader thread (see IOLoaderThread.cpp — Vulkan block)
-#if defined(PLATFORM_WINDOWS)
-        SecureZeroMemory(&m_savedFXState, sizeof(VKActiveFXState));
-#else
         m_savedFXState = VKActiveFXState{};
-#endif
     }
     catch (const std::exception& e) {
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"[VKFXManager] Exception in RestartFXAfterResize: " +
@@ -1900,7 +1896,7 @@ int VKFXManager::ShowLoadingText(const std::wstring& text,
                                         : fDEFAULT_WINDOW_HEIGHT * LOADER_TEXT_Y_RATIO) : posY;
     if (fontStyle) d.fontStyle = *fontStyle;
 
-    effects.push_back(std::move(fx));
+    AddEffect(fx);
     return newID;
 }
 

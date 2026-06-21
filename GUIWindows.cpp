@@ -765,13 +765,19 @@ void GUIManager::CreateDifficultyWindow() {
         try {
             debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateDifficultyWindow - Easy selected");
             soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
-            // Store selected difficulty and open GamePlayTypes window
-            PlayerInfo* player = &playerInfo[PLAYER_1];
-            player->Difficulty = DifficultyLevel::DIFFICULTY_EASY;
-            player->lives = 5; // Example: Easy difficulty starts with more lives
-            player->isActive = true;
-            player->isDead = false;
-            player->score = 0;
+            PlayerInfo player;
+            player.Difficulty  = DifficultyLevel::DIFFICULTY_EASY;
+            player.lives       = 5;
+            player.isActive    = true;
+            player.isDead      = false;
+            player.score       = 0;
+            player.health      = 100;
+            player.maxHealth   = 100;
+            player.armour      = 100;
+            player.maxArmour   = 100;
+            player.shield      = 100;
+            player.maxShield   = 100;
+            gamePlayer.InitPlayer(PLAYER_1, player);
             // Fade out GameMenu, then create and fade in GamePlayTypes
             ApplyWindowFadeCallback(
                 GUIWindowFadeType::FadeOut, 0.8f, windowName,
@@ -817,13 +823,19 @@ void GUIManager::CreateDifficultyWindow() {
         try {
             debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateDifficultyWindow - Normal selected");
             soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
-            // Store selected difficulty and open GamePlayTypes window
-            PlayerInfo* player = &playerInfo[PLAYER_1];
-            player->Difficulty = DifficultyLevel::DIFFICULTY_NORMAL;
-            player->lives = 5; // Example: Normal difficulty starts with 5 lives
-            player->isActive = true;
-            player->isDead = false;
-            player->score = 0;
+            PlayerInfo player;
+            player.Difficulty  = DifficultyLevel::DIFFICULTY_NORMAL;
+            player.lives       = 5;
+            player.isActive    = true;
+            player.isDead      = false;
+            player.score       = 0;
+            player.health      = 100;
+            player.maxHealth   = 100;
+            player.armour      = 100;
+            player.maxArmour   = 100;
+            player.shield      = 100;
+            player.maxShield   = 100;
+            gamePlayer.InitPlayer(PLAYER_1, player);
             // Fade out GameMenu, then create and fade in GamePlayTypes
             ApplyWindowFadeCallback(
                 GUIWindowFadeType::FadeOut, 0.8f, windowName,
@@ -869,13 +881,19 @@ void GUIManager::CreateDifficultyWindow() {
         try {
             debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateDifficultyWindow - Hard selected");
             soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
-            // Store selected difficulty and open GamePlayTypes window
-            PlayerInfo* player = &playerInfo[PLAYER_1];
-            player->Difficulty = DifficultyLevel::DIFFICULTY_HARD;
-            player->lives = 3; // Example: Hard difficulty starts with fewer lives
-            player->isActive = true;
-            player->isDead = false;
-            player->score = 0;
+            PlayerInfo player;
+            player.Difficulty  = DifficultyLevel::DIFFICULTY_HARD;
+            player.lives       = 3;
+            player.isActive    = true;
+            player.isDead      = false;
+            player.score       = 0;
+            player.health      = 75;
+            player.maxHealth   = 75;
+            player.armour      = 75;
+            player.maxArmour   = 75;
+            player.shield      = 75;
+            player.maxShield   = 75;
+            gamePlayer.InitPlayer(PLAYER_1, player);
             // Fade out GameMenu, then create and fade in GamePlayTypes
             ApplyWindowFadeCallback(
                 GUIWindowFadeType::FadeOut, 0.8f, windowName,
@@ -921,13 +939,19 @@ void GUIManager::CreateDifficultyWindow() {
         try {
             debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateDifficultyWindow - Very Hard selected");
             soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
-            // Store selected difficulty and open GamePlayTypes window
-            PlayerInfo* player = &playerInfo[PLAYER_1];
-            player->Difficulty = DifficultyLevel::DIFFICULTY_VERYHARD;
-            player->lives = 2; // Example: Very Hard difficulty starts with fewer lives
-            player->isActive = true;
-            player->isDead = false;
-            player->score = 0;
+            PlayerInfo player;
+            player.Difficulty  = DifficultyLevel::DIFFICULTY_VERYHARD;
+            player.lives       = 2;
+            player.isActive    = true;
+            player.isDead      = false;
+            player.score       = 0;
+            player.health      = 50;
+            player.maxHealth   = 50;
+            player.armour      = 50;
+            player.maxArmour   = 50;
+            player.shield      = 50;
+            player.maxShield   = 50;
+            gamePlayer.InitPlayer(PLAYER_1, player);
             // Fade out GameMenu, then create and fade in GamePlayTypes
             ApplyWindowFadeCallback(
                 GUIWindowFadeType::FadeOut, 0.8f, windowName,
@@ -973,13 +997,19 @@ void GUIManager::CreateDifficultyWindow() {
         try {
             debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateDifficultyWindow - Mate! (Hell) selected");
             soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
-            // Store selected difficulty and open GamePlayTypes window
-            PlayerInfo* player = &playerInfo[PLAYER_1];
-            player->Difficulty = DifficultyLevel::DIFFICULTY_HELL;
-            player->lives = 1; // Example: Hell difficulty starts with fewest lives
-            player->isActive = true;
-            player->isDead = false;
-            player->score = 0;
+            PlayerInfo player;
+            player.Difficulty  = DifficultyLevel::DIFFICULTY_HELL;
+            player.lives       = 1;
+            player.isActive    = true;
+            player.isDead      = false;
+            player.score       = 0;
+            player.health      = 25;
+            player.maxHealth   = 25;
+            player.armour      = 25;
+            player.maxArmour   = 25;
+            player.shield      = 25;
+            player.maxShield   = 25;
+            gamePlayer.InitPlayer(PLAYER_1, player);
             // Fade out GameMenu, then create and fade in GamePlayTypes
             ApplyWindowFadeCallback(
                 GUIWindowFadeType::FadeOut, 0.8f, windowName,
@@ -1086,8 +1116,11 @@ void GUIManager::CreateGamePlayTypesWindow() {
     campaignButton.onMouseBtnDown = [this, windowName = std::string(GAMEPLAYTYPES_WINDOW_NAME)]() {
         try {
             debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGamePlayTypesWindow - Campaign selected");
-            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
-            // TODO: Set game play type to Campaign and proceed
+            soundManager.PlayImmediateSFX(SFX_ID::SFX_VOICE1);
+            // Set game play type to Campaign and proceed
+            PlayerInfo* player = gamePlayer.GetPlayerInfo(PLAYER_1);
+            player->gameMode = GameMode::MODE_CAMPAIGN;
+            StartGame();
         }
         catch (const std::exception& e) {
             debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateGamePlayTypesWindow - Exception in Campaign handler: %s",

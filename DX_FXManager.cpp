@@ -433,7 +433,7 @@ void FXManager::RestartFXAfterResize()
         #endif
 
         // Clear the saved state since we're done with it
-        SecureZeroMemory(&savedFXState, sizeof(ActiveFXState));
+        savedFXState = ActiveFXState{};
     }
     catch (const std::exception& e) {
         #if defined(_DEBUG_FXManager_)
@@ -3453,7 +3453,12 @@ int FXManager::ShowLoadingText(const std::wstring& text,
     if (fontStyle)
         d.fontStyle = *fontStyle;
 
-    effects.push_back(std::move(fx));
+    if (bIsRendering.load()) {
+        std::lock_guard<std::mutex> lock(m_effectsMutex);
+        m_pendingEffects.push_back(std::move(fx));
+    } else {
+        effects.push_back(std::move(fx));
+    }
     return newID;
 }
 

@@ -85,6 +85,12 @@ static std::vector<int> RatesFor(const std::vector<DispMode>& modes, int w, int 
     return rates;
 }
 
+static int AspGcd(int a, int b) { return b ? AspGcd(b, a % b) : a; }
+static std::wstring AspRatioName(int w, int h) {
+    int g = AspGcd(w, h);
+    return std::to_wstring(w / g) + L":" + std::to_wstring(h / g);
+}
+
 // Display mode name strings — file scope so lambdas need no capture
 static const wchar_t* const DISP_MODE_NAMES[3] = {
     L"Windowed", L"Borderless", L"Full Screen"
@@ -210,10 +216,10 @@ void GUIManager::CreateConfigWindow()
     // -----------------------------------------------------------------------
     const float CFG_SCROLL_W = 12.0f;   // scrollbar width in pixels (user-specified)
     const std::array<float, 5> tabContentH = {
-        10.0f + 7.0f  * 32.0f,   // Tab 0: zoom/move/maxP/minP/near/far/debug (7)
+        10.0f + 1.0f  * 32.0f,   // Tab 0: debug (1)
         10.0f + 8.0f  * 32.0f,   // Tab 1: 4 vols + music + TTS + TTSvol + mic (8)
-        10.0f + 12.0f * 32.0f,   // Tab 2: fov/renderer/disp/res/hz/vsync/aa/msaa/mip/cull/tripbuf/aspect (12)
-        10.0f + 2.0f  * 32.0f,   // Tab 3: joystick + joystick-rot (2)
+        10.0f + 14.0f * 32.0f,   // Tab 2: fov/renderer/disp/res/hz/aspect/vsync/aa/msaa/mip/cull/tripbuf/near/far (14)
+        10.0f + 6.0f  * 32.0f,   // Tab 3: zoom/move/maxP/minP/joystick/joystick-rot (6)
         10.0f + 6.0f  * 32.0f,   // Tab 4: placeholder
     };
     auto tabScrollY = std::make_shared<std::array<float, 5>>();
@@ -270,6 +276,27 @@ void GUIManager::CreateConfigWindow()
     }
     auto rateVec = std::make_shared<std::vector<int>>(startRates);
     auto rateIdx = std::make_shared<int>(startRateIdx);
+
+    // Unique aspect ratios available from the scanned display
+    struct AspRatio { float value; std::wstring name; };
+    auto aspRatios = std::make_shared<std::vector<AspRatio>>();
+    {
+        for (auto& m : *allModes) {
+            float r = (float)m.w / (float)m.h;
+            bool dup = false;
+            for (auto& a : *aspRatios) if (std::abs(a.value - r) < 0.005f) { dup = true; break; }
+            if (!dup) aspRatios->push_back({ r, AspRatioName(m.w, m.h) });
+        }
+        std::sort(aspRatios->begin(), aspRatios->end(),
+            [](const AspRatio& a, const AspRatio& b) { return a.value < b.value; });
+    }
+    int startAspIdx = 0;
+    {
+        float curAsp = (float)config.myConfig.aspectRatio;
+        for (int i = 0; i < (int)aspRatios->size(); ++i)
+            if (std::abs((*aspRatios)[i].value - curAsp) < 0.005f) { startAspIdx = i; break; }
+    }
+    auto aspIdx = std::make_shared<int>(startAspIdx);
 
     // -----------------------------------------------------------------------
     // Tab switching — show/hide t{n}_* controls, re-colour tab buttons
@@ -539,50 +566,6 @@ void GUIManager::CreateConfigWindow()
     {
         float y = CY;
 
-        addSliderRow("t0_zoom", y, L"Zoom Sensitivity:", true, 0,
-            0.001f, 0.050f, (float)config.myConfig.zoomSensitivity,
-            [](float v) { return CfgFmtFloat((long double)v, 4); },
-            [](float v) { config.myConfig.zoomSensitivity = (long double)v; });
-        y += ROW;
-
-        addSliderRow("t0_move", y, L"Move Sensitivity:", true, 0,
-            0.0001f, 0.0050f, (float)config.myConfig.moveSensitivity,
-            [](float v) { return CfgFmtFloat((long double)v, 5); },
-            [](float v) { config.myConfig.moveSensitivity = (long double)v; });
-        y += ROW;
-
-        addSliderRow("t0_maxp", y, L"Max Pitch (deg):", true, 0,
-            1.0f, 89.0f, (float)config.myConfig.maxPitch,
-            [](float v) { return CfgFmtFloat((long double)std::round(v), 1); },
-            [](float v) {
-                float s = std::round(v);
-                if (s > (float)config.myConfig.minPitch + 1.0f)
-                    config.myConfig.maxPitch = (long double)s;
-            });
-        y += ROW;
-
-        addSliderRow("t0_minp", y, L"Min Pitch (deg):", true, 0,
-            -89.0f, 88.0f, (float)config.myConfig.minPitch,
-            [](float v) { return CfgFmtFloat((long double)std::round(v), 1); },
-            [](float v) {
-                float s = std::round(v);
-                if (s < (float)config.myConfig.maxPitch - 1.0f)
-                    config.myConfig.minPitch = (long double)s;
-            });
-        y += ROW;
-
-        addSliderRow("t0_near", y, L"Near Plane:", true, 0,
-            0.1f, 2.0f, (float)config.myConfig.nearPlane,
-            [](float v) { return CfgFmtFloat((long double)v, 2); },
-            [](float v) { config.myConfig.nearPlane = (long double)std::clamp(v, 0.1f, 2.0f); });
-        y += ROW;
-
-        addSliderRow("t0_far", y, L"Far Plane:", true, 0,
-            500.0f, 2000.0f, (float)config.myConfig.farPlane,
-            [](float v) { return CfgFmtInt((int)std::round(v)); },
-            [](float v) { config.myConfig.farPlane = (long double)std::clamp(std::round(v), 500.0f, 2000.0f); });
-        y += ROW;
-
         addTogSlider("t0_dbg", y, L"Show Debug Info:", config.myConfig.showDebugInfo, true, 0,
             [](bool on) { config.myConfig.showDebugInfo = on; });
     }
@@ -667,7 +650,8 @@ void GUIManager::CreateConfigWindow()
     // TAB 2: VIDEO
     // All settings flag needsVideoRestart; renderer/OS changes take effect
     // only after a game restart. The config is saved immediately on Save.
-    // Row order: Display Mode, Resolution, Refresh Rate, then toggles.
+    // Row order: FOV, Renderer, Display Mode, Resolution, Refresh Rate,
+    //            Aspect Ratio, toggles, Near Plane, Far Plane.
     // ===================================================================
     {
         float y = CY;
@@ -732,7 +716,7 @@ void GUIManager::CreateConfigWindow()
                     return std::to_wstring(r.first) + L"x" + std::to_wstring(r.second);
                 },
                 [allModes, uniqueRes, resIdx, rateVec, rateIdx, needsVideoRestart,
-                 weakWin, updLabel](float v) {
+                 weakWin, updLabel, aspRatios, aspIdx](float v) {
                     if (uniqueRes->empty()) return;
                     int sz = (int)uniqueRes->size();
                     int i  = sz - 1 - std::clamp((int)std::round(v), 0, sz - 1);
@@ -744,7 +728,17 @@ void GUIManager::CreateConfigWindow()
                     *rateIdx = 0;
                     if (!rateVec->empty()) config.myConfig.refreshRate = (*rateVec)[0];
                     config.myConfig.aspectRatio = LookupAspectRatio(r.first, r.second);
-                    updLabel("t2_asp", CfgFmtFloat(config.myConfig.aspectRatio, 4));
+                    {
+                        float newAsp = (float)config.myConfig.aspectRatio;
+                        int newAspIdx = 0;
+                        for (int j = 0; j < (int)aspRatios->size(); ++j)
+                            if (std::abs((*aspRatios)[j].value - newAsp) < 0.005f) { newAspIdx = j; break; }
+                        *aspIdx = newAspIdx;
+                        updLabel("t2_asp_val", aspRatios->empty() ? L"N/A" : (*aspRatios)[newAspIdx].name);
+                        if (auto w2 = weakWin.lock())
+                            for (auto& c2 : w2->controls)
+                                if (c2.id == "t2_asp_sldr") { c2.sliderValue = (float)newAspIdx; break; }
+                    }
                     *needsVideoRestart = true;
                     // Rebuild rate slider; default to highest rate = rightmost position
                     float newMax = rateVec->empty() ? 0.0f : (float)((int)rateVec->size() - 1);
@@ -787,6 +781,27 @@ void GUIManager::CreateConfigWindow()
                 });
             y += ROW;
         }
+
+        // --- Aspect Ratio (auto-updated when Resolution changes) ---
+        {
+            float aspMax = aspRatios->empty() ? 0.0f : (float)((int)aspRatios->size() - 1);
+            addSliderRow("t2_asp", y, L"Aspect Ratio:",
+                false, 2,
+                0.0f, aspMax, (float)startAspIdx,
+                [aspRatios](float v) -> std::wstring {
+                    if (aspRatios->empty()) return L"N/A";
+                    int i = std::clamp((int)std::round(v), 0, (int)aspRatios->size() - 1);
+                    return (*aspRatios)[i].name;
+                },
+                [aspRatios, aspIdx, needsVideoRestart](float v) {
+                    if (aspRatios->empty()) return;
+                    int i = std::clamp((int)std::round(v), 0, (int)aspRatios->size() - 1);
+                    *aspIdx = i;
+                    config.myConfig.aspectRatio = (long double)(*aspRatios)[i].value;
+                    *needsVideoRestart = true;
+                });
+        }
+        y += ROW;
 
         // --- Toggles (all require restart) ---
         addTogSlider("t2_vsync", y, L"Vertical Sync:", config.myConfig.enableVSync, false, 2,
@@ -831,14 +846,56 @@ void GUIManager::CreateConfigWindow()
             });
         y += ROW;
 
-        addInfoRow("t2_asp", y, L"Aspect Ratio:", CfgFmtFloat(config.myConfig.aspectRatio, 4), true);
+        // --- Near / Far Plane (apply live; moved from Game Play tab) ---
+        addSliderRow("t2_near", y, L"Near Plane:", false, 2,
+            0.1f, 2.0f, (float)config.myConfig.nearPlane,
+            [](float v) { return CfgFmtFloat((long double)v, 2); },
+            [](float v) { config.myConfig.nearPlane = (long double)std::clamp(v, 0.1f, 2.0f); });
+        y += ROW;
+
+        addSliderRow("t2_far", y, L"Far Plane:", false, 2,
+            500.0f, 2000.0f, (float)config.myConfig.farPlane,
+            [](float v) { return CfgFmtInt((int)std::round(v)); },
+            [](float v) { config.myConfig.farPlane = (long double)std::clamp(std::round(v), 500.0f, 2000.0f); });
     }
 
     // ===================================================================
-    // TAB 3: CONTROLS  (joystick-specific; zoom/move are in Game Play)
+    // TAB 3: CONTROLS
     // ===================================================================
     {
         float y = CY;
+
+        addSliderRow("t3_zoom", y, L"Zoom Sensitivity:", false, 3,
+            0.001f, 0.050f, (float)config.myConfig.zoomSensitivity,
+            [](float v) { return CfgFmtFloat((long double)v, 4); },
+            [](float v) { config.myConfig.zoomSensitivity = (long double)v; });
+        y += ROW;
+
+        addSliderRow("t3_move", y, L"Move Sensitivity:", false, 3,
+            0.0001f, 0.0050f, (float)config.myConfig.moveSensitivity,
+            [](float v) { return CfgFmtFloat((long double)v, 5); },
+            [](float v) { config.myConfig.moveSensitivity = (long double)v; });
+        y += ROW;
+
+        addSliderRow("t3_maxp", y, L"Max Pitch (deg):", false, 3,
+            1.0f, 89.0f, (float)config.myConfig.maxPitch,
+            [](float v) { return CfgFmtFloat((long double)std::round(v), 1); },
+            [](float v) {
+                float s = std::round(v);
+                if (s > (float)config.myConfig.minPitch + 1.0f)
+                    config.myConfig.maxPitch = (long double)s;
+            });
+        y += ROW;
+
+        addSliderRow("t3_minp", y, L"Min Pitch (deg):", false, 3,
+            -89.0f, 88.0f, (float)config.myConfig.minPitch,
+            [](float v) { return CfgFmtFloat((long double)std::round(v), 1); },
+            [](float v) {
+                float s = std::round(v);
+                if (s < (float)config.myConfig.maxPitch - 1.0f)
+                    config.myConfig.minPitch = (long double)s;
+            });
+        y += ROW;
 
         addSliderRow("t3_jsens", y, L"Joystick Sensitivity:", false, 3,
             0.001f, 0.100f, (float)config.myConfig.joystickSensitivity,

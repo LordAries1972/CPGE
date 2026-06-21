@@ -523,12 +523,14 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
                                 scene_models[ti].m_modelInfo.metallicMapSRV.Reset();
                                 scene_models[ti].m_modelInfo.roughnessMapSRV.Reset();
                                 scene_models[ti].m_modelInfo.aoMapSRV.Reset();
+                                scene_models[ti].m_modelInfo.emissiveMapSRV.Reset();
                             #elif defined(__USE_OPENGL__)
                                 scene_models[ti].m_modelInfo.textureIDs.clear();
                                 scene_models[ti].m_modelInfo.normalMapIDs.clear();
                                 scene_models[ti].m_modelInfo.metallicTexID  = 0;
                                 scene_models[ti].m_modelInfo.roughnessTexID = 0;
                                 scene_models[ti].m_modelInfo.aoTexID        = 0;
+                                scene_models[ti].m_modelInfo.emissiveTexID  = 0;
                             #elif defined(__USE_VULKAN__)
                                 // Clear the textures vector so BindGLTFMaterialTexturesToModel
                                 // starts fresh — without this, textures accumulate on every
@@ -568,13 +570,16 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
                                     models[m2].m_modelInfo.sourceSceneFile    == glbFile)
                                 {
                                     #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-                                        models[m2].m_modelInfo.textures        = scene_models[ti].m_modelInfo.textures;
-                                        models[m2].m_modelInfo.textureSRVs     = scene_models[ti].m_modelInfo.textureSRVs;
-                                        models[m2].m_modelInfo.normalMapSRVs   = scene_models[ti].m_modelInfo.normalMapSRVs;
-                                        models[m2].m_modelInfo.metallicMapSRV  = scene_models[ti].m_modelInfo.metallicMapSRV;
-                                        models[m2].m_modelInfo.roughnessMapSRV = scene_models[ti].m_modelInfo.roughnessMapSRV;
-                                        models[m2].m_modelInfo.aoMapSRV        = scene_models[ti].m_modelInfo.aoMapSRV;
-                                        models[m2].m_materials                 = scene_models[ti].m_materials;
+                                        models[m2].m_modelInfo.textures           = scene_models[ti].m_modelInfo.textures;
+                                        models[m2].m_modelInfo.textureSRVs        = scene_models[ti].m_modelInfo.textureSRVs;
+                                        models[m2].m_modelInfo.normalMapSRVs      = scene_models[ti].m_modelInfo.normalMapSRVs;
+                                        models[m2].m_modelInfo.metallicMapSRV     = scene_models[ti].m_modelInfo.metallicMapSRV;
+                                        models[m2].m_modelInfo.roughnessMapSRV    = scene_models[ti].m_modelInfo.roughnessMapSRV;
+                                        models[m2].m_modelInfo.aoMapSRV           = scene_models[ti].m_modelInfo.aoMapSRV;
+                                        models[m2].m_modelInfo.emissiveMapSRV     = scene_models[ti].m_modelInfo.emissiveMapSRV;
+                                        models[m2].m_modelInfo.emissiveMapTexture = scene_models[ti].m_modelInfo.emissiveMapTexture;
+                                        models[m2].m_modelInfo.useEmissiveMap     = scene_models[ti].m_modelInfo.useEmissiveMap;
+                                        models[m2].m_materials                    = scene_models[ti].m_materials;
                                     #elif defined(__USE_OPENGL__)
                                         models[m2].m_modelInfo.textureIDs      = scene_models[ti].m_modelInfo.textureIDs;
                                         models[m2].m_modelInfo.normalMapIDs    = scene_models[ti].m_modelInfo.normalMapIDs;
@@ -583,6 +588,7 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
                                         models[m2].m_modelInfo.aoTexID         = scene_models[ti].m_modelInfo.aoTexID;
                                         models[m2].m_modelInfo.glossTexID      = scene_models[ti].m_modelInfo.glossTexID;
                                         models[m2].m_modelInfo.emissiveTexID   = scene_models[ti].m_modelInfo.emissiveTexID;
+                                        models[m2].m_modelInfo.useEmissiveMap  = scene_models[ti].m_modelInfo.useEmissiveMap;
                                         models[m2].m_materials                 = scene_models[ti].m_materials;
                                     #elif defined(__USE_VULKAN__)
                                         // Write textures back to the models[] cache so subsequent
@@ -1730,12 +1736,14 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
                             scene_models[ti].m_modelInfo.metallicMapSRV.Reset();
                             scene_models[ti].m_modelInfo.roughnessMapSRV.Reset();
                             scene_models[ti].m_modelInfo.aoMapSRV.Reset();
+                            scene_models[ti].m_modelInfo.emissiveMapSRV.Reset();
 #elif defined(__USE_OPENGL__)
                             scene_models[ti].m_modelInfo.textureIDs.clear();
                             scene_models[ti].m_modelInfo.normalMapIDs.clear();
                             scene_models[ti].m_modelInfo.metallicTexID  = 0;
                             scene_models[ti].m_modelInfo.roughnessTexID = 0;
                             scene_models[ti].m_modelInfo.aoTexID        = 0;
+                            scene_models[ti].m_modelInfo.emissiveTexID  = 0;
 #elif defined(__USE_VULKAN__)
                             scene_models[ti].m_modelInfo.textures.clear();
                             // NOTE: Do NOT null descriptorSet here — same reason as GLB cache-restore
@@ -1762,13 +1770,16 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
                                     models[m2].m_modelInfo.sourceSceneFile    == gltfFile)
                                 {
 #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-                                    models[m2].m_modelInfo.textures        = scene_models[ti].m_modelInfo.textures;
-                                    models[m2].m_modelInfo.textureSRVs     = scene_models[ti].m_modelInfo.textureSRVs;
-                                    models[m2].m_modelInfo.normalMapSRVs   = scene_models[ti].m_modelInfo.normalMapSRVs;
-                                    models[m2].m_modelInfo.metallicMapSRV  = scene_models[ti].m_modelInfo.metallicMapSRV;
-                                    models[m2].m_modelInfo.roughnessMapSRV = scene_models[ti].m_modelInfo.roughnessMapSRV;
-                                    models[m2].m_modelInfo.aoMapSRV        = scene_models[ti].m_modelInfo.aoMapSRV;
-                                    models[m2].m_materials                 = scene_models[ti].m_materials;
+                                    models[m2].m_modelInfo.textures           = scene_models[ti].m_modelInfo.textures;
+                                    models[m2].m_modelInfo.textureSRVs        = scene_models[ti].m_modelInfo.textureSRVs;
+                                    models[m2].m_modelInfo.normalMapSRVs      = scene_models[ti].m_modelInfo.normalMapSRVs;
+                                    models[m2].m_modelInfo.metallicMapSRV     = scene_models[ti].m_modelInfo.metallicMapSRV;
+                                    models[m2].m_modelInfo.roughnessMapSRV    = scene_models[ti].m_modelInfo.roughnessMapSRV;
+                                    models[m2].m_modelInfo.aoMapSRV           = scene_models[ti].m_modelInfo.aoMapSRV;
+                                    models[m2].m_modelInfo.emissiveMapSRV     = scene_models[ti].m_modelInfo.emissiveMapSRV;
+                                    models[m2].m_modelInfo.emissiveMapTexture = scene_models[ti].m_modelInfo.emissiveMapTexture;
+                                    models[m2].m_modelInfo.useEmissiveMap     = scene_models[ti].m_modelInfo.useEmissiveMap;
+                                    models[m2].m_materials                    = scene_models[ti].m_materials;
 #elif defined(__USE_OPENGL__)
                                     models[m2].m_modelInfo.textureIDs      = scene_models[ti].m_modelInfo.textureIDs;
                                     models[m2].m_modelInfo.normalMapIDs    = scene_models[ti].m_modelInfo.normalMapIDs;
@@ -1777,6 +1788,7 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
                                     models[m2].m_modelInfo.aoTexID         = scene_models[ti].m_modelInfo.aoTexID;
                                     models[m2].m_modelInfo.glossTexID      = scene_models[ti].m_modelInfo.glossTexID;
                                     models[m2].m_modelInfo.emissiveTexID   = scene_models[ti].m_modelInfo.emissiveTexID;
+                                    models[m2].m_modelInfo.useEmissiveMap  = scene_models[ti].m_modelInfo.useEmissiveMap;
                                     models[m2].m_materials                 = scene_models[ti].m_materials;
 #elif defined(__USE_VULKAN__)
                                     models[m2].m_modelInfo.textures        = scene_models[ti].m_modelInfo.textures;
@@ -3874,6 +3886,73 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
         }
     }
 
+    // === Emissive Texture (optional, t7 / Vulkan set=1 binding=5) ===
+    // GLTF 2.0 spec: emissiveTexture is a top-level material key (not inside pbrMetallicRoughness).
+    // The emissive colour output is: emissiveTexture.rgb * emissiveFactor * emissiveStrength.
+    // When no texture is present the shader falls back to vec3(1,1,1), making emissiveFactor
+    // the sole colour — so a white [1,1,1] factor with no texture produces solid white emission.
+    if (mat.contains("emissiveTexture"))
+    {
+        int texIndex = mat["emissiveTexture"].value("index", -1);
+        if (texIndex >= 0 && texIndex < (int)textures.size())
+        {
+            int imgIndex = textures[texIndex].value("source", -1);
+            if (imgIndex >= 0 && imgIndex < (int)images.size())
+            {
+                auto tex = LoadGLTFImage(images[imgIndex], doc);
+                if (tex)
+                {
+                    std::string uri = images[imgIndex].value("uri", "");
+                    info.textures.push_back(tex);
+                    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                        info.emissiveMapTexture = tex;
+                        info.emissiveMapSRV     = tex->GetSRV();
+                    #endif
+                    info.useEmissiveMap    = true;
+                    newMat.emissiveMap     = tex;
+                    newMat.emissiveMapPath = uri.empty() ? "(embedded)" : uri;
+
+                    debug.logDebugMessage(LogLevel::LOG_INFO,
+                        L"[SceneManager] Model[%d] material[%d] -> Emissive map (%hs) "
+                        L"factor=(%.2f,%.2f,%.2f) strength=%.2f",
+                        info.ID, materialIndex,
+                        uri.empty() ? "embedded" : uri.c_str(),
+                        newMat.emissiveFactor.x, newMat.emissiveFactor.y, newMat.emissiveFactor.z,
+                        newMat.emissiveStrength);
+                }
+                #if defined(_DEBUG_SCENEMANAGER_)
+                else
+                {
+                    std::string uri = images[imgIndex].value("uri", "");
+                    debug.logDebugMessage(LogLevel::LOG_ERROR,
+                        L"[SceneManager] Model[%d] material[%d]: Emissive map load FAILED "
+                        L"(imgIndex=%d uri='%hs') - flat emissiveFactor will be used",
+                        info.ID, materialIndex, imgIndex, uri.empty() ? "embedded" : uri.c_str());
+                }
+                #endif
+            }
+        }
+    }
+    #if defined(_DEBUG_SCENEMANAGER_)
+    else
+    {
+        // Warn when the material declares a non-black emissiveFactor but exports no texture.
+        // This is the Blender export bug that causes solid-white emission: the emission colour
+        // input of Principled BSDF must be connected to an image texture node for Blender to
+        // write an emissiveTexture entry; a plain colour connection only writes emissiveFactor.
+        const auto& ef = newMat.emissiveFactor;
+        if (ef.x > 0.001f || ef.y > 0.001f || ef.z > 0.001f)
+        {
+            debug.logDebugMessage(LogLevel::LOG_WARNING,
+                L"[SceneManager] Model[%d] material[%d] \"%hs\": emissiveFactor=(%.2f,%.2f,%.2f)x%.2f "
+                L"but NO emissiveTexture in GLTF -- shader will emit solid colour. "
+                L"In Blender: connect a texture node to the Emission Color socket of Principled BSDF before exporting.",
+                info.ID, materialIndex, newMat.name.c_str(),
+                ef.x, ef.y, ef.z, newMat.emissiveStrength);
+        }
+    }
+    #endif
+
     // PBR scalars (Kd, Metallic, Roughness, emissive, alpha, extensions) were
     // already applied by BlenderImports::ApplyPBRMaterial() above the texture block.
 
@@ -5073,12 +5152,14 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
                         scene_models[ti].m_modelInfo.metallicMapSRV.Reset();
                         scene_models[ti].m_modelInfo.roughnessMapSRV.Reset();
                         scene_models[ti].m_modelInfo.aoMapSRV.Reset();
+                        scene_models[ti].m_modelInfo.emissiveMapSRV.Reset();
                     #elif defined(__USE_OPENGL__)
                         scene_models[ti].m_modelInfo.textureIDs.clear();
                         scene_models[ti].m_modelInfo.normalMapIDs.clear();
                         scene_models[ti].m_modelInfo.metallicTexID  = 0;
                         scene_models[ti].m_modelInfo.roughnessTexID = 0;
                         scene_models[ti].m_modelInfo.aoTexID        = 0;
+                        scene_models[ti].m_modelInfo.emissiveTexID  = 0;
                     #endif
 
                     // No file texture -- create WHITE 1x1 so shader reads Kd unchanged
@@ -5101,6 +5182,7 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
                     cAddTex(cEngMat.roughnessMap);
                     cAddTex(cEngMat.metallicMap);
                     cAddTex(cEngMat.aoMap);
+                    cAddTex(cEngMat.emissiveMap);
 
                     // Bind SRVs / texture IDs per renderer
                     #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
@@ -5114,6 +5196,12 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
                             scene_models[ti].m_modelInfo.metallicMapSRV  = cEngMat.metallicMap->GetSRV();
                         if (cEngMat.aoMap)
                             scene_models[ti].m_modelInfo.aoMapSRV        = cEngMat.aoMap->GetSRV();
+                        if (cEngMat.emissiveMap)
+                        {
+                            scene_models[ti].m_modelInfo.emissiveMapSRV     = cEngMat.emissiveMap->GetSRV();
+                            scene_models[ti].m_modelInfo.emissiveMapTexture = cEngMat.emissiveMap;
+                            scene_models[ti].m_modelInfo.useEmissiveMap     = true;
+                        }
                     #endif
 
                     // Update material struct and metallic/roughness scalars
@@ -5134,12 +5222,15 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
                         if (models[m2].m_modelInfo.cachedInstanceIndex != ti) continue;
                         if (models[m2].m_modelInfo.sourceSceneFile     != fbxFile) continue;
                         #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-                            models[m2].m_modelInfo.textures        = scene_models[ti].m_modelInfo.textures;
-                            models[m2].m_modelInfo.textureSRVs     = scene_models[ti].m_modelInfo.textureSRVs;
-                            models[m2].m_modelInfo.normalMapSRVs   = scene_models[ti].m_modelInfo.normalMapSRVs;
-                            models[m2].m_modelInfo.metallicMapSRV  = scene_models[ti].m_modelInfo.metallicMapSRV;
-                            models[m2].m_modelInfo.roughnessMapSRV = scene_models[ti].m_modelInfo.roughnessMapSRV;
-                            models[m2].m_modelInfo.aoMapSRV        = scene_models[ti].m_modelInfo.aoMapSRV;
+                            models[m2].m_modelInfo.textures           = scene_models[ti].m_modelInfo.textures;
+                            models[m2].m_modelInfo.textureSRVs        = scene_models[ti].m_modelInfo.textureSRVs;
+                            models[m2].m_modelInfo.normalMapSRVs      = scene_models[ti].m_modelInfo.normalMapSRVs;
+                            models[m2].m_modelInfo.metallicMapSRV     = scene_models[ti].m_modelInfo.metallicMapSRV;
+                            models[m2].m_modelInfo.roughnessMapSRV    = scene_models[ti].m_modelInfo.roughnessMapSRV;
+                            models[m2].m_modelInfo.aoMapSRV           = scene_models[ti].m_modelInfo.aoMapSRV;
+                            models[m2].m_modelInfo.emissiveMapSRV     = scene_models[ti].m_modelInfo.emissiveMapSRV;
+                            models[m2].m_modelInfo.emissiveMapTexture = scene_models[ti].m_modelInfo.emissiveMapTexture;
+                            models[m2].m_modelInfo.useEmissiveMap     = scene_models[ti].m_modelInfo.useEmissiveMap;
                         #endif
 
                         models[m2].m_materials                 = scene_models[ti].m_materials;

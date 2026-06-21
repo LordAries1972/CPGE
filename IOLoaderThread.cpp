@@ -415,22 +415,18 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
                         }
                     #endif  // !__USE_VULKAN__
 
-                    // OpenGL: RenderFrame skips the iOrigWidth = winMetrics.clientWidth update
-                    // while bIsResizing=true (it early-continues the loop), so iOrigWidth still
-                    // holds the Resize() value (LOWORD of lParam) which can differ from the
-                    // clientWidth that GetClientRect() returns and the renderer uses for its
-                    // ortho matrix once bIsResizing clears.  winMetrics is refreshed in main.cpp
-                    // before this thread runs, so it always reflects the correct new client size.
-                    #if defined(__USE_OPENGL__) && defined(PLATFORM_WINDOWS)
-                        guiManager.OnWindowResize(winMetrics.clientWidth, winMetrics.clientHeight);
-                    #else
-                        guiManager.OnWindowResize(iOrigWidth, iOrigHeight);
-                    #endif
+                    // Close all open GUI windows and stop active title-screen FX so
+                    // they can be restarted cleanly at the new viewport dimensions.
+                    guiManager.CloseAllWindows();
+                    fxManager.StopFireworks();
+                    fxManager.StopZooming();
 
                     // Starfield on resize
                     fxManager.CreateStarfield(80, 800.0f, 1000.0f, gtStarOrigin, true);
                     fxManager.StopLoadingText();
-                    // Pulse the 2D Image Background with 20% depth
+
+                    // Reopen title-screen GUI and restart FX at the new dimensions.
+                    guiManager.CreateGameMenuWindow(L"winGameMenu");
                     fxManager.ZoomInitialise(ZoomFXFunction::Zoom2D, 0.20f, 0.15f, int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
                     fxManager.StartZoom(0.015f);
                     fxManager.StartFireworks(0.5f);
@@ -554,7 +550,7 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
                         ThreadLockHelper preAllocLock(threadManager, "SceneManager_PreAllocation", 2000);
                         if (preAllocLock.IsLocked())
                         {
-                            scene.ParseGLTFScene(AssetsDir / L"test2.gltf");
+                            scene.ParseSceneAutoDetect(AssetsDir / L"level1.gltf");
                             if (!scene.bGltfCameraParsed) scene.AutoFrameSceneToCamera();
                         }
                     }
@@ -692,82 +688,3 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
     debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene Loading Complete - Pausing Thread");
 }
 
-//==============================================================================
-// Example Helper Functions
-//==============================================================================
-
-// Example function to create a basic shoot-em-up player configuration
-PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, const Vector2& startPosition) {
-    PlayerInfo player;                                                  // Create new player information structure
-    
-    // Basic player identification
-    player.playerID = playerID;                                         // Set unique player identifier
-    player.playerName = playerName;                                     // Set player display name
-    player.playerTag = "PILOT";                                         // Set player tag for shoot-em-up theme
-    player.playerColor = MyColor(0, 255, 0, 255);                      // Green color for player ship
-    
-    // Visual representation for 2D shoot-em-up
-    player.portraitImageIndex = BlitObj2DIndexType::IMG_COMPANYLOGO;    // Use logo as portrait placeholder
-    player.frameImageIndex = BlitObj2DIndexType::IMG_WINFRAME1;         // Use window frame for UI
-    
-    // Position and movement setup
-    player.position2D = startPosition;                                  // Set starting 2D position
-    player.position3D = Vector3(startPosition.x, startPosition.y, 0.0f); // Convert to 3D position
-    player.velocity2D = Vector2(0.0f, 0.0f);                           // No initial velocity
-    player.velocity3D = Vector3(0.0f, 0.0f, 0.0f);                     // No initial 3D velocity
-    player.mapPosition = startPosition;                                 // Set map position same as world position
-    player.rotation = 0.0f;                                             // No initial rotation
-    
-    // Player state configuration
-    player.currentState = PlayerState::ACTIVE;                         // Set player as active
-    player.isDead = false;                                              // Player starts alive
-    player.isActive = true;                                             // Player participates in game
-    player.deathAnimation = DeathAnimationState::NONE;                  // No death animation initially
-    
-    // Health and combat statistics for shoot-em-up
-    player.health = 100;                                                // Standard health amount
-    player.maxHealth = 100;                                             // Maximum health capacity
-    player.armour = 50;                                                 // Ship armour protection
-    player.maxArmour = 100;                                             // Maximum armour capacity
-    player.shield = 75;                                                 // Energy shield strength
-    player.maxShield = 100;                                             // Maximum shield capacity
-    
-    // Scoring and progression
-    player.score = 0;                                                   // Start with no score
-    player.highScore = 0;                                               // No high score initially
-    player.lives = 3;                                                   // Standard 3 lives for shoot-em-up
-    player.level = 1;                                                   // Start at level 1
-    player.experience = 0;                                              // No initial experience
-    player.experienceToNext = 1000;                                     // 1000 XP needed for next level
-    
-    // Combat attributes for shoot-em-up gameplay
-    player.attackPower = 25;                                            // Ship weapon damage
-    player.defenseRating = 15;                                          // Ship defensive rating
-    player.criticalChance = 10;                                         // 10% critical hit chance
-    player.criticalMultiplier = 2;                                      // 2x critical damage
-    player.attackSpeed = 2.5f;                                          // 2.5 attacks per second
-    player.movementSpeed = 200.0f;                                      // 200 pixels per second movement
-    
-    // Resource management
-    player.ammunition = 100;                                            // Starting ammunition count
-    player.maxAmmunition = 150;                                         // Maximum ammunition capacity
-    player.energy = 100;                                                // Energy for special weapons
-    player.maxEnergy = 100;                                             // Maximum energy capacity
-    
-    // Timer system setup (useful for power-up durations, invincibility, etc.)
-    player.timerActive = false;                                         // Timer not active initially
-    player.timerStart = std::chrono::steady_clock::now();               // Initialize timer start
-    player.timerCurrent = player.timerStart;                            // Initialize current time
-    player.totalTimeElapsed = std::chrono::milliseconds(0);             // No elapsed time initially
-    
-    // Network player settings
-    player.isNetworkPlayer = false;                                     // Local player by default
-    player.networkSessionID = "";                                       // No network session initially
-    player.networkLatency = 0;                                          // No network latency for local player
-    
-    #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"Shoot-em-up player %d created successfully", playerID);
-    #endif
-    
-    return player;                                                      // Return configured player
-}

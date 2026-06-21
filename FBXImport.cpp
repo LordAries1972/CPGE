@@ -2292,6 +2292,7 @@ bool FBXImporter::BuildMaterial(
     if (fbxMat.roughnessTexID) outMat.roughnessMap     = loadTex(fbxMat.roughnessTexID);
     if (fbxMat.metallicTexID)  outMat.metallicMap      = loadTex(fbxMat.metallicTexID);
     if (fbxMat.aoTexID)        outMat.aoMap            = loadTex(fbxMat.aoTexID);
+    if (fbxMat.emissiveTexID)  outMat.emissiveMap      = loadTex(fbxMat.emissiveTexID);
 
     // UV settings: carry the diffuse texture's UV transform and wrap modes into
     // the engine material.  SceneManager bakes the transform into the vertex UVs

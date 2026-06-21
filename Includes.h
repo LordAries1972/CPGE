@@ -102,7 +102,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
         #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__) && \
             !defined(__USE_OPENGL__)     && !defined(__USE_VULKAN__)      && \
             !defined(__USE_RADEON__)
-            #define __USE_DIRECTX_11__  // Change this to switch the default for IDE-only builds
+//            #define __USE_DIRECTX_11__  // Change this to switch the default for IDE-only builds
         #endif
 
         #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__) && !defined(__USE_OPENGL__) && !defined(__USE_VULKAN__)
@@ -263,7 +263,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 // Compile-time identity strings — used in version overlays and log output.
 // Overlay format: "<BuildType> <RENDERER_NAME_W> <GAME_NAME_W> v<build> <dd-MM-YYYY>"
 // ---------------------------------------------------------------------------
-#define GAME_NAME_W L"CPGE"
+#define GAME_NAME_W L"TSOO"
 
 #if defined(PLATFORM_WINDOWS)
     #define PLATFORM_NAME_W L"Windows"
@@ -742,9 +742,6 @@ const int PLAYER_1 = 0;
 //const int PLAYER_2 = 1;
 //const int PLAYER_3 = 2;
 //const int PLAYER_4 = 3;
-
-// Maximum number of Players supported (1-8)
-constexpr int MAX_PLAYERS = 8;
 
 // 2D Textures
 inline const std::wstring texFilename[] = {

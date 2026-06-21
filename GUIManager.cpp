@@ -6,7 +6,7 @@ This file contains the implementation of the GUIManager class, which manages GUI
 It includes methods for creating, removing, and rendering GUI windows, as well as handling input events.
 
 Dependencies: Includes.h, Renderer.h, DX11Renderer.h, DX12Renderer.h, VulkanRenderer.h, OpenGLRenderer.h,
-              GUIManager.h, SoundManager.h, Debug.h
+              GUIManager.h, SoundManager.h, Debug.h, GamePlayer.h
 
 */
 #pragma once
@@ -173,6 +173,18 @@ void GUIManager::RemoveWindow(const std::string& name) {
 
     // Explicitly reset the shared_ptr to ensure immediate cleanup
     windowToDestroy.reset();
+}
+
+void GUIManager::CloseAllWindows() {
+    std::vector<std::string> names;
+    {
+        std::lock_guard<std::timed_mutex> lock(mutex);
+        names.reserve(windows.size());
+        for (const auto& [name, _] : windows)
+            names.push_back(name);
+    }
+    for (const auto& name : names)
+        RemoveWindow(name);
 }
 
 void GUIManager::OnWindowResize(int newWidth, int newHeight)
@@ -481,6 +493,7 @@ void GUIManager::HandleMouseWheel(int delta) {
 
 void GUIWindow::HandleMouseMove(const Vector2& mousePosition, const std::unordered_map<std::string, std::shared_ptr<GUIWindow>>& allWindows) {
     if (bWindowDestroy || !isVisible) return;
+    if (m_fade.active) return;
 
     for (auto& control : controls) {
         bool isMouseOver =
@@ -531,6 +544,15 @@ void GUIWindow::HandleMouseMove(const Vector2& mousePosition, const std::unorder
                 break;
             }
 
+            case GUIControlType::Scrollbar:
+            {
+                if (control.isPressed) {
+                    int newPosition = static_cast<int>(mousePosition.y - control.position.y);
+                    UpdateScrollbar(newPosition);
+                }
+                break;
+            }
+
             case GUIControlType::ToggleSlider:
                 break;  // click-only control, no drag logic
 
@@ -542,6 +564,7 @@ void GUIWindow::HandleMouseMove(const Vector2& mousePosition, const std::unorder
 
 void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick, GUIManager* guiMgr, bool& clickConsumed) {
     if (bWindowDestroy) return;
+    if (m_fade.active) return;
 
     for (auto& control : controls) {
         bool isMouseOver =
@@ -603,14 +626,25 @@ void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick
 
         case GUIControlType::Scrollbar:
         {
-            if (control.onMouseBtnDown && !clickConsumed && (!guiMgr || !guiMgr->IsClickCoolingDown())) {
-                control.onMouseBtnDown();
-                control.isPressed = true;
-                clickConsumed = true;
-                if (guiMgr) guiMgr->AcquireClickLock();
+            if (isLeftClick) {
+                if (isMouseOver && !control.isPressed && !clickConsumed && (!guiMgr || !guiMgr->IsClickCoolingDown())) {
+                    control.isPressed = true;
+                    clickConsumed = true;
+                    if (guiMgr) guiMgr->AcquireClickLock();
+                    SetCapture(hwnd);
+                    if (control.onMouseBtnDown) control.onMouseBtnDown();
+                }
+                if (control.isPressed) {
+                    int newPosition = static_cast<int>(mousePosition.y - control.position.y);
+                    UpdateScrollbar(newPosition);
+                }
+            } else {
+                if (control.isPressed) {
+                    control.isPressed = false;
+                    ReleaseCapture();
+                    if (control.onMouseBtnUp) control.onMouseBtnUp();
+                }
             }
-            int newPosition = mousePosition.y - control.position.y;
-            UpdateScrollbar(newPosition);
             break;
         }
 

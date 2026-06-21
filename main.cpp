@@ -2111,9 +2111,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             // Route scroll wheel through GUIManager to the focused window (e.g. console scroll).
             guiManager.HandleMouseWheel(GET_WHEEL_DELTA_WPARAM(wParam));
 
-            // Console is the topmost GUIManager window when visible; absorb the wheel
-            // event so it does not also move the game camera.
-            if (consoleWindow.bIsVisible)
+            // Any open GUI window (console, config, dialog …) holds exclusive wheel focus.
+            // Absorb the event so backend camera zoom never fires while the UI is active.
+            if (guiManager.GetFocusedWindow())
                 return 0;
 
             switch (scene.stSceneType)
@@ -2458,7 +2458,6 @@ void StartGame()
 
     // Switch to GamePlay Scene.
     SwitchToGamePlay();
-
 }
 
 #pragma warning(pop)
