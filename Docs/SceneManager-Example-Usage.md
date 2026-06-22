@@ -7,14 +7,16 @@ and renderer already exist.
 ## Contents
 
 1. [Core concepts](#core-concepts)
-2. [Initialization and cleanup](#initialization-and-cleanup)
-3. [Loading scenes](#loading-scenes)
-4. [Caching and dynamic scenes](#caching-and-dynamic-scenes)
-5. [Cameras](#cameras)
-6. [Animations](#animations)
-7. [Scene state and switching](#scene-state-and-switching)
-8. [API reference](#api-reference)
-9. [Performance and troubleshooting](#performance-and-troubleshooting)
+2. [Choosing the right workflow](#choosing-the-right-workflow)
+3. [Use-case scenarios](#use-case-scenarios)
+4. [Initialization and cleanup](#initialization-and-cleanup)
+5. [Loading scenes](#loading-scenes)
+6. [Caching and dynamic scenes](#caching-and-dynamic-scenes)
+7. [Cameras](#cameras)
+8. [Animations](#animations)
+9. [Scene state and switching](#scene-state-and-switching)
+10. [API reference](#api-reference)
+11. [Performance and troubleshooting](#performance-and-troubleshooting)
 
 ## Core concepts
 
@@ -45,6 +47,411 @@ outlive the manager and every call that uses it.
 The public scene and animation APIs do not provide internal synchronization.
 Parse, cleanup, cache, placement, update, and rendering operations must be
 coordinated by the engine.
+
+## Choosing the right workflow
+
+Choose the workflow from the ownership and visibility required by the asset:
+
+| Requirement | Recommended API set | Do not use it when |
+|---|---|---|
+| Load a complete authored level | `Initialize()`, `CleanUp()`, `ParseSceneAutoDetect(path, false)` | Objects must remain hidden until individually spawned. |
+| Preload reusable static props | `ParseSceneAutoDetect(path, true)`, then `PutModelToScene()` | The complete authored hierarchy should become visible immediately. |
+| Spawn multiple cached copies | `PutModelToScene()` once per copy | The model has not first been parsed into `models[]`. |
+| Restore geometry between runs | `LoadCache()`, source parse, `SaveCache()` | Restoring the current scene layout; use scene state instead. |
+| Restore camera/model transforms | `SaveSceneState()`, `LoadSceneState()` | Geometry, materials, lights, or animations must be serialized. |
+| Use an authored FBX camera | `ParseFBXScene()`, `GetFBXCameras()`, `GotoCamera()` | Another scene has been parsed since the FBX. |
+| Frame a scene without a camera | `AutoFrameSceneToCamera()` once after loading | Calling every frame or CPU vertex data is unavailable. |
+| Play GLTF/GLB animation | `FindParentModelID()`, `StartAnimation()`, `UpdateSceneAnimations()` | The parent is absent from the current scene hierarchy. |
+| Change logical application state | `SetGotoScene()`, caller cleanup/load, `InitiateScene()` | Expecting SceneManager to load assets automatically. |
+| Diagnose a GLB import | `DiagnoseGLBParsing()` during development | Existing scene state must remain untouched. |
+
+```text
+Should the complete source file be visible after loading?
+|
++-- Yes -> ParseSceneAutoDetect(path, false)
+|          Use for levels, menus, and authored cinematics.
+|
++-- No  -> ParseSceneAutoDetect(path, true)
+           Then use PutModelToScene() for selected cached models.
+```
+
+`bCacheOnly` is a loading policy, not a general performance switch. Passing
+`true` deliberately leaves the current scene empty.
+
+## Use-case scenarios
+
+These scenarios show the required setup, update order, failure handling, and
+the boundaries where a different API should be used.
+
+### Scenario 1: Load a complete gameplay level
+
+**Use when:** one GLB, GLTF, or FBX file describes the level that should render
+as authored.
+
+**Do not use when:** the file is merely a library of runtime-spawned models.
+
+**API set:** `Initialize()` -> optional `LoadCache()` -> `CleanUp()` ->
+`ParseSceneAutoDetect(..., false)` -> camera fallback -> per-frame animation.
+
+```cpp
+class GameplayScene
+{
+public:
+    bool Initialize(const std::shared_ptr<Renderer>& renderer)
+    {
+        if (!m_scene.Initialize(renderer))
+        {
+            return false;
+        }
+
+        // A cache miss is normal; source parsing remains the fallback.
+        m_scene.LoadCache("Cache/models.dat");
+        return true;
+    }
+
+    bool Load(const std::wstring& levelPath)
+    {
+        // Stop all render/update access to the old scene before this call.
+        m_scene.CleanUp();
+
+        if (!m_scene.ParseSceneAutoDetect(levelPath, false))
+        {
+            return false;
+        }
+
+        if (!m_scene.bGltfCameraParsed)
+        {
+            m_scene.AutoFrameSceneToCamera(
+                XMConvertToRadians(60.0f),
+                1.2f);
+        }
+
+        return true;
+    }
+
+    void Update(float deltaTimeSeconds)
+    {
+        ++m_scene.sceneFrameCounter;
+        m_scene.UpdateSceneAnimations(deltaTimeSeconds);
+    }
+
+private:
+    SceneManager m_scene;
+};
+```
+
+Initialize once for the manager's lifetime. Load subsequent levels through a
+controlled cleanup/parse transition instead of rebinding the renderer.
+
+### Scenario 2: Preload and spawn static props
+
+**Use when:** props, pickups, or scenery should be cached without becoming
+visible immediately.
+
+**Do not use when:** the complete authored scene should remain intact.
+
+**API set:** one or more cache-only parses -> `PutModelToScene()`.
+
+```cpp
+bool PreloadStaticProps(SceneManager& scene)
+{
+    if (!scene.ParseSceneAutoDetect(
+            L"Assets/Props/Crates.glb",
+            true))
+    {
+        return false;
+    }
+
+    return scene.ParseSceneAutoDetect(
+        L"Assets/Props/Pickups.glb",
+        true);
+}
+
+int SpawnCrate(SceneManager& scene, const XMFLOAT3& position)
+{
+    return scene.PutModelToScene(
+        L"WoodenCrate",
+        position,
+        true,  // Include imported primitive siblings.
+        false);
+}
+
+void BuildPropLayout(SceneManager& scene)
+{
+    const XMFLOAT3 positions[] =
+    {
+        XMFLOAT3(0.0f, 0.0f, 4.0f),
+        XMFLOAT3(2.5f, 0.0f, 4.0f),
+        XMFLOAT3(5.0f, 0.0f, 4.0f)
+    };
+
+    for (const XMFLOAT3& position : positions)
+    {
+        if (SpawnCrate(scene, position) < 0)
+        {
+            // Cache entry unavailable, not GPU-ready, or insufficient slots.
+            break;
+        }
+    }
+}
+```
+
+Use `bIncChildren == true` for models split into imported primitive siblings.
+Use `false` only for an independently renderable cache entry. Every included
+child consumes another fixed scene slot.
+
+### Scenario 3: Spawn an animated GLTF/GLB character
+
+**Use when:** the current source load supplied the character's clips and the
+inserted hierarchy includes all animation targets.
+
+**Do not use when:** clips came from an earlier, different source file.
+
+**API set:** cache-only parse -> `PutModelToScene(..., true, true)` ->
+animation controls -> one per-frame scene animation update.
+
+```cpp
+bool PrepareAndSpawnGuard(
+    SceneManager& scene,
+    const XMFLOAT3& position,
+    int& outGuardID)
+{
+    // Keep this as the active animated source. A later GLTF/GLB parse replaces
+    // the animator's clip collection even though geometry remains cached.
+    if (!scene.ParseSceneAutoDetect(
+            L"Assets/Characters/Guard.glb",
+            true))
+    {
+        return false;
+    }
+
+    outGuardID = scene.PutModelToScene(
+        L"Guard",
+        position,
+        true,  // Include nodes/primitives required by the animation.
+        true); // Start the cached animation index.
+
+    if (outGuardID < 0)
+    {
+        return false;
+    }
+
+    scene.gltfAnimator.SetAnimationLooping(outGuardID, true);
+    scene.gltfAnimator.SetAnimationSpeed(outGuardID, 1.0f);
+    scene.gltfAnimator.SetAnimationDirection(
+        outGuardID,
+        AnimationDirection::FORWARD);
+    return true;
+}
+
+void UpdateAllCharacters(
+    SceneManager& scene,
+    float deltaTimeSeconds)
+{
+    // This updates every instance; do not call it once per character.
+    scene.UpdateSceneAnimations(deltaTimeSeconds);
+}
+```
+
+Geometry from several files can accumulate in `models[]`, but
+`SceneManager::gltfAnimator` holds one current parsed clip collection. A later
+GLTF/GLB parse clears/replaces that collection. The current API is therefore not
+a multi-file animation bank. Animated assets from different files need
+deliberate source ownership or a separate animation-resource layer.
+
+### Scenario 4: Play once and hold the final pose
+
+**Use when:** a door, switch, attack, or interaction should stop on its last
+sampled pose.
+
+**Do not use when:** completion must be driven by authored events. The endpoint
+API observes sampler time, not animation events.
+
+```cpp
+bool StartDoorAnimation(
+    SceneManager& scene,
+    int& outDoorID,
+    int animationIndex)
+{
+    outDoorID = scene.FindParentModelID(L"Door");
+    if (outDoorID < 0)
+    {
+        return false;
+    }
+
+    GLTFAnimator& animator = scene.gltfAnimator;
+    if (!animator.StartAnimation(outDoorID, animationIndex))
+    {
+        return false;
+    }
+
+    animator.SetAnimationLooping(outDoorID, false);
+    animator.SetAnimationDirection(
+        outDoorID,
+        AnimationDirection::FORWARD);
+    return true;
+}
+
+bool HoldDoorWhenComplete(SceneManager& scene, int doorID)
+{
+    int finalKeyIndex = -1;
+    if (!scene.gltfAnimator.AtAnimationEndFrame(
+            doorID,
+            finalKeyIndex))
+    {
+        return false;
+    }
+
+    scene.gltfAnimator.HoldAnimationAtFrame(
+        doorID,
+        finalKeyIndex);
+    return true;
+}
+
+// Frame order:
+scene.UpdateSceneAnimations(deltaTimeSeconds);
+const bool completed = HoldDoorWhenComplete(scene, doorID);
+```
+
+The returned index belongs to the first non-empty sampler. It is not a universal
+frame number across every animation channel.
+
+### Scenario 5: Drive a cinematic with FBX cameras
+
+**Use when:** camera transforms and projection settings were authored in FBX.
+
+**Do not use when:** another scene was parsed afterward; every parse clears the
+stored FBX camera list.
+
+```cpp
+bool StartFBXCinematic(SceneManager& scene)
+{
+    scene.CleanUp();
+
+    if (!scene.ParseFBXScene(
+            L"Assets/Cinematics/Intro.fbx",
+            false))
+    {
+        return false;
+    }
+
+    const std::vector<ParsedFBXCamera>& cameras =
+        scene.GetFBXCameras();
+    if (cameras.empty())
+    {
+        return false;
+    }
+
+    // Apply the first shot immediately.
+    return scene.GotoCamera(cameras.front().name, false);
+}
+
+bool ChangeCinematicShot(
+    SceneManager& scene,
+    const std::wstring& cameraName)
+{
+    return scene.GotoCamera(cameraName, true);
+}
+```
+
+Animated camera movement uses `Camera::JumpTo()`; normal camera updates must
+continue. `GotoCamera()` does not sequence shots or track their duration.
+
+Current FBX animation conversion is not public animator playback support.
+`ParseFBXScene()` converts and reports FBX animation stacks, but does not
+register the converted clips in `GLTFAnimator::m_animations`. Use FBX for its
+geometry, hierarchy, lights, materials, and cameras; use GLTF/GLB for animator
+playback until a direct registration API exists.
+
+### Scenario 6: Save and restore an editor layout
+
+**Use when:** saving camera position and model transforms while base assets are
+managed separately.
+
+**Do not use when:** the save must contain geometry, materials, lights, or
+animation state.
+
+```cpp
+bool SaveEditorLayout(
+    SceneManager& scene,
+    const std::wstring& savePath)
+{
+    return scene.SaveSceneState(savePath);
+}
+
+bool LoadEditorLayout(
+    SceneManager& scene,
+    const std::wstring& assetLibrary,
+    const std::wstring& savePath)
+{
+    // Populate models[] without displaying the asset library.
+    if (!scene.ParseSceneAutoDetect(assetLibrary, true))
+    {
+        return false;
+    }
+
+    scene.CleanUp();
+    return scene.LoadSceneState(savePath);
+}
+```
+
+Saved entries resolve by exact model name in `models[]`. Renaming an exported
+model can make an older snapshot skip it. Treat the binary as engine-local and
+invalidate/version it alongside assets.
+
+### Scenario 7: Perform a controlled scene transition
+
+**Use when:** the application changes logical state and controls when old-scene
+render/update work stops.
+
+**Do not use when:** expecting transition methods to load or destroy assets.
+
+```cpp
+bool TransitionToGameplay(SceneManager& scene)
+{
+    scene.bSceneSwitching = true;
+    scene.SetGotoScene(SCENE_GAMEPLAY);
+
+    // The wider engine must stop jobs reading scene_models[] before this.
+    scene.CleanUp();
+
+    if (!scene.ParseSceneAutoDetect(
+            L"Assets/Scenes/Gameplay.glb",
+            false))
+    {
+        scene.bSceneSwitching = false;
+        scene.SetGotoScene(SCENE_NONE);
+        return false;
+    }
+
+    scene.InitiateScene();
+    scene.SetGotoScene(SCENE_NONE);
+    return true;
+}
+```
+
+`SetGotoScene()` only stores a value and `InitiateScene()` only commits it.
+The caller owns asset loading, effects, timing, and synchronization.
+
+### Scenario 8: Diagnose a failing GLB
+
+**Use when:** a developer needs detailed import diagnostics with debug logging.
+
+**Do not use when:** current scene state must remain unchanged.
+`DiagnoseGLBParsing()` performs a real parse.
+
+```cpp
+void DiagnoseAsset(
+    SceneManager& scene,
+    const std::wstring& glbPath)
+{
+    scene.CleanUp();
+    scene.DiagnoseGLBParsing(glbPath);
+}
+```
+
+The diagnostic returns `void`. Use its logs and inspect the resulting scene.
+Production error handling should use the parser's boolean return value instead.
 
 ## Initialization and cleanup
 
