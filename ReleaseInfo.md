@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.1.1826*
+*Current Build Version: v0.1.1827*
 
 ---
 
@@ -55,7 +55,7 @@ lets make this Engine great!
 #### 2026
 
 - [June 2026](#june-2026---opengl-pipeline-fixes)
-  - [01](#june-01-2026) · [02](#june-02-2026) · [03](#june-03-2026) · [04](#june-04-2026) · [05](#june-05-2026) · [06](#june-06-2026) · [07](#june-07-2026) · [08](#june-08-2026) · [11](#june-11-2026) · [12](#june-12-2026) · [13](#june-13-2026) · [14](#june-14-2026) · [15](#june-15-2026) · [16](#june-16-2026) · [17](#june-17-2026) · [18](#june-18-2026)
+  - [01](#june-01-2026) · [02](#june-02-2026) · [03](#june-03-2026) · [04](#june-04-2026) · [05](#june-05-2026) · [06](#june-06-2026) · [07](#june-07-2026) · [08](#june-08-2026) · [11](#june-11-2026) · [12](#june-12-2026) · [13](#june-13-2026) · [14](#june-14-2026) · [15](#june-15-2026) · [16](#june-16-2026) · [17](#june-17-2026) · [18](#june-18-2026) · [21](#june-21-2026) · [23](#june-23-2026)
 - [May 2026](#may-2026---more-major-updates-and-fixes)
   - [02](#may-02-2026) · [03-04](#may-03-04-2026) · [06](#may-06-2026) · [08](#may-08-2026) · [10](#may-10-2026) · [11](#may-11-2026) · [14](#may-14-2026) · [15](#may-15-2026) · [16](#may-16-2026) · [17](#may-17-2026) · [18](#may-18-2026) · [19](#may-19-2026) · [20](#may-20-2026) · [21](#may-21-2026) · [22](#may-22-2026) · [23](#may-23-2026) · [24](#may-24-2026) · [28](#may-28-2026) · [29](#may-29-2026) · [30](#may-30-2026) · [31](#may-31-2026)
 - [April 2026](#april-2026---bug-fixes-and-updates)
@@ -3759,6 +3759,22 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
 - **Fix — GUI window fade now correctly fades textured buttons on DX11 and Vulkan** (`DX11Renderer.cpp`, `VULKAN_Renderer.cpp`):
   Textured buttons (and all blit controls) did not fade during `ApplyWindowFade` / `ApplyWindowFadeCallback` on DX11 and Vulkan, while the background rectangle and text labels faded correctly. Root cause: `GUIWindow::Render()` passes `tintColor.a` (a `uint8_t`, range 0–255) scaled by `m_fadeAlpha` to `DrawTexture()` as the D2D `DrawBitmap` opacity parameter, which expects a normalised `FLOAT` (0.0–1.0). On DX11, `tintColor.a` was passed directly without normalisation (`tintColor.a` = e.g. 127 → `DrawBitmap` received `127.0f`, clamped to 1.0 — always fully opaque). On Vulkan, `DrawTexture()` ignored `tintColor` entirely and delegated to `Blit2DObjectToSize()`, which hardcoded `1.0f` opacity. DX12 already normalised correctly (`tintColor.a / 255.0f`) and OpenGL's `Render2DQuad` also normalised in its `glUniform4f` call — those two pipelines were unaffected. Fixed by: (1) DX11 `DrawTexture()`: changing `tintColor.a` to `tintColor.a / 255.0f` in the `DrawBitmap` opacity argument; (2) Vulkan `DrawTexture()`: replacing the `Blit2DObjectToSize()` call with an inline D2D `DrawBitmap` that passes `tintColor.a / 255.0f` as opacity, consistent with the DX11 and DX12 patterns.
 - *See: [`DX11Renderer.cpp`](DX11Renderer.cpp), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp)*
+
+#### June 21, 2026
+
+- **Feature — GLTFAnimator: `SetAnimationDirection`, `AtAnimationEndFrame`, `HoldAnimationAtFrame`** (`GLTFAnimator.h`, `GLTFAnimator.cpp`, `Models.h`):
+  Three new animation-control functions added to `GLTFAnimator`. (1) `SetAnimationDirection(int parentModelID, AnimationDirection direction)` — sets the playback direction for an animation instance. `AnimationDirection` enum (added to `Models.h`) has four values: `NONE` (0, no-op), `FORWARD` (1, advance toward end), `REVERSE` (2, advance backward toward start), `BOUNCE` (3, forward to end then reverse to start). If `isLooping` is set for the parent ID, FORWARD and REVERSE wrap around seamlessly; BOUNCE repeats indefinitely. Without looping, FORWARD/REVERSE stop at their destination frame; BOUNCE completes one full forward+reverse cycle then stops. `UpdateAnimations` updated to apply direction-aware delta time: REVERSE negates the delta, BOUNCE flips the sign using a `bounceGoingForward` phase flag stored on `AnimationInstance`, and FORWARD/NONE use standard signed playback speed. `AnimationInstance` (Models.h) gains two new members: `direction` and `bounceGoingForward`. (2) `AtAnimationEndFrame(int parentModelID, int& frameIndex)` — returns `true` and sets `frameIndex` to the last keyframe index (from the first non-empty sampler) when `currentTime >= animationEndTime`; returns `false` otherwise. (3) `HoldAnimationAtFrame(int parentModelID, int frameIndex)` — pauses the animation (`isPlaying = false`) and seeks `currentTime` to the time of the given keyframe index (clamped to valid bounds), freezing the visual at that frame.
+- *See: [`GLTFAnimator.h`](GLTFAnimator.h), [`GLTFAnimator.cpp`](GLTFAnimator.cpp), [`Models.h`](Models.h)*
+
+#### June 23, 2026
+
+- **Feature — SceneManager: `PutModelToScene()`** (`SceneManager.h`, `SceneManager.cpp`):
+  New public function `int PutModelToScene(std::wstring name, XMFLOAT3 atWorldCoords, bool bIncChildren, bool bStartAnim)` that retrieves a named model from the global `models[]` cache and injects it into the next available free slot(s) in `scene_models[]`. The model must pass all four readiness checks: `bGpuReady`, `m_isLoaded`, `bInitialized`, and `bIsDestroyed == false` (equivalent to `IsActive() && bGpuReady`). The search prefers scene-graph root entries (`iParentModelID == -1`) and falls back to the first name-match if no root is found. When `bIncChildren == true`, all primitive siblings stored in `models[]` whose `iParentModelID` equals the root's `cachedInstanceIndex` are also copied alongside the root, with their `iParentModelID` re-pointed to the new parent scene slot. The group is positioned at `atWorldCoords` by overriding the translation component of the world matrix (`_41`, `_42`, `_43`) while preserving existing rotation and scale. `SetupModelForRendering(sceneSlot)` and `ApplyDefaultLightingFromManager()` are called for each injected model, and each slot is marked `m_isLoaded = true`. The cache entry's `cachedInstanceIndex` is updated to the newly allocated slot. When `bStartAnim == true` and animations are loaded, `CreateAnimationInstance()` and `StartAnimation()` are called on the new parent scene ID using the model's `iAnimationIndex` (defaulting to 0 if unset). Returns the new parent `scene_models[]` ID on success, or `-1` on failure (model not found, not GPU-ready, or insufficient free slots).
+- *See: [`SceneManager.h`](SceneManager.h), [`SceneManager.cpp`](SceneManager.cpp)*
+
+- **Feature — SceneManager: `bCacheOnly` parameter on all scene parsers** (`SceneManager.h`, `SceneManager.cpp`):
+  Added `bool bCacheOnly = false` to `ParseSceneAutoDetect()`, `ParseGLBScene()`, `ParseGLTFScene()`, and `ParseFBXScene()`. When `true`, models are fully initialised and GPU-uploaded into the global `models[]` precache pool exactly as a normal load, but `scene_models[]` is left empty so nothing renders — the scene is treated as a dynamic scene built at runtime via `PutModelToScene()`. Cache-restore fast-paths also short-circuit their `scene_models[]` restore loop when `bCacheOnly` is set, returning immediately once session state (cameras, lights, animations) has been refreshed.
+- *See: [`SceneManager.h`](SceneManager.h), [`SceneManager.cpp`](SceneManager.cpp)*
 
 ---
 
