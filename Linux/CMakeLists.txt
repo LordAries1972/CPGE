@@ -56,7 +56,9 @@ set(SOURCES
     ${SRC_DIR}/FileIO.cpp
     ${SRC_DIR}/GamePlayer.cpp
     ${SRC_DIR}/GamingAI.cpp
+    ${SRC_DIR}/FBXAnimator.cpp
     ${SRC_DIR}/GLTFAnimator.cpp
+    ${SRC_DIR}/ModelAnimator.cpp
     ${SRC_DIR}/GUIConfigWindow.cpp
     ${SRC_DIR}/GUIManager.cpp
     ${SRC_DIR}/GUIWindows.cpp

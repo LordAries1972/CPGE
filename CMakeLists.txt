@@ -64,7 +64,9 @@ set(SOURCES
     FileIO.cpp
     GamePlayer.cpp
     GamingAI.cpp
+    FBXAnimator.cpp
     GLTFAnimator.cpp
+    ModelAnimator.cpp
     GUIConfigWindow.cpp
     GUIManager.cpp
     GUIWindows.cpp

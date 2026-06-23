@@ -706,8 +706,8 @@ void OpenGLRenderer::RenderFrame()
                         // Background image is blitted by RenderBackgroundImage() before the
                         // starfield pass so the zoom lands under the stars, not on top of them
                         int iModelID = scene.FindParentModelID(SplashShipName);
-                        if (scene.gltfAnimator.IsAnimationPlaying(iModelID))
-                            scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS);
+                        if (scene.modelAnimator.IsAnimationPlaying(iModelID))
+                            scene.modelAnimator.UpdateAnimations(deltaTime);
                         RenderGamePlay(deltaTime);
                     }
                     break;
@@ -715,8 +715,8 @@ void OpenGLRenderer::RenderFrame()
                 case SceneType::SCENE_GAMEPLAY:
                 {
                     int iModelID = scene.FindParentModelID(ShipName1);
-                    if (scene.gltfAnimator.IsAnimationPlaying(iModelID))
-                        scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS);
+                    if (scene.modelAnimator.IsAnimationPlaying(iModelID))
+                        scene.modelAnimator.UpdateAnimations(deltaTime);
                     RenderGamePlay(deltaTime);
                     break;
                 }

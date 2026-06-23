@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.1.1827*
+*Current Build Version: v0.1.1828*
 
 ---
 
@@ -3775,6 +3775,30 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
 - **Feature — SceneManager: `bCacheOnly` parameter on all scene parsers** (`SceneManager.h`, `SceneManager.cpp`):
   Added `bool bCacheOnly = false` to `ParseSceneAutoDetect()`, `ParseGLBScene()`, `ParseGLTFScene()`, and `ParseFBXScene()`. When `true`, models are fully initialised and GPU-uploaded into the global `models[]` precache pool exactly as a normal load, but `scene_models[]` is left empty so nothing renders — the scene is treated as a dynamic scene built at runtime via `PutModelToScene()`. Cache-restore fast-paths also short-circuit their `scene_models[]` restore loop when `bCacheOnly` is set, returning immediately once session state (cameras, lights, animations) has been refreshed.
 - *See: [`SceneManager.h`](SceneManager.h), [`SceneManager.cpp`](SceneManager.cpp)*
+
+- **Feature — FBXAnimator: native FBX animation playback** (`FBXAnimator.h`, `FBXAnimator.cpp`):
+  New class `FBXAnimator` provides production-quality FBX animation playback directly from native FBX data structures, replacing the previous non-functional stub that tried to inject GLTF-converted clips into `GLTFAnimator` (which had no injection API). Parses all `FBXAnimStack` → `FBXAnimLayer` → `FBXAnimCurveNode` → `FBXAnimCurve` hierarchies into `FBXAnimationClip` / `FBXAnimChannel` structures at scene-load time. Per-frame evaluation: `EvaluateCurve()` converts seconds to FBX time units and performs step/linear interpolation using `keyAttrFlags` (bit 0x02 = constant, otherwise linear). Translation channels apply `ApplyCoordFlip()` (Z-negate for right-handed → left-handed Y-up). Rotation channels add `preRotation` in degrees, convert via `EulerToMatrix()` supporting all 6 rotation orders, apply `ApplyRotationFlip()` (M·R·M similarity transform with M = diag(1,1,-1)), then extract a DirectX row-vector quaternion via `MatrixToQuaternion()`. Public interface mirrors `GLTFAnimator` exactly: `StartAnimation`, `StopAnimation`, `PauseAnimation`, `ResumeAnimation`, `UpdateAnimations`, `ForceAnimationReset`, `SetAnimationSpeed`, `SetAnimationLooping`, `SetAnimationTime`, `SetAnimationDirection`, `AtAnimationEndFrame`, `HoldAnimationAtFrame`, `GetAnimationCount`, `GetClip`, `IsAnimationPlaying`, `GetAnimationTime`, `ClearAllAnimations`. Hierarchy helpers `ResetLocalTRSToBase`, `RecomposeWorldFromLocalTRS`, and `IsInHierarchy` match the `GLTFAnimator` pattern. Non-DirectX builds receive a complete `XMFLOAT4X4`, `XMMatrixRotationX/Y/Z`, `XMConvertToRadians`, `XMQuaternionRotationMatrix` stub block.
+- *See: [`FBXAnimator.h`](FBXAnimator.h), [`FBXAnimator.cpp`](FBXAnimator.cpp)*
+
+- **Feature — ModelAnimator: universal animation dispatcher** (`ModelAnimator.h`, `ModelAnimator.cpp`):
+  New class `ModelAnimator` owns one `GLTFAnimator gltfAnimator` and one `FBXAnimator fbxAnimator` as public members and exposes a single unified interface that automatically routes each call to the correct sub-animator based on `ModelInfo::importType`. `SetModels(scene_models, MAX_SCENE_MODELS)` binds the scene array once from `SceneManager::Initialize()`; `UpdateAnimations(float deltaTime)` then advances both sub-animators without requiring callers to pass the model array. `IsAnimationPlaying(id)` returns true when either sub-animator has an active instance. `StartAnimation(id, clip)` dispatches by `importType`: `GLTF` → `gltfAnimator`, `FBX` → `fbxAnimator`, unknown → tries whichever has clips loaded. `Stop`, `Pause`, `Resume`, `SetAnimationSpeed/Looping/Time/Direction`, `HoldAnimationAtFrame`, and `ForceAnimationReset` call both sub-animators safely (the one without an instance is a no-op). `ClearAllAnimations()` clears both. `SceneManager::gltfAnimator` has been replaced with `SceneManager::modelAnimator`; all 30+ internal call sites updated.
+- *See: [`ModelAnimator.h`](ModelAnimator.h), [`ModelAnimator.cpp`](ModelAnimator.cpp)*
+
+- **Feature — Models.h: `ImportType` enum + FBX-specific `ModelInfo` fields**:
+  Added `enum class ImportType : int { NONE=0, GLTF=1, FBX=2 }` after `AnimationDirection`. Added three fields to `ModelInfo`: `ImportType importType = ImportType::NONE` (set automatically at parse time for dispatch), `int fbxNodeIndex = -1` (index into `FBXScene::models[]`), and `std::string fbxNodeName` (FBX model name for post-load rebinding and debug). `importType` is set to `ImportType::GLTF` at every `gltfNodeIndex` assignment in `ParseGLBNodeRecursive` and `ParseGLTFNodeRecursive`, and to `ImportType::FBX` at every `fbxIDToSlot` assignment in `ParseFBXScene`.
+- *See: [`Models.h`](Models.h)*
+
+- **Fix — SceneManager: FBX animation now plays** (`SceneManager.cpp`):
+  `ParseFBXScene()` animation section (previously a non-functional stub) replaced with a call to `modelAnimator.fbxAnimator.ParseAnimationsFromFBX(fbx, fbxIDToSlot)` followed by auto-start of each parsed clip on the root model. Root resolution walks the parent chain from `clip->channels[0].targetModelSlot` upward. `UpdateSceneAnimations()` now calls `modelAnimator.UpdateAnimations(deltaTime)` (the unified dispatcher) instead of the GLTF-only path.
+- *See: [`SceneManager.cpp`](SceneManager.cpp)*
+
+- **Update — All renderer frame files: unified animation dispatch** (`DXRenderFrame.cpp`, `DX12RenderFrame.cpp`, `VULKAN_RenderFrame.cpp`, `OpenGLRenderFrame.cpp`):
+  Replaced `scene.gltfAnimator.IsAnimationPlaying(id)` → `scene.modelAnimator.IsAnimationPlaying(id)` and `scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS)` → `scene.modelAnimator.UpdateAnimations(deltaTime)` in all four render frame files. The new calls handle GLTF and FBX animated models automatically with no format-specific branching required in render code.
+- *See: [`DXRenderFrame.cpp`](DXRenderFrame.cpp), [`DX12RenderFrame.cpp`](DX12RenderFrame.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp)*
+
+- **Docs — SceneManager-Example-Usage.md: ModelAnimator and FBXAnimator documentation**:
+  Updated title, core-concepts section, FBX animation limitation note (removed — FBX now fully supported), and the entire Animations section. New content covers the `ModelAnimator` dispatcher architecture diagram, `ImportType` auto-dispatch explanation, updated code examples using `scene.modelAnimator.*`, FBX vs GLTF feature comparison, and guidance for accessing the sub-animators directly for format-specific APIs.
+- *See: [`Docs/SceneManager-Example-Usage.md`](Docs/SceneManager-Example-Usage.md)*
 
 ---
 

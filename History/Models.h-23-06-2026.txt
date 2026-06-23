@@ -1,0 +1,13 @@
+Models.h - Modified 23 June 2026
+==================================
+Added ImportType enum after AnimationDirection enum:
+  enum class ImportType : int { NONE=0, GLTF=1, FBX=2 }
+  NONE = unknown/not yet assigned
+  GLTF = imported from GLTF or GLB file (uses GLTFAnimator via ModelAnimator)
+  FBX  = imported from FBX 7.x binary or ASCII (uses FBXAnimator via ModelAnimator)
+  (reserved slots left for future importers: OBJ, USD, etc.)
+
+Added three fields to ModelInfo struct (after gltfNodeIndex):
+  ImportType  importType    = ImportType::NONE  -- source importer format for dispatch
+  int         fbxNodeIndex  = -1                -- index into FBXScene::models[] (-1 = not FBX)
+  std::string fbxNodeName                        -- FBX model name for post-load rebinding/debug

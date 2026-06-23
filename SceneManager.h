@@ -10,7 +10,7 @@
 #elif defined(__USE_VULKAN__)
     #include "VULKAN_Renderer.h"
 #endif
-#include "GLTFAnimator.h"
+#include "ModelAnimator.h"
 #include "BlenderImports.h"
 #include "FBXImport.h"
 
@@ -91,8 +91,8 @@ public:
 	bool bAnimationsLoaded = false;                                                  // Flag indicating if animations were loaded from current scene
 	bool bLoadedFromCache  = false;                                                  // Set true when cache fast-path was used; callers must NOT clear models[]
 
-	// Global animator instance
-	GLTFAnimator gltfAnimator;
+	// Universal animator -- dispatches to GLTFAnimator or FBXAnimator based on ImportType
+	ModelAnimator modelAnimator;
 
 	// Our Models Buffer, Resources & Data that will be rendered in A GIVEN scene.
 	Model scene_models[MAX_SCENE_MODELS];

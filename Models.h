@@ -126,6 +126,18 @@ enum class AnimationDirection : int
     BOUNCE  = 3     // Play forward to end, then reverse to start; repeats if looping
 };
 
+//==============================================================================
+// ImportType -- identifies which importer produced a given model/scene entry.
+// Used by ModelAnimator to dispatch animation calls to the correct animator.
+//==============================================================================
+enum class ImportType : int
+{
+    NONE = 0,   // Unknown or not yet assigned
+    GLTF = 1,   // Imported from a GLTF or GLB file (uses GLTFAnimator)
+    FBX  = 2,   // Imported from an FBX 7.x file   (uses FBXAnimator)
+    // Future: OBJ = 3, USD = 4, etc.
+};
+
 struct AnimationInstance
 {
     int animationIndex;
@@ -281,7 +293,10 @@ struct Material {
 struct ModelInfo {
     int ID = 0;
     int iParentModelID = -1;
-    int gltfNodeIndex = -1;
+    int gltfNodeIndex = -1;                              // GLTF node index for channel targeting (-1 = not GLTF)
+    ImportType importType    = ImportType::NONE;         // Source importer format (GLTF, FBX, etc.)
+    int        fbxNodeIndex  = -1;                       // Index into FBXScene::models[] (-1 = not FBX)
+    std::string fbxNodeName;                             // FBX model name for post-load rebinding / debug
     bool bIsTransformOnly = false;
     bool bIsTransformProxy = false;
     bool bHasBaseLocalTRS = false;

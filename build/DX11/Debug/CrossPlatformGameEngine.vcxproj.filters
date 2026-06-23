@@ -52,7 +52,13 @@
     <ClCompile Include="F:\Projects\C++\CPGE2026\GamingAI.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="F:\Projects\C++\CPGE2026\FBXAnimator.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="F:\Projects\C++\CPGE2026\GLTFAnimator.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="F:\Projects\C++\CPGE2026\ModelAnimator.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="F:\Projects\C++\CPGE2026\GUIConfigWindow.cpp">

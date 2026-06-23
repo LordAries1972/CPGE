@@ -1,0 +1,17 @@
+ModelAnimator.cpp - Created 23 June 2026
+=========================================
+NEW FILE: Implementation of universal animation dispatcher.
+
+Dispatch logic:
+  IsAnimationPlaying  -- OR of both sub-animator results
+  StartAnimation      -- switch on importType: GLTF->gltfAnimator, FBX->fbxAnimator,
+                         NONE/unknown: tries gltfAnimator first, then fbxAnimator
+  Stop/Pause/Resume   -- call both, return (a || b)
+  UpdateAnimations    -- calls gltfAnimator.UpdateAnimations(dt, m_models, m_maxModels) then
+                         fbxAnimator.UpdateAnimations(dt, m_models, m_maxModels)
+  GetAnimationTime    -- prefers playing instance; falls back to whichever has non-zero time
+  SetAnimationDirection, HoldAnimationAtFrame -- applied to both
+  ClearAllAnimations  -- clears both
+
+Rationale: calling both sub-animators for Stop/Pause/etc. is safe because each animator
+           ignores parentModelIDs it doesn't own, making no-ops harmless.

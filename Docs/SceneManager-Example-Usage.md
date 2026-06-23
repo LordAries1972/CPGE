@@ -1,8 +1,8 @@
-# SceneManager and GLTFAnimator Usage Guide
+# SceneManager, ModelAnimator, and FBXAnimator Usage Guide
 
-This guide documents the current public APIs in `SceneManager.h` and
-`GLTFAnimator.h`. Examples use C++17 and assume the normal CPGE engine globals
-and renderer already exist.
+This guide documents the current public APIs in `SceneManager.h`,
+`ModelAnimator.h`, `GLTFAnimator.h`, and `FBXAnimator.h`. Examples use C++17
+and assume the normal CPGE engine globals and renderer already exist.
 
 ## Contents
 
@@ -34,13 +34,14 @@ Normal parsing populates the current scene and writes reusable data to
 `scene_models[]` empty. `PutModelToScene()` creates visible instances from
 that cache without parsing the source geometry again.
 
-Model IDs passed to `GLTFAnimator` are indexes in `scene_models[]`. They are
-not indexes in `models[]` or GLTF node indexes.
+Model IDs passed to `ModelAnimator` are indexes in `scene_models[]`. They are
+not indexes in `models[]` or GLTF/FBX node indexes.
 
 ### Owned and borrowed state
 
-A `SceneManager` owns its scene instances, its `gltfAnimator`, GLTF/GLB
-binary animation data, parsed FBX camera list, and scene transition state.
+A `SceneManager` owns its scene instances, its `modelAnimator` (which contains
+a `GLTFAnimator` and an `FBXAnimator`), GLTF/GLB binary animation data, parsed
+FBX camera list, and scene transition state.
 The renderer passed to `Initialize()` remains externally owned. It must
 outlive the manager and every call that uses it.
 
@@ -357,11 +358,11 @@ bool ChangeCinematicShot(
 Animated camera movement uses `Camera::JumpTo()`; normal camera updates must
 continue. `GotoCamera()` does not sequence shots or track their duration.
 
-Current FBX animation conversion is not public animator playback support.
-`ParseFBXScene()` converts and reports FBX animation stacks, but does not
-register the converted clips in `GLTFAnimator::m_animations`. Use FBX for its
-geometry, hierarchy, lights, materials, and cameras; use GLTF/GLB for animator
-playback until a direct registration API exists.
+FBX animation stacks are now fully supported. `ParseFBXScene()` parses clips
+natively via `FBXAnimator` (no GLTF conversion needed) and auto-starts them on
+their root models. FBX animations respond to all `scene.modelAnimator.*` calls
+identically to GLTF/GLB animations. The `ModelInfo::importType` field (set to
+`ImportType::FBX` or `ImportType::GLTF` at parse time) drives automatic dispatch.
 
 ### Scenario 6: Save and restore an editor layout
 
@@ -726,9 +727,45 @@ initialized renderer or when the named camera is absent.
 
 ## Animations
 
-GLTF/GLB animation data is exposed through `scene.gltfAnimator`. It supports
-translation, quaternion rotation, and scale channels with LINEAR, STEP, and
-CUBICSPLINE interpolation.
+Animation is managed through `scene.modelAnimator`, a universal dispatcher that
+automatically routes each call to `GLTFAnimator` (for GLTF/GLB models) or
+`FBXAnimator` (for FBX models) based on `ModelInfo::importType`.
+
+GLTF/GLB supports translation, quaternion rotation, and scale channels with
+LINEAR, STEP, and CUBICSPLINE interpolation. FBX supports translation, Euler
+rotation (all 6 rotation orders), and scale channels with Constant/Step and
+Linear/Cubic (approximated as linear) interpolation. Both pipelines convert to
+engine left-handed Y-up space automatically.
+
+### ModelAnimator dispatcher architecture
+
+```text
+scene.modelAnimator
+├── GLTFAnimator gltfAnimator   -- owns GLTF/GLB clips and instances
+└── FBXAnimator  fbxAnimator    -- owns FBX clips and instances
+
+scene.modelAnimator.IsAnimationPlaying(id)   // checks both
+scene.modelAnimator.StartAnimation(id, clip) // dispatches by importType
+scene.modelAnimator.UpdateAnimations(dt)     // advances both
+```
+
+`modelAnimator.gltfAnimator` and `modelAnimator.fbxAnimator` are public and
+can be accessed directly inside `SceneManager` for format-specific APIs
+(e.g. `ParseAnimationsFromGLTF`, `ParseAnimationsFromFBX`, `GetAnimation()`).
+
+### ImportType — automatic dispatch
+
+```cpp
+// Set automatically at parse time; read by ModelAnimator::StartAnimation.
+enum class ImportType : int { NONE=0, GLTF=1, FBX=2 };
+
+ModelInfo::importType   // ImportType::GLTF or ImportType::FBX after parsing
+ModelInfo::fbxNodeIndex // Index into FBXScene::models[] (-1 for GLTF models)
+ModelInfo::fbxNodeName  // FBX model name string (empty for GLTF models)
+```
+
+No caller code changes are needed when swapping a `.glb` for a `.fbx`: the
+same `modelAnimator.*` calls work for both formats.
 
 ### Update once per frame
 
@@ -739,66 +776,61 @@ void UpdateGame(SceneManager& scene, float deltaTimeSeconds)
 }
 ```
 
-Use seconds, not milliseconds. The call delegates only when
-`bAnimationsLoaded` is true. Do not update the same animator twice per frame.
+Use seconds, not milliseconds. The call delegates to `modelAnimator.UpdateAnimations()`
+only when `bAnimationsLoaded` is true. Both sub-animators are advanced in one call.
+Do not call `UpdateAnimations()` a second time in the same frame.
 
 ### Inspect and start clips
 
 ```cpp
-for (int i = 0; i < scene.gltfAnimator.GetAnimationCount(); ++i)
+// GLTF/GLB: inspect via the gltfAnimator sub-member (SceneManager internal use)
+for (int i = 0; i < scene.modelAnimator.gltfAnimator.GetAnimationCount(); ++i)
 {
-    const GLTFAnimation* animation = scene.gltfAnimator.GetAnimation(i);
-    if (animation)
-    {
-        // Read animation->name, duration, samplers, and channels.
-    }
+    const GLTFAnimation* anim = scene.modelAnimator.gltfAnimator.GetAnimation(i);
+    if (anim) { /* anim->name, duration, samplers, channels */ }
 }
 
-const int actorID = scene.FindParentModelID(L"Actor");
-if (actorID >= 0 && scene.gltfAnimator.GetAnimationCount() > 0)
+// FBX: inspect via the fbxAnimator sub-member (SceneManager internal use)
+for (int i = 0; i < scene.modelAnimator.fbxAnimator.GetAnimationCount(); ++i)
 {
-    if (scene.gltfAnimator.StartAnimation(actorID, 0))
+    const FBXAnimationClip* clip = scene.modelAnimator.fbxAnimator.GetClip(i);
+    if (clip) { /* clip->name, duration, channels */ }
+}
+
+// Universal: start, control, and query by model ID -- format is auto-detected
+const int actorID = scene.FindParentModelID(L"Actor");
+if (actorID >= 0 && scene.modelAnimator.IsAnimationPlaying(actorID) == false)
+{
+    if (scene.modelAnimator.StartAnimation(actorID, 0))
     {
-        scene.gltfAnimator.SetAnimationLooping(actorID, true);
-        scene.gltfAnimator.SetAnimationSpeed(actorID, 1.0f);
-        scene.gltfAnimator.SetAnimationDirection(
-            actorID,
-            AnimationDirection::FORWARD);
+        scene.modelAnimator.SetAnimationLooping(actorID, true);
+        scene.modelAnimator.SetAnimationSpeed(actorID, 1.0f);
+        scene.modelAnimator.SetAnimationDirection(actorID, AnimationDirection::FORWARD);
     }
 }
 ```
 
 `StartAnimation()` creates or reuses the instance for that parent, selects the
-clip, starts playback, and resets to the earliest actual sampler key rather than
-assuming time zero. New instances default to looping at speed `1.0f`.
-`CreateAnimationInstance()` is available when creation must be separate.
-
-`GetAnimation()` returns `nullptr` for an invalid index.
-`GetAnimationDuration()` returns zero for an invalid index.
+clip, and starts playback. For GLTF clips it resets to the earliest actual sampler
+key; for FBX clips it resets to `startTime`. New instances default to looping at
+speed `1.0f`.
 
 ### Pause, resume, stop, reset, and seek
 
 ```cpp
-scene.gltfAnimator.PauseAnimation(actorID);  // Retains time.
-scene.gltfAnimator.ResumeAnimation(actorID); // Continues.
-scene.gltfAnimator.StopAnimation(actorID);   // Stops and sets time to 0.
-scene.gltfAnimator.ForceAnimationReset(actorID);
+scene.modelAnimator.PauseAnimation(actorID);  // Retains time.
+scene.modelAnimator.ResumeAnimation(actorID); // Continues.
+scene.modelAnimator.StopAnimation(actorID);   // Stops and sets time to 0.
+scene.modelAnimator.ForceAnimationReset(actorID);
 
-const float duration = scene.gltfAnimator.GetAnimationDuration(0);
-scene.gltfAnimator.SetAnimationTime(actorID, duration * 0.5f);
-
-const float current = scene.gltfAnimator.GetAnimationTime(actorID);
-const bool playing = scene.gltfAnimator.IsAnimationPlaying(actorID);
-AnimationInstance* instance =
-    scene.gltfAnimator.GetAnimationInstance(actorID);
+const float current = scene.modelAnimator.GetAnimationTime(actorID);
+scene.modelAnimator.SetAnimationTime(actorID, current * 0.5f);
+const bool playing = scene.modelAnimator.IsAnimationPlaying(actorID);
 ```
 
-Pause/resume/stop return `false` if no instance exists.
-`ForceAnimationReset()` stops at the actual first key time.
-`StopAnimation()` uses literal zero, which can differ for a clip authored with
-a non-zero start. `SetAnimationTime()` clamps to `[0, duration]`; the next
-animation update evaluates the pose. Missing-instance queries return zero,
-`false`, or `nullptr`.
+Pause/resume/stop apply to whichever sub-animator owns the instance (both are
+tried; the one with a matching instance wins). Missing-instance queries return
+zero or `false`.
 
 `SetAnimationSpeed()` does not clamp its input. Prefer a non-negative speed
 magnitude and use direction controls to express playback direction.
@@ -806,46 +838,45 @@ magnitude and use direction controls to express playback direction.
 ### Direction and endpoint controls
 
 | Direction | Behavior |
-|---|---|
+| --- | --- |
 | `NONE` | Leaves the current direction unchanged. |
 | `FORWARD` | Advances toward the end and respects looping. |
 | `REVERSE` | Moves toward the start and respects looping. |
 | `BOUNCE` | Alternates between end and start; repeats when looping. |
 
 ```cpp
-scene.gltfAnimator.SetAnimationDirection(
-    actorID,
-    AnimationDirection::BOUNCE);
+scene.modelAnimator.SetAnimationDirection(actorID, AnimationDirection::BOUNCE);
 
 int finalFrame = -1;
-if (scene.gltfAnimator.AtAnimationEndFrame(actorID, finalFrame))
+if (scene.modelAnimator.AtAnimationEndFrame(actorID, finalFrame))
 {
-    scene.gltfAnimator.HoldAnimationAtFrame(actorID, finalFrame);
+    scene.modelAnimator.HoldAnimationAtFrame(actorID, finalFrame);
 }
 ```
 
-Direction changes require an existing instance. `NONE` deliberately does
-nothing. Bounce chooses its initial phase from the playback-speed sign.
+Direction changes require an existing instance. `NONE` deliberately does nothing.
+Bounce chooses its initial phase from the playback-speed sign.
 
-`AtAnimationEndFrame()` uses the first non-empty sampler. On success it writes
-that sampler's final key index; on failure it leaves the output unchanged.
-`HoldAnimationAtFrame()` uses the same sampler as its time reference, clamps
-the index, seeks, and pauses. The index is not a universal authored frame number
-because animation channels can have different key counts.
+`AtAnimationEndFrame()` queries the owning sub-animator. On success it writes the
+final key index of the first non-empty curve; on failure it leaves the output
+unchanged. `HoldAnimationAtFrame()` seeks to that key's time and pauses playback.
 
 ### Removing animation state
 
 ```cpp
-scene.gltfAnimator.RemoveAnimationInstance(actorID);
+// Not exposed on the unified dispatcher — call the specific sub-animator:
+scene.modelAnimator.gltfAnimator.RemoveAnimationInstance(actorID);
+scene.modelAnimator.fbxAnimator.RemoveAnimationInstance(actorID);
 
-scene.gltfAnimator.ClearAllAnimations();
+// Wipe all clips and instances from both sub-animators:
+scene.modelAnimator.ClearAllAnimations();
 scene.bAnimationsLoaded = false;
 ```
 
-`RemoveAnimationInstance()` removes one root's playback state.
-`ClearAllAnimations()` removes parsed clips and every instance. Parsers manage
-this during normal loading, so manual clearing is for custom lifecycle code.
-`DebugPrintAnimationInfo()` logs only when animator debug output is enabled.
+`ClearAllAnimations()` clears both sub-animators. Parsers manage this during
+normal loading, so manual clearing is for custom lifecycle code only.
+`DebugPrintAnimationInfo()` (GLTF-specific) logs when `_DEBUG_GLTFANIMATOR_` is
+defined.
 
 ## Scene state and switching
 

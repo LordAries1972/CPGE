@@ -1,0 +1,8 @@
+CMakeLists.txt - Modified 23 June 2026
+=======================================
+Added two new source files to SOURCES list (adjacent to GLTFAnimator.cpp):
+  FBXAnimator.cpp   -- native FBX animation playback
+  ModelAnimator.cpp -- universal animation dispatcher
+
+Linux/CMakeLists.txt also updated with equivalent ${SRC_DIR}/FBXAnimator.cpp
+and ${SRC_DIR}/ModelAnimator.cpp entries.

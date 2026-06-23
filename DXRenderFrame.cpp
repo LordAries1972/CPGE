@@ -357,8 +357,8 @@ void DX11Renderer::RenderFrame()
                     if (threadManager.threadVars.bLoaderTaskFinished.load())
                     {
                         int iModelID = scene.FindParentModelID(SplashShipName);
-                        if (scene.gltfAnimator.IsAnimationPlaying(iModelID))
-                            scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS);
+                        if (scene.modelAnimator.IsAnimationPlaying(iModelID))
+                            scene.modelAnimator.UpdateAnimations(deltaTime);
                     }
 
                     RenderGamePlay(deltaTime);
@@ -370,8 +370,8 @@ void DX11Renderer::RenderFrame()
                 {
                     // Update all model animations
                     int iModelID = scene.FindParentModelID(ShipName1);
-                    if (scene.gltfAnimator.IsAnimationPlaying(iModelID))
-                        scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS);
+                    if (scene.modelAnimator.IsAnimationPlaying(iModelID))
+                        scene.modelAnimator.UpdateAnimations(deltaTime);
 
                     RenderGamePlay(deltaTime);
                     break;

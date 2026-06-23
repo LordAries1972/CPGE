@@ -207,6 +207,10 @@ bool SceneManager::Initialize(std::shared_ptr<Renderer> renderer)
     #endif
 
     sceneFrameCounter = 0;
+
+    // Bind scene model array so UpdateAnimations() needs no extra arguments from callers
+    modelAnimator.SetModels(scene_models, MAX_SCENE_MODELS);
+
     return true;
 }
 
@@ -351,13 +355,13 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
                 ParseGLTFLights(miniDoc);
                 EnsureDefaultSunLight();
                 ParseMaterialsFromGLTF(miniDoc);
-                gltfAnimator.ClearAllAnimations();
-                bAnimationsLoaded = gltfAnimator.ParseAnimationsFromGLTF(miniDoc, gltfBinaryData);
+                modelAnimator.gltfAnimator.ClearAllAnimations();
+                bAnimationsLoaded = modelAnimator.gltfAnimator.ParseAnimationsFromGLTF(miniDoc, gltfBinaryData);
                 debug.logLevelMessage(LogLevel::LOG_INFO,
                     std::wstring(L"[SceneManager] CACHE-RESTORE GLB: animations parsed=") +
                     (bAnimationsLoaded ? L"true" : L"false") + L" count=" +
-                    std::to_wstring(gltfAnimator.GetAnimationCount()));
-                if (bAnimationsLoaded) gltfAnimator.DebugPrintAnimationInfo();
+                    std::to_wstring(modelAnimator.gltfAnimator.GetAnimationCount()));
+                if (bAnimationsLoaded) modelAnimator.gltfAnimator.DebugPrintAnimationInfo();
 
                 // Cache-only mode: models[] is already GPU-ready; skip scene_models[] restore.
                 if (bCacheOnly)
@@ -627,28 +631,28 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
                 debug.logLevelMessage(LogLevel::LOG_INFO,
                     std::wstring(L"[SceneManager] CACHE-RESTORE GLB Step 5: bAnimationsLoaded=") +
                     (bAnimationsLoaded ? L"true" : L"false") + L" animCount=" +
-                    std::to_wstring(gltfAnimator.GetAnimationCount()) +
+                    std::to_wstring(modelAnimator.gltfAnimator.GetAnimationCount()) +
                     L" instances=" + std::to_wstring(instanceIndex));
-                if (bAnimationsLoaded && gltfAnimator.GetAnimationCount() > 0)
+                if (bAnimationsLoaded && modelAnimator.gltfAnimator.GetAnimationCount() > 0)
                 {
-                    for (int animIdx = 0; animIdx < gltfAnimator.GetAnimationCount(); ++animIdx)
+                    for (int animIdx = 0; animIdx < modelAnimator.gltfAnimator.GetAnimationCount(); ++animIdx)
                     {
                         int parentID = FindParentModelIDForAnimation(animIdx);
                         debug.logLevelMessage(LogLevel::LOG_INFO,
                             L"[SceneManager] CACHE-RESTORE GLB anim[" + std::to_wstring(animIdx) +
                             L"] parentID=" + std::to_wstring(parentID));
                         if (parentID < 0) continue;
-                        bool created = gltfAnimator.CreateAnimationInstance(animIdx, parentID);
+                        bool created = modelAnimator.gltfAnimator.CreateAnimationInstance(animIdx, parentID);
                         debug.logLevelMessage(LogLevel::LOG_INFO,
                             L"[SceneManager] CACHE-RESTORE GLB anim[" + std::to_wstring(animIdx) +
                             L"] instance " + (created ? L"CREATED" : L"FAILED") +
                             L" parentID=" + std::to_wstring(parentID));
                         if (created)
                         {
-                            gltfAnimator.ForceAnimationReset(parentID);
-                            gltfAnimator.SetAnimationSpeed(parentID, 0.75f);
-                            gltfAnimator.SetAnimationLooping(parentID, true);
-                            gltfAnimator.StartAnimation(parentID, animIdx);
+                            modelAnimator.gltfAnimator.ForceAnimationReset(parentID);
+                            modelAnimator.gltfAnimator.SetAnimationSpeed(parentID, 0.75f);
+                            modelAnimator.gltfAnimator.SetAnimationLooping(parentID, true);
+                            modelAnimator.gltfAnimator.StartAnimation(parentID, animIdx);
                         }
                     }
                 }
@@ -965,13 +969,13 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
     ParseMaterialsFromGLTF(doc);
 
     // Parse animations from GLB document and store them in the global animator
-    bAnimationsLoaded = gltfAnimator.ParseAnimationsFromGLTF(doc, gltfBinaryData);
+    bAnimationsLoaded = modelAnimator.gltfAnimator.ParseAnimationsFromGLTF(doc, gltfBinaryData);
     if (bAnimationsLoaded)
     {
         #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Successfully loaded %d animations from GLB", gltfAnimator.GetAnimationCount());
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Successfully loaded %d animations from GLB", modelAnimator.gltfAnimator.GetAnimationCount());
         #endif
-        gltfAnimator.DebugPrintAnimationInfo();
+        modelAnimator.gltfAnimator.DebugPrintAnimationInfo();
     }
     
     // Build the list of root node indices from the scene definition
@@ -1043,21 +1047,21 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
     // Auto-initialise all animations discovered during loading.
     // Each animation's channel node indices are matched against loaded scene models to
     // resolve the root parent, removing the need for hardcoded per-scene animation startup.
-    if (bAnimationsLoaded && gltfAnimator.GetAnimationCount() > 0)
+    if (bAnimationsLoaded && modelAnimator.gltfAnimator.GetAnimationCount() > 0)
     {
-        for (int animIdx = 0; animIdx < gltfAnimator.GetAnimationCount(); ++animIdx)
+        for (int animIdx = 0; animIdx < modelAnimator.gltfAnimator.GetAnimationCount(); ++animIdx)
         {
             int parentID = FindParentModelIDForAnimation(animIdx);
             if (parentID < 0)
                 continue;
 
-            bool created = gltfAnimator.CreateAnimationInstance(animIdx, parentID);
+            bool created = modelAnimator.gltfAnimator.CreateAnimationInstance(animIdx, parentID);
             if (created)
             {
-                gltfAnimator.ForceAnimationReset(parentID);
-                gltfAnimator.SetAnimationSpeed(parentID, 0.75f);
-                gltfAnimator.SetAnimationLooping(parentID, true);
-                gltfAnimator.StartAnimation(parentID, animIdx);
+                modelAnimator.gltfAnimator.ForceAnimationReset(parentID);
+                modelAnimator.gltfAnimator.SetAnimationSpeed(parentID, 0.75f);
+                modelAnimator.gltfAnimator.SetAnimationLooping(parentID, true);
+                modelAnimator.gltfAnimator.StartAnimation(parentID, animIdx);
             }
         }
     }
@@ -1276,6 +1280,7 @@ void SceneManager::ParseGLBNodeRecursive(const json& node, int nodeIndex, const 
             {
                 scene_models[instanceIndex].m_modelInfo.iParentModelID        = parentModelID;
                 scene_models[instanceIndex].m_modelInfo.gltfNodeIndex         = nodeIndex;
+                scene_models[instanceIndex].m_modelInfo.importType            = ImportType::GLTF;
                 scene_models[instanceIndex].m_modelInfo.baseLocalTranslation  = baseLocalTranslation;
                 scene_models[instanceIndex].m_modelInfo.baseLocalRotationQuat = baseLocalRotationQuat;
                 scene_models[instanceIndex].m_modelInfo.baseLocalScale        = baseLocalScale;
@@ -1397,6 +1402,7 @@ void SceneManager::ParseGLBNodeRecursive(const json& node, int nodeIndex, const 
         scene_models[instanceIndex].m_modelInfo.ID = instanceIndex;
         scene_models[instanceIndex].m_modelInfo.iParentModelID = parentModelID;
         scene_models[instanceIndex].m_modelInfo.gltfNodeIndex = nodeIndex;
+        scene_models[instanceIndex].m_modelInfo.importType    = ImportType::GLTF;
         scene_models[instanceIndex].m_modelInfo.worldMatrix = worldTransform;
 
         // Store base local TRS so animations can evaluate in LOCAL space.
@@ -1564,7 +1570,7 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
                 ParseGLTFLights(miniDoc);
                 EnsureDefaultSunLight();
                 ParseMaterialsFromGLTF(miniDoc);
-                gltfAnimator.ClearAllAnimations();
+                modelAnimator.gltfAnimator.ClearAllAnimations();
                 // Reload external .bin file before animation parsing — the cache path only
                 // reads the JSON above; without this, gltfBinaryData is empty/stale and
                 // ParseAnimationsFromGLTF cannot read keyframe data.
@@ -1595,12 +1601,12 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
                         }
                     }
                 }
-                bAnimationsLoaded = gltfAnimator.ParseAnimationsFromGLTF(miniDoc, gltfBinaryData);
+                bAnimationsLoaded = modelAnimator.gltfAnimator.ParseAnimationsFromGLTF(miniDoc, gltfBinaryData);
                 debug.logLevelMessage(LogLevel::LOG_INFO,
                     std::wstring(L"[SceneManager] CACHE-RESTORE GLTF: animations parsed=") +
                     (bAnimationsLoaded ? L"true" : L"false") + L" count=" +
-                    std::to_wstring(gltfAnimator.GetAnimationCount()));
-                if (bAnimationsLoaded) gltfAnimator.DebugPrintAnimationInfo();
+                    std::to_wstring(modelAnimator.gltfAnimator.GetAnimationCount()));
+                if (bAnimationsLoaded) modelAnimator.gltfAnimator.DebugPrintAnimationInfo();
 
                 // Cache-only mode: models[] is already GPU-ready; skip scene_models[] restore.
                 if (bCacheOnly)
@@ -1847,28 +1853,28 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
                 debug.logLevelMessage(LogLevel::LOG_INFO,
                     std::wstring(L"[SceneManager] CACHE-RESTORE GLTF Step 5: bAnimationsLoaded=") +
                     (bAnimationsLoaded ? L"true" : L"false") + L" animCount=" +
-                    std::to_wstring(gltfAnimator.GetAnimationCount()) +
+                    std::to_wstring(modelAnimator.gltfAnimator.GetAnimationCount()) +
                     L" instances=" + std::to_wstring(instanceIndex));
-                if (bAnimationsLoaded && gltfAnimator.GetAnimationCount() > 0)
+                if (bAnimationsLoaded && modelAnimator.gltfAnimator.GetAnimationCount() > 0)
                 {
-                    for (int animIdx = 0; animIdx < gltfAnimator.GetAnimationCount(); ++animIdx)
+                    for (int animIdx = 0; animIdx < modelAnimator.gltfAnimator.GetAnimationCount(); ++animIdx)
                     {
                         int parentID = FindParentModelIDForAnimation(animIdx);
                         debug.logLevelMessage(LogLevel::LOG_INFO,
                             L"[SceneManager] CACHE-RESTORE GLTF anim[" + std::to_wstring(animIdx) +
                             L"] parentID=" + std::to_wstring(parentID));
                         if (parentID < 0) continue;
-                        bool created = gltfAnimator.CreateAnimationInstance(animIdx, parentID);
+                        bool created = modelAnimator.gltfAnimator.CreateAnimationInstance(animIdx, parentID);
                         debug.logLevelMessage(LogLevel::LOG_INFO,
                             L"[SceneManager] CACHE-RESTORE GLTF anim[" + std::to_wstring(animIdx) +
                             L"] instance " + (created ? L"CREATED" : L"FAILED") +
                             L" parentID=" + std::to_wstring(parentID));
                         if (created)
                         {
-                            gltfAnimator.ForceAnimationReset(parentID);
-                            gltfAnimator.SetAnimationSpeed(parentID, 0.75f);
-                            gltfAnimator.SetAnimationLooping(parentID, true);
-                            gltfAnimator.StartAnimation(parentID, animIdx);
+                            modelAnimator.gltfAnimator.ForceAnimationReset(parentID);
+                            modelAnimator.gltfAnimator.SetAnimationSpeed(parentID, 0.75f);
+                            modelAnimator.gltfAnimator.SetAnimationLooping(parentID, true);
+                            modelAnimator.gltfAnimator.StartAnimation(parentID, animIdx);
                         }
                     }
                 }
@@ -1990,13 +1996,13 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
     ParseMaterialsFromGLTF(doc);
 
     // Parse animations from GLTF document and store them in the global animator
-    bAnimationsLoaded = gltfAnimator.ParseAnimationsFromGLTF(doc, gltfBinaryData);
+    bAnimationsLoaded = modelAnimator.gltfAnimator.ParseAnimationsFromGLTF(doc, gltfBinaryData);
     if (bAnimationsLoaded)
     {
         #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Successfully loaded %d animations from GLTF", gltfAnimator.GetAnimationCount());
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Successfully loaded %d animations from GLTF", modelAnimator.gltfAnimator.GetAnimationCount());
         #endif
-        gltfAnimator.DebugPrintAnimationInfo();
+        modelAnimator.gltfAnimator.DebugPrintAnimationInfo();
     }
 
     // Build the list of root node indices from the scene definition
@@ -2060,21 +2066,21 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
     // Auto-initialise all animations discovered during loading.
     // Each animation's channel node indices are matched against loaded scene models to
     // resolve the root parent, removing the need for hardcoded per-scene animation startup.
-    if (bAnimationsLoaded && gltfAnimator.GetAnimationCount() > 0)
+    if (bAnimationsLoaded && modelAnimator.gltfAnimator.GetAnimationCount() > 0)
     {
-        for (int animIdx = 0; animIdx < gltfAnimator.GetAnimationCount(); ++animIdx)
+        for (int animIdx = 0; animIdx < modelAnimator.gltfAnimator.GetAnimationCount(); ++animIdx)
         {
             int parentID = FindParentModelIDForAnimation(animIdx);
             if (parentID < 0)
                 continue;
 
-            bool created = gltfAnimator.CreateAnimationInstance(animIdx, parentID);
+            bool created = modelAnimator.gltfAnimator.CreateAnimationInstance(animIdx, parentID);
             if (created)
             {
-                gltfAnimator.ForceAnimationReset(parentID);
-                gltfAnimator.SetAnimationSpeed(parentID, 0.75f);
-                gltfAnimator.SetAnimationLooping(parentID, true);
-                gltfAnimator.StartAnimation(parentID, animIdx);
+                modelAnimator.gltfAnimator.ForceAnimationReset(parentID);
+                modelAnimator.gltfAnimator.SetAnimationSpeed(parentID, 0.75f);
+                modelAnimator.gltfAnimator.SetAnimationLooping(parentID, true);
+                modelAnimator.gltfAnimator.StartAnimation(parentID, animIdx);
             }
         }
     }
@@ -2111,9 +2117,9 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
     #if defined(_DEBUG_SCENEMANAGER_)
         if (bAnimationsLoaded)
         {
-            for (int animIndex = 0; animIndex < gltfAnimator.GetAnimationCount(); ++animIndex)
+            for (int animIndex = 0; animIndex < modelAnimator.gltfAnimator.GetAnimationCount(); ++animIndex)
             {
-                const GLTFAnimation* anim = gltfAnimator.GetAnimation(animIndex);
+                const GLTFAnimation* anim = modelAnimator.gltfAnimator.GetAnimation(animIndex);
                 if (!anim)
                     continue;
 
@@ -2317,6 +2323,7 @@ void SceneManager::ParseGLTFNodeRecursive(const json& node, int nodeIndex, const
             {
                 scene_models[instanceIndex].m_modelInfo.iParentModelID        = parentModelID;
                 scene_models[instanceIndex].m_modelInfo.gltfNodeIndex         = nodeIndex;
+                scene_models[instanceIndex].m_modelInfo.importType            = ImportType::GLTF;
                 scene_models[instanceIndex].m_modelInfo.baseLocalTranslation  = baseLocalTranslation;
                 scene_models[instanceIndex].m_modelInfo.baseLocalRotationQuat = baseLocalRotationQuat;
                 scene_models[instanceIndex].m_modelInfo.baseLocalScale        = baseLocalScale;
@@ -2430,6 +2437,7 @@ void SceneManager::ParseGLTFNodeRecursive(const json& node, int nodeIndex, const
         scene_models[instanceIndex].m_modelInfo.ID               = instanceIndex;
         scene_models[instanceIndex].m_modelInfo.iParentModelID   = parentModelID;
         scene_models[instanceIndex].m_modelInfo.gltfNodeIndex    = nodeIndex;
+        scene_models[instanceIndex].m_modelInfo.importType       = ImportType::GLTF;
         scene_models[instanceIndex].m_modelInfo.worldMatrix      = worldTransform;
 
         scene_models[instanceIndex].m_modelInfo.baseLocalTranslation   = baseLocalTranslation;
@@ -5641,6 +5649,9 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile, bool bCacheOnly)
             mdl.m_modelInfo.bGpuReady           = false;
             mdl.m_modelInfo.cachedInstanceIndex = instanceIndex;
             fbxIDToSlot[fbxModel.id] = instanceIndex;
+            scene_models[instanceIndex].m_modelInfo.importType   = ImportType::FBX;
+            scene_models[instanceIndex].m_modelInfo.fbxNodeIndex = instanceIndex;
+            scene_models[instanceIndex].m_modelInfo.fbxNodeName  = fbxModel.name;
             ++instanceIndex;
             continue;
         }
@@ -5658,6 +5669,9 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile, bool bCacheOnly)
             scene_models[instanceIndex].m_modelInfo.bIsTransformProxy = true;
             scene_models[instanceIndex].m_isLoaded = true;
             fbxIDToSlot[fbxModel.id] = instanceIndex;
+            scene_models[instanceIndex].m_modelInfo.importType   = ImportType::FBX;
+            scene_models[instanceIndex].m_modelInfo.fbxNodeIndex = instanceIndex;
+            scene_models[instanceIndex].m_modelInfo.fbxNodeName  = fbxModel.name;
             ++instanceIndex;
             continue;
         }
@@ -5990,6 +6004,10 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile, bool bCacheOnly)
                 fbxIDToSlot[fbxModel.id] = subInstIdx;
                 firstSubMesh = false;
             }
+            // Tag every sub-mesh so ModelAnimator can dispatch to FBXAnimator
+            scene_models[subInstIdx].m_modelInfo.importType   = ImportType::FBX;
+            scene_models[subInstIdx].m_modelInfo.fbxNodeIndex = subInstIdx;
+            scene_models[subInstIdx].m_modelInfo.fbxNodeName  = fbxModel.name;
 
             ++instanceIndex;
 
@@ -6011,55 +6029,50 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile, bool bCacheOnly)
     bAnimationsLoaded = false;
     if (!fbx.animStacks.empty())
     {
-        std::vector<GLTFAnimation> fbxAnims;
-        m_fbxImporter.ConvertAnimations(fbxIDToSlot, fbxAnims);
-
-        if (!fbxAnims.empty())
+        // Parse animations natively via FBXAnimator (no GLTF conversion needed)
+        modelAnimator.fbxAnimator.ClearAllAnimations();
+        if (modelAnimator.fbxAnimator.ParseAnimationsFromFBX(fbx, fbxIDToSlot))
         {
-            gltfAnimator.ClearAllAnimations();
+            int clipCount = modelAnimator.fbxAnimator.GetAnimationCount();
+            bAnimationsLoaded = (clipCount > 0);
 
-            // Inject converted animations into the GLTFAnimator via its ParseAnimationsFromGLTF
-            // path.  We can't call that directly with raw GLTFAnimation vectors, so we push
-            // them via the internal storage path the same way the GLTF cache-restore does:
-            // create instances manually after registering.
-            // GLTFAnimator exposes no direct injection API, so we replay the same post-parse
-            // start sequence used by ParseGLBScene -- build instances and start playback.
-
-            // Re-use the animator's CreateAnimationInstance / StartAnimation API.
-            // We first feed the animations into a local GLTFAnimator then steal them via
-            // a helper.  Since GLTFAnimator has no inject API we use its public start sequence.
-
-            for (int ai = 0; ai < static_cast<int>(fbxAnims.size()); ++ai)
+            if (bAnimationsLoaded)
             {
-                // Find the first target model slot referenced by this animation's channels
-                int parentModelID = -1;
-                for (const auto& ch : fbxAnims[ai].channels)
-                {
-                    if (ch.targetNodeIndex >= 0 && ch.targetNodeIndex < instanceIndex)
-                    {
-                        parentModelID = ch.targetNodeIndex;
-                        break;
-                    }
-                }
-                if (parentModelID < 0) continue;
-
-                // Store in the GLTFAnimator m_animations list via ParseAnimationsFromGLTF-style
-                // indirect path -- GLTFAnimator only accepts the json path, so we convert back
-                // to a minimal JSON document for re-ingestion.
-                // Better: expose a direct injection method; for now we signal success and
-                // record the animation duration in bAnimationsLoaded.
-                bAnimationsLoaded = true;
-
                 debug.logLevelMessage(LogLevel::LOG_INFO,
-                    (std::wstring(L"[SceneManager] FBX animation '") +
-                     fbxAnims[ai].name + L"' duration=" +
-                     std::to_wstring(fbxAnims[ai].duration) + L"s -> model slot " +
-                     std::to_wstring(parentModelID)).c_str());
-            }
+                    (std::wstring(L"[SceneManager] ParseFBXScene(): ") +
+                     std::to_wstring(clipCount) + L" animation clip(s) loaded from FBX.").c_str());
 
-            debug.logLevelMessage(LogLevel::LOG_INFO,
-                (L"[SceneManager] ParseFBXScene(): " +
-                 std::to_wstring(fbxAnims.size()) + L" animation(s) converted from FBX.").c_str());
+                // Auto-start each clip on the root model of its first channel
+                for (int animIdx = 0; animIdx < clipCount; ++animIdx)
+                {
+                    const FBXAnimationClip* clip = modelAnimator.fbxAnimator.GetClip(animIdx);
+                    if (!clip || clip->channels.empty()) continue;
+
+                    // Walk up the parent chain from the first channel's slot to find the root
+                    int rootSlot = clip->channels[0].targetModelSlot;
+                    while (rootSlot >= 0 && rootSlot < MAX_SCENE_MODELS)
+                    {
+                        int par = scene_models[rootSlot].m_modelInfo.iParentModelID;
+                        if (par < 0 || !scene_models[par].m_isLoaded) break;
+                        rootSlot = par;
+                    }
+
+                    modelAnimator.fbxAnimator.CreateAnimationInstance(animIdx, rootSlot);
+                    modelAnimator.fbxAnimator.SetAnimationLooping(rootSlot, true);
+                    modelAnimator.fbxAnimator.SetAnimationSpeed(rootSlot, 1.0f);
+                    modelAnimator.fbxAnimator.StartAnimation(rootSlot, animIdx);
+
+                    debug.logLevelMessage(LogLevel::LOG_INFO,
+                        (std::wstring(L"[SceneManager] FBX clip '") +
+                         std::wstring(clip->name.begin(), clip->name.end()) +
+                         L"' started on root slot " + std::to_wstring(rootSlot)).c_str());
+                }
+            }
+        }
+        else
+        {
+            debug.logLevelMessage(LogLevel::LOG_WARNING,
+                L"[SceneManager] ParseFBXScene(): FBXAnimator::ParseAnimationsFromFBX() failed.");
         }
     }
 
@@ -6418,8 +6431,8 @@ void SceneManager::UpdateSceneAnimations(float deltaTime)
     // Only update animations if they were successfully loaded from the current scene
     if (bAnimationsLoaded)
     {
-        // Update all animations using the scene models array
-        gltfAnimator.UpdateAnimations(deltaTime, scene_models, MAX_SCENE_MODELS);
+        // Update all animations -- dispatches to GLTFAnimator or FBXAnimator via ModelAnimator
+        modelAnimator.UpdateAnimations(deltaTime);
     }
 }
 
@@ -6433,7 +6446,7 @@ void SceneManager::UpdateSceneAnimations(float deltaTime)
 // --------------------------------------------------------------------------------------------------
 int SceneManager::FindParentModelIDForAnimation(int animationIndex)
 {
-    const GLTFAnimation* anim = gltfAnimator.GetAnimation(animationIndex);
+    const GLTFAnimation* anim = modelAnimator.gltfAnimator.GetAnimation(animationIndex);
     if (!anim || anim->channels.empty())
         return -1;
 
@@ -6638,13 +6651,13 @@ int SceneManager::PutModelToScene(std::wstring name, XMFLOAT3 atWorldCoords, boo
     }
 
     // --- Step 6: Start animation on the new parent scene model if requested ---
-    if (bStartAnim && bAnimationsLoaded && gltfAnimator.GetAnimationCount() > 0)
+    if (bStartAnim && bAnimationsLoaded && modelAnimator.gltfAnimator.GetAnimationCount() > 0)
     {
         int animIdx = models[rootCacheSlot].m_modelInfo.iAnimationIndex;
         if (animIdx < 0) animIdx = 0;   // Default to first animation if the model has no explicit index
 
-        gltfAnimator.CreateAnimationInstance(animIdx, newParentSceneID);
-        gltfAnimator.StartAnimation(newParentSceneID, animIdx);
+        modelAnimator.gltfAnimator.CreateAnimationInstance(animIdx, newParentSceneID);
+        modelAnimator.gltfAnimator.StartAnimation(newParentSceneID, animIdx);
     }
 
     #if defined(_DEBUG_SCENEMANAGER_)

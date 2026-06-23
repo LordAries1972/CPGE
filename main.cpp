@@ -145,9 +145,9 @@
 //------------------------------------------
 // Constants
 //------------------------------------------
-const LPCWSTR MY_WINDOW_CLASS_NAME = L"TSOO2026_WindowClass";
-const LPCWSTR MY_WINDOW_TITLE = L"TSOO by Daniel J. Hobson of Australia 2026-2027";
-const LPCWSTR lpDEFAULT_NAME = L"TSOO_";
+const LPCWSTR MY_WINDOW_CLASS_NAME = L"CPGE2026_WindowClass";
+const LPCWSTR MY_WINDOW_TITLE = L"CPGE by Daniel J. Hobson of Australia 2023-2026";
+const LPCWSTR lpDEFAULT_NAME = L"CPGE_";
 
 //--------------------------------------------------------
 // Required Class Instantiations / Declarations

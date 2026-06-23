@@ -156,7 +156,9 @@
     <ClCompile Include="FileIO.cpp" />
     <ClCompile Include="GamePlayer.cpp" />
     <ClCompile Include="GamingAI.cpp" />
+    <ClCompile Include="FBXAnimator.cpp" />
     <ClCompile Include="GLTFAnimator.cpp" />
+    <ClCompile Include="ModelAnimator.cpp" />
     <ClCompile Include="GUIConfigWindow.cpp" />
     <ClCompile Include="GUIManager.cpp" />
     <ClCompile Include="GUIWindows.cpp" />
@@ -216,7 +218,9 @@
     <ClInclude Include="FileIO.h" />
     <ClInclude Include="GamePlayer.h" />
     <ClInclude Include="GamingAI.h" />
+    <ClInclude Include="FBXAnimator.h" />
     <ClInclude Include="GLTFAnimator.h" />
+    <ClInclude Include="ModelAnimator.h" />
     <ClInclude Include="GUIManager.h" />
     <ClInclude Include="Includes.h" />
     <ClInclude Include="IOLoaderThread.h" />

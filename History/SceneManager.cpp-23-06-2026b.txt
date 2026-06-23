@@ -1,0 +1,35 @@
+SceneManager.cpp - Modified 23 June 2026 (second edit session)
+===============================================================
+(First session history in SceneManager.cpp-23-06-2026.txt is the pre-edit source snapshot)
+
+Changes in this session (ModelAnimator / FBXAnimator integration):
+
+1. Global rename: all 30+ occurrences of "gltfAnimator." replaced with
+   "modelAnimator.gltfAnimator." preserving GLTF-specific API calls on the sub-animator.
+
+2. Initialize(): added modelAnimator.SetModels(scene_models, MAX_SCENE_MODELS)
+   so UpdateAnimations() needs no model array arguments from callers.
+
+3. UpdateSceneAnimations(): changed from:
+     modelAnimator.gltfAnimator.UpdateAnimations(deltaTime, scene_models, MAX_SCENE_MODELS)
+   to:
+     modelAnimator.UpdateAnimations(deltaTime)
+   The unified dispatcher now handles both GLTF and FBX instances in one call.
+
+4. ParseFBXScene() -- Animation section (section 5) completely replaced:
+   Old stub: called m_fbxImporter.ConvertAnimations() then tried to inject GLTF-converted
+             animations into GLTFAnimator -- GLTFAnimator had no injection API so nothing played.
+   New code: calls modelAnimator.fbxAnimator.ParseAnimationsFromFBX(fbx, fbxIDToSlot),
+             then auto-starts each clip on the model root (walks parent chain from
+             clip->channels[0].targetModelSlot up to the slot with no loaded parent).
+
+5. FBX model ImportType tagging added at all 3 fbxIDToSlot assignment points:
+     scene_models[slot].m_modelInfo.importType   = ImportType::FBX
+     scene_models[slot].m_modelInfo.fbxNodeIndex = slot
+     scene_models[slot].m_modelInfo.fbxNodeName  = fbxModel.name
+   Points: transform-only node, triangulation-failed mesh, first sub-mesh of multi-material mesh.
+
+6. GLTF/GLB ImportType tagging added at all 4 gltfNodeIndex assignment points:
+     scene_models[instanceIndex].m_modelInfo.importType = ImportType::GLTF
+   Points: GLB mesh primIdx==0, GLB transform-only node,
+           GLTF mesh primIdx==0, GLTF transform-only node.

@@ -1,4 +1,0 @@
-Changes - 23-05-2026:
-  - Added KEY_BACKSPACE case in SetKeyUpHandler: calls consoleWindow.HandleBackspace() when bIsVisible
-  - Added KEY_ENTER case in SetKeyUpHandler: calls consoleWindow.HandleEnter() when bIsVisible
-    Both cases sit immediately after the existing KEY_PAGE_DOWN console scroll handler.

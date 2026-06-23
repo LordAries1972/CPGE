@@ -887,11 +887,11 @@ void VulkanRenderer::RenderFrame()
             switch (scene.stSceneType) {
                 case SceneType::SCENE_GAMETITLE:
                     if (threadManager.threadVars.bLoaderTaskFinished.load())
-                        scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS);
+                        scene.modelAnimator.UpdateAnimations(deltaTime);
                     RenderGamePlay(deltaTime);
                     break;
                 case SceneType::SCENE_GAMEPLAY:
-                    scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS);
+                    scene.modelAnimator.UpdateAnimations(deltaTime);
                     RenderGamePlay(deltaTime);
                     break;
                 default: break;
