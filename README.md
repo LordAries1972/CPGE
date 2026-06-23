@@ -2,6 +2,8 @@
 
 Welcome to the Cross Platform Gaming Engine (CPGE) repository which was originally co-founded & designed by Daniel J. Hobson of Melbourne, Australia 2023-2026!
 
+Please use the "Phase2" branch as this branch is now locked as the First Phase is now completed where all 4 Render systems working with proper model importing.
+
 ## Introduction
 
 CPGE is a powerful and flexible gaming engine designed to work across multiple platforms. It aims to provide an easy-to-use C++ Class Modules interface for game developers while maintaining high performance and scalability.
