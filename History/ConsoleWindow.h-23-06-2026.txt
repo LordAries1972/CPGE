@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -105,6 +106,9 @@ private:
     // onMouseWheel — scrolls the buffer (delta > 0 → older, delta < 0 → newer).
     void OnMouseWheel(int delta);
 
+    // ProcessCommand — dispatches built-in commands or fires m_commandCallback.
+    void ProcessCommand(const std::wstring& cmd);
+
     // -----------------------------------------------------------------------
     // State
     // -----------------------------------------------------------------------
@@ -130,8 +134,4 @@ private:
     // Cursor blink — toggles every 1 second in RenderContent.
     bool                                     m_cursorVisible  = true;
     std::chrono::steady_clock::time_point    m_lastCursorFlip;
-
-    // Dispatches built-in commands (e.g. "clear") then the external callback.
-    // Prints an unknown-command message when no handler recognises the input.
-    void ProcessCommand(const std::wstring& cmd);
 };

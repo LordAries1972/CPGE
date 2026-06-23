@@ -68,6 +68,7 @@ set(SOURCES
     GLTFAnimator.cpp
     ModelAnimator.cpp
     GUIConfigWindow.cpp
+    GUIFileDialog.cpp
     GUIManager.cpp
     GUIWindows.cpp
     IOLoaderThread.cpp

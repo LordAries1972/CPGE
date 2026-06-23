@@ -831,6 +831,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="F:\Projects\C++\CPGE2026\GamingAI.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\GLTFAnimator.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\GUIConfigWindow.cpp" />
+    <ClCompile Include="F:\Projects\C++\CPGE2026\GUIFileDialog.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\GUIManager.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\GUIWindows.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\IOLoaderThread.cpp" />

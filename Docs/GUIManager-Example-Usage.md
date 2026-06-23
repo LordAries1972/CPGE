@@ -1469,4 +1469,228 @@ void CreateProgressDialog(const std::wstring& task, float& progressRef) {
 
 ---
 
+## New Controls — Panel, TextInput, ListBox, ComboBox
+
+Four new `GUIControlType` values were added in June 2026 to support the file dialog system and rich 3D UI layouts. They work identically across all four renderers.
+
+---
+
+### Panel (3D decorative background)
+
+`GUIControlType::Panel` draws a raised or sunken background rectangle with multi-level beveled edges and an optional drop shadow. It is purely decorative — it has no click interaction.
+
+| Field | Effect |
+| ----- | ------ |
+| `sliderValue >= 0.5f` | **Raised** — bright top/left edges, dark bottom/right, drop shadow |
+| `sliderValue < 0.5f` | **Sunken** — dark top/left edges, bright bottom/right (inset look) |
+| `bgColor` | Main fill colour of the panel |
+| `label` | Optional left-aligned text rendered inside (use `txtColor`, `lblFontSize`) |
+
+```cpp
+GUIControl panel;
+panel.type       = GUIControlType::Panel;
+panel.position   = Vector2(100, 100);
+panel.size       = Vector2(300, 200);
+panel.bgColor    = MyColor(32, 36, 52, 255);
+panel.sliderValue= 1.0f;   // raised
+panel.isVisible  = true;
+win->AddControl(panel);
+```
+
+---
+
+### TextInput (editable text field)
+
+`GUIControlType::TextInput` renders a sunken single-line text entry box with a blinking cursor. It receives character input via the window's `onCharInput` / `onBackspace` / `onEnter` callbacks when `isFocused = true`.
+
+Clicking the control automatically sets `isFocused = true` and clears focus on all other TextInputs in the same window.
+
+| Field | Purpose |
+| ----- | ------- |
+| `inputText` | Current content string |
+| `cursorPos` | Cursor insertion point (0 = before first char) |
+| `isFocused` | Shows blinking cursor and blue glow ring |
+| `maxInputLength` | Hard cap on `inputText.size()` (default 260) |
+| `placeholder` | Grey hint text shown when `inputText` is empty |
+| `onTextChanged` | `std::function<void(const std::wstring&)>` fired on every keystroke |
+| `lblFontSize` | Text rendering size (default 12) |
+| `txtColor` | Text colour |
+
+```cpp
+GUIControl fi;
+fi.type             = GUIControlType::TextInput;
+fi.position         = Vector2(200, 380);
+fi.size             = Vector2(420, 26);
+fi.bgColor          = MyColor(14, 17, 27, 255);
+fi.txtColor         = MyColor(215, 222, 240, 255);
+fi.lblFontSize      = 12.0f;
+fi.inputText        = L"";
+fi.placeholder      = L"Enter file name...";
+fi.isFocused        = true;
+fi.onTextChanged    = [](const std::wstring& text) {
+    // react to text changes
+};
+win->AddControl(fi);
+
+// Wire keyboard through window callbacks
+win->onCharInput = [weakWin](wchar_t ch) {
+    if (auto w = weakWin.lock())
+        for (auto& c : w->controls)
+            if (c.type == GUIControlType::TextInput && c.isFocused) {
+                if ((int)c.inputText.size() < c.maxInputLength) {
+                    c.inputText.insert(c.inputText.begin() + c.cursorPos, ch);
+                    ++c.cursorPos;
+                }
+                return;
+            }
+};
+win->onBackspace = [weakWin]() {
+    if (auto w = weakWin.lock())
+        for (auto& c : w->controls)
+            if (c.type == GUIControlType::TextInput && c.isFocused && c.cursorPos > 0) {
+                c.inputText.erase(c.inputText.begin() + c.cursorPos - 1);
+                --c.cursorPos;
+                return;
+            }
+};
+```
+
+---
+
+### ListBox (scrollable item list)
+
+`GUIControlType::ListBox` renders a scrollable, selectable list of `std::wstring` items. The rightmost 12 px of the control is an embedded 3D scrollbar.
+
+Items beginning with `►` are coloured gold (directory convention used by the file dialog).
+
+| Field | Purpose |
+| ----- | ------- |
+| `items` | `std::vector<std::wstring>` — display strings |
+| `selectedIndex` | Currently highlighted item; -1 = none |
+| `listScrollOffset` | First visible item index |
+| `listItemHeight` | Row pixel height (default 22) |
+| `isActive` | `true` while the scrollbar thumb is being dragged |
+| `onSelectionChanged` | `std::function<void(int)>` fired on item click |
+| `lblFontSize` | Item text size (default 12) |
+| `txtColor` | Default item text colour |
+
+Mouse wheel events are routed to the first visible ListBox in the focused window automatically if `onMouseWheel` is not registered on the window.
+
+```cpp
+GUIControl lb;
+lb.type             = GUIControlType::ListBox;
+lb.position         = Vector2(152, 80);
+lb.size             = Vector2(566, 298);
+lb.bgColor          = MyColor(14, 17, 27, 255);
+lb.txtColor         = MyColor(195, 200, 218, 255);
+lb.lblFontSize      = 11.5f;
+lb.listItemHeight   = 22;
+lb.items            = { L"► Documents", L"► Downloads", L"   readme.txt" };
+lb.onSelectionChanged = [](int idx) {
+    // handle selection
+};
+win->AddControl(lb);
+```
+
+---
+
+### ComboBox (dropdown selector)
+
+`GUIControlType::ComboBox` renders a closed-state button showing the selected item plus a ▼ arrow button. Clicking it opens a dropdown panel that renders in a **second pass** on top of all other controls.
+
+Clicking outside the dropdown (or selecting an item) closes it.
+
+| Field | Purpose |
+| ----- | ------- |
+| `items` | `std::vector<std::wstring>` — options list |
+| `selectedIndex` | Currently selected item (-1 = none) |
+| `isDropdownOpen` | `true` while the dropdown panel is visible |
+| `dropdownMaxRows` | Maximum visible rows in open panel (default 6) |
+| `listItemHeight` | Row height in the open panel (default 22) |
+| `onSelectionChanged` | `std::function<void(int)>` fired on item selection |
+| `lblFontSize` | Text size in both the closed box and open panel |
+| `txtColor` | Selected item text colour |
+
+```cpp
+GUIControl cb;
+cb.type             = GUIControlType::ComboBox;
+cb.position         = Vector2(252, 412);
+cb.size             = Vector2(420, 26);
+cb.bgColor          = MyColor(14, 17, 27, 255);
+cb.txtColor         = MyColor(205, 212, 232, 255);
+cb.lblFontSize      = 11.5f;
+cb.dropdownMaxRows  = 5;
+cb.listItemHeight   = 22;
+cb.items            = { L"All Files (*.*)", L"Text Files (*.txt)", L"Images (*.png)" };
+cb.selectedIndex    = 0;
+cb.onSelectionChanged = [](int idx) {
+    // apply new filter
+};
+win->AddControl(cb);
+```
+
+---
+
+## File Dialogs — Load and Save
+
+### `CreateLoadDialog`
+
+Opens a Windows 11-style Open File dialog centered on screen. The dialog is modal.
+
+```cpp
+guiManager.CreateLoadDialog(
+    L"Open Scene File",       // dialog title
+    L"C:\\",                  // starting directory
+    {                         // filter list: {label, pattern}
+        { L"All Files (*.*)",   L"*.*"  },
+        { L"Scene Files (*.sc)",L"*.sc" },
+    },
+    [](const std::wstring& path) {
+        // path = full file path selected by the user
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"Loading: %s", path.c_str());
+    },
+    []() {
+        // user cancelled — optional
+    }
+);
+```
+
+### `CreateSaveDialog`
+
+Opens a Windows 11-style Save As dialog centered on screen.
+
+```cpp
+guiManager.CreateSaveDialog(
+    L"Save Scene As",
+    L"C:\\",
+    L"untitled.sc",           // default filename pre-filled in the filename box
+    {
+        { L"Scene Files (*.sc)", L"*.sc" },
+        { L"All Files (*.*)",    L"*.*"  },
+    },
+    [](const std::wstring& path) {
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"Saving to: %s", path.c_str());
+    }
+);
+```
+
+**Dialog features:**
+
+- Draggable title bar, [X] close button
+- Back (◄), Forward (►), and Up (▲) navigation buttons with history
+- Address bar showing the current directory path
+- Quick Access sidebar: Desktop, Documents, Downloads, Pictures, Music, This PC
+- Column headers (Name, Date Modified, Type, Size)
+- Scrollable, 3D-rendered file list (ListBox) with directory/file colour distinction
+- Mouse-wheel scrolling of the file list
+- Filename TextInput with keyboard entry and cursor
+- Files-of-type ComboBox filter
+- Open / Save primary button (blue) and Cancel secondary button
+- Enter key confirms; navigating into a directory via Enter (Load mode)
+- Full modal blocking — no other window receives input while the dialog is open
+
+**Only one Load dialog and one Save dialog can be open at a time.** Calling `CreateLoadDialog` a second time while `"LoadFileDialog"` already exists brings it to front instead of creating a duplicate.
+
+---
+
 *End of GUIManager-Example-Usage.md*
