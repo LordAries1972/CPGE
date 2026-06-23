@@ -1,0 +1,7 @@
+DX11Renderer.h - 24-06-2026
+============================
+
+Changes:
+- Added declaration after Blit2DCenteredZoom:
+  void Blit2DObjectToSizeWithAlpha(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float alpha);
+  Implements the new pure virtual method on Renderer base for ImageFadeStrobe support.

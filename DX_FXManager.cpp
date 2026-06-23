@@ -850,6 +850,12 @@ void FXManager::RemoveCompletedEffects() {
             continue;
         }
 
+        // ImageFadeStrobe runs indefinitely; only remove when StopImageFadeStrobe() finishes and sets progress=1.0.
+        if (fx.type == FXType::ImageFadeStrobe) {
+            if (progressCompleted) indicesToRemove.push_back(i);
+            continue;
+        }
+
         // Special handling for text scrollers that should loop (consistent type)
         if (fx.type == FXType::TextScroller && fx.subtype == FXSubType::TXT_SCROLL_CONSISTANT) {
             // Only remove if duration is not infinite and timed out
@@ -1816,6 +1822,12 @@ void FXManager::Render2D()
         if (fx.type == FXType::Fireworks)
         {
             UpdateFireworks(fx);
+        }
+
+        // ImageFadeStrobe — advance alpha each frame; rendering is done via RenderImageFadeStrobe()
+        if (fx.type == FXType::ImageFadeStrobe)
+        {
+            UpdateImageFadeStrobe(fx, deltaTime);
         }
     }
 
@@ -4117,6 +4129,158 @@ void FXManager::RenderFireworks()
         {
             DrawFireworksPixels(fx);
             break;
+        }
+    }
+}
+
+// ============================================================================================================
+// ImageFadeStrobe — alpha strobe effect for a 2D image.
+//   The image alpha oscillates between 1.0 (fully opaque) and fadeOutTarget (partially/fully transparent).
+//   Each phase (fade-out and fade-in) takes fadeOverTime seconds.
+//   Loops indefinitely until StopImageFadeStrobe() is called; after stop the current fade-in completes
+//   before the effect is removed so the image returns to full opacity cleanly.
+// ============================================================================================================
+
+// StartImageFadeStrobe — creates an ImageFadeStrobe effect for the given image.
+//   fadeOutPercentage : 0–100; 100 = fully transparent at minimum, 50 = half transparent at minimum.
+//   fadeOverTime      : seconds for each individual phase (fade-out or fade-in).
+//   Replaces any existing strobe for the same image.  Capped at MAX_STROBE_INSTANCES total.
+void FXManager::StartImageFadeStrobe(BlitObj2DIndexType type, float fadeOutPercentage, float fadeOverTime)
+{
+    if (!renderer) return;
+
+    // Count existing strobe effects — enforce the cap
+    int strobeCount = 0;
+    for (const auto& fx : effects)
+        if (fx.type == FXType::ImageFadeStrobe) strobeCount++;
+
+    // Remove any existing strobe for this image type before adding the new one
+    effects.erase(
+        std::remove_if(effects.begin(), effects.end(), [type](const FXItem& fx) {
+            return fx.type == FXType::ImageFadeStrobe &&
+                   fx.imageFadeStrobeData.imageType == type;
+        }),
+        effects.end()
+    );
+
+    // Re-count after removal; refuse if we are still at the cap
+    strobeCount = 0;
+    for (const auto& fx : effects)
+        if (fx.type == FXType::ImageFadeStrobe) strobeCount++;
+
+    if (strobeCount >= MAX_STROBE_INSTANCES) {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] ImageFadeStrobe: max instances reached, ignoring StartImageFadeStrobe");
+        return;
+    }
+
+    FXItem newFX;
+    newFX.type      = FXType::ImageFadeStrobe;
+    newFX.fxID      = static_cast<int>(effects.size()) + 1;
+    newFX.duration  = FLT_MAX;                                                 // Runs until StopImageFadeStrobe()
+    newFX.timeout   = FLT_MAX;
+    newFX.progress  = 0.0f;
+    newFX.startTime = std::chrono::steady_clock::now();
+    newFX.lastUpdate = newFX.startTime;
+
+    ImageFadeStrobeData& d   = newFX.imageFadeStrobeData;
+    d.imageType              = type;
+    d.fadeOutTarget          = 1.0f - std::clamp(fadeOutPercentage, 0.0f, 100.0f) / 100.0f;
+    d.fadeOverTime           = std::max(0.01f, fadeOverTime);
+    d.currentAlpha           = 1.0f;
+    d.phase                  = StrobePhase::FadingOut;
+    d.phaseTimer             = 0.0f;
+    d.stopRequested          = false;
+
+    effects.push_back(newFX);
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] ImageFadeStrobe started: image=" +
+        std::to_wstring(static_cast<int>(type)) +
+        L", fadeOutPct=" + std::to_wstring(static_cast<int>(fadeOutPercentage)) +
+        L", fadeOverTime=" + std::to_wstring(fadeOverTime) +
+        L", FXID=" + std::to_wstring(newFX.fxID));
+}
+
+// StopImageFadeStrobe — gracefully stops the strobe for the given image.
+//   The effect completes the current fade-in phase (returning alpha to 1.0) then removes itself.
+void FXManager::StopImageFadeStrobe(BlitObj2DIndexType type)
+{
+    for (auto& fx : effects) {
+        if (fx.type == FXType::ImageFadeStrobe &&
+            fx.imageFadeStrobeData.imageType == type) {
+            fx.imageFadeStrobeData.stopRequested = true;
+        }
+    }
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] ImageFadeStrobe stop requested: image=" +
+        std::to_wstring(static_cast<int>(type)));
+}
+
+// IsImageFadeStrobeActive — returns true when an active (not yet removed) strobe exists for the image.
+bool FXManager::IsImageFadeStrobeActive(BlitObj2DIndexType type) const
+{
+    for (const auto& fx : effects) {
+        if (fx.type == FXType::ImageFadeStrobe &&
+            fx.imageFadeStrobeData.imageType == type &&
+            fx.progress < 1.0f)
+            return true;
+    }
+    return false;
+}
+
+// GetImageFadeStrobeAlpha — returns the current alpha (0.0–1.0) for the named image's strobe.
+//   Returns 1.0 (fully opaque) when no active strobe exists for that image.
+float FXManager::GetImageFadeStrobeAlpha(BlitObj2DIndexType type) const
+{
+    for (const auto& fx : effects) {
+        if (fx.type == FXType::ImageFadeStrobe &&
+            fx.imageFadeStrobeData.imageType == type &&
+            fx.progress < 1.0f)
+            return fx.imageFadeStrobeData.currentAlpha;
+    }
+    return 1.0f;
+}
+
+// RenderImageFadeStrobe — blits the image at its current strobe alpha.
+//   Call from the render pipeline at the exact position where the normal blit would occur.
+void FXManager::RenderImageFadeStrobe(BlitObj2DIndexType type, int x, int y, int w, int h)
+{
+    if (!renderer) return;
+    float alpha = GetImageFadeStrobeAlpha(type);
+#if defined(_WIN64) || defined(_WIN32)
+    renderer->Blit2DObjectToSizeWithAlpha(type, x, y, w, h, alpha);
+#endif
+}
+
+// UpdateImageFadeStrobe — advances the strobe alpha each frame.
+//   Called automatically from Render2D() for every ImageFadeStrobe FXItem.
+void FXManager::UpdateImageFadeStrobe(FXItem& fx, float deltaTime)
+{
+    ImageFadeStrobeData& d = fx.imageFadeStrobeData;
+    d.phaseTimer += deltaTime;
+
+    if (d.phase == StrobePhase::FadingOut) {
+        // Lerp alpha from 1.0 toward fadeOutTarget over fadeOverTime seconds
+        float t = std::clamp(d.phaseTimer / d.fadeOverTime, 0.0f, 1.0f);
+        d.currentAlpha = 1.0f - t * (1.0f - d.fadeOutTarget);
+        if (d.phaseTimer >= d.fadeOverTime) {
+            d.currentAlpha = d.fadeOutTarget;
+            d.phase        = StrobePhase::FadingIn;
+            d.phaseTimer   = 0.0f;
+        }
+    }
+    else {
+        // Lerp alpha from fadeOutTarget back to 1.0 over fadeOverTime seconds
+        float t = std::clamp(d.phaseTimer / d.fadeOverTime, 0.0f, 1.0f);
+        d.currentAlpha = d.fadeOutTarget + t * (1.0f - d.fadeOutTarget);
+        if (d.phaseTimer >= d.fadeOverTime) {
+            d.currentAlpha = 1.0f;
+            if (d.stopRequested) {
+                // Fade-in completed — mark effect done so RemoveCompletedEffects() cleans it up
+                fx.progress = 1.0f;
+            }
+            else {
+                d.phase      = StrobePhase::FadingOut;
+                d.phaseTimer = 0.0f;
+            }
         }
     }
 }

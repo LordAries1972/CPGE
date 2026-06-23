@@ -1,0 +1,11 @@
+DX_FXManager.cpp - 24-06-2026
+==============================
+
+Changes:
+- Render2D(): added ImageFadeStrobe case to update loop (calls UpdateImageFadeStrobe with delta time).
+- RemoveCompletedEffects(): added ImageFadeStrobe guard (only removed when progress >= 1.0).
+- Added full ImageFadeStrobe implementations at end of file:
+    StartImageFadeStrobe, StopImageFadeStrobe, IsImageFadeStrobeActive,
+    GetImageFadeStrobeAlpha, RenderImageFadeStrobe, UpdateImageFadeStrobe.
+  Phase state machine: FadingOut (alpha 1.0->target) then FadingIn (alpha target->1.0), loops
+  until StopImageFadeStrobe() sets stopRequested; removal happens at end of next fade-in phase.

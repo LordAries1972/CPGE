@@ -1462,6 +1462,18 @@ void OpenGLRenderer::Blit2DObjectToSize(BlitObj2DIndexType iIndex, int iX, int i
                  0, 0, tex.width, tex.height, MyColor(255,255,255,255), false);
 }
 
+void OpenGLRenderer::Blit2DObjectToSizeWithAlpha(BlitObj2DIndexType iIndex, int iX, int iY, int iW, int iH, float alpha)
+{
+    int idx = static_cast<int>(iIndex);
+    if (idx < 0 || idx >= MAX_TEXTURE_BUFFERS) return;
+    const auto& tex = m_2dTextures[idx];
+    if (!tex.isLoaded) return;
+    float a = std::clamp(alpha, 0.0f, 1.0f);
+    Render2DQuad(tex.textureID, iX, iY, iW, iH,
+                 0, 0, tex.width, tex.height,
+                 MyColor(255, 255, 255, static_cast<int>(a * 255.0f)), false);
+}
+
 void OpenGLRenderer::Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, int iDestY, int iDestW, int iDestH, float zoomFactor)
 {
     int idx = static_cast<int>(iIndex);

@@ -2786,6 +2786,25 @@ void VulkanRenderer::Blit2DObjectToSize(BlitObj2DIndexType iIndex, int iX, int i
 #endif
 }
 
+void VulkanRenderer::Blit2DObjectToSizeWithAlpha(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float alpha)
+{
+#if defined(PLATFORM_WINDOWS)
+    int idx = static_cast<int>(iIndex);
+    if (idx < 0 || idx >= MAX_TEXTURE_BUFFERS) return;
+    ComPtr<ID2D1Bitmap>       bitmap = m_d2dTextures[idx];
+    ComPtr<ID2D1RenderTarget> rt     = m_d2dRenderTarget;
+    if (!bitmap || !rt) return;
+    D2D1_SIZE_F sz   = bitmap->GetSize();
+    D2D1_RECT_F dest = D2D1::RectF(static_cast<float>(iX),          static_cast<float>(iY),
+                                    static_cast<float>(iX + iWidth), static_cast<float>(iY + iHeight));
+    float clampedAlpha = std::clamp(alpha, 0.0f, 1.0f);
+    rt->DrawBitmap(bitmap.Get(), dest, clampedAlpha, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,
+                   D2D1::RectF(0.0f, 0.0f, sz.width, sz.height));
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    (void)iIndex; (void)iX; (void)iY; (void)iWidth; (void)iHeight; (void)alpha;
+#endif
+}
+
 void VulkanRenderer::Blit2DObjectAtOffset(BlitObj2DIndexType iIndex, int iBlitX, int iBlitY,
                                            int iXOffset, int iYOffset, int iTileSizeX, int iTileSizeY)
 {

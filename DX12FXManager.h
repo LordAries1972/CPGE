@@ -33,6 +33,7 @@ enum class FXType {
     TextFadeInOut,
     ZoomInOut,                                                                     // Pulsing zoom-in / zoom-out loop on 2D image and/or 3D scene
     Fireworks,                                                                     // Firework rockets that launch, travel, and burst into particles
+    ImageFadeStrobe,                                                               // Alpha strobe on a 2D image: fades out to a % then fades back in, looping until stopped
 };
 
 enum class FXSubType {
@@ -279,6 +280,22 @@ struct ZoomData {
     ZoomData() = default;
 };
 
+// Phase state for the ImageFadeStrobe effect
+enum class StrobePhase { FadingOut, FadingIn };
+
+// Per-effect state for ImageFadeStrobe
+struct ImageFadeStrobeData {
+    BlitObj2DIndexType imageType      = BlitObj2DIndexType::NONE;               // Which image to strobe
+    float              fadeOutTarget  = 0.0f;                                    // Minimum alpha (0.0 = fully transparent, 0.5 = half)
+    float              fadeOverTime   = 1.0f;                                    // Seconds to complete one phase
+    float              currentAlpha   = 1.0f;                                    // Current alpha being applied (1.0 = fully opaque)
+    StrobePhase        phase          = StrobePhase::FadingOut;                  // Current animation phase
+    float              phaseTimer     = 0.0f;                                    // Elapsed seconds in the current phase
+    bool               stopRequested  = false;                                   // True = finish current fade-in then stop
+
+    ImageFadeStrobeData() = default;
+};
+
 struct FXItem {
     int fxID;
     int nextEffectID;
@@ -321,6 +338,9 @@ struct FXItem {
 
     // Fireworks support
     FireworksData fireworksData;                                                   // State for active fireworks rockets and particles
+
+    // ImageFadeStrobe support
+    ImageFadeStrobeData imageFadeStrobeData;                                       // State for the ImageFadeStrobe effect (only used when type == ImageFadeStrobe)
 };
 
 struct ScrollTween {
@@ -499,6 +519,14 @@ public:
     void StopFireworks();                                                          // Immediately remove the fireworks effect
     void RenderFireworks();                                                        // Draw all active rockets and particles at the current blit-order position in RenderFrame
 
+    // ImageFadeStrobe Utility Calls — max 10 simultaneous instances
+    static constexpr int MAX_STROBE_INSTANCES = 10;
+    void  StartImageFadeStrobe(BlitObj2DIndexType type, float fadeOutPercentage, float fadeOverTime); // Start alpha strobe on image
+    void  StopImageFadeStrobe(BlitObj2DIndexType type);                                               // Graceful stop: completes current fade-in then removes
+    bool  IsImageFadeStrobeActive(BlitObj2DIndexType type) const;                                     // Returns true if a strobe is running for this image
+    float GetImageFadeStrobeAlpha(BlitObj2DIndexType type) const;                                     // Returns current alpha (0.0 to 1.0) for the given image
+    void  RenderImageFadeStrobe(BlitObj2DIndexType type, int x, int y, int w, int h);                 // Blit image at current strobe alpha
+
     void StopAllFX();
     void SaveAndSuspendFXForScene();
     void RestoreFXAfterScene();
@@ -582,6 +610,9 @@ public:
 private:
     void UpdateFireworks(FXItem& fx);                                              // Advance timers, launch rockets, and update particle state each frame (called from Render2D)
     void DrawFireworksPixels(FXItem& fx);                                          // Internal draw pass — blits rockets and particles for one Fireworks FXItem
+
+    // ImageFadeStrobe private helper
+    void UpdateImageFadeStrobe(FXItem& fx, float deltaTime);                       // Advance strobe alpha each frame (called from Render2D)
 
     void UpdateWarpDotTunnel(FXItem& fx, float deltaTime);
     void RenderWarpDotTunnel(FXItem& fx);

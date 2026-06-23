@@ -1,0 +1,7 @@
+DX12RenderFrame.cpp - 24-06-2026
+=================================
+
+Changes:
+- TSOO blit in SCENE_GAMETITLE post-3D D2D pass: added ImageFadeStrobe safeguard.
+  If fxManager.IsImageFadeStrobeActive(IMG_TSOO) -> call fxManager.RenderImageFadeStrobe()
+  Else -> call Blit2DObjectToSize() as before (normal blit).

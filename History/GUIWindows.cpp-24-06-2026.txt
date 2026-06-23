@@ -1,0 +1,11 @@
+GUIWindows.cpp - 24-06-2026
+===========================
+
+Changes:
+- CreateGameMenuWindow: reduced button Y stride from 55px to 45px to match DifficultyWindow spacing.
+  gameplayButton: y+110 -> y+100
+  hiscoresButton: y+165 -> y+145
+  creditsButton:  y+220 -> y+190
+  quitButton:     y+275 -> y+235
+  experimentalButton (debug): y+330 -> y+280
+  configButton unchanged at y+55.

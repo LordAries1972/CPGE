@@ -15,12 +15,13 @@
 11. [Loading Screen Text Fade Effect](#loading-screen-text-fade-effect)
 12. [ZoomInOut Effects](#zoominout-effects)
 13. [Fireworks Effects](#fireworks-effects)
-14. [Advanced Features](#advanced-features)
-15. [Window Resize Handling](#window-resize-handling)
-16. [Thread Safety](#thread-safety)
-17. [Performance Considerations](#performance-considerations)
-18. [Troubleshooting](#troubleshooting)
-19. [Code Examples](#code-examples)
+14. [ImageFadeStrobe Effects](#imagefadestrobe-effects)
+15. [Advanced Features](#advanced-features)
+16. [Window Resize Handling](#window-resize-handling)
+17. [Thread Safety](#thread-safety)
+18. [Performance Considerations](#performance-considerations)
+19. [Troubleshooting](#troubleshooting)
+20. [Code Examples](#code-examples)
 
 ---
 
@@ -31,7 +32,7 @@ The FXManager class is a comprehensive visual effects system designed for real-t
 ### Key Features
 - **Multi-threaded rendering support** with thread-safe operations
 - **Queue-based effect management** for complex effect sequences
-- **Multiple effect types** including fades, scrolls, particles, starfields, text, 3D warp tunnels, and loading-screen text fade overlays
+- **Multiple effect types** including fades, scrolls, particles, starfields, text, 3D warp tunnels, loading-screen text fade overlays, and alpha-strobe image pulsing
 - **Callback system** for chaining effects and events
 - **DirectX 11, Vulkan, and OpenGL integration** — full feature parity across all three renderers
 - **Window resize handling** with state preservation
@@ -1260,6 +1261,203 @@ fxManager.FadeOutThenCallback(
 - Pixel output uses `renderer->Blit2DColoredPixel()` — no shader changes required.
 - `StopAllFX()` and `StopAllFXForResize()` automatically stop and save/restore fireworks state.
 - `fireworksID` is reset to 0 when stopped. Check `fireworksID > 0` to test whether fireworks are running.
+
+---
+
+## ImageFadeStrobe Effects
+
+The ImageFadeStrobe effect continuously pulses a 2D image's opacity between fully opaque and a configurable minimum transparency. It loops indefinitely — fade out, fade in, repeat — until explicitly stopped. Up to 10 instances can run simultaneously, each targeting a different image.
+
+The update and render passes are separated. `Render2D()` drives the phase timer each frame. Pixel output is done via the new `Blit2DObjectToSizeWithAlpha()` renderer method, which is called from the standalone `RenderImageFadeStrobe()` at exactly the blit-order position you want in `RenderFrame`.
+
+---
+
+### ImageFadeStrobe Signature
+
+```cpp
+void StartImageFadeStrobe(
+    BlitObj2DIndexType type,       // Which loaded 2D image to strobe
+    float              fadeOutPercentage,  // 0–100 — how far down the alpha drops
+    float              fadeOverTime        // Seconds per half-cycle (fade-out AND fade-in)
+);
+```
+
+- `fadeOutPercentage = 100` → image fades to fully transparent at the bottom of each cycle.
+- `fadeOutPercentage = 50` → image fades to 50% opacity (half-transparent) at the bottom.
+- `fadeOutPercentage = 0` → no visible change (alpha stays at 1.0); use to disable without stopping.
+- `fadeOverTime = 1.0f` → fade-out takes 1 second, fade-in takes 1 second (2 s per full cycle).
+
+---
+
+### Phase State Machine
+
+| Phase | What happens |
+| --- | --- |
+| `FadingOut` | Alpha lerps from `1.0` down to `fadeOutTarget` over `fadeOverTime` seconds |
+| `FadingIn` | Alpha lerps from `fadeOutTarget` back up to `1.0` over `fadeOverTime` seconds |
+| *(repeat)* | Loops automatically until `StopImageFadeStrobe()` is called |
+| *(stopping)* | `StopImageFadeStrobe()` sets `stopRequested`; effect completes its current `FadingIn` phase, restores full opacity, then removes itself — no visible pop |
+
+`fadeOutTarget` is computed as `1.0 - (fadeOutPercentage / 100.0)`, so 70% → target alpha 0.3.
+
+---
+
+### ImageFadeStrobe API Reference
+
+#### `StartImageFadeStrobe`
+
+```cpp
+void StartImageFadeStrobe(BlitObj2DIndexType type, float fadeOutPercentage, float fadeOverTime);
+```
+
+Starts the strobe on `type`. If a strobe is already running for that image it is replaced. Capped at `MAX_STROBE_INSTANCES = 10`; a warning is logged if the cap is reached.
+
+#### `StopImageFadeStrobe`
+
+```cpp
+void StopImageFadeStrobe(BlitObj2DIndexType type);
+```
+
+Signals a clean stop. The effect finishes its current `FadingIn` phase (restoring full opacity) before being removed. Calling this while the effect is already in `FadingIn` means it stops at the end of that phase.
+
+#### `IsImageFadeStrobeActive`
+
+```cpp
+bool IsImageFadeStrobeActive(BlitObj2DIndexType type) const;
+```
+
+Returns `true` while a strobe with `progress < 1.0` exists for `type`. Use this as the render-path guard in `RenderFrame`.
+
+#### `GetImageFadeStrobeAlpha`
+
+```cpp
+float GetImageFadeStrobeAlpha(BlitObj2DIndexType type) const;
+```
+
+Returns the current alpha for the given image's strobe (0.0–1.0). Returns `1.0` when no strobe is active. Useful if you need to query the live alpha without calling `RenderImageFadeStrobe`.
+
+#### `RenderImageFadeStrobe`
+
+```cpp
+void RenderImageFadeStrobe(BlitObj2DIndexType type, int x, int y, int w, int h);
+```
+
+Blits `type` at the given rect using the current strobe alpha. Call this from `RenderFrame` in place of the normal `Blit2DObjectToSize` call when `IsImageFadeStrobeActive` returns `true`. Internally calls `renderer->Blit2DObjectToSizeWithAlpha()`.
+
+---
+
+### ImageFadeStrobe Basic Usage
+
+```cpp
+// Pulse the TSOO splash image — fade to 30% opacity and back, each phase 1.5 seconds
+fxManager.StartImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO, 70.0f, 1.5f);
+
+// Stop it (completes current fade-in cleanly)
+fxManager.StopImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO);
+```
+
+---
+
+### ImageFadeStrobe RenderFrame Integration
+
+Each image blit in `RenderFrame` that participates in the strobe uses an `IsImageFadeStrobeActive` / `RenderImageFadeStrobe` if-else guard. When the strobe is not active the normal `Blit2DObjectToSize` path is taken — there is zero overhead.
+
+```cpp
+// Pattern used in all four RenderFrame files:
+int startX = (iOrigWidth  - 536) / 2;
+int startY = (iOrigHeight - 466) / 2;
+if (fxManager.IsImageFadeStrobeActive(BlitObj2DIndexType::IMG_TSOO))
+    fxManager.RenderImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
+else
+    Blit2DObjectToSize(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
+```
+
+`Render2D()` drives the phase-timer update each frame automatically — no additional per-frame calls are required in game code.
+
+---
+
+### ImageFadeStrobe Behaviour Details
+
+| Property | Value |
+| --- | --- |
+| Max simultaneous instances | 10 (`MAX_STROBE_INSTANCES`) |
+| Alpha range | `fadeOutTarget` → `1.0` (FadingIn) / `1.0` → `fadeOutTarget` (FadingOut) |
+| `fadeOutTarget` formula | `1.0 - (fadeOutPercentage / 100.0)` |
+| Minimum `fadeOverTime` | 0.01 s (clamped internally) |
+| Stop behaviour | Completes current `FadingIn` phase before removal — never pops |
+| Multiple images | Each `BlitObj2DIndexType` is an independent strobe slot |
+| Replacing a running strobe | `StartImageFadeStrobe` for the same image removes the old one first |
+
+---
+
+### ImageFadeStrobe Usage Examples
+
+#### Slow Ghost Pulse (title screen atmosphere)
+
+```cpp
+// Fade to 20% opacity over 3 seconds per half-cycle — very slow, ethereal feel
+fxManager.StartImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO, 80.0f, 3.0f);
+```
+
+#### Fast Alert Strobe
+
+```cpp
+// Rapid danger/warning effect — 90% fade, 0.2 s per half-cycle
+fxManager.StartImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO, 90.0f, 0.2f);
+```
+
+#### Subtle Breathing Effect
+
+```cpp
+// Gentle brightness pulse — only fades to 85% opacity, 2-second half-cycles
+fxManager.StartImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO, 15.0f, 2.0f);
+```
+
+#### Multiple Independent Strobes
+
+```cpp
+// Two different images can strobe at different rates simultaneously
+fxManager.StartImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO,    70.0f, 1.5f);
+fxManager.StartImageFadeStrobe(BlitObj2DIndexType::IMG_LOGO,    50.0f, 0.8f);
+fxManager.StartImageFadeStrobe(BlitObj2DIndexType::IMG_OVERLAY, 100.0f, 0.4f);
+```
+
+#### Stop All Strobes on Scene Exit
+
+```cpp
+void OnExitGameTitle() {
+    fxManager.StopImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO);
+    // StopAllFX() also clears any remaining strobes
+}
+```
+
+#### Strobe with Delayed Auto-Stop via Callback
+
+```cpp
+// Start a rapid strobe, then stop it cleanly after a fade-to-black
+fxManager.StartImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO, 80.0f, 0.3f);
+
+fxManager.FadeOutThenCallback(
+    XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f),  // fade to black
+    1.5f,                                // fade duration
+    4.0f,                                // delay — let the strobe run 4 s first
+    []() {
+        fxManager.StopImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO);
+        sceneManager.LoadNextScene();
+    }
+);
+```
+
+---
+
+### ImageFadeStrobe Renderer Notes
+
+| Renderer | Alpha method | Platform guard |
+| --- | --- | --- |
+| DX11 (`FXManager`) | `ID2D1RenderTarget::DrawBitmap` opacity parameter | `_WIN64` / `_WIN32` |
+| DX12 (`FXManager`) | `ID2D1DeviceContext::DrawBitmap` opacity parameter | `_WIN64` / `_WIN32` |
+| OpenGL (`GLFXManager`) | `Render2DQuad` with `MyColor(255, 255, 255, alpha×255)` | No guard — cross-platform |
+| Vulkan (`VKFXManager`) | `ID2D1RenderTarget::DrawBitmap` (Windows); falls back to opaque `Blit2DObjectToSize` on Linux/Android | `PLATFORM_WINDOWS` |
 
 ---
 

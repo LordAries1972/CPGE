@@ -459,7 +459,10 @@ void DX11Renderer::RenderFrame()
                                {
                                    int startX = (iOrigWidth - 536) / 2; // Centered horizontally
                                    int startY = (iOrigHeight - 466) / 2; // Centered vertically
-                                   Blit2DObjectToSize(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
+                                   if (fxManager.IsImageFadeStrobeActive(BlitObj2DIndexType::IMG_TSOO))
+                                       fxManager.RenderImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
+                                   else
+                                       Blit2DObjectToSize(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
                                }
                                break;
                            }

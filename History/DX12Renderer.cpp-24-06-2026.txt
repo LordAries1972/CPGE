@@ -1,0 +1,7 @@
+DX12Renderer.cpp - 24-06-2026
+==============================
+
+Changes:
+- Added Blit2DObjectToSizeWithAlpha() implementation after Blit2DObjectToSize().
+  Uses m_d2dContext->DrawBitmap with clamped alpha, wrapped in try/catch.
+  Supports ImageFadeStrobe alpha blending for DX12 renderer.

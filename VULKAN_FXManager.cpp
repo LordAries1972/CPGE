@@ -468,6 +468,11 @@ void VKFXManager::RemoveCompletedEffects() {
             if (progressComplete) toRemove.push_back(i);
             continue;
         }
+        // ImageFadeStrobe loops indefinitely; only remove when StopImageFadeStrobe marks progress=1.0
+        if (fx.type == FXType::ImageFadeStrobe) {
+            if (progressComplete) toRemove.push_back(i);
+            continue;
+        }
 
         if (fx.type == FXType::TextScroller && fx.subtype == FXSubType::TXT_SCROLL_CONSISTANT) {
             if (fx.duration != FLT_MAX && timedOut) toRemove.push_back(i);
@@ -587,6 +592,10 @@ void VKFXManager::Render2D() {
         // Fireworks — advance simulation state each frame; rendering is done via RenderFireworks()
         if (fx.type == FXType::Fireworks) {
             UpdateFireworks(fx);
+        }
+        // ImageFadeStrobe — advance phase timer each frame; blit is done by RenderFrame
+        if (fx.type == FXType::ImageFadeStrobe) {
+            UpdateImageFadeStrobe(fx, deltaTime);
         }
     }
 
@@ -2451,6 +2460,130 @@ void VKFXManager::RenderFireworks()
         {
             DrawFireworksPixels(fx);
             break;
+        }
+    }
+}
+
+// ============================================================================================================
+// ImageFadeStrobe — Vulkan implementation
+// ============================================================================================================
+
+void VKFXManager::StartImageFadeStrobe(BlitObj2DIndexType type, float fadeOutPercentage, float fadeOverTime)
+{
+    if (!renderer) return;
+
+    // Remove any existing strobe for this image first
+    effects.erase(
+        std::remove_if(effects.begin(), effects.end(), [type](const VKFXItem& fx) {
+            return fx.type == FXType::ImageFadeStrobe &&
+                   fx.imageFadeStrobeData.imageType == type;
+        }),
+        effects.end()
+    );
+
+    int strobeCount = 0;
+    for (const auto& fx : effects)
+        if (fx.type == FXType::ImageFadeStrobe) strobeCount++;
+
+    if (strobeCount >= MAX_STROBE_INSTANCES) {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[VKFXManager] ImageFadeStrobe: max instances reached");
+        return;
+    }
+
+    VKFXItem newFX;
+    newFX.type       = FXType::ImageFadeStrobe;
+    newFX.fxID       = static_cast<int>(effects.size()) + 1;
+    newFX.duration   = FLT_MAX;
+    newFX.timeout    = FLT_MAX;
+    newFX.progress   = 0.0f;
+    newFX.startTime  = std::chrono::steady_clock::now();
+    newFX.lastUpdate = newFX.startTime;
+
+    VKImageFadeStrobeData& d = newFX.imageFadeStrobeData;
+    d.imageType     = type;
+    d.fadeOutTarget = 1.0f - std::clamp(fadeOutPercentage, 0.0f, 100.0f) / 100.0f;
+    d.fadeOverTime  = std::max(0.01f, fadeOverTime);
+    d.currentAlpha  = 1.0f;
+    d.phase         = StrobePhase::FadingOut;
+    d.phaseTimer    = 0.0f;
+    d.stopRequested = false;
+
+    effects.push_back(newFX);
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[VKFXManager] ImageFadeStrobe started: image=" +
+        std::to_wstring(static_cast<int>(type)) + L", FXID=" + std::to_wstring(newFX.fxID));
+}
+
+void VKFXManager::StopImageFadeStrobe(BlitObj2DIndexType type)
+{
+    for (auto& fx : effects) {
+        if (fx.type == FXType::ImageFadeStrobe &&
+            fx.imageFadeStrobeData.imageType == type)
+            fx.imageFadeStrobeData.stopRequested = true;
+    }
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[VKFXManager] ImageFadeStrobe stop requested: image=" +
+        std::to_wstring(static_cast<int>(type)));
+}
+
+bool VKFXManager::IsImageFadeStrobeActive(BlitObj2DIndexType type) const
+{
+    for (const auto& fx : effects) {
+        if (fx.type == FXType::ImageFadeStrobe &&
+            fx.imageFadeStrobeData.imageType == type &&
+            fx.progress < 1.0f)
+            return true;
+    }
+    return false;
+}
+
+float VKFXManager::GetImageFadeStrobeAlpha(BlitObj2DIndexType type) const
+{
+    for (const auto& fx : effects) {
+        if (fx.type == FXType::ImageFadeStrobe &&
+            fx.imageFadeStrobeData.imageType == type &&
+            fx.progress < 1.0f)
+            return fx.imageFadeStrobeData.currentAlpha;
+    }
+    return 1.0f;
+}
+
+void VKFXManager::RenderImageFadeStrobe(BlitObj2DIndexType type, int x, int y, int w, int h)
+{
+    if (!renderer) return;
+    float alpha = GetImageFadeStrobeAlpha(type);
+#if defined(PLATFORM_WINDOWS)
+    renderer->Blit2DObjectToSizeWithAlpha(type, x, y, w, h, alpha);
+#else
+    (void)alpha;
+    renderer->Blit2DObjectToSize(type, x, y, w, h);
+#endif
+}
+
+void VKFXManager::UpdateImageFadeStrobe(VKFXItem& fx, float deltaTime)
+{
+    VKImageFadeStrobeData& d = fx.imageFadeStrobeData;
+    d.phaseTimer += deltaTime;
+
+    if (d.phase == StrobePhase::FadingOut) {
+        float t = std::clamp(d.phaseTimer / d.fadeOverTime, 0.0f, 1.0f);
+        d.currentAlpha = 1.0f - t * (1.0f - d.fadeOutTarget);
+        if (d.phaseTimer >= d.fadeOverTime) {
+            d.currentAlpha = d.fadeOutTarget;
+            d.phase        = StrobePhase::FadingIn;
+            d.phaseTimer   = 0.0f;
+        }
+    }
+    else {
+        float t = std::clamp(d.phaseTimer / d.fadeOverTime, 0.0f, 1.0f);
+        d.currentAlpha = d.fadeOutTarget + t * (1.0f - d.fadeOutTarget);
+        if (d.phaseTimer >= d.fadeOverTime) {
+            d.currentAlpha = 1.0f;
+            if (d.stopRequested)
+                fx.progress = 1.0f;                                         // Mark for removal
+            else {
+                d.phase      = StrobePhase::FadingOut;
+                d.phaseTimer = 0.0f;
+            }
         }
     }
 }

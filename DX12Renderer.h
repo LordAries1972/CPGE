@@ -245,6 +245,7 @@ public:
         int iXOffset, int iYOffset, int iTileSizeX, int iTileSizeY);            // Blit wrapped 2D object
     void Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, int iDestY,
         int iDestW, int iDestH, float zoomFactor);                              // Blit 2D object with centered zoom crop
+    void Blit2DObjectToSizeWithAlpha(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float alpha); // Blit with custom opacity
     void Clear2DBlitQueue();                                                    // Clear 2D blit queue
 
     // Device access (base class interface)

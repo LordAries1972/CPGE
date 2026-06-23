@@ -392,6 +392,8 @@ public:
         // Blit a 2D image with a centered zoom crop: crops (zoomFactor*100)% in from each edge and scales the result to fill destW x destH.
         // zoomFactor 0.0 = full image; 0.75 = maximum zoom (centre 25% of image area stretched to full dest size).
         virtual void Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, int iDestY, int iDestW, int iDestH, float zoomFactor) = 0;
+        // Blit a 2D image scaled to the given rect with a custom opacity (0.0 = transparent, 1.0 = fully opaque).
+        virtual void Blit2DObjectToSizeWithAlpha(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float alpha) = 0;
     #endif
     #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__) || (defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))
         virtual void Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 color) = 0;

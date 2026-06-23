@@ -330,6 +330,34 @@ void DX11Renderer::Blit2DObjectToSize(BlitObj2DIndexType iIndex, int iX, int iY,
     rt->DrawBitmap(bitmap.Get(), destRect, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, srcRect);
 }
 
+void DX11Renderer::Blit2DObjectToSizeWithAlpha(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float alpha)
+{
+    // Validate index
+    if (int(iIndex) < 0 || int(iIndex) > MAX_TEXTURE_BUFFERS)
+        return;
+
+    ComPtr<ID2D1Bitmap>       bitmap = m_d2dTextures[int(iIndex)];
+    ComPtr<ID2D1RenderTarget> rt     = m_d2dRenderTarget;
+
+    if (!bitmap || !rt)
+        return;
+
+    D2D1_SIZE_F bitmapSize = bitmap->GetSize();
+
+    D2D1_RECT_F destRect = D2D1::RectF(
+        static_cast<float>(iX),
+        static_cast<float>(iY),
+        static_cast<float>(iX + iWidth),
+        static_cast<float>(iY + iHeight)
+    );
+
+    D2D1_RECT_F srcRect = D2D1::RectF(0.0f, 0.0f, bitmapSize.width, bitmapSize.height);
+
+    // Clamp alpha to valid range then blit at the requested opacity
+    float clampedAlpha = std::clamp(alpha, 0.0f, 1.0f);
+    rt->DrawBitmap(bitmap.Get(), destRect, clampedAlpha, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, srcRect);
+}
+
 void DX11Renderer::Blit2DObject(BlitObj2DIndexType iIndex, int iX, int iY)
 {
     // Check if the object is valid

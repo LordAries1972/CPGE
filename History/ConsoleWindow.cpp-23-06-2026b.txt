@@ -391,11 +391,11 @@ void ConsoleWindow::RenderContent(Renderer* r)
     // Font size scaled to screen height; ~10pt at 1080p, clamped to [8, 12].
     // OpenGL uses GDI which renders ~10% wider than DWrite; a slightly smaller
     // font (÷120 instead of ÷108) keeps lines from reaching the scrollbar.
-    #if defined(__USE_OPENGL__)
-        const float fontSize   = std::clamp(static_cast<float>(r->iOrigHeight) / 120.0f, 7.0f, 12.0f);
-    #else
-        const float fontSize   = std::clamp(static_cast<float>(r->iOrigHeight) / 108.0f, 8.0f, 14.0f);
-    #endif
+#if defined(__USE_OPENGL__)
+    const float fontSize   = std::clamp(static_cast<float>(r->iOrigHeight) / 120.0f, 7.0f, 10.0f);
+#else
+    const float fontSize   = std::clamp(static_cast<float>(r->iOrigHeight) / 108.0f, 8.0f, 12.0f);
+#endif
     const float lineHeight = fontSize + 4.0f;
 
     // Window geometry — computed from current screen size each frame.

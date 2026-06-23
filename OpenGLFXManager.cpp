@@ -470,6 +470,14 @@ void GLFXManager::Render2D() {
                 // Advance simulation state each frame; rendering is done via RenderFireworks()
                 UpdateFireworks(fx);
                 break;
+            case FXType::ImageFadeStrobe:
+            {
+                auto now = std::chrono::steady_clock::now();
+                float dt = std::chrono::duration<float>(now - fx.lastUpdate).count();
+                fx.lastUpdate = now;
+                UpdateImageFadeStrobe(fx, dt);
+                break;
+            }
             default: break;
         }
     }
@@ -507,6 +515,9 @@ void GLFXManager::RemoveCompletedEffects() {
                 return fx.progress >= 1.0f;
             // Fireworks runs indefinitely; only remove when StopFireworks() erases it directly
             if (fx.type == FXType::Fireworks)
+                return fx.progress >= 1.0f;
+            // ImageFadeStrobe loops indefinitely; only remove when StopImageFadeStrobe marks progress=1.0
+            if (fx.type == FXType::ImageFadeStrobe)
                 return fx.progress >= 1.0f;
             if (fx.type == FXType::ColorFader && fx.progress >= 1.0f && !fx.restartOnExpire)
                 return true;
@@ -2074,6 +2085,125 @@ void GLFXManager::RenderFireworks()
         {
             DrawFireworksPixels(fx);
             break;
+        }
+    }
+}
+
+// ============================================================================================================
+// ImageFadeStrobe — OpenGL implementation
+// ============================================================================================================
+
+void GLFXManager::StartImageFadeStrobe(BlitObj2DIndexType type, float fadeOutPercentage, float fadeOverTime)
+{
+    if (!renderer) return;
+
+    // Remove any existing strobe for this image first
+    effects.erase(
+        std::remove_if(effects.begin(), effects.end(), [type](const GLFXItem& fx) {
+            return fx.type == FXType::ImageFadeStrobe &&
+                   fx.imageFadeStrobeData.imageType == type;
+        }),
+        effects.end()
+    );
+
+    int strobeCount = 0;
+    for (const auto& fx : effects)
+        if (fx.type == FXType::ImageFadeStrobe) strobeCount++;
+
+    if (strobeCount >= MAX_STROBE_INSTANCES) {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[GLFXManager] ImageFadeStrobe: max instances reached");
+        return;
+    }
+
+    GLFXItem newFX;
+    newFX.type       = FXType::ImageFadeStrobe;
+    newFX.fxID       = static_cast<int>(effects.size()) + 1;
+    newFX.duration   = FLT_MAX;
+    newFX.timeout    = FLT_MAX;
+    newFX.progress   = 0.0f;
+    newFX.startTime  = std::chrono::steady_clock::now();
+    newFX.lastUpdate = newFX.startTime;
+
+    GLImageFadeStrobeData& d = newFX.imageFadeStrobeData;
+    d.imageType     = type;
+    d.fadeOutTarget = 1.0f - std::clamp(fadeOutPercentage, 0.0f, 100.0f) / 100.0f;
+    d.fadeOverTime  = std::max(0.01f, fadeOverTime);
+    d.currentAlpha  = 1.0f;
+    d.phase         = StrobePhase::FadingOut;
+    d.phaseTimer    = 0.0f;
+    d.stopRequested = false;
+
+    effects.push_back(newFX);
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[GLFXManager] ImageFadeStrobe started: image=" +
+        std::to_wstring(static_cast<int>(type)) + L", FXID=" + std::to_wstring(newFX.fxID));
+}
+
+void GLFXManager::StopImageFadeStrobe(BlitObj2DIndexType type)
+{
+    for (auto& fx : effects) {
+        if (fx.type == FXType::ImageFadeStrobe &&
+            fx.imageFadeStrobeData.imageType == type)
+            fx.imageFadeStrobeData.stopRequested = true;
+    }
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[GLFXManager] ImageFadeStrobe stop requested: image=" +
+        std::to_wstring(static_cast<int>(type)));
+}
+
+bool GLFXManager::IsImageFadeStrobeActive(BlitObj2DIndexType type) const
+{
+    for (const auto& fx : effects) {
+        if (fx.type == FXType::ImageFadeStrobe &&
+            fx.imageFadeStrobeData.imageType == type &&
+            fx.progress < 1.0f)
+            return true;
+    }
+    return false;
+}
+
+float GLFXManager::GetImageFadeStrobeAlpha(BlitObj2DIndexType type) const
+{
+    for (const auto& fx : effects) {
+        if (fx.type == FXType::ImageFadeStrobe &&
+            fx.imageFadeStrobeData.imageType == type &&
+            fx.progress < 1.0f)
+            return fx.imageFadeStrobeData.currentAlpha;
+    }
+    return 1.0f;
+}
+
+void GLFXManager::RenderImageFadeStrobe(BlitObj2DIndexType type, int x, int y, int w, int h)
+{
+    if (!renderer) return;
+    float alpha = GetImageFadeStrobeAlpha(type);
+    renderer->Blit2DObjectToSizeWithAlpha(type, x, y, w, h, alpha);
+}
+
+void GLFXManager::UpdateImageFadeStrobe(GLFXItem& fx, float deltaTime)
+{
+    GLImageFadeStrobeData& d = fx.imageFadeStrobeData;
+    d.phaseTimer += deltaTime;
+
+    if (d.phase == StrobePhase::FadingOut) {
+        float t = std::clamp(d.phaseTimer / d.fadeOverTime, 0.0f, 1.0f);
+        d.currentAlpha = 1.0f - t * (1.0f - d.fadeOutTarget);
+        if (d.phaseTimer >= d.fadeOverTime) {
+            d.currentAlpha = d.fadeOutTarget;
+            d.phase        = StrobePhase::FadingIn;
+            d.phaseTimer   = 0.0f;
+        }
+    }
+    else {
+        float t = std::clamp(d.phaseTimer / d.fadeOverTime, 0.0f, 1.0f);
+        d.currentAlpha = d.fadeOutTarget + t * (1.0f - d.fadeOutTarget);
+        if (d.phaseTimer >= d.fadeOverTime) {
+            d.currentAlpha = 1.0f;
+            if (d.stopRequested)
+                fx.progress = 1.0f;                                         // Mark for removal
+            else {
+                d.phase      = StrobePhase::FadingOut;
+                d.phaseTimer = 0.0f;
+            }
         }
     }
 }

@@ -25,7 +25,7 @@ constexpr int   CONSOLE_MAX_LINES     = 500;
 constexpr int   CONSOLE_VISIBLE_LINES = 14;
 constexpr float CONSOLE_TITLEBAR_H    = 20.0f;
 constexpr float CONSOLE_CMDBAR_H      = 22.0f;
-constexpr float CONSOLE_SCROLLBAR_W   = 10.0f;
+constexpr float CONSOLE_SCROLLBAR_W   = 16.0f;
 constexpr float CONSOLE_PADDING       = 3.0f;
 
 enum class ConsoleLineColor { Normal, Warning, Error };

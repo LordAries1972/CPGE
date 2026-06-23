@@ -1,0 +1,8 @@
+VULKAN_Renderer.cpp - 24-06-2026
+=================================
+
+Changes:
+- Added Blit2DObjectToSizeWithAlpha() implementation after Blit2DObjectToSize().
+  PLATFORM_WINDOWS: uses D2D DrawBitmap with clamped alpha.
+  PLATFORM_LINUX/ANDROID: void-cast fallback (no alpha blending available).
+  Supports ImageFadeStrobe alpha blending for Vulkan renderer.

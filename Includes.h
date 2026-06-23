@@ -22,6 +22,11 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 //       GAME_NAME cmake cache variable in CMakeLists.txt to match.
 // ---------------------------------------------------------------------------
 #define GAME_NAME "CPGE"
+// ---------------------------------------------------------------------------
+// Compile-time identity strings — used in version overlays and log output.
+// Overlay format: "<BuildType> <RENDERER_NAME_W> <GAME_NAME_W> v<build> <dd-MM-YYYY>"
+// ---------------------------------------------------------------------------
+#define GAME_NAME_W L"CPGE"
 
 #define __USE_XMPLAYER__
 //#define __USE_MP3PLAYER__
@@ -102,7 +107,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
         #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__) && \
             !defined(__USE_OPENGL__)     && !defined(__USE_VULKAN__)      && \
             !defined(__USE_RADEON__)
-//            #define __USE_DIRECTX_11__  // Change this to switch the default for IDE-only builds
+            #define __USE_DIRECTX_11__  // Change this to switch the default for IDE-only builds
         #endif
 
         #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__) && !defined(__USE_OPENGL__) && !defined(__USE_VULKAN__)
@@ -259,11 +264,6 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 //    #define __USE_OPENGL__
 #endif // !PLATFORM_WINDOWS, PLATFORM_LINUX, PLATFORM_ANDROID, PLATFORM_APPLE, PLATFORM_IOS
 
-// ---------------------------------------------------------------------------
-// Compile-time identity strings — used in version overlays and log output.
-// Overlay format: "<BuildType> <RENDERER_NAME_W> <GAME_NAME_W> v<build> <dd-MM-YYYY>"
-// ---------------------------------------------------------------------------
-#define GAME_NAME_W L"TSOO"
 
 #if defined(PLATFORM_WINDOWS)
     #define PLATFORM_NAME_W L"Windows"

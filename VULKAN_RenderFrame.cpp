@@ -685,8 +685,11 @@ void VulkanRenderer::RenderFrame()
                         m_drawToBackground = false;
 
                         int startX = (iOrigWidth - 536) / 2; // Centered horizontally
-                        int startY = (iOrigHeight - 466) / 2; // Centered horizontally
-                        Blit2DObjectToSize(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
+                        int startY = (iOrigHeight - 466) / 2; // Centered vertically
+                        if (fxManager.IsImageFadeStrobeActive(BlitObj2DIndexType::IMG_TSOO))
+                            fxManager.RenderImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
+                        else
+                            Blit2DObjectToSize(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
 
                         m_bgD2dRenderTarget->EndDraw();
                         m_bgOverlayDirty = true;

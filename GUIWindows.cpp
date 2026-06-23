@@ -331,7 +331,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     // Add Game Play Button control with fixed lambda handlers
     GUIControl gameplayButton;
     gameplayButton.type = GUIControlType::Button;
-    gameplayButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 110);       // Position below configuration button
+    gameplayButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 100);       // Position below configuration button
     gameplayButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);                                                   // Same size as other buttons
     gameplayButton.bgColor = MyColor(0, 0, 0, 255);                                                             // Black background
     gameplayButton.txtColor = MyColor(255, 255, 0, 255);                                                        // Yellow text color
@@ -397,7 +397,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     // Add Hi-Scores Table Button control with fixed lambda handlers
     GUIControl hiscoresButton;
     hiscoresButton.type = GUIControlType::Button;
-    hiscoresButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 165);       // Position below gameplay button
+    hiscoresButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 145);       // Position below gameplay button
     hiscoresButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);                                                   // Same size as other buttons
     hiscoresButton.bgColor = MyColor(0, 0, 0, 255);                                                             // Black background
     hiscoresButton.txtColor = MyColor(255, 255, 0, 255);                                                        // Yellow text color
@@ -456,7 +456,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     // Add Credits Button control with fixed lambda handlers
     GUIControl creditsButton;
     creditsButton.type = GUIControlType::Button;
-    creditsButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 220);       // Position below high scores button
+    creditsButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 190);       // Position below high scores button
     creditsButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);                                                   // Same size as other buttons
     creditsButton.bgColor = MyColor(0, 0, 0, 255);                                                             // Black background
     creditsButton.txtColor = MyColor(255, 255, 0, 255);                                                        // Yellow text color
@@ -514,7 +514,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     // Add Quit Button control with fixed lambda handlers
     GUIControl quitButton;
     quitButton.type = GUIControlType::Button;
-    quitButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 275);       // Position below credits button
+    quitButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 235);       // Position below credits button
     quitButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);                                                   // Same size as other buttons
     quitButton.bgColor = MyColor(0, 0, 0, 255);                                                             // Black background
     quitButton.txtColor = MyColor(255, 255, 0, 255);                                                        // Yellow text color
@@ -603,7 +603,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
         // Experimental button — DEBUG builds only; launches WarpDotTunnel demo
         GUIControl experimentalButton;
         experimentalButton.type = GUIControlType::Button;
-        experimentalButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 330);
+        experimentalButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 280);
         experimentalButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);
         experimentalButton.bgColor = MyColor(0, 0, 0, 255);
         experimentalButton.txtColor = MyColor(255, 128, 0, 255);                                                       // Orange text — visually distinct from release buttons

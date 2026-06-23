@@ -1,0 +1,13 @@
+VULKAN_FXManager.h - 24-06-2026
+================================
+
+Changes:
+- Added ImageFadeStrobe to FXType enum.
+- Added StrobePhase enum { FadingOut, FadingIn }.
+- Added VKImageFadeStrobeData struct (imageType, fadeOutTarget, fadeOverTime, currentAlpha, phase, phaseTimer, stopRequested).
+- Added imageFadeStrobeData field to VKFXItem struct.
+- Added public methods to VKFXManager:
+    static constexpr int MAX_STROBE_INSTANCES = 10;
+    StartImageFadeStrobe, StopImageFadeStrobe, IsImageFadeStrobeActive,
+    GetImageFadeStrobeAlpha, RenderImageFadeStrobe.
+- Added private helper: UpdateImageFadeStrobe(VKFXItem& fx, float deltaTime).

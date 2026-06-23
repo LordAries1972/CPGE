@@ -3733,6 +3733,47 @@ void DX12Renderer::Blit2DObjectToSize(BlitObj2DIndexType iIndex, int iX, int iY,
 }
 
 //-----------------------------------------
+// Blit 2D Object To Size With Alpha
+//-----------------------------------------
+void DX12Renderer::Blit2DObjectToSizeWithAlpha(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float alpha)
+{
+    try {
+        if (int(iIndex) < 0 || int(iIndex) >= MAX_TEXTURE_BUFFERS)
+            return;
+
+        if (!IsDX11CompatibilityAvailable() || !m_d2dContext)
+            return;
+
+        if (!m_d2dTextures[int(iIndex)])
+            return;
+
+        D2D1_SIZE_F bitmapSize = m_d2dTextures[int(iIndex)]->GetSize();
+
+        D2D1_RECT_F destRect = D2D1::RectF(
+            static_cast<float>(iX),
+            static_cast<float>(iY),
+            static_cast<float>(iX + iWidth),
+            static_cast<float>(iY + iHeight)
+        );
+
+        D2D1_RECT_F srcRect = D2D1::RectF(0.0f, 0.0f, bitmapSize.width, bitmapSize.height);
+
+        float clampedAlpha = std::clamp(alpha, 0.0f, 1.0f);
+        m_d2dContext->DrawBitmap(
+            m_d2dTextures[int(iIndex)].Get(),
+            destRect,
+            clampedAlpha,
+            D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,
+            srcRect
+        );
+    }
+    catch (const std::exception& e) {
+        std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
+        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"DX12Renderer: Exception in Blit2DObjectToSizeWithAlpha: %s", errorMsg.c_str());
+    }
+}
+
+//-----------------------------------------
 // Blit 2D Object at Offset (for sprite sheets)
 //-----------------------------------------
 void DX12Renderer::Blit2DObjectAtOffset(BlitObj2DIndexType iIndex, int iBlitX, int iBlitY, int iXOffset, int iYOffset, int iTileSizeX, int iTileSizeY) {

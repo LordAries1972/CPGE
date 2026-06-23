@@ -1,0 +1,6 @@
+OpenGLRenderer.h - 24-06-2026
+==============================
+
+Changes:
+- Added Blit2DObjectToSizeWithAlpha declaration after Blit2DCenteredZoom.
+  Implements the new pure virtual method on Renderer base for ImageFadeStrobe support.

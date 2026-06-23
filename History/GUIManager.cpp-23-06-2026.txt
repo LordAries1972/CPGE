@@ -1217,40 +1217,53 @@ void GUIWindow::Render() {
 
             case GUIControlType::ToggleSlider: {
                 const bool  on    = (control.sliderValue >= 0.5f);
-                const float knobW = 28.0f;
                 const float knobH = control.size.y - 6.0f;
+                const float knobW = knobH;                              // Equal width = circular knob
                 const float knobY = control.position.y + 3.0f;
 
-                // Track background — green when ON, red-dark when OFF
+                // Track — pill / capsule shape (rounded ends via circles)
                 MyColor trackBg;
                 if (on)
                     trackBg = control.isHovered
-                        ? MyColor(24, 88, 32, 245) : MyColor(16, 64, 22, 228);
+                        ? MyColor(30, 160, 50, 250) : MyColor(22, 130, 38, 235);
                 else
                     trackBg = control.isHovered
-                        ? MyColor(78, 26, 20, 245) : MyColor(58, 18, 14, 222);
-                r->DrawRectangle(control.position, control.size, fc(trackBg), true);
+                        ? MyColor(72, 74, 82, 245) : MyColor(52, 54, 62, 228);
 
-                // 1px inset border (top highlight, bottom shadow)
-                r->DrawRectangle(
-                    Vector2(control.position.x, control.position.y),
-                    Vector2(control.size.x, 1.0f),
-                    fc(MyColor(200, 200, 200, 40)), true);
-                r->DrawRectangle(
-                    Vector2(control.position.x, control.position.y + control.size.y - 1.0f),
-                    Vector2(control.size.x, 1.0f),
-                    fc(MyColor(0, 0, 0, 60)), true);
+                // Pill geometry: circles at each end + rect across the middle
+                const float pillR  = control.size.y * 0.5f;
+                const float pillCY = control.position.y + pillR;
+                const float pillLX = control.position.x + pillR;       // left cap centre X
+                const float pillRX = control.position.x + control.size.x - pillR; // right cap X
+                // Left rounded cap
+                r->DrawCircle(Vector2(pillLX, pillCY), pillR, fc(trackBg), true);
+                // Right rounded cap
+                r->DrawCircle(Vector2(pillRX, pillCY), pillR, fc(trackBg), true);
+                // Middle fill
+                r->DrawRectangle(Vector2(pillLX, control.position.y),
+                    Vector2(pillRX - pillLX, control.size.y), fc(trackBg), true);
+
+                // Sunken bevel — top dark edge on straight section, caps get ring outline
+                MyColor darkEdge  = fc(MyColor(0, 0, 0, 100));
+                MyColor lightEdge = fc(MyColor(255, 255, 255, 22));
+                // Cap outlines (single-pixel rings give a recessed look)
+                r->DrawCircle(Vector2(pillLX, pillCY), pillR,     darkEdge,  false);
+                r->DrawCircle(Vector2(pillRX, pillCY), pillR,     darkEdge,  false);
+                // Straight section: dark top line, faint bottom line
+                r->DrawRectangle(Vector2(pillLX, control.position.y),
+                    Vector2(pillRX - pillLX, 1.0f), darkEdge, true);
+                r->DrawRectangle(Vector2(pillLX, control.position.y + control.size.y - 1.0f),
+                    Vector2(pillRX - pillLX, 1.0f), lightEdge, true);
 
                 // Knob x position (left = OFF, right = ON)
                 float knobX = on
                     ? control.position.x + control.size.x - knobW - 2.0f
                     : control.position.x + 2.0f;
 
-                // State text — centred within the non-knob half via DrawMyTextCentered
-                // so all renderers (DX11, Vulkan, OpenGL) produce identical layout.
+                // State text — bright green text when ON, muted grey when OFF
                 const std::wstring stateText = on ? L"ON" : L"OFF";
                 MyColor textCol = on
-                    ? MyColor(115, 255, 130, 210) : MyColor(195, 105, 100, 200);
+                    ? MyColor(185, 255, 195, 220) : MyColor(155, 158, 168, 200);
                 constexpr float kToggleFontSize = 9.0f;
                 if (on) {
                     // Knob on RIGHT → text centred in the LEFT portion
@@ -1267,102 +1280,139 @@ void GUIWindow::Render() {
                         fc(textCol), kToggleFontSize, areaW, control.size.y);
                 }
 
-                // Knob drop-shadow
-                r->DrawRectangle(
-                    Vector2(knobX + 1.0f, knobY + 1.0f),
-                    Vector2(knobW, knobH),
-                    fc(MyColor(0, 0, 0, 85)), true);
+                // Circular knob — centre point for DrawCircle
+                const float knobR  = knobW * 0.5f;
+                const float knobCX = knobX + knobR;
+                const float knobCY = knobY + knobR;
 
-                // Knob body
-                MyColor knobCol = on
-                    ? MyColor(55, 215, 80, 255) : MyColor(188, 58, 48, 255);
-                r->DrawRectangle(
-                    Vector2(knobX, knobY),
-                    Vector2(knobW, knobH),
-                    fc(knobCol), true);
+                // Knob drop-shadow circle
+                r->DrawCircle(Vector2(knobCX + 1.5f, knobCY + 1.5f), knobR,
+                    fc(MyColor(0, 0, 0, 110)), true);
 
-                // Knob shine strip (top highlight)
-                r->DrawRectangle(
-                    Vector2(knobX + 3.0f, knobY + 1.0f),
-                    Vector2(knobW - 6.0f, 3.0f),
-                    fc(MyColor(255, 255, 255, 70)), true);
+                // Knob body — white when ON, light steel-grey when OFF
+                MyColor knobFill = on
+                    ? MyColor(255, 255, 255, 255) : MyColor(182, 186, 200, 255);
+                r->DrawCircle(Vector2(knobCX, knobCY), knobR, fc(knobFill), true);
 
-                // Knob centre groove
-                r->DrawRectangle(
-                    Vector2(knobX + knobW * 0.5f - 1.0f, knobY + 4.0f),
-                    Vector2(2.0f, knobH - 8.0f),
-                    fc(MyColor(0, 0, 0, 65)), true);
+                // Inner gradient highlight: bright top arc (upper 40% of circle, inner radius)
+                r->DrawCircle(Vector2(knobCX, knobCY - knobR * 0.18f), knobR * 0.62f,
+                    fc(MyColor(255, 255, 255, on ? 95 : 75)), true);
+
+                // Outer ring bevel — lighter top-left, darker bottom-right
+                {
+                    MyColor ringHi = on ? MyColor(255, 255, 255, 160) : MyColor(218, 222, 234, 180);
+                    MyColor ringSh = on ? MyColor(155, 185, 158, 130) : MyColor(105, 110, 128, 140);
+                    // Top-left arc approximated with a slightly offset unfilled circle
+                    r->DrawCircle(Vector2(knobCX, knobCY), knobR, fc(ringHi), false);
+                }
+
+                // Knob top glass shine (small bright circle near top)
+                r->DrawCircle(Vector2(knobCX, knobCY - knobR * 0.3f), knobR * 0.28f,
+                    fc(MyColor(255, 255, 255, on ? 110 : 85)), true);
 
                 break;
             }
 
             case GUIControlType::HSlider: {
-                const float knobW  = 14.0f;
-                const float trackH = 6.0f;
+                const float knobW  = 16.0f;
+                const float trackH = 8.0f;
 
-                // Sunken panel behind the whole slider area
+                // Outer area dark fill (backdrop for the whole slider)
                 r->DrawRectangle(control.position, control.size,
-                    fc(MyColor(10, 10, 18, 200)), true);
+                    fc(MyColor(8, 9, 16, 210)), true);
 
-                // Track groove (dark channel)
+                // Track groove — 3D sunken bevel channel
                 float trackY = control.position.y + (control.size.y - trackH) * 0.5f;
                 float trackStartX = control.position.x + knobW * 0.5f;
                 float trackUsableW = control.size.x - knobW;
-                r->DrawRectangle(
-                    Vector2(trackStartX, trackY),
-                    Vector2(trackUsableW, trackH),
-                    fc(MyColor(25, 25, 40, 255)), true);
 
-                // Filled portion (progress left of knob centre)
+                // Outer sunken bevel (top-left dark, bottom-right light)
+                r->DrawRectangle(Vector2(trackStartX, trackY),
+                    Vector2(trackUsableW, trackH), fc(MyColor(6, 7, 14, 255)), true);
+                r->DrawRectangle(Vector2(trackStartX, trackY),
+                    Vector2(trackUsableW, 1.0f), fc(MyColor(4, 5, 10, 255)), true);
+                r->DrawRectangle(Vector2(trackStartX, trackY),
+                    Vector2(1.0f, trackH), fc(MyColor(4, 5, 10, 255)), true);
+                r->DrawRectangle(Vector2(trackStartX, trackY + trackH - 1.0f),
+                    Vector2(trackUsableW, 1.0f), fc(MyColor(62, 70, 105, 200)), true);
+                r->DrawRectangle(Vector2(trackStartX + trackUsableW - 1.0f, trackY),
+                    Vector2(1.0f, trackH), fc(MyColor(62, 70, 105, 200)), true);
+                // Inner trough (recessed channel)
+                r->DrawRectangle(Vector2(trackStartX + 1.0f, trackY + 1.0f),
+                    Vector2(trackUsableW - 2.0f, trackH - 2.0f),
+                    fc(MyColor(12, 15, 28, 255)), true);
+
+                // Progress fill — two-tone gradient (top lighter, bottom darker)
                 float t = (control.sliderMax > control.sliderMin)
                     ? std::clamp((control.sliderValue - control.sliderMin)
                                  / (control.sliderMax - control.sliderMin), 0.0f, 1.0f)
                     : 0.0f;
                 float knobCentreX = trackStartX + t * trackUsableW;
-                float fillW = knobCentreX - trackStartX;
-                if (fillW > 0.5f)
-                    r->DrawRectangle(
-                        Vector2(trackStartX, trackY),
-                        Vector2(fillW, trackH),
-                        fc(MyColor(50, 110, 210, 200)), true);
+                float fillW = knobCentreX - trackStartX - 1.0f;
+                if (fillW > 1.5f) {
+                    float fillH2 = std::floor((trackH - 2.0f) * 0.45f);
+                    r->DrawRectangle(Vector2(trackStartX + 1.0f, trackY + 1.0f),
+                        Vector2(fillW, fillH2), fc(MyColor(82, 158, 255, 220)), true);
+                    r->DrawRectangle(Vector2(trackStartX + 1.0f, trackY + 1.0f + fillH2),
+                        Vector2(fillW, trackH - 2.0f - fillH2),
+                        fc(MyColor(42, 108, 218, 220)), true);
+                }
 
-                // Track border highlight (top edge of groove, 1px)
-                r->DrawRectangle(
-                    Vector2(trackStartX, trackY),
-                    Vector2(trackUsableW, 1.0f),
-                    fc(MyColor(60, 60, 90, 180)), true);
-
-                // Knob colour — flash gold when active, else steel blue / hover
-                bool flashOn = (GetTickCount64() / 1000) % 2 == 0;
-                MyColor knobCol;
-                if (control.isActive)
-                    knobCol = flashOn ? MyColor(255, 195, 35, 255) : MyColor(130, 95, 15, 255);
-                else if (control.isHovered)
-                    knobCol = MyColor(120, 130, 200, 255);
-                else
-                    knobCol = MyColor(65, 70, 115, 255);
+                // Knob colour — gold when active (dragging), blue-hue otherwise
+                bool flashOn = (GetTickCount64() / 500) % 2 == 0;
+                MyColor knobTop, knobBot;
+                if (control.isActive) {
+                    knobTop = flashOn ? MyColor(255, 218, 82, 255) : MyColor(195, 162, 38, 255);
+                    knobBot = flashOn ? MyColor(195, 148, 18, 255) : MyColor(138, 108, 12, 255);
+                } else if (control.isHovered) {
+                    knobTop = MyColor(160, 182, 248, 255);
+                    knobBot = MyColor(88, 110, 205, 255);
+                } else {
+                    knobTop = MyColor(108, 118, 182, 255);
+                    knobBot = MyColor(58, 65, 128, 255);
+                }
 
                 float knobX = knobCentreX - knobW * 0.5f;
-                // Knob shadow (1px offset dark rectangle)
-                r->DrawRectangle(
-                    Vector2(knobX + 1.0f, control.position.y + 1.0f),
-                    Vector2(knobW, control.size.y),
-                    fc(MyColor(0, 0, 0, 100)), true);
-                // Knob body
-                r->DrawRectangle(
-                    Vector2(knobX, control.position.y),
-                    Vector2(knobW, control.size.y),
-                    fc(knobCol), true);
-                // Knob shine strip (top highlight)
-                r->DrawRectangle(
-                    Vector2(knobX + 2.0f, control.position.y + 1.0f),
-                    Vector2(knobW - 4.0f, 3.0f),
-                    fc(MyColor(255, 255, 255, 55)), true);
-                // Knob centre groove (vertical notch)
-                r->DrawRectangle(
-                    Vector2(knobCentreX - 1.0f, control.position.y + 3.0f),
-                    Vector2(2.0f, control.size.y - 6.0f),
-                    fc(MyColor(0, 0, 0, 80)), true);
+                float ky    = control.position.y;
+                float kh    = control.size.y;
+
+                // Knob drop shadow
+                r->DrawRectangle(Vector2(knobX + 2.0f, ky + 2.0f), Vector2(knobW, kh),
+                    fc(MyColor(0, 0, 0, 115)), true);
+
+                // Knob body — gradient: bright top half, dark bottom half
+                float kHalf = std::floor(kh * 0.5f);
+                r->DrawRectangle(Vector2(knobX, ky), Vector2(knobW, kHalf), fc(knobTop), true);
+                r->DrawRectangle(Vector2(knobX, ky + kHalf), Vector2(knobW, kh - kHalf), fc(knobBot), true);
+
+                // Knob outer raised bevel (3-D lifted edges)
+                r->DrawRectangle(Vector2(knobX, ky), Vector2(knobW, 1.0f),
+                    fc(MyColor(255, 255, 255, 92)), true);
+                r->DrawRectangle(Vector2(knobX, ky), Vector2(1.0f, kh),
+                    fc(MyColor(255, 255, 255, 82)), true);
+                r->DrawRectangle(Vector2(knobX, ky + kh - 1.0f), Vector2(knobW, 1.0f),
+                    fc(MyColor(0, 0, 0, 145)), true);
+                r->DrawRectangle(Vector2(knobX + knobW - 1.0f, ky), Vector2(1.0f, kh),
+                    fc(MyColor(0, 0, 0, 145)), true);
+
+                // Inner bevel (second depth level)
+                r->DrawRectangle(Vector2(knobX + 1.0f, ky + 1.0f), Vector2(knobW - 2.0f, 1.0f),
+                    fc(MyColor(255, 255, 255, 50)), true);
+                r->DrawRectangle(Vector2(knobX + 1.0f, ky + kh - 2.0f), Vector2(knobW - 2.0f, 1.0f),
+                    fc(MyColor(0, 0, 0, 82)), true);
+
+                // Centre grip lines (3 paired vertical notches — tactile indicator)
+                {
+                    float gx = knobCentreX - 5.0f;   // shifted 2px left per spec
+                    float gy = ky + 3.0f;
+                    float gh = kh - 6.0f;
+                    for (int gi = 0; gi < 3; ++gi) {
+                        r->DrawRectangle(Vector2(gx + gi * 3.0f, gy),
+                            Vector2(1.0f, gh), fc(MyColor(0, 0, 0, 88)), true);
+                        r->DrawRectangle(Vector2(gx + gi * 3.0f + 1.0f, gy),
+                            Vector2(1.0f, gh), fc(MyColor(255, 255, 255, 38)), true);
+                    }
+                }
                 break;
             }
 
