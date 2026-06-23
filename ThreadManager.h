@@ -81,6 +81,71 @@ struct ThreadInfo {
     #endif
 };
 
+// -----------------------------------------------------------------------------------------
+// ThreadSchedulingConfig - Optional scheduling hints for SetThread() on Windows platforms.
+//
+// idealCore        : Logical processor index passed to SetThreadIdealProcessor().
+//                    MAXDWORD = use the engine's built-in default for the thread type.
+// priority         : Win32 thread priority constant.
+//                    Rendering = THREAD_PRIORITY_ABOVE_NORMAL
+//                    Loader, FileIO, AI, Network = THREAD_PRIORITY_NORMAL
+//                    Audio = THREAD_PRIORITY_HIGHEST (set inside SoundManager separately)
+//                    Never use THREAD_PRIORITY_TIME_CRITICAL in production builds.
+// useEngineDefaults: When true (default), the engine fills in the recommended core/priority
+//                    for each known ThreadNameID. Set false to use your own explicit values.
+//
+// Recommended engine thread -> logical processor layout (LP 0 reserved for OS/main thread):
+//   LP 1  GE-AI-Thread                [THREAD_PRIORITY_NORMAL]
+//   LP 2  GE-Rendering-Thread         [THREAD_PRIORITY_ABOVE_NORMAL]
+//   LP 3  GE-Loader-Thread            [THREAD_PRIORITY_NORMAL]
+//   LP 4  GE-FileIO-Processing-Thread [THREAD_PRIORITY_NORMAL]
+//   LP 5  Audio / Worker jobs         [THREAD_PRIORITY_HIGHEST]
+// -----------------------------------------------------------------------------------------
+#if defined(PLATFORM_WINDOWS)
+struct ThreadSchedulingConfig {
+    DWORD idealCore       = MAXDWORD;               // MAXDWORD = use engine default for the thread type
+    int   priority        = THREAD_PRIORITY_NORMAL; // Scheduling weight; see layout above
+    bool  useEngineDefaults = true;                 // When true, overrides idealCore/priority with built-in per-thread-type defaults
+};
+
+// -----------------------------------------------------------------------------------------
+// ThreadUtils - Static utility class for Windows-only thread scheduling and naming.
+//
+// ALL methods operate on the CALLING thread (GetCurrentThread()).
+// Call these from inside the thread function body, NEVER from the creating thread.
+//
+// NameCurrentThread     : Registers a name visible in VS 2022, PIX, RenderDoc, WPA.
+// PreferCore            : Soft hint via SetThreadIdealProcessor() -- recommended for production.
+// ForceCore             : Hard lock via SetThreadAffinityMask() -- DEBUG / PROFILING ONLY.
+// SetPriority           : Adjusts CPU scheduling weight; avoid TIME_CRITICAL in production.
+// GetLogicalProcessorCount : Returns LP count from GetSystemInfo().
+// -----------------------------------------------------------------------------------------
+class ThreadUtils {
+public:
+    // Registers a descriptive name for the calling thread.
+    // Name is visible in Visual Studio 2022 debugger, PIX, RenderDoc, and Windows Performance Analyzer.
+    static void NameCurrentThread(const wchar_t* name);
+
+    // Hints to the Windows scheduler to prefer a given logical processor (soft hint).
+    // Windows may still migrate the thread for load balancing, thermal, or hybrid-core policies.
+    // Returns false if coreIndex exceeds the available logical processor count.
+    static bool PreferCore(DWORD coreIndex);
+
+    // Hard-locks the calling thread to a single logical processor via SetThreadAffinityMask().
+    // Disables Windows load balancing and Intel Thread Director on hybrid CPUs.
+    // USE FOR DEBUGGING, PROFILING, AND BENCHMARKING ONLY -- never enable in production builds.
+    static bool ForceCore(DWORD coreIndex);
+
+    // Sets the scheduling priority of the calling thread.
+    // Do NOT use THREAD_PRIORITY_TIME_CRITICAL in production; it can starve OS drivers and audio.
+    static void SetPriority(int priority);
+
+    // Returns the number of logical processors from GetSystemInfo().
+    // On hybrid CPUs (Intel P+E), this includes all P-cores, E-cores, and hyper-threads.
+    static DWORD GetLogicalProcessorCount();
+};
+#endif // PLATFORM_WINDOWS
+
 class ThreadManager {
 public:
     ThreadManager();
@@ -90,7 +155,13 @@ public:
 
     // Set and start a new thread
     std::string getThreadName(const ThreadNameID id);
-    void SetThread(const ThreadNameID id, std::function<void()> task, bool debugMode = false);
+    void SetThread(const ThreadNameID id, std::function<void()> task, bool debugMode = false
+#if defined(PLATFORM_WINDOWS)
+        // Optional scheduling hints; when useEngineDefaults=true the engine fills in
+        // the recommended LP and priority for each known ThreadNameID automatically.
+        , const ThreadSchedulingConfig& scheduling = {}
+#endif
+    );
     void StartThread(const ThreadNameID id);
     void PauseThread(const ThreadNameID id);
     void ResumeThread(const ThreadNameID id);
@@ -98,6 +169,11 @@ public:
     void TerminateThread(const ThreadNameID id);
     bool DoesThreadExist(const ThreadNameID id);
     void Cleanup();
+
+    // Queries and logs the system logical processor count and recommended engine thread layout.
+    // Must be called BEFORE the first SetThread() so the core count is available.
+    // Returns false if fewer than 2 logical processors are detected.
+    bool InitialiseThreadAffinity();
 
     // Lock management functions 
     bool CreateLock(const std::string& lockName);
@@ -115,6 +191,9 @@ public:
 private:
     bool bHasCleanedUp = false;
     char buffer[256];
+    #if defined(PLATFORM_WINDOWS)
+        DWORD m_processorCount = 0;             // Logical processor count; set by InitialiseThreadAffinity()
+    #endif
 
     // Structure to hold lock information
     struct LockInfo {

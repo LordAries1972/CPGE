@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ── Game identity & renderer selection ───────────────────────────────────────
 # GameName must match #define GAME_NAME in Includes.h and <GameName> in the vcxproj.
-set(GAME_NAME "TSOO" CACHE STRING "Base game name used in the output executable")
+set(GAME_NAME "CPGE" CACHE STRING "Base game name used in the output executable")
 # Renderer: DX11 | DX12 | OpenGL | Vulkan
 set(RENDERER "DX11" CACHE STRING "Active renderer (DX11, DX12, OpenGL, Vulkan)")
 

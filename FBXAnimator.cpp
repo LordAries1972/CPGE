@@ -26,8 +26,7 @@ struct XMFLOAT4X4
     XMFLOAT4X4() { for(int i=0;i<4;i++) for(int j=0;j<4;j++) m[i][j]=(i==j)?1.f:0.f; }
 };
 
-// Basic scalar conversion
-inline float XMConvertToRadians(float deg) { return deg * static_cast<float>(M_PI / 180.0); }
+// Basic scalar conversion -- XMConvertToRadians already defined as a macro in Includes.h
 
 // Vector helpers
 inline Vector4 XMLoadFloat4(const Vector4* v)               { return *v; }

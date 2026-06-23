@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.1.1828*
+*Current Build Version: v0.1.1832*
 
 ---
 
@@ -3799,6 +3799,14 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
 - **Docs — SceneManager-Example-Usage.md: ModelAnimator and FBXAnimator documentation**:
   Updated title, core-concepts section, FBX animation limitation note (removed — FBX now fully supported), and the entire Animations section. New content covers the `ModelAnimator` dispatcher architecture diagram, `ImportType` auto-dispatch explanation, updated code examples using `scene.modelAnimator.*`, FBX vs GLTF feature comparison, and guidance for accessing the sub-animators directly for format-specific APIs.
 - *See: [`Docs/SceneManager-Example-Usage.md`](Docs/SceneManager-Example-Usage.md)*
+
+- **Fix — FBXAnimator: OpenGL build compile errors** (`FBXAnimator.cpp`):
+  Three C2062/C2143/C2447 errors on OpenGL builds caused by a redundant `inline float XMConvertToRadians(float deg)` stub on line 30. `Includes.h` defines `XMConvertToRadians` as a function-like macro outside the `CPGE_MATH_STUBS_DEFINED` guard, so it is always active for all targets. When the preprocessor then encountered the inline function declaration with the same name, it expanded the macro into the declaration text, producing unparseable output. Fix: removed the inline function; the `Includes.h` macro provides identical behaviour.
+- *See: [`FBXAnimator.cpp`](FBXAnimator.cpp)*
+
+- **Feature — ThreadManager: Windows multi-core scheduling system** (`ThreadManager.h`, `ThreadManager.cpp`, `main.cpp`):
+  Introduced a complete Windows multi-core thread scheduling infrastructure to the engine's threading layer. **`ThreadSchedulingConfig`** (Windows-only): new struct holding `DWORD idealCore`, `int priority`, and `bool useEngineDefaults`. When `useEngineDefaults=true` (the default), `SetThread()` automatically applies the recommended LP assignment and priority for each known `ThreadNameID` — no changes required in existing renderer, FileIO, AI, or network callers. **`ThreadUtils`** (Windows-only static class): `NameCurrentThread(wchar_t*)` registers the OS-level thread description visible in VS 2022, PIX, RenderDoc, and WPA via `SetThreadDescription()`; `PreferCore(DWORD)` applies a soft ideal-processor hint via `SetThreadIdealProcessor()` with bounds validation; `ForceCore(DWORD)` applies hard affinity via `SetThreadAffinityMask()` (debug/profiling only); `SetPriority(int)` calls `SetThreadPriority()`; `GetLogicalProcessorCount()` queries `GetSystemInfo()`. **`SetThread()` updated**: extended signature accepts optional `const ThreadSchedulingConfig& scheduling = {}`. Inside the thread lambda, `NameCurrentThread()`, `PreferCore()`, and `SetPriority()` are applied automatically based on engine defaults: AI → LP 1 NORMAL, Renderer → LP 2 ABOVE_NORMAL, Loader → LP 3 NORMAL, FileIO → LP 4 NORMAL, Network → LP 5 NORMAL. Scheduling calls are made from inside the new thread (not the creator) so `GetCurrentThread()` resolves correctly. All Windows-specific code is guarded with `#if defined(PLATFORM_WINDOWS)`. **`InitialiseThreadAffinity()`**: new `ThreadManager` method queries LP count, logs the full engine thread → logical-processor layout table at startup, and warns when requested LPs exceed system capacity. **Fixed**: `TM_LOG_LEVEL` and `TM_LOG_DEBUG` macros were previously defined recursively (calling themselves), causing undefined behaviour when `_DEBUG_THREADMANAGER_` was enabled; corrected to call `debug.logLevelMessage()` and `debug.logDebugMessage()` respectively. **`main.cpp`**: `threadManager.InitialiseThreadAffinity()` called immediately after `DetectAndLogAudioDevices()` and before any `SetThread()` invocation.
+- *See: [`ThreadManager.h`](ThreadManager.h), [`ThreadManager.cpp`](ThreadManager.cpp), [`main.cpp`](main.cpp)*
 
 ---
 

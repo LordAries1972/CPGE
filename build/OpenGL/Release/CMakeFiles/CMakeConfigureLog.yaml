@@ -2144,3 +2144,626 @@ events:
         - "D:/Programs/CMake"
         - "C:/Program Files/CrossPlatformGameEngine"
 ...
+
+---
+events:
+  -
+    kind: "find-v1"
+    backtrace:
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineCompiler.cmake:54 (find_program)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineASMCompiler.cmake:61 (_cmake_find_compiler)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineASM_MASMCompiler.cmake:17 (include)"
+      - "CMakeLists.txt:45 (enable_language)"
+    mode: "program"
+    variable: "CMAKE_ASM_MASM_COMPILER"
+    description: "ASM_MASM compiler"
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "ml64"
+    candidate_directories:
+      - "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.38.33130/bin/Hostx64/x64/"
+      - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin/"
+    searched_directories:
+      - "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.38.33130/bin/Hostx64/x64/ml64.com"
+    found: "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.38.33130/bin/Hostx64/x64/ml64.exe"
+    search_context:
+      ENV{PATH}:
+        - "C:\\Python314\\Scripts\\"
+        - "C:\\Python314\\"
+        - "D:\\VulkanSDK\\1.4.350.0\\Bin"
+        - "C:\\Program Files (x86)\\Embarcadero\\Studio\\23.0\\bin"
+        - "C:\\Users\\Public\\Documents\\Embarcadero\\Studio\\23.0\\Bpl"
+        - "C:\\Program Files (x86)\\Embarcadero\\Studio\\23.0\\bin64"
+        - "C:\\Users\\Public\\Documents\\Embarcadero\\Studio\\23.0\\Bpl\\Win64"
+        - "D:\\Program Files\\NVIDIA Corporation\\CudaToolkit\\bin"
+        - "D:\\Program Files\\NVIDIA Corporation\\CudaToolkit\\libnvvp"
+        - "D:\\Program Files (x86)\\VMware\\VMware Workstation\\bin\\"
+        - "C:\\Program Files\\Eclipse Adoptium\\jdk-11.0.15.10-hotspot\\bin"
+        - "C:\\WINDOWS\\system32"
+        - "C:\\WINDOWS"
+        - "C:\\WINDOWS\\System32\\Wbem"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Microsoft SQL Server\\Client SDK\\ODBC\\170\\Tools\\Binn\\"
+        - "C:\\Program Files\\Microsoft SQL Server\\150\\Tools\\Binn\\"
+        - "C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common"
+        - "C:\\Program Files\\dotnet\\"
+        - "C:\\Program Files\\GitHub CLI\\"
+        - "D:\\Program Files\\Assimp\\bin\\x64"
+        - "D:\\Program Files\\Assimp\\lib\\x64"
+        - "D:\\Program Files\\Assimp\\include\\assimp"
+        - "C:\\Program Files\\NVIDIA Corporation\\Nsight Compute 2024.3.2\\"
+        - "D:\\Program Files\\WinMerge"
+        - "D:\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\ProgramData\\chocolatey\\bin"
+        - "D:\\Program Files\\PuTTY\\"
+        - "D:\\Program Files\\PowerShell\\7\\"
+        - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA App\\NvDLISR"
+        - "D:\\Program Files\\Git LFS"
+        - "D:\\Program Files\\Git\\cmd"
+        - "D:\\Program Files\\nodejs\\"
+        - "C:\\Users\\hobso\\.grok\\bin"
+        - "D:\\Python\\Python313\\Scripts\\"
+        - "D:\\Python\\Python313\\"
+        - "C:\\Program Files\\MySQL\\MySQL Shell 8.0\\bin\\"
+        - "C:\\Users\\hobso\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\hobso\\AppData\\Local\\GitHubDesktop\\bin"
+        - "D:\\Program Files\\Microsoft VS Code\\bin"
+        - "C:\\Users\\hobso\\AppData\\Local\\Programs\\Windsurf\\bin"
+        - "C:\\Program Files\\Tesseract-OCR"
+        - "F:\\PHP"
+        - "C:\\Users\\hobso\\AppData\\Local\\ComposerSetup\\bin"
+        - "C:\\Users\\hobso\\AppData\\Roaming\\Composer\\vendor\\bin"
+        - "F:\\curl\\bin"
+        - "F:\\PHP\\ext"
+        - "F:\\BPL\\Win32"
+        - "C:\\Users\\hobso\\.dotnet\\tools"
+        - "D:\\Programs\\CMake\\bin"
+        - "D:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Users\\hobso\\.dotnet\\tools"
+        - "C:\\Users\\hobso\\AppData\\Roaming\\npm"
+      CMAKE_INSTALL_PREFIX: "C:/Program Files/CrossPlatformGameEngine"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "C:/Program Files"
+        - "C:/Program Files (x86)"
+        - "D:/Programs/CMake"
+        - "C:/Program Files/CrossPlatformGameEngine"
+  -
+    kind: "message-v1"
+    backtrace:
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineCompilerId.cmake:1309 (message)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineASMCompiler.cmake:170 (CMAKE_DETERMINE_COMPILER_ID_VENDOR)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineASM_MASMCompiler.cmake:17 (include)"
+      - "CMakeLists.txt:45 (enable_language)"
+    message: |
+      Checking whether the ASM_MASM compiler is GNU using "--version" did not match "(GNU assembler)|(GCC)|(Free Software Foundation)":
+      Microsoft (R) Macro Assembler (x64) Version 14.38.33145.0
+      Copyright (C) Microsoft Corporation.  All rights reserved.
+      
+      MASM : warning A4018:invalid command-line option : --version
+      MASM : fatal error A1017:missing source filename
+  -
+    kind: "message-v1"
+    backtrace:
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineCompilerId.cmake:1309 (message)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineASMCompiler.cmake:170 (CMAKE_DETERMINE_COMPILER_ID_VENDOR)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineASM_MASMCompiler.cmake:17 (include)"
+      - "CMakeLists.txt:45 (enable_language)"
+    message: |
+      Checking whether the ASM_MASM compiler is AppleClang using "--version" did not match "(Apple (clang|LLVM) version)":
+      Microsoft (R) Macro Assembler (x64) Version 14.38.33145.0
+      Copyright (C) Microsoft Corporation.  All rights reserved.
+      
+      MASM : warning A4018:invalid command-line option : --version
+      MASM : fatal error A1017:missing source filename
+  -
+    kind: "message-v1"
+    backtrace:
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineCompilerId.cmake:1309 (message)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineASMCompiler.cmake:170 (CMAKE_DETERMINE_COMPILER_ID_VENDOR)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineASM_MASMCompiler.cmake:17 (include)"
+      - "CMakeLists.txt:45 (enable_language)"
+    message: |
+      Checking whether the ASM_MASM compiler is Clang using "--version" did not match "(clang version)":
+      Microsoft (R) Macro Assembler (x64) Version 14.38.33145.0
+      Copyright (C) Microsoft Corporation.  All rights reserved.
+      
+      MASM : warning A4018:invalid command-line option : --version
+      MASM : fatal error A1017:missing source filename
+  -
+    kind: "message-v1"
+    backtrace:
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineCompilerId.cmake:1309 (message)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineASMCompiler.cmake:170 (CMAKE_DETERMINE_COMPILER_ID_VENDOR)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineASM_MASMCompiler.cmake:17 (include)"
+      - "CMakeLists.txt:45 (enable_language)"
+    message: |
+      Checking whether the ASM_MASM compiler is ARMClang using "--version" did not match "armclang":
+      Microsoft (R) Macro Assembler (x64) Version 14.38.33145.0
+      Copyright (C) Microsoft Corporation.  All rights reserved.
+      
+      MASM : warning A4018:invalid command-line option : --version
+      MASM : fatal error A1017:missing source filename
+  -
+    kind: "message-v1"
+    backtrace:
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineCompilerId.cmake:1309 (message)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineASMCompiler.cmake:170 (CMAKE_DETERMINE_COMPILER_ID_VENDOR)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineASM_MASMCompiler.cmake:17 (include)"
+      - "CMakeLists.txt:45 (enable_language)"
+    message: |
+      Checking whether the ASM_MASM compiler is OrangeC using "--version" did not match "occ \\(OrangeC\\) Version":
+      Microsoft (R) Macro Assembler (x64) Version 14.38.33145.0
+      Copyright (C) Microsoft Corporation.  All rights reserved.
+      
+      MASM : warning A4018:invalid command-line option : --version
+      MASM : fatal error A1017:missing source filename
+  -
+    kind: "message-v1"
+    backtrace:
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineCompilerId.cmake:1309 (message)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineASMCompiler.cmake:170 (CMAKE_DETERMINE_COMPILER_ID_VENDOR)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineASM_MASMCompiler.cmake:17 (include)"
+      - "CMakeLists.txt:45 (enable_language)"
+    message: |
+      Checking whether the ASM_MASM compiler is HP using "-V" did not match "HP C":
+      Microsoft (R) Macro Assembler (x64) Version 14.38.33145.0
+      Copyright (C) Microsoft Corporation.  All rights reserved.
+      
+      MASM : warning A4018:invalid command-line option : -V
+      MASM : fatal error A1017:missing source filename
+  -
+    kind: "message-v1"
+    backtrace:
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineCompilerId.cmake:1309 (message)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineASMCompiler.cmake:170 (CMAKE_DETERMINE_COMPILER_ID_VENDOR)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineASM_MASMCompiler.cmake:17 (include)"
+      - "CMakeLists.txt:45 (enable_language)"
+    message: |
+      Checking whether the ASM_MASM compiler is Intel using "--version" did not match "(ICC)":
+      Microsoft (R) Macro Assembler (x64) Version 14.38.33145.0
+      Copyright (C) Microsoft Corporation.  All rights reserved.
+      
+      MASM : warning A4018:invalid command-line option : --version
+      MASM : fatal error A1017:missing source filename
+  -
+    kind: "message-v1"
+    backtrace:
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineCompilerId.cmake:1309 (message)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineASMCompiler.cmake:170 (CMAKE_DETERMINE_COMPILER_ID_VENDOR)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineASM_MASMCompiler.cmake:17 (include)"
+      - "CMakeLists.txt:45 (enable_language)"
+    message: |
+      Checking whether the ASM_MASM compiler is IntelLLVM using "--version" did not match "(Intel[^
+      ]+oneAPI)":
+      Microsoft (R) Macro Assembler (x64) Version 14.38.33145.0
+      Copyright (C) Microsoft Corporation.  All rights reserved.
+      
+      MASM : warning A4018:invalid command-line option : --version
+      MASM : fatal error A1017:missing source filename
+  -
+    kind: "message-v1"
+    backtrace:
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineCompilerId.cmake:1309 (message)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineASMCompiler.cmake:170 (CMAKE_DETERMINE_COMPILER_ID_VENDOR)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineASM_MASMCompiler.cmake:17 (include)"
+      - "CMakeLists.txt:45 (enable_language)"
+    message: |
+      Checking whether the ASM_MASM compiler is SunPro using "-V" did not match "Sun C":
+      Microsoft (R) Macro Assembler (x64) Version 14.38.33145.0
+      Copyright (C) Microsoft Corporation.  All rights reserved.
+      
+      MASM : warning A4018:invalid command-line option : -V
+      MASM : fatal error A1017:missing source filename
+  -
+    kind: "message-v1"
+    backtrace:
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineCompilerId.cmake:1309 (message)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineASMCompiler.cmake:170 (CMAKE_DETERMINE_COMPILER_ID_VENDOR)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineASM_MASMCompiler.cmake:17 (include)"
+      - "CMakeLists.txt:45 (enable_language)"
+    message: |
+      Checking whether the ASM_MASM compiler is XL using "-qversion" did not match "XL C":
+      Microsoft (R) Macro Assembler (x64) Version 14.38.33145.0
+      Copyright (C) Microsoft Corporation.  All rights reserved.
+      
+      MASM : warning A4018:invalid command-line option : -qversion
+      MASM : fatal error A1017:missing source filename
+  -
+    kind: "message-v1"
+    backtrace:
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineCompilerId.cmake:1296 (message)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineASMCompiler.cmake:170 (CMAKE_DETERMINE_COMPILER_ID_VENDOR)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineASM_MASMCompiler.cmake:17 (include)"
+      - "CMakeLists.txt:45 (enable_language)"
+    message: |
+      Checking whether the ASM_MASM compiler is MSVC using "-?" matched "Microsoft":
+      Microsoft (R) Macro Assembler (x64) Version 14.38.33145.0
+      Copyright (C) Microsoft Corporation.  All rights reserved.
+      
+              ML64 [ /options ] filelist [ /link linkoptions ]
+      
+      /Bl<linker> Use alternate linker          /Sf Generate first pass listing
+      /c Assemble without linking               /Sl<width> Set line width
+      /Cp Preserve case of user identifiers     /Sn Suppress symbol-table listing
+      /Cx Preserve case in publics, externs     /Sp<length> Set page length
+      /D<name>[=text] Define text macro         /Ss<string> Set subtitle
+      /EP Output preprocessed listing to stdout /St<string> Set title
+      /F <hex> Set stack size (bytes)           /Sx List false conditionals
+      /Fe<file> Name executable                 /Ta<file> Assemble non-.ASM file
+      /Fl[file] Generate listing                /w Same as /W0 /WX
+      /Fm[file] Generate map                    /WX Treat warnings as errors
+      /Fo<file> Name object file                /W<number> Set warning level
+      /Fr[file] Generate limited browser info   /X Ignore INCLUDE environment path
+      /FR[file] Generate full browser info      /Zd Add line number debug info
+      /I<name> Add include path                 /Zf Make all symbols public
+      /link <linker options and libraries>      /Zi Add symbolic debug info
+      /nologo Suppress copyright message        /Zp[n] Set structure alignment
+      /Sa Maximize source listing               /Zs Perform syntax check only
+      /ZH:MD5 Use MD5 for checksum in debug info
+      /ZH:SHA_256 Use SHA256 for checksum in debug info (default)
+      /Gy[-] separate functions for linker      /quiet Suppress 'Assembling' message
+      /errorReport:<option> Deprecated. Report internal assembler errors to Microsoft
+          none - do not send report
+          prompt - prompt to immediately send report
+          queue - at next admin logon, prompt to send report
+          send - send report automatically
+  -
+    kind: "find-v1"
+    backtrace:
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeFindBinUtils.cmake:37 (find_program)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeFindBinUtils.cmake:65 (__resolve_tool_path)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeFindBinUtils.cmake:104 (__resolve_linker_path)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineASMCompiler.cmake:267 (include)"
+      - "D:/Programs/CMake/share/cmake-4.3/Modules/CMakeDetermineASM_MASMCompiler.cmake:17 (include)"
+      - "CMakeLists.txt:45 (enable_language)"
+    mode: "program"
+    variable: "_CMAKE_TOOL_WITH_PATH"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "lld-link"
+    candidate_directories:
+      - "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.38.33130/bin/Hostx64/x64/"
+      - "C:/Python314/Scripts/"
+      - "C:/Python314/"
+      - "D:/VulkanSDK/1.4.350.0/Bin/"
+      - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin/"
+      - "C:/Users/Public/Documents/Embarcadero/Studio/23.0/Bpl/"
+      - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin64/"
+      - "C:/Users/Public/Documents/Embarcadero/Studio/23.0/Bpl/Win64/"
+      - "D:/Program Files/NVIDIA Corporation/CudaToolkit/bin/"
+      - "D:/Program Files/NVIDIA Corporation/CudaToolkit/libnvvp/"
+      - "D:/Program Files (x86)/VMware/VMware Workstation/bin/"
+      - "C:/Program Files/Eclipse Adoptium/jdk-11.0.15.10-hotspot/bin/"
+      - "C:/WINDOWS/System32/"
+      - "C:/WINDOWS/"
+      - "C:/WINDOWS/System32/wbem/"
+      - "C:/WINDOWS/System32/WindowsPowerShell/v1.0/"
+      - "C:/WINDOWS/System32/OpenSSH/"
+      - "C:/Program Files/Microsoft SQL Server/Client SDK/ODBC/170/Tools/Binn/"
+      - "C:/Program Files/Microsoft SQL Server/150/Tools/Binn/"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/"
+      - "C:/Program Files/dotnet/"
+      - "C:/Program Files/GitHub CLI/"
+      - "D:/Program Files/Assimp/bin/x64/"
+      - "D:/Program Files/Assimp/lib/x64/"
+      - "D:/Program Files/Assimp/include/assimp/"
+      - "C:/Program Files/NVIDIA Corporation/Nsight Compute 2024.3.2/"
+      - "D:/Program Files/WinMerge/"
+      - "D:/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/ProgramData/chocolatey/bin/"
+      - "D:/Program Files/PuTTY/"
+      - "D:/Program Files/PowerShell/7/"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
+      - "D:/Program Files/Git LFS/"
+      - "D:/Program Files/Git/cmd/"
+      - "D:/Program Files/nodejs/"
+      - "C:/Users/hobso/.grok/bin/"
+      - "D:/Python/Python313/Scripts/"
+      - "D:/Python/Python313/"
+      - "C:/Program Files/MySQL/MySQL Shell 8.0/bin/"
+      - "C:/Users/hobso/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/hobso/AppData/Local/GitHubDesktop/bin/"
+      - "D:/Program Files/Microsoft VS Code/bin/"
+      - "C:/Users/hobso/AppData/Local/Programs/Windsurf/bin/"
+      - "C:/Program Files/Tesseract-OCR/"
+      - "F:/PHP/"
+      - "C:/Users/hobso/AppData/Local/ComposerSetup/bin/"
+      - "C:/Users/hobso/AppData/Roaming/Composer/vendor/bin/"
+      - "F:/curl/bin/"
+      - "F:/PHP/ext/"
+      - "F:/BPL/Win32/"
+      - "C:/Users/hobso/.dotnet/tools/"
+      - "D:/Programs/CMake/bin/"
+      - "D:/Program Files/Git/usr/bin/"
+      - "C:/Users/hobso/AppData/Roaming/npm/"
+      - "C:/Program Files/bin/"
+      - "C:/Program Files/sbin/"
+      - "C:/Program Files/"
+      - "C:/Program Files (x86)/bin/"
+      - "C:/Program Files (x86)/sbin/"
+      - "C:/Program Files (x86)/"
+      - "D:/Programs/CMake/bin/"
+      - "D:/Programs/CMake/sbin/"
+      - "D:/Programs/CMake/"
+      - "C:/Program Files/CrossPlatformGameEngine/bin/"
+      - "C:/Program Files/CrossPlatformGameEngine/sbin/"
+      - "C:/Program Files/CrossPlatformGameEngine/"
+    searched_directories:
+      - "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.38.33130/bin/Hostx64/x64/lld-link.com"
+      - "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.38.33130/bin/Hostx64/x64/lld-link.exe"
+      - "D:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.38.33130/bin/Hostx64/x64/lld-link"
+      - "C:/Python314/Scripts/lld-link.com"
+      - "C:/Python314/Scripts/lld-link.exe"
+      - "C:/Python314/Scripts/lld-link"
+      - "C:/Python314/lld-link.com"
+      - "C:/Python314/lld-link.exe"
+      - "C:/Python314/lld-link"
+      - "D:/VulkanSDK/1.4.350.0/Bin/lld-link.com"
+      - "D:/VulkanSDK/1.4.350.0/Bin/lld-link.exe"
+      - "D:/VulkanSDK/1.4.350.0/Bin/lld-link"
+      - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin/lld-link.com"
+      - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin/lld-link.exe"
+      - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin/lld-link"
+      - "C:/Users/Public/Documents/Embarcadero/Studio/23.0/Bpl/lld-link.com"
+      - "C:/Users/Public/Documents/Embarcadero/Studio/23.0/Bpl/lld-link.exe"
+      - "C:/Users/Public/Documents/Embarcadero/Studio/23.0/Bpl/lld-link"
+      - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin64/lld-link.com"
+      - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin64/lld-link.exe"
+      - "C:/Program Files (x86)/Embarcadero/Studio/23.0/bin64/lld-link"
+      - "C:/Users/Public/Documents/Embarcadero/Studio/23.0/Bpl/Win64/lld-link.com"
+      - "C:/Users/Public/Documents/Embarcadero/Studio/23.0/Bpl/Win64/lld-link.exe"
+      - "C:/Users/Public/Documents/Embarcadero/Studio/23.0/Bpl/Win64/lld-link"
+      - "D:/Program Files/NVIDIA Corporation/CudaToolkit/bin/lld-link.com"
+      - "D:/Program Files/NVIDIA Corporation/CudaToolkit/bin/lld-link.exe"
+      - "D:/Program Files/NVIDIA Corporation/CudaToolkit/bin/lld-link"
+      - "D:/Program Files/NVIDIA Corporation/CudaToolkit/libnvvp/lld-link.com"
+      - "D:/Program Files/NVIDIA Corporation/CudaToolkit/libnvvp/lld-link.exe"
+      - "D:/Program Files/NVIDIA Corporation/CudaToolkit/libnvvp/lld-link"
+      - "D:/Program Files (x86)/VMware/VMware Workstation/bin/lld-link.com"
+      - "D:/Program Files (x86)/VMware/VMware Workstation/bin/lld-link.exe"
+      - "D:/Program Files (x86)/VMware/VMware Workstation/bin/lld-link"
+      - "C:/Program Files/Eclipse Adoptium/jdk-11.0.15.10-hotspot/bin/lld-link.com"
+      - "C:/Program Files/Eclipse Adoptium/jdk-11.0.15.10-hotspot/bin/lld-link.exe"
+      - "C:/Program Files/Eclipse Adoptium/jdk-11.0.15.10-hotspot/bin/lld-link"
+      - "C:/WINDOWS/System32/lld-link.com"
+      - "C:/WINDOWS/System32/lld-link.exe"
+      - "C:/WINDOWS/System32/lld-link"
+      - "C:/WINDOWS/lld-link.com"
+      - "C:/WINDOWS/lld-link.exe"
+      - "C:/WINDOWS/lld-link"
+      - "C:/WINDOWS/System32/wbem/lld-link.com"
+      - "C:/WINDOWS/System32/wbem/lld-link.exe"
+      - "C:/WINDOWS/System32/wbem/lld-link"
+      - "C:/WINDOWS/System32/WindowsPowerShell/v1.0/lld-link.com"
+      - "C:/WINDOWS/System32/WindowsPowerShell/v1.0/lld-link.exe"
+      - "C:/WINDOWS/System32/WindowsPowerShell/v1.0/lld-link"
+      - "C:/WINDOWS/System32/OpenSSH/lld-link.com"
+      - "C:/WINDOWS/System32/OpenSSH/lld-link.exe"
+      - "C:/WINDOWS/System32/OpenSSH/lld-link"
+      - "C:/Program Files/Microsoft SQL Server/Client SDK/ODBC/170/Tools/Binn/lld-link.com"
+      - "C:/Program Files/Microsoft SQL Server/Client SDK/ODBC/170/Tools/Binn/lld-link.exe"
+      - "C:/Program Files/Microsoft SQL Server/Client SDK/ODBC/170/Tools/Binn/lld-link"
+      - "C:/Program Files/Microsoft SQL Server/150/Tools/Binn/lld-link.com"
+      - "C:/Program Files/Microsoft SQL Server/150/Tools/Binn/lld-link.exe"
+      - "C:/Program Files/Microsoft SQL Server/150/Tools/Binn/lld-link"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/lld-link.com"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/lld-link.exe"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/lld-link"
+      - "C:/Program Files/dotnet/lld-link.com"
+      - "C:/Program Files/dotnet/lld-link.exe"
+      - "C:/Program Files/dotnet/lld-link"
+      - "C:/Program Files/GitHub CLI/lld-link.com"
+      - "C:/Program Files/GitHub CLI/lld-link.exe"
+      - "C:/Program Files/GitHub CLI/lld-link"
+      - "D:/Program Files/Assimp/bin/x64/lld-link.com"
+      - "D:/Program Files/Assimp/bin/x64/lld-link.exe"
+      - "D:/Program Files/Assimp/bin/x64/lld-link"
+      - "D:/Program Files/Assimp/lib/x64/lld-link.com"
+      - "D:/Program Files/Assimp/lib/x64/lld-link.exe"
+      - "D:/Program Files/Assimp/lib/x64/lld-link"
+      - "D:/Program Files/Assimp/include/assimp/lld-link.com"
+      - "D:/Program Files/Assimp/include/assimp/lld-link.exe"
+      - "D:/Program Files/Assimp/include/assimp/lld-link"
+      - "C:/Program Files/NVIDIA Corporation/Nsight Compute 2024.3.2/lld-link.com"
+      - "C:/Program Files/NVIDIA Corporation/Nsight Compute 2024.3.2/lld-link.exe"
+      - "C:/Program Files/NVIDIA Corporation/Nsight Compute 2024.3.2/lld-link"
+      - "D:/Program Files/WinMerge/lld-link.com"
+      - "D:/Program Files/WinMerge/lld-link.exe"
+      - "D:/Program Files/WinMerge/lld-link"
+      - "D:/Windows Kits/10/Windows Performance Toolkit/lld-link.com"
+      - "D:/Windows Kits/10/Windows Performance Toolkit/lld-link.exe"
+      - "D:/Windows Kits/10/Windows Performance Toolkit/lld-link"
+      - "C:/ProgramData/chocolatey/bin/lld-link.com"
+      - "C:/ProgramData/chocolatey/bin/lld-link.exe"
+      - "C:/ProgramData/chocolatey/bin/lld-link"
+      - "D:/Program Files/PuTTY/lld-link.com"
+      - "D:/Program Files/PuTTY/lld-link.exe"
+      - "D:/Program Files/PuTTY/lld-link"
+      - "D:/Program Files/PowerShell/7/lld-link.com"
+      - "D:/Program Files/PowerShell/7/lld-link.exe"
+      - "D:/Program Files/PowerShell/7/lld-link"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/lld-link.com"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/lld-link.exe"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/lld-link"
+      - "D:/Program Files/Git LFS/lld-link.com"
+      - "D:/Program Files/Git LFS/lld-link.exe"
+      - "D:/Program Files/Git LFS/lld-link"
+      - "D:/Program Files/Git/cmd/lld-link.com"
+      - "D:/Program Files/Git/cmd/lld-link.exe"
+      - "D:/Program Files/Git/cmd/lld-link"
+      - "D:/Program Files/nodejs/lld-link.com"
+      - "D:/Program Files/nodejs/lld-link.exe"
+      - "D:/Program Files/nodejs/lld-link"
+      - "C:/Users/hobso/.grok/bin/lld-link.com"
+      - "C:/Users/hobso/.grok/bin/lld-link.exe"
+      - "C:/Users/hobso/.grok/bin/lld-link"
+      - "D:/Python/Python313/Scripts/lld-link.com"
+      - "D:/Python/Python313/Scripts/lld-link.exe"
+      - "D:/Python/Python313/Scripts/lld-link"
+      - "D:/Python/Python313/lld-link.com"
+      - "D:/Python/Python313/lld-link.exe"
+      - "D:/Python/Python313/lld-link"
+      - "C:/Program Files/MySQL/MySQL Shell 8.0/bin/lld-link.com"
+      - "C:/Program Files/MySQL/MySQL Shell 8.0/bin/lld-link.exe"
+      - "C:/Program Files/MySQL/MySQL Shell 8.0/bin/lld-link"
+      - "C:/Users/hobso/AppData/Local/Microsoft/WindowsApps/lld-link.com"
+      - "C:/Users/hobso/AppData/Local/Microsoft/WindowsApps/lld-link.exe"
+      - "C:/Users/hobso/AppData/Local/Microsoft/WindowsApps/lld-link"
+      - "C:/Users/hobso/AppData/Local/GitHubDesktop/bin/lld-link.com"
+      - "C:/Users/hobso/AppData/Local/GitHubDesktop/bin/lld-link.exe"
+      - "C:/Users/hobso/AppData/Local/GitHubDesktop/bin/lld-link"
+      - "D:/Program Files/Microsoft VS Code/bin/lld-link.com"
+      - "D:/Program Files/Microsoft VS Code/bin/lld-link.exe"
+      - "D:/Program Files/Microsoft VS Code/bin/lld-link"
+      - "C:/Users/hobso/AppData/Local/Programs/Windsurf/bin/lld-link.com"
+      - "C:/Users/hobso/AppData/Local/Programs/Windsurf/bin/lld-link.exe"
+      - "C:/Users/hobso/AppData/Local/Programs/Windsurf/bin/lld-link"
+      - "C:/Program Files/Tesseract-OCR/lld-link.com"
+      - "C:/Program Files/Tesseract-OCR/lld-link.exe"
+      - "C:/Program Files/Tesseract-OCR/lld-link"
+      - "F:/PHP/lld-link.com"
+      - "F:/PHP/lld-link.exe"
+      - "F:/PHP/lld-link"
+      - "C:/Users/hobso/AppData/Local/ComposerSetup/bin/lld-link.com"
+      - "C:/Users/hobso/AppData/Local/ComposerSetup/bin/lld-link.exe"
+      - "C:/Users/hobso/AppData/Local/ComposerSetup/bin/lld-link"
+      - "C:/Users/hobso/AppData/Roaming/Composer/vendor/bin/lld-link.com"
+      - "C:/Users/hobso/AppData/Roaming/Composer/vendor/bin/lld-link.exe"
+      - "C:/Users/hobso/AppData/Roaming/Composer/vendor/bin/lld-link"
+      - "F:/curl/bin/lld-link.com"
+      - "F:/curl/bin/lld-link.exe"
+      - "F:/curl/bin/lld-link"
+      - "F:/PHP/ext/lld-link.com"
+      - "F:/PHP/ext/lld-link.exe"
+      - "F:/PHP/ext/lld-link"
+      - "F:/BPL/Win32/lld-link.com"
+      - "F:/BPL/Win32/lld-link.exe"
+      - "F:/BPL/Win32/lld-link"
+      - "C:/Users/hobso/.dotnet/tools/lld-link.com"
+      - "C:/Users/hobso/.dotnet/tools/lld-link.exe"
+      - "C:/Users/hobso/.dotnet/tools/lld-link"
+      - "D:/Programs/CMake/bin/lld-link.com"
+      - "D:/Programs/CMake/bin/lld-link.exe"
+      - "D:/Programs/CMake/bin/lld-link"
+      - "D:/Program Files/Git/usr/bin/lld-link.com"
+      - "D:/Program Files/Git/usr/bin/lld-link.exe"
+      - "D:/Program Files/Git/usr/bin/lld-link"
+      - "C:/Users/hobso/AppData/Roaming/npm/lld-link.com"
+      - "C:/Users/hobso/AppData/Roaming/npm/lld-link.exe"
+      - "C:/Users/hobso/AppData/Roaming/npm/lld-link"
+      - "C:/Program Files/bin/lld-link.com"
+      - "C:/Program Files/bin/lld-link.exe"
+      - "C:/Program Files/bin/lld-link"
+      - "C:/Program Files/sbin/lld-link.com"
+      - "C:/Program Files/sbin/lld-link.exe"
+      - "C:/Program Files/sbin/lld-link"
+      - "C:/Program Files/lld-link.com"
+      - "C:/Program Files/lld-link.exe"
+      - "C:/Program Files/lld-link"
+      - "C:/Program Files (x86)/bin/lld-link.com"
+      - "C:/Program Files (x86)/bin/lld-link.exe"
+      - "C:/Program Files (x86)/bin/lld-link"
+      - "C:/Program Files (x86)/sbin/lld-link.com"
+      - "C:/Program Files (x86)/sbin/lld-link.exe"
+      - "C:/Program Files (x86)/sbin/lld-link"
+      - "C:/Program Files (x86)/lld-link.com"
+      - "C:/Program Files (x86)/lld-link.exe"
+      - "C:/Program Files (x86)/lld-link"
+      - "D:/Programs/CMake/bin/lld-link.com"
+      - "D:/Programs/CMake/bin/lld-link.exe"
+      - "D:/Programs/CMake/bin/lld-link"
+      - "D:/Programs/CMake/sbin/lld-link.com"
+      - "D:/Programs/CMake/sbin/lld-link.exe"
+      - "D:/Programs/CMake/sbin/lld-link"
+      - "D:/Programs/CMake/lld-link.com"
+      - "D:/Programs/CMake/lld-link.exe"
+      - "D:/Programs/CMake/lld-link"
+      - "C:/Program Files/CrossPlatformGameEngine/bin/lld-link.com"
+      - "C:/Program Files/CrossPlatformGameEngine/bin/lld-link.exe"
+      - "C:/Program Files/CrossPlatformGameEngine/bin/lld-link"
+      - "C:/Program Files/CrossPlatformGameEngine/sbin/lld-link.com"
+      - "C:/Program Files/CrossPlatformGameEngine/sbin/lld-link.exe"
+      - "C:/Program Files/CrossPlatformGameEngine/sbin/lld-link"
+      - "C:/Program Files/CrossPlatformGameEngine/lld-link.com"
+      - "C:/Program Files/CrossPlatformGameEngine/lld-link.exe"
+      - "C:/Program Files/CrossPlatformGameEngine/lld-link"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "C:\\Python314\\Scripts\\"
+        - "C:\\Python314\\"
+        - "D:\\VulkanSDK\\1.4.350.0\\Bin"
+        - "C:\\Program Files (x86)\\Embarcadero\\Studio\\23.0\\bin"
+        - "C:\\Users\\Public\\Documents\\Embarcadero\\Studio\\23.0\\Bpl"
+        - "C:\\Program Files (x86)\\Embarcadero\\Studio\\23.0\\bin64"
+        - "C:\\Users\\Public\\Documents\\Embarcadero\\Studio\\23.0\\Bpl\\Win64"
+        - "D:\\Program Files\\NVIDIA Corporation\\CudaToolkit\\bin"
+        - "D:\\Program Files\\NVIDIA Corporation\\CudaToolkit\\libnvvp"
+        - "D:\\Program Files (x86)\\VMware\\VMware Workstation\\bin\\"
+        - "C:\\Program Files\\Eclipse Adoptium\\jdk-11.0.15.10-hotspot\\bin"
+        - "C:\\WINDOWS\\system32"
+        - "C:\\WINDOWS"
+        - "C:\\WINDOWS\\System32\\Wbem"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Microsoft SQL Server\\Client SDK\\ODBC\\170\\Tools\\Binn\\"
+        - "C:\\Program Files\\Microsoft SQL Server\\150\\Tools\\Binn\\"
+        - "C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common"
+        - "C:\\Program Files\\dotnet\\"
+        - "C:\\Program Files\\GitHub CLI\\"
+        - "D:\\Program Files\\Assimp\\bin\\x64"
+        - "D:\\Program Files\\Assimp\\lib\\x64"
+        - "D:\\Program Files\\Assimp\\include\\assimp"
+        - "C:\\Program Files\\NVIDIA Corporation\\Nsight Compute 2024.3.2\\"
+        - "D:\\Program Files\\WinMerge"
+        - "D:\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\ProgramData\\chocolatey\\bin"
+        - "D:\\Program Files\\PuTTY\\"
+        - "D:\\Program Files\\PowerShell\\7\\"
+        - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA App\\NvDLISR"
+        - "D:\\Program Files\\Git LFS"
+        - "D:\\Program Files\\Git\\cmd"
+        - "D:\\Program Files\\nodejs\\"
+        - "C:\\Users\\hobso\\.grok\\bin"
+        - "D:\\Python\\Python313\\Scripts\\"
+        - "D:\\Python\\Python313\\"
+        - "C:\\Program Files\\MySQL\\MySQL Shell 8.0\\bin\\"
+        - "C:\\Users\\hobso\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\hobso\\AppData\\Local\\GitHubDesktop\\bin"
+        - "D:\\Program Files\\Microsoft VS Code\\bin"
+        - "C:\\Users\\hobso\\AppData\\Local\\Programs\\Windsurf\\bin"
+        - "C:\\Program Files\\Tesseract-OCR"
+        - "F:\\PHP"
+        - "C:\\Users\\hobso\\AppData\\Local\\ComposerSetup\\bin"
+        - "C:\\Users\\hobso\\AppData\\Roaming\\Composer\\vendor\\bin"
+        - "F:\\curl\\bin"
+        - "F:\\PHP\\ext"
+        - "F:\\BPL\\Win32"
+        - "C:\\Users\\hobso\\.dotnet\\tools"
+        - "D:\\Programs\\CMake\\bin"
+        - "D:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Users\\hobso\\.dotnet\\tools"
+        - "C:\\Users\\hobso\\AppData\\Roaming\\npm"
+      CMAKE_INSTALL_PREFIX: "C:/Program Files/CrossPlatformGameEngine"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "C:/Program Files"
+        - "C:/Program Files (x86)"
+        - "D:/Programs/CMake"
+        - "C:/Program Files/CrossPlatformGameEngine"
+...

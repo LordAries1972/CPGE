@@ -508,6 +508,15 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             DetectAndLogAudioDevices();
         #endif
 
+        // Query the system logical processor count and log the recommended engine thread
+        // layout.  This MUST be called before any SetThread() invocation so that:
+        //   (a) the LP count is confirmed and logged as startup diagnostic info,
+        //   (b) SetThread() can safely call PreferCore() knowing available LP indices.
+        // All renderer, loader, FileIO, AI, and network threads are started after this point.
+        #if defined(PLATFORM_WINDOWS) && defined(_DEBUG)
+            threadManager.InitialiseThreadAffinity();
+        #endif
+
         // Initialise our Randomizer system.
         if (!myRandomizer.Initialize()) {
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Randomizer initialization has failed - Aborting!");
