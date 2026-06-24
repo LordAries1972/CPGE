@@ -4017,7 +4017,7 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
 ## Future Development
 
 ### **PRODUCTION READINESS APPROACHING**
-The DirectX 11 & Vulkan Render Pipelines are nearing **GAMING PRODUCTION READINESS** for Windows 10 SP1+ 64-bit systems.
+The DirectX 11, DirectX 12, OpenGL & Vulkan Render Pipelines are nearing **GAMING PRODUCTION READINESS** for Windows 10 SP1+ 64-bit systems.
 
 ### **Project Mission Statement**
 
@@ -4042,12 +4042,13 @@ Since this is early-stage days of development (WIP), major reconstruction may oc
 
 ### **📋 Current Priority Tasks**
 
-#### May 27, 2025
+#### June 25, 2026
 
 Multi-renderer implementation:
-- DirectX 12 Renderer for Windows (Partially implemented & Working) (WIP)
-- OpenGL Renderer for Windows/Linux/MacOS/Android (Partially implemented & working) (WIP)
-- Vulkan Renderer for Windows/Linux/Android (Near Working) (WIP)
+- DirectX 12 Renderer for Windows (Working on Windows) (WIP)
+- OpenGL Renderer for Windows/Linux/MacOS/Android (Working on Windows) (WIP)
+- Vulkan Renderer for Windows/Linux/Android (Working on Windows) (WIP)
+- METAL Renderer for MacOS (Not Working or started) (WIP)
 - Radeon Renderer for Windows & Linux (For AMD Users (Not Started) (WIP))
 
 #### March 16, 2025
@@ -4055,7 +4056,7 @@ Multi-renderer implementation:
 Platform integrations:
 - Steam Class implementation (WIP)
 - GooglePlay interface for Android (WIP)
-- AppStore interface for iOS (WIP)
+- AppStore interface for MacOS / iOS (WIP)
 
 #### May 25, 2025
 
@@ -4073,7 +4074,7 @@ Sub-Systems Extending:
 - **Operating System**: Windows 10 SP1+ (64-bit), Linux, Android, iOS or MacOS (will fill this in more when I know more on certainty!)
 - **Development Environment**: Visual Studio 2019/2022 / CMAKE (Win & Linux) / VSCode
 - **Language Standard**: C++17 Compliant
-- **Graphics APIs**: DirectX 11/12, OpenGL, Radeon or Vulkan with a minimum or equivilant NVIDIA GTX-960M card.
+- **Graphics APIs**: DirectX 11/12, OpenGL, Radeon, METAL or Vulkan with a minimum or equivilant NVIDIA GTX-960M card.
 - **Architecture**: Win x64, Linux, Android, iOS and MacOS only for now!
 
 ---
