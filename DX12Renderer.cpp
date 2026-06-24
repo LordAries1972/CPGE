@@ -14,7 +14,7 @@
     #include "Debug.h"
     #include "WinSystem.h"
     #include "Configuration.h"
-    #include "DX12FXManager.h"
+    #include "FXManager.h"
     #include "GUIManager.h"
     #include "DX12Models.h"
     #include "Lights.h"
@@ -232,6 +232,23 @@ void DX12Renderer::CreateDevice() {
                     D3D12_FEATURE_D3D12_OPTIONS, &opts, sizeof(opts))))
                 m_resourceBindingTier = opts.ResourceBindingTier;
 
+            // Native DX12 mode is intentionally stricter than "can create an
+            // ID3D12Device".  FL11_x adapters can expose the DX12 API but still
+            // perform best on the compatibility shader path; FL12_x plus SM6
+            // is the engine's gate for the newer DX12 3D pipeline assets.
+            D3D12_FEATURE_DATA_SHADER_MODEL shaderModelData = {};
+            shaderModelData.HighestShaderModel = D3D_SHADER_MODEL_6_0;
+            if (SUCCEEDED(m_d3d12Device->CheckFeatureSupport(
+                    D3D12_FEATURE_SHADER_MODEL, &shaderModelData, sizeof(shaderModelData))))
+                m_shaderModel = shaderModelData.HighestShaderModel;
+            else
+                m_shaderModel = D3D_SHADER_MODEL_5_1;
+
+            const bool supportsNativeDX12 =
+                (m_maxFeatureLevel >= D3D_FEATURE_LEVEL_12_0) &&
+                (m_shaderModel     >= D3D_SHADER_MODEL_6_0);
+            bUseNativeDX12Calls.store(supportsNativeDX12, std::memory_order_release);
+
             DXGI_ADAPTER_DESC3 adDesc = {};
             if (SUCCEEDED(bestAdapter->GetDesc3(&adDesc)))
             {
@@ -242,11 +259,14 @@ void DX12Renderer::CreateDevice() {
             m_isLowEndGPU = (m_dedicatedVRAMMB < 2048 || m_isUMA);
 
             debug.logDebugMessage(LogLevel::LOG_INFO,
-                L"DX12Renderer: GPU Caps: VRAM: %llu MB, Shared: %llu MB, UMA: %s, LowEnd: %s, BindingTier: %d",
+                L"DX12Renderer: GPU Caps: VRAM: %llu MB, Shared: %llu MB, UMA: %s, LowEnd: %s, BindingTier: %d, FeatureLevel: 0x%04X, ShaderModel: 0x%04X, NativeDX12: %s",
                 m_dedicatedVRAMMB, m_sharedSystemMemMB,
                 m_isUMA       ? L"Yes" : L"No",
                 m_isLowEndGPU ? L"Yes" : L"No",
-                static_cast<int>(m_resourceBindingTier));
+                static_cast<int>(m_resourceBindingTier),
+                static_cast<unsigned int>(m_maxFeatureLevel),
+                static_cast<unsigned int>(m_shaderModel),
+                bUseNativeDX12Calls.load(std::memory_order_acquire) ? L"Yes" : L"No");
 
             if (m_isLowEndGPU)
                 debug.logLevelMessage(LogLevel::LOG_WARNING,
@@ -325,6 +345,20 @@ void DX12Renderer::CreateSwapChain(HWND hwnd)
             return;
         }
 
+        // Detect tearing support before creating the swap chain. Present(0, 0)
+        // can still block behind DWM/flip-queue pacing; ALLOW_TEARING is the DXGI
+        // path that makes VSync-off presentation genuinely low-latency in windowed mode.
+        m_allowTearing = false;
+        ComPtr<IDXGIFactory5> factory5;
+        if (SUCCEEDED(factory.As(&factory5))) {
+            BOOL allowTearing = FALSE;
+            HRESULT tearingHr = factory5->CheckFeatureSupport(
+                DXGI_FEATURE_PRESENT_ALLOW_TEARING,
+                &allowTearing,
+                sizeof(allowTearing));
+            m_allowTearing = SUCCEEDED(tearingHr) && allowTearing;
+        }
+
         // Describe the swap chain for optimal DirectX 12 performance
         DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};
         swapChainDesc.Width = 0;                                                // Use window width automatically
@@ -335,10 +369,17 @@ void DX12Renderer::CreateSwapChain(HWND hwnd)
         swapChainDesc.SampleDesc.Quality = 0;                                   // No multi-sampling quality
         swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;            // Render target output usage
         swapChainDesc.BufferCount = m_effectiveFrameCount;                      // 3=triple / 2=double per config
-        swapChainDesc.Scaling = DXGI_SCALING_STRETCH;                           // Stretch scaling mode
+        // DXGI_SCALING_NONE: back buffer always matches window size (Resize() is called on every resize),
+        // so no scaling is ever needed — and NONE is required for FRAME_LATENCY_WAITABLE_OBJECT support.
+        swapChainDesc.Scaling = DXGI_SCALING_NONE;
         swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;               // Efficient flip and discard for DirectX 12
         swapChainDesc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;                  // No alpha mode specified
-        swapChainDesc.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;           // Allow fullscreen mode switching
+        // FRAME_LATENCY_WAITABLE_OBJECT moves the vblank stall out of Present() and into
+        // a WaitForSingleObjectEx at the start of each frame, keeping Present non-blocking.
+        swapChainDesc.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH |
+                              DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+        if (m_allowTearing)
+            swapChainDesc.Flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;           // Required for Present(0, ALLOW_TEARING)
 
         // Create the swap chain using the command queue and window handle
         ComPtr<IDXGISwapChain1> swapChain1;
@@ -378,6 +419,26 @@ void DX12Renderer::CreateSwapChain(HWND hwnd)
 
         // Get the current frame index from the swap chain
         m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+
+        // Acquire the frame latency waitable object (requires IDXGISwapChain2).
+        // SetMaximumFrameLatency(2) lets DXGI queue up to 2 frames; the CPU blocks at the
+        // start of each frame (not inside Present), so Present() returns immediately.
+        {
+            ComPtr<IDXGISwapChain2> sc2;
+            if (SUCCEEDED(m_swapChain.As(&sc2)))
+            {
+                sc2->SetMaximumFrameLatency(1);  // 1 frame queued at a time: fires once per vblank
+                m_frameLatencyWaitableObject = sc2->GetFrameLatencyWaitableObject();
+                #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+                    if (m_frameLatencyWaitableObject)
+                        debug.logLevelMessage(LogLevel::LOG_INFO,
+                            L"DX12Renderer: Frame latency waitable acquired (MaxFrameLatency=2) -- Present() is now non-blocking.");
+                    else
+                        debug.logLevelMessage(LogLevel::LOG_WARNING,
+                            L"DX12Renderer: GetFrameLatencyWaitableObject returned null -- Present() may still block.");
+                #endif
+            }
+        }
 
         // Set swap chain name for debugging
         m_swapChain->SetPrivateData(WKPDID_D3DDebugObjectName,
@@ -1292,27 +1353,64 @@ void DX12Renderer::CreatePipelineState() {
         if (lastSlash != std::wstring::npos)
             exeDir = exeDir.substr(0, lastSlash + 1);
 
-        // Load pre-compiled vertex shader (ModelVShader.cso — compiled by FXC during build)
+        // Native FL12/SM6 adapters use DXIL shaders compiled from the DX12-native
+        // HLSL sources.  FL11_x adapters stay on the proven FXC shader pair so
+        // hardware such as GTX 960M avoids the newer shader path entirely.
         ComPtr<ID3DBlob> vertexShader;
         ComPtr<ID3DBlob> pixelShader;
+        const bool useNativeShaders = bUseNativeDX12Calls.load(std::memory_order_acquire);
 
-        std::wstring vsPath = exeDir + L"ModelVShader.cso";
-        HRESULT hr = D3DReadFileToBlob(vsPath.c_str(), &vertexShader);
-        if (FAILED(hr)) {
+        auto loadShaderBlob = [&](const wchar_t* preferredName,
+                                  const wchar_t* fallbackName,
+                                  const wchar_t* shaderLabel,
+                                  ComPtr<ID3DBlob>& outBlob) -> bool
+        {
+            std::wstring shaderPath = exeDir + preferredName;
+            HRESULT hr = D3DReadFileToBlob(shaderPath.c_str(), &outBlob);
+            if (SUCCEEDED(hr))
+            {
+                debug.logDebugMessage(LogLevel::LOG_INFO,
+                    L"DX12Renderer: Loaded %s shader: %s", shaderLabel, shaderPath.c_str());
+                return true;
+            }
+
+            if (fallbackName && fallbackName[0] != L'\0')
+            {
+                debug.logDebugMessage(LogLevel::LOG_WARNING,
+                    L"DX12Renderer: Preferred %s shader missing: %s. Falling back to %s.",
+                    shaderLabel, shaderPath.c_str(), fallbackName);
+
+                shaderPath = exeDir + fallbackName;
+                hr = D3DReadFileToBlob(shaderPath.c_str(), &outBlob);
+                if (SUCCEEDED(hr))
+                    return true;
+            }
+
             debug.logDebugMessage(LogLevel::LOG_CRITICAL,
-                L"DX12Renderer: Failed to load ModelVShader.cso from: %s", vsPath.c_str());
-            ThrowError("Vertex shader load failed (ModelVShader.cso not found)");
+                L"DX12Renderer: Failed to load %s shader from: %s", shaderLabel, shaderPath.c_str());
+            return false;
+        };
+
+        if (!loadShaderBlob(useNativeShaders ? L"DX12NativeModelVShader.cso" : L"ModelVShader.cso",
+                            useNativeShaders ? L"ModelVShader.cso" : nullptr,
+                            L"vertex", vertexShader))
+        {
+            ThrowError("Vertex shader load failed");
             return;
         }
 
-        // Load pre-compiled pixel shader (ModelPShader.cso — compiled by FXC during build)
-        std::wstring psPath = exeDir + L"ModelPShader.cso";
-        hr = D3DReadFileToBlob(psPath.c_str(), &pixelShader);
-        if (FAILED(hr)) {
-            debug.logDebugMessage(LogLevel::LOG_CRITICAL,
-                L"DX12Renderer: Failed to load ModelPShader.cso from: %s", psPath.c_str());
-            ThrowError("Pixel shader load failed (ModelPShader.cso not found)");
+        if (!loadShaderBlob(useNativeShaders ? L"DX12NativeModelPShader.cso" : L"ModelPShader.cso",
+                            useNativeShaders ? L"ModelPShader.cso" : nullptr,
+                            L"pixel", pixelShader))
+        {
+            ThrowError("Pixel shader load failed");
             return;
+        }
+
+        if (useNativeShaders)
+        {
+            debug.logLevelMessage(LogLevel::LOG_INFO,
+                L"DX12Renderer: Native DX12 shader path selected for the 3D pipeline.");
         }
 
         // Define the vertex input layout matching the Model vertex structure.
@@ -1382,7 +1480,7 @@ void DX12Renderer::CreatePipelineState() {
         psoDesc.SampleDesc.Quality = 0;                                         // No multisampling quality
 
         // Create the pipeline state object
-        hr = m_d3d12Device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineState));
+        HRESULT hr = m_d3d12Device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineState));
         if (FAILED(hr)) {
             debug.logDebugMessage(LogLevel::LOG_CRITICAL,
                 L"DX12Renderer: CreateGraphicsPipelineState failed. HRESULT: 0x%08X", hr);
@@ -1913,7 +2011,12 @@ void DX12Renderer::ExecuteCommandList() {
 void DX12Renderer::PresentFrame() {
     try {
         // Present the frame to the display
-        HRESULT hr = m_swapChain->Present(config.myConfig.enableVSync ? 1 : 0, 0);
+        const bool vsyncEnabled = config.myConfig.enableVSync;
+        const UINT syncInterval = vsyncEnabled ? 1u : 0u;
+        const UINT presentFlags = (!vsyncEnabled && m_allowTearing && !m_isExclusiveFullscreen)
+            ? DXGI_PRESENT_ALLOW_TEARING
+            : 0u;
+        HRESULT hr = m_swapChain->Present(syncInterval, presentFlags);
         if (FAILED(hr)) {
             debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to present frame.");
             return;
@@ -2769,6 +2872,13 @@ bool DX12Renderer::IsDX11CompatibilityAvailable() const {
 }
 
 //-----------------------------------------
+// Check if Native DirectX 12 3D Path is Available
+//-----------------------------------------
+bool DX12Renderer::IsNativeDX12Supported() const {
+    return bUseNativeDX12Calls.load(std::memory_order_acquire);
+}
+
+//-----------------------------------------
 // Get DirectX 11 Compatibility Device
 //-----------------------------------------
 ComPtr<ID3D11Device> DX12Renderer::GetDX11CompatDevice() const {
@@ -2807,8 +2917,11 @@ void DX12Renderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
     try {
         // Set the Renderer Name
         RendererName(RENDERER_NAME_DX12);
-        iOrigWidth = winMetrics.clientWidth;
-        iOrigHeight = winMetrics.clientHeight;
+        // Use config as the authoritative back-buffer size — winMetrics.clientWidth/Height
+        // reflect the windowed window and would create a windowed-size swap chain even
+        // when fullscreen exclusive is requested in the config.
+        iOrigWidth  = config.myConfig.resolutionWidth;
+        iOrigHeight = config.myConfig.resolutionHeight;
         m_renderTargetWidth  = iOrigWidth;
         m_renderTargetHeight = iOrigHeight;
 
@@ -2859,11 +2972,10 @@ void DX12Renderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
             if (!CreateD2DRenderTargets())
                 debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to create per-frame D2D render targets. 2D images will not be visible.");
 
-            // Create off-screen D2D targets + composite PSO (eliminates PRESENT-state back-buffer transitions)
-            if (!CreateD2DOffscreenTargets())
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to create D2D off-screen targets; falling back to direct back-buffer path.");
-            else if (!CreateD2DCompositePSO())
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to create D2D composite PSO; falling back to direct back-buffer path.");
+            // DX12 follows the DX11 render order by drawing Direct2D directly onto
+            // the wrapped swap-chain back buffer.  Avoid the off-screen D2D
+            // composite path here: it costs an extra full-screen pass and resource
+            // transitions each frame for no ordering benefit in the current scene flow.
         }
 
         // Initialize our Camera to default values
@@ -3147,6 +3259,11 @@ void DX12Renderer::Cleanup() {
         }
 
         // Release synchronization objects
+        if (m_frameLatencyWaitableObject) {
+            CloseHandle(m_frameLatencyWaitableObject);
+            m_frameLatencyWaitableObject = nullptr;
+        }
+
         if (m_fenceEvent) {
             CloseHandle(m_fenceEvent);
             m_fenceEvent = nullptr;
@@ -4027,35 +4144,7 @@ void DX12Renderer::Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 co
         // Check for resize state
         if (threadManager.threadVars.bIsResizing.load()) return;
 
-        // m_pixelBrush is a member reset in Resize()/Cleanup(), so it is always bound
-        // to the current D2D device — no cross-device aliasing risk (unlike a static local).
-        if (!m_pixelBrush)
-        {
-            HRESULT hr = m_d2dContext->CreateSolidColorBrush(
-                D2D1::ColorF(color.x, color.y, color.z, color.w),               // RGBA color
-                &m_pixelBrush                                                   // Output brush
-            );
-            if (FAILED(hr)) {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to create solid color brush for pixel.");
-                return;
-            }
-        }
-        else
-        {
-            // Update existing brush color
-            m_pixelBrush->SetColor(D2D1::ColorF(color.x, color.y, color.z, color.w));
-        }
-
-        // Define pixel rectangle
-        D2D1_RECT_F pixelRect = D2D1::RectF(
-            static_cast<FLOAT>(x),                                              // Left
-            static_cast<FLOAT>(y),                                              // Top
-            static_cast<FLOAT>(x) + pixelSize,                                  // Right (left + size)
-            static_cast<FLOAT>(y) + pixelSize                                   // Bottom (top + size)
-        );
-
-        // Fill the pixel rectangle
-        m_d2dContext->FillRectangle(&pixelRect, m_pixelBrush.Get());
+        Blit2DColoredPixelFast(x, y, pixelSize, color);
 
 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
         debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Colored pixel drawn successfully.");
@@ -4065,6 +4154,40 @@ void DX12Renderer::Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 co
         std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
         debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"DX12Renderer: Exception in Blit2DColoredPixel: %s", errorMsg.c_str());
     }
+}
+
+//-----------------------------------------
+// Draw Colored Pixel Fast for DirectX 12 FX Hot Paths
+//-----------------------------------------
+void DX12Renderer::Blit2DColoredPixelFast(int x, int y, float pixelSize, const XMFLOAT4& color)
+{
+    if (!m_d2dContext || pixelSize <= 0.0f)
+        return;
+
+    // FX starfield/fireworks can issue hundreds of tiny rectangles per frame.
+    // This fast path assumes the render frame already acquired the wrapped
+    // resource and opened BeginDraw(), avoiding repeated compatibility checks
+    // and exception frames inside the inner particle loops.
+    if (!m_pixelBrush)
+    {
+        HRESULT hr = m_d2dContext->CreateSolidColorBrush(
+            D2D1::ColorF(color.x, color.y, color.z, color.w),
+            &m_pixelBrush);
+        if (FAILED(hr))
+            return;
+    }
+    else
+    {
+        m_pixelBrush->SetColor(D2D1::ColorF(color.x, color.y, color.z, color.w));
+    }
+
+    D2D1_RECT_F pixelRect = D2D1::RectF(
+        static_cast<FLOAT>(x),
+        static_cast<FLOAT>(y),
+        static_cast<FLOAT>(x) + pixelSize,
+        static_cast<FLOAT>(y) + pixelSize);
+
+    m_d2dContext->FillRectangle(&pixelRect, m_pixelBrush.Get());
 }
 
 //-----------------------------------------
@@ -5321,7 +5444,9 @@ bool DX12Renderer::Resize(uint32_t width, uint32_t height)
             width,                                                              // New width
             height,                                                             // New height
             DXGI_FORMAT_R8G8B8A8_UNORM,                                         // Format
-            DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH                              // Allow mode switching
+            DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH |
+            DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT |               // Must match creation flags
+                (m_allowTearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0)       // Preserve low-latency VSync-off support
         );
 
         if (FAILED(hr)) {
@@ -5434,8 +5559,8 @@ bool DX12Renderer::Resize(uint32_t width, uint32_t height)
         if (m_d2dContext && m_dx11Dx12Compat.dx11On12Device) {
             if (!CreateD2DRenderTargets())
                 debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to recreate D2D render targets after resize.");
-            if (!CreateD2DOffscreenTargets())
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to recreate D2D off-screen targets after resize.");
+            // Direct back-buffer D2D rendering matches DX11 and avoids the per-frame
+            // off-screen composite pass, so there are no off-screen targets to recreate.
         }
 
         // Update camera with new dimensions
@@ -5548,6 +5673,7 @@ bool DX12Renderer::SetFullScreen(void)
 
         // Resize to fullscreen dimensions
         Resize(fullscreenWidth, fullscreenHeight);
+        m_isExclusiveFullscreen = true;
 
         // Clear all flags
         bFullScreenTransition.store(false);
@@ -5691,12 +5817,46 @@ bool DX12Renderer::SetFullExclusive(uint32_t width, uint32_t height)
 
         m_isExclusiveFullscreen = true;
 
+        // Sync winMetrics from the confirmed fullscreen back-buffer dimensions so every
+        // subsystem (cameras, GUI, FX, loader thread) sees a coherent coordinate space.
+        winMetrics.x               = 0;
+        winMetrics.y               = 0;
+        winMetrics.width           = iOrigWidth;
+        winMetrics.height          = iOrigHeight;
+        winMetrics.clientWidth     = iOrigWidth;
+        winMetrics.clientHeight    = iOrigHeight;
+        winMetrics.borderWidth     = 0;
+        winMetrics.titleBarHeight  = 0;
+        winMetrics.monitorFullArea = { 0, 0, iOrigWidth, iOrigHeight };
+        winMetrics.monitorWorkArea = { 0, 0, iOrigWidth, iOrigHeight };
+
         // Clear all transition flags
         bFullScreenTransition.store(false);
         threadManager.threadVars.bSettingFullScreen.store(false);
 
 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
         debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Exclusive fullscreen mode set successfully at %dx%d", closestMode.Width, closestMode.Height);
+
+        // Fullscreen presentation diagnostics: verify window, swap-chain, and internal
+        // dimensions all agree.  A mismatch here causes the "only top-left quarter visible"
+        // symptom on DPI-scaled displays.
+        {
+            UINT   dpi        = GetDpiForWindow(hwnd);
+            RECT   windowRect = {}, clientRect = {};
+            GetWindowRect(hwnd, &windowRect);
+            GetClientRect(hwnd, &clientRect);
+            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                L"DX12Renderer: Fullscreen diag: DPI=%u  WindowRect=%dx%d  ClientRect=%dx%d  "
+                L"Config=%dx%d  Internal=%dx%d  ClosestMode=%dx%d",
+                dpi,
+                windowRect.right  - windowRect.left,
+                windowRect.bottom - windowRect.top,
+                clientRect.right  - clientRect.left,
+                clientRect.bottom - clientRect.top,
+                config.myConfig.resolutionWidth, config.myConfig.resolutionHeight,
+                m_renderTargetWidth, m_renderTargetHeight,
+                closestMode.Width, closestMode.Height);
+        }
 #endif
 
         return true;

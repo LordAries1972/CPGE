@@ -19,7 +19,7 @@ static inline UINT Align16(UINT value)
 }
 
 #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-    #include "DX_FXManager.h"
+    #include "FXManager.h"
     #include "DXCamera.h"
 #endif
 
@@ -1639,42 +1639,6 @@ void Model::TriggerEffect(int effectID)
     m_modelInfo.fxID = effectID;
     m_modelInfo.fxActive = true;
 }
-
-// DX11 only — DX12 builds get CancelEffect/RestartEffect/ChainEffect from DX12FXManager.cpp.
-#if defined(__USE_DIRECTX_11__)
-
-void FXManager::CancelEffect(int effectID)
-{
-    effects.erase(std::remove_if(effects.begin(), effects.end(),
-        [effectID](const FXItem& fx) { return fx.fxID == effectID; }),
-        effects.end());
-}
-
-void FXManager::RestartEffect(int effectID)
-{
-    for (FXItem& fx : effects)
-    {
-        if (fx.fxID == effectID)
-        {
-            fx.startTime = std::chrono::high_resolution_clock::now();
-            break;
-        }
-    }
-}
-
-void FXManager::ChainEffect(int fromEffectID, int toEffectID)
-{
-    for (FXItem& fx : effects)
-    {
-        if (fx.fxID == fromEffectID)
-        {
-            fx.nextEffectID = toEffectID;
-            break;
-        }
-    }
-}
-
-#endif // __USE_DIRECTX_11__
 
 void Model::SetPosition(XMFLOAT3 position)
 {

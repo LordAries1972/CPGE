@@ -4,3 +4,5 @@ VULKAN_Renderer.h - 24-06-2026
 Changes:
 - Added Blit2DObjectToSizeWithAlpha override declaration inside #if defined(PLATFORM_WINDOWS) block.
   Implements the new pure virtual method on Renderer base for ImageFadeStrobe support.
+- Added private members m_isExclusiveFullscreen (bool) and m_originalDesktopMode (DEVMODE) under
+  #if defined(PLATFORM_WINDOWS) guard. Track exclusive fullscreen state for restore on shutdown/windowed transition.

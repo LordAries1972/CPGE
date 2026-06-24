@@ -1,3 +1,0 @@
-F:/Projects/C++/CPGE2026/build/DX11/Release/CMakeFiles/CrossPlatformGameEngine.dir
-F:/Projects/C++/CPGE2026/build/DX11/Release/CMakeFiles/ALL_BUILD.dir
-F:/Projects/C++/CPGE2026/build/DX11/Release/CMakeFiles/ZERO_CHECK.dir

@@ -25,7 +25,7 @@
 #include "Debug.h"
 #include "WinSystem.h"
 #include "Configuration.h"
-#include "OpenGLFXManager.h"
+#include "FXManager.h"
 #include "GUIManager.h"
 #include "Models.h"
 #include "OpenGLModels.h"
@@ -64,7 +64,7 @@ extern Debug debug;                                                             
 extern SystemUtils sysUtils;                                                    // System utilities
 extern SceneManager scene;                                                      // Scene management system
 extern ThreadManager threadManager;                                             // Thread management system
-extern GLFXManager fxManager;                                                    // Effects management system
+extern FXManager fxManager;                                                    // Effects management system
 extern Vector2 myMouseCoords;                                                   // Current mouse coordinates
 extern Model models[MAX_MODELS];                                                // Global model array
 extern LightsManager lightsManager;                                             // Lighting management system
@@ -128,8 +128,11 @@ OpenGLRenderer::~OpenGLRenderer()
 void OpenGLRenderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
     // Set the Renderer Name
     RendererName(RENDERER_NAME);                                                // Set renderer identification name
-    iOrigWidth = winMetrics.clientWidth;                                        // Store original window width
-    iOrigHeight = winMetrics.clientHeight;                                      // Store original window height
+    // Use config as the authoritative back-buffer size — winMetrics.clientWidth/Height
+    // reflect the windowed window and would create a windowed-size context even when
+    // fullscreen exclusive is requested in the config.
+    iOrigWidth  = config.myConfig.resolutionWidth;
+    iOrigHeight = config.myConfig.resolutionHeight;
 
 #if defined(_WIN32) || defined(_WIN64)
     // GDI+ must be started before any LoadTexture call (Gdiplus::Bitmap requires it)
@@ -1181,6 +1184,14 @@ void OpenGLRenderer::Render2DQuad(GLuint textureID, int x, int y, int w, int h,
 void OpenGLRenderer::Cleanup()
 {
     if (bHasCleanedUp) return;
+
+    // Restore screen resolution if we entered exclusive fullscreen — mirrors DX11/DX12 pattern
+    #if defined(_WIN32) || defined(_WIN64)
+        if (m_isExclusiveFullscreen) {
+            ChangeDisplaySettingsW(nullptr, 0);                                 // Restore desktop default
+            m_isExclusiveFullscreen = false;
+        }
+    #endif
 
     FlushTextCache();
 
@@ -2263,7 +2274,7 @@ void OpenGLRenderer::RenderBackgroundImage()
                 }
 
                 // Starfield and warp-dot tunnel (mirrors DX11 fxManager.RenderFX calls).
-                // GLFXManager::RenderFX takes XMMATRIX (= Matrix4x4, row-major on Windows OpenGL).
+                // FXManager::RenderFX takes XMMATRIX (= Matrix4x4, row-major on Windows OpenGL).
                 // Convert glm::mat4 (column-major): result.m[row][col] = glm[col][row].
                 {
                     glm::mat4 glmView = myCamera.GetViewMatrix();
@@ -2279,12 +2290,10 @@ void OpenGLRenderer::RenderBackgroundImage()
                         fxManager.RenderFX(fxManager.tunnelID, viewXM);
                 }
 
-                // Render our Fireworks here.
+                // Fireworks pass — matches DX11 RenderBackgroundImage order.
+                // Note: IMG_TSOO is rendered as a post-3D overlay in OpenGLRenderFrame.cpp
+                // (with ImageFadeStrobe support) — do NOT blit it here in the background pass.
                 fxManager.RenderFireworks();
-
-                int startX = (iOrigWidth - 536) / 2; // Centered horizontally
-                int startY = (iOrigHeight - 466) / 2; // Centered horizontally
-                Blit2DObjectToSize(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
             }
             else
             {
@@ -2362,6 +2371,13 @@ bool OpenGLRenderer::SetFullScreen()
 bool OpenGLRenderer::SetFullExclusive(uint32_t width, uint32_t height)
 {
     #if defined(_WIN32) || defined(_WIN64)
+        // Capture the original desktop mode before switching so Cleanup can restore it
+        if (!m_isExclusiveFullscreen) {
+            m_originalDesktopMode.dmSize = sizeof(DEVMODE);
+            EnumDisplaySettingsW(nullptr, ENUM_CURRENT_SETTINGS,
+                reinterpret_cast<DEVMODEW*>(&m_originalDesktopMode));
+        }
+
         DEVMODEW dm = {};
         dm.dmSize       = sizeof(dm);
         dm.dmPelsWidth  = width;
@@ -2372,7 +2388,69 @@ bool OpenGLRenderer::SetFullExclusive(uint32_t width, uint32_t height)
             debug.logLevelMessage(LogLevel::LOG_ERROR, L"[OpenGLRenderer] SetFullExclusive: ChangeDisplaySettings failed");
             return false;
         }
-        return SetFullScreen();
+        m_isExclusiveFullscreen = true;
+
+        // Gate the WM_SIZE fired by SetWindowPos inside SetFullScreen so it is
+        // suppressed by the new simplified WM_SIZE handler rather than attempting
+        // a spurious winMetrics sync against stale renderer state mid-transition.
+        threadManager.threadVars.bSettingFullScreen.store(true);
+        bool result = SetFullScreen();
+
+        // Override iOrigWidth/iOrigHeight with the explicitly requested dimensions.
+        // SetFullScreen() derives w/h from GetSystemMetrics(SM_CXSCREEN/SM_CYSCREEN),
+        // which can return stale native-resolution values immediately after
+        // ChangeDisplaySettingsW on some driver/OS combinations before the mode change
+        // is fully committed.  The caller already validated the requested resolution;
+        // use it directly so the renderer's back-buffer size matches winMetrics and the
+        // coordinate space is coherent from the very first frame.
+        iOrigWidth  = static_cast<int>(width);
+        iOrigHeight = static_cast<int>(height);
+
+        // Sync the render-target dimensions used by Render2DQuad / glViewport every frame.
+        // Without this, the ortho matrix and viewport continue to use the pre-fullscreen
+        // windowed size, causing a mismatch between the surface and the presentation path.
+        m_renderTargetWidth  = iOrigWidth;
+        m_renderTargetHeight = iOrigHeight;
+
+        // Sync winMetrics from the confirmed fullscreen dimensions so every subsystem
+        // (cameras, GUI, FX, loader thread) sees a coherent coordinate space.
+        winMetrics.x               = 0;
+        winMetrics.y               = 0;
+        winMetrics.width           = iOrigWidth;
+        winMetrics.height          = iOrigHeight;
+        winMetrics.clientWidth     = iOrigWidth;
+        winMetrics.clientHeight    = iOrigHeight;
+        winMetrics.borderWidth     = 0;
+        winMetrics.titleBarHeight  = 0;
+        winMetrics.monitorFullArea = { 0, 0, iOrigWidth, iOrigHeight };
+        winMetrics.monitorWorkArea = { 0, 0, iOrigWidth, iOrigHeight };
+
+        #if defined(_DEBUG_OPENGLRENDERER_) && defined(_DEBUG)
+        // Fullscreen presentation diagnostics: verify GL viewport, window, and surface
+        // sizes all agree.  A mismatch explains the "top-left quarter visible" symptom.
+        {
+            GLint vp[4] = {};
+            glGetIntegerv(GL_VIEWPORT, vp);
+            UINT   dpi        = GetDpiForWindow(m_glContext.windowHandle);
+            RECT   windowRect = {}, clientRect = {};
+            GetWindowRect(m_glContext.windowHandle, &windowRect);
+            GetClientRect(m_glContext.windowHandle,  &clientRect);
+            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                L"[OpenGLRenderer] Fullscreen diag: DPI=%u  WindowRect=%dx%d  ClientRect=%dx%d  "
+                L"Config=%dx%d  RenderTarget=%dx%d  GLViewport=%dx%d",
+                dpi,
+                windowRect.right  - windowRect.left,
+                windowRect.bottom - windowRect.top,
+                clientRect.right  - clientRect.left,
+                clientRect.bottom - clientRect.top,
+                config.myConfig.resolutionWidth, config.myConfig.resolutionHeight,
+                m_renderTargetWidth, m_renderTargetHeight,
+                vp[2], vp[3]);
+        }
+        #endif
+
+        threadManager.threadVars.bSettingFullScreen.store(false);
+        return result;
     #else
         return false;
     #endif
@@ -2381,9 +2459,14 @@ bool OpenGLRenderer::SetFullExclusive(uint32_t width, uint32_t height)
 bool OpenGLRenderer::SetWindowedScreen()
 {
     #if defined(_WIN32) || defined(_WIN64)
-        ChangeDisplaySettingsW(nullptr, 0); // Restore default display settings
+        // Restore display settings if we entered exclusive fullscreen
+        if (m_isExclusiveFullscreen) {
+            ChangeDisplaySettingsW(nullptr, 0);
+            m_isExclusiveFullscreen = false;
+        }
         HWND hWnd = m_glContext.windowHandle;
-        DWORD style = WS_OVERLAPPEDWINDOW | WS_VISIBLE;
+        // Non-resizable windowed style — no WS_THICKFRAME (drag border) or WS_MAXIMIZEBOX
+        DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE;
         SetWindowLongW(hWnd, GWL_STYLE, style);
         SetWindowPos(hWnd, nullptr,
             100, 100, prevWindowedWidth, prevWindowedHeight,

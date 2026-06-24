@@ -22,12 +22,16 @@
 // 7) Update + bind constant buffers
 // 8) Scene-specific 3D rendering (RenderGamePlay)
 // 9) Close + execute 3D command list (back buffer left in RENDER_TARGET)
-// 10) Single D2D pass: loading images, FX, overlays, text, FPS, cursor
+// 10) Single D2D pass directly onto the wrapped back buffer: loading images,
+//     FX, overlays, text, FPS, cursor
 //     (bLoaderTaskFinished cached once as bLoaderDone; fireworks already drawn
 //      in step 3.5 so only TSOO blit remains for SCENE_GAMETITLE post-3D)
-// 11) Release wrapped resources + dx11Context::Flush() (transition to PRESENT)
-// 12) Present frame via PresentFrame() + MoveToNextFrame() — no software cap
-//     (VSync=on: DXGI paces to refresh rate; VSync=off: uncapped, matches Vulkan)
+// 11) Release wrapped back buffer + dx11Context::Flush() (transition to PRESENT)
+// 12) Present frame via PresentFrame() — returns immediately (non-blocking)
+//     Frame latency waitable (MaxFrameLatency=1) then blocks until DXGI consumes the
+//     frame (one vblank period); vblank pacing shows in "present" timing slot.
+//     MoveToNextFrame() advances the frame index for the next iteration.
+//     (VSync=on: paced to 60fps; VSync=off: uncapped, waitable returns immediately)
 
 /* ----------------------------------------------------------------
    DO NOT INCLUDE THIS FILE!!! THE PROJECT ITSELF SCOPES THIS FILE!
@@ -42,7 +46,7 @@
 #include "ExceptionHandler.h"
 #include "WinSystem.h"
 #include "Configuration.h"
-#include "DX12FXManager.h"
+#include "FXManager.h"
 #include "GUIManager.h"
 #include "ConsoleWindow.h"
 #include "Models.h"
@@ -198,14 +202,16 @@ void DX12Renderer::RenderFrame()
                 }
             }
 
-            // STEP 1: Calculate viewport from fullscreen / windowed mode
-            if (!winMetrics.isFullScreen)
-                GetClientRect(hWnd, &rc);
-            else
-                rc = winMetrics.monitorFullArea;
-
-            float width  = float(rc.right  - rc.left);
-            float height = float(rc.bottom - rc.top);
+            // STEP 1: Viewport dimensions from the renderer's actual back-buffer size.
+            // iOrigWidth/iOrigHeight are set by Resize() and always match the swap-chain back buffer,
+            // whether in windowed or fullscreen exclusive mode.
+            // Previously, fullscreen used winMetrics.monitorFullArea (GetMonitorInfo.rcMonitor),
+            // which reflects OS monitor-space coordinates and can be stale after a mode switch
+            // (e.g. native resolution reported while swap chain is at a non-native configured res),
+            // making the 3D viewport disagree with D2D / 2D content that always draws at
+            // iOrigWidth x iOrigHeight.  Using these members keeps both coordinate spaces in sync.
+            float width  = static_cast<float>(iOrigWidth);   // Swap-chain back-buffer width
+            float height = static_cast<float>(iOrigHeight);  // Swap-chain back-buffer height
 
             viewport.Width    = width;
             viewport.Height   = height;
@@ -243,9 +249,32 @@ void DX12Renderer::RenderFrame()
                 }
             #endif
 
+            #if defined(_DEBUG)
+                const bool bCollectTiming = (scene.stSceneType == SceneType::SCENE_GAMETITLE) && IsTimingCaptureActive();
+                const auto timingFrameStart = std::chrono::steady_clock::now();
+                Renderer::RenderTimingSample timingSample = {};
+                auto timingMs = [](const std::chrono::steady_clock::time_point& start,
+                                   const std::chrono::steady_clock::time_point& end) -> double {
+                    return std::chrono::duration<double, std::milli>(end - start).count();
+                };
+            #endif
+
             // STEP 2: Wait for the previous frame, then reset the command list
+            #if defined(_DEBUG)
+                auto timingPhaseStart = std::chrono::steady_clock::now();
+            #endif
             WaitForPreviousFrame();
+            #if defined(_DEBUG)
+                if (bCollectTiming)
+                    timingSample.waitPreviousMs = timingMs(timingPhaseStart, std::chrono::steady_clock::now());
+                timingPhaseStart = std::chrono::steady_clock::now();
+            #endif
             ResetCommandList();
+            #if defined(_DEBUG)
+                if (bCollectTiming)
+                    timingSample.resetMs = timingMs(timingPhaseStart, std::chrono::steady_clock::now());
+                timingPhaseStart = std::chrono::steady_clock::now();
+            #endif
 
             // STEP 3.5: D2D background pre-pass — SCENE_GAMETITLE only.
             //
@@ -265,12 +294,12 @@ void DX12Renderer::RenderFrame()
             //      stays valid and STEP 6 skips the RTV clear so the background
             //      is preserved underneath the 3D models.
             bool bBackgroundPrePassDone = false;
-            const bool bUseD2DOffscreen = (m_compositePSO && m_compositeRS &&
-                                            m_d2dOffscreenTex[m_frameIndex]     &&
-                                            m_d2dWrappedOffscreen[m_frameIndex] &&
-                                            m_d2dOffscreenBitmap[m_frameIndex]  &&
-                                            m_frameContexts[m_frameIndex].compositeAllocator
-                                            );
+            // Match DX11's fastest composition pattern: Direct2D draws directly to
+            // the wrapped swap-chain back buffer.  The optional off-screen D2D
+            // path adds two full-screen composites and extra resource transitions
+            // on title frames, and one composite on every other frame; on the
+            // current workload that overhead is the likely 60fps -> ~42fps drop.
+            const bool bUseD2DOffscreen = false;
             bool bD2DPrePassDone        = false;
             if (scene.stSceneType == SceneType::SCENE_GAMETITLE              &&
                 threadManager.threadVars.bLoaderTaskFinished.load()          &&
@@ -389,6 +418,11 @@ void DX12Renderer::RenderFrame()
 
                 bBackgroundPrePassDone = true;
             }
+            #if defined(_DEBUG)
+                if (bCollectTiming)
+                    timingSample.backgroundPrePassMs = timingMs(timingPhaseStart, std::chrono::steady_clock::now());
+                timingPhaseStart = std::chrono::steady_clock::now();
+            #endif
 
             // STEP 4: Set root signature, descriptor heaps, viewport, scissor
             m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
@@ -484,8 +518,8 @@ void DX12Renderer::RenderFrame()
                         int iModelID = scene.FindParentModelID(SplashShipName);
                         if (scene.modelAnimator.IsAnimationPlaying(iModelID))
                             scene.modelAnimator.UpdateAnimations(deltaTime);
+                        RenderGamePlay(deltaTime);
                     }
-                    RenderGamePlay(deltaTime);
                     break;
                 }
 
@@ -502,6 +536,12 @@ void DX12Renderer::RenderFrame()
                     break;
             }
 
+            #if defined(_DEBUG)
+                if (bCollectTiming)
+                    timingSample.commandRecordMs = timingMs(timingPhaseStart, std::chrono::steady_clock::now());
+                timingPhaseStart = std::chrono::steady_clock::now();
+            #endif
+
             // STEP 9: Close and execute 3D command list.
             // Deliberately leave the back buffer in RENDER_TARGET state so that
             // AcquireWrappedResources (inState=RENDER_TARGET) can hand it to D2D.
@@ -514,6 +554,11 @@ void DX12Renderer::RenderFrame()
             if (bBackgroundPrePassDone && !bUseD2DOffscreen)
                 m_dx11Dx12Compat.dx11Context->Flush();
             ExecuteCommandList();
+            #if defined(_DEBUG)
+                if (bCollectTiming)
+                    timingSample.execute3DMs = timingMs(timingPhaseStart, std::chrono::steady_clock::now());
+                timingPhaseStart = std::chrono::steady_clock::now();
+            #endif
 
             // STEP 10: 2D rendering via DX11On12 / D2D interop.
             //
@@ -829,6 +874,20 @@ void DX12Renderer::RenderFrame()
                             bDebugOSDActive = false;
                     }
 
+                    #if defined(_DEBUG)
+                    // F12 timing capture notification.  Kept separate from the F2
+                    // debug-info OSD so the user gets immediate feedback when the
+                    // 25-frame circular timing buffer is armed or dumped.
+                    if (bTimingOSDActive)
+                    {
+                        float timingOsdElapsed = std::chrono::duration<float>(now - timingOSDStartTime).count();
+                        if (timingOsdElapsed < 5.0f)
+                            DrawMyText(timingOSDMessage, Vector2(10.0f, 104.0f), MyColor(255, 220, 0, 255), 14.0f);
+                        else
+                            bTimingOSDActive = false;
+                    }
+                    #endif
+
                     // Animated loading circle while assets are loading
                     if (!bLoaderDone)
                     {
@@ -945,6 +1004,17 @@ void DX12Renderer::RenderFrame()
                     ExecuteCommandList();
                 }
             }
+            #if defined(_DEBUG)
+                if (bCollectTiming)
+                {
+                    timingSample.d2dOverlayMs = timingMs(timingPhaseStart, std::chrono::steady_clock::now());
+                    timingSample.backgroundPrePass = bBackgroundPrePassDone;
+                    timingSample.d2dAvailable = (m_d2dContext && m_dx11Dx12Compat.dx11On12Device &&
+                        (bUseD2DOffscreen || (m_wrappedBackBuffers[m_frameIndex] && m_d2dRenderTargets[m_frameIndex])));
+                    timingSample.screenRecorderActive = screenRecorder.IsRecording();
+                }
+                timingPhaseStart = std::chrono::steady_clock::now();
+            #endif
 
             // STEP 12: Present the finished frame
             try {
@@ -960,7 +1030,26 @@ void DX12Renderer::RenderFrame()
                                                 m_swapChain.Get(), m_frameIndex);
 
                 PresentFrame();
+                // Pace to vblank: wait here (after Present returns immediately) rather than
+                // blocking inside Present.  With MaxFrameLatency=1 this fires once per vblank,
+                // giving clean 60fps pacing.  Counted as part of the "present" timing slot.
+                if (m_frameLatencyWaitableObject)
+                    WaitForSingleObjectEx(m_frameLatencyWaitableObject, 1000, TRUE);
+                #if defined(_DEBUG)
+                    if (bCollectTiming)
+                        timingSample.presentMs = timingMs(timingPhaseStart, std::chrono::steady_clock::now());
+                    timingPhaseStart = std::chrono::steady_clock::now();
+                #endif
                 MoveToNextFrame();
+                #if defined(_DEBUG)
+                    if (bCollectTiming)
+                    {
+                        const auto timingFrameEnd = std::chrono::steady_clock::now();
+                        timingSample.moveNextMs = timingMs(timingPhaseStart, timingFrameEnd);
+                        timingSample.totalMs = timingMs(timingFrameStart, timingFrameEnd);
+                        RecordTimingSample(timingSample);
+                    }
+                #endif
             }
             catch (const std::exception& e) {
                 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)

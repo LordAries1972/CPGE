@@ -1,105 +1,132 @@
 ===========================================================
   EXCEPTION CALL-STACK LOG
-  Generated  : 2026-06-21 09:53:23
+  Generated  : 2026-06-25 05:30:09
 ===========================================================
   Exception  : Access Violation - Invalid memory access
   Code       : 0xC0000005
-  Address    : 0x00007FF7120EEEB8
-  Thread ID  : 14580
-  Process ID : 16492
+  Address    : 0x00007FF6E53C9AC4
+  Thread ID  : 17404
+  Process ID : 18396
   Platform   : Windows x64  [DEBUG BUILD]
 ===============================================================
-  CALL STACK TRACE (19 of 19 frames captured, showing up to 100)
+  CALL STACK TRACE (25 of 25 frames captured, showing up to 100)
 ===============================================================
-  #00  Address  : 0x00007FF7120EEEB8
-       Function : Microsoft::WRL::ComPtr<ID3D12Resource>::InternalRelease  +0x38
-       Module   : DX12CPGE.exe
-       Source   : D:\Windows Kits\10\Include\10.0.26100.0\winrt\wrl\client.h  Line 235
+  #00  Address  : 0x00007FF6E53C9AC4
+       Function : std::exchange<std::_Iterator_base12 *,std::nullptr_t>  +0x14
+       Module   : DXCPGE.exe
+       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\utility  Line 762
        --------
-  #01  Address  : 0x00007FF7120F0224
-       Function : Microsoft::WRL::ComPtr<ID3D12Resource>::Reset  +0x14
-       Module   : DX12CPGE.exe
-       Source   : D:\Windows Kits\10\Include\10.0.26100.0\winrt\wrl\client.h  Line 435
+  #01  Address  : 0x00007FF6E53E5BA9
+       Function : std::_Container_base12::_Orphan_all_unlocked_v3  +0x39
+       Module   : DXCPGE.exe
+       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\xmemory  Line 1375
        --------
-  #02  Address  : 0x00007FF71214D92A
-       Function : Model::UploadDX12ModelTextures  +0x37A
-       Module   : DX12CPGE.exe
-       Source   : F:\Projects\C++\CPGE2026\DX12Models.cpp  Line 721
+  #02  Address  : 0x00007FF6E53E5B19
+       Function : std::_Container_base12::_Orphan_all_locked_v3  +0x49
+       Module   : DXCPGE.exe
+       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\xmemory  Line 1232
        --------
-  #03  Address  : 0x00007FF71214A747
-       Function : Model::SetupModelForRendering  +0x1AF7
-       Module   : DX12CPGE.exe
-       Source   : F:\Projects\C++\CPGE2026\DX12Models.cpp  Line 659
+  #03  Address  : 0x00007FF6E53E5AC4
+       Function : std::_Container_base12::_Orphan_all  +0x14
+       Module   : DXCPGE.exe
+       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\xmemory  Line 1391
        --------
-  #04  Address  : 0x00007FF71214A7D8
-       Function : Model::SetupModelForRendering  +0x18
-       Module   : DX12CPGE.exe
-       Source   : F:\Projects\C++\CPGE2026\DX12Models.cpp  Line 843
+  #04  Address  : 0x00007FF6E54450A7
+       Function : std::vector<float,std::allocator<float> >::_Tidy  +0x57
+       Module   : DXCPGE.exe
+       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\vector  Line 2052
        --------
-  #05  Address  : 0x00007FF71233F398
-       Function : SceneManager::ParseGLTFNodeRecursive  +0x14D8
-       Module   : DX12CPGE.exe
-       Source   : F:\Projects\C++\CPGE2026\SceneManager.cpp  Line 2326
+  #05  Address  : 0x00007FF6E5432019
+       Function : std::vector<float,std::allocator<float> >::~vector<float,std::allocator<float> >  +0x39
+       Module   : DXCPGE.exe
+       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\vector  Line 767
        --------
-  #06  Address  : 0x00007FF712327E6B
-       Function : SceneManager::ParseGLTFScene  +0x34AB
-       Module   : DX12CPGE.exe
-       Source   : F:\Projects\C++\CPGE2026\SceneManager.cpp  Line 2023
+  #06  Address  : 0x00007FF6E5519480
+       Function : TextScrollData::~TextScrollData  +0x30
+       Module   : DXCPGE.exe
        --------
-  #07  Address  : 0x00007FF7123354B0
-       Function : SceneManager::ParseSceneAutoDetect  +0x230
-       Module   : DX12CPGE.exe
-       Source   : F:\Projects\C++\CPGE2026\SceneManager.cpp  Line 4843
+  #07  Address  : 0x00007FF6E5519346
+       Function : FXItem::~FXItem  +0x56
+       Module   : DXCPGE.exe
        --------
-  #08  Address  : 0x00007FF71222A13B
-       Function : DX12Renderer::LoaderTaskThread  +0x5EB
-       Module   : DX12CPGE.exe
-       Source   : F:\Projects\C++\CPGE2026\IOLoaderThread.cpp  Line 281
+  #08  Address  : 0x00007FF6E551C988
+       Function : FXItem::`scalar deleting destructor'  +0x18
+       Module   : DXCPGE.exe
        --------
-  #09  Address  : 0x00007FF7120D9610
-       Function : <lambda_bcd7e3365f5152ef2173607150cf8ef0>::operator()  +0x20
-       Module   : DX12CPGE.exe
-       Source   : F:\Projects\C++\CPGE2026\DX12Renderer.cpp  Line 2921
+  #09  Address  : 0x00007FF6E550F8EB
+       Function : std::_Default_allocator_traits<std::allocator<FXItem> >::destroy<FXItem>  +0x1B
+       Module   : DXCPGE.exe
+       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\xmemory  Line 734
        --------
-  #10  Address  : 0x00007FF7120E5B44
-       Function : std::invoke<<lambda_bcd7e3365f5152ef2173607150cf8ef0> &>  +0x14
-       Module   : DX12CPGE.exe
+  #10  Address  : 0x00007FF6E5504F69
+       Function : std::_Destroy_range<std::allocator<FXItem> >  +0x49
+       Module   : DXCPGE.exe
+       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\xmemory  Line 1092
+       --------
+  #11  Address  : 0x00007FF6E5524A3C
+       Function : std::vector<FXItem,std::allocator<FXItem> >::erase  +0x1BC
+       Module   : DXCPGE.exe
+       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\vector  Line 1763
+       --------
+  #12  Address  : 0x00007FF6E54F9400
+       Function : FXManager::RemoveCompletedEffects  +0x2D0
+       Module   : DXCPGE.exe
+       Source   : F:\Projects\C++\CPGE2026\FXManager.cpp  Line 993
+       --------
+  #13  Address  : 0x00007FF6E54EAC61
+       Function : FXManager::Render  +0xB11
+       Module   : DXCPGE.exe
+       Source   : F:\Projects\C++\CPGE2026\FXManager.cpp  Line 1127
+       --------
+  #14  Address  : 0x00007FF6E54E4D4A
+       Function : DX11Renderer::RenderFrame  +0x2DCA
+       Module   : DXCPGE.exe
+       Source   : F:\Projects\C++\CPGE2026\DXRenderFrame.cpp  Line 739
+       --------
+  #15  Address  : 0x00007FF6E54B7A10
+       Function : <lambda_640707ae9f696f799d8b9ed7e3c04ac4>::operator()  +0x20
+       Module   : DXCPGE.exe
+       Source   : F:\Projects\C++\CPGE2026\DX11Renderer.cpp  Line 218
+       --------
+  #16  Address  : 0x00007FF6E54C0E94
+       Function : std::invoke<<lambda_640707ae9f696f799d8b9ed7e3c04ac4> &>  +0x14
+       Module   : DXCPGE.exe
        Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\type_traits  Line 1732
        --------
-  #11  Address  : 0x00007FF7120D994B
-       Function : std::_Func_impl_no_alloc<<lambda_bcd7e3365f5152ef2173607150cf8ef0>,void>::_Do_call  +0x1B
-       Module   : DX12CPGE.exe
+  #17  Address  : 0x00007FF6E54B7CEB
+       Function : std::_Func_impl_no_alloc<<lambda_640707ae9f696f799d8b9ed7e3c04ac4>,void>::_Do_call  +0x1B
+       Module   : DXCPGE.exe
        Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\functional  Line 812
        --------
-  #12  Address  : 0x00007FF71213C4CF
+  #18  Address  : 0x00007FF6E551C6EF
        Function : std::_Func_class<void>::operator()  +0x3F
-       Module   : DX12CPGE.exe
+       Module   : DXCPGE.exe
        Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\functional  Line 855
        --------
-  #13  Address  : 0x00007FF7123C12F1
-       Function : <lambda_dd2697aa664ef728d133395579b41d2d>::operator()  +0x1D1
-       Module   : DX12CPGE.exe
-       Source   : F:\Projects\C++\CPGE2026\ThreadManager.cpp  Line 168
+  #19  Address  : 0x00007FF6E57DF33F
+       Function : <lambda_09ed75fcb6ba5bc82509ff0db1d03d89>::operator()  +0x32F
+       Module   : DXCPGE.exe
+       Source   : F:\Projects\C++\CPGE2026\ThreadManager.cpp  Line 442
        --------
-  #14  Address  : 0x00007FF7123C66E4
-       Function : std::invoke<<lambda_dd2697aa664ef728d133395579b41d2d> >  +0x14
-       Module   : DX12CPGE.exe
+  #20  Address  : 0x00007FF6E57E4A54
+       Function : std::invoke<<lambda_09ed75fcb6ba5bc82509ff0db1d03d89> >  +0x14
+       Module   : DXCPGE.exe
        Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\type_traits  Line 1732
        --------
-  #15  Address  : 0x00007FF7123C4A86
-       Function : std::thread::_Invoke<std::tuple<<lambda_dd2697aa664ef728d133395579b41d2d> >,0>  +0x76
-       Module   : DX12CPGE.exe
+  #21  Address  : 0x00007FF6E57E2DF6
+       Function : std::thread::_Invoke<std::tuple<<lambda_09ed75fcb6ba5bc82509ff0db1d03d89> >,0>  +0x76
+       Module   : DXCPGE.exe
        Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\thread  Line 61
        --------
-  #16  Address  : 0x00007FF830D62EC5
+  #22  Address  : 0x00007FF833AE2EC5
        Function : register_onexit_function  +0xF5
        Module   : ucrtbased.dll
        --------
-  #17  Address  : 0x00007FF8D46A259D
+  #23  Address  : 0x00007FF8CB79259D
        Function : BaseThreadInitThunk  +0x1D
        Module   : KERNEL32.DLL
        --------
-  #18  Address  : 0x00007FF8D522AF78
+  #24  Address  : 0x00007FF8CCA0AF78
        Function : RtlUserThreadStart  +0x28
        Module   : ntdll.dll
 ========================================================
@@ -107,4 +134,4 @@
 ========================================================
   23.  WinMain
   24.  LoaderTaskThread
-  25.  DX12Renderer::RenderFrame
+  25.  RenderFrame

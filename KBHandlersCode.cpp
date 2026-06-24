@@ -14,11 +14,11 @@
 #include "SoundManager.h"
 #include "SceneManager.h"
 #if defined(__USE_OPENGL__)
-#include "OpenGLFXManager.h"
+#include "FXManager.h"
 #elif defined(__USE_VULKAN__)
-#include "VULKAN_FXManager.h"
+#include "FXManager.h"
 #else
-#include "DX_FXManager.h"
+#include "FXManager.h"
 #endif
 #include "KeyboardHandler.h"
 #include "GamePlayer.h"
@@ -45,9 +45,9 @@ class SceneManager;
 extern Debug debug;
 extern ExceptionHandler exceptionHandler;
 #if defined(__USE_OPENGL__)
-extern GLFXManager fxManager;
+extern FXManager fxManager;
 #elif defined(__USE_VULKAN__)
-extern VKFXManager fxManager;
+extern FXManager fxManager;
 #else
 extern FXManager fxManager;
 #endif
@@ -260,13 +260,29 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
                     break;
                 }
 
-                // Toggle wireframe mode with F12 key
+                // F12 key-up: gameplay keeps the existing wireframe toggle; in
+                // debug title-screen builds it toggles renderer timing capture and
+                // dumps the last 25 render-frame samples when turned off.
                 case KeyCode::KEY_F12:
                 {
                     switch (scene.stSceneType)
                     {
+                        #if defined(_DEBUG)
+                        case SceneType::SCENE_GAMETITLE:
+                            if (renderer)
+                            {
+                                renderer->ToggleTimingCapture();
+                                bDismissAllSettingOSDs = true;
+                            }
+                            break;
+                        #endif
+
                         case SceneType::SCENE_GAMEPLAY:
                             renderer->bWireframeMode = !renderer->bWireframeMode;
+                            break;
+
+                        default:
+                            break;
                     }
 
                     break;

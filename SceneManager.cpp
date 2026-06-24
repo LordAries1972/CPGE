@@ -1,4 +1,4 @@
-﻿// SceneManager.cpp (continued)
+// SceneManager.cpp (continued)
 #include "Includes.h"
 #include "SceneManager.h"
 #include "BlenderImports.h"
@@ -15,11 +15,11 @@
     #include "VULKAN_Renderer.h"
 #endif
 #if defined(__USE_OPENGL__)
-    #include "OpenGLFXManager.h"
+    #include "FXManager.h"
 #elif defined(__USE_VULKAN__)
-    #include "VULKAN_FXManager.h"
+    #include "FXManager.h"
 #else
-    #include "DX_FXManager.h"
+    #include "FXManager.h"
 #endif
 #include "Debug.h"
 #include "Lights.h"
@@ -40,9 +40,9 @@ extern LightsManager lightsManager;
 extern ThreadManager threadManager;
 extern SystemUtils sysUtils;
 #if defined(__USE_VULKAN__)
-extern VKFXManager  fxManager;
+extern FXManager  fxManager;
 #elif defined(__USE_OPENGL__)
-extern GLFXManager  fxManager;
+extern FXManager  fxManager;
 #else
 extern FXManager    fxManager;
 #endif

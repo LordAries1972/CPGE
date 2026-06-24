@@ -27,7 +27,7 @@
 #include "ExceptionHandler.h"
 #include "WinSystem.h"
 #include "Configuration.h"
-#include "OpenGLFXManager.h"
+#include "FXManager.h"
 #include "GUIManager.h"
 #include "ConsoleWindow.h"
 #include "Models.h"
@@ -47,7 +47,7 @@ extern ExceptionHandler      exceptionHandler;
 extern SystemUtils           sysUtils;
 extern SceneManager          scene;
 extern ThreadManager         threadManager;
-extern GLFXManager           fxManager;
+extern FXManager           fxManager;
 extern Vector2               myMouseCoords;
 extern Model                 models[MAX_MODELS];
 extern LightsManager         lightsManager;
@@ -654,28 +654,38 @@ void OpenGLRenderer::RenderFrame()
             float deltaTime = std::clamp(weightedSum / totalWeight, 0.001f, 0.1f);
             lastFrameTime   = now;
 
+            #if defined(_DEBUG)
+                const bool bCollectTiming = (scene.stSceneType == SceneType::SCENE_GAMETITLE) && IsTimingCaptureActive();
+                const auto timingFrameStart = std::chrono::steady_clock::now();
+                auto timingPhaseStart = timingFrameStart;
+                Renderer::RenderTimingSample timingSample = {};
+                timingSample.d2dAvailable = true;
+                timingSample.screenRecorderActive = screenRecorder.IsRecording();
+                auto timingMs = [](const std::chrono::steady_clock::time_point& start,
+                                   const std::chrono::steady_clock::time_point& end) -> double {
+                    return std::chrono::duration<double, std::milli>(end - start).count();
+                };
+            #endif
+
             #ifdef __USE_SCRIPT_MANAGER__
                 scriptManager.Update(deltaTime);
             #endif
 
             myCamera.UpdateJumpAnimation();
 
-            // ---- Determine render dimensions ----
-            int renderW = iOrigWidth, renderH = iOrigHeight;
-            #if defined(_WIN32) || defined(_WIN64)
-                if (winMetrics.isFullScreen) {
-                    renderW = winMetrics.monitorFullArea.right  - winMetrics.monitorFullArea.left;
-                    renderH = winMetrics.monitorFullArea.bottom - winMetrics.monitorFullArea.top;
-                } else {
-                    renderW = winMetrics.clientWidth;
-                    renderH = winMetrics.clientHeight;
-                }
-            #endif
+            // ---- Determine render dimensions from the renderer's actual back-buffer size. ----
+            // iOrigWidth/iOrigHeight are set by Resize() (or SetFullExclusive → SetFullScreen)
+            // and always reflect the true framebuffer size regardless of display mode.
+            // Previously, the fullscreen path read winMetrics.monitorFullArea (OS monitor rect),
+            // which can be stale after a mode switch (reporting native resolution while the
+            // framebuffer is at a non-native configured resolution) and caused glViewport to
+            // disagree with the 2D blitting code that always uses iOrigWidth x iOrigHeight.
+            // Using these members directly keeps both coordinate spaces in sync for all modes.
+            int renderW = iOrigWidth;
+            int renderH = iOrigHeight;
             glViewport(0, 0, renderW, renderH);
             m_renderTargetWidth  = renderW;
             m_renderTargetHeight = renderH;
-            iOrigWidth           = renderW;
-            iOrigHeight          = renderH;
 
             // ---- Clear buffers ----
             glClearColor(clearR, clearG, clearB, 1.0f);
@@ -689,6 +699,16 @@ void OpenGLRenderer::RenderFrame()
 
             // ---- Fireworks pass (before 3D models so geometry renders on top of fireworks) ----
             fxManager.RenderFireworks();
+
+            #if defined(_DEBUG)
+                if (bCollectTiming)
+                {
+                    const auto timingAfterBackground = std::chrono::steady_clock::now();
+                    timingSample.backgroundPrePassMs = timingMs(timingPhaseStart, timingAfterBackground);
+                    timingSample.backgroundPrePass = true;
+                    timingPhaseStart = timingAfterBackground;
+                }
+            #endif
 
             // ---- Scene-specific 3D rendering ----
             switch (scene.stSceneType)
@@ -723,6 +743,15 @@ void OpenGLRenderer::RenderFrame()
 
                 default: break;
             }
+
+            #if defined(_DEBUG)
+                if (bCollectTiming)
+                {
+                    const auto timingAfter3D = std::chrono::steady_clock::now();
+                    timingSample.commandRecordMs = timingMs(timingPhaseStart, timingAfter3D);
+                    timingPhaseStart = timingAfter3D;
+                }
+            #endif
 
             // ---- 2D scene overlays (rendered after 3D so they appear in front) ----
             switch (scene.stSceneType)
@@ -826,6 +855,18 @@ void OpenGLRenderer::RenderFrame()
                 }
             }
 
+            #if defined(_DEBUG)
+                if (bTimingOSDActive)
+                {
+                    float timingOsdElapsed = std::chrono::duration<float>(
+                        std::chrono::steady_clock::now() - timingOSDStartTime).count();
+                    if (timingOsdElapsed < 5.0f)
+                        DrawMyText(timingOSDMessage, Vector2(10.0f, 104.0f), MyColor(255, 220, 0, 255), 14.0f);
+                    else
+                        bTimingOSDActive = false;
+                }
+            #endif
+
             // ---- Loading spinner (fallback when loading text effects are inactive) ----
             if (!threadManager.threadVars.bLoaderTaskFinished.load())
             {
@@ -927,6 +968,15 @@ void OpenGLRenderer::RenderFrame()
             fxManager.Render();
 
 
+            #if defined(_DEBUG)
+                if (bCollectTiming)
+                {
+                    const auto timingAfterOverlay = std::chrono::steady_clock::now();
+                    timingSample.d2dOverlayMs = timingMs(timingPhaseStart, timingAfterOverlay);
+                    timingPhaseStart = timingAfterOverlay;
+                }
+            #endif
+
             // ---- Present frame ----
             #if defined(_WIN32) || defined(_WIN64)
                 // ---- Screen recorder: capture back-buffer BEFORE Present (mirrors DX11 behaviour) ----
@@ -957,6 +1007,16 @@ void OpenGLRenderer::RenderFrame()
                 glXSwapBuffers(m_glContext.display, m_glContext.window);
             #elif defined(__ANDROID__)
                 eglSwapBuffers(m_glContext.eglDisplay, m_glContext.eglSurface);
+            #endif
+
+            #if defined(_DEBUG)
+                if (bCollectTiming)
+                {
+                    const auto timingFrameEnd = std::chrono::steady_clock::now();
+                    timingSample.presentMs = timingMs(timingPhaseStart, timingFrameEnd);
+                    timingSample.totalMs = timingMs(timingFrameStart, timingFrameEnd);
+                    RecordTimingSample(timingSample);
+                }
             #endif
 
             // ---- Frame counter ----

@@ -2,11 +2,11 @@
 #include "Includes.h"
 
 #if defined(__USE_OPENGL__)
-    #include "OpenGLFXManager.h"
+    #include "FXManager.h"
 #elif defined(__USE_VULKAN__)
-    #include "VULKAN_FXManager.h"
+    #include "FXManager.h"
 #else
-    #include "DX_FXManager.h"
+    #include "FXManager.h"
 #endif
 
 // Our required Classes to create the GUI windows
@@ -26,9 +26,9 @@ extern PlayerInfo playerInfo[MAX_PLAYERS]; // Player Info Array
 extern void StopMusicPlayback();
 extern WindowMetrics winMetrics;
 #if defined(__USE_OPENGL__)
-    extern GLFXManager fxManager;
+    extern FXManager fxManager;
 #elif defined(__USE_VULKAN__)
-    extern VKFXManager fxManager;
+    extern FXManager fxManager;
 #else
     extern FXManager fxManager;
 #endif

@@ -1458,3 +1458,11 @@ void GUIManager::CreateConfigWindow()
     // All controls added — safe to make visible now
     configWindow->isVisible = true;
 }
+
+// ---------------------------------------------------------------------------
+// GUIConfigWindow.cpp - 24-06-2026 (additional changes, second session)
+// ---------------------------------------------------------------------------
+// Changes:
+// - ScanDisplayModes(): Added minimum resolution filter — skips any DEVMODEW entry
+//   whose dmPelsWidth < 800 or dmPelsHeight < 600. Prevents sub-800x600 resolutions
+//   (e.g. 640x480) from appearing in the config window resolution slider.

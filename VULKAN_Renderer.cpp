@@ -22,7 +22,7 @@
 #include "SceneManager.h"
 #include "ShaderManager.h"
 #include "GUIManager.h"
-#include "VULKAN_FXManager.h"
+#include "FXManager.h"
 #include "MoviePlayer.h"
 #include "ScreenRecorder.h"
 
@@ -36,7 +36,7 @@ extern ThreadManager      threadManager;
 extern SceneManager       scene;
 extern Configuration      config;
 extern GUIManager         guiManager;
-extern VKFXManager        fxManager;
+extern FXManager        fxManager;
 extern WindowMetrics      winMetrics;
 extern LightsManager      lightsManager;
 extern Model              models[MAX_MODELS];
@@ -317,6 +317,14 @@ void VulkanRenderer::Cleanup()
     if (m_bHasCleanedUp) return;
     m_bHasCleanedUp = true;
     bHasCleanedUp.store(true);
+
+    // Restore screen resolution if we entered exclusive fullscreen — mirrors DX11/DX12 pattern
+    #if defined(PLATFORM_WINDOWS)
+        if (m_isExclusiveFullscreen) {
+            ChangeDisplaySettingsW(nullptr, 0);                                 // Restore desktop default
+            m_isExclusiveFullscreen = false;
+        }
+    #endif
 
     WaitForGPUToFinish();
 
@@ -1764,8 +1772,78 @@ bool VulkanRenderer::SetFullScreen()
 bool VulkanRenderer::SetFullExclusive(uint32_t width, uint32_t height)
 {
 #if defined(PLATFORM_WINDOWS)
+    // Capture original desktop mode before switching so Cleanup can restore it — mirrors DX11/DX12
+    if (!m_isExclusiveFullscreen) {
+        m_originalDesktopMode.dmSize = sizeof(DEVMODE);
+        EnumDisplaySettingsW(nullptr, ENUM_CURRENT_SETTINGS,
+            reinterpret_cast<DEVMODEW*>(&m_originalDesktopMode));
+    }
+
+    DEVMODEW dm = {};
+    dm.dmSize       = sizeof(dm);
+    dm.dmPelsWidth  = width;
+    dm.dmPelsHeight = height;
+    dm.dmBitsPerPel = 32;
+    dm.dmFields     = DM_PELSWIDTH | DM_PELSHEIGHT | DM_BITSPERPEL;
+    if (ChangeDisplaySettingsW(&dm, CDS_FULLSCREEN) != DISP_CHANGE_SUCCESSFUL) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[VulkanRenderer] SetFullExclusive: ChangeDisplaySettingsW failed");
+        return false;
+    }
+
+    m_isExclusiveFullscreen = true;
     IsWindowMode.store(false);
-    return Resize(width, height);
+
+    // Gate any WM_SIZE fired by SetWindowPos — the resize is managed here, not in WM_SIZE.
+    threadManager.threadVars.bSettingFullScreen.store(true);
+
+    // Cover the full screen with a popup window
+    SetWindowLong(m_hwnd, GWL_STYLE, WS_POPUP);
+    SetWindowPos(m_hwnd, HWND_TOP, 0, 0, static_cast<int>(width), static_cast<int>(height), SWP_FRAMECHANGED);
+
+    bool result = Resize(width, height);
+
+    // Sync winMetrics from the confirmed fullscreen dimensions so every subsystem
+    // (cameras, GUI, FX, loader thread) sees a coherent coordinate space.
+    if (result)
+    {
+        winMetrics.x               = 0;
+        winMetrics.y               = 0;
+        winMetrics.width           = iOrigWidth;
+        winMetrics.height          = iOrigHeight;
+        winMetrics.clientWidth     = iOrigWidth;
+        winMetrics.clientHeight    = iOrigHeight;
+        winMetrics.borderWidth     = 0;
+        winMetrics.titleBarHeight  = 0;
+        winMetrics.monitorFullArea = { 0, 0, iOrigWidth, iOrigHeight };
+        winMetrics.monitorWorkArea = { 0, 0, iOrigWidth, iOrigHeight };
+
+        #if defined(_DEBUG_VULKANRENDERER_)
+        // Fullscreen presentation diagnostics: verify swapchain extent, window, and internal
+        // dimensions all agree.  A mismatch causes the "top-left quarter visible" symptom on
+        // DPI-scaled displays.
+        {
+            VkExtent2D ext = GetSwapchainExtent();
+            UINT   dpi        = GetDpiForWindow(m_hwnd);
+            RECT   windowRect = {}, clientRect = {};
+            GetWindowRect(m_hwnd, &windowRect);
+            GetClientRect(m_hwnd,  &clientRect);
+            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                L"[VulkanRenderer] Fullscreen diag: DPI=%u  WindowRect=%dx%d  ClientRect=%dx%d  "
+                L"Config=%dx%d  Internal=%dx%d  SwapchainExtent=%dx%d",
+                dpi,
+                windowRect.right  - windowRect.left,
+                windowRect.bottom - windowRect.top,
+                clientRect.right  - clientRect.left,
+                clientRect.bottom - clientRect.top,
+                config.myConfig.resolutionWidth, config.myConfig.resolutionHeight,
+                iOrigWidth, iOrigHeight,
+                ext.width, ext.height);
+        }
+        #endif
+    }
+
+    threadManager.threadVars.bSettingFullScreen.store(false);
+    return result;
 #elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
     return Resize(width, height);
 #endif
@@ -1774,9 +1852,15 @@ bool VulkanRenderer::SetFullExclusive(uint32_t width, uint32_t height)
 bool VulkanRenderer::SetWindowedScreen()
 {
 #if defined(PLATFORM_WINDOWS)
+    // Restore display settings if we entered exclusive fullscreen
+    if (m_isExclusiveFullscreen) {
+        ChangeDisplaySettingsW(nullptr, 0);
+        m_isExclusiveFullscreen = false;
+    }
     const int ww = config.myConfig.resolutionWidth;
     const int wh = config.myConfig.resolutionHeight;
-    SetWindowLong(m_hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW);
+    // Non-resizable windowed style — no WS_THICKFRAME (drag border) or WS_MAXIMIZEBOX
+    SetWindowLong(m_hwnd, GWL_STYLE, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX);
     SetWindowPos(m_hwnd, nullptr,
         (GetSystemMetrics(SM_CXSCREEN) - ww) / 2,
         (GetSystemMetrics(SM_CYSCREEN) - wh) / 2,

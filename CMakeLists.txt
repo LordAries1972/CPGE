@@ -57,8 +57,7 @@ set(SOURCES
     DX12RenderFrame.cpp
     DXCamera.cpp
     DXRenderFrame.cpp
-    DX_FXManager.cpp
-    DX12FXManager.cpp
+    FXManager.cpp
     DX12Models.cpp
     ExceptionHandler.cpp
     FileIO.cpp
@@ -85,13 +84,11 @@ set(SOURCES
     OpenGLCamera.cpp
     OpenGLModels.cpp
     OpenGLRenderer.cpp
-    OpenGLFXManager.cpp
     OpenGLRenderFrame.cpp
     VulkanCamera.cpp
     VulkanModels.cpp
     VULKAN_Renderer.cpp
     VULKAN_RenderFrame.cpp
-    VULKAN_FXManager.cpp
     Physics.cpp
     PUNPack.cpp
     RendererFactory.cpp
@@ -444,6 +441,20 @@ if(WIN32)
     endif()
 
     message(STATUS "Shader compiler: ${FXC_EXE}")
+
+    find_program(DXC_EXE
+        NAMES dxc
+        HINTS
+            "$ENV{VULKAN_SDK}/bin"
+            "$ENV{VULKAN_SDK}/Bin"
+        DOC "DirectX Shader Compiler for SM6 DXIL shaders")
+
+    if(DXC_EXE)
+        message(STATUS "DX12 native shader compiler: ${DXC_EXE}")
+    else()
+        message(WARNING "dxc.exe was not found; DX12 native SM6 shaders will not be precompiled and runtime will fall back to FXC CSOs.")
+    endif()
+
     set(_SD "${CMAKE_CURRENT_SOURCE_DIR}/Assets/Shaders")
 
     # Compile one HLSL to .cso alongside the executable
@@ -461,12 +472,33 @@ if(WIN32)
         )
     endmacro()
 
+    macro(add_dxc_shader HLSL_FILE PROFILE OUT_CSO)
+        if(DXC_EXE)
+            add_custom_command(TARGET CrossPlatformGameEngine PRE_BUILD
+                COMMAND "${DXC_EXE}"
+                    -nologo
+                    -T ${PROFILE}
+                    -E main
+                    $<IF:$<CONFIG:Debug>,-Od,-O3>
+                    -Fo "$<TARGET_FILE_DIR:CrossPlatformGameEngine>/${OUT_CSO}"
+                    "${_SD}/${HLSL_FILE}"
+                COMMENT "DXC: ${HLSL_FILE} -> ${OUT_CSO}"
+                VERBATIM
+            )
+        endif()
+    endmacro()
+
     # ── DirectX HLSL shaders compiled via FXC (Windows SDK) ──────────────────
     message(STATUS "[Shaders] DirectX: fxc.exe compiling HLSL shaders")
     add_hlsl_shader(DefaultVertex.hlsl  vs_5_0  VertexShader.cso)
     add_hlsl_shader(DefaultPixel.hlsl   ps_5_0  PixelShader.cso)
     add_hlsl_shader(ModelVertex.hlsl    vs_5_0  ModelVShader.cso)
     add_hlsl_shader(ModelPixel.hlsl     ps_5_0  ModelPShader.cso)
+
+    # Native DirectX 12 shaders are DXIL/SM6 assets. They are selected only on
+    # FL12_x + SM6 adapters; FL11_x DX12 API devices keep using the FXC CSOs.
+    add_dxc_shader(DX12NativeModelVertex.hlsl  vs_6_0  DX12NativeModelVShader.cso)
+    add_dxc_shader(DX12NativeModelPixel.hlsl   ps_6_0  DX12NativeModelPShader.cso)
 
     # ── OpenGL GLSL shaders — copy source to output dir (runtime-loaded) ─────
     # OpenGL loads GLSL text at runtime; no compilation step needed.

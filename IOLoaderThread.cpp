@@ -23,16 +23,16 @@
 ---------------------------------------------------------------- */
 #if defined(__USE_DIRECTX_11__)
     #include "DX11Renderer.h"
-    #include "DX_FXManager.h"
+    #include "FXManager.h"
 #elif defined(__USE_DIRECTX_12__)
     #include "DX12Renderer.h"
-    #include "DX12FXManager.h"
+    #include "FXManager.h"
 #elif defined(__USE_OPENGL__)
     #include "OpenGLRenderer.h"
-    #include "OpenGLFXManager.h"
+    #include "FXManager.h"
 #elif defined(__USE_VULKAN__)
     #include "VULKAN_Renderer.h"
-    #include "VULKAN_FXManager.h"
+    #include "FXManager.h"
 #endif
 
 /* ----------------------------------------------------------------
@@ -81,9 +81,9 @@ extern std::wstring     baseDir;
 
 /* fxManager type varies by renderer -- only one extern is compiled. */
 #if defined(__USE_OPENGL__)
-    extern GLFXManager  fxManager;
+    extern FXManager  fxManager;
 #elif defined(__USE_VULKAN__)
-    extern VKFXManager  fxManager;
+    extern FXManager  fxManager;
 #else
     extern FXManager    fxManager;                                                  // DX11 and DX12
 #endif
@@ -353,6 +353,9 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
                     fxManager.ZoomInitialise(ZoomFXFunction::Zoom2D, 0.20f, 0.15f, int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
                     fxManager.StartZoom(0.015f);
                     fxManager.StartFireworks(0.5f);
+                    // Gentle brightness pulse — only fades to 75% opacity, 2-second half-cycles
+                    fxManager.StartImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO, 25.0f, 3.0f);
+
                 }
                 else
                 {
@@ -420,6 +423,7 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
                     guiManager.CloseAllWindows();
                     fxManager.StopFireworks();
                     fxManager.StopZooming();
+                    fxManager.StopImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO);
 
                     // Starfield on resize
                     fxManager.CreateStarfield(80, 800.0f, 1000.0f, gtStarOrigin, true);
@@ -430,6 +434,8 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
                     fxManager.ZoomInitialise(ZoomFXFunction::Zoom2D, 0.20f, 0.15f, int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
                     fxManager.StartZoom(0.015f);
                     fxManager.StartFireworks(0.5f);
+                    // Gentle brightness pulse — only fades to 75% opacity, 2-second half-cycles
+                    fxManager.StartImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO, 25.0f, 3.0f);
                 }
 
                 /* OpenGL: flush pending GL commands before signalling the render thread. */
@@ -503,6 +509,7 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
                 threadManager.threadVars.bLoaderTaskFinished.store(false);
                 fxManager.StopZooming();                                        // In case we are returning from somewhere where a zooming effect maybe active.
                 fxManager.StopFireworks();                                      // In case we are returning from somewhere where fireworks maybe active.
+                fxManager.StopImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO);
                 auto showStage = [](const wchar_t* msg) {
                     TextRenderStyle s;
                     s.fontName = LoadingTextFX::kFontName;

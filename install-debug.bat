@@ -9,3 +9,7 @@ copy .\build\Vulkan\Debug\Debug\Vulkancpge.pdb .
 
 copy .\build\OpenGL\Debug\Debug\OpenGLcpge.exe .
 copy .\build\OpenGL\Debug\Debug\OpenGLcpge.pdb .
+
+copy .\build\OpenGL\Debug\Debug\*.cso .
+copy .\build\OpenGL\Debug\Debug\*.spv .
+copy .\build\OpenGL\Debug\Debug\*.glsl .

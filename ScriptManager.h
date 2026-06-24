@@ -30,7 +30,7 @@
 #ifdef __USE_SCRIPT_MANAGER__
 
 #include "Includes.h"
-#include "DX_FXManager.h"
+#include "FXManager.h"
 #include "ThreadManager.h"
 #include "SoundManager.h"
 #include "GUIManager.h"

@@ -17,6 +17,7 @@ Known Keys for Game Title Area:-
 ------------------------------------
 F2: Show/Hide Debug Overlay
 F8: Open / Closes this Console window.
+F12: Start / Stop Render Performance Profiling.
 HOME: Start / Stop Screen Recorder.
 ESC: QUIT (At Root Window) otherwise back to root game menu!
 NUM KEYPAD +/- : Microphone Volume Up/Down (Only when Screen Recording).

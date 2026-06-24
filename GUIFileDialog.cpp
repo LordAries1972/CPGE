@@ -25,11 +25,11 @@ where filters = { { L"All Files (*.*)", L"*.*" },
 #endif
 
 #if defined(__USE_OPENGL__)
-    #include "OpenGLFXManager.h"
+    #include "FXManager.h"
 #elif defined(__USE_VULKAN__)
-    #include "VULKAN_FXManager.h"
+    #include "FXManager.h"
 #else
-    #include "DX_FXManager.h"
+    #include "FXManager.h"
 #endif
 
 #include "GUIManager.h"

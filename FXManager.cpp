@@ -1,0 +1,3025 @@
+#include "Includes.h"
+
+// ===============================================================================================
+// FXManager.cpp -- Universal Visual FX Manager (all render pipelines)
+//
+// Unified replacement for DX_FXManager.cpp, DX12FXManager.cpp,
+// OpenGLFXManager.cpp, VULKAN_FXManager.cpp.
+//
+// Compile-time pipeline selection via:
+//   __USE_DIRECTX_11__  /  __USE_DIRECTX_12__  /  __USE_OPENGL__  /  __USE_VULKAN__
+// ===============================================================================================
+
+#include "FXManager.h"
+#include "Debug.h"
+#include "MathPrecalculation.h"
+#include "ThreadManager.h"
+#include "ThreadLockHelper.h"
+
+#if defined(__USE_DIRECTX_11__)
+    #include "DX11Renderer.h"
+#elif defined(__USE_DIRECTX_12__)
+    #include "DX12Renderer.h"
+#elif defined(__USE_OPENGL__)
+    #include "OpenGLRenderer.h"
+#elif defined(__USE_VULKAN__)
+    #include "VULKAN_Renderer.h"
+    #if __has_include(<shaderc/shaderc.hpp>)
+        #include <shaderc/shaderc.hpp>
+        #define HAS_SHADERC 1
+    #else
+        #define HAS_SHADERC 0
+    #endif
+#endif
+
+extern Debug         debug;
+extern ThreadManager threadManager;
+
+#pragma warning(push)
+#pragma warning(disable: 4101 4267)
+
+// ===============================================================================================
+// Anonymous namespace — pipeline-specific helpers and constants
+// ===============================================================================================
+namespace
+{
+#if defined(__USE_DIRECTX_12__)
+    // Hoist renderer pointer once per hot-path to avoid shared_ptr get() per draw call
+    inline DX12Renderer* GetDX12Fast() {
+        return static_cast<DX12Renderer*>(renderer.get());
+    }
+    inline void DrawFXPixel(int x, int y, float sz, const XMFLOAT4& c) {
+        DX12Renderer* dx12 = GetDX12Fast();
+        if (dx12) dx12->Blit2DColoredPixelFast(x, y, sz, c);
+    }
+    // DX11On12 has per-call interop overhead — keep particle counts in check
+    constexpr int kMaxFireworkRockets    = 6;
+    constexpr int kFireworkParticles     = 48;
+    constexpr int kRocketTrailSteps      = 3;
+    constexpr int kExplosionTrailSteps   = 3;
+#elif defined(__USE_DIRECTX_11__)
+    inline void DrawFXPixel(int x, int y, float sz, const XMFLOAT4& c) {
+        if (renderer) renderer->Blit2DColoredPixel(x, y, sz, c);
+    }
+    constexpr int kMaxFireworkRockets    = 6;
+    constexpr int kFireworkParticles     = 48;
+    constexpr int kRocketTrailSteps      = 3;
+    constexpr int kExplosionTrailSteps   = 3;
+#elif defined(__USE_OPENGL__)
+    inline void DrawFXPixel(int x, int y, float sz, const XMFLOAT4& c) {
+        if (renderer) renderer->Blit2DColoredPixel(x, y, sz, c);
+    }
+    constexpr int kMaxFireworkRockets    = 6;
+    constexpr int kFireworkParticles     = 48;
+    constexpr int kRocketTrailSteps      = 3;
+    constexpr int kExplosionTrailSteps   = 3;
+#elif defined(__USE_VULKAN__)
+    inline void DrawFXPixel(int x, int y, float sz, const XMFLOAT4& c) {
+        if (renderer) renderer->Blit2DColoredPixel(x, y, sz, c);
+    }
+    constexpr int kMaxFireworkRockets    = 6;
+    constexpr int kFireworkParticles     = 48;
+    constexpr int kRocketTrailSteps      = 3;
+    constexpr int kExplosionTrailSteps   = 3;
+#endif
+
+// ---- OpenGL GLSL (version 330, no VBO — uses gl_VertexID) ----
+#if defined(__USE_OPENGL__)
+    static const char* k_fadeVertGLSL = R"(
+#version 330 core
+void main() {
+    vec2 positions[3] = vec2[](vec2(-1.0,-1.0), vec2(3.0,-1.0), vec2(-1.0, 3.0));
+    gl_Position = vec4(positions[gl_VertexID], 0.0, 1.0);
+}
+)";
+    static const char* k_fadeFragGLSL = R"(
+#version 330 core
+uniform vec4 uColor;
+out vec4 fragColor;
+void main() { fragColor = uColor; }
+)";
+#endif // __USE_OPENGL__
+
+// ---- Vulkan GLSL (version 450, push constants) ----
+#if defined(__USE_VULKAN__)
+    static const char* k_vkFadeVertGLSL = R"(
+#version 450
+void main() {
+    vec2 pos[3] = vec2[](vec2(-1.0,-1.0), vec2(3.0,-1.0), vec2(-1.0,3.0));
+    gl_Position = vec4(pos[gl_VertexIndex], 0.0, 1.0);
+}
+)";
+    static const char* k_vkFadeFragGLSL = R"(
+#version 450
+layout(push_constant) uniform PC { vec4 color; } pc;
+layout(location = 0) out vec4 outColor;
+void main() { outColor = pc.color; }
+)";
+#endif // __USE_VULKAN__
+}
+
+// ===============================================================================================
+// Convenience macro for acquiring the effects mutex in const and non-const methods
+// ===============================================================================================
+#define FX_LOCK() std::lock_guard<std::recursive_mutex> _fxLock(m_effectsMutex)
+
+// ===============================================================================================
+// Constructor / Destructor
+// ===============================================================================================
+
+FXManager::FXManager() : bHasCleanedUp(false), bIsRendering(false)
+{
+#if defined(__USE_DIRECTX_11__)
+    // Explicit nullptr init for COM pointers — header defaults apply but constructor
+    // runs before any renderer exists so explicit assignment makes reset intent clear
+    originalBlendState        = nullptr;
+    fadeBlendState            = nullptr;
+    originalRenderTarget      = nullptr;
+    originalDepthStencilView  = nullptr;
+    originalRasterState       = nullptr;
+    originalDepthStencilState = nullptr;
+    fullscreenQuadVertexBuffer = nullptr;
+    inputLayout               = nullptr;
+    vertexShader              = nullptr;
+    pixelShader               = nullptr;
+    constantBuffer            = nullptr;
+#endif
+}
+
+FXManager::~FXManager() {
+    CleanUp();
+}
+
+// ===============================================================================================
+// CleanUp
+// ===============================================================================================
+
+void FXManager::CleanUp()
+{
+    if (bHasCleanedUp) return;
+    bIsRendering.store(false);
+
+#if defined(__USE_DIRECTX_11__)
+    if (fadeBlendState)            { fadeBlendState->Release();            fadeBlendState            = nullptr; }
+    if (fullscreenQuadVertexBuffer){ fullscreenQuadVertexBuffer->Release(); fullscreenQuadVertexBuffer = nullptr; }
+    if (inputLayout)               { inputLayout->Release();               inputLayout               = nullptr; }
+    if (vertexShader)              { vertexShader->Release();              vertexShader              = nullptr; }
+    if (pixelShader)               { pixelShader->Release();               pixelShader               = nullptr; }
+    if (constantBuffer)            { constantBuffer->Release();            constantBuffer            = nullptr; }
+    if (originalBlendState)        { originalBlendState->Release();        originalBlendState        = nullptr; }
+    if (originalRenderTarget)      { originalRenderTarget->Release();      originalRenderTarget      = nullptr; }
+    if (originalDepthStencilView)  { originalDepthStencilView->Release();  originalDepthStencilView  = nullptr; }
+    if (originalRasterState)       { originalRasterState->Release();       originalRasterState       = nullptr; }
+    if (originalDepthStencilState) { originalDepthStencilState->Release(); originalDepthStencilState = nullptr; }
+#elif defined(__USE_OPENGL__)
+    DestroyFadeShaderProgram();
+#elif defined(__USE_VULKAN__)
+    DestroyFadePipeline();
+#endif
+
+    effects.clear();
+    m_pendingEffects.clear();
+    pendingCallbacks.clear();
+    bHasCleanedUp = true;
+}
+
+// ===============================================================================================
+// Initialize
+// ===============================================================================================
+
+void FXManager::Initialize()
+{
+    if (bHasCleanedUp) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Cannot initialize - already cleaned up");
+        return;
+    }
+    if (!renderer || !renderer->bIsInitialized.load()) {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] Renderer not ready - deferring initialization");
+        return;
+    }
+
+#if defined(__USE_DIRECTX_11__)
+    try {
+        ComPtr<ID3D11Device>        device  = static_cast<ID3D11Device*>(renderer->GetDevice());
+        ComPtr<ID3D11DeviceContext> context = static_cast<ID3D11DeviceContext*>(renderer->GetDeviceContext());
+        if (!device || !context) {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] DX11 device/context null in Initialize");
+            return;
+        }
+
+        // Fullscreen-quad vertex layout: position(float3) + texcoord(float2)
+        struct Vertex { XMFLOAT3 pos; XMFLOAT2 uv; };
+        Vertex verts[] = {
+            { XMFLOAT3(-1.0f,  1.0f, 0.0f), XMFLOAT2(0.0f, 0.0f) },
+            { XMFLOAT3( 1.0f,  1.0f, 0.0f), XMFLOAT2(1.0f, 0.0f) },
+            { XMFLOAT3(-1.0f, -1.0f, 0.0f), XMFLOAT2(0.0f, 1.0f) },
+            { XMFLOAT3( 1.0f, -1.0f, 0.0f), XMFLOAT2(1.0f, 1.0f) }
+        };
+
+        D3D11_BLEND_DESC blendDesc{};
+        blendDesc.RenderTarget[0].BlendEnable           = TRUE;
+        blendDesc.RenderTarget[0].SrcBlend              = D3D11_BLEND_SRC_ALPHA;
+        blendDesc.RenderTarget[0].DestBlend             = D3D11_BLEND_INV_SRC_ALPHA;
+        blendDesc.RenderTarget[0].BlendOp               = D3D11_BLEND_OP_ADD;
+        blendDesc.RenderTarget[0].SrcBlendAlpha         = D3D11_BLEND_ONE;
+        blendDesc.RenderTarget[0].DestBlendAlpha        = D3D11_BLEND_ZERO;
+        blendDesc.RenderTarget[0].BlendOpAlpha          = D3D11_BLEND_OP_ADD;
+        blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+
+        HRESULT hr = device->CreateBlendState(&blendDesc, &fadeBlendState);
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] DX11 CreateBlendState failed: 0x" + std::to_wstring(hr));
+            return;
+        }
+
+        D3D11_BUFFER_DESC vbDesc{};
+        vbDesc.Usage     = D3D11_USAGE_DEFAULT;
+        vbDesc.ByteWidth = sizeof(verts);
+        vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+        D3D11_SUBRESOURCE_DATA vbData{ verts, 0, 0 };
+
+        hr = device->CreateBuffer(&vbDesc, &vbData, &fullscreenQuadVertexBuffer);
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] DX11 vertex buffer creation failed: 0x" + std::to_wstring(hr));
+            return;
+        }
+
+        if (!LoadFadeShaders()) {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] DX11 shader compilation failed");
+            return;
+        }
+
+        D3D11_BUFFER_DESC cbDesc{};
+        cbDesc.Usage          = D3D11_USAGE_DYNAMIC;
+        cbDesc.ByteWidth      = 64;                                             // std140-aligned size for vec4
+        cbDesc.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
+        cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+        hr = device->CreateBuffer(&cbDesc, nullptr, &constantBuffer);
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] DX11 constant buffer creation failed: 0x" + std::to_wstring(hr));
+            return;
+        }
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Initialized (DX11)");
+    }
+    catch (const std::exception& e) {
+        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] DX11 init exception: " +
+            std::wstring(e.what(), e.what() + strlen(e.what())));
+    }
+
+#elif defined(__USE_DIRECTX_12__)
+    // DX12 uses D2D DrawRectangle for fades — no raw GPU resources needed
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Initialized (DX12 / D2D)");
+
+#elif defined(__USE_OPENGL__)
+    try {
+        if (!CreateFadeShaderProgram())
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] GL fade shader unavailable (will retry on first draw)");
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Initialized (OpenGL)");
+    }
+    catch (const std::exception& e) {
+        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] GL init exception: " +
+            std::wstring(e.what(), e.what() + strlen(e.what())));
+    }
+
+#elif defined(__USE_VULKAN__)
+    m_weakRenderer = renderer;
+    try {
+        if (!CreateFadePipeline())
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] Vulkan fade pipeline unavailable (shaderc missing?)");
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Initialized (Vulkan)");
+    }
+    catch (const std::exception& e) {
+        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[FXManager] Vulkan init exception: " +
+            std::wstring(e.what(), e.what() + strlen(e.what())));
+    }
+#endif
+}
+
+// ===============================================================================================
+// Pipeline-specific shader / pipeline creation
+// ===============================================================================================
+
+#if defined(__USE_DIRECTX_11__)
+bool FXManager::LoadFadeShaders()
+{
+    if (bHasCleanedUp || threadManager.threadVars.bIsShuttingDown.load()) return false;
+
+    ComPtr<ID3D11Device> device = static_cast<ID3D11Device*>(renderer->GetDevice());
+    if (!device) return false;
+
+    // Vertex shader: pass-through position and texcoord
+    const char* vsSource = R"(
+struct VS_INPUT { float3 position : POSITION; float2 texcoord : TEXCOORD; };
+struct VS_OUTPUT { float4 position : SV_POSITION; float2 texcoord : TEXCOORD; };
+VS_OUTPUT main(VS_INPUT i) {
+    VS_OUTPUT o;
+    o.position = float4(i.position, 1.0f);
+    o.texcoord = i.texcoord;
+    return o;
+})";
+
+    // Pixel shader: outputs solid fade color from constant buffer
+    const char* psSource = R"(
+cbuffer FadeColorBuffer : register(b0) { float4 fadeColor; };
+float4 main(float4 pos : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET {
+    return fadeColor;
+})";
+
+    ID3DBlob *vsBlob = nullptr, *psBlob = nullptr, *errBlob = nullptr;
+    HRESULT hr = D3DCompile(vsSource, strlen(vsSource), nullptr, nullptr, nullptr,
+                            "main", "vs_5_0", 0, 0, &vsBlob, &errBlob);
+    if (FAILED(hr)) {
+        if (errBlob) {
+            std::string s(static_cast<const char*>(errBlob->GetBufferPointer()), errBlob->GetBufferSize());
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] VS compile failed: " + std::wstring(s.begin(), s.end()));
+            errBlob->Release();
+        }
+        return false;
+    }
+
+    hr = device->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &vertexShader);
+    if (FAILED(hr)) { vsBlob->Release(); return false; }
+
+    D3D11_INPUT_ELEMENT_DESC layout[] = {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0,  0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,    0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+    };
+    hr = device->CreateInputLayout(layout, ARRAYSIZE(layout),
+        vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &inputLayout);
+    vsBlob->Release();
+    if (FAILED(hr)) return false;
+
+    hr = D3DCompile(psSource, strlen(psSource), nullptr, nullptr, nullptr,
+                    "main", "ps_5_0", 0, 0, &psBlob, &errBlob);
+    if (FAILED(hr)) {
+        if (errBlob) {
+            std::string s(static_cast<const char*>(errBlob->GetBufferPointer()), errBlob->GetBufferSize());
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] PS compile failed: " + std::wstring(s.begin(), s.end()));
+            errBlob->Release();
+        }
+        return false;
+    }
+
+    hr = device->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &pixelShader);
+    psBlob->Release();
+    if (FAILED(hr)) return false;
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] DX11 fade shaders compiled");
+    return true;
+}
+#else
+bool FXManager::LoadFadeShaders() { return true; }
+#endif // __USE_DIRECTX_11__
+
+#if defined(__USE_OPENGL__)
+bool FXManager::CreateFadeShaderProgram()
+{
+    auto compileShader = [](GLenum type, const char* src) -> GLuint {
+        GLuint shader = glCreateShader(type);
+        glShaderSource(shader, 1, &src, nullptr);
+        glCompileShader(shader);
+        GLint ok = 0; glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
+        if (!ok) {
+            char buf[512]; glGetShaderInfoLog(shader, 512, nullptr, buf);
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] GL shader compile error: " +
+                std::wstring(buf, buf + strlen(buf)));
+            glDeleteShader(shader); return 0;
+        }
+        return shader;
+    };
+
+    GLuint vert = compileShader(GL_VERTEX_SHADER,   k_fadeVertGLSL);
+    GLuint frag = compileShader(GL_FRAGMENT_SHADER, k_fadeFragGLSL);
+    if (!vert || !frag) {
+        if (vert) glDeleteShader(vert);
+        if (frag) glDeleteShader(frag);
+        return false;
+    }
+
+    m_fadeShaderProgram = glCreateProgram();
+    glAttachShader(m_fadeShaderProgram, vert);
+    glAttachShader(m_fadeShaderProgram, frag);
+    glLinkProgram(m_fadeShaderProgram);
+    glDetachShader(m_fadeShaderProgram, vert);
+    glDetachShader(m_fadeShaderProgram, frag);
+    glDeleteShader(vert);
+    glDeleteShader(frag);
+
+    GLint ok = 0; glGetProgramiv(m_fadeShaderProgram, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        char buf[512]; glGetProgramInfoLog(m_fadeShaderProgram, 512, nullptr, buf);
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] GL fade program link error: " +
+            std::wstring(buf, buf + strlen(buf)));
+        glDeleteProgram(m_fadeShaderProgram);
+        m_fadeShaderProgram = 0;
+        return false;
+    }
+
+    m_fadeColorUniform = glGetUniformLocation(m_fadeShaderProgram, "uColor");
+    glGenVertexArrays(1, &m_fadeVAO);                                           // Empty VAO; positions computed from gl_VertexID
+    return true;
+}
+
+void FXManager::DestroyFadeShaderProgram()
+{
+    if (m_fadeVAO)           { glDeleteVertexArrays(1, &m_fadeVAO); m_fadeVAO = 0; }
+    if (m_fadeShaderProgram) { glDeleteProgram(m_fadeShaderProgram); m_fadeShaderProgram = 0; }
+    m_fadeColorUniform = -1;
+}
+#endif // __USE_OPENGL__
+
+#if defined(__USE_VULKAN__)
+bool FXManager::CreateFadePipeline()
+{
+#if !HAS_SHADERC
+    debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] shaderc unavailable - Vulkan fade pipeline skipped");
+    return false;
+#else
+    auto* vkr    = static_cast<VulkanRenderer*>(renderer.get());
+    if (!vkr) return false;
+    VkDevice device = vkr->GetVkDevice();
+    if (device == VK_NULL_HANDLE) return false;
+
+    auto compileGLSL = [&](const char* src, shaderc_shader_kind kind) -> std::vector<uint32_t> {
+        shaderc::Compiler       compiler;
+        shaderc::CompileOptions opts;
+        opts.SetOptimizationLevel(shaderc_optimization_level_performance);
+        auto res = compiler.CompileGlslToSpv(src, strlen(src), kind, "fade", "main", opts);
+        if (res.GetCompilationStatus() != shaderc_compilation_status_success) {
+            std::string err = res.GetErrorMessage();
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Vulkan shader compile error: " +
+                std::wstring(err.begin(), err.end()));
+            return {};
+        }
+        return { res.cbegin(), res.cend() };
+    };
+
+    auto vertSpv = compileGLSL(k_vkFadeVertGLSL, shaderc_glsl_vertex_shader);
+    auto fragSpv = compileGLSL(k_vkFadeFragGLSL, shaderc_glsl_fragment_shader);
+    if (vertSpv.empty() || fragSpv.empty()) return false;
+
+    auto makeModule = [&](const std::vector<uint32_t>& spv) -> VkShaderModule {
+        VkShaderModuleCreateInfo ci{ VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
+        ci.codeSize = spv.size() * sizeof(uint32_t);
+        ci.pCode    = spv.data();
+        VkShaderModule mod = VK_NULL_HANDLE;
+        vkCreateShaderModule(device, &ci, nullptr, &mod);
+        return mod;
+    };
+
+    VkShaderModule vertMod = makeModule(vertSpv);
+    VkShaderModule fragMod = makeModule(fragSpv);
+    if (!vertMod || !fragMod) {
+        if (vertMod) vkDestroyShaderModule(device, vertMod, nullptr);
+        if (fragMod) vkDestroyShaderModule(device, fragMod, nullptr);
+        return false;
+    }
+
+    // Push constant: vec4 color (16 bytes) for the fragment stage
+    VkPushConstantRange pcRange{};
+    pcRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    pcRange.offset     = 0;
+    pcRange.size       = 16;
+
+    VkPipelineLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+    layoutCI.pushConstantRangeCount = 1;
+    layoutCI.pPushConstantRanges    = &pcRange;
+    if (vkCreatePipelineLayout(device, &layoutCI, nullptr, &m_fadePipelineLayout) != VK_SUCCESS) {
+        vkDestroyShaderModule(device, vertMod, nullptr);
+        vkDestroyShaderModule(device, fragMod, nullptr);
+        return false;
+    }
+
+    VkPipelineShaderStageCreateInfo stages[2]{};
+    stages[0].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].stage  = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[0].module = vertMod;
+    stages[0].pName  = "main";
+    stages[1].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[1].stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[1].module = fragMod;
+    stages[1].pName  = "main";
+
+    VkPipelineVertexInputStateCreateInfo   viCI{ VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
+    VkPipelineInputAssemblyStateCreateInfo iaCI{ VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
+    iaCI.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    VkPipelineViewportStateCreateInfo vpCI{ VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
+    vpCI.viewportCount = 1;
+    vpCI.scissorCount  = 1;
+
+    VkPipelineRasterizationStateCreateInfo rsCI{ VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
+    rsCI.polygonMode = VK_POLYGON_MODE_FILL;
+    rsCI.cullMode    = VK_CULL_MODE_NONE;
+    rsCI.frontFace   = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rsCI.lineWidth   = 1.0f;
+
+    VkPipelineMultisampleStateCreateInfo msCI{ VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
+    msCI.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineDepthStencilStateCreateInfo dsCI{ VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
+    dsCI.depthTestEnable  = VK_FALSE;
+    dsCI.depthWriteEnable = VK_FALSE;
+
+    VkPipelineColorBlendAttachmentState blendAttach{};
+    blendAttach.blendEnable         = VK_TRUE;
+    blendAttach.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    blendAttach.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    blendAttach.colorBlendOp        = VK_BLEND_OP_ADD;
+    blendAttach.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    blendAttach.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    blendAttach.alphaBlendOp        = VK_BLEND_OP_ADD;
+    blendAttach.colorWriteMask      = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                      VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+    VkPipelineColorBlendStateCreateInfo cbCI{ VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
+    cbCI.attachmentCount = 1;
+    cbCI.pAttachments    = &blendAttach;
+
+    VkDynamicState dynStates[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    VkPipelineDynamicStateCreateInfo dynCI{ VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO };
+    dynCI.dynamicStateCount = 2;
+    dynCI.pDynamicStates    = dynStates;
+
+    VkGraphicsPipelineCreateInfo pipeCI{ VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
+    pipeCI.stageCount          = 2;
+    pipeCI.pStages             = stages;
+    pipeCI.pVertexInputState   = &viCI;
+    pipeCI.pInputAssemblyState = &iaCI;
+    pipeCI.pViewportState      = &vpCI;
+    pipeCI.pRasterizationState = &rsCI;
+    pipeCI.pMultisampleState   = &msCI;
+    pipeCI.pDepthStencilState  = &dsCI;
+    pipeCI.pColorBlendState    = &cbCI;
+    pipeCI.pDynamicState       = &dynCI;
+    pipeCI.layout              = m_fadePipelineLayout;
+    pipeCI.renderPass          = vkr->GetRenderPass();
+    pipeCI.subpass             = 0;
+
+    bool ok = (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeCI, nullptr, &m_fadePipeline) == VK_SUCCESS);
+
+    vkDestroyShaderModule(device, vertMod, nullptr);
+    vkDestroyShaderModule(device, fragMod, nullptr);
+
+    if (ok) debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Vulkan fade pipeline created");
+    return ok;
+#endif // HAS_SHADERC
+}
+
+void FXManager::DestroyFadePipeline()
+{
+    auto locked = m_weakRenderer.lock();
+    auto* vkr   = locked ? static_cast<VulkanRenderer*>(locked.get()) : nullptr;
+    VkDevice device = vkr ? vkr->GetVkDevice() : VK_NULL_HANDLE;
+    if (device == VK_NULL_HANDLE) return;
+
+    // Wait for pending GPU work so the pipeline isn't destroyed mid-draw
+    vkr->WaitForGPUToFinish();
+
+    if (m_fadePipeline != VK_NULL_HANDLE) {
+        vkDestroyPipeline(device, m_fadePipeline, nullptr);
+        m_fadePipeline = VK_NULL_HANDLE;
+    }
+    if (m_fadePipelineLayout != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(device, m_fadePipelineLayout, nullptr);
+        m_fadePipelineLayout = VK_NULL_HANDLE;
+    }
+}
+#endif // __USE_VULKAN__
+
+// ===============================================================================================
+// SaveRenderState / RestoreRenderState
+// ===============================================================================================
+
+#if defined(__USE_DIRECTX_11__)
+void FXManager::SaveRenderState()
+{
+    ComPtr<ID3D11DeviceContext> context = static_cast<ID3D11DeviceContext*>(renderer->GetDeviceContext());
+    if (!context) return;
+    context->OMGetBlendState(&originalBlendState, nullptr, nullptr);
+    context->OMGetRenderTargets(1, &originalRenderTarget, &originalDepthStencilView);
+    numViewports = 1;
+    context->RSGetViewports(&numViewports, &originalViewport);
+    context->RSGetState(&originalRasterState);
+    context->OMGetDepthStencilState(&originalDepthStencilState, &originalStencilRef);
+}
+
+void FXManager::RestoreRenderState()
+{
+    ComPtr<ID3D11DeviceContext> context = static_cast<ID3D11DeviceContext*>(renderer->GetDeviceContext());
+    if (!context) return;
+    if (originalBlendState) {
+        context->OMSetBlendState(originalBlendState, nullptr, 0xffffffff);
+        originalBlendState->Release(); originalBlendState = nullptr;
+    }
+    if (originalRenderTarget || originalDepthStencilView) {
+        context->OMSetRenderTargets(1, &originalRenderTarget, originalDepthStencilView);
+        if (originalRenderTarget)     { originalRenderTarget->Release();     originalRenderTarget     = nullptr; }
+        if (originalDepthStencilView) { originalDepthStencilView->Release(); originalDepthStencilView = nullptr; }
+    }
+    if (numViewports > 0) {
+        context->RSSetViewports(numViewports, &originalViewport); numViewports = 0;
+    }
+    if (originalRasterState) {
+        context->RSSetState(originalRasterState); originalRasterState->Release(); originalRasterState = nullptr;
+    }
+    if (originalDepthStencilState) {
+        context->OMSetDepthStencilState(originalDepthStencilState, originalStencilRef);
+        originalDepthStencilState->Release(); originalDepthStencilState = nullptr;
+    }
+}
+#else
+void FXManager::SaveRenderState()    {}
+void FXManager::RestoreRenderState() {}
+#endif
+
+// ===============================================================================================
+// IsFadeActive
+// ===============================================================================================
+
+bool FXManager::IsFadeActive() const
+{
+    FX_LOCK();
+    for (const auto& fx : effects)
+        if (fx.type == FXType::ColorFader && fx.progress < 1.0f)
+            return true;
+    return false;
+}
+
+// ===============================================================================================
+// AddEffect — defers push_back while Render() is iterating to prevent reallocation
+// ===============================================================================================
+
+void FXManager::AddEffect(const FXItem& fxItem)
+{
+    FX_LOCK();
+    FXItem newFX = fxItem;
+    newFX.startTime  = std::chrono::steady_clock::now();
+    newFX.lastUpdate = newFX.startTime;
+
+    if (bIsRendering.load()) {
+        m_pendingEffects.push_back(std::move(newFX));
+    } else {
+        effects.push_back(std::move(newFX));
+    }
+}
+
+// ===============================================================================================
+// StopAllFXForResize / RestartFXAfterResize
+// ===============================================================================================
+
+void FXManager::StopAllFXForResize()
+{
+    ThreadLockHelper lock(threadManager, "fxmanager_stop_all_resize_lock", 5000);
+    if (!lock.IsLocked()) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Failed to acquire lock for StopAllFXForResize");
+        return;
+    }
+    FX_LOCK();
+    try {
+        savedFXState = ActiveFXState{};
+        savedFXState.textScrollerIDs.reserve(20);
+        savedFXState.activeScrollTextures.reserve(10);
+
+        if (starfieldID > 0) {
+            savedFXState.starfieldActive = true;
+            savedFXState.starfieldID     = starfieldID;
+            StopStarfield();
+        }
+        if (tunnelID > 0) {
+            savedFXState.tunnelActive = true;
+            savedFXState.tunnelID     = tunnelID;
+            StopWarpDotTunnel();
+        }
+        if (fireworksID > 0) {
+            savedFXState.fireworksActive = true;
+            savedFXState.fireworksID     = fireworksID;
+            StopFireworks();
+        }
+
+        std::vector<int> activeTextIDs;
+        for (const auto& fx : effects)
+            if (fx.type == FXType::TextScroller)
+                activeTextIDs.push_back(fx.fxID);
+        for (int id : activeTextIDs) {
+            StopTextScroller(id);
+            savedFXState.textScrollerIDs.push_back(id);
+        }
+        if (!savedFXState.textScrollerIDs.empty())
+            savedFXState.textScrollerActive = true;
+
+        for (const auto& fx : effects)
+            if (fx.type == FXType::ColorFader && fx.progress < 1.0f)
+                { savedFXState.fadeEffectActive = true; break; }
+
+        std::vector<FXItem> tmp; tmp.swap(effects);                             // Safe swap-and-destroy pattern
+    }
+    catch (const std::exception& e) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Exception in StopAllFXForResize: " +
+            std::wstring(e.what(), e.what() + strlen(e.what())));
+    }
+}
+
+void FXManager::RestartFXAfterResize()
+{
+    try {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        savedFXState = ActiveFXState{};
+    }
+    catch (...) {}
+}
+
+// ===============================================================================================
+// ApplyColorFader — advances progress and dispatches to RenderFullScreenQuad
+// ===============================================================================================
+
+void FXManager::ApplyColorFader(FXItem& fxItem)
+{
+    if (bHasCleanedUp || threadManager.threadVars.bIsShuttingDown.load()) return;
+    if (fxItem.duration <= 0.0f) { fxItem.progress = 1.0f; return; }
+
+    // Clamp target color to guard against NaN/Inf produced by callers
+    fxItem.targetColor.x = std::max(0.0f, std::min(1.0f, fxItem.targetColor.x));
+    fxItem.targetColor.y = std::max(0.0f, std::min(1.0f, fxItem.targetColor.y));
+    fxItem.targetColor.z = std::max(0.0f, std::min(1.0f, fxItem.targetColor.z));
+    fxItem.targetColor.w = std::max(0.0f, std::min(1.0f, fxItem.targetColor.w));
+
+    auto now = std::chrono::steady_clock::now();
+    if (fxItem.lastUpdate.time_since_epoch().count() == 0) fxItem.lastUpdate = fxItem.startTime;
+
+    float totalElapsed = std::chrono::duration<float>(now - fxItem.startTime).count();
+    if (totalElapsed < 0.0f) { fxItem.startTime = now; fxItem.lastUpdate = now; fxItem.progress = 0.0f; return; }
+
+#if defined(__USE_OPENGL__)
+    // OpenGL: respect a per-update delay and advance independently each call
+    if (totalElapsed < fxItem.delay) return;
+    float adjusted = totalElapsed - fxItem.delay;
+    fxItem.progress = (fxItem.duration > 0.0f) ? std::min(adjusted / fxItem.duration, 1.0f) : 1.0f;
+#else
+    // DX11 / DX12 / Vulkan: gate update by delay or total-elapsed threshold
+    bool shouldUpdate = (std::chrono::duration<float>(now - fxItem.lastUpdate).count() >= fxItem.delay)
+                     || (totalElapsed >= fxItem.duration);
+    if (shouldUpdate) {
+        fxItem.lastUpdate = now;
+        fxItem.progress   = (totalElapsed >= fxItem.duration)
+                            ? 1.0f
+                            : std::max(0.0f, std::min(1.0f, totalElapsed / fxItem.duration));
+    }
+#endif
+
+    float effectiveProgress = (fxItem.subtype == FXSubType::FadeToBackground)
+                              ? 1.0f - fxItem.progress
+                              : fxItem.progress;
+
+    XMFLOAT4 fadeColor = fxItem.targetColor;
+
+#if defined(__USE_OPENGL__)
+    // OpenGL FadeToBackground additionally uses fxItem.color as the starting color
+    if (fxItem.subtype == FXSubType::FadeToBackground) {
+        fadeColor   = fxItem.color;
+        fadeColor.w = effectiveProgress * fxItem.color.w;
+    } else {
+        fadeColor.w = fxItem.progress * fxItem.targetColor.w;
+    }
+#else
+    fadeColor.w = std::max(0.0f, std::min(1.0f, effectiveProgress));
+#endif
+
+    if (!renderer) return;
+
+#if defined(__USE_DIRECTX_11__)
+    try {
+        ComPtr<ID3D11DeviceContext> context = static_cast<ID3D11DeviceContext*>(renderer->GetDeviceContext());
+        if (!context || !fadeBlendState || !inputLayout) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] DX11 resources invalid in ApplyColorFader");
+            return;
+        }
+        context->OMSetBlendState(fadeBlendState, nullptr, 0xffffffff);
+        context->IASetInputLayout(inputLayout);
+        RenderFullScreenQuad(fadeColor);
+    }
+    catch (const std::exception& e) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] DX11 ApplyColorFader exception: " +
+            std::wstring(e.what(), e.what() + strlen(e.what())));
+        fxItem.progress = 1.0f;
+    }
+
+#elif defined(__USE_DIRECTX_12__)
+    RenderFullScreenQuad(fadeColor);
+
+#elif defined(__USE_OPENGL__)
+    RenderFullScreenQuad(fadeColor);
+    fxItem.lastUpdate = now;
+
+#elif defined(__USE_VULKAN__)
+    try {
+        auto* vkr = static_cast<VulkanRenderer*>(renderer.get());
+        VkCommandBuffer cmd = vkr->GetCurrentCommandBuffer();
+        RenderFadeFullScreenQuad(cmd, fadeColor);
+    }
+    catch (const std::exception& e) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Vulkan ApplyColorFader exception: " +
+            std::wstring(e.what(), e.what() + strlen(e.what())));
+        fxItem.progress = 1.0f;
+    }
+#endif
+}
+
+// ===============================================================================================
+// RenderFullScreenQuad — dispatches to the active pipeline's full-viewport fill
+// ===============================================================================================
+
+void FXManager::RenderFullScreenQuad(const XMFLOAT4& color)
+{
+    if (bHasCleanedUp || threadManager.threadVars.bIsShuttingDown.load()) return;
+    if (!renderer) return;
+
+    // Validate NaN/Inf before any GPU call
+    if (std::isnan(color.x) || std::isnan(color.y) || std::isnan(color.z) || std::isnan(color.w) ||
+        std::isinf(color.x) || std::isinf(color.y) || std::isinf(color.z) || std::isinf(color.w)) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] NaN/Inf color in RenderFullScreenQuad");
+        return;
+    }
+
+    const XMFLOAT4 c = {
+        std::max(0.0f, std::min(1.0f, color.x)),
+        std::max(0.0f, std::min(1.0f, color.y)),
+        std::max(0.0f, std::min(1.0f, color.z)),
+        std::max(0.0f, std::min(1.0f, color.w))
+    };
+
+#if defined(__USE_DIRECTX_12__)
+    // D2D-backed DrawRectangle mapped to the full back buffer in physical pixels
+    renderer->DrawRectangle(
+        Vector2(0.0f, 0.0f),
+        Vector2(static_cast<float>(renderer->iOrigWidth), static_cast<float>(renderer->iOrigHeight)),
+        MyColor(
+            static_cast<uint8_t>(c.x * 255.0f),
+            static_cast<uint8_t>(c.y * 255.0f),
+            static_cast<uint8_t>(c.z * 255.0f),
+            static_cast<uint8_t>(c.w * 255.0f)),
+        true);
+
+#elif defined(__USE_DIRECTX_11__)
+    try {
+        ComPtr<ID3D11DeviceContext> context = static_cast<ID3D11DeviceContext*>(renderer->GetDeviceContext());
+        if (!context || !constantBuffer || !fullscreenQuadVertexBuffer || !inputLayout || !vertexShader || !pixelShader) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] DX11 resources null in RenderFullScreenQuad");
+            return;
+        }
+
+        // Upload fade color to constant buffer
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        HRESULT hr = context->Map(constantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+        if (FAILED(hr) || !mapped.pData) return;
+        memcpy(mapped.pData, &c, sizeof(XMFLOAT4));
+        context->Unmap(constantBuffer, 0);
+
+        UINT stride = sizeof(XMFLOAT3) + sizeof(XMFLOAT2);
+        UINT offset = 0;
+        context->IASetInputLayout(inputLayout);
+        context->PSSetConstantBuffers(0, 1, &constantBuffer);
+        context->IASetVertexBuffers(0, 1, &fullscreenQuadVertexBuffer, &stride, &offset);
+        context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+        context->VSSetShader(vertexShader, nullptr, 0);
+        context->PSSetShader(pixelShader, nullptr, 0);
+
+        // Explicit full-viewport to cover any leftover state from D2D EndDraw
+        D3D11_VIEWPORT vp{};
+        vp.Width    = static_cast<float>(renderer->iOrigWidth);
+        vp.Height   = static_cast<float>(renderer->iOrigHeight);
+        vp.MinDepth = 0.0f; vp.MaxDepth = 1.0f;
+        context->RSSetViewports(1, &vp);
+
+        context->Draw(4, 0);
+    }
+    catch (const std::exception& e) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] DX11 RenderFullScreenQuad exception: " +
+            std::wstring(e.what(), e.what() + strlen(e.what())));
+    }
+
+#elif defined(__USE_OPENGL__)
+    // Lazy shader creation — Initialize() may run before wglMakeCurrent transfers
+    // the GL context to the render thread where glCreateShader is valid.
+    if (!m_fadeShaderProgram || !m_fadeVAO) {
+        if (!CreateFadeShaderProgram()) return;
+    }
+    if (!m_fadeShaderProgram || !m_fadeVAO) return;
+
+    GLboolean blendOn = glIsEnabled(GL_BLEND);
+    GLboolean cullOn  = glIsEnabled(GL_CULL_FACE);
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDisable(GL_DEPTH_TEST);
+    // Scene sets GL_CW — the CCW fullscreen triangle becomes a back-face and is silently discarded.
+    // Always disable culling here (same fix as Render2DQuad) and restore below.
+    glDisable(GL_CULL_FACE);
+
+    glUseProgram(m_fadeShaderProgram);
+    if (m_fadeColorUniform >= 0)
+        glUniform4f(m_fadeColorUniform, c.x, c.y, c.z, c.w);
+
+    glBindVertexArray(m_fadeVAO);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glBindVertexArray(0);
+    glUseProgram(0);
+
+    glEnable(GL_DEPTH_TEST);
+    if (!blendOn) glDisable(GL_BLEND);
+    if (cullOn)   glEnable(GL_CULL_FACE);
+#endif
+    // Vulkan: RenderFullScreenQuad is not used — Vulkan fades go through RenderFadeFullScreenQuad(cmd, color)
+}
+
+#if defined(__USE_VULKAN__)
+// Vulkan path: explicit command buffer + push constant (16 bytes) for color
+void FXManager::RenderFadeFullScreenQuad(VkCommandBuffer cmd, const XMFLOAT4& color)
+{
+    if (bHasCleanedUp || threadManager.threadVars.bIsShuttingDown.load()) return;
+    if (cmd == VK_NULL_HANDLE || m_fadePipeline == VK_NULL_HANDLE) return;
+
+    if (std::isnan(color.x) || std::isnan(color.y) || std::isnan(color.z) || std::isnan(color.w) ||
+        std::isinf(color.x) || std::isinf(color.y) || std::isinf(color.z) || std::isinf(color.w)) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] NaN/Inf in Vulkan RenderFadeFullScreenQuad");
+        return;
+    }
+
+    float pc[4] = {
+        std::max(0.0f, std::min(1.0f, color.x)),
+        std::max(0.0f, std::min(1.0f, color.y)),
+        std::max(0.0f, std::min(1.0f, color.z)),
+        std::max(0.0f, std::min(1.0f, color.w))
+    };
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_fadePipeline);
+    vkCmdPushConstants(cmd, m_fadePipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, 16, pc);
+
+    // Dynamic viewport/scissor MUST be set — pipeline has no static state to inherit
+    VkViewport vp{};
+    vp.width    = static_cast<float>(renderer->iOrigWidth);
+    vp.height   = static_cast<float>(renderer->iOrigHeight);
+    vp.minDepth = 0.0f; vp.maxDepth = 1.0f;
+    vkCmdSetViewport(cmd, 0, 1, &vp);
+
+    VkRect2D scissor{};
+    scissor.extent.width  = static_cast<uint32_t>(renderer->iOrigWidth);
+    scissor.extent.height = static_cast<uint32_t>(renderer->iOrigHeight);
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+    vkCmdDraw(cmd, 3, 1, 0, 0);
+}
+#endif // __USE_VULKAN__
+
+// ===============================================================================================
+// RemoveCompletedEffects
+// ===============================================================================================
+
+void FXManager::RemoveCompletedEffects()
+{
+    FX_LOCK();
+    ThreadLockHelper lock(threadManager, "fxmanager_remove_effects_lock", 1000);
+    if (!lock.IsLocked()) return;
+    if (effects.empty()) return;
+
+    auto now = std::chrono::steady_clock::now();
+
+    // Single-pass erase: avoids allocating an index vector and O(n^2) reverse-erase pattern
+    effects.erase(
+        std::remove_if(effects.begin(), effects.end(),
+            [&now](const FXItem& fx) {
+                bool timedOut  = std::chrono::duration<float>(now - fx.startTime).count() >= fx.timeout;
+                bool completed = fx.progress >= 1.0f;
+
+                // Types that only expire on progress=1.0 (driven by their own Update functions)
+                if (fx.type == FXType::TextFadeInOut)   return completed;
+                if (fx.type == FXType::ZoomInOut)       return completed;
+                if (fx.type == FXType::Fireworks)       return completed;
+                if (fx.type == FXType::ImageFadeStrobe) return completed;
+
+                // Looping text scroller: only remove when a finite duration has fully elapsed
+                if (fx.type == FXType::TextScroller && fx.subtype == FXSubType::TXT_SCROLL_CONSISTANT)
+                    return (fx.duration != FLT_MAX && timedOut);
+
+                return (timedOut || completed);
+            }),
+        effects.end());
+}
+
+// ===============================================================================================
+// Render — main 3D-pass render
+//   backgroundOnly=true  → pass-1 (before 3D): update+draw Starfield, WarpDotTunnel
+//   backgroundOnly=false → pass-2 (after  3D): ColorFader overlay, callbacks, cleanup
+//   DX11/Vulkan: starfield+tunnel drawn via RenderFX; backgroundOnly split unused for them
+// ===============================================================================================
+
+void FXManager::Render(bool backgroundOnly)
+{
+    if (bHasCleanedUp || threadManager.threadVars.bIsShuttingDown.load()) return;
+    if (!renderer) return;
+    if (bIsRendering.exchange(true)) return;
+    try {
+        FX_LOCK();
+        if (effects.empty() && pendingCallbacks.empty()) {
+            bIsRendering.store(false);
+            return;
+        }
+        SaveRenderState();
+
+        static auto lastRenderTime = std::chrono::steady_clock::now();
+        auto  now       = std::chrono::steady_clock::now();
+        float deltaTime = std::min(std::chrono::duration<float>(now - lastRenderTime).count(), 0.1f);
+        lastRenderTime  = now;
+
+        // ---- Background pass (DX12 / OpenGL / Vulkan) ----
+        // DX11 skips this: starfield and tunnel are rendered by RenderFX() with an explicit context+matrix.
+#if defined(__USE_DIRECTX_12__) || defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        if (backgroundOnly) {
+            for (auto& fx : effects) {
+                if (fx.type == FXType::Starfield)
+                    UpdateStarfield(deltaTime);
+                else if (fx.type == FXType::WarpDotTunnel)
+                    UpdateWarpDotTunnel(fx, deltaTime);
+            }
+        }
+#endif
+
+        // ---- Per-effect render switch ----
+        for (auto& fx : effects) {
+            if (threadManager.threadVars.bIsShuttingDown.load()) break;
+
+            switch (fx.type) {
+            case FXType::ColorFader:
+#if defined(__USE_DIRECTX_12__) || defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+                if (!backgroundOnly) ApplyColorFader(fx);
+#else
+                // DX11 runs ColorFader in both passes equally (no split)
+                ApplyColorFader(fx);
+#endif
+                break;
+
+            case FXType::Starfield:
+#if defined(__USE_DIRECTX_12__) || defined(__USE_OPENGL__)
+                if (backgroundOnly) RenderStarfield(fx);
+#elif defined(__USE_VULKAN__)
+                // Vulkan starfield rendered via RenderFX(id, cmd, viewMatrix); skip here
+                if (backgroundOnly) UpdateStarfield(deltaTime);
+#endif
+                // DX11: rendered via public RenderFX(id, ctx, viewMatrix) from DXRenderFrame
+                break;
+
+            case FXType::WarpDotTunnel:
+#if defined(__USE_DIRECTX_12__) || defined(__USE_OPENGL__)
+                if (backgroundOnly) RenderWarpDotTunnel(fx);
+#elif defined(__USE_VULKAN__)
+                // Vulkan tunnel rendered via RenderFX(id, cmd, viewMatrix); skip here
+#endif
+                // DX11: rendered via public RenderFX(id, ctx, viewMatrix) from DXRenderFrame
+                break;
+
+            default:
+                break;
+            }
+        }
+
+        // ---- Callback processing (foreground pass) ----
+        if (!backgroundOnly && !pendingCallbacks.empty()) {
+            ThreadLockHelper cbLock(threadManager, "fxmanager_callback_process_lock", 500);
+            if (cbLock.IsLocked()) {
+                auto curTime = std::chrono::steady_clock::now();
+                std::vector<size_t> toExecute, toRemove;
+                toExecute.reserve(pendingCallbacks.size());
+                toRemove.reserve(pendingCallbacks.size());
+
+                for (size_t i = 0; i < pendingCallbacks.size(); ++i) {
+                    CallbackEntry& entry = pendingCallbacks[i];
+                    float age = std::chrono::duration<float>(curTime - entry.creationTime).count();
+                    if (age > 30.0f || entry.isExecuted.load()) { toRemove.push_back(i); continue; }
+                    for (const auto& fx : effects)
+                        if (fx.fxID == entry.fxID && fx.progress >= 1.0f) { toExecute.push_back(i); break; }
+                }
+
+                for (size_t idx : toExecute) {
+                    if (idx < pendingCallbacks.size()) {
+                        CallbackEntry& entry = pendingCallbacks[idx];
+                        if (!entry.isExecuted.load() && entry.callback) {
+                            try { entry.callback(); } catch (...) {}
+                            entry.isExecuted.store(true);
+                            toRemove.push_back(idx);
+                        }
+                    }
+                }
+
+                std::sort(toRemove.begin(), toRemove.end(), std::greater<size_t>());
+                toRemove.erase(std::unique(toRemove.begin(), toRemove.end()), toRemove.end());
+                for (size_t idx : toRemove)
+                    if (idx < pendingCallbacks.size())
+                        pendingCallbacks.erase(pendingCallbacks.begin() + idx);
+            }
+        }
+
+        // Cleanup and pending-effect flush happen only in the foreground pass
+        if (!backgroundOnly) {
+            RemoveCompletedEffects();
+            RestoreRenderState();
+            // Flush effects queued while bIsRendering was true (e.g. from FadeOutThenCallback lambdas)
+            for (auto& pe : m_pendingEffects)
+                effects.push_back(std::move(pe));
+            m_pendingEffects.clear();
+        } else {
+            RestoreRenderState();
+        }
+    }
+    catch (const std::exception& e) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Exception in Render(): " +
+            std::wstring(e.what(), e.what() + strlen(e.what())));
+        try { RestoreRenderState(); } catch (...) {}
+        FX_LOCK();
+        m_pendingEffects.clear();
+    }
+    catch (...) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Unknown exception in Render()");
+        try { RestoreRenderState(); } catch (...) {}
+        FX_LOCK();
+        m_pendingEffects.clear();
+    }
+
+    bIsRendering.store(false);
+}
+
+// Convenience wrapper: pre-3D pass (equivalent of original RenderBackground() in OpenGL/DX12)
+void FXManager::RenderBackground() { Render(true); }
+
+// ===============================================================================================
+// Render2D — 2D overlay: scrollers, particles, text scrollers, fireworks, zoom, strobe
+// ===============================================================================================
+
+void FXManager::Render2D()
+{
+    if (bHasCleanedUp) return;
+    FX_LOCK();
+
+    static auto lastTweenTime = std::chrono::steady_clock::now();
+    auto  now       = std::chrono::steady_clock::now();
+    float deltaTime = std::chrono::duration<float>(now - lastTweenTime).count();
+
+#if defined(__USE_OPENGL__)
+    // OpenGL Render2D uses a fixed 60fps tick for tween updates (limitation of original impl)
+    UpdateTweens(0.016f);
+#else
+    UpdateTweens(deltaTime);
+#endif
+
+    for (auto& fx : effects) {
+        switch (fx.type) {
+        case FXType::Scroller:
+            ApplyScroller(fx);
+            break;
+        case FXType::ParticleExplosion:
+            RenderParticles(fx);
+            break;
+        case FXType::TextScroller: {
+            // Compute per-effect deltaTime from its own lastUpdate
+            auto fxNow = std::chrono::steady_clock::now();
+            float fxDt = std::chrono::duration<float>(fxNow - fx.lastUpdate).count();
+            fx.lastUpdate = fxNow;
+            UpdateTextScroller(fx, fxDt);
+            RenderTextScroller(fx);
+            break;
+        }
+        case FXType::ZoomInOut: {
+            auto fxNow = std::chrono::steady_clock::now();
+            float fxDt = std::chrono::duration<float>(fxNow - fx.lastUpdate).count();
+            fx.lastUpdate = fxNow;
+            UpdateZoomInOut(fx, fxDt);
+            break;
+        }
+        case FXType::Fireworks:
+            UpdateFireworks(fx);
+            break;
+        case FXType::ImageFadeStrobe: {
+            auto fxNow = std::chrono::steady_clock::now();
+            float fxDt = std::chrono::duration<float>(fxNow - fx.lastUpdate).count();
+            fx.lastUpdate = fxNow;
+            UpdateImageFadeStrobe(fx, fxDt);
+            break;
+        }
+        default:
+            break;
+        }
+    }
+
+    lastTweenTime = now;
+}
+
+// ===============================================================================================
+// Pipeline-specific per-effect render paths (called from RenderFrame.cpp)
+// ===============================================================================================
+
+#if defined(__USE_DIRECTX_11__)
+void FXManager::RenderFX(int effectID, ID3D11DeviceContext* context, const XMMATRIX& worldMatrix)
+{
+    if (!context) return;
+
+    FX_LOCK();
+    const auto fxNow = std::chrono::steady_clock::now();
+
+    for (auto& fx : effects) {
+        if (fx.fxID != effectID) continue;
+
+        // Use per-effect timing so other FX rendered in the same frame do not
+        // consume the starfield delta and make it move at a different speed.
+        float dt = std::min(std::chrono::duration<float>(fxNow - fx.lastUpdate).count(), 0.1f);
+        fx.lastUpdate = fxNow;
+
+        switch (fx.type) {
+        case FXType::ColorFader:    ApplyColorFader(fx);                              break;
+        case FXType::Starfield:     UpdateStarfield(dt); RenderStarfield(fx, context, worldMatrix); break;
+        case FXType::WarpDotTunnel: UpdateWarpDotTunnel(fx, dt); RenderWarpDotTunnel(fx); break;
+        default: break;
+        }
+        break;
+    }
+}
+
+void FXManager::RenderStarfield(FXItem& fxItem, ID3D11DeviceContext* context, const XMMATRIX& viewMatrix)
+{
+    if (fxItem.type != FXType::Starfield || !renderer) return;
+
+    // Combine supplied view with projection matrix from the renderer camera
+    XMMATRIX viewProj = viewMatrix * renderer->myCamera.GetProjectionMatrix();
+    const float halfW = static_cast<float>(renderer->iOrigWidth)  * 0.5f;
+    const float halfH = static_cast<float>(renderer->iOrigHeight) * 0.5f;
+
+    for (auto& p : fxItem.particles) {
+        if (p.completed || p.a < 0.02f) continue;
+
+        XMVECTOR wPos = XMVectorSet(p.x, p.y, p.angle, 1.0f);
+        XMVECTOR proj = XMVector3TransformCoord(wPos, viewProj);
+
+        float ndcZ = XMVectorGetZ(proj);
+        if (ndcZ <= 0.0f || ndcZ > 1.0f) continue;
+        float ndcX = XMVectorGetX(proj);
+        float ndcY = XMVectorGetY(proj);
+        if (ndcX < -1.0f || ndcX > 1.0f || ndcY < -1.0f || ndcY > 1.0f) continue;
+
+        float sx = (ndcX + 1.0f) * halfW;
+        float sy = (1.0f - ndcY) * halfH;
+        float sizeScale = 1.0f + (fxItem.depthMultiplier - p.angle) / fxItem.depthMultiplier * 3.0f;
+        XMFLOAT4 starColor(p.r, p.g, p.b, p.a);
+        DrawFXPixel(static_cast<int>(sx), static_cast<int>(sy), p.radius * sizeScale, starColor);
+    }
+}
+#endif // __USE_DIRECTX_11__
+
+#if defined(__USE_OPENGL__)
+void FXManager::RenderFX(int effectID, const XMMATRIX& worldMatrix)
+{
+    std::lock_guard<std::recursive_mutex> _fxLock(m_effectsMutex);
+    for (auto& fx : effects) {
+        if (fx.fxID != effectID) continue;
+        switch (fx.type) {
+        case FXType::Starfield:     RenderStarfield(fx);     break;
+        case FXType::WarpDotTunnel: RenderWarpDotTunnel(fx); break;
+        default: break;
+        }
+        break;
+    }
+}
+#endif // __USE_OPENGL__
+
+#if defined(__USE_VULKAN__)
+void FXManager::RenderFX(int effectID, VkCommandBuffer cmd, const glm::mat4& viewMatrix)
+{
+    if (!cmd || effectID < 0) return;
+
+    FX_LOCK();
+    const auto fxNow = std::chrono::steady_clock::now();
+
+    for (auto& fx : effects) {
+        if (fx.fxID != effectID) continue;
+
+        // Vulkan may render the tunnel and starfield through separate RenderFX()
+        // calls in the same frame. Per-effect timing keeps the starfield speed
+        // aligned with DX11 instead of receiving near-zero dt after the tunnel.
+        float dt = std::min(std::chrono::duration<float>(fxNow - fx.lastUpdate).count(), 0.1f);
+        fx.lastUpdate = fxNow;
+
+        float elapsed = std::chrono::duration<float>(fxNow - fx.startTime).count();
+        fx.progress   = (fx.duration > 0.0f) ? std::clamp(elapsed / fx.duration, 0.0f, 1.0f) : 1.0f;
+
+        switch (fx.type) {
+        case FXType::ColorFader:    ApplyColorFader(fx);                          break;
+        case FXType::Starfield:     UpdateStarfield(dt); RenderStarfield(fx, cmd, viewMatrix); break;
+        case FXType::WarpDotTunnel: UpdateWarpDotTunnel(fx, dt); RenderWarpDotTunnel(fx, cmd); break;
+        default: break;
+        }
+
+        if (fx.progress >= 1.0f) {
+            if (fx.restartOnExpire) {
+                fx.startTime = std::chrono::steady_clock::now();
+                fx.progress  = 0.0f; fx.lastUpdate = fx.startTime;
+            } else if (fx.nextEffectID >= 0) {
+                FXItem chain; chain.fxID = fx.nextEffectID;
+                AddEffect(chain);
+            }
+        }
+        break;
+    }
+}
+
+void FXManager::RenderStarfield(FXItem& fxItem, VkCommandBuffer cmd, const glm::mat4& viewMatrix)
+{
+    if (fxItem.type != FXType::Starfield || !renderer) return;
+
+    // Vulkan camera matrices are GLM matrices. Keep this path in GLM instead
+    // of mixing DirectX::XMMATRIX with glm::mat4 at the projection boundary.
+    glm::mat4 viewProj = renderer->myCamera.GetProjectionMatrix() * viewMatrix;
+    const float halfW = static_cast<float>(renderer->iOrigWidth)  * 0.5f;
+    const float halfH = static_cast<float>(renderer->iOrigHeight) * 0.5f;
+
+    for (auto& p : fxItem.particles) {
+        if (p.completed || p.a < 0.02f) continue;
+
+        glm::vec4 clip = viewProj * glm::vec4(p.x, p.y, p.angle, 1.0f);
+        if (clip.w <= 0.0f) continue;
+
+        float ndcX = clip.x / clip.w;
+        float ndcY = clip.y / clip.w;
+        float ndcZ = clip.z / clip.w;
+#if defined(__USE_VULKAN__)
+        if (ndcZ < 0.0f || ndcZ > 1.0f) continue;
+#else
+        if (ndcZ < -1.0f || ndcZ > 1.0f) continue;
+#endif
+        if (ndcX < -1.0f || ndcX > 1.0f || ndcY < -1.0f || ndcY > 1.0f) continue;
+
+        float sx = (ndcX + 1.0f) * halfW;
+        float sy = (ndcY + 1.0f) * halfH;
+        float sizeScale = 1.0f + (fxItem.depthMultiplier - p.angle) / fxItem.depthMultiplier * 3.0f;
+        XMFLOAT4 starColor(p.r, p.g, p.b, p.a);
+        DrawFXPixel(static_cast<int>(sx), static_cast<int>(sy), p.radius * sizeScale, starColor);
+    }
+}
+#endif // __USE_VULKAN__
+
+// ===============================================================================================
+// Fade helpers
+// ===============================================================================================
+
+void FXManager::FadeToColor(XMFLOAT4 color, float duration, float delay) {
+    FXItem fx;
+    fx.type = FXType::ColorFader; fx.subtype = FXSubType::FadeToTargetColor;
+    fx.duration = duration; fx.delay = delay;
+    fx.timeout = duration + 1.0f; fx.progress = 0.0f;
+    fx.targetColor = color;
+#if defined(__USE_OPENGL__)
+    fx.subtype = FXSubType::FadeIntoColor;                                      // OpenGL uses FadeIntoColor for this path
+#endif
+    AddEffect(fx);
+}
+void FXManager::FadeToBlack(float duration, float delay) { FadeToColor(XMFLOAT4(0.0f,0.0f,0.0f,1.0f), duration, delay); }
+void FXManager::FadeToWhite(float duration, float delay) { FadeToColor(XMFLOAT4(1.0f,1.0f,1.0f,1.0f), duration, delay); }
+
+void FXManager::FadeToImage(float duration, float delay) {
+    FXItem fx;
+    fx.type = FXType::ColorFader; fx.subtype = FXSubType::FadeToBackground;
+    fx.duration = duration; fx.delay = delay;
+    fx.timeout = duration + 1.0f; fx.progress = 0.0f;
+#if defined(__USE_OPENGL__)
+    fx.color = XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f);                              // GL uses fx.color as the starting color
+#else
+    fx.targetColor = XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f);
+#endif
+    AddEffect(fx);
+}
+
+void FXManager::FadeOutThenCallback(XMFLOAT4 color, float duration, float delay, std::function<void()> callback)
+{
+    if (!callback || duration <= 0.0f || delay < 0.0f) return;
+    if (std::isnan(color.x) || std::isnan(color.y) || std::isnan(color.z) || std::isnan(color.w) ||
+        std::isinf(color.x) || std::isinf(color.y) || std::isinf(color.z) || std::isinf(color.w)) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] FadeOutThenCallback: invalid color values");
+        return;
+    }
+
+    ThreadLockHelper lock(threadManager, "fxmanager_callback_lock", 1000);
+    if (!lock.IsLocked()) return;
+
+    FX_LOCK();
+    try {
+        FXItem fx;
+        fx.type        = FXType::ColorFader;
+        fx.subtype     = FXSubType::FadeToTargetColor;
+        fx.fxID        = static_cast<int>(effects.size()) + 1000;
+        fx.duration    = duration; fx.delay = delay;
+        fx.timeout     = duration + delay + 2.0f; fx.progress = 0.0f;
+        fx.targetColor = color;
+        fx.startTime   = std::chrono::steady_clock::now(); fx.lastUpdate = fx.startTime;
+
+        // Guarantee uniqueness of generated ID
+        bool idExists = false;
+        for (const auto& e : effects)
+            if (e.fxID == fx.fxID) { idExists = true; break; }
+        if (idExists)
+            fx.fxID = static_cast<int>(effects.size()) + static_cast<int>(pendingCallbacks.size()) + 2000;
+
+        AddEffect(fx);
+        pendingCallbacks.push_back(CallbackEntry(fx.fxID, callback));
+    }
+    catch (const std::exception& e) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] FadeOutThenCallback exception: " +
+            std::wstring(e.what(), e.what() + strlen(e.what())));
+    }
+}
+
+void FXManager::FadeOutInSequence(XMFLOAT4 fadeOutColor, XMFLOAT4 fadeInColor, float duration, float delay,
+    std::function<void()> midpointCallback)
+{
+    FadeOutThenCallback(fadeOutColor, duration, delay, [=]() {
+        if (midpointCallback) midpointCallback();
+        FadeToColor(fadeInColor, duration, delay);
+    });
+}
+
+// ===============================================================================================
+// Scroller helpers
+// ===============================================================================================
+
+void FXManager::UpdateTweens(float deltaTime)
+{
+    for (auto& tween : activeTweens) {
+        if (!tween.active) continue;
+        tween.elapsed += deltaTime;
+        float t = std::min(tween.elapsed / tween.duration, 1.0f);
+        int newSpeed = static_cast<int>(tween.from + (tween.to - tween.from) * t);
+        UpdateScrollSpeed(tween.textureIndex, newSpeed);
+        if (t >= 1.0f) tween.active = false;
+    }
+    activeTweens.erase(std::remove_if(activeTweens.begin(), activeTweens.end(),
+        [](const ScrollTween& t) { return !t.active; }), activeTweens.end());
+}
+
+void FXManager::StartParallaxLayer(BlitObj2DIndexType textureIndex, FXSubType direction, int baseSpeed,
+    float depthMultiplier, int tileWidth, int tileHeight, float delay, bool cameraLinked)
+{
+    FXItem fx;
+    fx.type = FXType::Scroller; fx.subtype = direction;
+    fx.scrollSpeed = baseSpeed; fx.textureIndex = textureIndex;
+    fx.tileWidth = tileWidth; fx.tileHeight = tileHeight;
+    fx.delay = delay; fx.progress = 0.0f; fx.timeout = FLT_MAX;
+    fx.depthMultiplier = depthMultiplier; fx.cameraLinked = cameraLinked;
+    fx.startTime = std::chrono::steady_clock::now(); fx.lastUpdate = fx.startTime;
+    AddEffect(fx);
+}
+
+void FXManager::SetScrollDirection(BlitObj2DIndexType textureIndex, FXSubType newDirection) {
+    FX_LOCK();
+    for (auto& fx : effects)
+        if (fx.type == FXType::Scroller && fx.textureIndex == textureIndex)
+            fx.subtype = newDirection;
+}
+
+void FXManager::FadeScrollSpeed(BlitObj2DIndexType textureIndex, int fromSpeed, int toSpeed, float duration) {
+    FX_LOCK();
+    UpdateScrollSpeed(textureIndex, fromSpeed);
+    activeTweens.push_back({ textureIndex, fromSpeed, toSpeed, duration });
+}
+
+void FXManager::PauseScroll(BlitObj2DIndexType textureIndex) {
+    FX_LOCK();
+    for (auto& fx : effects)
+        if (fx.type == FXType::Scroller && fx.textureIndex == textureIndex)
+            fx.isPaused = true;
+}
+
+void FXManager::ResumeScroll(BlitObj2DIndexType textureIndex) {
+    FX_LOCK();
+    for (auto& fx : effects)
+        if (fx.type == FXType::Scroller && fx.textureIndex == textureIndex) {
+            fx.isPaused = false;
+            fx.lastUpdate = std::chrono::steady_clock::now();
+        }
+}
+
+void FXManager::UpdateScrollSpeed(BlitObj2DIndexType textureIndex, int newSpeed) {
+    FX_LOCK();
+    for (auto& fx : effects)
+        if (fx.type == FXType::Scroller && fx.textureIndex == textureIndex)
+            fx.scrollSpeed = newSpeed;
+}
+
+void FXManager::ApplyScroller(FXItem& fxItem)
+{
+    if (fxItem.isPaused || !renderer) return;
+
+    auto  now     = std::chrono::steady_clock::now();
+    float elapsed = std::chrono::duration<float>(now - fxItem.lastUpdate).count();
+
+    // Throttle blit rate to ~60 fps; still blit at the current offset while waiting
+    const float minInterval = 1.0f / 60.0f;
+    if (elapsed < minInterval) {
+        renderer->Blit2DWrappedObjectAtOffset(
+            fxItem.textureIndex, 0, 0,
+            fxItem.currentXOffset, fxItem.currentYOffset,
+            fxItem.tileWidth, fxItem.tileHeight);
+        return;
+    }
+
+    renderer->Blit2DWrappedObjectAtOffset(
+        fxItem.textureIndex, 0, 0,
+        fxItem.currentXOffset, fxItem.currentYOffset,
+        fxItem.tileWidth, fxItem.tileHeight);
+
+    fxItem.lastUpdate = now;
+    const int effectiveSpeed = static_cast<int>(fxItem.scrollSpeed * fxItem.depthMultiplier);
+    switch (fxItem.subtype) {
+    case FXSubType::ScrollRight:        fxItem.currentXOffset += effectiveSpeed; break;
+    case FXSubType::ScrollLeft:         fxItem.currentXOffset -= effectiveSpeed; break;
+    case FXSubType::ScrollUp:           fxItem.currentYOffset -= effectiveSpeed; break;
+    case FXSubType::ScrollDown:         fxItem.currentYOffset += effectiveSpeed; break;
+    case FXSubType::ScrollUpAndLeft:    fxItem.currentXOffset -= effectiveSpeed; fxItem.currentYOffset -= effectiveSpeed; break;
+    case FXSubType::ScrollUpAndRight:   fxItem.currentXOffset += effectiveSpeed; fxItem.currentYOffset -= effectiveSpeed; break;
+    case FXSubType::ScrollDownAndLeft:  fxItem.currentXOffset -= effectiveSpeed; fxItem.currentYOffset += effectiveSpeed; break;
+    case FXSubType::ScrollDownAndRight: fxItem.currentXOffset += effectiveSpeed; fxItem.currentYOffset += effectiveSpeed; break;
+    default: break;
+    }
+
+    // Bitmask wrap for power-of-2 tile dimensions; signed-safe modulo fallback for non-power-of-2
+    const int tw = fxItem.tileWidth;
+    const int th = fxItem.tileHeight;
+    fxItem.currentXOffset = (tw > 0 && !(tw & (tw - 1)))
+        ? (fxItem.currentXOffset & (tw - 1))
+        : ((tw > 0) ? ((fxItem.currentXOffset % tw + tw) % tw) : fxItem.currentXOffset);
+    fxItem.currentYOffset = (th > 0 && !(th & (th - 1)))
+        ? (fxItem.currentYOffset & (th - 1))
+        : ((th > 0) ? ((fxItem.currentYOffset % th + th) % th) : fxItem.currentYOffset);
+}
+
+void FXManager::StopScrollEffect(BlitObj2DIndexType textureIndex) {
+    FX_LOCK();
+    effects.erase(std::remove_if(effects.begin(), effects.end(), [=](const FXItem& fx) {
+        return fx.type == FXType::Scroller && fx.textureIndex == textureIndex;
+    }), effects.end());
+}
+
+void FXManager::StartScrollEffect(BlitObj2DIndexType textureIndex, FXSubType direction, int speed,
+    int tileWidth, int tileHeight, float delay)
+{
+    FXItem fx;
+    fx.type = FXType::Scroller; fx.subtype = direction;
+    fx.scrollSpeed = speed; fx.textureIndex = textureIndex;
+    fx.tileWidth = tileWidth; fx.tileHeight = tileHeight;
+    fx.delay = delay; fx.progress = 0.0f; fx.timeout = FLT_MAX;
+    fx.startTime = std::chrono::steady_clock::now(); fx.lastUpdate = fx.startTime;
+    AddEffect(fx);
+}
+
+// ===============================================================================================
+// CancelEffect / RestartEffect / ChainEffect
+// ===============================================================================================
+
+void FXManager::CancelEffect(int effectID) {
+    FX_LOCK();
+    effects.erase(std::remove_if(effects.begin(), effects.end(),
+        [effectID](const FXItem& fx) { return fx.fxID == effectID; }), effects.end());
+}
+
+void FXManager::RestartEffect(int effectID) {
+    FX_LOCK();
+    for (auto& fx : effects)
+        if (fx.fxID == effectID) {
+            fx.startTime = std::chrono::steady_clock::now();
+            fx.lastUpdate = fx.startTime; fx.progress = 0.0f;
+        }
+}
+
+void FXManager::ChainEffect(int fromEffectID, int toEffectID) {
+    FX_LOCK();
+    for (auto& fx : effects)
+        if (fx.fxID == fromEffectID)
+            fx.nextEffectID = toEffectID;
+}
+
+// ===============================================================================================
+// StopAllFX / Scene save-and-restore
+// ===============================================================================================
+
+void FXManager::StopAllFX()
+{
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
+    while (bIsRendering.load() && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    if (starfieldID  > 0) StopStarfield();
+    if (tunnelID     > 0) StopWarpDotTunnel();
+    if (fireworksID  > 0) StopFireworks();
+    SafelyClearAllEffects();
+    starfieldID = 0; tunnelID = 0; fireworksID = 0;
+}
+
+void FXManager::SaveAndSuspendFXForScene()
+{
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
+    while (bIsRendering.load() && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    FX_LOCK();
+    m_sceneSavedEffects.clear();
+    m_sceneSavedEffects     = effects;
+    m_sceneSavedStarfieldID = starfieldID;
+    m_sceneSavedTunnelID    = tunnelID;
+    SafelyClearAllEffects();
+    starfieldID = 0; tunnelID = 0;
+}
+
+void FXManager::RestoreFXAfterScene()
+{
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
+    while (bIsRendering.load() && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    FX_LOCK();
+    if (m_sceneSavedEffects.empty() && m_sceneSavedStarfieldID == 0) return;
+    if (tunnelID > 0) StopWarpDotTunnel();
+    SafelyClearAllEffects();
+    effects     = std::move(m_sceneSavedEffects);
+    starfieldID = m_sceneSavedStarfieldID;
+    tunnelID    = m_sceneSavedTunnelID;
+    m_sceneSavedEffects.clear();
+    m_sceneSavedStarfieldID = 0; m_sceneSavedTunnelID = 0;
+}
+
+void FXManager::DiscardSavedFXState()
+{
+    FX_LOCK();
+    m_sceneSavedEffects.clear();
+    m_sceneSavedStarfieldID = 0; m_sceneSavedTunnelID = 0;
+}
+
+// ===============================================================================================
+// Particle explosion
+// ===============================================================================================
+
+void FXManager::CreateParticleExplosion(int startX, int startY, int maxParticles, int maxRadius)
+{
+    FX_LOCK();
+    FXItem newFX;
+    newFX.type = FXType::ParticleExplosion;
+    newFX.fxID = static_cast<int>(effects.size()) + 1;
+    newFX.originX = startX; newFX.originY = startY;
+    newFX.duration = 3.0f; newFX.timeout = 5.0f;
+
+    const float TWO_PI = 6.28318530f;
+    float angleStep = TWO_PI / static_cast<float>(maxParticles);
+    static const float colors[15][3] = {
+        {1,0,0},{1,.5f,0},{1,1,0},{0,1,0},{0,1,1},{0,0,1},{.5f,0,1},{1,0,1},
+        {1,0,.5f},{.7f,.7f,.7f},{1,.8f,.2f},{.3f,1,.3f},{.9f,.2f,.9f},{.6f,.6f,1},{.8f,.4f,.2f}
+    };
+
+    for (int i = 0; i < maxParticles; ++i) {
+        Particle p;
+        p.angle      = angleStep * i + (static_cast<float>(rand()) / RAND_MAX * 0.2f - 0.1f);
+        p.delayCount = rand() % 3;
+        p.delayBase  = (rand() % 3) + 2;
+        p.speed      = 2.0f + static_cast<float>(rand()) / RAND_MAX * 3.0f;
+        p.radius = 0.0f; p.maxRadius = static_cast<float>(maxRadius);
+        int ci = rand() % 15;
+        p.r = colors[ci][0]; p.g = colors[ci][1]; p.b = colors[ci][2]; p.a = 1.0f;
+        p.x = static_cast<float>(startX); p.y = static_cast<float>(startY);
+        p.completed = false; p.hasLoggedCompletion = false;
+        newFX.particles.push_back(p);
+    }
+    newFX.startTime = std::chrono::steady_clock::now(); newFX.lastUpdate = newFX.startTime;
+    AddEffect(newFX);
+}
+
+void FXManager::RenderParticles(FXItem& fxItem)
+{
+    FX_LOCK();
+    if (fxItem.type != FXType::ParticleExplosion) return;
+
+    auto  now     = std::chrono::steady_clock::now();
+    float elapsed = std::chrono::duration<float>(now - fxItem.startTime).count();
+    float lifeFactor = 1.0f;
+    if (fxItem.duration > 0.0f && elapsed > fxItem.duration * 0.7f)
+        lifeFactor = std::max(0.0f, std::min(1.0f,
+            1.0f - (elapsed - fxItem.duration * 0.7f) / (fxItem.duration * 0.3f)));
+
+    bool allCompleted = true;
+    for (auto& p : fxItem.particles) {
+        if (!p.completed) {
+            p.delayCount++;
+            if (p.delayCount >= p.delayBase) {
+                p.delayCount = 0; p.radius += p.speed;
+                if (p.radius >= p.maxRadius) { p.radius = p.maxRadius; p.completed = true; continue; }
+            }
+            allCompleted = false;
+        }
+        float sinVal, cosVal;
+        FAST_MATH.FastSinCos(p.angle, sinVal, cosVal);
+        p.x = fxItem.originX + cosVal * p.radius;
+        p.y = fxItem.originY + sinVal * p.radius;
+        float distRatio   = p.radius / p.maxRadius;
+        float fadeFactor  = (1.0f - distRatio * distRatio) * lifeFactor;
+        float alpha       = std::max(0.0f, std::min(1.0f, p.a * fadeFactor));
+        XMFLOAT4 fc(p.r, p.g, p.b, alpha);
+        DrawFXPixel(static_cast<int>(p.x), static_cast<int>(p.y), 2.0f, fc);
+    }
+    if (allCompleted && !fxItem.restartOnExpire) {
+        fxItem.progress = 1.0f; fxItem.timeout = 0.0f;
+    }
+}
+
+// ===============================================================================================
+// Starfield -- create / stop / update / render
+// ===============================================================================================
+
+void FXManager::CreateStarfield(int numStars, float circularRadius, float resetDepthPos,
+    XMFLOAT3 startPos, bool reverse)
+{
+    FX_LOCK();
+    FXItem newFX;
+    newFX.type = FXType::Starfield;
+    newFX.fxID = static_cast<int>(effects.size()) + 1;
+    starfieldID = newFX.fxID;
+    newFX.duration = FLT_MAX; newFX.timeout = FLT_MAX; newFX.progress = 0.0f;
+    newFX.depthMultiplier = resetDepthPos;
+    newFX.starfieldOrigin = startPos;
+    newFX.starfieldReverse = reverse;
+
+    for (int i = 0; i < numStars; ++i) {
+        Particle p;
+        float angle = static_cast<float>(rand()) / RAND_MAX * XM_2PI;
+        float dist  = (0.1f + static_cast<float>(rand()) / RAND_MAX * 0.9f) * circularRadius;
+        float ss, cs;
+        FAST_MATH.FastSinCos(angle, ss, cs);
+        float spreadX = cs * dist;
+        float spreadY = ss * dist;
+
+        if (!reverse) {
+            p.x = startPos.x + spreadX;
+            p.y = startPos.y + spreadY;
+            p.angle = startPos.z + resetDepthPos * (0.1f + 0.9f * static_cast<float>(rand()) / RAND_MAX);
+            p.vx = 0.0f; p.vy = 0.0f;
+        } else {
+            float startZ   = 5.0f + static_cast<float>(rand()) / RAND_MAX * (resetDepthPos * 0.1f);
+            float fraction = 1.0f - (startZ / resetDepthPos);
+            p.vx = spreadX; p.vy = spreadY;
+            p.angle = startZ;
+            p.x = startPos.x + p.vx * fraction;
+            p.y = startPos.y + p.vy * fraction;
+        }
+        p.speed     = 120.0f + static_cast<float>(rand()) / RAND_MAX * 240.0f;
+        p.radius    = 1.0f  + static_cast<float>(rand()) / RAND_MAX * 2.0f;
+        p.maxRadius = resetDepthPos;
+        float brightness = 0.7f + static_cast<float>(rand()) / RAND_MAX * 0.3f;
+        p.r = brightness;
+        p.g = brightness * (0.85f + static_cast<float>(rand()) / RAND_MAX * 0.15f);
+        p.b = brightness * (0.90f + static_cast<float>(rand()) / RAND_MAX * 0.10f);
+        p.a = 1.0f;
+        p.completed = false; p.hasLoggedCompletion = false;
+        p.delayCount = 0; p.delayBase = static_cast<int>(p.angle);
+        newFX.particles.push_back(p);
+    }
+    newFX.startTime = std::chrono::steady_clock::now(); newFX.lastUpdate = newFX.startTime;
+    AddEffect(newFX);
+}
+
+void FXManager::UpdateStarfield(float deltaTime)
+{
+    FX_LOCK();
+    for (auto& fx : effects) {
+        if (fx.type != FXType::Starfield) continue;
+        const float resetDepth = fx.depthMultiplier;
+        const bool  reverse    = fx.starfieldReverse;
+        const XMFLOAT3 origin  = fx.starfieldOrigin;
+        const float clampedDt  = std::min(deltaTime, 0.1f);
+
+        for (auto& p : fx.particles) {
+            if (p.completed) continue;
+            float zPos = p.angle;
+
+            if (!reverse) {
+                zPos -= p.speed * clampedDt;
+                p.a = std::max(0.0f, std::min(1.0f, (zPos / resetDepth) * 1.2f));
+                if (zPos <= 5.0f) {
+                    float a2 = static_cast<float>(rand()) / RAND_MAX * XM_2PI;
+                    float d2 = (0.1f + static_cast<float>(rand()) / RAND_MAX * 0.9f) * (resetDepth * 0.1f);
+                    float s2, c2; FAST_MATH.FastSinCos(a2, s2, c2);
+                    p.x = origin.x + c2 * d2; p.y = origin.y + s2 * d2;
+                    p.angle = origin.z + resetDepth * (0.9f + 0.1f * static_cast<float>(rand()) / RAND_MAX);
+                    p.speed = 120.0f + static_cast<float>(rand()) / RAND_MAX * 240.0f;
+                    p.radius = 1.0f + static_cast<float>(rand()) / RAND_MAX * 1.2f;
+                    p.a = 1.0f;
+                } else {
+                    p.angle = zPos;
+                }
+            } else {
+                zPos += p.speed * clampedDt;
+                if (zPos >= resetDepth) {
+                    float a2 = static_cast<float>(rand()) / RAND_MAX * XM_2PI;
+                    float d2 = (0.1f + static_cast<float>(rand()) / RAND_MAX * 0.9f) * p.maxRadius;
+                    float rs, rc; FAST_MATH.FastSinCos(a2, rs, rc);
+                    p.vx = rc * d2; p.vy = rs * d2;
+                    p.angle = 5.0f + static_cast<float>(rand()) / RAND_MAX * (resetDepth * 0.1f);
+                    float frac = 1.0f - (p.angle / resetDepth);
+                    p.x = origin.x + p.vx * frac; p.y = origin.y + p.vy * frac;
+                    p.speed = 120.0f + static_cast<float>(rand()) / RAND_MAX * 240.0f;
+                    p.radius = 1.0f + static_cast<float>(rand()) / RAND_MAX * 1.2f;
+                    p.a = 1.0f;
+                } else {
+                    float frac = 1.0f - (zPos / resetDepth);
+                    p.x = origin.x + p.vx * frac;
+                    p.y = origin.y + p.vy * frac;
+                    p.angle = zPos;
+                    p.a = std::max(0.0f, std::min(1.0f, frac * 1.2f));
+                }
+            }
+        }
+    }
+}
+
+void FXManager::StopStarfield() {
+    FX_LOCK();
+    if (starfieldID <= 0) return;
+    effects.erase(std::remove_if(effects.begin(), effects.end(), [this](const FXItem& fx) {
+        return fx.type == FXType::Starfield && fx.fxID == starfieldID;
+    }), effects.end());
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[FXManager] Starfield stopped.");
+    starfieldID = 0;
+}
+
+// Private unified starfield render -- gets viewProj from renderer->myCamera (DX12/OpenGL)
+void FXManager::RenderStarfield(FXItem& fxItem)
+{
+    if (fxItem.type != FXType::Starfield || !renderer) return;
+
+#if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+    // OpenGL/Vulkan camera matrices are GLM matrices, while the portable XMMATRIX alias
+    // is Matrix4x4. Keep projection in GLM to avoid per-star conversion work.
+    glm::mat4 view     = renderer->myCamera.GetViewMatrix();
+    glm::mat4 proj     = renderer->myCamera.GetProjectionMatrix();
+    glm::mat4 viewProj = proj * view;
+
+    int screenW = renderer->iOrigWidth;
+    int screenH = renderer->iOrigHeight;
+    if (screenW <= 0) screenW = 800;
+    if (screenH <= 0) screenH = 600;
+
+    const float halfW = static_cast<float>(screenW) * 0.5f;
+    const float halfH = static_cast<float>(screenH) * 0.5f;
+
+    for (auto& p : fxItem.particles) {
+        if (p.completed || p.a < 0.02f) continue;
+
+        glm::vec4 clip = viewProj * glm::vec4(p.x, p.y, p.angle, 1.0f);
+        if (clip.w <= 0.0f) continue;
+
+        float ndcX = clip.x / clip.w;
+        float ndcY = clip.y / clip.w;
+        float ndcZ = clip.z / clip.w;
+#if defined(__USE_VULKAN__)
+        if (ndcZ < 0.0f || ndcZ > 1.0f) continue;
+#else
+        if (ndcZ < -1.0f || ndcZ > 1.0f) continue;
+#endif
+        if (ndcX < -1.0f || ndcX > 1.0f || ndcY < -1.0f || ndcY > 1.0f) continue;
+
+        float sx = (ndcX + 1.0f) * halfW;
+        float sy = (1.0f - ndcY) * halfH;
+        float sizeScale = 1.0f + (fxItem.depthMultiplier - p.angle) / fxItem.depthMultiplier * 3.0f;
+        XMFLOAT4 starColor(p.r, p.g, p.b, p.a);
+        DrawFXPixel(static_cast<int>(sx), static_cast<int>(sy), p.radius * sizeScale, starColor);
+    }
+#else
+    XMMATRIX viewProj = renderer->myCamera.GetViewMatrix() * renderer->myCamera.GetProjectionMatrix();
+    const float halfW = static_cast<float>(renderer->iOrigWidth)  * 0.5f;
+    const float halfH = static_cast<float>(renderer->iOrigHeight) * 0.5f;
+
+    for (auto& p : fxItem.particles) {
+        if (p.completed || p.a < 0.02f) continue;
+
+        XMVECTOR wPos = XMVectorSet(p.x, p.y, p.angle, 1.0f);
+        XMVECTOR proj = XMVector3TransformCoord(wPos, viewProj);
+
+        float ndcZ = XMVectorGetZ(proj);
+        if (ndcZ <= 0.0f || ndcZ > 1.0f) continue;
+        float ndcX = XMVectorGetX(proj), ndcY = XMVectorGetY(proj);
+        if (ndcX < -1.0f || ndcX > 1.0f || ndcY < -1.0f || ndcY > 1.0f) continue;
+
+        float sx = (ndcX + 1.0f) * halfW;
+        float sy = (1.0f - ndcY) * halfH;
+        float sizeScale = 1.0f + (fxItem.depthMultiplier - p.angle) / fxItem.depthMultiplier * 3.0f;
+        XMFLOAT4 starColor(p.r, p.g, p.b, p.a);
+        DrawFXPixel(static_cast<int>(sx), static_cast<int>(sy), p.radius * sizeScale, starColor);
+    }
+#endif
+}
+
+// ===============================================================================================
+// WarpDotTunnel -- init / stop / update / render
+// ===============================================================================================
+
+void FXManager::Init3DWarpDOTTunnel(float x, float y, float z,
+    float minRadius, float maxRadius, TunnelSpinCycle spinCycle,
+    int travelSpeed, bool reverseTravel, int dotsPerCircle, int density)
+{
+    FX_LOCK();
+    if (tunnelID > 0) StopWarpDotTunnel();
+
+    FXItem newFX;
+    newFX.type = FXType::WarpDotTunnel;
+    newFX.fxID = static_cast<int>(effects.size()) + 1;
+    newFX.duration = FLT_MAX; newFX.timeout = FLT_MAX; newFX.progress = 0.0f;
+    newFX.startTime = std::chrono::steady_clock::now(); newFX.lastUpdate = newFX.startTime;
+    tunnelID = newFX.fxID;
+
+    WarpTunnelData& data = newFX.warpTunnelData;
+    data.startX = x; data.startY = y; data.startZ = z;
+    data.minRadius = minRadius; data.maxRadius = maxRadius;
+    data.spinCycle = spinCycle;
+    data.travelSpeed   = std::max(1, travelSpeed);
+    data.reverseTravel = reverseTravel;
+    #if defined(__USE_OPENGL__)
+        // OpenGL/Vulkan draw tunnel dots through a CPU/overlay pixel path, so the
+        // DX12-era density=100 loader value must be capped to avoid thousands of
+        // per-frame draw calls. DX11/DX12 keep the requested density.
+        data.dotsPerCircle = std::clamp(dotsPerCircle, 3, 24);
+        data.density       = std::clamp(density, 1, 50);
+    #else
+        data.dotsPerCircle = std::max(3, dotsPerCircle);
+        data.density       = std::clamp(density, 1, 100);
+    #endif
+    data.nearZ         = z;
+    data.farZ          = z + data.totalDistance;
+    data.spinSpeed     = static_cast<float>(travelSpeed) * 0.05f;
+    data.smoothLookTarget = XMFLOAT3(x, y, data.farZ);
+
+    const int ringCount = data.density;
+    data.rings.reserve(ringCount);
+    for (int i = 0; i < ringCount; ++i) {
+        TunnelRing ring{};
+        float fraction = static_cast<float>(i) / static_cast<float>(ringCount);
+        ring.zPos = reverseTravel
+            ? (data.nearZ + fraction * data.totalDistance)
+            : (data.farZ  - fraction * data.totalDistance);
+        float ws, wc; FAST_MATH.FastSinCos(fraction * XM_2PI, ws, wc);
+        ring.bornCx = x + WarpTunnelData::kSideWaveRadius * ws;
+        ring.bornCy = y + WarpTunnelData::kSideWaveRadius * wc;
+        ring.cx = ring.bornCx; ring.cy = ring.bornCy;
+        ring.spinAngle = 0.0f; ring.alive = true;
+        ring.colorStep = i % WarpTunnelData::kGraySteps;
+        data.rings.push_back(ring);
+    }
+
+    if (renderer) {
+        renderer->myCamera.SetPosition(x, y, data.nearZ);
+        #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+                renderer->myCamera.SetTarget(glm::vec3(x, y, data.farZ));
+        #else
+                renderer->myCamera.SetTarget(XMFLOAT3(x, y, data.farZ));
+        #endif
+        renderer->myCamera.SetYawPitch(0.0f, 0.0f);
+    }
+    AddEffect(newFX);
+}
+
+void FXManager::StopWarpDotTunnel() {
+    FX_LOCK();
+    if (tunnelID <= 0) return;
+    effects.erase(std::remove_if(effects.begin(), effects.end(), [this](const FXItem& fx) {
+        return fx.type == FXType::WarpDotTunnel && fx.fxID == tunnelID;
+    }), effects.end());
+    tunnelID = 0;
+}
+
+void FXManager::UpdateWarpDotTunnel(FXItem& fx, float deltaTime)
+{
+    WarpTunnelData& data = fx.warpTunnelData;
+    if (data.rings.empty()) return;
+    const float dt        = std::min(deltaTime, 0.05f);
+    const float baseSpeed = static_cast<float>(data.travelSpeed);
+    data.sideWaveTime += dt;
+
+    for (auto& ring : data.rings) {
+        if (!ring.alive) continue;
+        float pathT      = std::clamp((data.farZ - ring.zPos) / data.totalDistance, 0.0f, 1.0f);
+        float t2         = pathT * pathT;
+        float speedFactor = data.reverseTravel ? (1.0f + t2*t2*6.0f) : (1.0f + t2*t2*10.0f);
+        float frameSpeed  = baseSpeed * speedFactor * dt;
+
+        if (!data.reverseTravel) ring.zPos -= frameSpeed;
+        else                     ring.zPos += frameSpeed;
+
+        auto respawnRing = [&](TunnelRing& r) {
+            float phase = data.sideWaveTime * WarpTunnelData::kSideWaveSpeed;
+            float ps, pc; FAST_MATH.FastSinCos(phase, ps, pc);
+            r.bornCx = data.startX + WarpTunnelData::kSideWaveRadius * ps;
+            r.bornCy = data.startY + WarpTunnelData::kSideWaveRadius * pc;
+        };
+
+        if (!data.reverseTravel && ring.zPos < data.nearZ) {
+            ring.zPos = data.farZ;
+            respawnRing(ring);
+        } else if (data.reverseTravel && ring.zPos > data.farZ) {
+            ring.zPos = data.nearZ;
+            respawnRing(ring);
+        }
+        ring.cx = ring.bornCx; ring.cy = ring.bornCy;
+
+        const float spinDelta = (data.reverseTravel ? -data.spinSpeed : data.spinSpeed) * dt;
+        switch (data.spinCycle) {
+        case TunnelSpinCycle::Clockwise:     ring.spinAngle += spinDelta; break;
+        case TunnelSpinCycle::AntiClockwise: ring.spinAngle -= spinDelta; break;
+        default: break;
+        }
+        ring.spinAngle = fmodf(ring.spinAngle, XM_2PI);
+        if (ring.spinAngle < 0.0f) ring.spinAngle += XM_2PI;
+    }
+
+    if (renderer) {
+        const int ringCount = static_cast<int>(data.rings.size());
+        const int lookIdx   = std::min(19, ringCount - 1);
+        int order[100];
+        for (int ri = 0; ri < ringCount; ++ri) order[ri] = ri;
+        std::sort(order, order + ringCount, [&data](int a, int b) {
+            float ptA = (data.farZ - data.rings[a].zPos) / data.totalDistance;
+            float ptB = (data.farZ - data.rings[b].zPos) / data.totalDistance;
+            return ptA > ptB;
+        });
+        const TunnelRing& lookRing = data.rings[order[lookIdx]];
+        const float alpha = 1.0f - expf(-WarpTunnelData::kCameraSmooth * dt);
+        data.smoothLookTarget.x += (lookRing.cx   - data.smoothLookTarget.x) * alpha;
+        data.smoothLookTarget.y += (lookRing.cy   - data.smoothLookTarget.y) * alpha;
+        data.smoothLookTarget.z += (lookRing.zPos - data.smoothLookTarget.z) * alpha;
+        #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+            renderer->myCamera.SetTarget(glm::vec3(
+                data.smoothLookTarget.x,
+                data.smoothLookTarget.y,
+                data.smoothLookTarget.z));
+        #else
+            renderer->myCamera.SetTarget(data.smoothLookTarget);
+        #endif
+    }
+}
+
+// Private unified tunnel render (DX11 / DX12 / OpenGL)
+void FXManager::RenderWarpDotTunnel(FXItem& fx)
+{
+    const WarpTunnelData& data = fx.warpTunnelData;
+    if (data.rings.empty() || !renderer) return;
+
+    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        // OpenGL/Vulkan camera matrices are GLM matrices; keep this path in GLM instead
+        // of converting between GLM and the portable Matrix4x4 alias every frame.
+        glm::mat4 viewProj = renderer->myCamera.GetProjectionMatrix() * renderer->myCamera.GetViewMatrix();
+    #else
+        XMMATRIX viewProj = renderer->myCamera.GetViewMatrix() * renderer->myCamera.GetProjectionMatrix();
+    #endif
+
+    const float angleStep = XM_2PI / static_cast<float>(data.dotsPerCircle);
+    const float halfW     = static_cast<float>(renderer->iOrigWidth)  * 0.5f;
+    const float halfH     = static_cast<float>(renderer->iOrigHeight) * 0.5f;
+    const float edgeFade  = 0.08f;
+
+    static constexpr float kGrayRamp[WarpTunnelData::kGraySteps] = {
+        0.08f, 0.19f, 0.30f, 0.44f, 0.58f, 0.72f, 0.86f, 1.0f
+    };
+
+    for (const auto& ring : data.rings) {
+        if (!ring.alive) continue;
+        float pathT     = std::clamp((data.farZ - ring.zPos) / data.totalDistance, 0.0f, 1.0f);
+        float ringRadius = data.minRadius + (data.maxRadius - data.minRadius) * pathT;
+
+        float alpha = 1.0f;
+        if      (pathT < edgeFade)        alpha = pathT / edgeFade;
+        else if (pathT > 1.0f - edgeFade) alpha = (1.0f - pathT) / edgeFade;
+
+        float gray    = kGrayRamp[ring.colorStep % WarpTunnelData::kGraySteps];
+        float dotSize = 1.0f + pathT * 3.0f;
+        XMFLOAT4 dotColor(gray, gray, gray, alpha);
+
+        for (int i = 0; i < data.dotsPerCircle; ++i) {
+            float dotAngle = angleStep * static_cast<float>(i) + ring.spinAngle;
+            float sinA, cosA; FAST_MATH.FastSinCos(dotAngle, sinA, cosA);
+
+            #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+                glm::vec4 clip = viewProj * glm::vec4(
+                    ring.cx + cosA * ringRadius,
+                    ring.cy + sinA * ringRadius,
+                    ring.zPos, 1.0f);
+                if (clip.w <= 0.0f) continue;
+
+                float ndcX = clip.x / clip.w;
+                float ndcY = clip.y / clip.w;
+                float ndcZ = clip.z / clip.w;
+                #if defined(__USE_VULKAN__)
+                    if (ndcZ < 0.0f || ndcZ > 1.0f) continue;
+                #else
+                    if (ndcZ < -1.0f || ndcZ > 1.0f) continue;
+                #endif
+            #else
+                XMVECTOR wPos = XMVectorSet(
+                    ring.cx + cosA * ringRadius,
+                    ring.cy + sinA * ringRadius,
+                    ring.zPos, 1.0f);
+                XMVECTOR proj = XMVector3TransformCoord(wPos, viewProj);
+                float ndcZ    = XMVectorGetZ(proj);
+                if (ndcZ <= 0.0f || ndcZ > 1.0f) continue;
+                float ndcX = XMVectorGetX(proj), ndcY = XMVectorGetY(proj);
+            #endif
+            if (ndcX < -1.0f || ndcX > 1.0f || ndcY < -1.0f || ndcY > 1.0f) continue;
+
+            float sx = (ndcX + 1.0f) * halfW;
+            float sy =
+            #if defined(__USE_VULKAN__)
+                (ndcY + 1.0f) * halfH;
+            #else
+                (1.0f - ndcY) * halfH;
+            #endif
+            DrawFXPixel(static_cast<int>(sx), static_cast<int>(sy), dotSize, dotColor);
+        }
+    }
+}
+
+#if defined(__USE_VULKAN__)
+// Vulkan overload -- pixel draw uses DrawFXPixel which wraps the renderer pixel API
+void FXManager::RenderWarpDotTunnel(FXItem& fx, VkCommandBuffer /*cmd*/)
+{
+    RenderWarpDotTunnel(fx);
+}
+#endif
+
+// ===============================================================================================
+// TextScroller
+// ===============================================================================================
+
+void FXManager::CreateTextScrollerLTOR(const std::wstring& text, const std::wstring& fontName,
+    float fontSize, XMFLOAT4 textColor, float regionX, float regionY,
+    float regionWidth, float regionHeight, float scrollSpeed, float centerHoldTime,
+    float duration, float characterSpacing, float wordSpacing)
+{
+    ThreadLockHelper lock(threadManager, "fxmanager_textscroller_lock", 1000);
+    if (!lock.IsLocked()) return;
+    FXItem newFX;
+    newFX.type = FXType::TextScroller; newFX.subtype = FXSubType::TXT_SCROLL_LTOR;
+    newFX.fxID = static_cast<int>(effects.size()) + 1;
+    newFX.duration = duration; newFX.timeout = duration + 1.0f; newFX.progress = 0.0f;
+    auto& sd = newFX.textScrollData;
+    sd.text = text; sd.fontName = fontName; sd.fontSize = fontSize; sd.textColor = textColor;
+    sd.scrollSpeed = scrollSpeed; sd.centerHoldTime = centerHoldTime; sd.centerHoldTimer = 0.0f;
+    sd.regionX = regionX; sd.regionY = regionY; sd.regionWidth = regionWidth; sd.regionHeight = regionHeight;
+    sd.currentXPosition = regionX - 100.0f;
+    sd.currentYPosition = regionY + (regionHeight / 2.0f);
+    sd.isInCenterPhase = false; sd.hasReachedCenter = false;
+    sd.characterSpacing = characterSpacing; sd.wordSpacing = wordSpacing;
+    newFX.startTime = std::chrono::steady_clock::now(); newFX.lastUpdate = newFX.startTime;
+    AddEffect(newFX);
+}
+
+void FXManager::CreateTextScrollerRTOL(const std::wstring& text, const std::wstring& fontName,
+    float fontSize, XMFLOAT4 textColor, float regionX, float regionY,
+    float regionWidth, float regionHeight, float scrollSpeed, float centerHoldTime,
+    float duration, float characterSpacing, float wordSpacing)
+{
+    ThreadLockHelper lock(threadManager, "fxmanager_textscroller_lock", 1000);
+    if (!lock.IsLocked()) return;
+    FXItem newFX;
+    newFX.type = FXType::TextScroller; newFX.subtype = FXSubType::TXT_SCROLL_RTOL;
+    newFX.fxID = static_cast<int>(effects.size()) + 1;
+    newFX.duration = duration; newFX.timeout = duration + 1.0f; newFX.progress = 0.0f;
+    auto& sd = newFX.textScrollData;
+    sd.text = text; sd.fontName = fontName; sd.fontSize = fontSize; sd.textColor = textColor;
+    sd.scrollSpeed = scrollSpeed; sd.centerHoldTime = centerHoldTime; sd.centerHoldTimer = 0.0f;
+    sd.regionX = regionX; sd.regionY = regionY; sd.regionWidth = regionWidth; sd.regionHeight = regionHeight;
+    sd.currentXPosition = regionX + regionWidth + 100.0f;
+    sd.currentYPosition = regionY + (regionHeight / 2.0f);
+    sd.isInCenterPhase = false; sd.hasReachedCenter = false;
+    sd.characterSpacing = characterSpacing; sd.wordSpacing = wordSpacing;
+    newFX.startTime = std::chrono::steady_clock::now(); newFX.lastUpdate = newFX.startTime;
+    AddEffect(newFX);
+}
+
+void FXManager::CreateTextScrollerConsistent(const std::wstring& text, const std::wstring& fontName,
+    float fontSize, XMFLOAT4 textColor, float regionX, float regionY,
+    float regionWidth, float regionHeight, float scrollSpeed, float duration,
+    float characterSpacing, float wordSpacing)
+{
+    ThreadLockHelper lock(threadManager, "fxmanager_textscroller_lock", 1000);
+    if (!lock.IsLocked()) return;
+    FXItem newFX;
+    newFX.type = FXType::TextScroller; newFX.subtype = FXSubType::TXT_SCROLL_CONSISTANT;
+    newFX.fxID = static_cast<int>(effects.size()) + 1;
+    newFX.duration = duration; newFX.timeout = (duration == FLT_MAX) ? FLT_MAX : duration + 1.0f;
+    newFX.progress = 0.0f;
+    auto& sd = newFX.textScrollData;
+    sd.text = text; sd.fontName = fontName; sd.fontSize = fontSize; sd.textColor = textColor;
+    sd.scrollSpeed = scrollSpeed; sd.characterSpacing = characterSpacing; sd.wordSpacing = wordSpacing;
+    sd.regionX = regionX; sd.regionY = regionY; sd.regionWidth = regionWidth; sd.regionHeight = regionHeight;
+    sd.currentXPosition = regionX + regionWidth;
+    sd.currentYPosition = regionY + (regionHeight / 2.0f);
+    newFX.startTime = std::chrono::steady_clock::now(); newFX.lastUpdate = newFX.startTime;
+    AddEffect(newFX);
+}
+
+void FXManager::CreateTextScrollerMovie(const std::vector<std::wstring>& textLines,
+    const std::wstring& fontName, float fontSize, XMFLOAT4 textColor,
+    float regionX, float regionY, float regionWidth, float regionHeight,
+    float scrollSpeed, float lineSpacing, float duration,
+    float characterSpacing, float wordSpacing)
+{
+    ThreadLockHelper lock(threadManager, "fxmanager_textscroller_lock", 1000);
+    if (!lock.IsLocked()) return;
+    FXItem newFX;
+    newFX.type = FXType::TextScroller; newFX.subtype = FXSubType::TXT_SCROLL_MOVIE;
+    newFX.fxID = static_cast<int>(effects.size()) + 1;
+    newFX.duration = duration; newFX.timeout = duration + 1.0f; newFX.progress = 0.0f;
+    auto& sd = newFX.textScrollData;
+    sd.textLines = textLines; sd.fontName = fontName; sd.fontSize = fontSize; sd.textColor = textColor;
+    sd.scrollSpeed = scrollSpeed; sd.lineSpacing = lineSpacing;
+    sd.regionX = regionX; sd.regionY = regionY; sd.regionWidth = regionWidth; sd.regionHeight = regionHeight;
+    sd.currentYPosition = regionY + regionHeight; sd.currentLineIndex = 0;
+    newFX.startTime = std::chrono::steady_clock::now(); newFX.lastUpdate = newFX.startTime;
+    AddEffect(newFX);
+}
+
+void FXManager::StopTextScroller(int effectID) {
+    FX_LOCK();
+    ThreadLockHelper lock(threadManager, "fxmanager_textscroller_lock", 1000);
+    if (!lock.IsLocked()) return;
+    effects.erase(std::remove_if(effects.begin(), effects.end(), [effectID](const FXItem& fx) {
+        return fx.type == FXType::TextScroller && fx.fxID == effectID;
+    }), effects.end());
+}
+
+void FXManager::PauseTextScroller(int effectID) {
+    FX_LOCK();
+    ThreadLockHelper lock(threadManager, "fxmanager_textscroller_lock", 1000);
+    if (!lock.IsLocked()) return;
+    for (auto& fx : effects)
+        if (fx.type == FXType::TextScroller && fx.fxID == effectID)
+            fx.isPaused = true;
+}
+
+void FXManager::ResumeTextScroller(int effectID) {
+    FX_LOCK();
+    ThreadLockHelper lock(threadManager, "fxmanager_textscroller_lock", 1000);
+    if (!lock.IsLocked()) return;
+    for (auto& fx : effects)
+        if (fx.type == FXType::TextScroller && fx.fxID == effectID) {
+            fx.isPaused = false; fx.lastUpdate = std::chrono::steady_clock::now();
+        }
+}
+
+void FXManager::UpdateTextScroller(FXItem& fxItem, float deltaTime)
+{
+    if (fxItem.isPaused || fxItem.type != FXType::TextScroller) return;
+    auto& sd = fxItem.textScrollData;
+
+    switch (fxItem.subtype) {
+    case FXSubType::TXT_SCROLL_LTOR: {
+        if (!sd.widthCached) {
+            sd.cachedTextWidth = renderer->CalculateTextWidth(sd.text, sd.fontSize, sd.regionWidth);
+            sd.widthCached = true;
+        }
+        float centerX = sd.regionX + sd.regionWidth / 2.0f;
+        float textCX  = centerX - sd.cachedTextWidth / 2.0f;
+        if (!sd.hasReachedCenter) {
+            float dist = fabsf(sd.currentXPosition - textCX);
+            float maxD = sd.regionWidth / 2.0f;
+            float spd  = 1.0f + (1.0f - (dist / maxD)) * 2.0f;
+            sd.currentXPosition += sd.scrollSpeed * spd * deltaTime;
+            if (sd.currentXPosition >= textCX) {
+                sd.currentXPosition = textCX;
+                sd.hasReachedCenter = sd.isInCenterPhase = true;
+                sd.centerHoldTimer = 0.0f;
+            }
+        } else if (sd.isInCenterPhase) {
+            sd.centerHoldTimer += deltaTime;
+            if (sd.centerHoldTimer >= sd.centerHoldTime) sd.isInCenterPhase = false;
+        } else {
+            float dist = fabsf(sd.currentXPosition - textCX);
+            float maxD = sd.regionWidth / 2.0f;
+            float spd  = 1.0f + (dist / maxD) * 2.0f;
+            sd.currentXPosition += sd.scrollSpeed * spd * deltaTime;
+            if (sd.currentXPosition > sd.regionX + sd.regionWidth + 100.0f) fxItem.progress = 1.0f;
+        }
+        break;
+    }
+    case FXSubType::TXT_SCROLL_RTOL: {
+        if (!sd.widthCached) {
+            sd.cachedTextWidth = renderer->CalculateTextWidth(sd.text, sd.fontSize, sd.regionWidth);
+            sd.widthCached = true;
+        }
+        float centerX = sd.regionX + sd.regionWidth / 2.0f;
+        float textCX  = centerX - sd.cachedTextWidth / 2.0f;
+        if (!sd.hasReachedCenter) {
+            float dist = fabsf(sd.currentXPosition - textCX);
+            float maxD = sd.regionWidth / 2.0f;
+            float spd  = 1.0f + (1.0f - (dist / maxD)) * 2.0f;
+            sd.currentXPosition -= sd.scrollSpeed * spd * deltaTime;
+            if (sd.currentXPosition <= textCX) {
+                sd.currentXPosition = textCX;
+                sd.hasReachedCenter = sd.isInCenterPhase = true;
+                sd.centerHoldTimer = 0.0f;
+            }
+        } else if (sd.isInCenterPhase) {
+            sd.centerHoldTimer += deltaTime;
+            if (sd.centerHoldTimer >= sd.centerHoldTime) sd.isInCenterPhase = false;
+        } else {
+            float dist = fabsf(sd.currentXPosition - textCX);
+            float maxD = sd.regionWidth / 2.0f;
+            float spd  = 1.0f + (dist / maxD) * 2.0f;
+            sd.currentXPosition -= sd.scrollSpeed * spd * deltaTime;
+            if (sd.currentXPosition < sd.regionX - 100.0f) fxItem.progress = 1.0f;
+        }
+        break;
+    }
+    case FXSubType::TXT_SCROLL_CONSISTANT: {
+        if (!sd.widthCached) {
+            sd.cachedCharWidths.resize(sd.text.length());
+            sd.cachedCharOffsets.resize(sd.text.length());
+            float offset = 0.0f;
+            for (size_t i = 0; i < sd.text.length(); ++i) {
+                float w = renderer->GetCharacterWidth(sd.text[i], sd.fontSize, sd.fontName) + sd.characterSpacing;
+                if (sd.text[i] == L' ') w += sd.wordSpacing;
+                sd.cachedCharOffsets[i] = offset;
+                sd.cachedCharWidths[i] = w;
+                offset += w;
+            }
+            sd.cachedTotalTextWidth = offset;
+            sd.widthCached = true;
+        }
+        sd.currentXPosition -= sd.scrollSpeed * deltaTime;
+        if (sd.currentXPosition + sd.cachedTotalTextWidth < sd.regionX)
+            sd.currentXPosition = sd.regionX + sd.regionWidth;
+        if (fxItem.duration != FLT_MAX) {
+            auto now = std::chrono::steady_clock::now();
+            float elapsed = std::chrono::duration<float>(now - fxItem.startTime).count();
+            if (elapsed >= fxItem.duration) fxItem.progress = 1.0f;
+        }
+        break;
+    }
+    case FXSubType::TXT_SCROLL_MOVIE: {
+        sd.currentYPosition -= sd.scrollSpeed * deltaTime;
+        float totalHeight = sd.textLines.size() * sd.lineSpacing;
+        if (sd.currentYPosition + totalHeight < sd.regionY) fxItem.progress = 1.0f;
+        break;
+    }
+    default: break;
+    }
+}
+
+void FXManager::RenderTextScroller(FXItem& fxItem)
+{
+    if (fxItem.type != FXType::TextScroller) return;
+    auto& sd = fxItem.textScrollData;
+
+    switch (fxItem.subtype) {
+    case FXSubType::TXT_SCROLL_LTOR:
+    case FXSubType::TXT_SCROLL_RTOL: {
+        float transparency = 1.0f;
+        if (!sd.isInCenterPhase) {
+            float centerX = sd.regionX + sd.regionWidth / 2.0f;
+            float dist    = fabsf(sd.currentXPosition - centerX);
+            float fade    = sd.regionWidth / 4.0f;
+            if (dist > fade) transparency = std::max(0.0f, 1.0f - (dist - fade) / fade);
+        }
+        XMFLOAT4 c = sd.textColor; c.w *= transparency;
+        MyColor col(uint8_t(c.x*255), uint8_t(c.y*255), uint8_t(c.z*255), uint8_t(c.w*255));
+        renderer->DrawMyText(sd.text, Vector2(sd.currentXPosition, sd.currentYPosition), col, sd.fontSize);
+        break;
+    }
+    case FXSubType::TXT_SCROLL_CONSISTANT: {
+        const float baseX       = sd.currentXPosition;
+        const float baseY       = sd.currentYPosition;
+        const float regionLeft  = sd.regionX;
+        const float regionRight = sd.regionX + sd.regionWidth;
+        const float fadeDist    = 100.0f;
+        for (size_t i = 0; i < sd.text.length(); ++i) {
+            float charX = baseX + sd.cachedCharOffsets[i];
+            if (charX < regionLeft - fadeDist - 50.0f || charX > regionRight + fadeDist + 50.0f) continue;
+            float charCX       = charX + sd.cachedCharWidths[i] * 0.5f;
+            float transparency = CalculateCharacterTransparency(charCX, regionLeft, regionRight, fadeDist);
+            if (transparency <= 0.01f) continue;
+            XMFLOAT4 c = sd.textColor; c.w *= transparency;
+            MyColor col(uint8_t(c.x*255), uint8_t(c.y*255), uint8_t(c.z*255), uint8_t(c.w*255));
+            renderer->DrawMyTextWithFont(std::wstring(1, sd.text[i]), Vector2(charX, baseY), col, sd.fontSize, sd.fontName);
+        }
+        break;
+    }
+    case FXSubType::TXT_SCROLL_MOVIE: {
+        if (!sd.widthCached) {
+            sd.cachedLineWidths.resize(sd.textLines.size());
+            for (size_t i = 0; i < sd.textLines.size(); ++i)
+                sd.cachedLineWidths[i] = renderer->CalculateTextWidth(sd.textLines[i], sd.fontSize, sd.regionWidth);
+            sd.widthCached = true;
+        }
+        const float regionTop = sd.regionY;
+        const float regionBot = sd.regionY + sd.regionHeight;
+        for (size_t i = 0; i < sd.textLines.size(); ++i) {
+            float lineY        = sd.currentYPosition + (i * sd.lineSpacing);
+            float transparency = CalculateTextTransparency(lineY, regionTop, regionBot, 50.0f);
+            if (transparency <= 0.0f) continue;
+            XMFLOAT4 c = sd.textColor; c.w *= transparency;
+            MyColor col(uint8_t(c.x*255), uint8_t(c.y*255), uint8_t(c.z*255), uint8_t(c.w*255));
+            float cx = sd.regionX + (sd.regionWidth - sd.cachedLineWidths[i]) * 0.5f;
+            renderer->DrawMyText(sd.textLines[i], Vector2(cx, lineY), col, sd.fontSize);
+        }
+        break;
+    }
+    default: break;
+    }
+}
+
+float FXManager::CalculateTextTransparency(float pos, float start, float end, float fade) {
+    if (pos < start - fade || pos > end + fade) return 0.0f;
+    if (pos < start) return 1.0f - (start - pos) / fade;
+    if (pos > end)   return 1.0f - (pos   - end)  / fade;
+    return 1.0f;
+}
+
+float FXManager::CalculateCharacterTransparency(float cp, float start, float end, float fade)
+{
+    if (cp < start - fade || cp > end + fade) return 0.0f;
+    if (cp > end) return std::max(0.0f, std::min(1.0f, 1.0f - (cp - end) / fade));
+    if (cp < start) return std::max(0.0f, std::min(1.0f, 1.0f - (start - cp) / fade));
+    float rw = end - start;
+    float t  = (cp - start) / rw;
+    const float ef = 0.25f;
+    if (t < ef)        return std::max(0.0f, std::min(1.0f, t / ef));
+    if (t > 1.0f - ef) return std::max(0.0f, std::min(1.0f, (1.0f - t) / ef));
+    return 1.0f;
+}
+
+float FXManager::CalculateTextWidthWithSpacing(const std::wstring& text, const std::wstring& fontName,
+    float fontSize, float characterSpacing, float wordSpacing)
+{
+    float total = 0.0f;
+    for (wchar_t ch : text) {
+        total += renderer->GetCharacterWidth(ch, fontSize, fontName) + characterSpacing;
+        if (ch == L' ') total += wordSpacing;
+    }
+    return total;
+}
+
+void FXManager::SplitTextIntoLines(const std::wstring& text, std::vector<std::wstring>& lines,
+    float maxWidth, float fontSize)
+{
+    lines.clear();
+    std::wstringstream ss(text);
+    std::wstring word, currentLine;
+    while (std::getline(ss, word, L' ')) {
+        std::wstring test = currentLine.empty() ? word : currentLine + L" " + word;
+        float w = renderer->CalculateTextWidth(test, fontSize, 1000.0f);
+        if (w > maxWidth && !currentLine.empty()) { lines.push_back(currentLine); currentLine = word; }
+        else { currentLine = test; }
+    }
+    if (!currentLine.empty()) lines.push_back(currentLine);
+}
+
+// ===============================================================================================
+// TextFadeInOut (ShowLoadingText / StopLoadingText / RenderLoadingText)
+// ===============================================================================================
+
+int FXManager::ShowLoadingText(const std::wstring& text, XMFLOAT4 endColor,
+    float fadeInDuration, float fadeOutDuration, XMFLOAT4 startColor,
+    float posX, float posY, const TextRenderStyle* fontStyle)
+{
+    if (bHasCleanedUp) return -1;
+    FX_LOCK();
+
+    // Compute stagger delay: begin new text only after all in-flight text has faded out
+    float maxRemainingFadeOut = 0.0f;
+    for (auto& fx : effects) {
+        if (fx.type != FXType::TextFadeInOut) continue;
+        if (fx.textFadeData.immediateStop)    continue;
+        auto& d = fx.textFadeData;
+        if (d.pendingDelay > 0.0f) { d.immediateStop = true; fx.progress = 1.0f; continue; }
+        if (d.phase == TextFadePhase::FadeIn) {
+            float t = (d.fadeInDuration > 0.0f) ? std::clamp(d.phaseTimer / d.fadeInDuration, 0.0f, 1.0f) : 1.0f;
+            d.fadeOutStartColor = {
+                d.startColor.x + (d.endColor.x - d.startColor.x) * t,
+                d.startColor.y + (d.endColor.y - d.startColor.y) * t,
+                d.startColor.z + (d.endColor.z - d.startColor.z) * t,
+                d.startColor.w + (d.endColor.w  - d.startColor.w) * t };
+            d.phase = TextFadePhase::FadeOut; d.phaseTimer = 0.0f;
+            if (d.fadeOutDuration > maxRemainingFadeOut) maxRemainingFadeOut = d.fadeOutDuration;
+        } else if (d.phase == TextFadePhase::Holding) {
+            d.fadeOutStartColor = d.endColor;
+            d.phase = TextFadePhase::FadeOut; d.phaseTimer = 0.0f;
+            if (d.fadeOutDuration > maxRemainingFadeOut) maxRemainingFadeOut = d.fadeOutDuration;
+        } else if (d.phase == TextFadePhase::FadeOut) {
+            float remaining = d.fadeOutDuration - d.phaseTimer;
+            if (remaining > maxRemainingFadeOut) maxRemainingFadeOut = remaining;
+        }
+    }
+
+    static int nextID = 5000;
+    int newID = nextID++;
+
+    FXItem fx{};
+    fx.fxID = newID; fx.nextEffectID = -1;
+    fx.type = FXType::TextFadeInOut; fx.subtype = FXSubType::TXT_FADE_IN;
+    fx.duration = 0.0f; fx.progress = 0.0f; fx.delay = 0.0f; fx.timeout = 0.0f;
+    fx.startTime = std::chrono::steady_clock::now(); fx.lastUpdate = fx.startTime;
+
+    TextFadeData& d = fx.textFadeData;
+    d.text = text; d.startColor = startColor; d.endColor = endColor;
+    d.fadeOutColor    = XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f);
+    d.fadeInDuration  = std::max(fadeInDuration,  0.05f);
+    d.fadeOutDuration = std::max(fadeOutDuration, 0.05f);
+    d.displayDuration = -1.0f;
+    d.pendingDelay    = maxRemainingFadeOut;
+    d.phase           = TextFadePhase::FadeIn;
+    d.phaseTimer      = 0.0f;
+    d.immediateStop   = false;
+    d.posX = (posX < 0.0f) ? 20.0f : posX;
+    d.posY = (posY < 0.0f) ? (renderer
+                               ? static_cast<float>(renderer->iOrigHeight) * LOADER_TEXT_Y_RATIO
+                               : fDEFAULT_WINDOW_HEIGHT * LOADER_TEXT_Y_RATIO) : posY;
+    if (fontStyle) d.fontStyle = *fontStyle;
+
+    if (bIsRendering.load()) {
+        m_pendingEffects.push_back(std::move(fx));
+    } else {
+        AddEffect(fx);
+    }
+    return newID;
+}
+
+void FXManager::StopLoadingText()
+{
+    FX_LOCK();
+    for (auto& fx : effects) {
+        if (fx.type != FXType::TextFadeInOut) continue;
+        if (fx.textFadeData.immediateStop)    continue;
+        auto& d = fx.textFadeData;
+        if (d.pendingDelay > 0.0f || d.phase == TextFadePhase::Stopped) {
+            d.immediateStop = true; fx.progress = 1.0f; continue;
+        }
+        if (d.phase == TextFadePhase::FadeIn) {
+            float t = (d.fadeInDuration > 0.0f) ? std::clamp(d.phaseTimer / d.fadeInDuration, 0.0f, 1.0f) : 1.0f;
+            d.fadeOutStartColor = {
+                d.startColor.x + (d.endColor.x - d.startColor.x) * t,
+                d.startColor.y + (d.endColor.y - d.startColor.y) * t,
+                d.startColor.z + (d.endColor.z - d.startColor.z) * t,
+                d.startColor.w + (d.endColor.w  - d.startColor.w) * t };
+            d.phase = TextFadePhase::FadeOut; d.phaseTimer = 0.0f;
+        } else if (d.phase == TextFadePhase::Holding) {
+            d.fadeOutStartColor = d.endColor;
+            d.phase = TextFadePhase::FadeOut; d.phaseTimer = 0.0f;
+        }
+    }
+}
+
+void FXManager::RenderLoadingText()
+{
+    if (bHasCleanedUp || !renderer) return;
+    FX_LOCK();
+    static auto lastRLT = std::chrono::steady_clock::now();
+    auto  now  = std::chrono::steady_clock::now();
+    float dt   = std::min(std::chrono::duration<float>(now - lastRLT).count(), 0.1f);
+    lastRLT    = now;
+    for (auto& fx : effects) {
+        if (fx.type != FXType::TextFadeInOut) continue;
+        UpdateTextFadeInOut(fx, dt);
+        if (fx.textFadeData.phase != TextFadePhase::Stopped && !fx.textFadeData.immediateStop)
+            RenderTextFadeInOut(fx);
+    }
+}
+
+void FXManager::UpdateTextFadeInOut(FXItem& fx, float deltaTime)
+{
+    TextFadeData& d = fx.textFadeData;
+    if (d.immediateStop) { fx.progress = 1.0f; return; }
+    if (d.pendingDelay > 0.0f) { d.pendingDelay -= deltaTime; return; }
+    d.phaseTimer += deltaTime;
+    switch (d.phase) {
+    case TextFadePhase::FadeIn:
+        if (d.phaseTimer >= d.fadeInDuration) { d.phase = TextFadePhase::Holding; d.phaseTimer = 0.0f; }
+        break;
+    case TextFadePhase::Holding:
+        if (d.displayDuration >= 0.0f && d.phaseTimer >= d.displayDuration) {
+            d.fadeOutStartColor = d.endColor; d.phase = TextFadePhase::FadeOut; d.phaseTimer = 0.0f;
+        }
+        break;
+    case TextFadePhase::FadeOut:
+        if (d.phaseTimer >= d.fadeOutDuration) { d.phase = TextFadePhase::Stopped; fx.progress = 1.0f; }
+        break;
+    case TextFadePhase::Stopped:
+        fx.progress = 1.0f; break;
+    }
+}
+
+void FXManager::RenderTextFadeInOut(FXItem& fx)
+{
+    if (!renderer) return;
+    TextFadeData& d = fx.textFadeData;
+    if (d.text.empty() || d.pendingDelay > 0.0f) return;
+
+    XMFLOAT4 c = d.endColor; float alpha = c.w;
+    switch (d.phase) {
+    case TextFadePhase::FadeIn: {
+        float t = (d.fadeInDuration > 0.0f) ? std::clamp(d.phaseTimer / d.fadeInDuration, 0.0f, 1.0f) : 1.0f;
+        c.x = d.startColor.x + (d.endColor.x - d.startColor.x) * t;
+        c.y = d.startColor.y + (d.endColor.y - d.startColor.y) * t;
+        c.z = d.startColor.z + (d.endColor.z - d.startColor.z) * t;
+        alpha = d.startColor.w + (d.endColor.w - d.startColor.w) * t;
+        break;
+    }
+    case TextFadePhase::Holding:
+        c = d.endColor; alpha = d.endColor.w; break;
+    case TextFadePhase::FadeOut: {
+        float t = (d.fadeOutDuration > 0.0f) ? std::clamp(d.phaseTimer / d.fadeOutDuration, 0.0f, 1.0f) : 1.0f;
+        c.x = d.fadeOutStartColor.x + (d.fadeOutColor.x - d.fadeOutStartColor.x) * t;
+        c.y = d.fadeOutStartColor.y + (d.fadeOutColor.y - d.fadeOutStartColor.y) * t;
+        c.z = d.fadeOutStartColor.z + (d.fadeOutColor.z - d.fadeOutStartColor.z) * t;
+        alpha = d.fadeOutStartColor.w + (d.fadeOutColor.w - d.fadeOutStartColor.w) * t;
+        break;
+    }
+    default: return;
+    }
+
+    c.w = std::clamp(alpha, 0.0f, 1.0f);
+    if (c.w < 0.005f) return;
+    MyColor col(uint8_t(std::clamp(c.x,0.0f,1.0f)*255), uint8_t(std::clamp(c.y,0.0f,1.0f)*255),
+                uint8_t(std::clamp(c.z,0.0f,1.0f)*255), uint8_t(c.w*255));
+    renderer->DrawMyTextStyled(d.text, Vector2(d.posX, d.posY), col, d.fontStyle);
+}
+
+bool FXManager::HasActiveLoadingTextEffects() const
+{
+    FX_LOCK();
+    for (const auto& fx : effects) {
+        if (fx.type != FXType::TextFadeInOut)                continue;
+        if (fx.textFadeData.immediateStop)                   continue;
+        if (fx.textFadeData.phase == TextFadePhase::Stopped) continue;
+        return true;
+    }
+    return false;
+}
+
+// ===============================================================================================
+// ZoomInOut
+// ===============================================================================================
+
+void FXManager::ZoomInitialise(ZoomFXFunction function, float depth, float speed,
+    int link2DImg, int destX, int destY, int destW, int destH)
+{
+    m_zoomConfig.function         = function;
+    m_zoomConfig.depth            = std::clamp(depth, 0.0f, 0.75f);
+    m_zoomConfig.speed            = std::max(speed, 0.001f);
+    m_zoomConfig.link2DImg        = link2DImg;
+    m_zoomConfig.currentZoomLevel = 0.0f;
+    m_zoomConfig.zoomingIn        = true;
+    m_zoomConfig.stopRequested    = false;
+    m_zoomConfig.destX = destX; m_zoomConfig.destY = destY;
+    m_zoomConfig.destW = destW; m_zoomConfig.destH = destH;
+    m_hasZoomConfig = true;
+}
+
+void FXManager::StartZoom(float speed)
+{
+    FX_LOCK();
+    if (!m_hasZoomConfig) {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] StartZoom called before ZoomInitialise -- ignored");
+        return;
+    }
+    StopZooming();
+    if (speed > 0.0f) m_zoomConfig.speed = speed;
+
+    FXItem fx{};
+    fx.fxID = static_cast<int>(effects.size()) + 1000;
+    fx.type = FXType::ZoomInOut; fx.progress = 0.0f;
+    fx.startTime = std::chrono::steady_clock::now(); fx.lastUpdate = fx.startTime;
+    fx.zoomData = m_zoomConfig;
+    zoomID = fx.fxID;
+    AddEffect(fx);
+}
+
+void FXManager::StopZooming() {
+    FX_LOCK();
+    for (auto& fx : effects)
+        if (fx.type == FXType::ZoomInOut)
+            fx.zoomData.stopRequested = true;
+}
+
+bool FXManager::IsImageZoomActive(int imgID) const {
+    FX_LOCK();
+    for (const auto& fx : effects) {
+        if (fx.type != FXType::ZoomInOut || fx.progress >= 1.0f) continue;
+        if (fx.zoomData.link2DImg != imgID) continue;
+        if (fx.zoomData.stopRequested && fx.zoomData.currentZoomLevel <= 0.0f) continue;
+        return true;
+    }
+    return false;
+}
+
+float FXManager::GetCurrent3DZoomFactor() const {
+    FX_LOCK();
+    for (const auto& fx : effects) {
+        if (fx.type != FXType::ZoomInOut || fx.progress >= 1.0f) continue;
+        if (fx.zoomData.function == ZoomFXFunction::Zoom3D ||
+            fx.zoomData.function == ZoomFXFunction::ZoomBoth)
+            return fx.zoomData.currentZoomLevel;
+    }
+    return 0.0f;
+}
+
+void FXManager::UpdateZoomInOut(FXItem& fx, float deltaTime)
+{
+    ZoomData& z = fx.zoomData;
+    if (z.zoomingIn) {
+        z.currentZoomLevel += z.speed * deltaTime;
+        if (z.currentZoomLevel >= z.depth) { z.currentZoomLevel = z.depth; z.zoomingIn = false; }
+    } else {
+        z.currentZoomLevel -= z.speed * deltaTime;
+        if (z.currentZoomLevel <= 0.0f) {
+            z.currentZoomLevel = 0.0f;
+            if (z.stopRequested) { fx.progress = 1.0f; zoomID = -1; return; }
+            z.zoomingIn = true;
+        }
+    }
+}
+
+void FXManager::ApplyZoom2D(FXItem& fx)
+{
+    if (!renderer || fx.zoomData.link2DImg < 0) return;
+    renderer->Blit2DCenteredZoom(
+        static_cast<BlitObj2DIndexType>(fx.zoomData.link2DImg),
+        fx.zoomData.destX, fx.zoomData.destY, fx.zoomData.destW, fx.zoomData.destH,
+        fx.zoomData.currentZoomLevel);
+}
+
+void FXManager::RenderZoomedImage(int imgID, int destX, int destY, int destW, int destH)
+{
+    if (!renderer) return;
+    FX_LOCK();
+    for (auto& fx : effects) {
+        if (fx.type != FXType::ZoomInOut || fx.progress >= 1.0f) continue;
+        if (fx.zoomData.link2DImg != imgID) continue;
+        if (fx.zoomData.function == ZoomFXFunction::Zoom3D) continue;
+        if (fx.zoomData.stopRequested && fx.zoomData.currentZoomLevel <= 0.0f) continue;
+        renderer->Blit2DCenteredZoom(
+            static_cast<BlitObj2DIndexType>(imgID), destX, destY, destW, destH,
+            fx.zoomData.currentZoomLevel);
+        return;
+    }
+}
+
+// ===============================================================================================
+// Fireworks
+// ===============================================================================================
+
+void FXManager::StartFireworks(float freqRate)
+{
+    if (!renderer) return;
+    if (fireworksID > 0) StopFireworks();
+    FX_LOCK();
+
+    FXItem newFX;
+    newFX.type = FXType::Fireworks;
+    newFX.fxID = static_cast<int>(effects.size()) + 1;
+    newFX.duration = FLT_MAX; newFX.timeout = FLT_MAX; newFX.progress = 0.0f;
+    newFX.startTime = std::chrono::steady_clock::now(); newFX.lastUpdate = newFX.startTime;
+
+    FireworksData& fw = newFX.fireworksData;
+    fw.freqRate    = std::max(0.1f, freqRate);
+    fw.launchTimer = fw.freqRate;                                               // Pre-trigger so first rocket fires immediately
+    fw.baseY       = static_cast<float>(renderer->iOrigHeight);
+    fw.rockets.clear();
+    fireworksID = newFX.fxID;
+    AddEffect(newFX);
+}
+
+void FXManager::StopFireworks()
+{
+    FX_LOCK();
+    if (fireworksID <= 0) return;
+    effects.erase(std::remove_if(effects.begin(), effects.end(), [this](const FXItem& fx) {
+        return fx.type == FXType::Fireworks && fx.fxID == fireworksID;
+    }), effects.end());
+    fireworksID = 0;
+}
+
+void FXManager::UpdateFireworks(FXItem& fx)
+{
+    FX_LOCK();
+    if (!renderer || fx.type != FXType::Fireworks) return;
+
+    auto  now = std::chrono::steady_clock::now();
+    float dt  = std::chrono::duration<float>(now - fx.lastUpdate).count();
+    fx.lastUpdate = now;
+
+    FireworksData& fw     = fx.fireworksData;
+    const float screenW   = static_cast<float>(renderer->iOrigWidth);
+    const float screenH   = static_cast<float>(renderer->iOrigHeight);
+    const float goldenAng = XM_2PI * (1.0f - 1.0f / 1.6180339887f);
+
+    fw.launchTimer += dt;
+    if (fw.launchTimer >= fw.freqRate && static_cast<int>(fw.rockets.size()) < kMaxFireworkRockets)
+    {
+        fw.launchTimer = 0.0f;
+        FireworkRocket r;
+        r.x = r.startX = (static_cast<float>(rand()) / RAND_MAX) * screenW;
+        r.y = r.startY = fw.baseY;
+        r.targetY = fw.baseY - (0.35f + static_cast<float>(rand()) / RAND_MAX * 0.50f) * screenH;
+        r.speed = 2.0f + static_cast<float>(rand()) / RAND_MAX * 6.0f;
+        r.r = static_cast<float>(rand()) / RAND_MAX;
+        r.g = static_cast<float>(rand()) / RAND_MAX;
+        r.b = static_cast<float>(rand()) / RAND_MAX;
+        r.expMaxRadius = 50.0f + static_cast<float>(rand()) / RAND_MAX * 70.0f;
+        r.expR = static_cast<float>(rand()) / RAND_MAX;
+        r.expG = static_cast<float>(rand()) / RAND_MAX;
+        r.expB = static_cast<float>(rand()) / RAND_MAX;
+        r.exploded = false; r.done = false;
+
+        r.expParticles.reserve(kFireworkParticles);
+        for (int i = 0; i < kFireworkParticles; ++i) {
+            float cosTheta = 1.0f - (2.0f * (i + 0.5f)) / kFireworkParticles;
+            float sinTheta = sqrtf(std::max(0.0f, 1.0f - cosTheta * cosTheta));
+            float phi      = goldenAng * static_cast<float>(i);
+            float sp, cp; FAST_MATH.FastSinCos(phi, sp, cp);
+            FireworkParticle p;
+            p.angle = phi;
+            p.screenDX = sinTheta * cp;
+            p.screenDY = sinTheta * sp;
+            p.radius = 0.0f; p.maxRadius = r.expMaxRadius;
+            p.r = r.expR; p.g = r.expG; p.b = r.expB; p.a = 1.0f;
+            p.completed = false;
+            r.expParticles.push_back(p);
+        }
+        fw.rockets.push_back(r);
+    }
+
+    for (auto& r : fw.rockets) {
+        if (r.done) continue;
+        if (!r.exploded) {
+            r.y -= r.speed;
+            float totalTravel = r.startY - r.targetY;
+            if (totalTravel > 0.0f) {
+                float tp = (r.startY - r.y) / totalTravel;
+                if (tp >= 0.30f) {
+                    float cp = (tp - 0.30f) / 0.70f;
+                    r.vx += (screenW * 0.5f - r.x) * 0.0003f * cp;
+                    r.vx *= 0.95f;
+                }
+            }
+            r.x += r.vx;
+            if (r.y <= r.targetY) { r.exploded = true; r.explodeX = r.x; r.explodeY = r.y; }
+        }
+        if (r.exploded) {
+            bool allDone = true;
+            for (auto& p : r.expParticles) {
+                if (p.completed) continue;
+                allDone = false;
+                float distRatio = p.radius / p.maxRadius;
+                p.radius += 0.5f + distRatio * 2.0f;
+                if (p.radius >= p.maxRadius) { p.radius = p.maxRadius; p.completed = true; continue; }
+                p.x = r.explodeX + p.screenDX * p.radius;
+                p.y = r.explodeY + p.screenDY * p.radius;
+            }
+            if (allDone) r.done = true;
+        }
+    }
+    fw.rockets.erase(std::remove_if(fw.rockets.begin(), fw.rockets.end(),
+        [](const FireworkRocket& r) { return r.done; }), fw.rockets.end());
+}
+
+void FXManager::DrawFireworksPixels(FXItem& fx)
+{
+    if (!renderer || fx.type != FXType::Fireworks) return;
+    FireworksData& fw = fx.fireworksData;
+
+    for (auto& r : fw.rockets) {
+        if (r.done) continue;
+        if (!r.exploded) {
+            XMFLOAT4 rc(r.r, r.g, r.b, 1.0f);
+            DrawFXPixel(int(r.x), int(r.y), 4.0f, rc);
+            for (int t = 1; t <= kRocketTrailSteps; ++t) {
+                float ta = 1.0f - t * 0.18f;
+                if (ta < 0.05f) break;
+                XMFLOAT4 tc(r.r, r.g, r.b, ta);
+                DrawFXPixel(int(r.x), int(r.y + t * 3.0f), std::max(0.5f, 3.0f - t * 0.4f), tc);
+            }
+        } else {
+            for (auto& p : r.expParticles) {
+                if (p.completed) continue;
+                for (int t = 0; t < kExplosionTrailSteps; ++t) {
+                    float trailR = p.radius - t * 5.0f;
+                    if (trailR < 0.0f) break;
+                    float dr = trailR / p.maxRadius;
+                    float ta = p.a * (1.0f - dr*dr) * (1.0f - float(t) / kExplosionTrailSteps);
+                    ta = std::max(0.0f, std::min(1.0f, ta));
+                    if (ta < 0.02f) continue;
+                    XMFLOAT4 tc(p.r, p.g, p.b, ta);
+                    DrawFXPixel(int(r.explodeX + p.screenDX * trailR),
+                                int(r.explodeY + p.screenDY * trailR),
+                                std::max(0.5f, 2.0f - t * 0.25f), tc);
+                }
+            }
+        }
+    }
+}
+
+void FXManager::RenderFireworks()
+{
+    if (!renderer || fireworksID <= 0) return;
+    FX_LOCK();
+    for (auto& fx : effects)
+        if (fx.type == FXType::Fireworks && fx.fxID == fireworksID)
+            { DrawFireworksPixels(fx); break; }
+}
+
+// ===============================================================================================
+// ImageFadeStrobe
+// ===============================================================================================
+
+void FXManager::StartImageFadeStrobe(BlitObj2DIndexType type, float fadeOutPercentage, float fadeOverTime)
+{
+    if (!renderer) return;
+    FX_LOCK();
+    effects.erase(std::remove_if(effects.begin(), effects.end(), [type](const FXItem& fx) {
+        return fx.type == FXType::ImageFadeStrobe && fx.imageFadeStrobeData.imageType == type;
+    }), effects.end());
+
+    int strobeCount = 0;
+    for (const auto& fx : effects)
+        if (fx.type == FXType::ImageFadeStrobe) strobeCount++;
+    if (strobeCount >= MAX_STROBE_INSTANCES) {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] ImageFadeStrobe: max instances reached");
+        return;
+    }
+
+    FXItem newFX;
+    newFX.type = FXType::ImageFadeStrobe;
+    newFX.fxID = static_cast<int>(effects.size()) + 1;
+    newFX.duration = FLT_MAX; newFX.timeout = FLT_MAX; newFX.progress = 0.0f;
+    newFX.startTime = std::chrono::steady_clock::now(); newFX.lastUpdate = newFX.startTime;
+
+    ImageFadeStrobeData& d = newFX.imageFadeStrobeData;
+    d.imageType     = type;
+    d.fadeOutTarget = 1.0f - std::clamp(fadeOutPercentage, 0.0f, 100.0f) / 100.0f;
+    d.fadeOverTime  = std::max(0.01f, fadeOverTime);
+    d.currentAlpha  = 1.0f;
+    d.phase         = StrobePhase::FadingOut;
+    d.phaseTimer    = 0.0f;
+    d.stopRequested = false;
+    AddEffect(newFX);
+}
+
+void FXManager::StopImageFadeStrobe(BlitObj2DIndexType type) {
+    FX_LOCK();
+    for (auto& fx : effects)
+        if (fx.type == FXType::ImageFadeStrobe && fx.imageFadeStrobeData.imageType == type)
+            fx.imageFadeStrobeData.stopRequested = true;
+}
+
+bool FXManager::IsImageFadeStrobeActive(BlitObj2DIndexType type) const {
+    FX_LOCK();
+    for (const auto& fx : effects)
+        if (fx.type == FXType::ImageFadeStrobe &&
+            fx.imageFadeStrobeData.imageType == type && fx.progress < 1.0f)
+            return true;
+    return false;
+}
+
+float FXManager::GetImageFadeStrobeAlpha(BlitObj2DIndexType type) const {
+    FX_LOCK();
+    for (const auto& fx : effects)
+        if (fx.type == FXType::ImageFadeStrobe &&
+            fx.imageFadeStrobeData.imageType == type && fx.progress < 1.0f)
+            return fx.imageFadeStrobeData.currentAlpha;
+    return 1.0f;
+}
+
+void FXManager::RenderImageFadeStrobe(BlitObj2DIndexType type, int x, int y, int w, int h)
+{
+    if (!renderer) return;
+    float alpha = GetImageFadeStrobeAlpha(type);
+    renderer->Blit2DObjectToSizeWithAlpha(type, x, y, w, h, alpha);
+}
+
+void FXManager::UpdateImageFadeStrobe(FXItem& fx, float deltaTime)
+{
+    ImageFadeStrobeData& d = fx.imageFadeStrobeData;
+    d.phaseTimer += deltaTime;
+
+    if (d.phase == StrobePhase::FadingOut) {
+        float t = std::clamp(d.phaseTimer / d.fadeOverTime, 0.0f, 1.0f);
+        d.currentAlpha = 1.0f - t * (1.0f - d.fadeOutTarget);
+        if (d.phaseTimer >= d.fadeOverTime) {
+            d.currentAlpha = d.fadeOutTarget; d.phase = StrobePhase::FadingIn; d.phaseTimer = 0.0f;
+        }
+    } else {
+        float t = std::clamp(d.phaseTimer / d.fadeOverTime, 0.0f, 1.0f);
+        d.currentAlpha = d.fadeOutTarget + t * (1.0f - d.fadeOutTarget);
+        if (d.phaseTimer >= d.fadeOverTime) {
+            d.currentAlpha = 1.0f;
+            if (d.stopRequested) { fx.progress = 1.0f; }
+            else { d.phase = StrobePhase::FadingOut; d.phaseTimer = 0.0f; }
+        }
+    }
+}
+
+#pragma warning(pop)

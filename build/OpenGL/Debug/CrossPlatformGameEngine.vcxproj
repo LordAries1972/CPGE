@@ -137,7 +137,7 @@
       <ProxyFileName>%(Filename)_p.c</ProxyFileName>
     </Midl>
     <PreBuildEvent>
-      <Message>FXC: DefaultVertex.hlsl -^&gt; VertexShader.cso	FXC: DefaultPixel.hlsl -^&gt; PixelShader.cso	FXC: ModelVertex.hlsl -^&gt; ModelVShader.cso	FXC: ModelPixel.hlsl -^&gt; ModelPShader.cso	glslangValidator: ModelVertex.vert -^&gt; ModelVertex.vert.spv	glslangValidator: ModelPixel.frag -^&gt; ModelPixel.frag.spv	Incrementing build version</Message>
+      <Message>FXC: DefaultVertex.hlsl -^&gt; VertexShader.cso	FXC: DefaultPixel.hlsl -^&gt; PixelShader.cso	FXC: ModelVertex.hlsl -^&gt; ModelVShader.cso	FXC: ModelPixel.hlsl -^&gt; ModelPShader.cso	DXC: DX12NativeModelVertex.hlsl -^&gt; DX12NativeModelVShader.cso	DXC: DX12NativeModelPixel.hlsl -^&gt; DX12NativeModelPShader.cso	glslangValidator: ModelVertex.vert -^&gt; ModelVertex.vert.spv	glslangValidator: ModelPixel.frag -^&gt; ModelPixel.frag.spv	Incrementing build version</Message>
       <Command>setlocal
 "D:\Windows Kits\10\bin\10.0.22621.0\x64\fxc.exe" /nologo /T vs_5_0 /E main /Od /Fo F:/Projects/C++/CPGE2026/build/OpenGL/Debug/Debug/VertexShader.cso F:/Projects/C++/CPGE2026/Assets/Shaders/DefaultVertex.hlsl
 if %errorlevel% neq 0 goto :cmEnd
@@ -167,6 +167,24 @@ exit /b %1
 if %errorlevel% neq 0 goto :VCEnd
 setlocal
 "D:\Windows Kits\10\bin\10.0.22621.0\x64\fxc.exe" /nologo /T ps_5_0 /E main /Od /Fo F:/Projects/C++/CPGE2026/build/OpenGL/Debug/Debug/ModelPShader.cso F:/Projects/C++/CPGE2026/Assets/Shaders/ModelPixel.hlsl
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+D:\VulkanSDK\1.4.350.0\Bin\dxc.exe -nologo -T vs_6_0 -E main -Od -Fo F:/Projects/C++/CPGE2026/build/OpenGL/Debug/Debug/DX12NativeModelVShader.cso F:/Projects/C++/CPGE2026/Assets/Shaders/DX12NativeModelVertex.hlsl
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+D:\VulkanSDK\1.4.350.0\Bin\dxc.exe -nologo -T ps_6_0 -E main -Od -Fo F:/Projects/C++/CPGE2026/build/OpenGL/Debug/Debug/DX12NativeModelPShader.cso F:/Projects/C++/CPGE2026/Assets/Shaders/DX12NativeModelPixel.hlsl
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
@@ -309,7 +327,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <ProxyFileName>%(Filename)_p.c</ProxyFileName>
     </Midl>
     <PreBuildEvent>
-      <Message>FXC: DefaultVertex.hlsl -^&gt; VertexShader.cso	FXC: DefaultPixel.hlsl -^&gt; PixelShader.cso	FXC: ModelVertex.hlsl -^&gt; ModelVShader.cso	FXC: ModelPixel.hlsl -^&gt; ModelPShader.cso	glslangValidator: ModelVertex.vert -^&gt; ModelVertex.vert.spv	glslangValidator: ModelPixel.frag -^&gt; ModelPixel.frag.spv	Incrementing build version</Message>
+      <Message>FXC: DefaultVertex.hlsl -^&gt; VertexShader.cso	FXC: DefaultPixel.hlsl -^&gt; PixelShader.cso	FXC: ModelVertex.hlsl -^&gt; ModelVShader.cso	FXC: ModelPixel.hlsl -^&gt; ModelPShader.cso	DXC: DX12NativeModelVertex.hlsl -^&gt; DX12NativeModelVShader.cso	DXC: DX12NativeModelPixel.hlsl -^&gt; DX12NativeModelPShader.cso	glslangValidator: ModelVertex.vert -^&gt; ModelVertex.vert.spv	glslangValidator: ModelPixel.frag -^&gt; ModelPixel.frag.spv	Incrementing build version</Message>
       <Command>setlocal
 "D:\Windows Kits\10\bin\10.0.22621.0\x64\fxc.exe" /nologo /T vs_5_0 /E main /O1 /Fo F:/Projects/C++/CPGE2026/build/OpenGL/Debug/Release/VertexShader.cso F:/Projects/C++/CPGE2026/Assets/Shaders/DefaultVertex.hlsl
 if %errorlevel% neq 0 goto :cmEnd
@@ -339,6 +357,24 @@ exit /b %1
 if %errorlevel% neq 0 goto :VCEnd
 setlocal
 "D:\Windows Kits\10\bin\10.0.22621.0\x64\fxc.exe" /nologo /T ps_5_0 /E main /O1 /Fo F:/Projects/C++/CPGE2026/build/OpenGL/Debug/Release/ModelPShader.cso F:/Projects/C++/CPGE2026/Assets/Shaders/ModelPixel.hlsl
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+D:\VulkanSDK\1.4.350.0\Bin\dxc.exe -nologo -T vs_6_0 -E main -O3 -Fo F:/Projects/C++/CPGE2026/build/OpenGL/Debug/Release/DX12NativeModelVShader.cso F:/Projects/C++/CPGE2026/Assets/Shaders/DX12NativeModelVertex.hlsl
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+D:\VulkanSDK\1.4.350.0\Bin\dxc.exe -nologo -T ps_6_0 -E main -O3 -Fo F:/Projects/C++/CPGE2026/build/OpenGL/Debug/Release/DX12NativeModelPShader.cso F:/Projects/C++/CPGE2026/Assets/Shaders/DX12NativeModelPixel.hlsl
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
@@ -476,7 +512,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <ProxyFileName>%(Filename)_p.c</ProxyFileName>
     </Midl>
     <PreBuildEvent>
-      <Message>FXC: DefaultVertex.hlsl -^&gt; VertexShader.cso	FXC: DefaultPixel.hlsl -^&gt; PixelShader.cso	FXC: ModelVertex.hlsl -^&gt; ModelVShader.cso	FXC: ModelPixel.hlsl -^&gt; ModelPShader.cso	glslangValidator: ModelVertex.vert -^&gt; ModelVertex.vert.spv	glslangValidator: ModelPixel.frag -^&gt; ModelPixel.frag.spv	Incrementing build version</Message>
+      <Message>FXC: DefaultVertex.hlsl -^&gt; VertexShader.cso	FXC: DefaultPixel.hlsl -^&gt; PixelShader.cso	FXC: ModelVertex.hlsl -^&gt; ModelVShader.cso	FXC: ModelPixel.hlsl -^&gt; ModelPShader.cso	DXC: DX12NativeModelVertex.hlsl -^&gt; DX12NativeModelVShader.cso	DXC: DX12NativeModelPixel.hlsl -^&gt; DX12NativeModelPShader.cso	glslangValidator: ModelVertex.vert -^&gt; ModelVertex.vert.spv	glslangValidator: ModelPixel.frag -^&gt; ModelPixel.frag.spv	Incrementing build version</Message>
       <Command>setlocal
 "D:\Windows Kits\10\bin\10.0.22621.0\x64\fxc.exe" /nologo /T vs_5_0 /E main /O1 /Fo F:/Projects/C++/CPGE2026/build/OpenGL/Debug/MinSizeRel/VertexShader.cso F:/Projects/C++/CPGE2026/Assets/Shaders/DefaultVertex.hlsl
 if %errorlevel% neq 0 goto :cmEnd
@@ -506,6 +542,24 @@ exit /b %1
 if %errorlevel% neq 0 goto :VCEnd
 setlocal
 "D:\Windows Kits\10\bin\10.0.22621.0\x64\fxc.exe" /nologo /T ps_5_0 /E main /O1 /Fo F:/Projects/C++/CPGE2026/build/OpenGL/Debug/MinSizeRel/ModelPShader.cso F:/Projects/C++/CPGE2026/Assets/Shaders/ModelPixel.hlsl
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+D:\VulkanSDK\1.4.350.0\Bin\dxc.exe -nologo -T vs_6_0 -E main -O3 -Fo F:/Projects/C++/CPGE2026/build/OpenGL/Debug/MinSizeRel/DX12NativeModelVShader.cso F:/Projects/C++/CPGE2026/Assets/Shaders/DX12NativeModelVertex.hlsl
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+D:\VulkanSDK\1.4.350.0\Bin\dxc.exe -nologo -T ps_6_0 -E main -O3 -Fo F:/Projects/C++/CPGE2026/build/OpenGL/Debug/MinSizeRel/DX12NativeModelPShader.cso F:/Projects/C++/CPGE2026/Assets/Shaders/DX12NativeModelPixel.hlsl
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
@@ -640,7 +694,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <ProxyFileName>%(Filename)_p.c</ProxyFileName>
     </Midl>
     <PreBuildEvent>
-      <Message>FXC: DefaultVertex.hlsl -^&gt; VertexShader.cso	FXC: DefaultPixel.hlsl -^&gt; PixelShader.cso	FXC: ModelVertex.hlsl -^&gt; ModelVShader.cso	FXC: ModelPixel.hlsl -^&gt; ModelPShader.cso	glslangValidator: ModelVertex.vert -^&gt; ModelVertex.vert.spv	glslangValidator: ModelPixel.frag -^&gt; ModelPixel.frag.spv	Incrementing build version</Message>
+      <Message>FXC: DefaultVertex.hlsl -^&gt; VertexShader.cso	FXC: DefaultPixel.hlsl -^&gt; PixelShader.cso	FXC: ModelVertex.hlsl -^&gt; ModelVShader.cso	FXC: ModelPixel.hlsl -^&gt; ModelPShader.cso	DXC: DX12NativeModelVertex.hlsl -^&gt; DX12NativeModelVShader.cso	DXC: DX12NativeModelPixel.hlsl -^&gt; DX12NativeModelPShader.cso	glslangValidator: ModelVertex.vert -^&gt; ModelVertex.vert.spv	glslangValidator: ModelPixel.frag -^&gt; ModelPixel.frag.spv	Incrementing build version</Message>
       <Command>setlocal
 "D:\Windows Kits\10\bin\10.0.22621.0\x64\fxc.exe" /nologo /T vs_5_0 /E main /O1 /Fo F:/Projects/C++/CPGE2026/build/OpenGL/Debug/RelWithDebInfo/VertexShader.cso F:/Projects/C++/CPGE2026/Assets/Shaders/DefaultVertex.hlsl
 if %errorlevel% neq 0 goto :cmEnd
@@ -670,6 +724,24 @@ exit /b %1
 if %errorlevel% neq 0 goto :VCEnd
 setlocal
 "D:\Windows Kits\10\bin\10.0.22621.0\x64\fxc.exe" /nologo /T ps_5_0 /E main /O1 /Fo F:/Projects/C++/CPGE2026/build/OpenGL/Debug/RelWithDebInfo/ModelPShader.cso F:/Projects/C++/CPGE2026/Assets/Shaders/ModelPixel.hlsl
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+D:\VulkanSDK\1.4.350.0\Bin\dxc.exe -nologo -T vs_6_0 -E main -O3 -Fo F:/Projects/C++/CPGE2026/build/OpenGL/Debug/RelWithDebInfo/DX12NativeModelVShader.cso F:/Projects/C++/CPGE2026/Assets/Shaders/DX12NativeModelVertex.hlsl
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+D:\VulkanSDK\1.4.350.0\Bin\dxc.exe -nologo -T ps_6_0 -E main -O3 -Fo F:/Projects/C++/CPGE2026/build/OpenGL/Debug/RelWithDebInfo/DX12NativeModelPShader.cso F:/Projects/C++/CPGE2026/Assets/Shaders/DX12NativeModelPixel.hlsl
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
@@ -822,8 +894,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="F:\Projects\C++\CPGE2026\DX12RenderFrame.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\DXCamera.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\DXRenderFrame.cpp" />
-    <ClCompile Include="F:\Projects\C++\CPGE2026\DX_FXManager.cpp" />
-    <ClCompile Include="F:\Projects\C++\CPGE2026\DX12FXManager.cpp" />
+    <ClCompile Include="F:\Projects\C++\CPGE2026\FXManager.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\DX12Models.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\ExceptionHandler.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\FileIO.cpp" />
@@ -850,13 +921,11 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="F:\Projects\C++\CPGE2026\OpenGLCamera.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\OpenGLModels.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\OpenGLRenderer.cpp" />
-    <ClCompile Include="F:\Projects\C++\CPGE2026\OpenGLFXManager.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\OpenGLRenderFrame.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\VulkanCamera.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\VulkanModels.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\VULKAN_Renderer.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\VULKAN_RenderFrame.cpp" />
-    <ClCompile Include="F:\Projects\C++\CPGE2026\VULKAN_FXManager.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\Physics.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\PUNPack.cpp" />
     <ClCompile Include="F:\Projects\C++\CPGE2026\RendererFactory.cpp" />

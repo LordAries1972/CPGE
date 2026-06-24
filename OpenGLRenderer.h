@@ -537,6 +537,12 @@ private:
 
     // Mutexes for thread safety
     static std::mutex s_loaderMutex;                                            // Static mutex for loader thread synchronization
+
+    // Exclusive fullscreen tracking — mirrors DX11/DX12 pattern
+    #if defined(_WIN32) || defined(_WIN64)
+        bool    m_isExclusiveFullscreen = false;                                // True while in exclusive fullscreen (ChangeDisplaySettings)
+        DEVMODE m_originalDesktopMode   = {};                                   // Desktop mode captured before entering exclusive fullscreen
+    #endif
 };
 
 // We must do this so that our renderers know of our global reference

@@ -15,7 +15,7 @@
     #include "ExceptionHandler.h"
     #include "WinSystem.h"
     #include "Configuration.h"
-    #include "DX_FXManager.h"
+    #include "FXManager.h"
     #include "GUIManager.h"
     #include "Models.h"
     #include "Lights.h"
@@ -92,14 +92,14 @@ void DX11Renderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
 	// Set the Renderer Name
     RendererName(RENDERER_NAME);
     
-    // Seed render-target dimensions from the loaded configuration so that
-    // any internal resource creation that runs before CreateRenderTargetViews()
-    // has a valid configured resolution rather than a hardcoded fallback.
+    // Seed all render-target dimensions from the config — the authoritative source for
+    // the intended back-buffer size regardless of display mode.  winMetrics.clientWidth/Height
+    // reflect the windowed window at this point; using them would create a windowed-size
+    // swap chain even when fullscreen exclusive is requested in the config.
     m_renderTargetWidth  = config.myConfig.resolutionWidth;
     m_renderTargetHeight = config.myConfig.resolutionHeight;
-
-    iOrigWidth  = winMetrics.clientWidth;
-    iOrigHeight = winMetrics.clientHeight;
+    iOrigWidth  = config.myConfig.resolutionWidth;
+    iOrigHeight = config.myConfig.resolutionHeight;
 
     // Initilize Direct2D & Direct3D 11 Device and Swap Chain
     CreateDeviceAndSwapChain(hwnd);
@@ -722,9 +722,9 @@ void DX11Renderer::Cleanup() {
 //-----------------------------------------
 void DX11Renderer::CreateDeviceAndSwapChain(HWND hwnd) {
     UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
-#ifdef _DEBUG
-    flags |= D3D11_CREATE_DEVICE_DEBUG;
-#endif
+    #ifdef _DEBUG
+        flags |= D3D11_CREATE_DEVICE_DEBUG;
+    #endif
 
     adapter = SelectBestAdapter();
 
@@ -820,9 +820,9 @@ void DX11Renderer::CreateDeviceAndSwapChain(HWND hwnd) {
 void DX11Renderer::CreateDirect2DResources() {
     // D2D factory
     D2D1_FACTORY_OPTIONS options = {};
-#ifdef _DEBUG
-    options.debugLevel = D2D1_DEBUG_LEVEL_INFORMATION;
-#endif
+    #ifdef _DEBUG
+        options.debugLevel = D2D1_DEBUG_LEVEL_INFORMATION;
+    #endif
 
     HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_MULTI_THREADED, __uuidof(ID2D1Factory1), &options, reinterpret_cast<void**>(m_d2dFactory.ReleaseAndGetAddressOf()));
     if (FAILED(hr)) {
@@ -2593,17 +2593,44 @@ bool DX11Renderer::SetFullExclusive(uint32_t width, uint32_t height)
     // Set threading flag to indicate fullscreen mode is being configured
     threadManager.threadVars.bSettingFullScreen.store(true);
 
+    // Capture the original desktop mode NOW, before switching, so Cleanup can restore it.
+    // This must happen before ChangeDisplaySettingsEx and before the mutex is acquired.
+    m_originalDesktopMode = {};
+    m_originalDesktopMode.dmSize = sizeof(DEVMODE);
+    EnumDisplaySettings(nullptr, ENUM_CURRENT_SETTINGS, &m_originalDesktopMode);
+
+    // Physically switch the monitor to the requested resolution BEFORE acquiring the render
+    // mutex.  ChangeDisplaySettingsEx pumps the Windows message queue internally; if called
+    // while s_renderMutex is held, DXGI intercepts the WM_DISPLAYCHANGE broadcast and tries
+    // to acquire its own internal swap-chain lock — then SetFullscreenState (also inside the
+    // mutex) needs that same DXGI lock, producing a cross-lock deadlock.  Running the mode
+    // switch here, while the mutex is free, lets all DXGI display-change processing complete
+    // before we take the mutex and call SetFullscreenState.
+    {
+        DEVMODE dm    = {};
+        dm.dmSize     = sizeof(DEVMODE);
+        dm.dmFields   = DM_PELSWIDTH | DM_PELSHEIGHT | DM_BITSPERPEL | DM_DISPLAYFREQUENCY;
+        dm.dmPelsWidth        = width;
+        dm.dmPelsHeight       = height;
+        dm.dmBitsPerPel       = 32;
+        dm.dmDisplayFrequency = static_cast<DWORD>(config.myConfig.refreshRate);
+
+        LONG cdsResult = ChangeDisplaySettingsEx(nullptr, &dm, nullptr, CDS_FULLSCREEN, nullptr);
+        if (cdsResult != DISP_CHANGE_SUCCESSFUL) {
+            #if defined(_DEBUG_RENDERER_)
+                debug.logDebugMessage(LogLevel::LOG_WARNING,
+                    L"[RENDERER] ChangeDisplaySettingsEx to %dx%d failed (code %ld) - continuing",
+                    width, height, cdsResult);
+            #endif
+        }
+    }
+
     try {
         // Acquire render mutex to ensure thread safety during exclusive fullscreen transition
         std::lock_guard<std::mutex> lock(s_renderMutex);
 
         // Stop all FX effects before exclusive fullscreen transition to prevent rendering conflicts
         fxManager.StopAllFXForResize();
-
-        // Capture the current desktop display mode before any mode change so it can be restored on exit
-        m_originalDesktopMode = {};
-        m_originalDesktopMode.dmSize = sizeof(DEVMODE);
-        EnumDisplaySettings(nullptr, ENUM_CURRENT_SETTINGS, &m_originalDesktopMode);
 
         // Save current window size before going to exclusive fullscreen (for potential return to windowed mode)
         RECT rc;
@@ -2737,7 +2764,9 @@ bool DX11Renderer::SetFullExclusive(uint32_t width, uint32_t height)
         m_depthStencilView.Reset();     // Release depth stencil view
         m_depthStencilBuffer.Reset();   // Release depth stencil buffer
 
-        // Set to exclusive fullscreen mode with the closest matching mode
+        // Take exclusive ownership of the output.  The display mode was already switched to the
+        // requested resolution via ChangeDisplaySettingsEx before the mutex was acquired, so DXGI
+        // will wrap the window around the new output size rather than the old desktop resolution.
         hr = m_swapChain->SetFullscreenState(TRUE, output.Get());
         if (FAILED(hr)) {
             // Log error if setting fullscreen state fails
@@ -2846,13 +2875,28 @@ bool DX11Renderer::SetFullExclusive(uint32_t width, uint32_t height)
         m_d3dContext->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
 
         // Update rendering dimensions to reflect the actual resolution achieved
-        iOrigWidth = closestMode.Width;                             // Update internal width tracking
-        iOrigHeight = closestMode.Height;                           // Update internal height tracking
+        iOrigWidth           = closestMode.Width;                   // Update internal width tracking
+        iOrigHeight          = closestMode.Height;                  // Update internal height tracking
+        m_renderTargetWidth  = static_cast<int>(closestMode.Width);  // Sync render-target width
+        m_renderTargetHeight = static_cast<int>(closestMode.Height); // Sync render-target height
 
         // Recreate Direct2D resources for the new resolution
         CreateDirect2DResources();
 
         m_isExclusiveFullscreen = true;
+
+        // Sync winMetrics from the confirmed fullscreen back-buffer dimensions so every
+        // subsystem (cameras, GUI, FX, loader thread) sees a coherent coordinate space.
+        winMetrics.x               = 0;
+        winMetrics.y               = 0;
+        winMetrics.width           = iOrigWidth;
+        winMetrics.height          = iOrigHeight;
+        winMetrics.clientWidth     = iOrigWidth;
+        winMetrics.clientHeight    = iOrigHeight;
+        winMetrics.borderWidth     = 0;
+        winMetrics.titleBarHeight  = 0;
+        winMetrics.monitorFullArea = { 0, 0, iOrigWidth, iOrigHeight };
+        winMetrics.monitorWorkArea = { 0, 0, iOrigWidth, iOrigHeight };
 
         // Clear all transition and resizing flags to indicate completion
         threadManager.threadVars.bIsResizing.store(false);
@@ -2862,6 +2906,27 @@ bool DX11Renderer::SetFullExclusive(uint32_t width, uint32_t height)
         #if defined(_DEBUG_RENDERER_)
             // Log successful completion with actual resolution achieved
             debug.logDebugMessage(LogLevel::LOG_INFO, L"[RENDERER] Exclusive fullscreen mode set successfully at %dx%d", closestMode.Width, closestMode.Height);
+
+            // Fullscreen presentation diagnostics: verify window, back-buffer, and viewport sizes
+            // all agree.  A mismatch here explains symptoms such as "only top-left quarter visible"
+            // on DPI-scaled displays.
+            {
+                UINT   dpi        = GetDpiForWindow(hwnd);
+                RECT   windowRect = {}, clientRect = {};
+                GetWindowRect(hwnd, &windowRect);
+                GetClientRect(hwnd, &clientRect);
+                debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                    L"[RENDERER] Fullscreen diag: DPI=%u  WindowRect=%dx%d  ClientRect=%dx%d  "
+                    L"Config=%dx%d  BackBuf=%dx%d  Viewport=%dx%d",
+                    dpi,
+                    windowRect.right  - windowRect.left,
+                    windowRect.bottom - windowRect.top,
+                    clientRect.right  - clientRect.left,
+                    clientRect.bottom - clientRect.top,
+                    config.myConfig.resolutionWidth, config.myConfig.resolutionHeight,
+                    m_renderTargetWidth, m_renderTargetHeight,
+                    static_cast<int>(vp.Width), static_cast<int>(vp.Height));
+            }
         #endif
 
         // Return success

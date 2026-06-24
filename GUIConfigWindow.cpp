@@ -4,11 +4,11 @@
 #include <thread>
 
 #if defined(__USE_OPENGL__)
-    #include "OpenGLFXManager.h"
+    #include "FXManager.h"
 #elif defined(__USE_VULKAN__)
-    #include "VULKAN_FXManager.h"
+    #include "FXManager.h"
 #else
-    #include "DX_FXManager.h"
+    #include "FXManager.h"
 #endif
 
 #include "ThreadManager.h"
@@ -21,9 +21,9 @@
 extern std::shared_ptr<Renderer> renderer;
 extern SoundManager soundManager;
 #if defined(__USE_OPENGL__)
-    extern GLFXManager fxManager;
+    extern FXManager fxManager;
 #elif defined(__USE_VULKAN__)
-    extern VKFXManager fxManager;
+    extern FXManager fxManager;
 #else
     extern FXManager fxManager;
 #endif
@@ -47,6 +47,8 @@ static std::vector<DispMode> ScanDisplayModes()
     dm.dmSize = sizeof(dm);
     for (DWORD i = 0; EnumDisplaySettingsW(nullptr, i, &dm); ++i) {
         if (dm.dmBitsPerPel != 32) continue;
+        // Minimum supported resolution is 800x600
+        if ((int)dm.dmPelsWidth < 800 || (int)dm.dmPelsHeight < 600) continue;
         DispMode m{ (int)dm.dmPelsWidth, (int)dm.dmPelsHeight, (int)dm.dmDisplayFrequency };
         bool dup = false;
         for (auto& e : out) if (e.w == m.w && e.h == m.h && e.hz == m.hz) { dup = true; break; }

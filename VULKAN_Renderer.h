@@ -80,7 +80,7 @@ const uint32_t    VK_MAX_FRAMES_IN_FLIGHT = 2;
 class Debug;
 class SystemUtils;
 class GUIManager;
-class VKFXManager;
+class FXManager;
 class Camera;
 class Model;
 
@@ -605,6 +605,12 @@ private:
         VkDebugUtilsMessageTypeFlagsEXT type,
         const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
         void* pUserData);
+
+    // Exclusive fullscreen tracking — mirrors DX11/DX12 pattern
+    #if defined(PLATFORM_WINDOWS)
+        bool    m_isExclusiveFullscreen = false;                                // True while in exclusive fullscreen (ChangeDisplaySettings)
+        DEVMODE m_originalDesktopMode   = {};                                   // Desktop mode captured before entering exclusive fullscreen
+    #endif
 };
 
 // Global extern refs (mirrors DX11Renderer pattern)

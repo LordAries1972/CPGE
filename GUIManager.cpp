@@ -1185,25 +1185,31 @@ void GUIWindow::Render() {
                 {
                     r->DrawRectangle(control.position, control.size, fc(bgColor), true);
                 }
-                // Draw title bar label: H+V centred when lblCenterH=true (default),
-                // or left-aligned with manual V-centering when lblCenterH=false.
+                // Draw title bar label using the same caption-height based Y offset
+                // across centered and left-aligned titlebars so the caption sits
+                // consistently in the visible bar chrome.
                 if (!control.label.empty())
                 {
+                    const float captionH = control.lblFontSize * 1.25f;
+                    const float captionY = control.position.y +
+                        control.size.y - (captionH + (captionH * 0.5f));
+
                     if (control.lblCenterH)
                     {
-                        r->DrawMyTextCentered(control.label, control.position,
-                                              fc(control.txtColor), control.lblFontSize,
-                                              control.size.x, control.size.y);
+                        float captionW = 0.0f;
+                        for (wchar_t ch : control.label)
+                            captionW += r->GetCharacterWidth(ch, control.lblFontSize);
+
+                        const float captionX = control.position.x +
+                            (control.size.x - captionW) * 0.5f;
+                        r->DrawMyText(control.label,
+                                      Vector2(captionX, captionY),
+                                      fc(control.txtColor), control.lblFontSize);
                     }
                     else
                     {
-                        // Vertically centre the text without horizontal centering.
-                        // Approximate glyph height = fontSize * 1.25; 6px left padding.
-                        const float approxH  = control.lblFontSize * 1.25f;
-                        const float centredY = control.position.y +
-                                               (control.size.y - approxH) * 0.5f;
                         r->DrawMyText(control.label,
-                                      Vector2(control.position.x + 6.0f, centredY),
+                                      Vector2(control.position.x + 6.0f, captionY),
                                       fc(control.txtColor), control.lblFontSize);
                     }
                 }
@@ -1221,14 +1227,11 @@ void GUIWindow::Render() {
                 const float knobW = knobH;                              // Equal width = circular knob
                 const float knobY = control.position.y + 3.0f;
 
-                // Track — pill / capsule shape (rounded ends via circles)
-                MyColor trackBg;
-                if (on)
-                    trackBg = control.isHovered
-                        ? MyColor(30, 160, 50, 250) : MyColor(22, 130, 38, 235);
-                else
-                    trackBg = control.isHovered
-                        ? MyColor(72, 74, 82, 245) : MyColor(52, 54, 62, 228);
+                // Track — pill / capsule shape. Keep the track fully opaque so
+                // antialiased cap pixels do not blend into visible circular bands.
+                const MyColor trackBg = on
+                    ? (control.isHovered ? MyColor(34, 172, 56, 255) : MyColor(24, 138, 42, 255))
+                    : (control.isHovered ? MyColor(78, 80, 88, 255) : MyColor(54, 56, 64, 255));
 
                 // Pill geometry: draw middle rect base first, then circles overdraw for clean rounded caps
                 const float pillR  = control.size.y * 0.5f;
@@ -1257,19 +1260,22 @@ void GUIWindow::Render() {
                 r->DrawCircle(Vector2(knobCX + 1.5f, knobCY + 1.5f), knobR,
                     fc(MyColor(0, 0, 0, 110)), true);
 
-                // Knob body — white when ON, light steel-grey when OFF
+                // Knob body — same beveled drawing for both states. The ON state
+                // receives a warmer green-tinted gradient instead of a flat white disc.
                 MyColor knobFill = on
-                    ? MyColor(255, 255, 255, 255) : MyColor(182, 186, 200, 255);
+                    ? MyColor(202, 230, 206, 255) : MyColor(182, 186, 200, 255);
                 r->DrawCircle(Vector2(knobCX, knobCY), knobR, fc(knobFill), true);
 
-                // Inner gradient highlight: bright top arc (upper 40% of circle, inner radius)
-                r->DrawCircle(Vector2(knobCX, knobCY - knobR * 0.18f), knobR * 0.62f,
-                    fc(MyColor(255, 255, 255, on ? 95 : 75)), true);
+                // Soft radial-style layering keeps the knob readable on both
+                // green and grey tracks without allocating textures.
+                r->DrawCircle(Vector2(knobCX - knobR * 0.12f, knobCY - knobR * 0.18f), knobR * 0.72f,
+                    fc(on ? MyColor(238, 255, 240, 115) : MyColor(245, 247, 255, 92)), true);
+                r->DrawCircle(Vector2(knobCX + knobR * 0.16f, knobCY + knobR * 0.18f), knobR * 0.56f,
+                    fc(on ? MyColor(105, 160, 112, 52) : MyColor(92, 98, 118, 58)), true);
 
                 // Outer ring bevel — lighter top-left, darker bottom-right
                 {
-                    MyColor ringHi = on ? MyColor(255, 255, 255, 160) : MyColor(218, 222, 234, 180);
-                    MyColor ringSh = on ? MyColor(155, 185, 158, 130) : MyColor(105, 110, 128, 140);
+                    MyColor ringHi = on ? MyColor(250, 255, 250, 170) : MyColor(218, 222, 234, 180);
                     // Top-left arc approximated with a slightly offset unfilled circle
                     r->DrawCircle(Vector2(knobCX, knobCY), knobR, fc(ringHi), false);
                 }
