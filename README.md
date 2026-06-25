@@ -31,7 +31,7 @@ record a build history file as well and can be found here below:-
 
 ## Features
 
-- Support for multiple platforms (Windows (DirectX 11, DirectX 12, OpenGL, Vulkan, Radeon), macOS & iOS (OpenGL (For Previous supported OS, METAL for the later MAC technological systems), Linux & Android (Vulkan, OpenGL (Linux only) ))
+- Support for multiple platforms (Windows (DirectX 11, DirectX 12, OpenGL, Vulkan), macOS & iOS (OpenGL (For Previous supported OS, METAL for the later MAC technological systems), Linux & Android (Vulkan, OpenGL (Linux only)))
 - High-performance rendering
 - Flexible and modular architecture
 - Extensive documentation and tutorials
