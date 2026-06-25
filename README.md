@@ -22,6 +22,8 @@ If you like to know more about me and my history, please goto my website at http
 
 👉 Recorded Demos on our website → [CPGE Demos](https://www.ultimanium.com/index.php?action=cpge-demos)
 
+👉 [Donate to the CPGE Project](https://ultimanium.com/index.php?action=makedonation) — Your donation directly supports ongoing development and helps keep this project alive and growing. Every contribution, large or small, is deeply appreciated! **Please do NOT use a VPN when visiting our site or you will be blocked by the system.**
+
 ## History Related Links
 
 We keep approxiametely about one months of code changes in the 'History' folder so users can see exactly what code changes have been made directly, but we 
