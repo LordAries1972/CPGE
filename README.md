@@ -31,26 +31,26 @@ record a build history file as well and can be found here below:-
 
 ## Features
 
-- Support for multiple platforms (Windows (DirectX 11, DirectX 12, OpenGL, Vulkan, Radeon), macOS & iOS (OpenGL), Linux & Android (Vulkan, OpenGL & Radeon (Linux only) ))
+- Support for multiple platforms (Windows (DirectX 11, DirectX 12, OpenGL, Vulkan, Radeon), macOS & iOS (OpenGL (For Previous supported OS, METAL for the later MAC technological systems), Linux & Android (Vulkan, OpenGL (Linux only) ))
 - High-performance rendering
 - Flexible and modular architecture
 - Extensive documentation and tutorials
 
 ## What you could achieve with CPGE so far!
-With our First Release, you can now create a full working 2D game using the 2D / 3D Rendering system via DirectX 11 & Vulkan (DirectX 12, OpenGL and Radeon will be soon) under the Windows Platform.  
+With our First Release, you can now create a full working 2D/3D game using the 2D / 3D Rendering system via DirectX 11, DirectX 12, OpenGL & Vulkan under the Windows Platform.  
 
-- CMAKE & VS2022 compiling are currently supported, other compiler support will soon come.
+- CMAKE & VS2022 compiling are currently supported, other compiler support will soon come (GCC for one!).
 - Game Configuration Management, 
-- Multiple Render Support Pipelines (DirectX11, DirectX12, OpenGL, Vulkan & Radeon (DirectX11, DirectX12, Vulkan & OpenGL confirmed working)),
-- Various Debug and Console options (F8 Key) / debug.h
+- Multiple Render Support Pipelines (DirectX11, DirectX12, OpenGL, Vulkan & Metal (DirectX11, DirectX12, Vulkan & OpenGL confirmed working)),
+- Various Debug and Console options (F8 Key) / debug.h - help command available now in debug builds on the console.
 - In System Configuration Window (Allows you to modify startup/runtime options),
 - Music & Sounds Management System, 
-- Faders, 2D Partical Explosion, 3D Starfield, 3D Warp Tunnel, Various Text Scrollers, Parallax Scroller
-- File Loader System & FileIO Management system, 
+- Faders, 2D Partical Explosion, 3D Starfield, 3D Warp Tunnel, Various Text Scrollers, Parallax Scroller, Fireworks, fade phaser effects, along with other great effects and ever growing!
+- Threaded File Loader System & outside FileIO Management system - optional choice on how you want to stage your SCENE transitions or even on the run FILE/IO management, 
 - Threading and Thread Safety Management, 
-- Mouse input, Joystick/Gamepad & Keyboard, 
-- Player Management, 
-- Pack/Unpacking routines, 
+- Mouse input, Joystick/Gamepad & Keyboard input monitoring, 
+- Player Management and profiling, 
+- Pack/Unpacking routines (Will add more various encryption systems when I come too this (Expected on Phase 3-4 of development), 
 - Math Precalculation system,
 - Networking, 
 - Game AI,
@@ -62,7 +62,9 @@ With our First Release, you can now create a full working 2D game using the 2D /
 
 Basically everything you need to create a standard 2D & 3D Based Looking Gaming system on the Windows 10 SP1 / 11 64bit Operating Systems.  Please note that Win32 is not supported (Well not by me anyways)!
 
-- We are now using scenes which consist of all models (including textures, bumps etc), Camera and lighting within a 3D Project.  For you to use this successfully, consider using a 3D Modeller package that can export GLTF 2.0 formats.  I, myself, uses Blender v4.3 and above which is also free to use.  You can find it under the 'Important Links' section above.  I will add other supportive formats later when the overall system is functioning as it should.
+- We are now using scenes which consist of all models (including textures, bumps etc), Camera and lighting within a 3D Project.  For you to use this successfully, consider using a 3D Modeller package that can export GLTF 2.0 or FBX 7+ formats (Legacy Direct.x exports/importing will too come regardless of obseltion, but primarily for DX11 users).  
+
+I, myself, uses Blender v4.3 and above which is also free to use.  You can find it under the 'Important Links' section above.  I will add other supportive formats later when the overall system is functioning as it should.
 
 ## Documentation
 - Documents and example usages to this project can be found within the Docs folder (constantly been updated).
@@ -72,11 +74,12 @@ Demo Recordings can now be found on our website on the below link, please do not
 
 👉 Recorded Demos on our website → [CPGE Demos](https://www.ultimanium.com/index.php?action=cpge-demos)
 
-## Known Issues 03rd June, 2026:
+## Known Issues 25th June, 2026:
 These are the following known issues and will be resolved as humanly possible.
 
-1) Models are still not been fully imported right (Currently Investigating, as it may relate that I am actually not doing exports properly (Likely Reason) with Blender).
-2) DX12 Window Resizing is causing a crash.  The other platforms are working fine, so should be a simple fix.
+1) Window Resizing (On Windows, now forbidden - What Resolution set in config.cfg is go!).  To change this, you must goto the SCENE_GAMETITLE and visit the configuration system.  AT ALL COST! DO NOT Alter the GameConfig.cfg file manually as its checksum protected!  ANTI-CHEAT Protection! - PUNPACK will be enforced on this file as well very soon so its fully encyrpted!
+
+2) Full Screen Exclusive modes causing all sorts of mayhem at the moment, from readings and analysis, this is due to the push of win messages and causing things to be out of sync, resulting crashing problems - I am currently investigating this issue!
 
 ## Getting Started
 
@@ -103,7 +106,7 @@ To get started with CPGE, follow these steps:
 
 This project's future depends heavily on passionate, skilled developers who want to make a real difference in the open-source game engine space. CPGE is an ambitious, cross-platform C++ game engine targeting Windows, Linux, Android, macOS, and iOS — and to truly deliver on that promise, we need talented contributors across several key areas. If you see yourself in any of the profiles below, **we want to hear from you.**
 
-> To get involved, please visit us at: **[ultimanium.com/index.php?action=cpge](https://ultimanium.com/index.php?action=cpge)**
+> To get involved, please visit us at: **[ultimanium.com/index.php?action=cpge](https://ultimanium.com/index.php?action=cpge)** and please visit under the community menu on the top right of the web system, to contact Management for PULL Requests - Thank you!
 
 ---
 
