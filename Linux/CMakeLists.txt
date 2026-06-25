@@ -43,7 +43,7 @@ message(STATUS "Output     : ${EXE_OUTPUT_NAME}")
 
 # ── Sources ───────────────────────────────────────────────────────────────────
 # Windows-only files are excluded:
-#   DX11Renderer, DX12Renderer, DXCamera, DXRenderFrame, DX_FXManager,
+#   DX11Renderer, DX12Renderer, DXCamera, DXRenderFrame,
 #   WinMediaPlayer, WinSystem
 # CrossPlatformGameEngine.rc (Windows resource file) is also excluded.
 # MySteam is excluded (deferred to release).
@@ -56,7 +56,9 @@ set(SOURCES
     ${SRC_DIR}/FileIO.cpp
     ${SRC_DIR}/GamePlayer.cpp
     ${SRC_DIR}/GamingAI.cpp
+    ${SRC_DIR}/FBXAnimator.cpp
     ${SRC_DIR}/GLTFAnimator.cpp
+    ${SRC_DIR}/ModelAnimator.cpp
     ${SRC_DIR}/GUIConfigWindow.cpp
     ${SRC_DIR}/GUIManager.cpp
     ${SRC_DIR}/GUIWindows.cpp
@@ -71,7 +73,7 @@ set(SOURCES
     ${SRC_DIR}/MyRandomizer.cpp
     ${SRC_DIR}/NetworkManager.cpp
     ${SRC_DIR}/OpenGLCamera.cpp
-    ${SRC_DIR}/OpenGLFXManager.cpp
+    ${SRC_DIR}/FXManager.cpp
     ${SRC_DIR}/OpenGLModels.cpp
     ${SRC_DIR}/OpenGLRenderFrame.cpp
     ${SRC_DIR}/OpenGLRenderer.cpp
@@ -89,7 +91,6 @@ set(SOURCES
     ${SRC_DIR}/TTSManager.cpp
     ${SRC_DIR}/VulkanCamera.cpp
     ${SRC_DIR}/VulkanModels.cpp
-    ${SRC_DIR}/VULKAN_FXManager.cpp
     # IOLoaderThread.cpp already listed above — covers both OpenGL and Vulkan paths
     ${SRC_DIR}/VULKAN_RenderFrame.cpp
     ${SRC_DIR}/VULKAN_Renderer.cpp

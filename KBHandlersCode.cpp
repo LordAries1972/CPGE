@@ -14,11 +14,11 @@
 #include "SoundManager.h"
 #include "SceneManager.h"
 #if defined(__USE_OPENGL__)
-#include "OpenGLFXManager.h"
+#include "FXManager.h"
 #elif defined(__USE_VULKAN__)
-#include "VULKAN_FXManager.h"
+#include "FXManager.h"
 #else
-#include "DX_FXManager.h"
+#include "FXManager.h"
 #endif
 #include "KeyboardHandler.h"
 #include "GamePlayer.h"
@@ -45,9 +45,9 @@ class SceneManager;
 extern Debug debug;
 extern ExceptionHandler exceptionHandler;
 #if defined(__USE_OPENGL__)
-extern GLFXManager fxManager;
+extern FXManager fxManager;
 #elif defined(__USE_VULKAN__)
-extern VKFXManager fxManager;
+extern FXManager fxManager;
 #else
 extern FXManager fxManager;
 #endif
@@ -144,6 +144,34 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
 
                     case SceneType::SCENE_GAMETITLE:
                     {
+                        // If the GamePlayTypes or Difficulty selection window is open, ESC navigates
+                        // back to the Game Menu so the user can abort or correct their selection.
+                        auto gptWin  = guiManager.GetWindow("GamePlayTypes");
+                        auto diffWin = guiManager.GetWindow("DifficultyWindow");
+
+                        if ((gptWin  && !gptWin->bWindowDestroy) ||
+                            (diffWin && !diffWin->bWindowDestroy))
+                        {
+                            // Determine which sub-window is active (GamePlayTypes takes priority)
+                            std::string activeWin = (gptWin && !gptWin->bWindowDestroy)
+                                                      ? "GamePlayTypes"
+                                                      : "DifficultyWindow";
+
+                            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+
+                            // Fade out the active sub-window, then recreate the Game Menu
+                            guiManager.ApplyWindowFadeCallback(
+                                GUIWindowFadeType::FadeOut, 0.8f, activeWin,
+                                [activeWin]() {
+                                    guiManager.RemoveWindow(activeWin);
+                                    guiManager.CreateGameMenuWindow(L"winGameMenu");
+                                    guiManager.ApplyWindowFade(GUIWindowFadeType::FadeIn, 1.0f, "GameMenuWindow");
+                                }
+                            );
+                            break;
+                        }
+
+                        // No sub-window open — ESC exits the application normally
                         fxManager.FadeToBlack(1.0f, 0.06f);
                         soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
                         while (fxManager.IsFadeActive())
@@ -232,13 +260,29 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
                     break;
                 }
 
-                // Toggle wireframe mode with F12 key
+                // F12 key-up: gameplay keeps the existing wireframe toggle; in
+                // debug title-screen builds it toggles renderer timing capture and
+                // dumps the last 25 render-frame samples when turned off.
                 case KeyCode::KEY_F12:
                 {
                     switch (scene.stSceneType)
                     {
+                        #if defined(_DEBUG)
+                        case SceneType::SCENE_GAMETITLE:
+                            if (renderer)
+                            {
+                                renderer->ToggleTimingCapture();
+                                bDismissAllSettingOSDs = true;
+                            }
+                            break;
+                        #endif
+
                         case SceneType::SCENE_GAMEPLAY:
                             renderer->bWireframeMode = !renderer->bWireframeMode;
+                            break;
+
+                        default:
+                            break;
                     }
 
                     break;

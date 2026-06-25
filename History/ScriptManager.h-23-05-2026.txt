@@ -1,5 +1,0 @@
-Changes - 23-05-2026:
-  - Added public method ExecuteCommandLine(const std::string& line)
-    Parses and dispatches a single command line typed at the console command bar.
-    Guards: returns early if not initialized (m_fx == nullptr) or if a script is
-    already executing asynchronously (m_executing), with debug.Log output in both cases.

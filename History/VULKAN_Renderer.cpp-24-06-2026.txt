@@ -1,0 +1,3075 @@
+// ---------------------------------------------------------------------------------------------------------------
+// VULKAN_Renderer.cpp  —  Vulkan Rendering Backend Implementation
+// ---------------------------------------------------------------------------------------------------------------
+// Full implementation of VulkanRenderer: device creation, swap chain, pipelines, texture loading,
+// 2D overlay (D2D on Windows / stub on Linux-Android), and all Renderer interface methods.
+//
+// Platform guards appear at every API boundary:
+//   #if defined(PLATFORM_WINDOWS)  /  #elif defined(PLATFORM_LINUX)  /  #elif defined(PLATFORM_ANDROID)
+// ---------------------------------------------------------------------------------------------------------------
+#include "Includes.h"
+
+#if defined(__USE_VULKAN__)
+
+#include "VULKAN_Renderer.h"
+#include "Debug.h"
+#include "ExceptionHandler.h"
+#include "WinSystem.h"
+#include "ThreadManager.h"
+#include "Configuration.h"
+#include "Models.h"
+#include "Lights.h"
+#include "SceneManager.h"
+#include "ShaderManager.h"
+#include "GUIManager.h"
+#include "VULKAN_FXManager.h"
+#include "MoviePlayer.h"
+#include "ScreenRecorder.h"
+
+// ---------------------------------------------------------------------------------------------------------------
+// Externals
+// ---------------------------------------------------------------------------------------------------------------
+extern Debug              debug;
+extern ExceptionHandler   exceptionHandler;
+extern SystemUtils        sysUtils;
+extern ThreadManager      threadManager;
+extern SceneManager       scene;
+extern Configuration      config;
+extern GUIManager         guiManager;
+extern VKFXManager        fxManager;
+extern WindowMetrics      winMetrics;
+extern LightsManager      lightsManager;
+extern Model              models[MAX_MODELS];
+extern ScreenRecorder     screenRecorder;
+extern MoviePlayer        moviePlayer;
+extern Vector2            myMouseCoords;
+extern std::atomic<bool>  bResizeInProgress;
+extern std::atomic<bool>  bFullScreenTransition;
+
+// ---------------------------------------------------------------------------------------------------------------
+// Static member definitions
+// s_loaderMutex is defined in IOLoaderThread.cpp inside the __USE_VULKAN__ block.
+// ---------------------------------------------------------------------------------------------------------------
+std::mutex VulkanRenderer::s_renderMutex;
+
+// ---------------------------------------------------------------------------------------------------------------
+// Validation layer list (debug builds only)
+// ---------------------------------------------------------------------------------------------------------------
+#if defined(_DEBUG)
+static const std::vector<const char*> k_validationLayers = {
+    "VK_LAYER_KHRONOS_validation"
+};
+static constexpr bool k_enableValidation = true;
+#else
+static const std::vector<const char*> k_validationLayers;
+static constexpr bool k_enableValidation = false;
+#endif
+
+static const std::vector<const char*> k_deviceExtensions = {
+    VK_KHR_SWAPCHAIN_EXTENSION_NAME
+};
+
+// ---------------------------------------------------------------------------------------------------------------
+// Debug messenger helpers
+// ---------------------------------------------------------------------------------------------------------------
+static VkResult CreateDebugUtilsMessengerEXT(
+    VkInstance instance,
+    const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo,
+    const VkAllocationCallbacks* pAllocator,
+    VkDebugUtilsMessengerEXT* pDebugMessenger)
+{
+    auto fn = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
+        vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT"));
+    return fn ? fn(instance, pCreateInfo, pAllocator, pDebugMessenger) : VK_ERROR_EXTENSION_NOT_PRESENT;
+}
+
+static void DestroyDebugUtilsMessengerEXT(
+    VkInstance instance,
+    VkDebugUtilsMessengerEXT debugMessenger,
+    const VkAllocationCallbacks* pAllocator)
+{
+    auto fn = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
+        vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT"));
+    if (fn) fn(instance, debugMessenger, pAllocator);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Constructor / Destructor
+// ---------------------------------------------------------------------------------------------------------------
+VulkanRenderer::VulkanRenderer()
+{
+    RenderType = RendererType::RT_Vulkan;
+    for (auto& fd : m_frames) {
+        fd.commandBuffer  = VK_NULL_HANDLE;
+        fd.imageAvailable = VK_NULL_HANDLE;
+        fd.inFlightFence  = VK_NULL_HANDLE;
+    }
+#if defined(PLATFORM_WINDOWS)
+    SecureZeroMemory(&m_d2dTextures, sizeof(m_d2dTextures));
+#endif
+    for (auto& t : m_textures2D) t = {};
+    for (auto& t : m_textures3D) t = {};
+    std::memset(My2DBlitQueue, 0, sizeof(My2DBlitQueue));
+
+#if defined(PLATFORM_WINDOWS)
+    osDetails.Platform.isWindows = true;
+#elif defined(PLATFORM_LINUX)
+    osDetails.Platform.isLinux = true;
+#elif defined(PLATFORM_ANDROID)
+    osDetails.Platform.isAndroid = true;
+#endif
+}
+
+VulkanRenderer::~VulkanRenderer()
+{
+    if (!m_bHasCleanedUp) Cleanup();
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// RendererName
+// ---------------------------------------------------------------------------------------------------------------
+void VulkanRenderer::RendererName(std::string sThisName)
+{
+    m_rendererName = sThisName;
+    sName = std::wstring(sThisName.begin(), sThisName.end()).c_str();
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Initialize
+// ---------------------------------------------------------------------------------------------------------------
+void VulkanRenderer::Initialize(HWND hwnd, HINSTANCE hInstance)
+{
+    exceptionHandler.RecordFunctionCall("VulkanRenderer::Initialize");
+
+#if defined(PLATFORM_WINDOWS)
+    m_hwnd  = hwnd;
+    m_hInst = hInstance;
+    m_renderTargetWidth  = config.myConfig.resolutionWidth;
+    m_renderTargetHeight = config.myConfig.resolutionHeight;
+#elif defined(PLATFORM_LINUX)
+    // hwnd carries xcb_window_t, hInstance carries xcb_connection_t*
+    m_xcbWindow     = static_cast<xcb_window_t>(reinterpret_cast<uintptr_t>(hwnd));
+    m_xcbConnection = reinterpret_cast<xcb_connection_t*>(hInstance);
+#elif defined(PLATFORM_ANDROID)
+    m_nativeWindow = reinterpret_cast<ANativeWindow*>(hwnd);
+#endif
+
+    CreateInstance();
+    if (k_enableValidation) SetupDebugMessenger();
+    CreateSurface(hwnd);
+    PickPhysicalDevice();
+    CreateLogicalDevice();
+    CreateSwapChain(static_cast<uint32_t>(m_renderTargetWidth),
+                    static_cast<uint32_t>(m_renderTargetHeight));
+    #if defined(_DEBUG_VULKANRENDERER_)
+    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[VulkanRenderer] Init step: CreateImageViews");
+    #endif
+    CreateImageViews();
+    #if defined(_DEBUG_VULKANRENDERER_)
+    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[VulkanRenderer] Init step: CreateRenderPass");
+    #endif
+    CreateRenderPass();
+    #if defined(_DEBUG_VULKANRENDERER_)
+    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[VulkanRenderer] Init step: CreateDescriptorSetLayouts");
+    #endif
+    CreateDescriptorSetLayouts();
+    #if defined(_DEBUG_VULKANRENDERER_)
+    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[VulkanRenderer] Init step: CreateCommandPool");
+    #endif
+    CreateCommandPool();
+    #if defined(_DEBUG_VULKANRENDERER_)
+    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[VulkanRenderer] Init step: CreateDepthResources");
+    #endif
+    CreateDepthResources();
+    #if defined(_DEBUG_VULKANRENDERER_)
+    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[VulkanRenderer] Init step: CreateFramebuffers");
+    #endif
+    CreateFramebuffers();
+    #if defined(_DEBUG_VULKANRENDERER_)
+    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[VulkanRenderer] Init step: CreateDescriptorPool");
+    #endif
+    CreateDescriptorPool();
+    #if defined(_DEBUG_VULKANRENDERER_)
+    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[VulkanRenderer] Init step: CreateGraphicsPipelines");
+    #endif
+    CreateGraphicsPipelines();
+    #if defined(_DEBUG_VULKANRENDERER_)
+    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[VulkanRenderer] Init step: CreateQuadVertexBuffer");
+    #endif
+    CreateQuadVertexBuffer();
+    #if defined(_DEBUG_VULKANRENDERER_)
+    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[VulkanRenderer] Init step: CreateSyncObjects");
+    #endif
+    CreateSyncObjects();
+
+    // Create fallback textures used when a model has no material textures.
+    // m_defaultTexture:  1×1 white (diffuse fallback — also used by 2D pipeline)
+    // m_defaultNormalTex: 1×1 flat normal in tangent space (0.5,0.5,1.0)
+    // m_defaultOrmTex:   1×1 default ORM (AO=1, roughness=0.5, metallic=0)
+    // m_defaultAoTex:    1×1 white AO (full ambient)
+    {
+        const uint8_t white[4]      = { 255, 255, 255, 255 };
+        const uint8_t flatNormal[4] = { 128, 128, 255, 255 }; // (0.5,0.5,1.0) tangent-space flat
+        const uint8_t defaultOrm[4] = { 255, 128,   0, 255 }; // R=AO(1.0), G=roughness(0.5), B=metallic(0)
+        m_defaultTexture    = CreateTextureFromRGBA(white,      1, 1);
+        m_defaultNormalTex  = CreateTextureFromRGBA(flatNormal, 1, 1);
+        m_defaultOrmTex     = CreateTextureFromRGBA(defaultOrm, 1, 1);
+        m_defaultAoTex      = CreateTextureFromRGBA(white,      1, 1);
+
+        // Old 1-slot descriptor set for 2D pipeline fallback
+        if (m_defaultTexture.isValid && m_descriptorPool != VK_NULL_HANDLE &&
+            m_textureDescSetLayout != VK_NULL_HANDLE)
+        {
+            VkDescriptorSetAllocateInfo dsai{};
+            dsai.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            dsai.descriptorPool     = m_descriptorPool;
+            dsai.descriptorSetCount = 1;
+            dsai.pSetLayouts        = &m_textureDescSetLayout;
+            if (vkAllocateDescriptorSets(m_device, &dsai, &m_defaultTextureDescSet) == VK_SUCCESS)
+            {
+                VkDescriptorImageInfo imgInfo{};
+                imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                imgInfo.imageView   = m_defaultTexture.view;
+                imgInfo.sampler     = m_defaultTexture.sampler;
+                VkWriteDescriptorSet write{};
+                write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write.dstSet          = m_defaultTextureDescSet;
+                write.dstBinding      = 0;
+                write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                write.descriptorCount = 1;
+                write.pImageInfo      = &imgInfo;
+                vkUpdateDescriptorSets(m_device, 1, &write, 0, nullptr);
+            }
+        }
+
+        // 4-slot fallback set for 3D PBR pipeline (all slots → white/flat-normal/ORM/white)
+        if (m_defaultTexture.isValid  && m_defaultNormalTex.isValid &&
+            m_defaultOrmTex.isValid   && m_defaultAoTex.isValid     &&
+            m_3dTexSetLayout != VK_NULL_HANDLE && m_descriptorPool != VK_NULL_HANDLE)
+        {
+            VkDescriptorSetAllocateInfo dsai{};
+            dsai.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            dsai.descriptorPool     = m_descriptorPool;
+            dsai.descriptorSetCount = 1;
+            dsai.pSetLayouts        = &m_3dTexSetLayout;
+            if (vkAllocateDescriptorSets(m_device, &dsai, &m_defaultTexSetDescSet) == VK_SUCCESS)
+            {
+                // All 6 bindings must be written to match m_3dTexSetLayout (6-slot):
+                //   0=diffuse, 1=normal, 2=ORM, 3=AO, 4=gloss, 5=emissive
+                // Gloss/emissive fall back to the white diffuse texture; the fragment
+                // shader only samples them when useGlossMap/useEmissiveMap > 0.5.
+                VkImageView fallbackViews[6] = {
+                    m_defaultTexture.view,   // binding 0: diffuse  (1x1 white)
+                    m_defaultNormalTex.view, // binding 1: normal   (flat 0.5,0.5,1.0)
+                    m_defaultOrmTex.view,    // binding 2: ORM      (no metallic, mid roughness)
+                    m_defaultAoTex.view,     // binding 3: AO       (1x1 white)
+                    m_defaultTexture.view,   // binding 4: gloss    (white fallback)
+                    m_defaultTexture.view    // binding 5: emissive (white fallback)
+                };
+                std::array<VkWriteDescriptorSet, 6>    writes{};
+                std::array<VkDescriptorImageInfo, 6>   imgInfos{};
+                for (uint32_t b = 0; b < 6; ++b) {
+                    imgInfos[b].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                    imgInfos[b].imageView   = fallbackViews[b];
+                    imgInfos[b].sampler     = m_defaultTexture.sampler;
+                    writes[b].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                    writes[b].dstSet          = m_defaultTexSetDescSet;
+                    writes[b].dstBinding      = b;
+                    writes[b].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                    writes[b].descriptorCount = 1;
+                    writes[b].pImageInfo      = &imgInfos[b];
+                }
+                vkUpdateDescriptorSets(m_device, 6, writes.data(), 0, nullptr);
+            }
+        }
+    }
+
+    #if defined(_DEBUG_VULKANRENDERER_)
+    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[VulkanRenderer] Init step: CreateOverlayResources");
+    #endif
+    CreateOverlayResources(static_cast<uint32_t>(m_renderTargetWidth),
+                           static_cast<uint32_t>(m_renderTargetHeight));
+
+#if defined(PLATFORM_WINDOWS)
+    sysUtils.DisableMouseCursor();
+#endif
+
+    bIsInitialized.store(true);
+
+    if (threadManager.threadVars.bIsResizing.load())
+    {
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[VulkanRenderer] Initialized and Activated.");
+    }
+    else
+    {
+        threadManager.ResumeThread(THREAD_LOADER);
+    }
+    threadManager.threadVars.bIsResizing.store(false);
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[VulkanRenderer] Initialized successfully.");
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Cleanup
+// ---------------------------------------------------------------------------------------------------------------
+void VulkanRenderer::Cleanup()
+{
+    if (m_bHasCleanedUp) return;
+    m_bHasCleanedUp = true;
+    bHasCleanedUp.store(true);
+
+    // Restore screen resolution if we entered exclusive fullscreen — mirrors DX11/DX12 pattern
+    #if defined(PLATFORM_WINDOWS)
+        if (m_isExclusiveFullscreen) {
+            ChangeDisplaySettingsW(nullptr, 0);                                 // Restore desktop default
+            m_isExclusiveFullscreen = false;
+        }
+    #endif
+
+    WaitForGPUToFinish();
+
+    // Destroy textures
+    for (auto& t : m_textures2D) DestroyVulkanTexture(t);
+    for (auto& t : m_textures3D) DestroyVulkanTexture(t);
+    DestroyVulkanTexture(m_overlayTexture);
+    DestroyVulkanTexture(m_bgOverlayTexture);
+    DestroyVulkanTexture(m_defaultTexture);
+    m_defaultTextureDescSet = VK_NULL_HANDLE; // freed with descriptor pool
+
+    // UV settings: destroy the lazily-created wrap-mode sampler cache.
+    // GPU is already idle (WaitForGPUToFinish above), so destruction is safe.
+    for (int wu = 0; wu < 3; ++wu)
+        for (int wv = 0; wv < 3; ++wv)
+            if (m_wrapSamplers[wu][wv] != VK_NULL_HANDLE) {
+                vkDestroySampler(m_device, m_wrapSamplers[wu][wv], nullptr);
+                m_wrapSamplers[wu][wv] = VK_NULL_HANDLE;
+            }
+
+#if defined(PLATFORM_WINDOWS)
+    if (m_overlayStagingBuffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(m_device, m_overlayStagingBuffer, nullptr);
+        m_overlayStagingBuffer = VK_NULL_HANDLE;
+    }
+    if (m_overlayStagingMemory != VK_NULL_HANDLE) {
+        vkFreeMemory(m_device, m_overlayStagingMemory, nullptr);
+        m_overlayStagingMemory = VK_NULL_HANDLE;
+    }
+    if (m_bgStagingBuffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(m_device, m_bgStagingBuffer, nullptr);
+        m_bgStagingBuffer = VK_NULL_HANDLE;
+    }
+    if (m_bgStagingMemory != VK_NULL_HANDLE) {
+        vkFreeMemory(m_device, m_bgStagingMemory, nullptr);
+        m_bgStagingMemory = VK_NULL_HANDLE;
+    }
+    m_bgD2dRenderTarget.Reset();
+    m_bgWicBitmap.Reset();
+    m_d2dRenderTarget.Reset();
+    m_dwriteFactory.Reset();
+    m_d2dFactory.Reset();
+    m_wicBitmap.Reset();
+    m_wicFactory.Reset();
+    InvalidateTextFormatCache();
+#endif
+
+    CleanupSwapChain();
+
+    // Pipelines
+    if (m_2dPipeline       != VK_NULL_HANDLE) vkDestroyPipeline(m_device, m_2dPipeline, nullptr);
+    if (m_2dPipelineLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(m_device, m_2dPipelineLayout, nullptr);
+    if (m_3dPipeline       != VK_NULL_HANDLE) vkDestroyPipeline(m_device, m_3dPipeline, nullptr);
+    if (m_3dPipelineLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(m_device, m_3dPipelineLayout, nullptr);
+
+    // Fallback textures (freed via pool when pool is destroyed, but destroy images/views/samplers)
+    DestroyVulkanTexture(m_defaultNormalTex);
+    DestroyVulkanTexture(m_defaultOrmTex);
+    DestroyVulkanTexture(m_defaultAoTex);
+    m_defaultTexSetDescSet = VK_NULL_HANDLE; // freed with descriptor pool
+
+    // Descriptor set layouts
+    if (m_3dTexSetLayout != VK_NULL_HANDLE)
+        vkDestroyDescriptorSetLayout(m_device, m_3dTexSetLayout, nullptr);
+    if (m_3dUboSetLayout != VK_NULL_HANDLE)
+        vkDestroyDescriptorSetLayout(m_device, m_3dUboSetLayout, nullptr);
+    if (m_textureDescSetLayout != VK_NULL_HANDLE)
+        vkDestroyDescriptorSetLayout(m_device, m_textureDescSetLayout, nullptr);
+    if (m_uniformDescSetLayout != VK_NULL_HANDLE)
+        vkDestroyDescriptorSetLayout(m_device, m_uniformDescSetLayout, nullptr);
+
+    // Quad geometry
+    if (m_quadVertexBuffer != VK_NULL_HANDLE) vkDestroyBuffer(m_device, m_quadVertexBuffer, nullptr);
+    if (m_quadVertexMemory != VK_NULL_HANDLE) vkFreeMemory(m_device, m_quadVertexMemory, nullptr);
+
+    // Descriptor pool
+    if (m_descriptorPool != VK_NULL_HANDLE) vkDestroyDescriptorPool(m_device, m_descriptorPool, nullptr);
+
+    // Sync objects (renderFinished semaphores already destroyed via CleanupSwapChain)
+    for (auto& fd : m_frames) {
+        if (fd.imageAvailable != VK_NULL_HANDLE) vkDestroySemaphore(m_device, fd.imageAvailable, nullptr);
+        if (fd.inFlightFence  != VK_NULL_HANDLE) vkDestroyFence(m_device, fd.inFlightFence, nullptr);
+    }
+#if defined(PLATFORM_WINDOWS)
+    for (auto& bmp : m_d2dTextures) bmp.Reset();
+    m_videoBitmap.Reset();
+#endif
+
+    // Command pools
+    if (m_loaderCommandPool != VK_NULL_HANDLE) { vkDestroyCommandPool(m_device, m_loaderCommandPool, nullptr); m_loaderCommandPool = VK_NULL_HANDLE; }
+    if (m_commandPool       != VK_NULL_HANDLE) { vkDestroyCommandPool(m_device, m_commandPool,       nullptr); m_commandPool       = VK_NULL_HANDLE; }
+
+    vkDestroyDevice(m_device, nullptr);
+    m_device = VK_NULL_HANDLE;
+
+    if (k_enableValidation && m_debugMessenger != VK_NULL_HANDLE)
+        DestroyDebugUtilsMessengerEXT(m_instance, m_debugMessenger, nullptr);
+
+    if (m_surface   != VK_NULL_HANDLE) { vkDestroySurfaceKHR(m_instance, m_surface, nullptr);  m_surface  = VK_NULL_HANDLE; }
+    if (m_instance  != VK_NULL_HANDLE) { vkDestroyInstance(m_instance, nullptr);                m_instance = VK_NULL_HANDLE; }
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[VulkanRenderer] Cleaned up.");
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// CreateInstance
+// ---------------------------------------------------------------------------------------------------------------
+void VulkanRenderer::CreateInstance()
+{
+    if (k_enableValidation && !CheckValidationLayerSupport())
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[VulkanRenderer] Validation layers requested but not available.");
+
+    VkApplicationInfo appInfo{};
+    appInfo.sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+    appInfo.pApplicationName   = "CPGE";
+    appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+    appInfo.pEngineName        = "CPGE Engine";
+    appInfo.engineVersion      = VK_MAKE_VERSION(1, 0, 0);
+    appInfo.apiVersion         = VK_API_VERSION_1_2;
+
+    std::vector<const char*> extensions = {
+        VK_KHR_SURFACE_EXTENSION_NAME,
+#if defined(PLATFORM_WINDOWS)
+        VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
+#elif defined(PLATFORM_LINUX)
+        VK_KHR_XCB_SURFACE_EXTENSION_NAME,
+#elif defined(PLATFORM_ANDROID)
+        VK_KHR_ANDROID_SURFACE_EXTENSION_NAME,
+#endif
+    };
+    if (k_enableValidation)
+        extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+
+    VkInstanceCreateInfo createInfo{};
+    createInfo.sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    createInfo.pApplicationInfo        = &appInfo;
+    createInfo.enabledExtensionCount   = static_cast<uint32_t>(extensions.size());
+    createInfo.ppEnabledExtensionNames = extensions.data();
+    createInfo.enabledLayerCount       = k_enableValidation
+                                          ? static_cast<uint32_t>(k_validationLayers.size()) : 0;
+    createInfo.ppEnabledLayerNames     = k_enableValidation ? k_validationLayers.data() : nullptr;
+
+    if (vkCreateInstance(&createInfo, nullptr, &m_instance) != VK_SUCCESS)
+        throw std::runtime_error("[VulkanRenderer] Failed to create Vulkan instance.");
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[VulkanRenderer] Instance created.");
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// SetupDebugMessenger
+// ---------------------------------------------------------------------------------------------------------------
+void VulkanRenderer::SetupDebugMessenger()
+{
+    VkDebugUtilsMessengerCreateInfoEXT ci{};
+    ci.sType           = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+    ci.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
+                       | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+    ci.messageType     = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
+                       | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
+                       | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+    ci.pfnUserCallback = DebugCallback;
+    CreateDebugUtilsMessengerEXT(m_instance, &ci, nullptr, &m_debugMessenger);
+}
+
+VKAPI_ATTR VkBool32 VKAPI_CALL VulkanRenderer::DebugCallback(
+    VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+    VkDebugUtilsMessageTypeFlagsEXT,
+    const VkDebugUtilsMessengerCallbackDataEXT* pData,
+    void*)
+{
+    // Vulkan validation-layer messages are development diagnostics, not application
+    // errors.  Mapping them to LOG_ERROR would trigger PostQuitMessage on every
+    // validation warning during normal scene transitions.  Use LOG_WARNING instead.
+    LogLevel lvl = (severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+                    ? LogLevel::LOG_WARNING : LogLevel::LOG_DEBUG;
+    std::string msg = std::string("[Vulkan] ") + pData->pMessage;
+    debug.logLevelMessage(lvl, std::wstring(msg.begin(), msg.end()));
+    return VK_FALSE;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// CreateSurface  (platform-dispatched)
+// ---------------------------------------------------------------------------------------------------------------
+void VulkanRenderer::CreateSurface(HWND hwnd)
+{
+#if defined(PLATFORM_WINDOWS)
+    VkWin32SurfaceCreateInfoKHR ci{};
+    ci.sType     = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+    ci.hwnd      = hwnd;
+    ci.hinstance = m_hInst;
+    if (vkCreateWin32SurfaceKHR(m_instance, &ci, nullptr, &m_surface) != VK_SUCCESS)
+        throw std::runtime_error("[VulkanRenderer] Failed to create Win32 Vulkan surface.");
+
+#elif defined(PLATFORM_LINUX)
+    VkXcbSurfaceCreateInfoKHR ci{};
+    ci.sType      = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
+    ci.connection = m_xcbConnection;
+    ci.window     = m_xcbWindow;
+    if (vkCreateXcbSurfaceKHR(m_instance, &ci, nullptr, &m_surface) != VK_SUCCESS)
+        throw std::runtime_error("[VulkanRenderer] Failed to create XCB Vulkan surface.");
+
+#elif defined(PLATFORM_ANDROID)
+    VkAndroidSurfaceCreateInfoKHR ci{};
+    ci.sType  = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR;
+    ci.window = m_nativeWindow;
+    if (vkCreateAndroidSurfaceKHR(m_instance, &ci, nullptr, &m_surface) != VK_SUCCESS)
+        throw std::runtime_error("[VulkanRenderer] Failed to create Android Vulkan surface.");
+#endif
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[VulkanRenderer] Surface created.");
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// PickPhysicalDevice
+// ---------------------------------------------------------------------------------------------------------------
+void VulkanRenderer::PickPhysicalDevice()
+{
+    uint32_t deviceCount = 0;
+    vkEnumeratePhysicalDevices(m_instance, &deviceCount, nullptr);
+    if (deviceCount == 0)
+        throw std::runtime_error("[VulkanRenderer] No Vulkan-capable GPU found.");
+
+    std::vector<VkPhysicalDevice> devices(deviceCount);
+    vkEnumeratePhysicalDevices(m_instance, &deviceCount, devices.data());
+
+    // Score all devices, prefer discrete GPU
+    int bestScore = -1;
+    for (auto& dev : devices) {
+        int score = RateDeviceSuitability(dev);
+        if (score > bestScore) { bestScore = score; m_physicalDevice = dev; }
+    }
+    if (m_physicalDevice == VK_NULL_HANDLE)
+        throw std::runtime_error("[VulkanRenderer] No suitable GPU found.");
+
+    VkPhysicalDeviceProperties props{};
+    vkGetPhysicalDeviceProperties(m_physicalDevice, &props);
+    std::string gpuName = props.deviceName;
+    debug.logLevelMessage(LogLevel::LOG_INFO,
+        L"[VulkanRenderer] Selected GPU: " + std::wstring(gpuName.begin(), gpuName.end()));
+
+    // GPU capability detection — mirrors DX12 logging for parity
+    {
+        VkPhysicalDeviceMemoryProperties memProps{};
+        vkGetPhysicalDeviceMemoryProperties(m_physicalDevice, &memProps);
+        for (uint32_t i = 0; i < memProps.memoryHeapCount; ++i)
+            if (memProps.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+                m_dedicatedVRAMMB += static_cast<UINT64>(memProps.memoryHeaps[i].size / (1024 * 1024));
+
+        m_isUMA       = (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU);
+        m_isLowEndGPU = (m_dedicatedVRAMMB < 2048 || m_isUMA);
+
+        debug.logDebugMessage(LogLevel::LOG_INFO,
+            L"VulkanRenderer: GPU Caps: VRAM: %llu MB, UMA: %s, LowEnd: %s",
+            m_dedicatedVRAMMB,
+            m_isUMA       ? L"Yes" : L"No",
+            m_isLowEndGPU ? L"Yes" : L"No");
+        if (m_isLowEndGPU)
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"VulkanRenderer: Low-end GPU detected — reduced VRAM or integrated/UMA architecture.");
+    }
+}
+
+int VulkanRenderer::RateDeviceSuitability(VkPhysicalDevice device) const
+{
+    if (!IsDeviceSuitable(device)) return -1;
+    VkPhysicalDeviceProperties props{};
+    vkGetPhysicalDeviceProperties(device, &props);
+    int score = 0;
+    if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)   score += 1000;
+    if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) score +=  500;
+    score += static_cast<int>(props.limits.maxImageDimension2D);
+    return score;
+}
+
+bool VulkanRenderer::IsDeviceSuitable(VkPhysicalDevice device) const
+{
+    auto qfi = FindQueueFamilies(device);
+    if (!qfi.IsComplete()) return false;
+
+    // Check required extensions
+    uint32_t extCount = 0;
+    vkEnumerateDeviceExtensionProperties(device, nullptr, &extCount, nullptr);
+    std::vector<VkExtensionProperties> avail(extCount);
+    vkEnumerateDeviceExtensionProperties(device, nullptr, &extCount, avail.data());
+    std::unordered_set<std::string> required(k_deviceExtensions.begin(), k_deviceExtensions.end());
+    for (auto& ext : avail) required.erase(ext.extensionName);
+    if (!required.empty()) return false;
+
+    auto sc = QuerySwapChainSupport(device);
+    return !sc.formats.empty() && !sc.presentModes.empty();
+}
+
+QueueFamilyIndices VulkanRenderer::FindQueueFamilies(VkPhysicalDevice device) const
+{
+    QueueFamilyIndices idx{};
+    uint32_t count = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &count, nullptr);
+    std::vector<VkQueueFamilyProperties> families(count);
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &count, families.data());
+
+    for (uint32_t i = 0; i < count; ++i) {
+        if (families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) idx.graphicsFamily = i;
+        VkBool32 presentSupport = VK_FALSE;
+        vkGetPhysicalDeviceSurfaceSupportKHR(device, i, m_surface, &presentSupport);
+        if (presentSupport) idx.presentFamily = i;
+        if (idx.IsComplete()) break;
+    }
+    return idx;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// CreateLogicalDevice
+// ---------------------------------------------------------------------------------------------------------------
+void VulkanRenderer::CreateLogicalDevice()
+{
+    auto idx = FindQueueFamilies(m_physicalDevice);
+    m_graphicsQueueFamily = idx.graphicsFamily;
+    m_presentQueueFamily  = idx.presentFamily;
+
+    std::vector<VkDeviceQueueCreateInfo> queueCIs;
+    std::unordered_set<uint32_t> uniqueFamilies = { idx.graphicsFamily, idx.presentFamily };
+    float priority = 1.0f;
+    for (uint32_t family : uniqueFamilies) {
+        VkDeviceQueueCreateInfo ci{};
+        ci.sType            = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        ci.queueFamilyIndex = family;
+        ci.queueCount       = 1;
+        ci.pQueuePriorities = &priority;
+        queueCIs.push_back(ci);
+    }
+
+    VkPhysicalDeviceFeatures features{};
+    features.samplerAnisotropy = VK_TRUE;
+    features.fillModeNonSolid  = VK_TRUE;  // wireframe support
+
+    VkDeviceCreateInfo ci{};
+    ci.sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    ci.queueCreateInfoCount    = static_cast<uint32_t>(queueCIs.size());
+    ci.pQueueCreateInfos       = queueCIs.data();
+    ci.enabledExtensionCount   = static_cast<uint32_t>(k_deviceExtensions.size());
+    ci.ppEnabledExtensionNames = k_deviceExtensions.data();
+    ci.pEnabledFeatures        = &features;
+    // Device layers have been deprecated since Vulkan 1.0; only instance layers are valid.
+    // enabledLayerCount must be 0 per VUID-VkDeviceCreateInfo-enabledLayerCount-12384.
+
+    if (vkCreateDevice(m_physicalDevice, &ci, nullptr, &m_device) != VK_SUCCESS)
+        throw std::runtime_error("[VulkanRenderer] Failed to create logical device.");
+
+    vkGetDeviceQueue(m_device, m_graphicsQueueFamily, 0, &m_graphicsQueue);
+    vkGetDeviceQueue(m_device, m_presentQueueFamily,  0, &m_presentQueue);
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[VulkanRenderer] Logical device created.");
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Swap chain
+// ---------------------------------------------------------------------------------------------------------------
+SwapChainSupportDetails VulkanRenderer::QuerySwapChainSupport(VkPhysicalDevice device) const
+{
+    SwapChainSupportDetails details;
+    VkResult capResult = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, m_surface, &details.capabilities);
+    if (capResult != VK_SUCCESS)
+        throw std::runtime_error("[VulkanRenderer] Surface lost or unavailable (vkGetPhysicalDeviceSurfaceCapabilitiesKHR failed).");
+    uint32_t count = 0;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(device, m_surface, &count, nullptr);
+    if (count) { details.formats.resize(count); vkGetPhysicalDeviceSurfaceFormatsKHR(device, m_surface, &count, details.formats.data()); }
+    vkGetPhysicalDeviceSurfacePresentModesKHR(device, m_surface, &count, nullptr);
+    if (count) { details.presentModes.resize(count); vkGetPhysicalDeviceSurfacePresentModesKHR(device, m_surface, &count, details.presentModes.data()); }
+    return details;
+}
+
+VkSurfaceFormatKHR VulkanRenderer::ChooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& avail) const
+{
+    for (auto& f : avail)
+        if (f.format == VK_FORMAT_B8G8R8A8_SRGB && f.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+            return f;
+    return avail[0];
+}
+
+VkPresentModeKHR VulkanRenderer::ChooseSwapPresentMode(const std::vector<VkPresentModeKHR>& avail) const
+{
+    // Respect VSync config
+    bool vsync = true;
+#if defined(PLATFORM_WINDOWS)
+    vsync = config.myConfig.enableVSync;
+#endif
+    if (!vsync)
+        for (auto& m : avail)
+            if (m == VK_PRESENT_MODE_MAILBOX_KHR) return m;
+    return VK_PRESENT_MODE_FIFO_KHR;
+}
+
+VkExtent2D VulkanRenderer::ChooseSwapExtent(const VkSurfaceCapabilitiesKHR& caps, uint32_t w, uint32_t h) const
+{
+    if (caps.currentExtent.width != UINT32_MAX) return caps.currentExtent;
+    VkExtent2D ext = { w, h };
+    ext.width  = std::clamp(ext.width,  caps.minImageExtent.width,  caps.maxImageExtent.width);
+    ext.height = std::clamp(ext.height, caps.minImageExtent.height, caps.maxImageExtent.height);
+    return ext;
+}
+
+void VulkanRenderer::CreateSwapChain(uint32_t width, uint32_t height)
+{
+    auto sc = QuerySwapChainSupport(m_physicalDevice);
+    auto fmt  = ChooseSwapSurfaceFormat(sc.formats);
+    auto mode = ChooseSwapPresentMode(sc.presentModes);
+    auto ext  = ChooseSwapExtent(sc.capabilities, width, height);
+
+    if (ext.width == 0 || ext.height == 0)
+        throw std::runtime_error("[VulkanRenderer] Swap chain extent is zero; deferring creation.");
+
+    // Triple buffering: request minImageCount + 1 (typically 3).
+    // Double buffering: request minImageCount (typically 2).
+    uint32_t imgCount = config.myConfig.buffering
+        ? sc.capabilities.minImageCount + 1   // triple buffering
+        : sc.capabilities.minImageCount;       // double buffering
+    if (sc.capabilities.maxImageCount > 0)
+        imgCount = std::min(imgCount, sc.capabilities.maxImageCount);
+
+    VkSwapchainCreateInfoKHR ci{};
+    ci.sType            = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+    ci.surface          = m_surface;
+    ci.minImageCount    = imgCount;
+    ci.imageFormat      = fmt.format;
+    ci.imageColorSpace  = fmt.colorSpace;
+    ci.imageExtent      = ext;
+    ci.imageArrayLayers = 1;
+    ci.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+
+    uint32_t families[] = { m_graphicsQueueFamily, m_presentQueueFamily };
+    if (m_graphicsQueueFamily != m_presentQueueFamily) {
+        ci.imageSharingMode      = VK_SHARING_MODE_CONCURRENT;
+        ci.queueFamilyIndexCount = 2;
+        ci.pQueueFamilyIndices   = families;
+    } else {
+        ci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    }
+    ci.preTransform   = sc.capabilities.currentTransform;
+    ci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    ci.presentMode    = mode;
+    ci.clipped        = VK_TRUE;
+
+    if (vkCreateSwapchainKHR(m_device, &ci, nullptr, &m_swapchain) != VK_SUCCESS)
+        throw std::runtime_error("[VulkanRenderer] Failed to create swap chain.");
+
+    vkGetSwapchainImagesKHR(m_device, m_swapchain, &imgCount, nullptr);
+    m_swapchainImages.resize(imgCount);
+    vkGetSwapchainImagesKHR(m_device, m_swapchain, &imgCount, m_swapchainImages.data());
+    m_swapchainFormat = fmt.format;
+    m_swapchainExtent = ext;
+    m_renderTargetWidth  = static_cast<int>(ext.width);
+    m_renderTargetHeight = static_cast<int>(ext.height);
+    iOrigWidth  = m_renderTargetWidth;
+    iOrigHeight = m_renderTargetHeight;
+
+    debug.logLevelMessage(LogLevel::LOG_INFO,
+        L"[VulkanRenderer] Swap chain created (" + std::to_wstring(ext.width) +
+        L"x" + std::to_wstring(ext.height) + L").");
+}
+
+void VulkanRenderer::CreateImageViews()
+{
+    m_swapchainImageViews.resize(m_swapchainImages.size());
+    for (size_t i = 0; i < m_swapchainImages.size(); ++i)
+        m_swapchainImageViews[i] = CreateImageView(m_swapchainImages[i], m_swapchainFormat, VK_IMAGE_ASPECT_COLOR_BIT);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Render pass
+// ---------------------------------------------------------------------------------------------------------------
+void VulkanRenderer::CreateRenderPass()
+{
+    VkAttachmentDescription color{};
+    color.format         = m_swapchainFormat;
+    color.samples        = VK_SAMPLE_COUNT_1_BIT;
+    color.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    color.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+    color.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    color.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    color.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+    color.finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    VkAttachmentDescription depth{};
+    depth.format         = FindDepthFormat();
+    depth.samples        = VK_SAMPLE_COUNT_1_BIT;
+    depth.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depth.storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depth.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    depth.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depth.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+    depth.finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    VkAttachmentReference colorRef{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+    VkAttachmentReference depthRef{ 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount    = 1;
+    subpass.pColorAttachments       = &colorRef;
+    subpass.pDepthStencilAttachment = &depthRef;
+
+    VkSubpassDependency dep{};
+    dep.srcSubpass    = VK_SUBPASS_EXTERNAL;
+    dep.dstSubpass    = 0;
+    dep.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dep.srcAccessMask = 0;
+    dep.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+    std::array<VkAttachmentDescription, 2> attachments = { color, depth };
+    VkRenderPassCreateInfo rpci{};
+    rpci.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    rpci.attachmentCount = static_cast<uint32_t>(attachments.size());
+    rpci.pAttachments    = attachments.data();
+    rpci.subpassCount    = 1;
+    rpci.pSubpasses      = &subpass;
+    rpci.dependencyCount = 1;
+    rpci.pDependencies   = &dep;
+
+    if (vkCreateRenderPass(m_device, &rpci, nullptr, &m_renderPass) != VK_SUCCESS)
+        throw std::runtime_error("[VulkanRenderer] Failed to create render pass.");
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Descriptor set layouts
+// ---------------------------------------------------------------------------------------------------------------
+void VulkanRenderer::CreateDescriptorSetLayouts()
+{
+    // ---- 2D pipeline: set=0, binding=0 — single combined image sampler ----
+    VkDescriptorSetLayoutBinding texBinding{};
+    texBinding.binding            = 0;
+    texBinding.descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    texBinding.descriptorCount    = 1;
+    texBinding.stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    VkDescriptorSetLayoutCreateInfo texCI{};
+    texCI.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    texCI.bindingCount = 1;
+    texCI.pBindings    = &texBinding;
+    vkCreateDescriptorSetLayout(m_device, &texCI, nullptr, &m_textureDescSetLayout);
+
+    // ---- Legacy single-UBO layout (kept for backward compat) ----
+    VkDescriptorSetLayoutBinding uboBinding{};
+    uboBinding.binding         = 0;
+    uboBinding.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    uboBinding.descriptorCount = 1;
+    uboBinding.stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    VkDescriptorSetLayoutCreateInfo uboCI{};
+    uboCI.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    uboCI.bindingCount = 1;
+    uboCI.pBindings    = &uboBinding;
+    vkCreateDescriptorSetLayout(m_device, &uboCI, nullptr, &m_uniformDescSetLayout);
+
+    // ---- Full PBR 3D: set=0 — binding0=transform UBO (vert+frag), binding1=material UBO (frag) ----
+    std::array<VkDescriptorSetLayoutBinding, 2> ubo3DBindings{};
+    ubo3DBindings[0].binding         = 0;
+    ubo3DBindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    ubo3DBindings[0].descriptorCount = 1;
+    ubo3DBindings[0].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    ubo3DBindings[1].binding         = 1;
+    ubo3DBindings[1].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    ubo3DBindings[1].descriptorCount = 1;
+    ubo3DBindings[1].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    VkDescriptorSetLayoutCreateInfo ubo3DCI{};
+    ubo3DCI.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    ubo3DCI.bindingCount = static_cast<uint32_t>(ubo3DBindings.size());
+    ubo3DCI.pBindings    = ubo3DBindings.data();
+    vkCreateDescriptorSetLayout(m_device, &ubo3DCI, nullptr, &m_3dUboSetLayout);
+
+    // ---- Full PBR 3D: set=1 — bindings 0-3 = diffuse/normal/ORM/AO samplers (frag) ----
+    // 6 texture slots: 0=diffuse, 1=normal, 2=ORM, 3=AO, 4=gloss, 5=emissive
+    std::array<VkDescriptorSetLayoutBinding, 6> tex3DBindings{};
+    for (uint32_t b = 0; b < 6; ++b) {
+        tex3DBindings[b].binding         = b;
+        tex3DBindings[b].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        tex3DBindings[b].descriptorCount = 1;
+        tex3DBindings[b].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+    }
+
+    VkDescriptorSetLayoutCreateInfo tex3DCI{};
+    tex3DCI.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    tex3DCI.bindingCount = static_cast<uint32_t>(tex3DBindings.size());
+    tex3DCI.pBindings    = tex3DBindings.data();
+    vkCreateDescriptorSetLayout(m_device, &tex3DCI, nullptr, &m_3dTexSetLayout);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Pipelines — GLSL compiled via shaderc if available, otherwise use pre-compiled SPIR-V stubs
+// ---------------------------------------------------------------------------------------------------------------
+
+// Inline GLSL source for the 2D textured quad pipeline
+static const char* k_glsl2DVert = R"(
+#version 450
+layout(location = 0) in vec2 inPos;
+layout(location = 1) in vec2 inUV;
+layout(location = 2) in vec4 inColor;
+layout(location = 0) out vec2 fragUV;
+layout(location = 1) out vec4 fragColor;
+layout(push_constant) uniform PC {
+    vec2 screenSize;
+    vec2 position;
+    vec2 size;
+    float opacity;
+} pc;
+void main() {
+    // pixel-space → NDC: x maps (-1,+1 left-to-right), y maps (-1 top, +1 bottom).
+    // In Vulkan clip-space Y is already positive-down, so the formula is correct as-is;
+    // a negation here would flip the entire overlay (images upside-down, mouse reversed).
+    vec2 ndcPos = ((inPos * pc.size + pc.position) / pc.screenSize) * 2.0 - 1.0;
+    gl_Position = vec4(ndcPos, 0.0, 1.0);
+    fragUV    = inUV;
+    fragColor = inColor * vec4(1.0, 1.0, 1.0, pc.opacity);
+})";
+
+static const char* k_glsl2DFrag = R"(
+#version 450
+layout(location = 0) in vec2 fragUV;
+layout(location = 1) in vec4 fragColor;
+layout(set = 0, binding = 0) uniform sampler2D tex;
+layout(location = 0) out vec4 outColor;
+void main() {
+    outColor = texture(tex, fragUV) * fragColor;
+})";
+
+// Inline GLSL source for the full PBR 3D geometry pipeline
+// set=0 binding=0: transform UBO (model/view/proj/camPos/scale)
+// set=0 binding=1: material UBO (Kd/Ka/metallic/roughness/emissive/flags)
+// set=1 binding=0..3: diffuse/normal/ORM/AO samplers
+// push_constant (frag): directional light (dir, intensity, color, ambient)
+static const char* k_glsl3DVert = R"(
+#version 450
+layout(location = 0) in vec3 inPos;
+layout(location = 1) in vec3 inNormal;
+layout(location = 2) in vec2 inUV;
+layout(location = 3) in vec3 inTangent;
+layout(location = 0) out vec3 vWorldPos;
+layout(location = 1) out vec3 vNormal;
+layout(location = 2) out vec2 vTexCoord;
+layout(location = 3) out vec3 vViewDir;
+layout(location = 4) out vec3 vTangent;
+layout(location = 5) out vec3 vBitangent;
+layout(set = 0, binding = 0) uniform TransformUBO {
+    mat4 model;
+    mat4 view;
+    mat4 proj;
+    vec4 camPos;
+    vec4 scale;
+} ubo;
+void main() {
+    vec3 scaledPos = inPos * ubo.scale.xyz;
+    vec4 worldPos  = ubo.model * vec4(scaledPos, 1.0);
+    vWorldPos      = worldPos.xyz;
+    mat3 normalMat = transpose(inverse(mat3(ubo.model)));
+    vNormal    = normalize(normalMat * inNormal);
+    vTangent   = normalize(normalMat * inTangent);
+    vBitangent = cross(vNormal, vTangent);
+    vViewDir   = normalize(ubo.camPos.xyz - worldPos.xyz);
+    vTexCoord  = inUV;
+    gl_Position = ubo.proj * ubo.view * worldPos;
+})";
+
+static const char* k_glsl3DFrag = R"(
+#version 450
+#define PI 3.14159265359
+layout(location = 0) out vec4 fragColor;
+layout(location = 0) in vec3 vWorldPos;
+layout(location = 1) in vec3 vNormal;
+layout(location = 2) in vec2 vTexCoord;
+layout(location = 3) in vec3 vViewDir;
+layout(location = 4) in vec3 vTangent;
+layout(location = 5) in vec3 vBitangent;
+layout(set = 0, binding = 0) uniform TransformUBO {
+    mat4 model; mat4 view; mat4 proj;
+    vec4 camPos; vec4 scale;
+} ubo;
+layout(set = 0, binding = 1) uniform MaterialUBO {
+    vec3  Kd;       float metallic;
+    vec3  Ka;       float roughness;
+    vec3  emissive; float emissiveStrength;
+    float normalScale; float useNormal;  float useORM;        float useAO;
+    float useDiffuseMap; float useGlossMap; float useEmissiveMap; float _pad;
+} mat;
+layout(set = 1, binding = 0) uniform sampler2D diffuseTex;
+layout(set = 1, binding = 1) uniform sampler2D normalTex;
+layout(set = 1, binding = 2) uniform sampler2D ormTex;
+layout(set = 1, binding = 3) uniform sampler2D aoTex;
+layout(set = 1, binding = 4) uniform sampler2D glossTex;
+layout(set = 1, binding = 5) uniform sampler2D emissiveTex;
+layout(push_constant) uniform LightPC {
+    vec3  lightDir;   float lightIntensity;
+    vec3  lightColor; float ambientStrength;
+} lpc;
+vec3 FresnelSchlick(float c, vec3 F0) {
+    return F0 + (1.0 - F0) * pow(clamp(1.0 - c, 0.0, 1.0), 5.0);
+}
+float DistGGX(vec3 N, vec3 H, float r) {
+    float a2 = r * r * r * r;
+    float d  = pow(max(dot(N, H), 0.0), 2.0) * (a2 - 1.0) + 1.0;
+    return a2 / (PI * d * d + 0.0001);
+}
+float GeoSmith(float NdotV, float NdotL, float r) {
+    float k = (r + 1.0) * (r + 1.0) / 8.0;
+    float gv = NdotV / (NdotV * (1.0 - k) + k);
+    float gl = NdotL / (NdotL * (1.0 - k) + k);
+    return gv * gl;
+}
+void main() {
+    // Diffuse albedo: sample texture only when useDiffuseMap is set, otherwise use material colour.
+    vec4 albedo = mat.useDiffuseMap > 0.5 ? texture(diffuseTex, vTexCoord) : vec4(1.0);
+    albedo.rgb *= mat.Kd;
+    float metallicV  = mat.metallic;
+    float roughnessV = mat.roughness;
+    float aoV        = 1.0;
+    if (mat.useORM > 0.5) {
+        vec3 orm = texture(ormTex, vTexCoord).rgb;
+        aoV = orm.r; roughnessV = orm.g; metallicV = orm.b;
+    }
+    // Gloss map: roughness = 1 - gloss.r (overrides ORM roughness when both are set).
+    if (mat.useGlossMap > 0.5) roughnessV = 1.0 - texture(glossTex, vTexCoord).r;
+    if (mat.useAO > 0.5) aoV = texture(aoTex, vTexCoord).r;
+    vec3 N = normalize(vNormal);
+    if (mat.useNormal > 0.5) {
+        vec3 nTs = texture(normalTex, vTexCoord).xyz * 2.0 - 1.0;
+        nTs.xy  *= mat.normalScale;
+        N = normalize(mat3(normalize(vTangent), normalize(vBitangent), N) * nTs);
+    }
+    vec3 V    = normalize(vViewDir);
+    vec3 L    = normalize(-lpc.lightDir);
+    vec3 H    = normalize(V + L);
+    float NdotL = max(dot(N, L), 0.0);
+    float NdotV = max(dot(N, V), 0.0);
+    vec3 F0   = mix(vec3(0.04), albedo.rgb, metallicV);
+    vec3 F    = FresnelSchlick(max(dot(H, V), 0.0), F0);
+    float NDF = DistGGX(N, H, roughnessV);
+    float G   = GeoSmith(NdotV, NdotL, roughnessV);
+    vec3 spec  = (NDF * G * F) / (4.0 * NdotV * NdotL + 0.001);
+    vec3 kD    = (vec3(1.0) - F) * (1.0 - metallicV);
+    vec3 direct = (kD * albedo.rgb / PI + spec) * lpc.lightColor * lpc.lightIntensity * NdotL;
+    vec3 ambient = mat.Ka * albedo.rgb * aoV * lpc.ambientStrength;
+    // Emissive: sample emissive texture when flag is set, else use material emissive factor.
+    vec3 emissive = mat.useEmissiveMap > 0.5
+        ? texture(emissiveTex, vTexCoord).rgb * mat.emissiveStrength
+        : mat.emissive * mat.emissiveStrength;
+    vec3 color = ambient + direct + emissive;
+    // Linear output — the sRGB swapchain (VK_FORMAT_B8G8R8A8_SRGB) applies hardware gamma
+    // automatically; manual Reinhard + pow(1/2.2) here would cause double gamma and produce
+    // an over-bright, washed-out result.
+    fragColor = vec4(color, albedo.a);
+})";
+
+VkShaderModule VulkanRenderer::CreateShaderModuleFromGLSL(const std::string& glsl, VkShaderStageFlagBits stage) const
+{
+    // Runtime GLSL → SPIR-V compilation via shaderc (Vulkan SDK)
+    // If shaderc is not linked, this will fail to compile — install the Vulkan SDK.
+#if __has_include(<shaderc/shaderc.hpp>)
+    #include <shaderc/shaderc.hpp>
+    shaderc::Compiler       compiler;
+    shaderc::CompileOptions opts;
+    opts.SetOptimizationLevel(shaderc_optimization_level_size);
+
+    shaderc_shader_kind kind = shaderc_glsl_vertex_shader;
+    if (stage == VK_SHADER_STAGE_FRAGMENT_BIT) kind = shaderc_glsl_fragment_shader;
+
+    auto result = compiler.CompileGlslToSpv(glsl, kind, "shader", opts);
+    if (result.GetCompilationStatus() != shaderc_compilation_status_success) {
+        std::string err = result.GetErrorMessage();
+        debug.logLevelMessage(LogLevel::LOG_ERROR,
+            L"[VulkanRenderer] Shader compile error: " + std::wstring(err.begin(), err.end()));
+        return VK_NULL_HANDLE;
+    }
+    std::vector<uint32_t> spirv(result.cbegin(), result.cend());
+    return CreateShaderModuleFromSPIRV(spirv);
+#else
+    // shaderc not available — return null handle; pipeline creation will be skipped
+    (void)glsl; (void)stage;
+    debug.logLevelMessage(LogLevel::LOG_WARNING,
+        L"[VulkanRenderer] shaderc not available. Install Vulkan SDK to enable shader compilation.");
+    return VK_NULL_HANDLE;
+#endif
+}
+
+VkShaderModule VulkanRenderer::CreateShaderModuleFromSPIRV(const std::vector<uint32_t>& spirv) const
+{
+    VkShaderModuleCreateInfo ci{};
+    ci.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    ci.codeSize = spirv.size() * sizeof(uint32_t);
+    ci.pCode    = spirv.data();
+    VkShaderModule mod = VK_NULL_HANDLE;
+    vkCreateShaderModule(m_device, &ci, nullptr, &mod);
+    return mod;
+}
+
+void VulkanRenderer::CreateGraphicsPipelines()
+{
+    // ---- 2D pipeline ----
+    VkShaderModule vert2D = CreateShaderModuleFromGLSL(k_glsl2DVert, VK_SHADER_STAGE_VERTEX_BIT);
+    VkShaderModule frag2D = CreateShaderModuleFromGLSL(k_glsl2DFrag, VK_SHADER_STAGE_FRAGMENT_BIT);
+
+    if (vert2D == VK_NULL_HANDLE || frag2D == VK_NULL_HANDLE) {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[VulkanRenderer] 2D pipeline skipped — no shader modules.");
+        if (vert2D) vkDestroyShaderModule(m_device, vert2D, nullptr);
+        if (frag2D) vkDestroyShaderModule(m_device, frag2D, nullptr);
+    } else {
+        // Vertex input for VkVertex2D: pos(2), uv(2), color(4)
+        VkVertexInputBindingDescription bind{};
+        bind.binding   = 0;
+        bind.stride    = sizeof(VkVertex2D);
+        bind.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+        std::array<VkVertexInputAttributeDescription, 3> attrs{};
+        attrs[0] = { 0, 0, VK_FORMAT_R32G32_SFLOAT,       offsetof(VkVertex2D, x) };
+        attrs[1] = { 1, 0, VK_FORMAT_R32G32_SFLOAT,       offsetof(VkVertex2D, u) };
+        attrs[2] = { 2, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(VkVertex2D, r) };
+
+        VkPipelineVertexInputStateCreateInfo vi{};
+        vi.sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        vi.vertexBindingDescriptionCount   = 1;
+        vi.pVertexBindingDescriptions      = &bind;
+        vi.vertexAttributeDescriptionCount = static_cast<uint32_t>(attrs.size());
+        vi.pVertexAttributeDescriptions    = attrs.data();
+
+        VkPipelineInputAssemblyStateCreateInfo ia{};
+        ia.sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+
+        VkPipelineViewportStateCreateInfo vp{};
+        vp.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        vp.viewportCount = 1;
+        vp.scissorCount  = 1;
+
+        VkPipelineRasterizationStateCreateInfo rast{};
+        rast.sType       = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rast.polygonMode = VK_POLYGON_MODE_FILL;
+        rast.cullMode    = VK_CULL_MODE_NONE;
+        rast.frontFace   = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        rast.lineWidth   = 1.0f;
+
+        VkPipelineMultisampleStateCreateInfo ms{};
+        ms.sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        VkPipelineColorBlendAttachmentState blendAtt{};
+        blendAtt.blendEnable         = VK_TRUE;
+        blendAtt.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        blendAtt.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        blendAtt.colorBlendOp        = VK_BLEND_OP_ADD;
+        blendAtt.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        blendAtt.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+        blendAtt.alphaBlendOp        = VK_BLEND_OP_ADD;
+        blendAtt.colorWriteMask      = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT
+                                     | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+        VkPipelineColorBlendStateCreateInfo blend{};
+        blend.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        blend.attachmentCount = 1;
+        blend.pAttachments    = &blendAtt;
+
+        std::array<VkDynamicState, 2> dynStates = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+        VkPipelineDynamicStateCreateInfo dyn{};
+        dyn.sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        dyn.dynamicStateCount = static_cast<uint32_t>(dynStates.size());
+        dyn.pDynamicStates    = dynStates.data();
+
+        // Push constants: screenSize, position, size, opacity
+        VkPushConstantRange pcRange{};
+        pcRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        pcRange.offset     = 0;
+        pcRange.size       = sizeof(float) * 7;
+
+        VkPipelineLayoutCreateInfo layoutCI{};
+        layoutCI.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        layoutCI.setLayoutCount         = 1;
+        layoutCI.pSetLayouts            = &m_textureDescSetLayout;
+        layoutCI.pushConstantRangeCount = 1;
+        layoutCI.pPushConstantRanges    = &pcRange;
+        vkCreatePipelineLayout(m_device, &layoutCI, nullptr, &m_2dPipelineLayout);
+
+        VkPipelineDepthStencilStateCreateInfo ds{};
+        ds.sType            = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        ds.depthTestEnable  = VK_FALSE;
+        ds.depthWriteEnable = VK_FALSE;
+
+        std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
+        stages[0] = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT,   vert2D, "main" };
+        stages[1] = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, frag2D, "main" };
+
+        VkGraphicsPipelineCreateInfo pci{};
+        pci.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pci.stageCount          = static_cast<uint32_t>(stages.size());
+        pci.pStages             = stages.data();
+        pci.pVertexInputState   = &vi;
+        pci.pInputAssemblyState = &ia;
+        pci.pViewportState      = &vp;
+        pci.pRasterizationState = &rast;
+        pci.pMultisampleState   = &ms;
+        pci.pDepthStencilState  = &ds;
+        pci.pColorBlendState    = &blend;
+        pci.pDynamicState       = &dyn;
+        pci.layout              = m_2dPipelineLayout;
+        pci.renderPass          = m_renderPass;
+        pci.subpass             = 0;
+        vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pci, nullptr, &m_2dPipeline);
+
+        vkDestroyShaderModule(m_device, vert2D, nullptr);
+        vkDestroyShaderModule(m_device, frag2D, nullptr);
+    }
+
+    // ---- 3D pipeline ----
+    VkShaderModule vert3D = CreateShaderModuleFromGLSL(k_glsl3DVert, VK_SHADER_STAGE_VERTEX_BIT);
+    VkShaderModule frag3D = CreateShaderModuleFromGLSL(k_glsl3DFrag, VK_SHADER_STAGE_FRAGMENT_BIT);
+
+    if (vert3D != VK_NULL_HANDLE && frag3D != VK_NULL_HANDLE) {
+        // Vertex input for VkVertex3D: pos(3), normal(3), uv(2), tangent(3)
+        VkVertexInputBindingDescription bind3D{};
+        bind3D.binding   = 0;
+        bind3D.stride    = sizeof(VkVertex3D);
+        bind3D.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+        std::array<VkVertexInputAttributeDescription, 4> attrs3D{};
+        attrs3D[0] = { 0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(VkVertex3D, x)  };
+        attrs3D[1] = { 1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(VkVertex3D, nx) };
+        attrs3D[2] = { 2, 0, VK_FORMAT_R32G32_SFLOAT,    offsetof(VkVertex3D, u)  };
+        attrs3D[3] = { 3, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(VkVertex3D, tx) };
+
+        VkPipelineVertexInputStateCreateInfo vi3D{};
+        vi3D.sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        vi3D.vertexBindingDescriptionCount   = 1;
+        vi3D.pVertexBindingDescriptions      = &bind3D;
+        vi3D.vertexAttributeDescriptionCount = static_cast<uint32_t>(attrs3D.size());
+        vi3D.pVertexAttributeDescriptions    = attrs3D.data();
+
+        VkPipelineInputAssemblyStateCreateInfo ia3D{};
+        ia3D.sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        ia3D.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        VkPipelineViewportStateCreateInfo vp3D{};
+        vp3D.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        vp3D.viewportCount = 1; vp3D.scissorCount = 1;
+
+        VkPipelineRasterizationStateCreateInfo rast3D{};
+        rast3D.sType       = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rast3D.polygonMode = bWireframeMode ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
+        rast3D.cullMode    = VK_CULL_MODE_NONE;                    // All faces rendered; doubleSided support handled via material state
+        rast3D.frontFace   = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        rast3D.lineWidth   = 1.0f;
+
+        VkPipelineMultisampleStateCreateInfo ms3D{};
+        ms3D.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        ms3D.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        VkPipelineDepthStencilStateCreateInfo ds3D{};
+        ds3D.sType            = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        ds3D.depthTestEnable  = VK_TRUE;
+        ds3D.depthWriteEnable = VK_TRUE;
+        ds3D.depthCompareOp   = VK_COMPARE_OP_LESS;
+
+        VkPipelineColorBlendAttachmentState blendAtt3D{};
+        blendAtt3D.blendEnable    = VK_FALSE;
+        blendAtt3D.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT
+                                  | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        VkPipelineColorBlendStateCreateInfo blend3D{};
+        blend3D.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        blend3D.attachmentCount = 1;
+        blend3D.pAttachments    = &blendAtt3D;
+
+        std::array<VkDynamicState, 2> dyn3DStates = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+        VkPipelineDynamicStateCreateInfo dyn3D{};
+        dyn3D.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        dyn3D.dynamicStateCount = static_cast<uint32_t>(dyn3DStates.size());
+        dyn3D.pDynamicStates    = dyn3DStates.data();
+
+        // Push constant (fragment): lightDir(3)+intensity(1)+lightColor(3)+ambient(1) = 8 floats = 32 bytes
+        VkPushConstantRange pc3D{};
+        pc3D.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        pc3D.offset     = 0;
+        pc3D.size       = sizeof(float) * 8;
+
+        // set=0: transform+material UBOs, set=1: diffuse/normal/ORM/AO textures
+        std::array<VkDescriptorSetLayout, 2> layouts3D = { m_3dUboSetLayout, m_3dTexSetLayout };
+        VkPipelineLayoutCreateInfo layoutCI3D{};
+        layoutCI3D.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        layoutCI3D.setLayoutCount         = static_cast<uint32_t>(layouts3D.size());
+        layoutCI3D.pSetLayouts            = layouts3D.data();
+        layoutCI3D.pushConstantRangeCount = 1;
+        layoutCI3D.pPushConstantRanges    = &pc3D;
+        vkCreatePipelineLayout(m_device, &layoutCI3D, nullptr, &m_3dPipelineLayout);
+
+        std::array<VkPipelineShaderStageCreateInfo, 2> stages3D{};
+        stages3D[0] = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT,   vert3D, "main" };
+        stages3D[1] = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, frag3D, "main" };
+
+        VkGraphicsPipelineCreateInfo pci3D{};
+        pci3D.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pci3D.stageCount          = static_cast<uint32_t>(stages3D.size());
+        pci3D.pStages             = stages3D.data();
+        pci3D.pVertexInputState   = &vi3D;
+        pci3D.pInputAssemblyState = &ia3D;
+        pci3D.pViewportState      = &vp3D;
+        pci3D.pRasterizationState = &rast3D;
+        pci3D.pMultisampleState   = &ms3D;
+        pci3D.pDepthStencilState  = &ds3D;
+        pci3D.pColorBlendState    = &blend3D;
+        pci3D.pDynamicState       = &dyn3D;
+        pci3D.layout              = m_3dPipelineLayout;
+        pci3D.renderPass          = m_renderPass;
+        pci3D.subpass             = 0;
+        vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pci3D, nullptr, &m_3dPipeline);
+
+        vkDestroyShaderModule(m_device, vert3D, nullptr);
+        vkDestroyShaderModule(m_device, frag3D, nullptr);
+    } else {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[VulkanRenderer] 3D pipeline skipped — no shader modules.");
+        if (vert3D) vkDestroyShaderModule(m_device, vert3D, nullptr);
+        if (frag3D) vkDestroyShaderModule(m_device, frag3D, nullptr);
+    }
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[VulkanRenderer] Graphics pipelines created.");
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Command pool, depth, framebuffers, sync, quad buffer
+// ---------------------------------------------------------------------------------------------------------------
+void VulkanRenderer::CreateCommandPool()
+{
+    VkCommandPoolCreateInfo ci{};
+    ci.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    ci.queueFamilyIndex = m_graphicsQueueFamily;
+    ci.flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    if (vkCreateCommandPool(m_device, &ci, nullptr, &m_commandPool) != VK_SUCCESS)
+        throw std::runtime_error("[VulkanRenderer] Failed to create command pool.");
+
+    VkCommandPoolCreateInfo lci{};
+    lci.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    lci.queueFamilyIndex = m_graphicsQueueFamily;
+    lci.flags            = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    if (vkCreateCommandPool(m_device, &lci, nullptr, &m_loaderCommandPool) != VK_SUCCESS)
+        throw std::runtime_error("[VulkanRenderer] Failed to create loader command pool.");
+
+    VkCommandBufferAllocateInfo ai{};
+    ai.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    ai.commandPool        = m_commandPool;
+    ai.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    ai.commandBufferCount = VK_MAX_FRAMES_IN_FLIGHT;
+    std::array<VkCommandBuffer, VK_MAX_FRAMES_IN_FLIGHT> cmds;
+    vkAllocateCommandBuffers(m_device, &ai, cmds.data());
+    for (uint32_t i = 0; i < VK_MAX_FRAMES_IN_FLIGHT; ++i)
+        m_frames[i].commandBuffer = cmds[i];
+}
+
+void VulkanRenderer::CreateDepthResources()
+{
+    VkFormat depthFmt = FindDepthFormat();
+    CreateImage(static_cast<uint32_t>(m_renderTargetWidth), static_cast<uint32_t>(m_renderTargetHeight),
+                depthFmt, VK_IMAGE_TILING_OPTIMAL,
+                VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                m_depthImage, m_depthImageMemory);
+    m_depthImageView = CreateImageView(m_depthImage, depthFmt, VK_IMAGE_ASPECT_DEPTH_BIT);
+}
+
+void VulkanRenderer::CreateFramebuffers()
+{
+    m_framebuffers.resize(m_swapchainImageViews.size());
+    for (size_t i = 0; i < m_swapchainImageViews.size(); ++i) {
+        std::array<VkImageView, 2> attachments = { m_swapchainImageViews[i], m_depthImageView };
+        VkFramebufferCreateInfo ci{};
+        ci.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        ci.renderPass      = m_renderPass;
+        ci.attachmentCount = static_cast<uint32_t>(attachments.size());
+        ci.pAttachments    = attachments.data();
+        ci.width           = m_swapchainExtent.width;
+        ci.height          = m_swapchainExtent.height;
+        ci.layers          = 1;
+        vkCreateFramebuffer(m_device, &ci, nullptr, &m_framebuffers[i]);
+    }
+}
+
+void VulkanRenderer::CreateDescriptorPool()
+{
+    // Per-model: 6 samplers (diffuse/normal/ORM/AO/gloss/emissive) + 2 UBOs (transform + material).
+    // Per-frame 2D: small transient allocations (freed each frame).
+    // Pool sized for up to 512 loaded models + generous headroom for 2D.
+    std::array<VkDescriptorPoolSize, 2> sizes{};
+    sizes[0] = { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 6144 }; // 512 models x 6 textures + 2D headroom
+    sizes[1] = { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         1024 }; // 512 models x 2 UBOs
+
+    VkDescriptorPoolCreateInfo ci{};
+    ci.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    ci.poolSizeCount = static_cast<uint32_t>(sizes.size());
+    ci.pPoolSizes    = sizes.data();
+    ci.maxSets       = 4096;
+    ci.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    vkCreateDescriptorPool(m_device, &ci, nullptr, &m_descriptorPool);
+}
+
+void VulkanRenderer::CreateSyncObjects()
+{
+    VkSemaphoreCreateInfo sci{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+    VkFenceCreateInfo     fci{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+    fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+    // imageAvailable and inFlightFence: one per frame-in-flight (fence-protected reuse is safe)
+    for (auto& fd : m_frames) {
+        vkCreateSemaphore(m_device, &sci, nullptr, &fd.imageAvailable);
+        vkCreateFence(m_device, &fci, nullptr, &fd.inFlightFence);
+    }
+
+    // renderFinished: one per SWAPCHAIN IMAGE so we never signal a semaphore that the
+    // presentation engine is still waiting on (VUID-vkQueueSubmit-pSignalSemaphores-00067).
+    m_renderFinishedSemaphores.resize(m_swapchainImages.size(), VK_NULL_HANDLE);
+    for (auto& sem : m_renderFinishedSemaphores)
+        vkCreateSemaphore(m_device, &sci, nullptr, &sem);
+}
+
+void VulkanRenderer::CreateQuadVertexBuffer()
+{
+    // Unit quad (0-1 UV, triangle strip: TL, TR, BL, BR)
+    const VkVertex2D quadVerts[] = {
+        { 0.0f, 0.0f, 0.0f, 0.0f, 1,1,1,1 },
+        { 1.0f, 0.0f, 1.0f, 0.0f, 1,1,1,1 },
+        { 0.0f, 1.0f, 0.0f, 1.0f, 1,1,1,1 },
+        { 1.0f, 1.0f, 1.0f, 1.0f, 1,1,1,1 },
+    };
+    VkDeviceSize size = sizeof(quadVerts);
+    VkBuffer     staging; VkDeviceMemory stagingMem;
+    CreateBuffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                 staging, stagingMem);
+    void* data; vkMapMemory(m_device, stagingMem, 0, size, 0, &data);
+    std::memcpy(data, quadVerts, static_cast<size_t>(size));
+    vkUnmapMemory(m_device, stagingMem);
+    CreateBuffer(size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_quadVertexBuffer, m_quadVertexMemory);
+    CopyBuffer(staging, m_quadVertexBuffer, size);
+    vkDestroyBuffer(m_device, staging, nullptr);
+    vkFreeMemory(m_device, stagingMem, nullptr);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// 2D overlay resources (Windows = D2D on WIC bitmap; Linux/Android = CPU RGBA buffer)
+// ---------------------------------------------------------------------------------------------------------------
+void VulkanRenderer::CreateOverlayResources(uint32_t width, uint32_t height)
+{
+    m_overlayWidth  = width;
+    m_overlayHeight = height;
+
+#if defined(PLATFORM_WINDOWS)
+    bool overlayOk = true;
+    HRESULT hr = S_OK;
+
+    // WIC factory
+    hr = CoCreateInstance(CLSID_WICImagingFactory2, nullptr, CLSCTX_INPROC_SERVER,
+                          IID_PPV_ARGS(&m_wicFactory));
+    if (FAILED(hr)) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[VulkanRenderer] CoCreateInstance(WICImagingFactory2) failed — 2D text/image overlay disabled.");
+        overlayOk = false;
+    }
+
+    if (overlayOk) {
+        hr = m_wicFactory->CreateBitmap(width, height, GUID_WICPixelFormat32bppPBGRA,
+                                         WICBitmapCacheOnLoad, &m_wicBitmap);
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[VulkanRenderer] WIC CreateBitmap failed — 2D overlay disabled.");
+            overlayOk = false;
+        }
+    }
+
+    if (overlayOk) {
+        // MULTI_THREADED: the factory is created on the main thread (Initialize) but all D2D
+        // methods are called from THREAD_RENDERER (RenderFrame).  SINGLE_THREADED provides no
+        // internal locking, causing access violations inside DWrite when the render thread uses
+        // D2D resources derived from a factory that was created on a different thread.
+        hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_MULTI_THREADED, m_d2dFactory.GetAddressOf());
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[VulkanRenderer] D2D1CreateFactory failed — 2D overlay disabled.");
+            overlayOk = false;
+        }
+    }
+
+    if (overlayOk) {
+        D2D1_RENDER_TARGET_PROPERTIES rtp = D2D1::RenderTargetProperties(
+            D2D1_RENDER_TARGET_TYPE_DEFAULT,
+            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+        hr = m_d2dFactory->CreateWicBitmapRenderTarget(m_wicBitmap.Get(), rtp, &m_d2dRenderTarget);
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[VulkanRenderer] CreateWicBitmapRenderTarget failed — 2D overlay disabled.");
+            overlayOk = false;
+        }
+    }
+
+    if (overlayOk) {
+        hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED,
+                                 __uuidof(IDWriteFactory),
+                                 reinterpret_cast<IUnknown**>(m_dwriteFactory.GetAddressOf()));
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[VulkanRenderer] DWriteCreateFactory failed — text rendering disabled.");
+        }
+    }
+#endif
+
+    // Overlay texture uses BGRA to match Direct2D's native WIC PBGRA output format.
+    // Using R8G8B8A8 here would swap red and blue channels, producing wrong colours.
+    m_overlayTexture = CreateTextureFromRGBA(nullptr, width, height, VK_FORMAT_B8G8R8A8_SRGB);
+
+    VkDeviceSize bufSize = static_cast<VkDeviceSize>(width) * height * 4;
+    CreateBuffer(bufSize,
+                 VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                 m_overlayStagingBuffer, m_overlayStagingMemory);
+
+#if defined(PLATFORM_WINDOWS)
+    // Background overlay — same dimensions, used for starfield drawn BEFORE 3D models.
+    if (overlayOk) {
+        hr = m_wicFactory->CreateBitmap(width, height, GUID_WICPixelFormat32bppPBGRA,
+                                        WICBitmapCacheOnLoad, &m_bgWicBitmap);
+        if (SUCCEEDED(hr)) {
+            D2D1_RENDER_TARGET_PROPERTIES bgRtp = D2D1::RenderTargetProperties(
+                D2D1_RENDER_TARGET_TYPE_DEFAULT,
+                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+            if (FAILED(m_d2dFactory->CreateWicBitmapRenderTarget(m_bgWicBitmap.Get(), bgRtp, &m_bgD2dRenderTarget)))
+                m_bgD2dRenderTarget.Reset();
+        }
+    }
+#endif
+
+    if (m_bgWicBitmap) {
+        m_bgOverlayTexture = CreateTextureFromRGBA(nullptr, width, height, VK_FORMAT_B8G8R8A8_SRGB);
+        CreateBuffer(bufSize,
+                     VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                     m_bgStagingBuffer, m_bgStagingMemory);
+    }
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[VulkanRenderer] Overlay resources created.");
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Swap chain teardown and recreation
+// ---------------------------------------------------------------------------------------------------------------
+void VulkanRenderer::CleanupSwapChain()
+{
+    for (auto fb : m_framebuffers) vkDestroyFramebuffer(m_device, fb, nullptr);
+    m_framebuffers.clear();
+
+    if (m_depthImageView   != VK_NULL_HANDLE) { vkDestroyImageView(m_device, m_depthImageView,   nullptr); m_depthImageView   = VK_NULL_HANDLE; }
+    if (m_depthImage       != VK_NULL_HANDLE) { vkDestroyImage    (m_device, m_depthImage,       nullptr); m_depthImage       = VK_NULL_HANDLE; }
+    if (m_depthImageMemory != VK_NULL_HANDLE) { vkFreeMemory      (m_device, m_depthImageMemory, nullptr); m_depthImageMemory = VK_NULL_HANDLE; }
+
+    for (auto iv : m_swapchainImageViews) vkDestroyImageView(m_device, iv, nullptr);
+    m_swapchainImageViews.clear();
+
+    // renderFinished semaphores are per-swapchain-image; destroy and repopulate on every recreation.
+    for (auto& sem : m_renderFinishedSemaphores)
+        if (sem != VK_NULL_HANDLE) vkDestroySemaphore(m_device, sem, nullptr);
+    m_renderFinishedSemaphores.clear();
+
+    if (m_renderPass != VK_NULL_HANDLE) { vkDestroyRenderPass(m_device, m_renderPass, nullptr); m_renderPass = VK_NULL_HANDLE; }
+    if (m_swapchain  != VK_NULL_HANDLE) { vkDestroySwapchainKHR(m_device, m_swapchain, nullptr); m_swapchain = VK_NULL_HANDLE; }
+}
+
+void VulkanRenderer::RecreateSurface()
+{
+#if defined(PLATFORM_WINDOWS)
+    if (m_surface != VK_NULL_HANDLE) {
+        vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
+        m_surface = VK_NULL_HANDLE;
+    }
+    CreateSurface(m_hwnd);
+#elif defined(PLATFORM_LINUX)
+    if (m_surface != VK_NULL_HANDLE) {
+        vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
+        m_surface = VK_NULL_HANDLE;
+    }
+    CreateSurface(reinterpret_cast<HWND>(static_cast<uintptr_t>(m_xcbWindow)));
+#endif
+    debug.logLevelMessage(LogLevel::LOG_WARNING, L"[VulkanRenderer] Surface recreated after loss.");
+}
+
+void VulkanRenderer::RecreateSwapChain(uint32_t width, uint32_t height)
+{
+    if (width == 0 || height == 0) return;
+    WaitForGPUToFinish();
+    CleanupSwapChain();
+
+    // If the surface is lost, rebuild it before retrying swapchain creation.
+    try {
+        CreateSwapChain(width, height);
+    }
+    catch (const std::runtime_error& e) {
+        std::string msg(e.what());
+        if (msg.find("Surface lost") != std::string::npos ||
+            msg.find("Surface capabilities invalid") != std::string::npos)
+        {
+            debug.logLevelMessage(LogLevel::LOG_WARNING,
+                L"[VulkanRenderer] Surface lost during swapchain recreation — rebuilding surface.");
+            RecreateSurface();
+            CreateSwapChain(width, height);
+        }
+        else { throw; }
+    }
+
+    CreateImageViews();
+    CreateRenderPass();
+    CreateDepthResources();
+    CreateFramebuffers();
+
+    // Recreate per-image renderFinished semaphores to match the new image count.
+    // CleanupSwapChain already destroyed the old ones.
+    VkSemaphoreCreateInfo sci{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+    m_renderFinishedSemaphores.resize(m_swapchainImages.size(), VK_NULL_HANDLE);
+    for (auto& sem : m_renderFinishedSemaphores)
+        if (sem == VK_NULL_HANDLE) vkCreateSemaphore(m_device, &sci, nullptr, &sem);
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[VulkanRenderer] Swap chain recreated.");
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Resize
+// ---------------------------------------------------------------------------------------------------------------
+bool VulkanRenderer::Resize(uint32_t width, uint32_t height)
+{
+    if (m_bHasCleanedUp) return false;
+    if (width == 0 || height == 0) return false;
+    m_prevWindowedWidth  = static_cast<uint32_t>(m_renderTargetWidth);
+    m_prevWindowedHeight = static_cast<uint32_t>(m_renderTargetHeight);
+
+    wasResizing.store(true);
+    threadManager.threadVars.bIsResizing.store(true);
+
+    // Drain any in-progress render frame before tearing down D2D/Vulkan resources.
+    // The old spin-wait on bIsRendering had a TOCTOU race: the render thread checks
+    // bIsRendering=false and sets it to true AFTER the load(); Resize() could see the
+    // false window and proceed, resetting m_d2dRenderTarget while the render thread
+    // was between its null-check and DrawText() — producing the memcpy crash in DWrite.
+    //
+    // Acquiring the exclusive frame lock guarantees the render thread has fully released
+    // it (i.e. its current frame is complete) before we touch any shared D2D state.
+    // bIsResizing=true prevents a new frame from entering RenderFrame() while we work.
+    {
+        ThreadLockHelper frameLock(threadManager, m_renderFrameLockName, 2000);
+        // Lock acquired (or timed out after 2 s) — render thread is not mid-frame.
+    }
+
+    WaitForGPUToFinish();
+
+    m_renderTargetWidth  = static_cast<int>(width);
+    m_renderTargetHeight = static_cast<int>(height);
+    iOrigWidth  = static_cast<int>(width);
+    iOrigHeight = static_cast<int>(height);
+
+    RecreateSwapChain(width, height);
+
+    // Recreate overlay surfaces at new size
+    DestroyVulkanTexture(m_overlayTexture);
+    DestroyVulkanTexture(m_bgOverlayTexture);
+#if defined(PLATFORM_WINDOWS)
+    m_d2dRenderTarget.Reset();
+    m_bgD2dRenderTarget.Reset();
+    m_wicBitmap.Reset();
+    m_bgWicBitmap.Reset();
+    if (m_overlayStagingBuffer  != VK_NULL_HANDLE) vkDestroyBuffer(m_device, m_overlayStagingBuffer, nullptr);
+    if (m_overlayStagingMemory  != VK_NULL_HANDLE) vkFreeMemory(m_device, m_overlayStagingMemory, nullptr);
+    m_overlayStagingBuffer = VK_NULL_HANDLE;
+    m_overlayStagingMemory = VK_NULL_HANDLE;
+    if (m_bgStagingBuffer != VK_NULL_HANDLE) vkDestroyBuffer(m_device, m_bgStagingBuffer, nullptr);
+    if (m_bgStagingMemory != VK_NULL_HANDLE) vkFreeMemory(m_device, m_bgStagingMemory, nullptr);
+    m_bgStagingBuffer = VK_NULL_HANDLE;
+    m_bgStagingMemory = VK_NULL_HANDLE;
+    InvalidateTextFormatCache();
+#endif
+    CreateOverlayResources(width, height);
+
+    threadManager.threadVars.bIsResizing.store(false);
+    wasResizing.store(false);
+
+    debug.logLevelMessage(LogLevel::LOG_INFO,
+        L"[VulkanRenderer] Resize complete: " + std::to_wstring(width) + L"x" + std::to_wstring(height));
+    return true;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Thread management
+// ---------------------------------------------------------------------------------------------------------------
+bool VulkanRenderer::StartRendererThreads()
+{
+    bool result = true;
+    try
+    {
+        threadManager.SetThread(THREAD_LOADER, [this]() { LoaderTaskThread(); }, true);
+        threadManager.StartThread(THREAD_LOADER);
+#ifdef RENDERER_IS_THREAD
+        threadManager.SetThread(THREAD_RENDERER, [this]() { RenderFrame(); }, true);
+        threadManager.StartThread(THREAD_RENDERER);
+#endif
+    }
+    catch (const std::exception&)
+    {
+        result = false;
+    }
+    return result;
+}
+
+void VulkanRenderer::ResumeLoader(bool isResizing)
+{
+    wasResizing.store(isResizing);
+    threadManager.ResumeThread(THREAD_LOADER);
+}
+
+void VulkanRenderer::WaitForGPUToFinish()
+{
+    if (m_device != VK_NULL_HANDLE) {
+        // Hold the queue mutex so no thread is mid-submit when we wait.
+        // vkDeviceWaitIdle implicitly touches the same VkQueue object that
+        // vkQueueSubmit / vkQueueWaitIdle use; accessing it from two threads
+        // simultaneously triggers a Vulkan threading-error validation message.
+        std::lock_guard<std::mutex> lock(m_queueMutex);
+        vkDeviceWaitIdle(m_device);
+    }
+}
+
+void VulkanRenderer::WaitToFinishThenPauseThread()
+{
+    WaitForGPUToFinish();
+    threadManager.PauseThread(THREAD_RENDERER);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Screen mode helpers
+// ---------------------------------------------------------------------------------------------------------------
+bool VulkanRenderer::SetFullScreen()
+{
+#if defined(PLATFORM_WINDOWS)
+    MONITORINFO mi = { sizeof(mi) };
+    GetMonitorInfo(MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTOPRIMARY), &mi);
+    uint32_t w = static_cast<uint32_t>(mi.rcMonitor.right  - mi.rcMonitor.left);
+    uint32_t h = static_cast<uint32_t>(mi.rcMonitor.bottom - mi.rcMonitor.top);
+    SetWindowLong(m_hwnd, GWL_STYLE, WS_POPUP);
+    SetWindowPos(m_hwnd, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top, w, h, SWP_FRAMECHANGED);
+    IsWindowMode.store(false);
+    return Resize(w, h);
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    return true; // handled by the platform windowing system
+#endif
+}
+
+bool VulkanRenderer::SetFullExclusive(uint32_t width, uint32_t height)
+{
+#if defined(PLATFORM_WINDOWS)
+    // Capture original desktop mode before switching so Cleanup can restore it — mirrors DX11/DX12
+    if (!m_isExclusiveFullscreen) {
+        m_originalDesktopMode.dmSize = sizeof(DEVMODE);
+        EnumDisplaySettingsW(nullptr, ENUM_CURRENT_SETTINGS,
+            reinterpret_cast<DEVMODEW*>(&m_originalDesktopMode));
+    }
+
+    DEVMODEW dm = {};
+    dm.dmSize       = sizeof(dm);
+    dm.dmPelsWidth  = width;
+    dm.dmPelsHeight = height;
+    dm.dmBitsPerPel = 32;
+    dm.dmFields     = DM_PELSWIDTH | DM_PELSHEIGHT | DM_BITSPERPEL;
+    if (ChangeDisplaySettingsW(&dm, CDS_FULLSCREEN) != DISP_CHANGE_SUCCESSFUL) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[VulkanRenderer] SetFullExclusive: ChangeDisplaySettingsW failed");
+        return false;
+    }
+
+    m_isExclusiveFullscreen = true;
+    IsWindowMode.store(false);
+
+    // Gate any WM_SIZE fired by SetWindowPos — the resize is managed here, not in WM_SIZE.
+    threadManager.threadVars.bSettingFullScreen.store(true);
+
+    // Cover the full screen with a popup window
+    SetWindowLong(m_hwnd, GWL_STYLE, WS_POPUP);
+    SetWindowPos(m_hwnd, HWND_TOP, 0, 0, static_cast<int>(width), static_cast<int>(height), SWP_FRAMECHANGED);
+
+    bool result = Resize(width, height);
+
+    // Sync winMetrics from the confirmed fullscreen dimensions so every subsystem
+    // (cameras, GUI, FX, loader thread) sees a coherent coordinate space.
+    if (result)
+    {
+        winMetrics.x               = 0;
+        winMetrics.y               = 0;
+        winMetrics.width           = iOrigWidth;
+        winMetrics.height          = iOrigHeight;
+        winMetrics.clientWidth     = iOrigWidth;
+        winMetrics.clientHeight    = iOrigHeight;
+        winMetrics.borderWidth     = 0;
+        winMetrics.titleBarHeight  = 0;
+        winMetrics.monitorFullArea = { 0, 0, iOrigWidth, iOrigHeight };
+        winMetrics.monitorWorkArea = { 0, 0, iOrigWidth, iOrigHeight };
+
+        #if defined(_DEBUG_VULKANRENDERER_)
+        // Fullscreen presentation diagnostics: verify swapchain extent, window, and internal
+        // dimensions all agree.  A mismatch causes the "top-left quarter visible" symptom on
+        // DPI-scaled displays.
+        {
+            VkExtent2D ext = GetSwapchainExtent();
+            UINT   dpi        = GetDpiForWindow(m_hwnd);
+            RECT   windowRect = {}, clientRect = {};
+            GetWindowRect(m_hwnd, &windowRect);
+            GetClientRect(m_hwnd,  &clientRect);
+            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                L"[VulkanRenderer] Fullscreen diag: DPI=%u  WindowRect=%dx%d  ClientRect=%dx%d  "
+                L"Config=%dx%d  Internal=%dx%d  SwapchainExtent=%dx%d",
+                dpi,
+                windowRect.right  - windowRect.left,
+                windowRect.bottom - windowRect.top,
+                clientRect.right  - clientRect.left,
+                clientRect.bottom - clientRect.top,
+                config.myConfig.resolutionWidth, config.myConfig.resolutionHeight,
+                iOrigWidth, iOrigHeight,
+                ext.width, ext.height);
+        }
+        #endif
+    }
+
+    threadManager.threadVars.bSettingFullScreen.store(false);
+    return result;
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    return Resize(width, height);
+#endif
+}
+
+bool VulkanRenderer::SetWindowedScreen()
+{
+#if defined(PLATFORM_WINDOWS)
+    // Restore display settings if we entered exclusive fullscreen
+    if (m_isExclusiveFullscreen) {
+        ChangeDisplaySettingsW(nullptr, 0);
+        m_isExclusiveFullscreen = false;
+    }
+    const int ww = config.myConfig.resolutionWidth;
+    const int wh = config.myConfig.resolutionHeight;
+    // Non-resizable windowed style — no WS_THICKFRAME (drag border) or WS_MAXIMIZEBOX
+    SetWindowLong(m_hwnd, GWL_STYLE, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX);
+    SetWindowPos(m_hwnd, nullptr,
+        (GetSystemMetrics(SM_CXSCREEN) - ww) / 2,
+        (GetSystemMetrics(SM_CYSCREEN) - wh) / 2,
+        ww, wh, SWP_FRAMECHANGED | SWP_NOZORDER);
+    IsWindowMode.store(true);
+    return Resize(ww, wh);
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    return true;
+#endif
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Device accessor overrides
+// ---------------------------------------------------------------------------------------------------------------
+void* VulkanRenderer::GetDevice()        { return static_cast<void*>(m_device); }
+void* VulkanRenderer::GetDeviceContext() { return static_cast<void*>(m_graphicsQueue); }
+void* VulkanRenderer::GetSwapChain()     { return static_cast<void*>(m_swapchain); }
+
+VkCommandBuffer VulkanRenderer::GetCurrentCommandBuffer() const
+{
+    return m_frames[m_currentFrame].commandBuffer;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Texture loading
+// ---------------------------------------------------------------------------------------------------------------
+bool VulkanRenderer::LoadTexture(int textureId, const std::wstring& filename, bool is2D)
+{
+    // Bounds guard — catch bad indices before any array access.
+    const int maxIdx = is2D ? MAX_TEXTURE_BUFFERS : MAX_TEXTURE_BUFFERS_3D;
+    if (textureId < 0 || textureId >= maxIdx) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR,
+            L"[VulkanRenderer] LoadTexture: index " + std::to_wstring(textureId) + L" out of range");
+        return false;
+    }
+    if (filename.empty()) return false;
+    if (m_device == VK_NULL_HANDLE) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR,
+            L"[VulkanRenderer] LoadTexture: Vulkan device not ready, cannot load: " + filename);
+        return false;
+    }
+
+    std::filesystem::path fullPath = AssetsDir / filename;
+
+#if defined(PLATFORM_WINDOWS)
+    // LoadTexture may be called from the loader worker thread which has NOT had
+    // CoInitializeEx called on it (main.cpp only initialises COM on the main thread).
+    // Initialise COM locally so WIC is always available regardless of caller thread.
+    // CoInitializeEx returns S_OK (first call) or S_FALSE (already initialised on this
+    // thread) — both mean we must call CoUninitialize to balance the ref-count.
+    // RPC_E_CHANGED_MODE means another apartment type is already active; we skip uninit.
+    HRESULT hrCom = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    if (FAILED(hrCom) && hrCom != RPC_E_CHANGED_MODE) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR,
+            L"[VulkanRenderer] LoadTexture: CoInitializeEx failed for: " + filename);
+        return false;
+    }
+    const bool needCoUninit = SUCCEEDED(hrCom);
+
+    bool loaded = false;
+    do {
+        // WIC factory — decodes image files to raw RGBA pixels on Windows.
+        ComPtr<IWICImagingFactory2> factory;
+        if (FAILED(CoCreateInstance(CLSID_WICImagingFactory2, nullptr, CLSCTX_INPROC_SERVER,
+                                    IID_PPV_ARGS(&factory)))) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR,
+                L"[VulkanRenderer] LoadTexture: WIC factory creation failed: " + filename);
+            break;
+        }
+
+        ComPtr<IWICBitmapDecoder> decoder;
+        if (FAILED(factory->CreateDecoderFromFilename(fullPath.wstring().c_str(), nullptr,
+                    GENERIC_READ, WICDecodeMetadataCacheOnLoad, &decoder))) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR,
+                L"[VulkanRenderer] LoadTexture: file not found or unsupported format: " + fullPath.wstring());
+            break;
+        }
+
+        ComPtr<IWICBitmapFrameDecode> frame;
+        if (FAILED(decoder->GetFrame(0, &frame))) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR,
+                L"[VulkanRenderer] LoadTexture: WIC GetFrame failed: " + filename);
+            break;
+        }
+
+        ComPtr<IWICFormatConverter> converter;
+        if (FAILED(factory->CreateFormatConverter(&converter))) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR,
+                L"[VulkanRenderer] LoadTexture: WIC CreateFormatConverter failed: " + filename);
+            break;
+        }
+        if (FAILED(converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppRGBA,
+                              WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom))) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR,
+                L"[VulkanRenderer] LoadTexture: WIC pixel-format conversion failed: " + filename);
+            break;
+        }
+
+        UINT w = 0, h = 0;
+        if (FAILED(converter->GetSize(&w, &h)) || w == 0 || h == 0) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR,
+                L"[VulkanRenderer] LoadTexture: WIC GetSize returned zero dimensions: " + filename);
+            break;
+        }
+
+        std::vector<uint8_t> pixels(static_cast<size_t>(w) * h * 4);
+        if (FAILED(converter->CopyPixels(nullptr, w * 4, static_cast<UINT>(pixels.size()), pixels.data()))) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR,
+                L"[VulkanRenderer] LoadTexture: WIC CopyPixels failed: " + filename);
+            break;
+        }
+
+        VulkanTexture tex = CreateTextureFromRGBA(pixels.data(), w, h);
+        if (!tex.isValid) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR,
+                L"[VulkanRenderer] LoadTexture: GPU upload (CreateTextureFromRGBA) failed: " + filename);
+            break;
+        }
+
+        if (is2D) { DestroyVulkanTexture(m_textures2D[textureId]); m_textures2D[textureId] = tex; }
+        else       { DestroyVulkanTexture(m_textures3D[textureId]); m_textures3D[textureId] = tex; }
+
+        // For 2D textures: also create an ID2D1Bitmap so Blit2D functions can draw them onto
+        // the D2D overlay.  Use PBGRA (pre-multiplied BGRA) — the native D2D format — via a
+        // second WIC converter from the same decoded frame.
+        if (is2D && m_d2dRenderTarget) {
+            ComPtr<IWICFormatConverter> d2dConv;
+            if (SUCCEEDED(factory->CreateFormatConverter(&d2dConv)) &&
+                SUCCEEDED(d2dConv->Initialize(frame.Get(), GUID_WICPixelFormat32bppPBGRA,
+                                               WICBitmapDitherTypeNone, nullptr, 0.0,
+                                               WICBitmapPaletteTypeCustom)))
+            {
+                m_d2dTextures[textureId].Reset();
+                if (FAILED(m_d2dRenderTarget->CreateBitmapFromWicBitmap(d2dConv.Get(),
+                                                                          &m_d2dTextures[textureId])))
+                    debug.logLevelMessage(LogLevel::LOG_WARNING,
+                        L"[VulkanRenderer] LoadTexture: D2D bitmap creation failed: " + filename);
+            }
+        }
+
+        loaded = true;
+    } while (false);
+
+    if (needCoUninit) CoUninitialize();
+    return loaded;
+
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    // Use stb_image if available; include path must be set by user.
+    // #define STB_IMAGE_IMPLEMENTATION and #include "stb_image.h" in your project.
+    #if __has_include("stb_image.h")
+        #include "stb_image.h"
+        int w, h, ch;
+        std::string path = fullPath.string();
+        uint8_t* pixels = stbi_load(path.c_str(), &w, &h, &ch, STBI_rgb_alpha);
+        if (!pixels) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR,
+                L"[VulkanRenderer] stb_image failed to load: " + filename);
+            return false;
+        }
+        VulkanTexture tex = CreateTextureFromRGBA(pixels, static_cast<uint32_t>(w), static_cast<uint32_t>(h));
+        stbi_image_free(pixels);
+        if (!tex.isValid) return false;
+        if (is2D) { DestroyVulkanTexture(m_textures2D[textureId]); m_textures2D[textureId] = tex; }
+        else       { DestroyVulkanTexture(m_textures3D[textureId]); m_textures3D[textureId] = tex; }
+        return true;
+    #else
+        debug.logLevelMessage(LogLevel::LOG_WARNING,
+            L"[VulkanRenderer] stb_image not found. Cannot load texture on Linux/Android: " + filename);
+        return false;
+    #endif
+#else
+    debug.logLevelMessage(LogLevel::LOG_WARNING,
+        L"[VulkanRenderer] LoadTexture: unsupported platform for: " + filename);
+    return false;
+#endif
+}
+
+bool VulkanRenderer::LoadAllKnownTextures()
+{
+    bool allOk = true;
+    for (int i = 0; i < MAX_TEXTURE_BUFFERS; ++i) {
+        if (texFilename[i].empty()) continue;
+        if (!LoadTexture(i, texFilename[i], true)) {
+            debug.logLevelMessage(LogLevel::LOG_WARNING,
+                L"[VulkanRenderer] Could not load 2D texture: " + texFilename[i]);
+            allOk = false;
+        }
+    }
+    return allOk;
+}
+
+void VulkanRenderer::UnloadTexture(int textureId)
+{
+    if (textureId < 0 || textureId >= MAX_TEXTURE_BUFFERS) return;
+    DestroyVulkanTexture(m_textures2D[textureId]);
+#if defined(PLATFORM_WINDOWS)
+    m_d2dTextures[textureId].Reset();
+#endif
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// VulkanTexture helpers
+// ---------------------------------------------------------------------------------------------------------------
+VulkanTexture VulkanRenderer::CreateTextureFromRGBA(const uint8_t* pixels, uint32_t width, uint32_t height,
+                                                    VkFormat format)
+{
+    VulkanTexture tex{};
+    tex.width  = width;
+    tex.height = height;
+
+    VkDeviceSize imageSize = static_cast<VkDeviceSize>(width) * height * 4;
+
+    // Staging buffer
+    VkBuffer       staging; VkDeviceMemory stagingMem;
+    CreateBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                 staging, stagingMem);
+
+    if (pixels) {
+        void* data; vkMapMemory(m_device, stagingMem, 0, imageSize, 0, &data);
+        std::memcpy(data, pixels, static_cast<size_t>(imageSize));
+        vkUnmapMemory(m_device, stagingMem);
+    }
+
+    CreateImage(width, height, format, VK_IMAGE_TILING_OPTIMAL,
+                VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, tex.image, tex.memory);
+
+    TransitionImageLayout(tex.image, format,
+                          VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    if (pixels) CopyBufferToImage(staging, tex.image, width, height);
+    TransitionImageLayout(tex.image, format,
+                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    vkDestroyBuffer(m_device, staging, nullptr);
+    vkFreeMemory(m_device, stagingMem, nullptr);
+
+    tex.view = CreateImageView(tex.image, format, VK_IMAGE_ASPECT_COLOR_BIT);
+
+    VkSamplerCreateInfo si{};
+    si.sType         = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    si.magFilter     = VK_FILTER_LINEAR;
+    si.minFilter     = VK_FILTER_LINEAR;
+    si.addressModeU  = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    si.addressModeV  = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    si.addressModeW  = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    si.anisotropyEnable = VK_TRUE;
+    si.maxAnisotropy    = 16.0f;
+    si.borderColor       = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+    si.unnormalizedCoordinates = VK_FALSE;
+    si.compareEnable   = VK_FALSE;
+    si.mipmapMode      = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    vkCreateSampler(m_device, &si, nullptr, &tex.sampler);
+
+    tex.isValid = true;
+    return tex;
+}
+
+// ============================================================================
+// GetSamplerForWrap — UV settings support (GLTF sampler wrapS/wrapT, FBX
+// WrapModeU/V).  Returns the shared default sampler for (REPEAT, REPEAT);
+// other combinations are created lazily with the same filtering as the
+// default sampler and cached for the renderer's lifetime (destroyed in
+// Cleanup alongside the default textures).
+// ============================================================================
+VkSampler VulkanRenderer::GetSamplerForWrap(int wrapU, int wrapV)
+{
+    // Clamp indices into the supported range (0=REPEAT 1=CLAMP 2=MIRROR).
+    if (wrapU < 0 || wrapU > 2) wrapU = 0;
+    if (wrapV < 0 || wrapV > 2) wrapV = 0;
+
+    // Default combination — reuse the shared default sampler.
+    if (wrapU == 0 && wrapV == 0)
+        return GetDefaultSampler();
+
+    if (m_wrapSamplers[wrapU][wrapV] != VK_NULL_HANDLE)
+        return m_wrapSamplers[wrapU][wrapV];
+
+    auto vkWrap = [](int wrapMode) -> VkSamplerAddressMode {
+        if (wrapMode == 1) return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        if (wrapMode == 2) return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+        return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    };
+
+    // Same filtering as the default sampler (CreateVulkanTexture).
+    VkSamplerCreateInfo si{};
+    si.sType            = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    si.magFilter        = VK_FILTER_LINEAR;
+    si.minFilter        = VK_FILTER_LINEAR;
+    si.addressModeU     = vkWrap(wrapU);
+    si.addressModeV     = vkWrap(wrapV);
+    si.addressModeW     = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    si.anisotropyEnable = VK_TRUE;
+    si.maxAnisotropy    = 16.0f;
+    si.borderColor      = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+    si.unnormalizedCoordinates = VK_FALSE;
+    si.compareEnable    = VK_FALSE;
+    si.mipmapMode       = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+
+    if (vkCreateSampler(m_device, &si, nullptr, &m_wrapSamplers[wrapU][wrapV]) != VK_SUCCESS)
+    {
+        debug.logLevelMessage(LogLevel::LOG_WARNING,
+            L"[VulkanRenderer] GetSamplerForWrap: sampler creation failed — using default sampler");
+        m_wrapSamplers[wrapU][wrapV] = VK_NULL_HANDLE;
+        return GetDefaultSampler();
+    }
+    return m_wrapSamplers[wrapU][wrapV];
+}
+
+void VulkanRenderer::DestroyVulkanTexture(VulkanTexture& tex)
+{
+    if (!tex.isValid || m_device == VK_NULL_HANDLE) return;
+    // Wait for all in-flight GPU work to finish before destroying resources.
+    // Without this, vkDestroySampler fires a validation error if a descriptor
+    // set still references the sampler in a queued command buffer.
+    vkDeviceWaitIdle(m_device);
+    if (tex.sampler != VK_NULL_HANDLE) { vkDestroySampler(m_device, tex.sampler, nullptr);   tex.sampler = VK_NULL_HANDLE; }
+    if (tex.view    != VK_NULL_HANDLE) { vkDestroyImageView(m_device, tex.view, nullptr);    tex.view    = VK_NULL_HANDLE; }
+    if (tex.image   != VK_NULL_HANDLE) { vkDestroyImage(m_device, tex.image, nullptr);       tex.image   = VK_NULL_HANDLE; }
+    if (tex.memory  != VK_NULL_HANDLE) { vkFreeMemory(m_device, tex.memory, nullptr);        tex.memory  = VK_NULL_HANDLE; }
+    tex.isValid = false;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Vulkan utility helpers
+// ---------------------------------------------------------------------------------------------------------------
+uint32_t VulkanRenderer::FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags props) const
+{
+    VkPhysicalDeviceMemoryProperties memProps{};
+    vkGetPhysicalDeviceMemoryProperties(m_physicalDevice, &memProps);
+    for (uint32_t i = 0; i < memProps.memoryTypeCount; ++i)
+        if ((typeFilter & (1 << i)) && (memProps.memoryTypes[i].propertyFlags & props) == props)
+            return i;
+    throw std::runtime_error("[VulkanRenderer] Failed to find suitable memory type.");
+}
+
+void VulkanRenderer::CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
+                                   VkMemoryPropertyFlags props,
+                                   VkBuffer& buffer, VkDeviceMemory& memory) const
+{
+    VkBufferCreateInfo ci{};
+    ci.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    ci.size        = size;
+    ci.usage       = usage;
+    ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    vkCreateBuffer(m_device, &ci, nullptr, &buffer);
+
+    VkMemoryRequirements req;
+    vkGetBufferMemoryRequirements(m_device, buffer, &req);
+    VkMemoryAllocateInfo ai{};
+    ai.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    ai.allocationSize  = req.size;
+    ai.memoryTypeIndex = FindMemoryType(req.memoryTypeBits, props);
+    vkAllocateMemory(m_device, &ai, nullptr, &memory);
+    vkBindBufferMemory(m_device, buffer, memory, 0);
+}
+
+void VulkanRenderer::CopyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size) const
+{
+    VkCommandBuffer cmd = BeginSingleTimeCommands();
+    VkBufferCopy copy{ 0, 0, size };
+    vkCmdCopyBuffer(cmd, src, dst, 1, &copy);
+    EndSingleTimeCommands(cmd);
+}
+
+VkCommandBuffer VulkanRenderer::BeginSingleTimeCommands() const
+{
+    VkCommandBufferAllocateInfo ai{};
+    ai.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    ai.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    ai.commandPool        = m_loaderCommandPool;
+    ai.commandBufferCount = 1;
+    VkCommandBuffer cmd;
+    vkAllocateCommandBuffers(m_device, &ai, &cmd);
+    VkCommandBufferBeginInfo bi{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(cmd, &bi);
+    return cmd;
+}
+
+void VulkanRenderer::EndSingleTimeCommands(VkCommandBuffer cmd) const
+{
+    vkEndCommandBuffer(cmd);
+    VkSubmitInfo si{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    si.commandBufferCount = 1;
+    si.pCommandBuffers    = &cmd;
+    {
+        std::lock_guard<std::mutex> qlock(m_queueMutex);
+        vkQueueSubmit(m_graphicsQueue, 1, &si, VK_NULL_HANDLE);
+        vkQueueWaitIdle(m_graphicsQueue);
+    }
+    vkFreeCommandBuffers(m_device, m_loaderCommandPool, 1, &cmd);
+}
+
+void VulkanRenderer::CreateImage(uint32_t width, uint32_t height, VkFormat format,
+                                  VkImageTiling tiling, VkImageUsageFlags usage,
+                                  VkMemoryPropertyFlags props,
+                                  VkImage& image, VkDeviceMemory& memory) const
+{
+    VkImageCreateInfo ci{};
+    ci.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    ci.imageType     = VK_IMAGE_TYPE_2D;
+    ci.extent        = { width, height, 1 };
+    ci.mipLevels     = 1;
+    ci.arrayLayers   = 1;
+    ci.format        = format;
+    ci.tiling        = tiling;
+    ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    ci.usage         = usage;
+    ci.samples       = VK_SAMPLE_COUNT_1_BIT;
+    ci.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+    vkCreateImage(m_device, &ci, nullptr, &image);
+
+    VkMemoryRequirements req;
+    vkGetImageMemoryRequirements(m_device, image, &req);
+    VkMemoryAllocateInfo ai{};
+    ai.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    ai.allocationSize  = req.size;
+    ai.memoryTypeIndex = FindMemoryType(req.memoryTypeBits, props);
+    vkAllocateMemory(m_device, &ai, nullptr, &memory);
+    vkBindImageMemory(m_device, image, memory, 0);
+}
+
+VkImageView VulkanRenderer::CreateImageView(VkImage image, VkFormat format, VkImageAspectFlags aspect) const
+{
+    VkImageViewCreateInfo ci{};
+    ci.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    ci.image                           = image;
+    ci.viewType                        = VK_IMAGE_VIEW_TYPE_2D;
+    ci.format                          = format;
+    ci.subresourceRange.aspectMask     = aspect;
+    ci.subresourceRange.baseMipLevel   = 0;
+    ci.subresourceRange.levelCount     = 1;
+    ci.subresourceRange.baseArrayLayer = 0;
+    ci.subresourceRange.layerCount     = 1;
+    VkImageView view = VK_NULL_HANDLE;
+    vkCreateImageView(m_device, &ci, nullptr, &view);
+    return view;
+}
+
+void VulkanRenderer::TransitionImageLayout(VkImage image, VkFormat format,
+                                            VkImageLayout oldLayout, VkImageLayout newLayout) const
+{
+    VkCommandBuffer cmd = BeginSingleTimeCommands();
+    VkImageMemoryBarrier barrier{};
+    barrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.oldLayout           = oldLayout;
+    barrier.newLayout           = newLayout;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image               = image;
+    barrier.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    if (newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT |
+            (HasStencilComponent(format) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0);
+
+    VkPipelineStageFlags src = 0, dst = 0;
+    if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+        barrier.srcAccessMask = 0; barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        src = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT; dst = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT; barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        src = VK_PIPELINE_STAGE_TRANSFER_BIT; dst = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        src = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT; dst = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    }
+    vkCmdPipelineBarrier(cmd, src, dst, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+    EndSingleTimeCommands(cmd);
+}
+
+void VulkanRenderer::CopyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height) const
+{
+    VkCommandBuffer cmd = BeginSingleTimeCommands();
+    VkBufferImageCopy region{};
+    region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+    region.imageExtent      = { width, height, 1 };
+    vkCmdCopyBufferToImage(cmd, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    EndSingleTimeCommands(cmd);
+}
+
+VkFormat VulkanRenderer::FindDepthFormat() const
+{
+    return FindSupportedFormat(
+        { VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT },
+        VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
+}
+
+VkFormat VulkanRenderer::FindSupportedFormat(const std::vector<VkFormat>& candidates,
+                                               VkImageTiling tiling, VkFormatFeatureFlags features) const
+{
+    for (auto fmt : candidates) {
+        VkFormatProperties props;
+        vkGetPhysicalDeviceFormatProperties(m_physicalDevice, fmt, &props);
+        if (tiling == VK_IMAGE_TILING_LINEAR  && (props.linearTilingFeatures  & features) == features) return fmt;
+        if (tiling == VK_IMAGE_TILING_OPTIMAL && (props.optimalTilingFeatures & features) == features) return fmt;
+    }
+    throw std::runtime_error("[VulkanRenderer] Failed to find supported format.");
+}
+
+bool VulkanRenderer::HasStencilComponent(VkFormat fmt) const
+{
+    return fmt == VK_FORMAT_D32_SFLOAT_S8_UINT || fmt == VK_FORMAT_D24_UNORM_S8_UINT;
+}
+
+bool VulkanRenderer::CheckValidationLayerSupport() const
+{
+    uint32_t count = 0;
+    vkEnumerateInstanceLayerProperties(&count, nullptr);
+    std::vector<VkLayerProperties> layers(count);
+    vkEnumerateInstanceLayerProperties(&count, layers.data());
+    for (const char* name : k_validationLayers) {
+        bool found = false;
+        for (auto& l : layers) if (std::string(l.layerName) == name) { found = true; break; }
+        if (!found) return false;
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// 2D Drawing — Windows uses D2D to the WIC bitmap overlay, then uploads to Vulkan
+// ---------------------------------------------------------------------------------------------------------------
+void VulkanRenderer::DrawRectangle(const Vector2& position, const Vector2& size, const MyColor& color, bool is2D)
+{
+    if (!is2D) return;
+#if defined(PLATFORM_WINDOWS)
+    if (!m_d2dRenderTarget) return;
+    DrawRectangleD2D(position, size, color);
+    m_overlayDirty = true;
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    // Stub: software render to staging buffer — implement with CPU rasterizer or FreeType
+    (void)position; (void)size; (void)color;
+#endif
+}
+
+void VulkanRenderer::DrawCircle(const Vector2& center, float radius, const MyColor& color, bool filled) {
+#if defined(PLATFORM_WINDOWS)
+    if (!m_d2dRenderTarget) return;
+    float fr = color.r / 255.0f, fg = color.g / 255.0f, fb = color.b / 255.0f, fa = color.a / 255.0f;
+    ComPtr<ID2D1SolidColorBrush> brush;
+    m_d2dRenderTarget->CreateSolidColorBrush(D2D1::ColorF(fr, fg, fb, fa), &brush);
+    if (!brush) return;
+    D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(center.x, center.y), radius, radius);
+    if (filled) m_d2dRenderTarget->FillEllipse(ellipse, brush.Get());
+    else        m_d2dRenderTarget->DrawEllipse(ellipse, brush.Get());
+    m_overlayDirty = true;
+#else
+    (void)center; (void)radius; (void)color; (void)filled;
+#endif
+}
+
+void VulkanRenderer::PushClipRect(float x, float y, float w, float h) {
+#if defined(PLATFORM_WINDOWS)
+    if (!m_d2dRenderTarget) return;
+    m_d2dRenderTarget->PushAxisAlignedClip(D2D1::RectF(x, y, x + w, y + h),
+                                            D2D1_ANTIALIAS_MODE_ALIASED);
+#else
+    (void)x; (void)y; (void)w; (void)h;
+#endif
+}
+
+void VulkanRenderer::PopClipRect() {
+#if defined(PLATFORM_WINDOWS)
+    if (!m_d2dRenderTarget) return;
+    m_d2dRenderTarget->PopAxisAlignedClip();
+#endif
+}
+
+#if defined(PLATFORM_WINDOWS)
+void VulkanRenderer::DrawRectangleD2D(const Vector2& pos, const Vector2& size, const MyColor& color)
+{
+    ID2D1RenderTarget* target = (m_drawToBackground && m_bgD2dRenderTarget)
+                                    ? m_bgD2dRenderTarget.Get()
+                                    : m_d2dRenderTarget.Get();
+    if (!target) return;
+    ComPtr<ID2D1SolidColorBrush> brush;
+    D2D1_COLOR_F dc = { color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, color.a / 255.0f };
+    target->CreateSolidColorBrush(dc, &brush);
+    if (!brush) return;
+    D2D1_RECT_F rect = D2D1::RectF(pos.x, pos.y, pos.x + size.x, pos.y + size.y);
+    target->FillRectangle(rect, brush.Get());
+}
+
+void VulkanRenderer::DrawTextD2D(const std::wstring& text, const Vector2& pos, const Vector2& sz,
+                                  const MyColor& color, float fontSize, const std::wstring& fontName,
+                                  bool centered, float ctrlW, float ctrlH)
+{
+    if (!m_d2dRenderTarget || !m_dwriteFactory) return;
+    IDWriteTextFormat* fmt = GetOrCreateTextFormat(fontName.c_str(), fontSize);
+    if (!fmt) return;
+    ComPtr<ID2D1SolidColorBrush> brush;
+    D2D1_COLOR_F dc = { color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, color.a / 255.0f };
+    m_d2dRenderTarget->CreateSolidColorBrush(dc, &brush);
+    if (!brush) return;
+
+    float w = (sz.x > 0.0f) ? sz.x : (ctrlW > 0.0f ? ctrlW : static_cast<float>(m_renderTargetWidth));
+    float h = (sz.y > 0.0f) ? sz.y : (ctrlH > 0.0f ? ctrlH : static_cast<float>(m_renderTargetHeight));
+    D2D1_RECT_F rect = D2D1::RectF(pos.x, pos.y, pos.x + w, pos.y + h);
+    if (centered) {
+        fmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        fmt->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    } else {
+        fmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        fmt->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+    }
+    m_d2dRenderTarget->DrawTextW(text.c_str(), static_cast<UINT32>(text.size()),
+                                 fmt, rect, brush.Get());
+}
+
+IDWriteTextFormat* VulkanRenderer::GetOrCreateTextFormat(const wchar_t* fontName, float fontSize)
+{
+    TextFormatKey key{ fontName, fontSize };
+    auto it = m_textFormatCache.find(key);
+    if (it != m_textFormatCache.end()) return it->second.Get();
+
+    ComPtr<IDWriteTextFormat> fmt;
+    if (FAILED(m_dwriteFactory->CreateTextFormat(fontName, nullptr,
+                DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+                fontSize, L"en-us", &fmt))) return nullptr;
+    m_textFormatCache[key] = fmt;
+    return fmt.Get();
+}
+
+void VulkanRenderer::InvalidateTextFormatCache() { m_textFormatCache.clear(); }
+
+void VulkanRenderer::UploadOverlayToVulkan(VkCommandBuffer cmd)
+{
+    if (!m_overlayDirty || !m_wicBitmap || !m_overlayTexture.isValid) return;
+    if (m_overlayTexture.image == VK_NULL_HANDLE) return;  // guard: image must be valid
+
+    // Lock WIC bitmap and copy to staging buffer
+    WICRect lockRect = { 0, 0, static_cast<INT>(m_overlayWidth), static_cast<INT>(m_overlayHeight) };
+    ComPtr<IWICBitmapLock> lock;
+    if (FAILED(m_wicBitmap->Lock(&lockRect, WICBitmapLockRead, &lock))) return;
+
+    UINT stride = 0, bufSize = 0;
+    WICInProcPointer dataPtr = nullptr;
+    lock->GetStride(&stride);
+    lock->GetDataPointer(&bufSize, &dataPtr);
+
+    void* mapped = nullptr;
+    VkDeviceSize mapSize = static_cast<VkDeviceSize>(m_overlayWidth) * m_overlayHeight * 4;
+    vkMapMemory(m_device, m_overlayStagingMemory, 0, mapSize, 0, &mapped);
+    // Copy row by row (stride may differ from width*4)
+    for (uint32_t row = 0; row < m_overlayHeight; ++row)
+        std::memcpy(static_cast<uint8_t*>(mapped) + row * m_overlayWidth * 4,
+                    dataPtr + row * stride, m_overlayWidth * 4);
+    vkUnmapMemory(m_device, m_overlayStagingMemory);
+
+    // Transition overlay to TRANSFER_DST
+    VkImageMemoryBarrier toTransfer{};
+    toTransfer.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    toTransfer.oldLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    toTransfer.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransfer.image               = m_overlayTexture.image;
+    toTransfer.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    toTransfer.srcAccessMask       = VK_ACCESS_SHADER_READ_BIT;
+    toTransfer.dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
+    vkCmdPipelineBarrier(cmd,
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0, 0, nullptr, 0, nullptr, 1, &toTransfer);
+
+    VkBufferImageCopy region{};
+    region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+    region.imageExtent      = { m_overlayWidth, m_overlayHeight, 1 };
+    vkCmdCopyBufferToImage(cmd, m_overlayStagingBuffer, m_overlayTexture.image,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+    // Transition back to SHADER_READ
+    VkImageMemoryBarrier toShader = toTransfer;
+    toShader.oldLayout    = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    toShader.newLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    toShader.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    toShader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    vkCmdPipelineBarrier(cmd,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        0, 0, nullptr, 0, nullptr, 1, &toShader);
+
+    m_overlayDirty = false;
+}
+
+void VulkanRenderer::UploadBgOverlayToVulkan(VkCommandBuffer cmd)
+{
+    if (!m_bgOverlayDirty || !m_bgWicBitmap || !m_bgOverlayTexture.isValid) return;
+
+    WICRect lockRect = { 0, 0, static_cast<INT>(m_overlayWidth), static_cast<INT>(m_overlayHeight) };
+    ComPtr<IWICBitmapLock> lock;
+    if (FAILED(m_bgWicBitmap->Lock(&lockRect, WICBitmapLockRead, &lock))) return;
+
+    UINT stride = 0, bufSize = 0;
+    WICInProcPointer dataPtr = nullptr;
+    lock->GetStride(&stride);
+    lock->GetDataPointer(&bufSize, &dataPtr);
+
+    void* mapped = nullptr;
+    VkDeviceSize mapSize = static_cast<VkDeviceSize>(m_overlayWidth) * m_overlayHeight * 4;
+    vkMapMemory(m_device, m_bgStagingMemory, 0, mapSize, 0, &mapped);
+    for (uint32_t row = 0; row < m_overlayHeight; ++row)
+        std::memcpy(static_cast<uint8_t*>(mapped) + row * m_overlayWidth * 4,
+                    dataPtr + row * stride, m_overlayWidth * 4);
+    vkUnmapMemory(m_device, m_bgStagingMemory);
+
+    VkImageMemoryBarrier toTransfer{};
+    toTransfer.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    toTransfer.oldLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    toTransfer.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransfer.image               = m_bgOverlayTexture.image;
+    toTransfer.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    toTransfer.srcAccessMask       = VK_ACCESS_SHADER_READ_BIT;
+    toTransfer.dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
+    vkCmdPipelineBarrier(cmd,
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0, 0, nullptr, 0, nullptr, 1, &toTransfer);
+
+    VkBufferImageCopy region{};
+    region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+    region.imageExtent      = { m_overlayWidth, m_overlayHeight, 1 };
+    vkCmdCopyBufferToImage(cmd, m_bgStagingBuffer, m_bgOverlayTexture.image,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+    VkImageMemoryBarrier toShader = toTransfer;
+    toShader.oldLayout    = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    toShader.newLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    toShader.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    toShader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    vkCmdPipelineBarrier(cmd,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        0, 0, nullptr, 0, nullptr, 1, &toShader);
+
+    m_bgOverlayDirty = false;
+}
+#endif // PLATFORM_WINDOWS
+
+// ---------------------------------------------------------------------------------------------------------------
+// DrawMyText overloads
+// ---------------------------------------------------------------------------------------------------------------
+void VulkanRenderer::DrawMyText(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize)
+{
+#if defined(PLATFORM_WINDOWS)
+    if (!m_d2dRenderTarget) return;
+    DrawTextD2D(text, position, Vector2(0,0), color, FontSize, FontName, false);
+    m_overlayDirty = true;
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    (void)text; (void)position; (void)color; (void)FontSize;
+#endif
+}
+
+void VulkanRenderer::DrawMyText(const std::wstring& text, const Vector2& position, const Vector2& size, const MyColor& color, const float FontSize)
+{
+#if defined(PLATFORM_WINDOWS)
+    if (!m_d2dRenderTarget) return;
+    DrawTextD2D(text, position, size, color, FontSize, FontName, false);
+    m_overlayDirty = true;
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    (void)text; (void)position; (void)size; (void)color; (void)FontSize;
+#endif
+}
+
+void VulkanRenderer::DrawMyTextCentered(const std::wstring& text, const Vector2& position, const MyColor& color,
+                                         const float FontSize, float controlWidth, float controlHeight, bool /*bold*/)
+{
+#if defined(PLATFORM_WINDOWS)
+    if (!m_d2dRenderTarget || !m_dwriteFactory) return;
+    if (text.empty() || FontSize <= 0.0f) return;
+
+    // Bold weight for visual parity: Vulkan uses an off-screen WIC bitmap (96 DPI) which renders
+    // glyphs thinner than DX11's DXGI backbuffer target.  Bold compensates so GUI text reads at
+    // the same visual weight as the DX11 pipeline.
+    ComPtr<IDWriteTextFormat> textFormat;
+    HRESULT hr = m_dwriteFactory->CreateTextFormat(
+        FontName, nullptr,
+        DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+        FontSize, L"en-us", &textFormat);
+    if (FAILED(hr) || !textFormat) return;
+
+    // Use leading/near alignment — centering is computed from exact glyph metrics below.
+    textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+    textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+
+    // Create a temporary text layout to measure exact glyph extents for pixel-perfect centering.
+    ComPtr<IDWriteTextLayout> textLayout;
+    hr = m_dwriteFactory->CreateTextLayout(
+        text.c_str(), static_cast<UINT32>(text.size()),
+        textFormat.Get(), 10000.f, 1000.f, &textLayout);
+    if (FAILED(hr) || !textLayout) return;
+
+    DWRITE_TEXT_METRICS metrics{};
+    textLayout->GetMetrics(&metrics);
+
+    // Pixel-perfect centering: offset by half control size minus half glyph size.
+    float centredX = position.x + (controlWidth  * 0.5f) - (metrics.width  * 0.5f);
+    float centredY = position.y + (controlHeight * 0.5f) - (metrics.height * 0.5f);
+
+    float fr = color.r / 255.0f, fg = color.g / 255.0f, fb = color.b / 255.0f, fa = color.a / 255.0f;
+    ComPtr<ID2D1SolidColorBrush> brush;
+    m_d2dRenderTarget->CreateSolidColorBrush(D2D1::ColorF(fr, fg, fb, fa), &brush);
+    if (!brush) return;
+
+    m_d2dRenderTarget->DrawText(
+        text.c_str(), static_cast<UINT32>(text.size()), textFormat.Get(),
+        D2D1::RectF(centredX, centredY, centredX + metrics.width, centredY + metrics.height),
+        brush.Get());
+    m_overlayDirty = true;
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    (void)text; (void)position; (void)color; (void)FontSize; (void)controlWidth; (void)controlHeight;
+#endif
+}
+
+void VulkanRenderer::DrawMyTextWithFont(const std::wstring& text, const Vector2& position, const MyColor& color,
+                                         const float FontSize, const std::wstring& fontName)
+{
+#if defined(PLATFORM_WINDOWS)
+    if (!m_d2dRenderTarget) return;
+    DrawTextD2D(text, position, Vector2(0,0), color, FontSize, fontName, false);
+    m_overlayDirty = true;
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    (void)text; (void)position; (void)color; (void)FontSize; (void)fontName;
+#endif
+}
+
+void VulkanRenderer::DrawMyTextStyled(const std::wstring& text, const Vector2& position,
+                                       const MyColor& color, const TextRenderStyle& style)
+{
+#if defined(PLATFORM_WINDOWS)
+    if (!m_d2dRenderTarget || !m_dwriteFactory) return;
+    if (text.empty() || style.fontSize <= 0.0f) return;
+
+    ComPtr<IDWriteTextFormat> fmt;
+    HRESULT hr = m_dwriteFactory->CreateTextFormat(
+        style.fontName.empty() ? L"Arial" : style.fontName.c_str(),
+        nullptr,
+        style.bold   ? DWRITE_FONT_WEIGHT_BOLD   : DWRITE_FONT_WEIGHT_NORMAL,
+        style.italic ? DWRITE_FONT_STYLE_ITALIC   : DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        style.fontSize,
+        L"en-us",
+        &fmt);
+    if (FAILED(hr) || !fmt) return;
+
+    // style.centered: centre text horizontally across the full render-target width
+    // (matches DX11Renderer::DrawMyTextStyled — used for loading-screen messages)
+    float    layoutWidth = 2000.0f;
+    float    drawX       = position.x;
+    if (style.centered) {
+        float rtWidth = (m_renderTargetWidth > 0)
+                        ? static_cast<float>(m_renderTargetWidth)
+                        : 1920.0f;
+        fmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        layoutWidth = rtWidth;
+        drawX       = 0.0f;
+    }
+
+    UINT32 textLen = static_cast<UINT32>(text.size());
+    ComPtr<IDWriteTextLayout> layout;
+    hr = m_dwriteFactory->CreateTextLayout(text.c_str(), textLen, fmt.Get(), layoutWidth, 500.0f, &layout);
+    if (FAILED(hr) || !layout) return;
+
+    DWRITE_TEXT_RANGE all{ 0, textLen };
+    if (style.underline)     layout->SetUnderline(TRUE,  all);
+    if (style.strikethrough) layout->SetStrikethrough(TRUE, all);
+
+    D2D1_COLOR_F dc = { color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, color.a / 255.0f };
+    ComPtr<ID2D1SolidColorBrush> brush;
+    m_d2dRenderTarget->CreateSolidColorBrush(dc, &brush);
+    if (!brush) return;
+
+    m_d2dRenderTarget->DrawTextLayout(D2D1::Point2F(drawX, position.y), layout.Get(), brush.Get());
+    m_overlayDirty = true;
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    (void)text; (void)position; (void)color; (void)style;
+#endif
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// GetCharacterWidth / CalculateText helpers
+// ---------------------------------------------------------------------------------------------------------------
+// Vulkan text measurement uses a proportional character-width table rather than
+// DWrite text layout creation, which is a DX11-specific measurement path.
+// This is crash-safe, platform-agnostic, and accurate enough for GUI layout.
+// ---------------------------------------------------------------------------------------------------------------
+
+// Returns the estimated pixel width of a single character at the given font size.
+static float VKCharWidth(wchar_t c, float fs)
+{
+    // Narrow
+    if (c == L' ')                                   return fs * 0.28f;
+    if (c == L'\t')                                  return fs * 1.12f; // 4 spaces approx
+    if (c == L'\n' || c == L'\r')                    return 0.0f;
+    if (wcschr(L"il1jI|!.,;:'\"", c))               return fs * 0.30f;
+    // Medium-narrow
+    if (wcschr(L"frtJ()", c))                        return fs * 0.42f;
+    // Wide
+    if (wcschr(L"mwMW", c))                          return fs * 0.75f;
+    // Uppercase broad
+    if (c >= L'A' && c <= L'Z')                      return fs * 0.62f;
+    // Digits
+    if (c >= L'0' && c <= L'9')                      return fs * 0.58f;
+    // Default proportional average
+    return fs * 0.55f;
+}
+
+float VulkanRenderer::GetCharacterWidth(wchar_t character, float FontSize)
+{
+    return VKCharWidth(character, FontSize);
+}
+
+float VulkanRenderer::GetCharacterWidth(wchar_t character, float FontSize, const std::wstring& /*fontName*/)
+{
+    return VKCharWidth(character, FontSize);
+}
+
+float VulkanRenderer::CalculateTextWidth(const std::wstring& text, float FontSize, float /*containerWidth*/)
+{
+    if (text.empty()) return 0.0f;
+    // Return the width of the longest line (handles multi-line strings).
+    float maxWidth = 0.0f;
+    float lineWidth = 0.0f;
+    for (wchar_t c : text) {
+        if (c == L'\n' || c == L'\r') {
+            maxWidth = std::max(maxWidth, lineWidth);
+            lineWidth = 0.0f;
+        } else {
+            lineWidth += VKCharWidth(c, FontSize);
+        }
+    }
+    return std::max(maxWidth, lineWidth);
+}
+
+float VulkanRenderer::CalculateTextHeight(const std::wstring& text, float FontSize, float /*containerHeight*/)
+{
+    if (text.empty()) return FontSize;
+    // Count lines; each line is FontSize pixels tall with 20% line-gap.
+    const float lineHeight = FontSize * 1.20f;
+    int lines = 1;
+    for (wchar_t c : text) {
+        if (c == L'\n') ++lines;
+    }
+    return static_cast<float>(lines) * lineHeight;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// DrawTexture
+// ---------------------------------------------------------------------------------------------------------------
+void VulkanRenderer::DrawTexture(int textureId, const Vector2& position, const Vector2& size,
+                                  const MyColor& tintColor, bool is2D)
+{
+#if defined(PLATFORM_WINDOWS)
+    if (!m_d2dRenderTarget) return;
+    if (is2D && textureId >= 0 && textureId < MAX_TEXTURE_BUFFERS && m_textures2D[textureId].isValid) {
+        // Draw using the 2D Vulkan texture via D2D overlay, respecting tintColor alpha for fade support
+        ComPtr<ID2D1Bitmap>       bitmap = m_d2dTextures[textureId];
+        ComPtr<ID2D1RenderTarget> rt     = m_d2dRenderTarget;
+        if (!bitmap || !rt) return;
+        D2D1_SIZE_F sz   = bitmap->GetSize();
+        D2D1_RECT_F dest = D2D1::RectF(position.x, position.y, position.x + size.x, position.y + size.y);
+        rt->DrawBitmap(bitmap.Get(), dest, tintColor.a / 255.0f,
+                       D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,
+                       D2D1::RectF(0.0f, 0.0f, sz.width, sz.height));
+    }
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    (void)textureId; (void)position; (void)size; (void)tintColor; (void)is2D;
+#endif
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// 2D Blit operations (Windows D2D path)
+// ---------------------------------------------------------------------------------------------------------------
+void VulkanRenderer::Blit2DObject(BlitObj2DIndexType iIndex, int iX, int iY)
+{
+#if defined(PLATFORM_WINDOWS)
+    int idx = static_cast<int>(iIndex);
+    if (idx < 0 || idx >= MAX_TEXTURE_BUFFERS) return;
+    ComPtr<ID2D1Bitmap>       bitmap = m_d2dTextures[idx];
+    ComPtr<ID2D1RenderTarget> rt     = m_d2dRenderTarget;
+    if (!bitmap || !rt) return;
+    D2D1_SIZE_F sz = bitmap->GetSize();
+    D2D1_RECT_F dest = D2D1::RectF(static_cast<float>(iX), static_cast<float>(iY),
+                                    static_cast<float>(iX) + sz.width,
+                                    static_cast<float>(iY) + sz.height);
+    rt->DrawBitmap(bitmap.Get(), dest, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,
+                   D2D1::RectF(0.0f, 0.0f, sz.width, sz.height));
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    (void)iIndex; (void)iX; (void)iY;
+#endif
+}
+
+void VulkanRenderer::Blit2DObjectToSize(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight)
+{
+#if defined(PLATFORM_WINDOWS)
+    int idx = static_cast<int>(iIndex);
+    if (idx < 0 || idx >= MAX_TEXTURE_BUFFERS) return;
+    ComPtr<ID2D1Bitmap>       bitmap = m_d2dTextures[idx];
+    ComPtr<ID2D1RenderTarget> rt     = m_d2dRenderTarget;
+    if (!bitmap || !rt) return;
+    D2D1_SIZE_F sz = bitmap->GetSize();
+    D2D1_RECT_F dest = D2D1::RectF(static_cast<float>(iX),          static_cast<float>(iY),
+                                    static_cast<float>(iX + iWidth), static_cast<float>(iY + iHeight));
+    rt->DrawBitmap(bitmap.Get(), dest, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,
+                   D2D1::RectF(0.0f, 0.0f, sz.width, sz.height));
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    (void)iIndex; (void)iX; (void)iY; (void)iWidth; (void)iHeight;
+#endif
+}
+
+void VulkanRenderer::Blit2DObjectToSizeWithAlpha(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float alpha)
+{
+#if defined(PLATFORM_WINDOWS)
+    int idx = static_cast<int>(iIndex);
+    if (idx < 0 || idx >= MAX_TEXTURE_BUFFERS) return;
+    ComPtr<ID2D1Bitmap>       bitmap = m_d2dTextures[idx];
+    ComPtr<ID2D1RenderTarget> rt     = m_d2dRenderTarget;
+    if (!bitmap || !rt) return;
+    D2D1_SIZE_F sz   = bitmap->GetSize();
+    D2D1_RECT_F dest = D2D1::RectF(static_cast<float>(iX),          static_cast<float>(iY),
+                                    static_cast<float>(iX + iWidth), static_cast<float>(iY + iHeight));
+    float clampedAlpha = std::clamp(alpha, 0.0f, 1.0f);
+    rt->DrawBitmap(bitmap.Get(), dest, clampedAlpha, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,
+                   D2D1::RectF(0.0f, 0.0f, sz.width, sz.height));
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    (void)iIndex; (void)iX; (void)iY; (void)iWidth; (void)iHeight; (void)alpha;
+#endif
+}
+
+void VulkanRenderer::Blit2DObjectAtOffset(BlitObj2DIndexType iIndex, int iBlitX, int iBlitY,
+                                           int iXOffset, int iYOffset, int iTileSizeX, int iTileSizeY)
+{
+#if defined(PLATFORM_WINDOWS)
+    int idx = static_cast<int>(iIndex);
+    if (idx < 0 || idx >= MAX_TEXTURE_BUFFERS) return;
+    ComPtr<ID2D1Bitmap>       bitmap = m_d2dTextures[idx];
+    ComPtr<ID2D1RenderTarget> rt     = m_d2dRenderTarget;
+    if (!bitmap || !rt) return;
+    D2D1_RECT_F dest   = D2D1::RectF(static_cast<float>(iBlitX),
+                                      static_cast<float>(iBlitY),
+                                      static_cast<float>(iBlitX + iTileSizeX),
+                                      static_cast<float>(iBlitY + iTileSizeY));
+    D2D1_RECT_F srcRct = D2D1::RectF(static_cast<float>(iXOffset),
+                                      static_cast<float>(iYOffset),
+                                      static_cast<float>(iXOffset + iTileSizeX),
+                                      static_cast<float>(iYOffset + iTileSizeY));
+    rt->DrawBitmap(bitmap.Get(), dest, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, srcRct);
+#else
+    (void)iIndex; (void)iBlitX; (void)iBlitY; (void)iXOffset; (void)iYOffset; (void)iTileSizeX; (void)iTileSizeY;
+#endif
+}
+
+#if defined(PLATFORM_WINDOWS)
+void VulkanRenderer::Blit2DWrappedObjectAtOffset(BlitObj2DIndexType iIndex, int iBlitX, int iBlitY,
+                                                   int iXOffset, int iYOffset, int iTileSizeX, int iTileSizeY)
+{
+    // Wrapping atlas blit: same as offset blit for single-tile use-cases in Vulkan
+    Blit2DObjectAtOffset(iIndex, iBlitX, iBlitY, iXOffset, iYOffset, iTileSizeX, iTileSizeY);
+    (void)iIndex; (void)iBlitX; (void)iBlitY; (void)iXOffset; (void)iYOffset; (void)iTileSizeX; (void)iTileSizeY;
+}
+
+void VulkanRenderer::Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, int iDestY, int iDestW, int iDestH, float zoomFactor)
+{
+    int idx = static_cast<int>(iIndex);
+    if (idx < 0 || idx >= MAX_TEXTURE_BUFFERS) return;
+    ComPtr<ID2D1Bitmap>       bitmap = m_d2dTextures[idx];
+    // Route to background overlay when m_drawToBackground is active (e.g. GAMEINTRO1 zoom)
+    ComPtr<ID2D1RenderTarget> rt     = (m_drawToBackground && m_bgD2dRenderTarget)
+                                           ? m_bgD2dRenderTarget
+                                           : m_d2dRenderTarget;
+    if (!bitmap || !rt) return;
+
+    // Clamp zoom factor to valid range (0.0–0.75)
+    float z    = std::clamp(zoomFactor, 0.0f, 0.75f);
+    D2D1_SIZE_F sz = bitmap->GetSize();
+    float srcW = sz.width  * (1.0f - z);                                       // Cropped source width
+    float srcH = sz.height * (1.0f - z);                                       // Cropped source height
+    float srcX = (sz.width  - srcW) * 0.5f;                                   // Centre-aligned source X
+    float srcY = (sz.height - srcH) * 0.5f;                                   // Centre-aligned source Y
+
+    D2D1_RECT_F srcRect  = D2D1::RectF(srcX, srcY, srcX + srcW, srcY + srcH);
+    D2D1_RECT_F destRect = D2D1::RectF(
+        static_cast<float>(iDestX),          static_cast<float>(iDestY),
+        static_cast<float>(iDestX + iDestW), static_cast<float>(iDestY + iDestH)
+    );
+    rt->DrawBitmap(bitmap.Get(), destRect, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, srcRect);
+    // Mark the appropriate overlay dirty so UploadBgOverlayToVulkan sees the change
+    if (m_drawToBackground)
+        m_bgOverlayDirty = true;
+}
+
+void VulkanRenderer::Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 color)
+{
+    if (m_drawToBackground ? !m_bgD2dRenderTarget : !m_d2dRenderTarget) return;
+    MyColor c(static_cast<uint8_t>(color.x * 255), static_cast<uint8_t>(color.y * 255),
+               static_cast<uint8_t>(color.z * 255), static_cast<uint8_t>(color.w * 255));
+    DrawRectangleD2D(Vector2(static_cast<float>(x), static_cast<float>(y)),
+                     Vector2(pixelSize, pixelSize), c);
+    if (m_drawToBackground)
+        m_bgOverlayDirty = true;
+    else
+        m_overlayDirty = true;
+}
+#endif
+
+bool VulkanRenderer::Place2DBlitObjectToQueue(BlitObj2DIndexType iIndex, BlitPhaseLevel BlitPhaseLvl,
+                                               BlitObj2DType objType, BlitObj2DDetails objDetails,
+                                               CanBlitType BlitType)
+{
+    int idx = static_cast<int>(iIndex);
+    if (BlitType == CanBlitType::CAN_BLIT_SINGLE && m_blitActiveIDs.count(idx)) return false;
+    for (int i = 0; i < MAX_2D_IMG_QUEUE_OBJS; ++i) {
+        if (!My2DBlitQueue[i].bInUse) {
+            My2DBlitQueue[i].bInUse        = true;
+            My2DBlitQueue[i].BlitType      = BlitType;
+            My2DBlitQueue[i].BlitPhase     = BlitPhaseLvl;
+            My2DBlitQueue[i].BlitObjType   = objType;
+            My2DBlitQueue[i].BlitObjDetails = objDetails;
+            m_blitActiveIDs.insert(idx);
+            return true;
+        }
+    }
+    return false;
+}
+
+void VulkanRenderer::Clear2DBlitQueue()
+{
+    std::memset(My2DBlitQueue, 0, sizeof(My2DBlitQueue));
+    m_blitActiveIDs.clear();
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// RenderBackgroundImage — draws the scene background onto the D2D overlay.
+// Called from within VULKAN_RenderFrame's BeginDraw/EndDraw block; does NOT call
+// BeginDraw/EndDraw itself (unlike DX11 which has its own D2D session per call).
+// ---------------------------------------------------------------------------------------------------------------
+void VulkanRenderer::RenderBackgroundImage()
+{
+#if defined(PLATFORM_WINDOWS)
+    if (!m_d2dRenderTarget) return;
+    if (threadManager.threadVars.bIsShuttingDown.load() ||
+        bIsMinimized.load()                             ||
+        threadManager.threadVars.bIsResizing.load()     ||
+        !bIsInitialized.load()) return;
+
+    switch (scene.stSceneType)
+    {
+        case SceneType::SCENE_GAMETITLE:
+        {
+            if (threadManager.threadVars.bLoaderTaskFinished.load())
+            {
+                // IMG_GAMEINTRO1 is rendered as the FIRST Vulkan quad inside the render
+                // pass (before 3D geometry) so the ship appears in front of it.
+                // Do NOT blit it here — blitting to D2D composites it AFTER 3D models,
+                // which would hide them completely (DX11 renders 3D over D2D; Vulkan
+                // composites D2D overlay over 3D, so backgrounds must go into the pass).
+
+                // Company logo only — this overlay element sits ON TOP of the 3D scene.
+                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]) {
+                    D2D1_SIZE_F logoSz = m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]->GetSize();
+                    int halfW = static_cast<int>(logoSz.width  * 0.5f);
+                    int halfH = static_cast<int>(logoSz.height * 0.5f);
+                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - halfH, halfW, halfH);
+                }
+            }
+            else
+            {
+                // Loading screen: no 3D models render while the loader is in progress,
+                // so the fullscreen loading image can safely go through the D2D overlay.
+                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_LOADING)]) {
+                    if (threadManager.threadVars.bInitiateFader.load()) {
+                        threadManager.threadVars.bInitiateFader.store(false);
+                        fxManager.FadeToImage(1.0f, 0.1f);
+                    }
+                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
+                }
+            }
+            break;
+        }
+
+        case SceneType::SCENE_GAMEPLAY:
+        {
+            if (!threadManager.threadVars.bLoaderTaskFinished.load())
+            {
+                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_LOADING)]) {
+                    if (threadManager.threadVars.bInitiateFader.load()) {
+                        threadManager.threadVars.bInitiateFader.store(false);
+                        fxManager.FadeToImage(1.0f, 0.1f);
+                    }
+                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
+                }
+            }
+            break;
+        }
+
+        #if defined(_DEBUG)
+        case SceneType::SCENE_EXPERIMENT:
+            break; // Black background — warp-dot tunnel renders over it
+        #endif
+
+        default:
+            break;
+    }
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    // Background clear handled by the Vulkan render-pass clear colour
+#endif
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Validation layer check
+// ---------------------------------------------------------------------------------------------------------------
+
+#endif // __USE_VULKAN__

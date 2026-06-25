@@ -1,0 +1,13 @@
+DX_FXManager.h - 24-06-2026
+============================
+
+Changes:
+- Added ImageFadeStrobe to FXType enum.
+- Added StrobePhase enum { FadingOut, FadingIn }.
+- Added ImageFadeStrobeData struct (imageType, fadeOutTarget, fadeOverTime, currentAlpha, phase, phaseTimer, stopRequested).
+- Added imageFadeStrobeData field to FXItem struct.
+- Added public methods to FXManager:
+    static constexpr int MAX_STROBE_INSTANCES = 10;
+    StartImageFadeStrobe, StopImageFadeStrobe, IsImageFadeStrobeActive,
+    GetImageFadeStrobeAlpha, RenderImageFadeStrobe.
+- Added private helper: UpdateImageFadeStrobe(FXItem& fx, float deltaTime).

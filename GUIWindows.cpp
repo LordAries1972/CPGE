@@ -2,11 +2,11 @@
 #include "Includes.h"
 
 #if defined(__USE_OPENGL__)
-    #include "OpenGLFXManager.h"
+    #include "FXManager.h"
 #elif defined(__USE_VULKAN__)
-    #include "VULKAN_FXManager.h"
+    #include "FXManager.h"
 #else
-    #include "DX_FXManager.h"
+    #include "FXManager.h"
 #endif
 
 // Our required Classes to create the GUI windows
@@ -16,18 +16,27 @@
 #include "WinSystem.h"
 #include "Debug.h"
 #include "SceneManager.h"
+#include "GamePlayer.h"
 
 extern Vector2 myMouseCoords;
 extern SoundManager soundManager;
+extern GamePlayer gamePlayer;
+extern PlayerInfo playerInfo[MAX_PLAYERS]; // Player Info Array
+
 extern void StopMusicPlayback();
 extern WindowMetrics winMetrics;
 #if defined(__USE_OPENGL__)
-    extern GLFXManager fxManager;
+    extern FXManager fxManager;
 #elif defined(__USE_VULKAN__)
-    extern VKFXManager fxManager;
+    extern FXManager fxManager;
 #else
     extern FXManager fxManager;
 #endif
+
+// Known Window Names — extern so main.cpp and other TUs can share these via extern declarations.
+extern const std::string DIFFICULTY_WINDOW_NAME = "DifficultyWindow";
+extern const std::string GameMenu_WindowName     = "GameMenuWindow";
+extern const std::string GAMEPLAYTYPES_WINDOW_NAME = "GamePlayTypes";
 
 // Forward declaration of the renderer's scene switch function, 
 // which is called by the experimental button in the game menu to 
@@ -42,6 +51,7 @@ extern std::shared_ptr<Renderer> renderer;
 #endif
 
 extern void SwitchToGameIntro();
+extern void StartGame();
 
 void GUIManager::CreateAlertWindow(const std::wstring& message) {
     const std::string WINDOW_NAME = "AlertWindow";
@@ -62,6 +72,9 @@ void GUIManager::CreateAlertWindow(const std::wstring& message) {
         debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateAlertWindow - Failed to create alert window");
         return;
     }
+
+    // Hide during setup — same race guard as CreateConfigWindow.
+    alertWindow->isVisible = false;
 
     // Add Title Bar control with corrected lambda handlers
     GUIControl titleBar; // Use stack-allocated control instead of shared_ptr to avoid circular references
@@ -199,11 +212,12 @@ void GUIManager::CreateAlertWindow(const std::wstring& message) {
     }; // End of mouse down handler
     
     alertWindow->AddControl(btnClose);
+
+    // All controls added — safe to make visible now.
+    alertWindow->isVisible = true;
 }
 
 void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
-    const std::string WINDOW_NAME = "GameMenuWindow";
-
     // Use debug output to log function entry
     debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Creating game menu window with message: %s", message.c_str());
 
@@ -215,7 +229,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
 
     // Create the Game Menu Window with proper error checking
     CreateMyWindow(
-        WINDOW_NAME,                                                        // Window name
+        GameMenu_WindowName,                                                        // Window name
         GUIWindowType::Dialog,                                              // Window type (Dialog)
         Vector2(renderer->iOrigWidth - GAMEMENU_WINDOW_WIDTH, 0),           // Position (x, y) - right side of screen
         Vector2(GAMEMENU_WINDOW_WIDTH, renderer->iOrigHeight),              // Size (width, height) - full height
@@ -228,11 +242,14 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
         renderer->iOrigWidth - static_cast<int>(GAMEMENU_WINDOW_WIDTH), 0, static_cast<int>(GAMEMENU_WINDOW_WIDTH), renderer->iOrigHeight);
 
     // Get the created window with proper error checking
-    std::shared_ptr<GUIWindow> gameMenuWindow = GetWindow(WINDOW_NAME);
+    std::shared_ptr<GUIWindow> gameMenuWindow = GetWindow(GameMenu_WindowName);
     if (!gameMenuWindow) {
         debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateGameMenuWindow - Failed to create game menu window");
         return;
     }
+
+    // Hide during setup — same race guard as CreateConfigWindow.
+    gameMenuWindow->isVisible = false;
 
     // Create weak reference to prevent circular references in lambda handlers
     std::weak_ptr<GUIWindow> weakGameMenuWindow = gameMenuWindow;
@@ -314,7 +331,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     // Add Game Play Button control with fixed lambda handlers
     GUIControl gameplayButton;
     gameplayButton.type = GUIControlType::Button;
-    gameplayButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 110);       // Position below configuration button
+    gameplayButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 100);       // Position below configuration button
     gameplayButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);                                                   // Same size as other buttons
     gameplayButton.bgColor = MyColor(0, 0, 0, 255);                                                             // Black background
     gameplayButton.txtColor = MyColor(255, 255, 0, 255);                                                        // Yellow text color
@@ -350,7 +367,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     }; // End of mouse over handler
 
     // Fixed onMouseBtnDown handler using proper error handling
-    gameplayButton.onMouseBtnDown = [this, windowName = std::string(WINDOW_NAME)]() 
+    gameplayButton.onMouseBtnDown = [this, windowName = std::string(GameMenu_WindowName)]() 
     {
         try {
             debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Game Play button clicked");
@@ -358,22 +375,15 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
             // Play sound effect safely
             soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
 
-            // Initiate fade to black effect with proper timing
-            fxManager.FadeToBlack(1.0f, 0.06f);
-
-            // Wait for fade effect to complete with proper timeout to prevent infinite loop
-            int fadeTimeout = 0;
-            const int MAX_FADE_TIMEOUT = 300; // 3 seconds maximum wait time (300 * 10ms)
-            while (fxManager.IsFadeActive() && fadeTimeout < MAX_FADE_TIMEOUT) {
-                Sleep(10); // Sleep for 10 milliseconds
-                fadeTimeout++;
-            }
-
-            // Remove the game menu window safely before application shutdown
-            RemoveWindow(windowName);
-
-            // Switch to GamePlay Scene.
-            SwitchToGamePlay();
+            // Fade out GameMenu, then create and fade in DifficultyWindow
+            ApplyWindowFadeCallback(
+                GUIWindowFadeType::FadeOut, 0.8f, windowName,
+                [this, windowName]() {
+                    RemoveWindow(windowName);
+                    CreateDifficultyWindow();
+                    ApplyWindowFade(GUIWindowFadeType::FadeIn, 1.0f, "DifficultyWindow");
+                }
+            );
         }
         catch (const std::exception& e) {
             debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateGameMenuWindow - Exception in gameplay button handler: %s",
@@ -387,7 +397,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     // Add Hi-Scores Table Button control with fixed lambda handlers
     GUIControl hiscoresButton;
     hiscoresButton.type = GUIControlType::Button;
-    hiscoresButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 165);       // Position below gameplay button
+    hiscoresButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 145);       // Position below gameplay button
     hiscoresButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);                                                   // Same size as other buttons
     hiscoresButton.bgColor = MyColor(0, 0, 0, 255);                                                             // Black background
     hiscoresButton.txtColor = MyColor(255, 255, 0, 255);                                                        // Yellow text color
@@ -446,7 +456,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     // Add Credits Button control with fixed lambda handlers
     GUIControl creditsButton;
     creditsButton.type = GUIControlType::Button;
-    creditsButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 220);       // Position below high scores button
+    creditsButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 190);       // Position below high scores button
     creditsButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);                                                   // Same size as other buttons
     creditsButton.bgColor = MyColor(0, 0, 0, 255);                                                             // Black background
     creditsButton.txtColor = MyColor(255, 255, 0, 255);                                                        // Yellow text color
@@ -504,7 +514,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     // Add Quit Button control with fixed lambda handlers
     GUIControl quitButton;
     quitButton.type = GUIControlType::Button;
-    quitButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 275);       // Position below credits button
+    quitButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 235);       // Position below credits button
     quitButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);                                                   // Same size as other buttons
     quitButton.bgColor = MyColor(0, 0, 0, 255);                                                             // Black background
     quitButton.txtColor = MyColor(255, 255, 0, 255);                                                        // Yellow text color
@@ -540,7 +550,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     // Quit button: start a fade-to-black then shut down inside the callback.
     // The callback fires from fxManager.Render() (render thread) once progress>=1,
     // so we never block the render thread with Sleep — the fade is fully visible.
-    quitButton.onMouseBtnDown = [this, windowName = std::string(WINDOW_NAME)]()
+    quitButton.onMouseBtnDown = [this, windowName = std::string(GameMenu_WindowName)]()
     {
         try {
             debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Quit button clicked, starting fade-out shutdown sequence");
@@ -593,7 +603,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
         // Experimental button — DEBUG builds only; launches WarpDotTunnel demo
         GUIControl experimentalButton;
         experimentalButton.type = GUIControlType::Button;
-        experimentalButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 330);
+        experimentalButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 280);
         experimentalButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);
         experimentalButton.bgColor = MyColor(0, 0, 0, 255);
         experimentalButton.txtColor = MyColor(255, 128, 0, 255);                                                       // Orange text — visually distinct from release buttons
@@ -613,7 +623,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
 
         experimentalButton.isVisible = true;
 
-        experimentalButton.onMouseBtnDown = [this, windowName = std::string(WINDOW_NAME)]() 
+        experimentalButton.onMouseBtnDown = [this, windowName = std::string(GameMenu_WindowName)]() 
         {
             // The experimental button OnMouseBtnDown handler performs a quick fade to black, then hands 
             // off to the loader thread to launch the WarpDotTunnel scene.
@@ -661,7 +671,594 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
         gameMenuWindow->AddControl(experimentalButton);
     #endif
 
+    // All controls added — safe to make visible now.
+    gameMenuWindow->isVisible = true;
+
     // Log successful completion of game menu window creation
     debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Game menu window created successfully with %d controls",
         static_cast<int>(gameMenuWindow->controls.size()));
+}
+
+//-------------------------------------------------------------------------------------------------
+// CreateDifficultyWindow — full-height side panel matching the GameMenu style.
+// Buttons are centred horizontally and vertically within the content area.
+// Call: guiManager.CreateDifficultyWindow();
+//-------------------------------------------------------------------------------------------------
+void GUIManager::CreateDifficultyWindow() {
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateDifficultyWindow - Creating difficulty selection window");
+
+    if (!renderer) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateDifficultyWindow - renderer is null, cannot create window");
+        return;
+    }
+
+    // Create window — same position and dimensions as GameMenuWindow
+    CreateMyWindow(
+        DIFFICULTY_WINDOW_NAME,                                                        // Window name
+        GUIWindowType::Dialog,                                              // Dialog type (no close chrome)
+        Vector2(renderer->iOrigWidth - GAMEMENU_WINDOW_WIDTH, 0),          // Right-side panel, full height
+        Vector2(GAMEMENU_WINDOW_WIDTH, renderer->iOrigHeight),             // Full screen height
+        MyColor(0, 0, 0, 0),                                               // Transparent background — textures supply visuals
+        int(BlitObj2DIndexType::NONE)                                       // No background texture
+    );
+
+    std::shared_ptr<GUIWindow> diffWindow = GetWindow(DIFFICULTY_WINDOW_NAME);
+    if (!diffWindow) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateDifficultyWindow - Failed to retrieve window after creation");
+        return;
+    }
+
+    // Hide during setup: the render thread snapshots windows every frame and
+    // could pick up this window before AddControl finishes, causing a data race
+    // on the controls vector (reallocation while iterating → dangling iterator).
+    // Mirror the pattern used in CreateConfigWindow.
+    diffWindow->isVisible = false;
+
+    std::weak_ptr<GUIWindow> weakDiffWindow = diffWindow;
+
+    // Title bar — identical graphics and height to GameMenuWindow
+    GUIControl titleBar;
+    titleBar.type             = GUIControlType::TitleBar;
+    titleBar.position         = Vector2(diffWindow->position.x, diffWindow->position.y);
+    titleBar.size             = Vector2(diffWindow->size.x, 40);
+    titleBar.bgColor          = MyColor(0, 0, 0, 255);
+    titleBar.txtColor         = MyColor(255, 255, 0, 255);
+    titleBar.bgTextureId      = int(BlitObj2DIndexType::IMG_TITLEBAR2);
+    titleBar.bgTextureHoverId = int(BlitObj2DIndexType::IMG_TITLEBAR2);
+    titleBar.label            = L"";
+    titleBar.lblFontSize      = 18.0f;
+    titleBar.isVisible        = true;
+    diffWindow->AddControl(titleBar);
+
+    // --- Vertical and horizontal centering for the 5-button cluster ---
+    // Cluster total height: 5 buttons × 30px + 4 gaps × 15px = 210px
+    const float btnH        = 30.0f;
+    const float btnGap      = 15.0f;
+    const float startY      = diffWindow->position.y + 55.0f;                                                              // 55px from window top, matching the GameMenu button start position
+    const float startX      = diffWindow->position.x + (GAMEMENU_WINDOW_WIDTH - GAMEMENU_BUTTON_WIDTH) * 0.5f;             // Horizontal centre in window (25px)
+
+    // ---------- Button 1 — Easy ----------
+    GUIControl easyButton;
+    easyButton.type             = GUIControlType::Button;
+    easyButton.position         = Vector2(startX, startY);
+    easyButton.size             = Vector2(GAMEMENU_BUTTON_WIDTH, btnH);
+    easyButton.bgColor          = MyColor(0, 0, 0, 255);
+    easyButton.txtColor         = MyColor(255, 255, 0, 255);
+    easyButton.useShadowedText  = true;
+    easyButton.bgTextureId      = int(BlitObj2DIndexType::IMG_BUTTON2UP);
+    easyButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);
+    easyButton.label            = L"EASY";
+    easyButton.bold             = true;
+    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        easyButton.lblFontSize  = 13.0f;
+    #else
+        easyButton.lblFontSize  = 16.0f;
+    #endif
+    easyButton.isVisible = true;
+
+    easyButton.onMouseOver = [weakDiffWindow]() {
+        if (auto window = weakDiffWindow.lock()) {
+            if (!window->bWindowDestroy) { }
+        }
+    };
+    easyButton.onMouseBtnDown = [this, windowName = std::string(DIFFICULTY_WINDOW_NAME)]() {
+        try {
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateDifficultyWindow - Easy selected");
+            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+            PlayerInfo player;
+            player.Difficulty  = DifficultyLevel::DIFFICULTY_EASY;
+            player.lives       = 5;
+            player.isActive    = true;
+            player.isDead      = false;
+            player.score       = 0;
+            player.health      = 100;
+            player.maxHealth   = 100;
+            player.armour      = 100;
+            player.maxArmour   = 100;
+            player.shield      = 100;
+            player.maxShield   = 100;
+            gamePlayer.InitPlayer(PLAYER_1, player);
+            // Fade out GameMenu, then create and fade in GamePlayTypes
+            ApplyWindowFadeCallback(
+                GUIWindowFadeType::FadeOut, 0.8f, windowName,
+                [this, windowName, gptName = std::string(GAMEPLAYTYPES_WINDOW_NAME)]() {
+                    RemoveWindow(windowName);
+                    CreateGamePlayTypesWindow();
+                    ApplyWindowFade(GUIWindowFadeType::FadeIn, 1.0f, gptName);
+                }
+            );
+        }
+        catch (const std::exception& e) {
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateDifficultyWindow - Exception in Easy handler: %s",
+                std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
+        }
+    };
+    diffWindow->AddControl(easyButton);
+
+    // ---------- Button 2 — Normal ----------
+    GUIControl normalButton;
+    normalButton.type             = GUIControlType::Button;
+    normalButton.position         = Vector2(startX, startY + (btnH + btnGap));
+    normalButton.size             = Vector2(GAMEMENU_BUTTON_WIDTH, btnH);
+    normalButton.bgColor          = MyColor(0, 0, 0, 255);
+    normalButton.txtColor         = MyColor(255, 255, 0, 255);
+    normalButton.useShadowedText  = true;
+    normalButton.bgTextureId      = int(BlitObj2DIndexType::IMG_BUTTON2UP);
+    normalButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);
+    normalButton.label            = L"NORMAL";
+    normalButton.bold             = true;
+    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        normalButton.lblFontSize  = 13.0f;
+    #else
+        normalButton.lblFontSize  = 16.0f;
+    #endif
+    normalButton.isVisible = true;
+
+    normalButton.onMouseOver = [weakDiffWindow]() {
+        if (auto window = weakDiffWindow.lock()) {
+            if (!window->bWindowDestroy) { }
+        }
+    };
+    normalButton.onMouseBtnDown = [this, windowName = std::string(DIFFICULTY_WINDOW_NAME)]() {
+        try {
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateDifficultyWindow - Normal selected");
+            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+            PlayerInfo player;
+            player.Difficulty  = DifficultyLevel::DIFFICULTY_NORMAL;
+            player.lives       = 5;
+            player.isActive    = true;
+            player.isDead      = false;
+            player.score       = 0;
+            player.health      = 100;
+            player.maxHealth   = 100;
+            player.armour      = 100;
+            player.maxArmour   = 100;
+            player.shield      = 100;
+            player.maxShield   = 100;
+            gamePlayer.InitPlayer(PLAYER_1, player);
+            // Fade out GameMenu, then create and fade in GamePlayTypes
+            ApplyWindowFadeCallback(
+                GUIWindowFadeType::FadeOut, 0.8f, windowName,
+                [this, windowName, gptName = std::string(GAMEPLAYTYPES_WINDOW_NAME)]() {
+                    RemoveWindow(windowName);
+                    CreateGamePlayTypesWindow();
+                    ApplyWindowFade(GUIWindowFadeType::FadeIn, 1.0f, gptName);
+                }
+            );
+        }
+        catch (const std::exception& e) {
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateDifficultyWindow - Exception in Normal handler: %s",
+                std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
+        }
+    };
+    diffWindow->AddControl(normalButton);
+
+    // ---------- Button 3 — Hard ----------
+    GUIControl hardButton;
+    hardButton.type             = GUIControlType::Button;
+    hardButton.position         = Vector2(startX, startY + 2.0f * (btnH + btnGap));
+    hardButton.size             = Vector2(GAMEMENU_BUTTON_WIDTH, btnH);
+    hardButton.bgColor          = MyColor(0, 0, 0, 255);
+    hardButton.txtColor         = MyColor(255, 255, 0, 255);
+    hardButton.useShadowedText  = true;
+    hardButton.bgTextureId      = int(BlitObj2DIndexType::IMG_BUTTON2UP);
+    hardButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);
+    hardButton.label            = L"HARD";
+    hardButton.bold             = true;
+    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        hardButton.lblFontSize  = 13.0f;
+    #else
+        hardButton.lblFontSize  = 16.0f;
+    #endif
+    hardButton.isVisible = true;
+
+    hardButton.onMouseOver = [weakDiffWindow]() {
+        if (auto window = weakDiffWindow.lock()) {
+            if (!window->bWindowDestroy) { }
+        }
+    };
+    hardButton.onMouseBtnDown = [this, windowName = std::string(DIFFICULTY_WINDOW_NAME)]() {
+        try {
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateDifficultyWindow - Hard selected");
+            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+            PlayerInfo player;
+            player.Difficulty  = DifficultyLevel::DIFFICULTY_HARD;
+            player.lives       = 3;
+            player.isActive    = true;
+            player.isDead      = false;
+            player.score       = 0;
+            player.health      = 75;
+            player.maxHealth   = 75;
+            player.armour      = 75;
+            player.maxArmour   = 75;
+            player.shield      = 75;
+            player.maxShield   = 75;
+            gamePlayer.InitPlayer(PLAYER_1, player);
+            // Fade out GameMenu, then create and fade in GamePlayTypes
+            ApplyWindowFadeCallback(
+                GUIWindowFadeType::FadeOut, 0.8f, windowName,
+                [this, windowName, gptName = std::string(GAMEPLAYTYPES_WINDOW_NAME)]() {
+                    RemoveWindow(windowName);
+                    CreateGamePlayTypesWindow();
+                    ApplyWindowFade(GUIWindowFadeType::FadeIn, 1.0f, gptName);
+                }
+            );
+        }
+        catch (const std::exception& e) {
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateDifficultyWindow - Exception in Hard handler: %s",
+                std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
+        }
+    };
+    diffWindow->AddControl(hardButton);
+
+    // ---------- Button 4 — Very Hard ----------
+    GUIControl veryHardButton;
+    veryHardButton.type             = GUIControlType::Button;
+    veryHardButton.position         = Vector2(startX, startY + 3.0f * (btnH + btnGap));
+    veryHardButton.size             = Vector2(GAMEMENU_BUTTON_WIDTH, btnH);
+    veryHardButton.bgColor          = MyColor(0, 0, 0, 255);
+    veryHardButton.txtColor         = MyColor(255, 255, 0, 255);
+    veryHardButton.useShadowedText  = true;
+    veryHardButton.bgTextureId      = int(BlitObj2DIndexType::IMG_BUTTON2UP);
+    veryHardButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);
+    veryHardButton.label            = L"VERY HARD";
+    veryHardButton.bold             = true;
+    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        veryHardButton.lblFontSize  = 13.0f;
+    #else
+        veryHardButton.lblFontSize  = 16.0f;
+    #endif
+    veryHardButton.isVisible = true;
+
+    veryHardButton.onMouseOver = [weakDiffWindow]() {
+        if (auto window = weakDiffWindow.lock()) {
+            if (!window->bWindowDestroy) { }
+        }
+    };
+    veryHardButton.onMouseBtnDown = [this, windowName = std::string(DIFFICULTY_WINDOW_NAME)]() {
+        try {
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateDifficultyWindow - Very Hard selected");
+            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+            PlayerInfo player;
+            player.Difficulty  = DifficultyLevel::DIFFICULTY_VERYHARD;
+            player.lives       = 2;
+            player.isActive    = true;
+            player.isDead      = false;
+            player.score       = 0;
+            player.health      = 50;
+            player.maxHealth   = 50;
+            player.armour      = 50;
+            player.maxArmour   = 50;
+            player.shield      = 50;
+            player.maxShield   = 50;
+            gamePlayer.InitPlayer(PLAYER_1, player);
+            // Fade out GameMenu, then create and fade in GamePlayTypes
+            ApplyWindowFadeCallback(
+                GUIWindowFadeType::FadeOut, 0.8f, windowName,
+                [this, windowName, gptName = std::string(GAMEPLAYTYPES_WINDOW_NAME)]() {
+                    RemoveWindow(windowName);
+                    CreateGamePlayTypesWindow();
+                    ApplyWindowFade(GUIWindowFadeType::FadeIn, 1.0f, gptName);
+                }
+            );
+        }
+        catch (const std::exception& e) {
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateDifficultyWindow - Exception in Very Hard handler: %s",
+                std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
+        }
+    };
+    diffWindow->AddControl(veryHardButton);
+
+    // ---------- Button 5 — Mate! (Hell) ----------
+    GUIControl mateButton;
+    mateButton.type             = GUIControlType::Button;
+    mateButton.position         = Vector2(startX, startY + 4.0f * (btnH + btnGap));
+    mateButton.size             = Vector2(GAMEMENU_BUTTON_WIDTH, btnH);
+    mateButton.bgColor          = MyColor(0, 0, 0, 255);
+    mateButton.txtColor         = MyColor(255, 255, 0, 255);
+    mateButton.useShadowedText  = true;
+    mateButton.bgTextureId      = int(BlitObj2DIndexType::IMG_BUTTON2UP);
+    mateButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);
+    mateButton.label            = L"MATE! (HELL)";
+    mateButton.bold             = true;
+    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        mateButton.lblFontSize  = 13.0f;
+    #else
+        mateButton.lblFontSize  = 16.0f;
+    #endif
+    mateButton.isVisible = true;
+
+    mateButton.onMouseOver = [weakDiffWindow]() {
+        if (auto window = weakDiffWindow.lock()) {
+            if (!window->bWindowDestroy) { }
+        }
+    };
+    mateButton.onMouseBtnDown = [this, windowName = std::string(DIFFICULTY_WINDOW_NAME)]() {
+        try {
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateDifficultyWindow - Mate! (Hell) selected");
+            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+            PlayerInfo player;
+            player.Difficulty  = DifficultyLevel::DIFFICULTY_HELL;
+            player.lives       = 1;
+            player.isActive    = true;
+            player.isDead      = false;
+            player.score       = 0;
+            player.health      = 25;
+            player.maxHealth   = 25;
+            player.armour      = 25;
+            player.maxArmour   = 25;
+            player.shield      = 25;
+            player.maxShield   = 25;
+            gamePlayer.InitPlayer(PLAYER_1, player);
+            // Fade out GameMenu, then create and fade in GamePlayTypes
+            ApplyWindowFadeCallback(
+                GUIWindowFadeType::FadeOut, 0.8f, windowName,
+                [this, windowName, gptName = std::string(GAMEPLAYTYPES_WINDOW_NAME)]() {
+                    RemoveWindow(windowName);
+                    CreateGamePlayTypesWindow();
+                    ApplyWindowFade(GUIWindowFadeType::FadeIn, 1.0f, gptName);
+                }
+            );
+        }
+        catch (const std::exception& e) {
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateDifficultyWindow - Exception in Mate! handler: %s",
+                std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
+        }
+    };
+    diffWindow->AddControl(mateButton);
+
+    // All controls added — safe to make visible now (matches CreateConfigWindow pattern).
+    diffWindow->isVisible = true;
+
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateDifficultyWindow - Difficulty window created successfully with %d controls",
+        static_cast<int>(diffWindow->controls.size()));
+}
+
+//-------------------------------------------------------------------------------------------------
+// CreateGamePlayTypesWindow — full-height side panel matching the GameMenu style.
+// Six buttons centred horizontally and vertically; Stage Select is ghosted / inactive.
+// Call: guiManager.CreateGamePlayTypesWindow();
+//-------------------------------------------------------------------------------------------------
+void GUIManager::CreateGamePlayTypesWindow() {
+    if (!renderer) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateGamePlayTypesWindow - renderer is null, cannot create window");
+        return;
+    }
+
+    // Create window — same position and dimensions as GameMenuWindow
+    CreateMyWindow(
+        GAMEPLAYTYPES_WINDOW_NAME,                                                        // Window name
+        GUIWindowType::Dialog,                                              // Dialog type (no close chrome)
+        Vector2(renderer->iOrigWidth - GAMEMENU_WINDOW_WIDTH, 0),          // Right-side panel, full height
+        Vector2(GAMEMENU_WINDOW_WIDTH, renderer->iOrigHeight),             // Full screen height
+        MyColor(0, 0, 0, 0),                                               // Transparent background
+        int(BlitObj2DIndexType::NONE)                                       // No background texture
+    );
+
+    std::shared_ptr<GUIWindow> gptWindow = GetWindow(GAMEPLAYTYPES_WINDOW_NAME);
+    if (!gptWindow) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateGamePlayTypesWindow - Failed to retrieve window after creation");
+        return;
+    }
+
+    // Hide during setup — same race guard as CreateConfigWindow / CreateDifficultyWindow.
+    gptWindow->isVisible = false;
+
+    std::weak_ptr<GUIWindow> weakGptWindow = gptWindow;
+
+    // Title bar — identical graphics and height to GameMenuWindow
+    GUIControl titleBar;
+    titleBar.type             = GUIControlType::TitleBar;
+    titleBar.position         = Vector2(gptWindow->position.x, gptWindow->position.y);
+    titleBar.size             = Vector2(gptWindow->size.x, 40);
+    titleBar.bgColor          = MyColor(0, 0, 0, 255);
+    titleBar.txtColor         = MyColor(255, 255, 0, 255);
+    titleBar.bgTextureId      = int(BlitObj2DIndexType::IMG_TITLEBAR2);
+    titleBar.bgTextureHoverId = int(BlitObj2DIndexType::IMG_TITLEBAR2);
+    titleBar.label            = L"";
+    titleBar.lblFontSize      = 18.0f;
+    titleBar.isVisible        = true;
+    gptWindow->AddControl(titleBar);
+
+    // --- Button layout: top-aligned, matching GameMenu/DifficultyWindow style ---
+    // 7 buttons × 30px + 6 gaps × 15px = 300px total cluster height.
+    // Campaign sits near the top (y+55); Arcade, Time Rush, Cockpit Mode, Random,
+    // Stage Select, and 1 Life Mission are all ghosted — unlocked after Campaign completion.
+    const float btnH   = 30.0f;
+    const float btnGap = 15.0f;
+    const float startY = gptWindow->position.y + 55.0f;                                                                    // Near top, matching GameMenu button start position
+    const float startX = gptWindow->position.x + (GAMEMENU_WINDOW_WIDTH - GAMEMENU_BUTTON_WIDTH) * 0.5f;                   // Horizontal centre in window (25px)
+
+    // ---------- Button 1 — Campaign (ACTIVE) ----------
+    GUIControl campaignButton;
+    campaignButton.type             = GUIControlType::Button;
+    campaignButton.position         = Vector2(startX, startY);
+    campaignButton.size             = Vector2(GAMEMENU_BUTTON_WIDTH, btnH);
+    campaignButton.bgColor          = MyColor(0, 0, 0, 255);
+    campaignButton.txtColor         = MyColor(255, 255, 0, 255);
+    campaignButton.useShadowedText  = true;
+    campaignButton.bgTextureId      = int(BlitObj2DIndexType::IMG_BUTTON2UP);
+    campaignButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);
+    campaignButton.label            = L"CAMPAIGN";
+    campaignButton.bold             = true;
+    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        campaignButton.lblFontSize  = 13.0f;
+    #else
+        campaignButton.lblFontSize  = 16.0f;
+    #endif
+    campaignButton.isVisible = true;
+
+    campaignButton.onMouseOver = [weakGptWindow]() {
+        if (auto window = weakGptWindow.lock()) {
+            if (!window->bWindowDestroy) { }
+        }
+    };
+    campaignButton.onMouseBtnDown = [this, windowName = std::string(GAMEPLAYTYPES_WINDOW_NAME)]() {
+        try {
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGamePlayTypesWindow - Campaign selected");
+            soundManager.PlayImmediateSFX(SFX_ID::SFX_VOICE1);
+            // Set game play type to Campaign and proceed
+            PlayerInfo* player = gamePlayer.GetPlayerInfo(PLAYER_1);
+            player->gameMode = GameMode::MODE_CAMPAIGN;
+            StartGame();
+        }
+        catch (const std::exception& e) {
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateGamePlayTypesWindow - Exception in Campaign handler: %s",
+                std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
+        }
+    };
+    gptWindow->AddControl(campaignButton);
+
+    // ---------- Button 2 — Arcade (GHOSTED — unlocks after Campaign completion) ----------
+    GUIControl arcadeButton;
+    arcadeButton.type             = GUIControlType::Button;
+    arcadeButton.position         = Vector2(startX, startY + 1.0f * (btnH + btnGap));
+    arcadeButton.size             = Vector2(GAMEMENU_BUTTON_WIDTH, btnH);
+    arcadeButton.bgColor          = MyColor(0, 0, 0, 255);
+    arcadeButton.txtColor         = MyColor(80, 80, 80, 180);                                                               // Ghosted — grey semi-transparent text
+    arcadeButton.useShadowedText  = false;                                                                                  // No shadow on ghosted buttons
+    arcadeButton.bgTextureId      = int(BlitObj2DIndexType::IMG_BUTTON2UP);
+    arcadeButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2UP);                                                 // No hover change
+    arcadeButton.label            = L"ARCADE";
+    arcadeButton.bold             = true;
+    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        arcadeButton.lblFontSize  = 13.0f;
+    #else
+        arcadeButton.lblFontSize  = 16.0f;
+    #endif
+    arcadeButton.isVisible      = true;
+    arcadeButton.isClickHandled = false;                                                                                    // Prevent input system consuming this click
+    // No handlers — button is inactive until Campaign is completed
+    gptWindow->AddControl(arcadeButton);
+
+    // ---------- Button 3 — Time Rush (GHOSTED — unlocks after Campaign completion) ----------
+    GUIControl timeRushButton;
+    timeRushButton.type             = GUIControlType::Button;
+    timeRushButton.position         = Vector2(startX, startY + 2.0f * (btnH + btnGap));
+    timeRushButton.size             = Vector2(GAMEMENU_BUTTON_WIDTH, btnH);
+    timeRushButton.bgColor          = MyColor(0, 0, 0, 255);
+    timeRushButton.txtColor         = MyColor(80, 80, 80, 180);
+    timeRushButton.useShadowedText  = false;
+    timeRushButton.bgTextureId      = int(BlitObj2DIndexType::IMG_BUTTON2UP);
+    timeRushButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2UP);
+    timeRushButton.label            = L"TIME RUSH";
+    timeRushButton.bold             = true;
+    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        timeRushButton.lblFontSize  = 13.0f;
+    #else
+        timeRushButton.lblFontSize  = 16.0f;
+    #endif
+    timeRushButton.isVisible      = true;
+    timeRushButton.isClickHandled = false;
+    gptWindow->AddControl(timeRushButton);
+
+    // ---------- Button 4 — Cockpit Mode (GHOSTED — unlocks after Campaign completion) ----------
+    GUIControl cockpitButton;
+    cockpitButton.type             = GUIControlType::Button;
+    cockpitButton.position         = Vector2(startX, startY + 3.0f * (btnH + btnGap));
+    cockpitButton.size             = Vector2(GAMEMENU_BUTTON_WIDTH, btnH);
+    cockpitButton.bgColor          = MyColor(0, 0, 0, 255);
+    cockpitButton.txtColor         = MyColor(80, 80, 80, 180);
+    cockpitButton.useShadowedText  = false;
+    cockpitButton.bgTextureId      = int(BlitObj2DIndexType::IMG_BUTTON2UP);
+    cockpitButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2UP);
+    cockpitButton.label            = L"COCKPIT MODE";
+    cockpitButton.bold             = true;
+    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        cockpitButton.lblFontSize  = 13.0f;
+    #else
+        cockpitButton.lblFontSize  = 16.0f;
+    #endif
+    cockpitButton.isVisible      = true;
+    cockpitButton.isClickHandled = false;
+    gptWindow->AddControl(cockpitButton);
+
+    // ---------- Button 5 — Random (GHOSTED — unlocks after Campaign completion) ----------
+    GUIControl randomButton;
+    randomButton.type             = GUIControlType::Button;
+    randomButton.position         = Vector2(startX, startY + 4.0f * (btnH + btnGap));
+    randomButton.size             = Vector2(GAMEMENU_BUTTON_WIDTH, btnH);
+    randomButton.bgColor          = MyColor(0, 0, 0, 255);
+    randomButton.txtColor         = MyColor(80, 80, 80, 180);
+    randomButton.useShadowedText  = false;
+    randomButton.bgTextureId      = int(BlitObj2DIndexType::IMG_BUTTON2UP);
+    randomButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2UP);
+    randomButton.label            = L"RANDOM";
+    randomButton.bold             = true;
+    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        randomButton.lblFontSize  = 13.0f;
+    #else
+        randomButton.lblFontSize  = 16.0f;
+    #endif
+    randomButton.isVisible      = true;
+    randomButton.isClickHandled = false;
+    gptWindow->AddControl(randomButton);
+
+    // ---------- Button 6 — Stage Select (GHOSTED — unlocks after Campaign completion) ----------
+    GUIControl stageSelectButton;
+    stageSelectButton.type             = GUIControlType::Button;
+    stageSelectButton.position         = Vector2(startX, startY + 5.0f * (btnH + btnGap));
+    stageSelectButton.size             = Vector2(GAMEMENU_BUTTON_WIDTH, btnH);
+    stageSelectButton.bgColor          = MyColor(0, 0, 0, 255);
+    stageSelectButton.txtColor         = MyColor(80, 80, 80, 180);
+    stageSelectButton.useShadowedText  = false;
+    stageSelectButton.bgTextureId      = int(BlitObj2DIndexType::IMG_BUTTON2UP);
+    stageSelectButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2UP);
+    stageSelectButton.label            = L"STAGE SELECT";
+    stageSelectButton.bold             = true;
+    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        stageSelectButton.lblFontSize  = 13.0f;
+    #else
+        stageSelectButton.lblFontSize  = 16.0f;
+    #endif
+    stageSelectButton.isVisible      = true;
+    stageSelectButton.isClickHandled = false;
+    gptWindow->AddControl(stageSelectButton);
+
+    // ---------- Button 7 — 1 Life Mission (GHOSTED — unlocks after Campaign completion) ----------
+    GUIControl lifeMissionButton;
+    lifeMissionButton.type             = GUIControlType::Button;
+    lifeMissionButton.position         = Vector2(startX, startY + 6.0f * (btnH + btnGap));
+    lifeMissionButton.size             = Vector2(GAMEMENU_BUTTON_WIDTH, btnH);
+    lifeMissionButton.bgColor          = MyColor(0, 0, 0, 255);
+    lifeMissionButton.txtColor         = MyColor(80, 80, 80, 180);
+    lifeMissionButton.useShadowedText  = false;
+    lifeMissionButton.bgTextureId      = int(BlitObj2DIndexType::IMG_BUTTON2UP);
+    lifeMissionButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2UP);
+    lifeMissionButton.label            = L"1 LIFE MISSION";
+    lifeMissionButton.bold             = true;
+    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        lifeMissionButton.lblFontSize  = 13.0f;
+    #else
+        lifeMissionButton.lblFontSize  = 16.0f;
+    #endif
+    lifeMissionButton.isVisible      = true;
+    lifeMissionButton.isClickHandled = false;
+    gptWindow->AddControl(lifeMissionButton);
+
+    // All controls added — safe to make visible now.
+    gptWindow->isVisible = true;
+
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGamePlayTypesWindow - Game play types window created successfully with %d controls",
+        static_cast<int>(gptWindow->controls.size()));
 }

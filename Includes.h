@@ -22,6 +22,11 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 //       GAME_NAME cmake cache variable in CMakeLists.txt to match.
 // ---------------------------------------------------------------------------
 #define GAME_NAME "CPGE"
+// ---------------------------------------------------------------------------
+// Compile-time identity strings — used in version overlays and log output.
+// Overlay format: "<BuildType> <RENDERER_NAME_W> <GAME_NAME_W> v<build> <dd-MM-YYYY>"
+// ---------------------------------------------------------------------------
+#define GAME_NAME_W L"CPGE"
 
 #define __USE_XMPLAYER__
 //#define __USE_MP3PLAYER__
@@ -249,21 +254,18 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
     #ifndef PLATFORM_APPLE
         #define PLATFORM_APPLE
     #endif // !PLATFORM_APPLE
-    // macOS — OpenGL only
+    // macOS — OpenGL - For older systems (Now obsolete on newer platforms).
     //#define __USE_OPENGL__
+    // macOS — Metal - For newer systems.
+    //#define __USE_METAL__
 #elif defined(TARGET_OS_IPHONE) || (TARGET_IPHONE_SIMULATOR)
     #ifndef PLATFORM_IOS
         #define PLATFORM_IOS
     #endif // !PLATFORM_IOS
     // iOS — OpenGL only
-//    #define __USE_OPENGL__
+    //#define __USE_METAL__
 #endif // !PLATFORM_WINDOWS, PLATFORM_LINUX, PLATFORM_ANDROID, PLATFORM_APPLE, PLATFORM_IOS
 
-// ---------------------------------------------------------------------------
-// Compile-time identity strings — used in version overlays and log output.
-// Overlay format: "<BuildType> <RENDERER_NAME_W> <GAME_NAME_W> v<build> <dd-MM-YYYY>"
-// ---------------------------------------------------------------------------
-#define GAME_NAME_W L"CPGE"
 
 #if defined(PLATFORM_WINDOWS)
     #define PLATFORM_NAME_W L"Windows"
@@ -287,6 +289,8 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
     #define RENDERER_NAME_W L"OpenGL"
 #elif defined(__USE_VULKAN__)
     #define RENDERER_NAME_W L"Vulkan"
+#elif defined(__USE_METAL__)
+    #define RENDERER_NAME_W L"Metal"
 #else
     #define RENDERER_NAME_W L"Unknown"
 #endif
@@ -742,9 +746,6 @@ const int PLAYER_1 = 0;
 //const int PLAYER_2 = 1;
 //const int PLAYER_3 = 2;
 //const int PLAYER_4 = 3;
-
-// Maximum number of Players supported (1-8)
-const int MAX_PLAYERS = 1;
 
 // 2D Textures
 inline const std::wstring texFilename[] = {

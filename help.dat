@@ -1,27 +1,32 @@
-----------------------
+-------------------------------
 CPGE HELP INSTRUCTIONS
-----------------------
+-------------------------------
 
-------------------
+-----------------------
 Console Commands:-
-------------------
-HELP                        => Shows this help information.
+-----------------------
+CLEAR: Clears the console window.
+CLOSE: Closes this console window.
+HELP: Shows this help information.
+TEST LOAD DIALOG: Opens a Load GUIWindows Modal Dialog for testing only!
+TEST SAVE DIALOG: Opens a Save GUIWindows Modal Dialog for testing only!
+TOP: Scroll the console to the very first line at the very top.
 
-
-------------------------------
+------------------------------------
 Known Keys for Game Title Area:-
-------------------------------
-F2                          => Show/Hide Debug Overlay
-F8                          => Open / Closes this Console window.
-HOME                        => Start / Stop Screen Recorder.
-ESC                         => QUIT!
-NUM KEYPAD +/-              => Microphone Volume Up/Down (Only when Screen Recording).
-CTRL NUM KEYPAD +/-         => SFX VOLUME Up/Down
-ALT NUM KEYPAD +/-          => Music VOLUME Up/Down
-CTRL+ALT+NUM KEYPAD +/-     => TTS VOLUME Up/Down (Window builds only!)
-CTRL+SHIFT+NUM KEYPAD +/-   => Master Volume Up/Down
+------------------------------------
+F2: Show/Hide Debug Overlay
+F8: Open / Closes this Console window.
+F12: Start / Stop Render Performance Profiling.
+HOME: Start / Stop Screen Recorder.
+ESC: QUIT (At Root Window) otherwise back to root game menu!
+NUM KEYPAD +/- : Microphone Volume Up/Down (Only when Screen Recording).
+CTRL NUM KEYPAD +/- : SFX VOLUME Up/Down
+ALT NUM KEYPAD +/- : Music VOLUME Up/Down
+CTRL+ALT+NUM KEYPAD +/- : TTS VOLUME Up/Down (Window builds only!)
+CTRL+SHIFT+NUM KEYPAD +/- : Master Volume Up/Down
 
 
---------------------------
+--------------------------------
 IN GAME AREA (GAME PLAY):-
---------------------------
+--------------------------------

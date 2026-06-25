@@ -23,8 +23,8 @@
 //#define _DEBUG_XMPlayer_                                                // Define this line, to show all debug output to runtime console for the XMMODPlayer class.
 //#define _DEBUG_CONFIGURATION_
 //#define _DEBUG_SOUNDMANAGER_
-
 #define _DEBUG_SCENEMANAGER_                                            // Define this line, to show all debug output to runtime console for the SceneManager class.
+
 #if defined(_DEBUG_SCENEMANAGER_)
     //#define _DEBUG_GLTFANIMATOR_                                            // Define this line, to show all debug output for the GLTFAnimator class.
     //#define _DEBUG_SHADERMANAGER_                                           // Define this line, to show all debug output for the ShaderManager class.
@@ -77,7 +77,7 @@
 // OPENGL Debug flags.
 // ----------------------------------------------------------------------------------------------
 #if defined(__USE_OPENGL__)
-    #define _DEBUG_OPENGLRENDERER_                                          // Define this line, to show all debug output for the OpenGLRenderer class.
+//    #define _DEBUG_OPENGLRENDERER_                                          // Define this line, to show all debug output for the OpenGLRenderer class.
 #endif // end of OPENGL Debug flags 
 
 // ----------------------------------------------------------------------------------------------

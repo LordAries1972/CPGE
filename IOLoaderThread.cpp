@@ -23,16 +23,16 @@
 ---------------------------------------------------------------- */
 #if defined(__USE_DIRECTX_11__)
     #include "DX11Renderer.h"
-    #include "DX_FXManager.h"
+    #include "FXManager.h"
 #elif defined(__USE_DIRECTX_12__)
     #include "DX12Renderer.h"
-    #include "DX12FXManager.h"
+    #include "FXManager.h"
 #elif defined(__USE_OPENGL__)
     #include "OpenGLRenderer.h"
-    #include "OpenGLFXManager.h"
+    #include "FXManager.h"
 #elif defined(__USE_VULKAN__)
     #include "VULKAN_Renderer.h"
-    #include "VULKAN_FXManager.h"
+    #include "FXManager.h"
 #endif
 
 /* ----------------------------------------------------------------
@@ -58,6 +58,7 @@
 #include "GUIManager.h"
 #include "MoviePlayer.h"
 #include "Configuration.h"
+#include "GamePlayer.h"
 
 using namespace SoundSystem;
 
@@ -72,6 +73,7 @@ extern GUIManager       guiManager;
 extern MoviePlayer moviePlayer;
 extern Model            models[MAX_MODELS];
 extern LightsManager    lightsManager;
+extern GamePlayer       gamePlayer;
 extern bool             bResizing;
 extern int              textScrollerEffectID;
 extern bool             Load_Music();                                               // Declared in main.cpp
@@ -79,9 +81,9 @@ extern std::wstring     baseDir;
 
 /* fxManager type varies by renderer -- only one extern is compiled. */
 #if defined(__USE_OPENGL__)
-    extern GLFXManager  fxManager;
+    extern FXManager  fxManager;
 #elif defined(__USE_VULKAN__)
-    extern VKFXManager  fxManager;
+    extern FXManager  fxManager;
 #else
     extern FXManager    fxManager;                                                  // DX11 and DX12
 #endif
@@ -105,6 +107,9 @@ extern std::wstring     baseDir;
 #elif defined(__USE_VULKAN__)
     std::mutex VulkanRenderer::s_loaderMutex;
 #endif
+
+// Forward Declarations
+PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, const Vector2& startPosition);
 
 /* ================================================================
    UNIFIED LoaderTaskThread() -- one body covers all pipelines.
@@ -267,48 +272,6 @@ extern std::wstring     baseDir;
                 {
                     // ---- First load ---- //
 
-                    // Title-screen back light: positioned deep in the background behind
-                    // the ship, angled slightly downward toward the viewer.  This creates
-                    // a dramatic rim/halo on the ship silhouette while the raised ambient
-                    // keeps all material colours visible on the camera-facing surfaces.
-                    //
-                    // Direction convention: the vector is the direction the light TRAVELS.
-                    // Shader computes L = -direction, so (0, -0.25, -1) normalised means
-                    // light travels slightly down and INTO the screen; L points upward and
-                    // toward the camera -- illuminating the ship's front-upper geometry and
-                    // creating bright specular highlights on any metallic parts.
-                    showStage(L"Initialising lighting...");
-                    LightStruct sunLight{};
-                    #if defined(PLATFORM_WINDOWS)
-                        SecureZeroMemory(&sunLight, sizeof(LightStruct));
-                    #endif
-                    sunLight.active        = true;
-                    sunLight.position      = XMFLOAT3(0.0f, -10.0f, -10.0f);        // deep background, slightly above centre
-                    // Normalise direction manually: (0, -0.25, -1) / length = (0, -0.2425, -0.9701)
-                    sunLight.direction     = XMFLOAT3(0.0f, -0.1f, 0.0f);
-                    sunLight.color         = XMFLOAT3(1.0f, 0.95f, 0.85f);         // warm white -- sun-like
-
-                    // Raised ambient gives camera-facing surfaces a visible base colour even
-                    // before direct light reaches them.  Slight cool-blue tint reads as
-                    // outer-space fill light and prevents the dark side going pure black.
-                    #if defined(__USE_DIRECTX11__) || defined(__USE_DIRECTX_12__) || defined(__USE_VULKAN__)
-                        sunLight.ambient       = XMFLOAT3(0.0f, 0.0f, 0.0f);
-                        sunLight.intensity     = 1.0f;
-                        sunLight.baseIntensity = 0.8f;
-                    #elif defined(__USE_OPENGL__)
-                        sunLight.ambient       = XMFLOAT3(0.0f, 0.0f, 0.0f);
-                        sunLight.intensity     = 0.7f;
-                        sunLight.intensity     = 0.3f;
-                    #endif
-                    sunLight.Shiningness   = 0.0f;
-                    sunLight.Reflection    = 0.0f;
-                    sunLight.lightFalloff  = 0.2f;
-                    sunLight.innerCone     = 30.0f;
-                    sunLight.outerCone     = 60.0f;
-                    sunLight.range         = 2000.0f;
-                    sunLight.type          = int(LightType::DIRECTIONAL);
-                    lightsManager.CreateLight(L"Sun", sunLight);
-
                     // Parse the splash / title scene.
                     showStage(L"Parsing scene...");
                     {
@@ -390,6 +353,9 @@ extern std::wstring     baseDir;
                     fxManager.ZoomInitialise(ZoomFXFunction::Zoom2D, 0.20f, 0.15f, int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
                     fxManager.StartZoom(0.015f);
                     fxManager.StartFireworks(0.5f);
+                    // Gentle brightness pulse — only fades to 75% opacity, 2-second half-cycles
+                    fxManager.StartImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO, 25.0f, 3.0f);
+
                 }
                 else
                 {
@@ -452,25 +418,24 @@ extern std::wstring     baseDir;
                         }
                     #endif  // !__USE_VULKAN__
 
-                    // OpenGL: RenderFrame skips the iOrigWidth = winMetrics.clientWidth update
-                    // while bIsResizing=true (it early-continues the loop), so iOrigWidth still
-                    // holds the Resize() value (LOWORD of lParam) which can differ from the
-                    // clientWidth that GetClientRect() returns and the renderer uses for its
-                    // ortho matrix once bIsResizing clears.  winMetrics is refreshed in main.cpp
-                    // before this thread runs, so it always reflects the correct new client size.
-                    #if defined(__USE_OPENGL__) && defined(PLATFORM_WINDOWS)
-                        guiManager.OnWindowResize(winMetrics.clientWidth, winMetrics.clientHeight);
-                    #else
-                        guiManager.OnWindowResize(iOrigWidth, iOrigHeight);
-                    #endif
+                    // Close all open GUI windows and stop active title-screen FX so
+                    // they can be restarted cleanly at the new viewport dimensions.
+                    guiManager.CloseAllWindows();
+                    fxManager.StopFireworks();
+                    fxManager.StopZooming();
+                    fxManager.StopImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO);
 
                     // Starfield on resize
                     fxManager.CreateStarfield(80, 800.0f, 1000.0f, gtStarOrigin, true);
                     fxManager.StopLoadingText();
-                    // Pulse the 2D Image Background with 20% depth
+
+                    // Reopen title-screen GUI and restart FX at the new dimensions.
+                    guiManager.CreateGameMenuWindow(L"winGameMenu");
                     fxManager.ZoomInitialise(ZoomFXFunction::Zoom2D, 0.20f, 0.15f, int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
                     fxManager.StartZoom(0.015f);
                     fxManager.StartFireworks(0.5f);
+                    // Gentle brightness pulse — only fades to 75% opacity, 2-second half-cycles
+                    fxManager.StartImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO, 25.0f, 3.0f);
                 }
 
                 /* OpenGL: flush pending GL commands before signalling the render thread. */
@@ -544,6 +509,7 @@ extern std::wstring     baseDir;
                 threadManager.threadVars.bLoaderTaskFinished.store(false);
                 fxManager.StopZooming();                                        // In case we are returning from somewhere where a zooming effect maybe active.
                 fxManager.StopFireworks();                                      // In case we are returning from somewhere where fireworks maybe active.
+                fxManager.StopImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO);
                 auto showStage = [](const wchar_t* msg) {
                     TextRenderStyle s;
                     s.fontName = LoadingTextFX::kFontName;
@@ -591,7 +557,7 @@ extern std::wstring     baseDir;
                         ThreadLockHelper preAllocLock(threadManager, "SceneManager_PreAllocation", 2000);
                         if (preAllocLock.IsLocked())
                         {
-                            scene.ParseGLTFScene(AssetsDir / L"test2.gltf");
+                            scene.ParseSceneAutoDetect(AssetsDir / L"level1.gltf");
                             if (!scene.bGltfCameraParsed) scene.AutoFrameSceneToCamera();
                         }
                     }
@@ -728,3 +694,4 @@ extern std::wstring     baseDir;
 
     debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene Loading Complete - Pausing Thread");
 }
+

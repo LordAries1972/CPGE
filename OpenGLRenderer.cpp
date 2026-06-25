@@ -25,7 +25,7 @@
 #include "Debug.h"
 #include "WinSystem.h"
 #include "Configuration.h"
-#include "OpenGLFXManager.h"
+#include "FXManager.h"
 #include "GUIManager.h"
 #include "Models.h"
 #include "OpenGLModels.h"
@@ -64,7 +64,7 @@ extern Debug debug;                                                             
 extern SystemUtils sysUtils;                                                    // System utilities
 extern SceneManager scene;                                                      // Scene management system
 extern ThreadManager threadManager;                                             // Thread management system
-extern GLFXManager fxManager;                                                    // Effects management system
+extern FXManager fxManager;                                                    // Effects management system
 extern Vector2 myMouseCoords;                                                   // Current mouse coordinates
 extern Model models[MAX_MODELS];                                                // Global model array
 extern LightsManager lightsManager;                                             // Lighting management system
@@ -128,8 +128,11 @@ OpenGLRenderer::~OpenGLRenderer()
 void OpenGLRenderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
     // Set the Renderer Name
     RendererName(RENDERER_NAME);                                                // Set renderer identification name
-    iOrigWidth = winMetrics.clientWidth;                                        // Store original window width
-    iOrigHeight = winMetrics.clientHeight;                                      // Store original window height
+    // Use config as the authoritative back-buffer size — winMetrics.clientWidth/Height
+    // reflect the windowed window and would create a windowed-size context even when
+    // fullscreen exclusive is requested in the config.
+    iOrigWidth  = config.myConfig.resolutionWidth;
+    iOrigHeight = config.myConfig.resolutionHeight;
 
 #if defined(_WIN32) || defined(_WIN64)
     // GDI+ must be started before any LoadTexture call (Gdiplus::Bitmap requires it)
@@ -1182,6 +1185,14 @@ void OpenGLRenderer::Cleanup()
 {
     if (bHasCleanedUp) return;
 
+    // Restore screen resolution if we entered exclusive fullscreen — mirrors DX11/DX12 pattern
+    #if defined(_WIN32) || defined(_WIN64)
+        if (m_isExclusiveFullscreen) {
+            ChangeDisplaySettingsW(nullptr, 0);                                 // Restore desktop default
+            m_isExclusiveFullscreen = false;
+        }
+    #endif
+
     FlushTextCache();
 
     // Release 2D textures
@@ -1462,6 +1473,18 @@ void OpenGLRenderer::Blit2DObjectToSize(BlitObj2DIndexType iIndex, int iX, int i
                  0, 0, tex.width, tex.height, MyColor(255,255,255,255), false);
 }
 
+void OpenGLRenderer::Blit2DObjectToSizeWithAlpha(BlitObj2DIndexType iIndex, int iX, int iY, int iW, int iH, float alpha)
+{
+    int idx = static_cast<int>(iIndex);
+    if (idx < 0 || idx >= MAX_TEXTURE_BUFFERS) return;
+    const auto& tex = m_2dTextures[idx];
+    if (!tex.isLoaded) return;
+    float a = std::clamp(alpha, 0.0f, 1.0f);
+    Render2DQuad(tex.textureID, iX, iY, iW, iH,
+                 0, 0, tex.width, tex.height,
+                 MyColor(255, 255, 255, static_cast<int>(a * 255.0f)), false);
+}
+
 void OpenGLRenderer::Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, int iDestY, int iDestW, int iDestH, float zoomFactor)
 {
     int idx = static_cast<int>(iIndex);
@@ -1470,11 +1493,21 @@ void OpenGLRenderer::Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, i
     if (!tex.isLoaded) return;
 
     // Clamp zoom factor to valid range (0.0–0.75)
-    float z    = std::clamp(zoomFactor, 0.0f, 0.75f);
-    float srcW = static_cast<float>(tex.width)  * (1.0f - z);           // Cropped source width
-    float srcH = static_cast<float>(tex.height) * (1.0f - z);           // Cropped source height
-    int   srcX = static_cast<int>((static_cast<float>(tex.width)  - srcW) * 0.5f + 0.5f); // Round to nearest pixel
-    int   srcY = static_cast<int>((static_cast<float>(tex.height) - srcH) * 0.5f + 0.5f); // Round to nearest pixel
+    float z     = std::clamp(zoomFactor, 0.0f, 0.75f);
+    float texW  = static_cast<float>(tex.width);
+    float texH  = static_cast<float>(tex.height);
+    float srcWf = texW * (1.0f - z);                           // Cropped source width (float — never round)
+    float srcHf = texH * (1.0f - z);                           // Cropped source height (float — never round)
+    float srcXf = (texW - srcWf) * 0.5f;                       // Centre-crop origin X (float — sub-pixel accurate)
+    float srcYf = (texH - srcHf) * 0.5f;                       // Centre-crop origin Y (float — sub-pixel accurate)
+
+    // Compute normalised UV coords from float values so the zoom glides smoothly.
+    // Integer conversion (the old path) caused 1-pixel UV jumps every few frames,
+    // producing the visible stutter / pixelation on the OpenGL pipeline.
+    float u0 = srcXf          / texW;
+    float v0 = srcYf          / texH;
+    float u1 = (srcXf + srcWf) / texW;
+    float v1 = (srcYf + srcHf) / texH;
 
     // Force bilinear filtering — cropped region is magnified to fill the dest rect;
     // GL_NEAREST would produce a blocky/jaggy appearance during the zoom animation
@@ -1483,9 +1516,87 @@ void OpenGLRenderer::Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, i
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glBindTexture(GL_TEXTURE_2D, 0);
 
-    Render2DQuad(tex.textureID, iDestX, iDestY, iDestW, iDestH,
-                 srcX, srcY, static_cast<int>(srcW + 0.5f), static_cast<int>(srcH + 0.5f),
-                 MyColor(255, 255, 255, 255), false);
+    Render2DQuadUV(tex.textureID, iDestX, iDestY, iDestW, iDestH, u0, v0, u1, v1,
+                   MyColor(255, 255, 255, 255));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Render2DQuadUV — variant that accepts pre-computed normalised float UVs.
+// Used by Blit2DCenteredZoom to eliminate the integer-truncation stutter
+// that the normal Render2DQuad (integer srcX/srcY/srcW/srcH) causes when
+// zoom values are small and the source-rect origin changes by sub-pixel amounts.
+// ─────────────────────────────────────────────────────────────────────────────
+void OpenGLRenderer::Render2DQuadUV(GLuint textureID, int x, int y, int w, int h,
+                                     float u0, float v0, float u1, float v1,
+                                     const MyColor& tint)
+{
+    if (!m_2dShaderProgram.isLinked || !m_2dVAO) return;
+    if (w <= 0 || h <= 0) return;
+
+    float sx = static_cast<float>(x);
+    float sy = static_cast<float>(y);
+    float sw = static_cast<float>(w);
+    float sh = static_cast<float>(h);
+
+    float W = static_cast<float>(m_renderTargetWidth  > 0 ? m_renderTargetWidth  : iOrigWidth);
+    float H = static_cast<float>(m_renderTargetHeight > 0 ? m_renderTargetHeight : iOrigHeight);
+    if (W <= 0.0f || H <= 0.0f) return;
+
+    // Reuse cached ortho matrix (updated in Render2DQuad when dimensions change)
+    if (W != m_cachedOrthoW || H != m_cachedOrthoH) {
+        m_cachedOrthoW = W; m_cachedOrthoH = H;
+        m_cachedOrtho[0]  =  2.0f/W; m_cachedOrtho[1]  = 0.0f;
+        m_cachedOrtho[2]  =  0.0f;   m_cachedOrtho[3]  = 0.0f;
+        m_cachedOrtho[4]  =  0.0f;   m_cachedOrtho[5]  = -2.0f/H;
+        m_cachedOrtho[6]  =  0.0f;   m_cachedOrtho[7]  = 0.0f;
+        m_cachedOrtho[8]  =  0.0f;   m_cachedOrtho[9]  = 0.0f;
+        m_cachedOrtho[10] = -1.0f;   m_cachedOrtho[11] = 0.0f;
+        m_cachedOrtho[12] = -1.0f;   m_cachedOrtho[13] = 1.0f;
+        m_cachedOrtho[14] =  0.0f;   m_cachedOrtho[15] = 1.0f;
+    }
+
+    float vertices[6][4] = {
+        { sx,      sy,      u0, v0 },
+        { sx + sw, sy,      u1, v0 },
+        { sx + sw, sy + sh, u1, v1 },
+        { sx,      sy,      u0, v0 },
+        { sx + sw, sy + sh, u1, v1 },
+        { sx,      sy + sh, u0, v1 },
+    };
+
+    glUseProgram(m_2dShaderProgram.programID);
+
+    if (m_uniforms2D.uOrtho >= 0) glUniformMatrix4fv(m_uniforms2D.uOrtho, 1, GL_FALSE, m_cachedOrtho);
+    if (m_uniforms2D.uColor >= 0) glUniform4f(m_uniforms2D.uColor,
+        tint.r / 255.0f, tint.g / 255.0f, tint.b / 255.0f, tint.a / 255.0f);
+
+    if (textureID) {
+        if (m_uniforms2D.uUseTex >= 0) glUniform1i(m_uniforms2D.uUseTex, 1);
+        if (m_uniforms2D.uTex    >= 0) glUniform1i(m_uniforms2D.uTex, 0);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, textureID);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    } else {
+        if (m_uniforms2D.uUseTex >= 0) glUniform1i(m_uniforms2D.uUseTex, 0);
+    }
+
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glBindVertexArray(m_2dVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, m_2dVBO);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+
+    if (textureID) glBindTexture(GL_TEXTURE_2D, 0);
+    glEnable(GL_CULL_FACE);
+    glEnable(GL_DEPTH_TEST);
+    glUseProgram(0);
 }
 
 void OpenGLRenderer::Blit2DObjectAtOffset(BlitObj2DIndexType iIndex,
@@ -2163,7 +2274,7 @@ void OpenGLRenderer::RenderBackgroundImage()
                 }
 
                 // Starfield and warp-dot tunnel (mirrors DX11 fxManager.RenderFX calls).
-                // GLFXManager::RenderFX takes XMMATRIX (= Matrix4x4, row-major on Windows OpenGL).
+                // FXManager::RenderFX takes XMMATRIX (= Matrix4x4, row-major on Windows OpenGL).
                 // Convert glm::mat4 (column-major): result.m[row][col] = glm[col][row].
                 {
                     glm::mat4 glmView = myCamera.GetViewMatrix();
@@ -2179,12 +2290,10 @@ void OpenGLRenderer::RenderBackgroundImage()
                         fxManager.RenderFX(fxManager.tunnelID, viewXM);
                 }
 
-                // Render our Fireworks here.
+                // Fireworks pass — matches DX11 RenderBackgroundImage order.
+                // Note: IMG_TSOO is rendered as a post-3D overlay in OpenGLRenderFrame.cpp
+                // (with ImageFadeStrobe support) — do NOT blit it here in the background pass.
                 fxManager.RenderFireworks();
-
-                int startX = (iOrigWidth - 536) / 2; // Centered horizontally
-                int startY = (iOrigHeight - 466) / 2; // Centered horizontally
-                Blit2DObjectToSize(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
             }
             else
             {
@@ -2262,6 +2371,13 @@ bool OpenGLRenderer::SetFullScreen()
 bool OpenGLRenderer::SetFullExclusive(uint32_t width, uint32_t height)
 {
     #if defined(_WIN32) || defined(_WIN64)
+        // Capture the original desktop mode before switching so Cleanup can restore it
+        if (!m_isExclusiveFullscreen) {
+            m_originalDesktopMode.dmSize = sizeof(DEVMODE);
+            EnumDisplaySettingsW(nullptr, ENUM_CURRENT_SETTINGS,
+                reinterpret_cast<DEVMODEW*>(&m_originalDesktopMode));
+        }
+
         DEVMODEW dm = {};
         dm.dmSize       = sizeof(dm);
         dm.dmPelsWidth  = width;
@@ -2272,7 +2388,69 @@ bool OpenGLRenderer::SetFullExclusive(uint32_t width, uint32_t height)
             debug.logLevelMessage(LogLevel::LOG_ERROR, L"[OpenGLRenderer] SetFullExclusive: ChangeDisplaySettings failed");
             return false;
         }
-        return SetFullScreen();
+        m_isExclusiveFullscreen = true;
+
+        // Gate the WM_SIZE fired by SetWindowPos inside SetFullScreen so it is
+        // suppressed by the new simplified WM_SIZE handler rather than attempting
+        // a spurious winMetrics sync against stale renderer state mid-transition.
+        threadManager.threadVars.bSettingFullScreen.store(true);
+        bool result = SetFullScreen();
+
+        // Override iOrigWidth/iOrigHeight with the explicitly requested dimensions.
+        // SetFullScreen() derives w/h from GetSystemMetrics(SM_CXSCREEN/SM_CYSCREEN),
+        // which can return stale native-resolution values immediately after
+        // ChangeDisplaySettingsW on some driver/OS combinations before the mode change
+        // is fully committed.  The caller already validated the requested resolution;
+        // use it directly so the renderer's back-buffer size matches winMetrics and the
+        // coordinate space is coherent from the very first frame.
+        iOrigWidth  = static_cast<int>(width);
+        iOrigHeight = static_cast<int>(height);
+
+        // Sync the render-target dimensions used by Render2DQuad / glViewport every frame.
+        // Without this, the ortho matrix and viewport continue to use the pre-fullscreen
+        // windowed size, causing a mismatch between the surface and the presentation path.
+        m_renderTargetWidth  = iOrigWidth;
+        m_renderTargetHeight = iOrigHeight;
+
+        // Sync winMetrics from the confirmed fullscreen dimensions so every subsystem
+        // (cameras, GUI, FX, loader thread) sees a coherent coordinate space.
+        winMetrics.x               = 0;
+        winMetrics.y               = 0;
+        winMetrics.width           = iOrigWidth;
+        winMetrics.height          = iOrigHeight;
+        winMetrics.clientWidth     = iOrigWidth;
+        winMetrics.clientHeight    = iOrigHeight;
+        winMetrics.borderWidth     = 0;
+        winMetrics.titleBarHeight  = 0;
+        winMetrics.monitorFullArea = { 0, 0, iOrigWidth, iOrigHeight };
+        winMetrics.monitorWorkArea = { 0, 0, iOrigWidth, iOrigHeight };
+
+        #if defined(_DEBUG_OPENGLRENDERER_) && defined(_DEBUG)
+        // Fullscreen presentation diagnostics: verify GL viewport, window, and surface
+        // sizes all agree.  A mismatch explains the "top-left quarter visible" symptom.
+        {
+            GLint vp[4] = {};
+            glGetIntegerv(GL_VIEWPORT, vp);
+            UINT   dpi        = GetDpiForWindow(m_glContext.windowHandle);
+            RECT   windowRect = {}, clientRect = {};
+            GetWindowRect(m_glContext.windowHandle, &windowRect);
+            GetClientRect(m_glContext.windowHandle,  &clientRect);
+            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                L"[OpenGLRenderer] Fullscreen diag: DPI=%u  WindowRect=%dx%d  ClientRect=%dx%d  "
+                L"Config=%dx%d  RenderTarget=%dx%d  GLViewport=%dx%d",
+                dpi,
+                windowRect.right  - windowRect.left,
+                windowRect.bottom - windowRect.top,
+                clientRect.right  - clientRect.left,
+                clientRect.bottom - clientRect.top,
+                config.myConfig.resolutionWidth, config.myConfig.resolutionHeight,
+                m_renderTargetWidth, m_renderTargetHeight,
+                vp[2], vp[3]);
+        }
+        #endif
+
+        threadManager.threadVars.bSettingFullScreen.store(false);
+        return result;
     #else
         return false;
     #endif
@@ -2281,9 +2459,14 @@ bool OpenGLRenderer::SetFullExclusive(uint32_t width, uint32_t height)
 bool OpenGLRenderer::SetWindowedScreen()
 {
     #if defined(_WIN32) || defined(_WIN64)
-        ChangeDisplaySettingsW(nullptr, 0); // Restore default display settings
+        // Restore display settings if we entered exclusive fullscreen
+        if (m_isExclusiveFullscreen) {
+            ChangeDisplaySettingsW(nullptr, 0);
+            m_isExclusiveFullscreen = false;
+        }
         HWND hWnd = m_glContext.windowHandle;
-        DWORD style = WS_OVERLAPPEDWINDOW | WS_VISIBLE;
+        // Non-resizable windowed style — no WS_THICKFRAME (drag border) or WS_MAXIMIZEBOX
+        DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE;
         SetWindowLongW(hWnd, GWL_STYLE, style);
         SetWindowPos(hWnd, nullptr,
             100, 100, prevWindowedWidth, prevWindowedHeight,

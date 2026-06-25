@@ -66,7 +66,7 @@
     <ClCompile Include="GUIWindows.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="DX_FXManager.cpp">
+    <ClCompile Include="FXManager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="RendererFactory.cpp">
@@ -150,9 +150,6 @@
     <ClCompile Include="OpenGLModels.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="OpenGLFXManager.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="OpenGLRenderFrame.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -171,16 +168,10 @@
     <ClCompile Include="VULKAN_RenderFrame.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="VULKAN_FXManager.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="VULKAN_IOStreamThread.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="ScriptManager.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="DX12FXManager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="DX12Models.cpp">
@@ -251,7 +242,7 @@
     <ClInclude Include="WinMediaPlayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="DX_FXManager.h">
+    <ClInclude Include="FXManager.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Includes.h">
@@ -329,9 +320,6 @@
     <ClInclude Include="OpenGLModels.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="OpenGLFXManager.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="OpenGL_IOStreamThread.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -347,13 +335,7 @@
     <ClInclude Include="VULKAN_Renderer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="VULKAN_FXManager.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="VULKAN_IOStreamThread.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="DX12FXManager.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="DX12Models.h">

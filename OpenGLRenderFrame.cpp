@@ -27,7 +27,7 @@
 #include "ExceptionHandler.h"
 #include "WinSystem.h"
 #include "Configuration.h"
-#include "OpenGLFXManager.h"
+#include "FXManager.h"
 #include "GUIManager.h"
 #include "ConsoleWindow.h"
 #include "Models.h"
@@ -47,7 +47,7 @@ extern ExceptionHandler      exceptionHandler;
 extern SystemUtils           sysUtils;
 extern SceneManager          scene;
 extern ThreadManager         threadManager;
-extern GLFXManager           fxManager;
+extern FXManager           fxManager;
 extern Vector2               myMouseCoords;
 extern Model                 models[MAX_MODELS];
 extern LightsManager         lightsManager;
@@ -566,8 +566,8 @@ inline void OpenGLRenderer::RenderIntroMovie()
         }
     }
 
-    // Spacebar to skip movie — mirrors DX11 skip check
-    if (GetAsyncKeyState(' ') & 0x8000)
+    // Spacebar to skip movie — only active in SCENE_INTRO_MOVIE, not the splash SCENE_INTRO
+    if (scene.stSceneType == SceneType::SCENE_INTRO_MOVIE && (GetAsyncKeyState(' ') & 0x8000))
     {
         moviePlayer.Stop();
         scene.bSceneSwitching = true;
@@ -654,28 +654,38 @@ void OpenGLRenderer::RenderFrame()
             float deltaTime = std::clamp(weightedSum / totalWeight, 0.001f, 0.1f);
             lastFrameTime   = now;
 
+            #if defined(_DEBUG)
+                const bool bCollectTiming = (scene.stSceneType == SceneType::SCENE_GAMETITLE) && IsTimingCaptureActive();
+                const auto timingFrameStart = std::chrono::steady_clock::now();
+                auto timingPhaseStart = timingFrameStart;
+                Renderer::RenderTimingSample timingSample = {};
+                timingSample.d2dAvailable = true;
+                timingSample.screenRecorderActive = screenRecorder.IsRecording();
+                auto timingMs = [](const std::chrono::steady_clock::time_point& start,
+                                   const std::chrono::steady_clock::time_point& end) -> double {
+                    return std::chrono::duration<double, std::milli>(end - start).count();
+                };
+            #endif
+
             #ifdef __USE_SCRIPT_MANAGER__
                 scriptManager.Update(deltaTime);
             #endif
 
             myCamera.UpdateJumpAnimation();
 
-            // ---- Determine render dimensions ----
-            int renderW = iOrigWidth, renderH = iOrigHeight;
-            #if defined(_WIN32) || defined(_WIN64)
-                if (winMetrics.isFullScreen) {
-                    renderW = winMetrics.monitorFullArea.right  - winMetrics.monitorFullArea.left;
-                    renderH = winMetrics.monitorFullArea.bottom - winMetrics.monitorFullArea.top;
-                } else {
-                    renderW = winMetrics.clientWidth;
-                    renderH = winMetrics.clientHeight;
-                }
-            #endif
+            // ---- Determine render dimensions from the renderer's actual back-buffer size. ----
+            // iOrigWidth/iOrigHeight are set by Resize() (or SetFullExclusive → SetFullScreen)
+            // and always reflect the true framebuffer size regardless of display mode.
+            // Previously, the fullscreen path read winMetrics.monitorFullArea (OS monitor rect),
+            // which can be stale after a mode switch (reporting native resolution while the
+            // framebuffer is at a non-native configured resolution) and caused glViewport to
+            // disagree with the 2D blitting code that always uses iOrigWidth x iOrigHeight.
+            // Using these members directly keeps both coordinate spaces in sync for all modes.
+            int renderW = iOrigWidth;
+            int renderH = iOrigHeight;
             glViewport(0, 0, renderW, renderH);
             m_renderTargetWidth  = renderW;
             m_renderTargetHeight = renderH;
-            iOrigWidth           = renderW;
-            iOrigHeight          = renderH;
 
             // ---- Clear buffers ----
             glClearColor(clearR, clearG, clearB, 1.0f);
@@ -686,6 +696,19 @@ void OpenGLRenderer::RenderFrame()
 
             // ---- Starfield background pass (before 3D models so geometry renders on top) ----
             fxManager.RenderBackground();
+
+            // ---- Fireworks pass (before 3D models so geometry renders on top of fireworks) ----
+            fxManager.RenderFireworks();
+
+            #if defined(_DEBUG)
+                if (bCollectTiming)
+                {
+                    const auto timingAfterBackground = std::chrono::steady_clock::now();
+                    timingSample.backgroundPrePassMs = timingMs(timingPhaseStart, timingAfterBackground);
+                    timingSample.backgroundPrePass = true;
+                    timingPhaseStart = timingAfterBackground;
+                }
+            #endif
 
             // ---- Scene-specific 3D rendering ----
             switch (scene.stSceneType)
@@ -703,8 +726,8 @@ void OpenGLRenderer::RenderFrame()
                         // Background image is blitted by RenderBackgroundImage() before the
                         // starfield pass so the zoom lands under the stars, not on top of them
                         int iModelID = scene.FindParentModelID(SplashShipName);
-                        if (scene.gltfAnimator.IsAnimationPlaying(iModelID))
-                            scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS);
+                        if (scene.modelAnimator.IsAnimationPlaying(iModelID))
+                            scene.modelAnimator.UpdateAnimations(deltaTime);
                         RenderGamePlay(deltaTime);
                     }
                     break;
@@ -712,14 +735,23 @@ void OpenGLRenderer::RenderFrame()
                 case SceneType::SCENE_GAMEPLAY:
                 {
                     int iModelID = scene.FindParentModelID(ShipName1);
-                    if (scene.gltfAnimator.IsAnimationPlaying(iModelID))
-                        scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS);
+                    if (scene.modelAnimator.IsAnimationPlaying(iModelID))
+                        scene.modelAnimator.UpdateAnimations(deltaTime);
                     RenderGamePlay(deltaTime);
                     break;
                 }
 
                 default: break;
             }
+
+            #if defined(_DEBUG)
+                if (bCollectTiming)
+                {
+                    const auto timingAfter3D = std::chrono::steady_clock::now();
+                    timingSample.commandRecordMs = timingMs(timingPhaseStart, timingAfter3D);
+                    timingPhaseStart = timingAfter3D;
+                }
+            #endif
 
             // ---- 2D scene overlays (rendered after 3D so they appear in front) ----
             switch (scene.stSceneType)
@@ -743,10 +775,25 @@ void OpenGLRenderer::RenderFrame()
                     break;
 
                 case SceneType::SCENE_GAMETITLE:
-                    // Loading image blit is handled by RenderBackgroundImage(); only render loading text here
-                    if (!threadManager.threadVars.bLoaderTaskFinished.load())
-                        fxManager.RenderLoadingText();
+                {
+                    // Always call — no-op when no effects active; lets graceful fade-outs
+                    // complete even after loading finishes (mirrors DX11 behavior)
+                    fxManager.RenderLoadingText();
+
+                    // TSOO image composites ON TOP of all 3D model and starfield rendering —
+                    // blit here after RenderGamePlay so it appears as a 2D foreground overlay
+                    if (threadManager.threadVars.bLoaderTaskFinished.load() &&
+                        m_2dTextures[int(BlitObj2DIndexType::IMG_TSOO)].isLoaded)
+                    {
+                        int startX = (iOrigWidth  - 536) / 2; // Centered horizontally
+                        int startY = (iOrigHeight - 466) / 2; // Centered vertically
+                        if (fxManager.IsImageFadeStrobeActive(BlitObj2DIndexType::IMG_TSOO))
+                            fxManager.RenderImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
+                        else
+                            Blit2DObjectToSize(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
+                    }
                     break;
+                }
 
                 case SceneType::SCENE_GAMEPLAY:
                     // Loading image blit is handled by RenderBackgroundImage(); only render loading text here
@@ -807,6 +854,18 @@ void OpenGLRenderer::RenderFrame()
                     bDebugOSDActive = false;
                 }
             }
+
+            #if defined(_DEBUG)
+                if (bTimingOSDActive)
+                {
+                    float timingOsdElapsed = std::chrono::duration<float>(
+                        std::chrono::steady_clock::now() - timingOSDStartTime).count();
+                    if (timingOsdElapsed < 5.0f)
+                        DrawMyText(timingOSDMessage, Vector2(10.0f, 104.0f), MyColor(255, 220, 0, 255), 14.0f);
+                    else
+                        bTimingOSDActive = false;
+                }
+            #endif
 
             // ---- Loading spinner (fallback when loading text effects are inactive) ----
             if (!threadManager.threadVars.bLoaderTaskFinished.load())
@@ -909,6 +968,15 @@ void OpenGLRenderer::RenderFrame()
             fxManager.Render();
 
 
+            #if defined(_DEBUG)
+                if (bCollectTiming)
+                {
+                    const auto timingAfterOverlay = std::chrono::steady_clock::now();
+                    timingSample.d2dOverlayMs = timingMs(timingPhaseStart, timingAfterOverlay);
+                    timingPhaseStart = timingAfterOverlay;
+                }
+            #endif
+
             // ---- Present frame ----
             #if defined(_WIN32) || defined(_WIN64)
                 // ---- Screen recorder: capture back-buffer BEFORE Present (mirrors DX11 behaviour) ----
@@ -939,6 +1007,16 @@ void OpenGLRenderer::RenderFrame()
                 glXSwapBuffers(m_glContext.display, m_glContext.window);
             #elif defined(__ANDROID__)
                 eglSwapBuffers(m_glContext.eglDisplay, m_glContext.eglSurface);
+            #endif
+
+            #if defined(_DEBUG)
+                if (bCollectTiming)
+                {
+                    const auto timingFrameEnd = std::chrono::steady_clock::now();
+                    timingSample.presentMs = timingMs(timingPhaseStart, timingFrameEnd);
+                    timingSample.totalMs = timingMs(timingFrameStart, timingFrameEnd);
+                    RecordTimingSample(timingSample);
+                }
             #endif
 
             // ---- Frame counter ----

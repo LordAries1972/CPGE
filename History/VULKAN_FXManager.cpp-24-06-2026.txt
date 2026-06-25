@@ -1,0 +1,11 @@
+VULKAN_FXManager.cpp - 24-06-2026
+==================================
+
+Changes:
+- Render2D(): added ImageFadeStrobe if-branch (calls UpdateImageFadeStrobe with deltaTime).
+- RemoveCompletedEffects(): added ImageFadeStrobe guard (only removed when progress >= 1.0).
+- Added full ImageFadeStrobe implementations at end of file (before #pragma warning(pop)):
+    StartImageFadeStrobe, StopImageFadeStrobe, IsImageFadeStrobeActive,
+    GetImageFadeStrobeAlpha, RenderImageFadeStrobe, UpdateImageFadeStrobe.
+  Uses VKFXManager:: prefix, VKFXItem& parameter type, VKImageFadeStrobeData struct.
+  RenderImageFadeStrobe guarded by PLATFORM_WINDOWS / PLATFORM_LINUX fallback.

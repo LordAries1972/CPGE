@@ -80,7 +80,7 @@ const uint32_t    VK_MAX_FRAMES_IN_FLIGHT = 2;
 class Debug;
 class SystemUtils;
 class GUIManager;
-class VKFXManager;
+class FXManager;
 class Camera;
 class Model;
 
@@ -267,6 +267,7 @@ public:
 #if defined(PLATFORM_WINDOWS)
     void Blit2DWrappedObjectAtOffset(BlitObj2DIndexType iIndex, int iBlitX, int iBlitY, int iXOffset, int iYOffset, int iTileSizeX, int iTileSizeY) override;
     void Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, int iDestY, int iDestW, int iDestH, float zoomFactor) override;
+    void Blit2DObjectToSizeWithAlpha(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float alpha) override;
     void Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 color) override;
 #endif
 
@@ -604,6 +605,12 @@ private:
         VkDebugUtilsMessageTypeFlagsEXT type,
         const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
         void* pUserData);
+
+    // Exclusive fullscreen tracking — mirrors DX11/DX12 pattern
+    #if defined(PLATFORM_WINDOWS)
+        bool    m_isExclusiveFullscreen = false;                                // True while in exclusive fullscreen (ChangeDisplaySettings)
+        DEVMODE m_originalDesktopMode   = {};                                   // Desktop mode captured before entering exclusive fullscreen
+    #endif
 };
 
 // Global extern refs (mirrors DX11Renderer pattern)

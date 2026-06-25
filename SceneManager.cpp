@@ -1,4 +1,4 @@
-﻿// SceneManager.cpp (continued)
+// SceneManager.cpp (continued)
 #include "Includes.h"
 #include "SceneManager.h"
 #include "BlenderImports.h"
@@ -15,11 +15,11 @@
     #include "VULKAN_Renderer.h"
 #endif
 #if defined(__USE_OPENGL__)
-    #include "OpenGLFXManager.h"
+    #include "FXManager.h"
 #elif defined(__USE_VULKAN__)
-    #include "VULKAN_FXManager.h"
+    #include "FXManager.h"
 #else
-    #include "DX_FXManager.h"
+    #include "FXManager.h"
 #endif
 #include "Debug.h"
 #include "Lights.h"
@@ -40,9 +40,9 @@ extern LightsManager lightsManager;
 extern ThreadManager threadManager;
 extern SystemUtils sysUtils;
 #if defined(__USE_VULKAN__)
-extern VKFXManager  fxManager;
+extern FXManager  fxManager;
 #elif defined(__USE_OPENGL__)
-extern GLFXManager  fxManager;
+extern FXManager  fxManager;
 #else
 extern FXManager    fxManager;
 #endif
@@ -207,6 +207,10 @@ bool SceneManager::Initialize(std::shared_ptr<Renderer> renderer)
     #endif
 
     sceneFrameCounter = 0;
+
+    // Bind scene model array so UpdateAnimations() needs no extra arguments from callers
+    modelAnimator.SetModels(scene_models, MAX_SCENE_MODELS);
+
     return true;
 }
 
@@ -237,7 +241,7 @@ SceneType SceneManager::GetGotoScene()
 // GLB format: 12-byte header + JSON chunk + embedded BIN chunk (all binary data is self-contained)
 // Parent models have iParentModelID = -1, children reference their parent's instanceIndex
 //==============================================================================
-bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
+bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
 {
     #if defined(_DEBUG_SCENEMANAGER_)
         const auto _sceneLoadBegin = std::chrono::high_resolution_clock::now();
@@ -351,13 +355,22 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
                 ParseGLTFLights(miniDoc);
                 EnsureDefaultSunLight();
                 ParseMaterialsFromGLTF(miniDoc);
-                gltfAnimator.ClearAllAnimations();
-                bAnimationsLoaded = gltfAnimator.ParseAnimationsFromGLTF(miniDoc, gltfBinaryData);
+                modelAnimator.gltfAnimator.ClearAllAnimations();
+                bAnimationsLoaded = modelAnimator.gltfAnimator.ParseAnimationsFromGLTF(miniDoc, gltfBinaryData);
                 debug.logLevelMessage(LogLevel::LOG_INFO,
                     std::wstring(L"[SceneManager] CACHE-RESTORE GLB: animations parsed=") +
                     (bAnimationsLoaded ? L"true" : L"false") + L" count=" +
-                    std::to_wstring(gltfAnimator.GetAnimationCount()));
-                if (bAnimationsLoaded) gltfAnimator.DebugPrintAnimationInfo();
+                    std::to_wstring(modelAnimator.gltfAnimator.GetAnimationCount()));
+                if (bAnimationsLoaded) modelAnimator.gltfAnimator.DebugPrintAnimationInfo();
+
+                // Cache-only mode: models[] is already GPU-ready; skip scene_models[] restore.
+                if (bCacheOnly)
+                {
+                    bLoadedFromCache = true;
+                    debug.logLevelMessage(LogLevel::LOG_INFO,
+                        L"[SceneManager] ParseGLBScene() CACHE HIT (cache-only mode) -- models[] GPU-ready, scene_models[] left empty.");
+                    return true;
+                }
 
                 // --- Step 3: Restore scene_models from cache ---
                 int instanceIndex = 0;
@@ -523,12 +536,14 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
                                 scene_models[ti].m_modelInfo.metallicMapSRV.Reset();
                                 scene_models[ti].m_modelInfo.roughnessMapSRV.Reset();
                                 scene_models[ti].m_modelInfo.aoMapSRV.Reset();
+                                scene_models[ti].m_modelInfo.emissiveMapSRV.Reset();
                             #elif defined(__USE_OPENGL__)
                                 scene_models[ti].m_modelInfo.textureIDs.clear();
                                 scene_models[ti].m_modelInfo.normalMapIDs.clear();
                                 scene_models[ti].m_modelInfo.metallicTexID  = 0;
                                 scene_models[ti].m_modelInfo.roughnessTexID = 0;
                                 scene_models[ti].m_modelInfo.aoTexID        = 0;
+                                scene_models[ti].m_modelInfo.emissiveTexID  = 0;
                             #elif defined(__USE_VULKAN__)
                                 // Clear the textures vector so BindGLTFMaterialTexturesToModel
                                 // starts fresh — without this, textures accumulate on every
@@ -568,13 +583,16 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
                                     models[m2].m_modelInfo.sourceSceneFile    == glbFile)
                                 {
                                     #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-                                        models[m2].m_modelInfo.textures        = scene_models[ti].m_modelInfo.textures;
-                                        models[m2].m_modelInfo.textureSRVs     = scene_models[ti].m_modelInfo.textureSRVs;
-                                        models[m2].m_modelInfo.normalMapSRVs   = scene_models[ti].m_modelInfo.normalMapSRVs;
-                                        models[m2].m_modelInfo.metallicMapSRV  = scene_models[ti].m_modelInfo.metallicMapSRV;
-                                        models[m2].m_modelInfo.roughnessMapSRV = scene_models[ti].m_modelInfo.roughnessMapSRV;
-                                        models[m2].m_modelInfo.aoMapSRV        = scene_models[ti].m_modelInfo.aoMapSRV;
-                                        models[m2].m_materials                 = scene_models[ti].m_materials;
+                                        models[m2].m_modelInfo.textures           = scene_models[ti].m_modelInfo.textures;
+                                        models[m2].m_modelInfo.textureSRVs        = scene_models[ti].m_modelInfo.textureSRVs;
+                                        models[m2].m_modelInfo.normalMapSRVs      = scene_models[ti].m_modelInfo.normalMapSRVs;
+                                        models[m2].m_modelInfo.metallicMapSRV     = scene_models[ti].m_modelInfo.metallicMapSRV;
+                                        models[m2].m_modelInfo.roughnessMapSRV    = scene_models[ti].m_modelInfo.roughnessMapSRV;
+                                        models[m2].m_modelInfo.aoMapSRV           = scene_models[ti].m_modelInfo.aoMapSRV;
+                                        models[m2].m_modelInfo.emissiveMapSRV     = scene_models[ti].m_modelInfo.emissiveMapSRV;
+                                        models[m2].m_modelInfo.emissiveMapTexture = scene_models[ti].m_modelInfo.emissiveMapTexture;
+                                        models[m2].m_modelInfo.useEmissiveMap     = scene_models[ti].m_modelInfo.useEmissiveMap;
+                                        models[m2].m_materials                    = scene_models[ti].m_materials;
                                     #elif defined(__USE_OPENGL__)
                                         models[m2].m_modelInfo.textureIDs      = scene_models[ti].m_modelInfo.textureIDs;
                                         models[m2].m_modelInfo.normalMapIDs    = scene_models[ti].m_modelInfo.normalMapIDs;
@@ -583,6 +601,7 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
                                         models[m2].m_modelInfo.aoTexID         = scene_models[ti].m_modelInfo.aoTexID;
                                         models[m2].m_modelInfo.glossTexID      = scene_models[ti].m_modelInfo.glossTexID;
                                         models[m2].m_modelInfo.emissiveTexID   = scene_models[ti].m_modelInfo.emissiveTexID;
+                                        models[m2].m_modelInfo.useEmissiveMap  = scene_models[ti].m_modelInfo.useEmissiveMap;
                                         models[m2].m_materials                 = scene_models[ti].m_materials;
                                     #elif defined(__USE_VULKAN__)
                                         // Write textures back to the models[] cache so subsequent
@@ -612,28 +631,28 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
                 debug.logLevelMessage(LogLevel::LOG_INFO,
                     std::wstring(L"[SceneManager] CACHE-RESTORE GLB Step 5: bAnimationsLoaded=") +
                     (bAnimationsLoaded ? L"true" : L"false") + L" animCount=" +
-                    std::to_wstring(gltfAnimator.GetAnimationCount()) +
+                    std::to_wstring(modelAnimator.gltfAnimator.GetAnimationCount()) +
                     L" instances=" + std::to_wstring(instanceIndex));
-                if (bAnimationsLoaded && gltfAnimator.GetAnimationCount() > 0)
+                if (bAnimationsLoaded && modelAnimator.gltfAnimator.GetAnimationCount() > 0)
                 {
-                    for (int animIdx = 0; animIdx < gltfAnimator.GetAnimationCount(); ++animIdx)
+                    for (int animIdx = 0; animIdx < modelAnimator.gltfAnimator.GetAnimationCount(); ++animIdx)
                     {
                         int parentID = FindParentModelIDForAnimation(animIdx);
                         debug.logLevelMessage(LogLevel::LOG_INFO,
                             L"[SceneManager] CACHE-RESTORE GLB anim[" + std::to_wstring(animIdx) +
                             L"] parentID=" + std::to_wstring(parentID));
                         if (parentID < 0) continue;
-                        bool created = gltfAnimator.CreateAnimationInstance(animIdx, parentID);
+                        bool created = modelAnimator.gltfAnimator.CreateAnimationInstance(animIdx, parentID);
                         debug.logLevelMessage(LogLevel::LOG_INFO,
                             L"[SceneManager] CACHE-RESTORE GLB anim[" + std::to_wstring(animIdx) +
                             L"] instance " + (created ? L"CREATED" : L"FAILED") +
                             L" parentID=" + std::to_wstring(parentID));
                         if (created)
                         {
-                            gltfAnimator.ForceAnimationReset(parentID);
-                            gltfAnimator.SetAnimationSpeed(parentID, 0.75f);
-                            gltfAnimator.SetAnimationLooping(parentID, true);
-                            gltfAnimator.StartAnimation(parentID, animIdx);
+                            modelAnimator.gltfAnimator.ForceAnimationReset(parentID);
+                            modelAnimator.gltfAnimator.SetAnimationSpeed(parentID, 0.75f);
+                            modelAnimator.gltfAnimator.SetAnimationLooping(parentID, true);
+                            modelAnimator.gltfAnimator.StartAnimation(parentID, animIdx);
                         }
                     }
                 }
@@ -950,13 +969,13 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
     ParseMaterialsFromGLTF(doc);
 
     // Parse animations from GLB document and store them in the global animator
-    bAnimationsLoaded = gltfAnimator.ParseAnimationsFromGLTF(doc, gltfBinaryData);
+    bAnimationsLoaded = modelAnimator.gltfAnimator.ParseAnimationsFromGLTF(doc, gltfBinaryData);
     if (bAnimationsLoaded)
     {
         #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Successfully loaded %d animations from GLB", gltfAnimator.GetAnimationCount());
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Successfully loaded %d animations from GLB", modelAnimator.gltfAnimator.GetAnimationCount());
         #endif
-        gltfAnimator.DebugPrintAnimationInfo();
+        modelAnimator.gltfAnimator.DebugPrintAnimationInfo();
     }
     
     // Build the list of root node indices from the scene definition
@@ -1028,21 +1047,21 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
     // Auto-initialise all animations discovered during loading.
     // Each animation's channel node indices are matched against loaded scene models to
     // resolve the root parent, removing the need for hardcoded per-scene animation startup.
-    if (bAnimationsLoaded && gltfAnimator.GetAnimationCount() > 0)
+    if (bAnimationsLoaded && modelAnimator.gltfAnimator.GetAnimationCount() > 0)
     {
-        for (int animIdx = 0; animIdx < gltfAnimator.GetAnimationCount(); ++animIdx)
+        for (int animIdx = 0; animIdx < modelAnimator.gltfAnimator.GetAnimationCount(); ++animIdx)
         {
             int parentID = FindParentModelIDForAnimation(animIdx);
             if (parentID < 0)
                 continue;
 
-            bool created = gltfAnimator.CreateAnimationInstance(animIdx, parentID);
+            bool created = modelAnimator.gltfAnimator.CreateAnimationInstance(animIdx, parentID);
             if (created)
             {
-                gltfAnimator.ForceAnimationReset(parentID);
-                gltfAnimator.SetAnimationSpeed(parentID, 0.75f);
-                gltfAnimator.SetAnimationLooping(parentID, true);
-                gltfAnimator.StartAnimation(parentID, animIdx);
+                modelAnimator.gltfAnimator.ForceAnimationReset(parentID);
+                modelAnimator.gltfAnimator.SetAnimationSpeed(parentID, 0.75f);
+                modelAnimator.gltfAnimator.SetAnimationLooping(parentID, true);
+                modelAnimator.gltfAnimator.StartAnimation(parentID, animIdx);
             }
         }
     }
@@ -1056,6 +1075,23 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile)
             _sceneLoadMs, instanceIndex, m_lastDetectedExporter.c_str());
     }
     #endif
+
+    // Cache-only mode: GPU resources are now in models[] only.
+    // Clear all populated scene_models[] entries so the renderer skips them.
+    // (Dynamic scenes assemble their visible set at runtime via PutModelToScene.)
+    if (bCacheOnly && instanceIndex > 0)
+    {
+        for (int i = 0; i < instanceIndex; ++i)
+        {
+            scene_models[i].m_modelInfo  = ModelInfo{};
+            scene_models[i].m_materials.clear();
+            scene_models[i].m_isLoaded   = false;
+            scene_models[i].bInitialized = false;
+        }
+        debug.logLevelMessage(LogLevel::LOG_INFO,
+            (L"[SceneManager] ParseGLBScene() cache-only mode -- " +
+             std::to_wstring(instanceIndex) + L" model(s) cached in models[], scene_models[] cleared.").c_str());
+    }
 
     // Return success if at least one model instance was created
     return (instanceIndex > 0);
@@ -1244,6 +1280,7 @@ void SceneManager::ParseGLBNodeRecursive(const json& node, int nodeIndex, const 
             {
                 scene_models[instanceIndex].m_modelInfo.iParentModelID        = parentModelID;
                 scene_models[instanceIndex].m_modelInfo.gltfNodeIndex         = nodeIndex;
+                scene_models[instanceIndex].m_modelInfo.importType            = ImportType::GLTF;
                 scene_models[instanceIndex].m_modelInfo.baseLocalTranslation  = baseLocalTranslation;
                 scene_models[instanceIndex].m_modelInfo.baseLocalRotationQuat = baseLocalRotationQuat;
                 scene_models[instanceIndex].m_modelInfo.baseLocalScale        = baseLocalScale;
@@ -1365,6 +1402,7 @@ void SceneManager::ParseGLBNodeRecursive(const json& node, int nodeIndex, const 
         scene_models[instanceIndex].m_modelInfo.ID = instanceIndex;
         scene_models[instanceIndex].m_modelInfo.iParentModelID = parentModelID;
         scene_models[instanceIndex].m_modelInfo.gltfNodeIndex = nodeIndex;
+        scene_models[instanceIndex].m_modelInfo.importType    = ImportType::GLTF;
         scene_models[instanceIndex].m_modelInfo.worldMatrix = worldTransform;
 
         // Store base local TRS so animations can evaluate in LOCAL space.
@@ -1447,7 +1485,7 @@ void SceneManager::ParseGLBNodeRecursive(const json& node, int nodeIndex, const 
 
 // --------------------------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------------------------
-bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
+bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
 {
     #if defined(_DEBUG_SCENEMANAGER_)
         const auto _sceneLoadBegin = std::chrono::high_resolution_clock::now();
@@ -1532,7 +1570,7 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
                 ParseGLTFLights(miniDoc);
                 EnsureDefaultSunLight();
                 ParseMaterialsFromGLTF(miniDoc);
-                gltfAnimator.ClearAllAnimations();
+                modelAnimator.gltfAnimator.ClearAllAnimations();
                 // Reload external .bin file before animation parsing — the cache path only
                 // reads the JSON above; without this, gltfBinaryData is empty/stale and
                 // ParseAnimationsFromGLTF cannot read keyframe data.
@@ -1563,12 +1601,21 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
                         }
                     }
                 }
-                bAnimationsLoaded = gltfAnimator.ParseAnimationsFromGLTF(miniDoc, gltfBinaryData);
+                bAnimationsLoaded = modelAnimator.gltfAnimator.ParseAnimationsFromGLTF(miniDoc, gltfBinaryData);
                 debug.logLevelMessage(LogLevel::LOG_INFO,
                     std::wstring(L"[SceneManager] CACHE-RESTORE GLTF: animations parsed=") +
                     (bAnimationsLoaded ? L"true" : L"false") + L" count=" +
-                    std::to_wstring(gltfAnimator.GetAnimationCount()));
-                if (bAnimationsLoaded) gltfAnimator.DebugPrintAnimationInfo();
+                    std::to_wstring(modelAnimator.gltfAnimator.GetAnimationCount()));
+                if (bAnimationsLoaded) modelAnimator.gltfAnimator.DebugPrintAnimationInfo();
+
+                // Cache-only mode: models[] is already GPU-ready; skip scene_models[] restore.
+                if (bCacheOnly)
+                {
+                    bLoadedFromCache = true;
+                    debug.logLevelMessage(LogLevel::LOG_INFO,
+                        L"[SceneManager] ParseGLTFScene() CACHE HIT (cache-only mode) -- models[] GPU-ready, scene_models[] left empty.");
+                    return true;
+                }
 
                 // --- Step 3: Restore scene_models from cache ---
                 int instanceIndex = 0;
@@ -1730,12 +1777,14 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
                             scene_models[ti].m_modelInfo.metallicMapSRV.Reset();
                             scene_models[ti].m_modelInfo.roughnessMapSRV.Reset();
                             scene_models[ti].m_modelInfo.aoMapSRV.Reset();
+                            scene_models[ti].m_modelInfo.emissiveMapSRV.Reset();
 #elif defined(__USE_OPENGL__)
                             scene_models[ti].m_modelInfo.textureIDs.clear();
                             scene_models[ti].m_modelInfo.normalMapIDs.clear();
                             scene_models[ti].m_modelInfo.metallicTexID  = 0;
                             scene_models[ti].m_modelInfo.roughnessTexID = 0;
                             scene_models[ti].m_modelInfo.aoTexID        = 0;
+                            scene_models[ti].m_modelInfo.emissiveTexID  = 0;
 #elif defined(__USE_VULKAN__)
                             scene_models[ti].m_modelInfo.textures.clear();
                             // NOTE: Do NOT null descriptorSet here — same reason as GLB cache-restore
@@ -1762,13 +1811,16 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
                                     models[m2].m_modelInfo.sourceSceneFile    == gltfFile)
                                 {
 #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-                                    models[m2].m_modelInfo.textures        = scene_models[ti].m_modelInfo.textures;
-                                    models[m2].m_modelInfo.textureSRVs     = scene_models[ti].m_modelInfo.textureSRVs;
-                                    models[m2].m_modelInfo.normalMapSRVs   = scene_models[ti].m_modelInfo.normalMapSRVs;
-                                    models[m2].m_modelInfo.metallicMapSRV  = scene_models[ti].m_modelInfo.metallicMapSRV;
-                                    models[m2].m_modelInfo.roughnessMapSRV = scene_models[ti].m_modelInfo.roughnessMapSRV;
-                                    models[m2].m_modelInfo.aoMapSRV        = scene_models[ti].m_modelInfo.aoMapSRV;
-                                    models[m2].m_materials                 = scene_models[ti].m_materials;
+                                    models[m2].m_modelInfo.textures           = scene_models[ti].m_modelInfo.textures;
+                                    models[m2].m_modelInfo.textureSRVs        = scene_models[ti].m_modelInfo.textureSRVs;
+                                    models[m2].m_modelInfo.normalMapSRVs      = scene_models[ti].m_modelInfo.normalMapSRVs;
+                                    models[m2].m_modelInfo.metallicMapSRV     = scene_models[ti].m_modelInfo.metallicMapSRV;
+                                    models[m2].m_modelInfo.roughnessMapSRV    = scene_models[ti].m_modelInfo.roughnessMapSRV;
+                                    models[m2].m_modelInfo.aoMapSRV           = scene_models[ti].m_modelInfo.aoMapSRV;
+                                    models[m2].m_modelInfo.emissiveMapSRV     = scene_models[ti].m_modelInfo.emissiveMapSRV;
+                                    models[m2].m_modelInfo.emissiveMapTexture = scene_models[ti].m_modelInfo.emissiveMapTexture;
+                                    models[m2].m_modelInfo.useEmissiveMap     = scene_models[ti].m_modelInfo.useEmissiveMap;
+                                    models[m2].m_materials                    = scene_models[ti].m_materials;
 #elif defined(__USE_OPENGL__)
                                     models[m2].m_modelInfo.textureIDs      = scene_models[ti].m_modelInfo.textureIDs;
                                     models[m2].m_modelInfo.normalMapIDs    = scene_models[ti].m_modelInfo.normalMapIDs;
@@ -1777,6 +1829,7 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
                                     models[m2].m_modelInfo.aoTexID         = scene_models[ti].m_modelInfo.aoTexID;
                                     models[m2].m_modelInfo.glossTexID      = scene_models[ti].m_modelInfo.glossTexID;
                                     models[m2].m_modelInfo.emissiveTexID   = scene_models[ti].m_modelInfo.emissiveTexID;
+                                    models[m2].m_modelInfo.useEmissiveMap  = scene_models[ti].m_modelInfo.useEmissiveMap;
                                     models[m2].m_materials                 = scene_models[ti].m_materials;
 #elif defined(__USE_VULKAN__)
                                     models[m2].m_modelInfo.textures        = scene_models[ti].m_modelInfo.textures;
@@ -1800,28 +1853,28 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
                 debug.logLevelMessage(LogLevel::LOG_INFO,
                     std::wstring(L"[SceneManager] CACHE-RESTORE GLTF Step 5: bAnimationsLoaded=") +
                     (bAnimationsLoaded ? L"true" : L"false") + L" animCount=" +
-                    std::to_wstring(gltfAnimator.GetAnimationCount()) +
+                    std::to_wstring(modelAnimator.gltfAnimator.GetAnimationCount()) +
                     L" instances=" + std::to_wstring(instanceIndex));
-                if (bAnimationsLoaded && gltfAnimator.GetAnimationCount() > 0)
+                if (bAnimationsLoaded && modelAnimator.gltfAnimator.GetAnimationCount() > 0)
                 {
-                    for (int animIdx = 0; animIdx < gltfAnimator.GetAnimationCount(); ++animIdx)
+                    for (int animIdx = 0; animIdx < modelAnimator.gltfAnimator.GetAnimationCount(); ++animIdx)
                     {
                         int parentID = FindParentModelIDForAnimation(animIdx);
                         debug.logLevelMessage(LogLevel::LOG_INFO,
                             L"[SceneManager] CACHE-RESTORE GLTF anim[" + std::to_wstring(animIdx) +
                             L"] parentID=" + std::to_wstring(parentID));
                         if (parentID < 0) continue;
-                        bool created = gltfAnimator.CreateAnimationInstance(animIdx, parentID);
+                        bool created = modelAnimator.gltfAnimator.CreateAnimationInstance(animIdx, parentID);
                         debug.logLevelMessage(LogLevel::LOG_INFO,
                             L"[SceneManager] CACHE-RESTORE GLTF anim[" + std::to_wstring(animIdx) +
                             L"] instance " + (created ? L"CREATED" : L"FAILED") +
                             L" parentID=" + std::to_wstring(parentID));
                         if (created)
                         {
-                            gltfAnimator.ForceAnimationReset(parentID);
-                            gltfAnimator.SetAnimationSpeed(parentID, 0.75f);
-                            gltfAnimator.SetAnimationLooping(parentID, true);
-                            gltfAnimator.StartAnimation(parentID, animIdx);
+                            modelAnimator.gltfAnimator.ForceAnimationReset(parentID);
+                            modelAnimator.gltfAnimator.SetAnimationSpeed(parentID, 0.75f);
+                            modelAnimator.gltfAnimator.SetAnimationLooping(parentID, true);
+                            modelAnimator.gltfAnimator.StartAnimation(parentID, animIdx);
                         }
                     }
                 }
@@ -1943,13 +1996,13 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
     ParseMaterialsFromGLTF(doc);
 
     // Parse animations from GLTF document and store them in the global animator
-    bAnimationsLoaded = gltfAnimator.ParseAnimationsFromGLTF(doc, gltfBinaryData);
+    bAnimationsLoaded = modelAnimator.gltfAnimator.ParseAnimationsFromGLTF(doc, gltfBinaryData);
     if (bAnimationsLoaded)
     {
         #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Successfully loaded %d animations from GLTF", gltfAnimator.GetAnimationCount());
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Successfully loaded %d animations from GLTF", modelAnimator.gltfAnimator.GetAnimationCount());
         #endif
-        gltfAnimator.DebugPrintAnimationInfo();
+        modelAnimator.gltfAnimator.DebugPrintAnimationInfo();
     }
 
     // Build the list of root node indices from the scene definition
@@ -2013,21 +2066,21 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
     // Auto-initialise all animations discovered during loading.
     // Each animation's channel node indices are matched against loaded scene models to
     // resolve the root parent, removing the need for hardcoded per-scene animation startup.
-    if (bAnimationsLoaded && gltfAnimator.GetAnimationCount() > 0)
+    if (bAnimationsLoaded && modelAnimator.gltfAnimator.GetAnimationCount() > 0)
     {
-        for (int animIdx = 0; animIdx < gltfAnimator.GetAnimationCount(); ++animIdx)
+        for (int animIdx = 0; animIdx < modelAnimator.gltfAnimator.GetAnimationCount(); ++animIdx)
         {
             int parentID = FindParentModelIDForAnimation(animIdx);
             if (parentID < 0)
                 continue;
 
-            bool created = gltfAnimator.CreateAnimationInstance(animIdx, parentID);
+            bool created = modelAnimator.gltfAnimator.CreateAnimationInstance(animIdx, parentID);
             if (created)
             {
-                gltfAnimator.ForceAnimationReset(parentID);
-                gltfAnimator.SetAnimationSpeed(parentID, 0.75f);
-                gltfAnimator.SetAnimationLooping(parentID, true);
-                gltfAnimator.StartAnimation(parentID, animIdx);
+                modelAnimator.gltfAnimator.ForceAnimationReset(parentID);
+                modelAnimator.gltfAnimator.SetAnimationSpeed(parentID, 0.75f);
+                modelAnimator.gltfAnimator.SetAnimationLooping(parentID, true);
+                modelAnimator.gltfAnimator.StartAnimation(parentID, animIdx);
             }
         }
     }
@@ -2042,15 +2095,31 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile)
     }
     #endif
 
+    // Cache-only mode: GPU resources are now in models[] only.
+    // Clear all populated scene_models[] entries so the renderer skips them.
+    if (bCacheOnly && instanceIndex > 0)
+    {
+        for (int i = 0; i < instanceIndex; ++i)
+        {
+            scene_models[i].m_modelInfo  = ModelInfo{};
+            scene_models[i].m_materials.clear();
+            scene_models[i].m_isLoaded   = false;
+            scene_models[i].bInitialized = false;
+        }
+        debug.logLevelMessage(LogLevel::LOG_INFO,
+            (L"[SceneManager] ParseGLTFScene() cache-only mode -- " +
+             std::to_wstring(instanceIndex) + L" model(s) cached in models[], scene_models[] cleared.").c_str());
+    }
+
     // Validate GLTF animation channel node mapping against created scene model instances.
     // This helps catch the common case where animations target non-mesh nodes (no scene_models entry),
     // or where node indices were not preserved during parsing.
     #if defined(_DEBUG_SCENEMANAGER_)
         if (bAnimationsLoaded)
         {
-            for (int animIndex = 0; animIndex < gltfAnimator.GetAnimationCount(); ++animIndex)
+            for (int animIndex = 0; animIndex < modelAnimator.gltfAnimator.GetAnimationCount(); ++animIndex)
             {
-                const GLTFAnimation* anim = gltfAnimator.GetAnimation(animIndex);
+                const GLTFAnimation* anim = modelAnimator.gltfAnimator.GetAnimation(animIndex);
                 if (!anim)
                     continue;
 
@@ -2254,6 +2323,7 @@ void SceneManager::ParseGLTFNodeRecursive(const json& node, int nodeIndex, const
             {
                 scene_models[instanceIndex].m_modelInfo.iParentModelID        = parentModelID;
                 scene_models[instanceIndex].m_modelInfo.gltfNodeIndex         = nodeIndex;
+                scene_models[instanceIndex].m_modelInfo.importType            = ImportType::GLTF;
                 scene_models[instanceIndex].m_modelInfo.baseLocalTranslation  = baseLocalTranslation;
                 scene_models[instanceIndex].m_modelInfo.baseLocalRotationQuat = baseLocalRotationQuat;
                 scene_models[instanceIndex].m_modelInfo.baseLocalScale        = baseLocalScale;
@@ -2367,6 +2437,7 @@ void SceneManager::ParseGLTFNodeRecursive(const json& node, int nodeIndex, const
         scene_models[instanceIndex].m_modelInfo.ID               = instanceIndex;
         scene_models[instanceIndex].m_modelInfo.iParentModelID   = parentModelID;
         scene_models[instanceIndex].m_modelInfo.gltfNodeIndex    = nodeIndex;
+        scene_models[instanceIndex].m_modelInfo.importType       = ImportType::GLTF;
         scene_models[instanceIndex].m_modelInfo.worldMatrix      = worldTransform;
 
         scene_models[instanceIndex].m_modelInfo.baseLocalTranslation   = baseLocalTranslation;
@@ -3874,6 +3945,73 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
         }
     }
 
+    // === Emissive Texture (optional, t7 / Vulkan set=1 binding=5) ===
+    // GLTF 2.0 spec: emissiveTexture is a top-level material key (not inside pbrMetallicRoughness).
+    // The emissive colour output is: emissiveTexture.rgb * emissiveFactor * emissiveStrength.
+    // When no texture is present the shader falls back to vec3(1,1,1), making emissiveFactor
+    // the sole colour — so a white [1,1,1] factor with no texture produces solid white emission.
+    if (mat.contains("emissiveTexture"))
+    {
+        int texIndex = mat["emissiveTexture"].value("index", -1);
+        if (texIndex >= 0 && texIndex < (int)textures.size())
+        {
+            int imgIndex = textures[texIndex].value("source", -1);
+            if (imgIndex >= 0 && imgIndex < (int)images.size())
+            {
+                auto tex = LoadGLTFImage(images[imgIndex], doc);
+                if (tex)
+                {
+                    std::string uri = images[imgIndex].value("uri", "");
+                    info.textures.push_back(tex);
+                    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                        info.emissiveMapTexture = tex;
+                        info.emissiveMapSRV     = tex->GetSRV();
+                    #endif
+                    info.useEmissiveMap    = true;
+                    newMat.emissiveMap     = tex;
+                    newMat.emissiveMapPath = uri.empty() ? "(embedded)" : uri;
+
+                    debug.logDebugMessage(LogLevel::LOG_INFO,
+                        L"[SceneManager] Model[%d] material[%d] -> Emissive map (%hs) "
+                        L"factor=(%.2f,%.2f,%.2f) strength=%.2f",
+                        info.ID, materialIndex,
+                        uri.empty() ? "embedded" : uri.c_str(),
+                        newMat.emissiveFactor.x, newMat.emissiveFactor.y, newMat.emissiveFactor.z,
+                        newMat.emissiveStrength);
+                }
+                #if defined(_DEBUG_SCENEMANAGER_)
+                else
+                {
+                    std::string uri = images[imgIndex].value("uri", "");
+                    debug.logDebugMessage(LogLevel::LOG_ERROR,
+                        L"[SceneManager] Model[%d] material[%d]: Emissive map load FAILED "
+                        L"(imgIndex=%d uri='%hs') - flat emissiveFactor will be used",
+                        info.ID, materialIndex, imgIndex, uri.empty() ? "embedded" : uri.c_str());
+                }
+                #endif
+            }
+        }
+    }
+    #if defined(_DEBUG_SCENEMANAGER_)
+    else
+    {
+        // Warn when the material declares a non-black emissiveFactor but exports no texture.
+        // This is the Blender export bug that causes solid-white emission: the emission colour
+        // input of Principled BSDF must be connected to an image texture node for Blender to
+        // write an emissiveTexture entry; a plain colour connection only writes emissiveFactor.
+        const auto& ef = newMat.emissiveFactor;
+        if (ef.x > 0.001f || ef.y > 0.001f || ef.z > 0.001f)
+        {
+            debug.logDebugMessage(LogLevel::LOG_WARNING,
+                L"[SceneManager] Model[%d] material[%d] \"%hs\": emissiveFactor=(%.2f,%.2f,%.2f)x%.2f "
+                L"but NO emissiveTexture in GLTF -- shader will emit solid colour. "
+                L"In Blender: connect a texture node to the Emission Color socket of Principled BSDF before exporting.",
+                info.ID, materialIndex, newMat.name.c_str(),
+                ef.x, ef.y, ef.z, newMat.emissiveStrength);
+        }
+    }
+    #endif
+
     // PBR scalars (Kd, Metallic, Roughness, emissive, alpha, extensions) were
     // already applied by BlenderImports::ApplyPBRMaterial() above the texture block.
 
@@ -4727,7 +4865,7 @@ void SceneManager::EnsureDefaultSunLight()
 // Detects the scene file format from the file extension and/or binary magic, then routes to the
 // appropriate parser: .glb -> ParseGLBScene, .gltf -> ParseGLTFScene, .fbx -> ParseFBXScene.
 // ==================================================================================================
-bool SceneManager::ParseSceneAutoDetect(const std::wstring& sceneFile)
+bool SceneManager::ParseSceneAutoDetect(const std::wstring& sceneFile, bool bCacheOnly)
 {
     if (sceneFile.empty())
     {
@@ -4757,15 +4895,15 @@ bool SceneManager::ParseSceneAutoDetect(const std::wstring& sceneFile)
 
     if (ext == L"glb")
     {
-        return ParseGLBScene(sceneFile);
+        return ParseGLBScene(sceneFile, bCacheOnly);
     }
     else if (ext == L"gltf")
     {
-        return ParseGLTFScene(sceneFile);
+        return ParseGLTFScene(sceneFile, bCacheOnly);
     }
     else if (ext == L"fbx")
     {
-        return ParseFBXScene(sceneFile);
+        return ParseFBXScene(sceneFile, bCacheOnly);
     }
     else
     {
@@ -4777,7 +4915,7 @@ bool SceneManager::ParseSceneAutoDetect(const std::wstring& sceneFile)
             if (magic.size() >= 4 &&
                 magic[0] == 0x67 && magic[1] == 0x6C &&
                 magic[2] == 0x54 && magic[3] == 0x46)
-                return ParseGLBScene(sceneFile);
+                return ParseGLBScene(sceneFile, bCacheOnly);
 
             // FBX binary: "Kaydara FBX Binary  \x00\x1a\x00"
             static const uint8_t kFBX[23] = {
@@ -4785,7 +4923,7 @@ bool SceneManager::ParseSceneAutoDetect(const std::wstring& sceneFile)
                 ' ',' ','\x00','\x1a','\x00'
             };
             if (memcmp(magic.data(), kFBX, 23) == 0)
-                return ParseFBXScene(sceneFile);
+                return ParseFBXScene(sceneFile, bCacheOnly);
         }
 
         debug.logLevelMessage(LogLevel::LOG_ERROR,
@@ -4800,7 +4938,7 @@ bool SceneManager::ParseSceneAutoDetect(const std::wstring& sceneFile)
 // Supports: vertices, UV maps, normals/tangents, materials, lights, cameras,
 //           parent-child hierarchy, animations, shadow data.
 // ==================================================================================================
-bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
+bool SceneManager::ParseFBXScene(const std::wstring& fbxFile, bool bCacheOnly)
 {
     #if defined(_DEBUG_SCENEMANAGER_)
         const auto _t0 = std::chrono::high_resolution_clock::now();
@@ -4911,6 +5049,15 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
                      std::to_wstring(cFbx.models.size()) + L" mats=" +
                      std::to_wstring(cFbx.materials.size()) + L" lights=" +
                      std::to_wstring(cFbx.lights.size())).c_str());
+
+                // Cache-only mode: models[] is already GPU-ready; skip scene_models[] restore.
+                if (bCacheOnly)
+                {
+                    bLoadedFromCache = true;
+                    debug.logLevelMessage(LogLevel::LOG_INFO,
+                        L"[SceneManager] ParseFBXScene() CACHE HIT (cache-only mode) -- models[] GPU-ready, scene_models[] left empty.");
+                    return true;
+                }
 
                 // ---- Step 2: Restore scene_models[] geometry from cache ----
                 int instanceIndex = 0;
@@ -5073,12 +5220,14 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
                         scene_models[ti].m_modelInfo.metallicMapSRV.Reset();
                         scene_models[ti].m_modelInfo.roughnessMapSRV.Reset();
                         scene_models[ti].m_modelInfo.aoMapSRV.Reset();
+                        scene_models[ti].m_modelInfo.emissiveMapSRV.Reset();
                     #elif defined(__USE_OPENGL__)
                         scene_models[ti].m_modelInfo.textureIDs.clear();
                         scene_models[ti].m_modelInfo.normalMapIDs.clear();
                         scene_models[ti].m_modelInfo.metallicTexID  = 0;
                         scene_models[ti].m_modelInfo.roughnessTexID = 0;
                         scene_models[ti].m_modelInfo.aoTexID        = 0;
+                        scene_models[ti].m_modelInfo.emissiveTexID  = 0;
                     #endif
 
                     // No file texture -- create WHITE 1x1 so shader reads Kd unchanged
@@ -5101,6 +5250,7 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
                     cAddTex(cEngMat.roughnessMap);
                     cAddTex(cEngMat.metallicMap);
                     cAddTex(cEngMat.aoMap);
+                    cAddTex(cEngMat.emissiveMap);
 
                     // Bind SRVs / texture IDs per renderer
                     #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
@@ -5114,6 +5264,12 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
                             scene_models[ti].m_modelInfo.metallicMapSRV  = cEngMat.metallicMap->GetSRV();
                         if (cEngMat.aoMap)
                             scene_models[ti].m_modelInfo.aoMapSRV        = cEngMat.aoMap->GetSRV();
+                        if (cEngMat.emissiveMap)
+                        {
+                            scene_models[ti].m_modelInfo.emissiveMapSRV     = cEngMat.emissiveMap->GetSRV();
+                            scene_models[ti].m_modelInfo.emissiveMapTexture = cEngMat.emissiveMap;
+                            scene_models[ti].m_modelInfo.useEmissiveMap     = true;
+                        }
                     #endif
 
                     // Update material struct and metallic/roughness scalars
@@ -5134,12 +5290,15 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
                         if (models[m2].m_modelInfo.cachedInstanceIndex != ti) continue;
                         if (models[m2].m_modelInfo.sourceSceneFile     != fbxFile) continue;
                         #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-                            models[m2].m_modelInfo.textures        = scene_models[ti].m_modelInfo.textures;
-                            models[m2].m_modelInfo.textureSRVs     = scene_models[ti].m_modelInfo.textureSRVs;
-                            models[m2].m_modelInfo.normalMapSRVs   = scene_models[ti].m_modelInfo.normalMapSRVs;
-                            models[m2].m_modelInfo.metallicMapSRV  = scene_models[ti].m_modelInfo.metallicMapSRV;
-                            models[m2].m_modelInfo.roughnessMapSRV = scene_models[ti].m_modelInfo.roughnessMapSRV;
-                            models[m2].m_modelInfo.aoMapSRV        = scene_models[ti].m_modelInfo.aoMapSRV;
+                            models[m2].m_modelInfo.textures           = scene_models[ti].m_modelInfo.textures;
+                            models[m2].m_modelInfo.textureSRVs        = scene_models[ti].m_modelInfo.textureSRVs;
+                            models[m2].m_modelInfo.normalMapSRVs      = scene_models[ti].m_modelInfo.normalMapSRVs;
+                            models[m2].m_modelInfo.metallicMapSRV     = scene_models[ti].m_modelInfo.metallicMapSRV;
+                            models[m2].m_modelInfo.roughnessMapSRV    = scene_models[ti].m_modelInfo.roughnessMapSRV;
+                            models[m2].m_modelInfo.aoMapSRV           = scene_models[ti].m_modelInfo.aoMapSRV;
+                            models[m2].m_modelInfo.emissiveMapSRV     = scene_models[ti].m_modelInfo.emissiveMapSRV;
+                            models[m2].m_modelInfo.emissiveMapTexture = scene_models[ti].m_modelInfo.emissiveMapTexture;
+                            models[m2].m_modelInfo.useEmissiveMap     = scene_models[ti].m_modelInfo.useEmissiveMap;
                         #endif
 
                         models[m2].m_materials                 = scene_models[ti].m_materials;
@@ -5490,6 +5649,9 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
             mdl.m_modelInfo.bGpuReady           = false;
             mdl.m_modelInfo.cachedInstanceIndex = instanceIndex;
             fbxIDToSlot[fbxModel.id] = instanceIndex;
+            scene_models[instanceIndex].m_modelInfo.importType   = ImportType::FBX;
+            scene_models[instanceIndex].m_modelInfo.fbxNodeIndex = instanceIndex;
+            scene_models[instanceIndex].m_modelInfo.fbxNodeName  = fbxModel.name;
             ++instanceIndex;
             continue;
         }
@@ -5507,6 +5669,9 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
             scene_models[instanceIndex].m_modelInfo.bIsTransformProxy = true;
             scene_models[instanceIndex].m_isLoaded = true;
             fbxIDToSlot[fbxModel.id] = instanceIndex;
+            scene_models[instanceIndex].m_modelInfo.importType   = ImportType::FBX;
+            scene_models[instanceIndex].m_modelInfo.fbxNodeIndex = instanceIndex;
+            scene_models[instanceIndex].m_modelInfo.fbxNodeName  = fbxModel.name;
             ++instanceIndex;
             continue;
         }
@@ -5839,6 +6004,10 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
                 fbxIDToSlot[fbxModel.id] = subInstIdx;
                 firstSubMesh = false;
             }
+            // Tag every sub-mesh so ModelAnimator can dispatch to FBXAnimator
+            scene_models[subInstIdx].m_modelInfo.importType   = ImportType::FBX;
+            scene_models[subInstIdx].m_modelInfo.fbxNodeIndex = subInstIdx;
+            scene_models[subInstIdx].m_modelInfo.fbxNodeName  = fbxModel.name;
 
             ++instanceIndex;
 
@@ -5860,55 +6029,50 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
     bAnimationsLoaded = false;
     if (!fbx.animStacks.empty())
     {
-        std::vector<GLTFAnimation> fbxAnims;
-        m_fbxImporter.ConvertAnimations(fbxIDToSlot, fbxAnims);
-
-        if (!fbxAnims.empty())
+        // Parse animations natively via FBXAnimator (no GLTF conversion needed)
+        modelAnimator.fbxAnimator.ClearAllAnimations();
+        if (modelAnimator.fbxAnimator.ParseAnimationsFromFBX(fbx, fbxIDToSlot))
         {
-            gltfAnimator.ClearAllAnimations();
+            int clipCount = modelAnimator.fbxAnimator.GetAnimationCount();
+            bAnimationsLoaded = (clipCount > 0);
 
-            // Inject converted animations into the GLTFAnimator via its ParseAnimationsFromGLTF
-            // path.  We can't call that directly with raw GLTFAnimation vectors, so we push
-            // them via the internal storage path the same way the GLTF cache-restore does:
-            // create instances manually after registering.
-            // GLTFAnimator exposes no direct injection API, so we replay the same post-parse
-            // start sequence used by ParseGLBScene -- build instances and start playback.
-
-            // Re-use the animator's CreateAnimationInstance / StartAnimation API.
-            // We first feed the animations into a local GLTFAnimator then steal them via
-            // a helper.  Since GLTFAnimator has no inject API we use its public start sequence.
-
-            for (int ai = 0; ai < static_cast<int>(fbxAnims.size()); ++ai)
+            if (bAnimationsLoaded)
             {
-                // Find the first target model slot referenced by this animation's channels
-                int parentModelID = -1;
-                for (const auto& ch : fbxAnims[ai].channels)
-                {
-                    if (ch.targetNodeIndex >= 0 && ch.targetNodeIndex < instanceIndex)
-                    {
-                        parentModelID = ch.targetNodeIndex;
-                        break;
-                    }
-                }
-                if (parentModelID < 0) continue;
-
-                // Store in the GLTFAnimator m_animations list via ParseAnimationsFromGLTF-style
-                // indirect path -- GLTFAnimator only accepts the json path, so we convert back
-                // to a minimal JSON document for re-ingestion.
-                // Better: expose a direct injection method; for now we signal success and
-                // record the animation duration in bAnimationsLoaded.
-                bAnimationsLoaded = true;
-
                 debug.logLevelMessage(LogLevel::LOG_INFO,
-                    (std::wstring(L"[SceneManager] FBX animation '") +
-                     fbxAnims[ai].name + L"' duration=" +
-                     std::to_wstring(fbxAnims[ai].duration) + L"s -> model slot " +
-                     std::to_wstring(parentModelID)).c_str());
-            }
+                    (std::wstring(L"[SceneManager] ParseFBXScene(): ") +
+                     std::to_wstring(clipCount) + L" animation clip(s) loaded from FBX.").c_str());
 
-            debug.logLevelMessage(LogLevel::LOG_INFO,
-                (L"[SceneManager] ParseFBXScene(): " +
-                 std::to_wstring(fbxAnims.size()) + L" animation(s) converted from FBX.").c_str());
+                // Auto-start each clip on the root model of its first channel
+                for (int animIdx = 0; animIdx < clipCount; ++animIdx)
+                {
+                    const FBXAnimationClip* clip = modelAnimator.fbxAnimator.GetClip(animIdx);
+                    if (!clip || clip->channels.empty()) continue;
+
+                    // Walk up the parent chain from the first channel's slot to find the root
+                    int rootSlot = clip->channels[0].targetModelSlot;
+                    while (rootSlot >= 0 && rootSlot < MAX_SCENE_MODELS)
+                    {
+                        int par = scene_models[rootSlot].m_modelInfo.iParentModelID;
+                        if (par < 0 || !scene_models[par].m_isLoaded) break;
+                        rootSlot = par;
+                    }
+
+                    modelAnimator.fbxAnimator.CreateAnimationInstance(animIdx, rootSlot);
+                    modelAnimator.fbxAnimator.SetAnimationLooping(rootSlot, true);
+                    modelAnimator.fbxAnimator.SetAnimationSpeed(rootSlot, 1.0f);
+                    modelAnimator.fbxAnimator.StartAnimation(rootSlot, animIdx);
+
+                    debug.logLevelMessage(LogLevel::LOG_INFO,
+                        (std::wstring(L"[SceneManager] FBX clip '") +
+                         std::wstring(clip->name.begin(), clip->name.end()) +
+                         L"' started on root slot " + std::to_wstring(rootSlot)).c_str());
+                }
+            }
+        }
+        else
+        {
+            debug.logLevelMessage(LogLevel::LOG_WARNING,
+                L"[SceneManager] ParseFBXScene(): FBXAnimator::ParseAnimationsFromFBX() failed.");
         }
     }
 
@@ -5924,6 +6088,23 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile)
             _ms, instanceIndex);
     }
     #endif
+
+    // Cache-only mode: GPU resources are now in models[] only.
+    // Clear all populated scene_models[] entries so the renderer skips them.
+    // (Dynamic scenes assemble their visible set at runtime via PutModelToScene.)
+    if (bCacheOnly && instanceIndex > 0)
+    {
+        for (int i = 0; i < instanceIndex; ++i)
+        {
+            scene_models[i].m_modelInfo  = ModelInfo{};
+            scene_models[i].m_materials.clear();
+            scene_models[i].m_isLoaded   = false;
+            scene_models[i].bInitialized = false;
+        }
+        debug.logLevelMessage(LogLevel::LOG_INFO,
+            (L"[SceneManager] ParseFBXScene() cache-only mode -- " +
+             std::to_wstring(instanceIndex) + L" model(s) cached in models[], scene_models[] cleared.").c_str());
+    }
 
     debug.logLevelMessage(LogLevel::LOG_INFO,
         (L"[SceneManager] ParseFBXScene(): loaded " + std::to_wstring(instanceIndex) +
@@ -6250,8 +6431,8 @@ void SceneManager::UpdateSceneAnimations(float deltaTime)
     // Only update animations if they were successfully loaded from the current scene
     if (bAnimationsLoaded)
     {
-        // Update all animations using the scene models array
-        gltfAnimator.UpdateAnimations(deltaTime, scene_models, MAX_SCENE_MODELS);
+        // Update all animations -- dispatches to GLTFAnimator or FBXAnimator via ModelAnimator
+        modelAnimator.UpdateAnimations(deltaTime);
     }
 }
 
@@ -6265,7 +6446,7 @@ void SceneManager::UpdateSceneAnimations(float deltaTime)
 // --------------------------------------------------------------------------------------------------
 int SceneManager::FindParentModelIDForAnimation(int animationIndex)
 {
-    const GLTFAnimation* anim = gltfAnimator.GetAnimation(animationIndex);
+    const GLTFAnimation* anim = modelAnimator.gltfAnimator.GetAnimation(animationIndex);
     if (!anim || anim->channels.empty())
         return -1;
 
@@ -6338,6 +6519,158 @@ int SceneManager::FindParentModelID(const std::wstring& modelName)
     #endif
 
     return -1;  // Return -1 to indicate model not found
+}
+
+// --------------------------------------------------------------------------------------------------
+// SceneManager::PutModelToScene()
+// Retrieves a named model from the global models[] cache and injects it into scene_models[].
+// Validation: model must be GPU-ready (bGpuReady), loaded (m_isLoaded), initialized
+// (bInitialized), and not destroyed (bIsDestroyed == false) — equivalent to IsActive() + bGpuReady.
+// If bIncChildren is true, all primitive siblings (iParentModelID == root's cachedInstanceIndex)
+// are also copied alongside the root, with their parent ID re-pointed to the new scene slot.
+// The entire group is positioned at atWorldCoords by overriding the world matrix translation.
+// If bStartAnim is true, a new animation instance is created and started on the parent scene model.
+// Returns the new parent scene_models[] ID, or -1 on failure.
+// --------------------------------------------------------------------------------------------------
+int SceneManager::PutModelToScene(std::wstring name, XMFLOAT3 atWorldCoords, bool bIncChildren, bool bStartAnim)
+{
+    // --- Step 1: Locate the named root model in the global models[] cache ---
+    // Accept the first model that matches by name, is GPU-ready, and passes IsActive().
+    // Prefer iParentModelID == -1 (scene-graph root); fall back to any match if not found.
+    int rootCacheSlot = -1;
+    for (int i = 0; i < MAX_MODELS; ++i)
+    {
+        if (!models[i].IsActive())              continue;   // Must be loaded, initialized, not destroyed
+        if (!models[i].m_modelInfo.bGpuReady)   continue;   // Must have valid GPU buffers
+        if (models[i].m_modelInfo.name != name)  continue;   // Name must match
+
+        // Prefer scene-graph roots (iParentModelID == -1); keep searching if this is a primitive child
+        if (models[i].m_modelInfo.iParentModelID == -1)
+        {
+            rootCacheSlot = i;
+            break;
+        }
+        if (rootCacheSlot < 0)
+            rootCacheSlot = i;   // Fallback: use first name-match even if it's a primitive child
+    }
+
+    if (rootCacheSlot < 0)
+    {
+        #if defined(_DEBUG_SCENEMANAGER_)
+            debug.logLevelMessage(LogLevel::LOG_WARNING,
+                L"[SceneManager::PutModelToScene] Model not found or not GPU-ready in cache: " + name);
+        #endif
+        return -1;
+    }
+
+    // --- Step 2: Collect models[] slots to inject (root + optional primitive siblings) ---
+    // Primitive siblings have iParentModelID == the scene_models[] slot (cachedInstanceIndex)
+    // that the root occupied on its most recent scene load.
+    std::vector<int> cacheSlots;
+    cacheSlots.push_back(rootCacheSlot);
+
+    if (bIncChildren)
+    {
+        int rootCachedIdx = models[rootCacheSlot].m_modelInfo.cachedInstanceIndex;
+        if (rootCachedIdx >= 0)
+        {
+            for (int i = 0; i < MAX_MODELS; ++i)
+            {
+                if (i == rootCacheSlot)                                 continue;
+                if (!models[i].IsActive())                              continue;
+                if (!models[i].m_modelInfo.bGpuReady)                  continue;
+                if (models[i].m_modelInfo.iParentModelID == rootCachedIdx)
+                    cacheSlots.push_back(i);
+            }
+        }
+    }
+
+    // --- Step 3: Find enough free slots in scene_models[] (lowest-index-first) ---
+    std::vector<int> freeSlots;
+    for (int i = 0; i < MAX_SCENE_MODELS && (int)freeSlots.size() < (int)cacheSlots.size(); ++i)
+    {
+        if (!scene_models[i].m_isLoaded)
+            freeSlots.push_back(i);
+    }
+
+    if ((int)freeSlots.size() < (int)cacheSlots.size())
+    {
+        #if defined(_DEBUG_SCENEMANAGER_)
+            debug.logLevelMessage(LogLevel::LOG_WARNING,
+                L"[SceneManager::PutModelToScene] Not enough free scene_models[] slots for: " + name);
+        #endif
+        return -1;
+    }
+
+    // --- Step 4: Build a new world matrix with the requested position ---
+    // Preserve the existing rotation and scale; override only the translation column.
+    XMFLOAT4X4 f4x4;
+    XMStoreFloat4x4(&f4x4, models[rootCacheSlot].m_modelInfo.worldMatrix);
+    f4x4._41 = atWorldCoords.x;
+    f4x4._42 = atWorldCoords.y;
+    f4x4._43 = atWorldCoords.z;
+    XMMATRIX newWorldMatrix = XMLoadFloat4x4(&f4x4);
+
+    int newParentSceneID = freeSlots[0];
+
+    // --- Step 5: Copy each model into its allocated scene_models[] slot ---
+    for (int ci = 0; ci < (int)cacheSlots.size(); ++ci)
+    {
+        int cacheSlot = cacheSlots[ci];
+        int sceneSlot = freeSlots[ci];
+
+        // Copy all GPU resources, geometry, materials, and textures from the cache entry.
+        // ComPtr/shared_ptr AddRef keeps GPU resources alive in both buffers.
+        scene_models[sceneSlot].CopyFrom(models[cacheSlot]);
+
+        // Override world position (matrix translation + position field)
+        scene_models[sceneSlot].m_modelInfo.worldMatrix = newWorldMatrix;
+        scene_models[sceneSlot].m_modelInfo.position    = atWorldCoords;
+
+        // Assign the new scene slot ID
+        scene_models[sceneSlot].m_modelInfo.ID = sceneSlot;
+
+        if (ci == 0)
+        {
+            // Root: placed independently in the scene, no scene-graph parent
+            scene_models[sceneSlot].m_modelInfo.iParentModelID = -1;
+        }
+        else
+        {
+            // Primitive siblings: reparent to the new parent scene slot
+            scene_models[sceneSlot].m_modelInfo.iParentModelID = newParentSceneID;
+        }
+
+        // Establish GPU state for this slot and apply scene lighting
+        scene_models[sceneSlot].SetupModelForRendering(sceneSlot);
+        scene_models[sceneSlot].ApplyDefaultLightingFromManager(lightsManager);
+        scene_models[sceneSlot].m_isLoaded = true;
+
+        // Keep the cache entry's cachedInstanceIndex current
+        models[cacheSlot].m_modelInfo.cachedInstanceIndex = sceneSlot;
+    }
+
+    // --- Step 6: Start animation on the new parent scene model if requested ---
+    if (bStartAnim && bAnimationsLoaded && modelAnimator.gltfAnimator.GetAnimationCount() > 0)
+    {
+        int animIdx = models[rootCacheSlot].m_modelInfo.iAnimationIndex;
+        if (animIdx < 0) animIdx = 0;   // Default to first animation if the model has no explicit index
+
+        modelAnimator.gltfAnimator.CreateAnimationInstance(animIdx, newParentSceneID);
+        modelAnimator.gltfAnimator.StartAnimation(newParentSceneID, animIdx);
+    }
+
+    #if defined(_DEBUG_SCENEMANAGER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO,
+            L"[SceneManager::PutModelToScene] Injected \"" + name +
+            L"\" into scene_models[" + std::to_wstring(newParentSceneID) +
+            L"] with " + std::to_wstring(cacheSlots.size()) + L" primitive(s) at (" +
+            std::to_wstring(atWorldCoords.x) + L", " +
+            std::to_wstring(atWorldCoords.y) + L", " +
+            std::to_wstring(atWorldCoords.z) + L").");
+    #endif
+
+    return newParentSceneID;
 }
 
 // --------------------------------------------------------------------------------------------------

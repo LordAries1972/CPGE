@@ -1,0 +1,20 @@
+ThreadManager-Example-Usage.md - Updated 23-06-2026
+
+Changes in this update:
+- Added Section 6.5: Thread Debug Logging (_DEBUG_THREADMANAGER_ define, TM_LOG_LEVEL/TM_LOG_DEBUG macros)
+- Added Section 7: Thread Scheduling and Affinity (Windows) — new major section
+  - 7.1 InitialiseThreadAffinity() — must be called before first SetThread(); logs LP layout table
+  - 7.2 ThreadSchedulingConfig — optional struct for SetThread(); idealCore, priority, useEngineDefaults fields
+  - 7.3 ThreadUtils — NameCurrentThread, PreferCore, ForceCore, SetPriority, GetLogicalProcessorCount
+- Renumbered old sections 7-15 to 8-16 to accommodate new Section 7
+- Fixed GetThreadInfo() references to GetThreadInfoUnsafe() (GetThreadInfo is private)
+- Expanded ThreadVariables field reference from 4 to all 9 variables:
+  bLoaderTaskFinished, bIsRendering, bIsShuttingDown, bIsResizing,
+  bHasGameReset, bHasReset, b2DTexturesLoaded, bSettingFullScreen, bInitiateFader
+- Documented re-entrant locking (lockCount, same-thread re-acquisition via TryLock)
+- Documented IsDestroying public flag
+- Added ThreadNameID enum -> engine thread name mapping table in API reference
+- Updated SetThread() signature in API reference to include Windows scheduling parameter
+- Updated TOC with new section 7 entries and 6.5
+- Fixed MD022 markdown lint warnings (blank lines after headings before code fences)
+- Fixed MD060 markdown lint warnings (table separator row pipe spacing)

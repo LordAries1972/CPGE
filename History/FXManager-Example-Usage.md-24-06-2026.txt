@@ -1,0 +1,21 @@
+FXManager-Example-Usage.md - 24-06-2026
+========================================
+
+Changes:
+- Added new section 14: "ImageFadeStrobe Effects" (Advanced Features renumbered to 15, etc.)
+- TOC updated with new entry: [ImageFadeStrobe Effects](#imagefadestrobe-effects)
+- Updated Key Features list to mention alpha-strobe image pulsing
+- New section covers:
+    - Effect overview (looping fade-out/fade-in, up to 10 instances)
+    - ImageFadeStrobe Signature with parameter reference
+    - Phase State Machine table (FadingOut -> FadingIn -> loop/stop)
+    - ImageFadeStrobe API Reference: StartImageFadeStrobe, StopImageFadeStrobe,
+      IsImageFadeStrobeActive, GetImageFadeStrobeAlpha, RenderImageFadeStrobe
+    - ImageFadeStrobe Basic Usage code example
+    - ImageFadeStrobe RenderFrame Integration (if-else guard pattern)
+    - ImageFadeStrobe Behaviour Details table
+    - ImageFadeStrobe Usage Examples: slow ghost pulse, fast alert, subtle breathing,
+      multiple simultaneous strobes, stop on scene exit, strobe + fade callback
+    - ImageFadeStrobe Renderer Notes table (DX11/DX12/OpenGL/Vulkan alpha methods)
+- All new ### headings prefixed with "ImageFadeStrobe" to avoid MD024 duplicate warnings
+- Table separators use "| --- | --- |" style to match document convention

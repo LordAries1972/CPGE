@@ -1,0 +1,16 @@
+SceneManager.h - Modified 23 June 2026 (session 1 snapshot preserved; session 2 changes below)
+================================================================================================
+Session 2 changes (ModelAnimator integration):
+
+- Replaced: #include "GLTFAnimator.h"
+  With:     #include "ModelAnimator.h"
+  (ModelAnimator.h transitively includes GLTFAnimator.h and FBXAnimator.h)
+
+- Replaced: GLTFAnimator gltfAnimator;  (public member)
+  With:     ModelAnimator modelAnimator;
+  Comment updated: "Universal animator -- dispatches to GLTFAnimator or FBXAnimator based on ImportType"
+
+  Render-frame and scripting code that was calling scene.gltfAnimator.* now calls:
+    scene.modelAnimator.*                     for the unified dispatch interface
+    scene.modelAnimator.gltfAnimator.*        for GLTF-specific APIs (inside SceneManager only)
+    scene.modelAnimator.fbxAnimator.*         for FBX-specific APIs (inside SceneManager only)

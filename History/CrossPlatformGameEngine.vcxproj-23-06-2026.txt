@@ -1,0 +1,9 @@
+CrossPlatformGameEngine.vcxproj - Modified 23 June 2026
+=========================================================
+Added ClCompile entries (adjacent to GLTFAnimator.cpp):
+  <ClCompile Include="FBXAnimator.cpp" />
+  <ClCompile Include="ModelAnimator.cpp" />
+
+Added ClInclude entries (adjacent to GLTFAnimator.h):
+  <ClInclude Include="FBXAnimator.h" />
+  <ClInclude Include="ModelAnimator.h" />

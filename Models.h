@@ -11,7 +11,7 @@
 //==============================================================================
 // Constant Declarations
 //==============================================================================
-const int MAX_MODELS = 2048;                                                        // Maximum number of unique models in the scene
+const int MAX_MODELS = 8192;                                                        // Maximum number of unique models in the scene
 const int MAX_MODEL_LIGHTS = MAX_LIGHTS;                                            // Maximum number of lights per model
 const std::wstring ShipName = L"Ship1";
 const std::wstring SplashShipName = L"SplashShip1";
@@ -20,7 +20,7 @@ const std::wstring SplashShipName = L"SplashShip1";
 // namespaces
 //==============================================================================
 #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-using namespace DirectX;
+    using namespace DirectX;
 #endif
 
 //==============================================================================
@@ -115,6 +115,29 @@ struct GLTFAnimation
     GLTFAnimation() : name(L"Unnamed Animation"), duration(0.0f) {}
 };
 
+//==============================================================================
+// AnimationDirection - Controls animation playback direction for an instance
+//==============================================================================
+enum class AnimationDirection : int
+{
+    NONE    = 0,    // No direction set; playback is unchanged
+    FORWARD = 1,    // Play forward from current position until end is reached
+    REVERSE = 2,    // Play in reverse from current position until start is reached
+    BOUNCE  = 3     // Play forward to end, then reverse to start; repeats if looping
+};
+
+//==============================================================================
+// ImportType -- identifies which importer produced a given model/scene entry.
+// Used by ModelAnimator to dispatch animation calls to the correct animator.
+//==============================================================================
+enum class ImportType : int
+{
+    NONE = 0,   // Unknown or not yet assigned
+    GLTF = 1,   // Imported from a GLTF or GLB file (uses GLTFAnimator)
+    FBX  = 2,   // Imported from an FBX 7.x file   (uses FBXAnimator)
+    // Future: OBJ = 3, USD = 4, etc.
+};
+
 struct AnimationInstance
 {
     int animationIndex;
@@ -123,9 +146,12 @@ struct AnimationInstance
     bool isPlaying;
     bool isLooping;
     int parentModelID;
+    AnimationDirection direction;       // Current playback direction mode
+    bool bounceGoingForward;            // Tracks forward/reverse phase for BOUNCE mode
 
     AnimationInstance() : animationIndex(-1), currentTime(0.0f), playbackSpeed(1.0f),
-        isPlaying(false), isLooping(true), parentModelID(-1) {
+        isPlaying(false), isLooping(true), parentModelID(-1),
+        direction(AnimationDirection::NONE), bounceGoingForward(true) {
     }
 };
 
@@ -146,14 +172,14 @@ public:
 #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
     ID3D11ShaderResourceView* GetSRV() const { return textureSRV; }
     bool CreateSolidColorTexture(uint32_t width, uint32_t height, const XMFLOAT4& color);
-#if defined(__USE_DIRECTX_12__)
-    const std::vector<uint8_t>& GetDX12Pixels() const { return m_dx12PixelCache; }
-    UINT GetDX12Width()  const { return m_dx12Width;  }
-    UINT GetDX12Height() const { return m_dx12Height; }
-    void ClearDX12Pixels() { m_dx12PixelCache.clear(); m_dx12Width = 0; m_dx12Height = 0; }
-    ComPtr<ID3D12Resource>& GetDX12Resource() { return m_dx12Resource; }
-    const ComPtr<ID3D12Resource>& GetDX12Resource() const { return m_dx12Resource; }
-#endif
+    #if defined(__USE_DIRECTX_12__)
+        const std::vector<uint8_t>& GetDX12Pixels() const { return m_dx12PixelCache; }
+        UINT GetDX12Width()  const { return m_dx12Width;  }
+        UINT GetDX12Height() const { return m_dx12Height; }
+        void ClearDX12Pixels() { m_dx12PixelCache.clear(); m_dx12Width = 0; m_dx12Height = 0; }
+        ComPtr<ID3D12Resource>& GetDX12Resource() { return m_dx12Resource; }
+        const ComPtr<ID3D12Resource>& GetDX12Resource() const { return m_dx12Resource; }
+    #endif
 #elif defined(__USE_OPENGL__)
     GLuint GetTextureID() const { return textureID; }
     bool CreateSolidColorTexture(uint32_t width, uint32_t height, const Vector4& color);
@@ -170,25 +196,25 @@ private:
     std::wstring texturePath;
     bool bTextureDestroyed = false;
 
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-    ID3D11ShaderResourceView* textureSRV = nullptr;
-    ID3D11Resource* textureResource = nullptr;
-    bool IsValid() const { return textureSRV != nullptr; }
-#if defined(__USE_DIRECTX_12__)
-    std::vector<uint8_t> m_dx12PixelCache;
-    UINT m_dx12Width  = 0;
-    UINT m_dx12Height = 0;
-    ComPtr<ID3D12Resource> m_dx12Resource;  // cached GPU resource; reused across models sharing this Texture
-#endif
-#elif defined(__USE_OPENGL__)
-    GLuint textureID = 0;
-    bool IsValid() const { return textureID != 0; }
-#elif defined(__USE_VULKAN__)
-    VkImage image = VK_NULL_HANDLE;
-    VkDeviceMemory memory = VK_NULL_HANDLE;
-    VkImageView imageView = VK_NULL_HANDLE;
-    bool IsValid() const { return imageView != VK_NULL_HANDLE; }
-#endif
+    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+        ID3D11ShaderResourceView* textureSRV = nullptr;
+        ID3D11Resource* textureResource = nullptr;
+        bool IsValid() const { return textureSRV != nullptr; }
+        #if defined(__USE_DIRECTX_12__)
+            std::vector<uint8_t> m_dx12PixelCache;
+            UINT m_dx12Width  = 0;
+            UINT m_dx12Height = 0;
+            ComPtr<ID3D12Resource> m_dx12Resource;  // cached GPU resource; reused across models sharing this Texture
+        #endif
+    #elif defined(__USE_OPENGL__)
+        GLuint textureID = 0;
+        bool IsValid() const { return textureID != 0; }
+    #elif defined(__USE_VULKAN__)
+        VkImage image = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+        VkImageView imageView = VK_NULL_HANDLE;
+        bool IsValid() const { return imageView != VK_NULL_HANDLE; }
+    #endif
 
     Texture(const Texture&) = delete;
     Texture& operator=(const Texture&) = delete;
@@ -267,7 +293,10 @@ struct Material {
 struct ModelInfo {
     int ID = 0;
     int iParentModelID = -1;
-    int gltfNodeIndex = -1;
+    int gltfNodeIndex = -1;                              // GLTF node index for channel targeting (-1 = not GLTF)
+    ImportType importType    = ImportType::NONE;         // Source importer format (GLTF, FBX, etc.)
+    int        fbxNodeIndex  = -1;                       // Index into FBXScene::models[] (-1 = not FBX)
+    std::string fbxNodeName;                             // FBX model name for post-load rebinding / debug
     bool bIsTransformOnly = false;
     bool bIsTransformProxy = false;
     bool bHasBaseLocalTRS = false;
@@ -298,15 +327,15 @@ struct ModelInfo {
 
     // --- Platform-specific transformation matrices ---
     // Windows+Vulkan uses DirectXMath (same as DX11/DX12); other Vulkan/OpenGL use Matrix4x4.
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__) || (defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))
-    XMMATRIX worldMatrix;
-    XMMATRIX viewMatrix;
-    XMMATRIX projectionMatrix;
-#elif defined(__USE_OPENGL__) || (defined(__USE_VULKAN__) && !defined(PLATFORM_WINDOWS))
-    Matrix4x4 worldMatrix;
-    Matrix4x4 viewMatrix;
-    Matrix4x4 projectionMatrix;
-#endif
+    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__) || (defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))
+        XMMATRIX worldMatrix;
+        XMMATRIX viewMatrix;
+        XMMATRIX projectionMatrix;
+    #elif defined(__USE_OPENGL__) || (defined(__USE_VULKAN__) && !defined(PLATFORM_WINDOWS))
+        Matrix4x4 worldMatrix;
+        Matrix4x4 viewMatrix;
+        Matrix4x4 projectionMatrix;
+    #endif
 
     // --- Common geometry ---
     std::vector<Vertex> vertices;
@@ -328,170 +357,170 @@ struct ModelInfo {
     int uvWrapV = 0;
 
     // --- Platform-specific GPU resources ---
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-    ComPtr<ID3D11Buffer> vertexBuffer;
-    ComPtr<ID3D11Buffer> indexBuffer;
-    ComPtr<ID3D11Buffer> constantBuffer;
-    ComPtr<ID3D11Buffer> materialBuffer;
-    ComPtr<ID3D11Buffer> debugConstantBuffer;
-    ComPtr<ID3D11Buffer> lightConstantBuffer;
+    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+        ComPtr<ID3D11Buffer> vertexBuffer;
+        ComPtr<ID3D11Buffer> indexBuffer;
+        ComPtr<ID3D11Buffer> constantBuffer;
+        ComPtr<ID3D11Buffer> materialBuffer;
+        ComPtr<ID3D11Buffer> debugConstantBuffer;
+        ComPtr<ID3D11Buffer> lightConstantBuffer;
 
-    ComPtr<ID3D11VertexShader> vertexShader;
-    ComPtr<ID3D11PixelShader>  pixelShader;
-    ComPtr<ID3DBlob> vertexShaderBlob;
-    ComPtr<ID3DBlob> pixelShaderBlob;
-    ComPtr<ID3D11InputLayout> inputLayout;
+        ComPtr<ID3D11VertexShader> vertexShader;
+        ComPtr<ID3D11PixelShader>  pixelShader;
+        ComPtr<ID3DBlob> vertexShaderBlob;
+        ComPtr<ID3DBlob> pixelShaderBlob;
+        ComPtr<ID3D11InputLayout> inputLayout;
 
-    std::vector<ComPtr<ID3D11ShaderResourceView>> textureSRVs;
-    std::vector<ComPtr<ID3D11ShaderResourceView>> normalMapSRVs;
-    ComPtr<ID3D11SamplerState> samplerState;
+        std::vector<ComPtr<ID3D11ShaderResourceView>> textureSRVs;
+        std::vector<ComPtr<ID3D11ShaderResourceView>> normalMapSRVs;
+        ComPtr<ID3D11SamplerState> samplerState;
 
-    std::vector<XMFLOAT3> tempPositions;
-    std::vector<XMFLOAT3> tempNormals;
-    std::vector<XMFLOAT2> tempTexCoords;
-    std::vector<std::string> materials;
+        std::vector<XMFLOAT3> tempPositions;
+        std::vector<XMFLOAT3> tempNormals;
+        std::vector<XMFLOAT2> tempTexCoords;
+        std::vector<std::string> materials;
 
-    float metallic          = 0.0f;
-    float roughness         = 0.5f;
-    float reflectionStrength= 1.0f;
-    float envIntensity      = 1.0f;
-    XMFLOAT3 envTint        = { 1.0f, 1.0f, 1.0f };
-    float mipLODBias        = 0.0f;
-    float fresnel0          = 0.04f;
+        float metallic          = 0.0f;
+        float roughness         = 0.5f;
+        float reflectionStrength= 1.0f;
+        float envIntensity      = 1.0f;
+        XMFLOAT3 envTint        = { 1.0f, 1.0f, 1.0f };
+        float mipLODBias        = 0.0f;
+        float fresnel0          = 0.04f;
 
-    std::shared_ptr<Texture> metallicMap;
-    std::shared_ptr<Texture> roughnessMap;
-    std::shared_ptr<Texture> aoMap;
+        std::shared_ptr<Texture> metallicMap;
+        std::shared_ptr<Texture> roughnessMap;
+        std::shared_ptr<Texture> aoMap;
 
-    ComPtr<ID3D11ShaderResourceView> metallicMapSRV;
-    ComPtr<ID3D11ShaderResourceView> roughnessMapSRV;
-    ComPtr<ID3D11ShaderResourceView> aoMapSRV;
-    ComPtr<ID3D11ShaderResourceView> environmentMapSRV;
-    ComPtr<ID3D11ShaderResourceView> glossMapSRV;                               // t6: gloss/smoothness map
-    ComPtr<ID3D11ShaderResourceView> emissiveMapSRV;                            // t7: emissive texture map
-    ComPtr<ID3D11ShaderResourceView> shadowMapSRV;                              // t8: shadow depth map (set externally by shadow pass)
-    ComPtr<ID3D11Buffer>             environmentBuffer;
-    ComPtr<ID3D11Buffer>             shadowBuffer;                              // b6: ShadowBufferGPU constant buffer
-    ComPtr<ID3D11SamplerState>       environmentSamplerState;
-    ComPtr<ID3D11SamplerState>       shadowSamplerState;                        // s2: comparison sampler for PCF
+        ComPtr<ID3D11ShaderResourceView> metallicMapSRV;
+        ComPtr<ID3D11ShaderResourceView> roughnessMapSRV;
+        ComPtr<ID3D11ShaderResourceView> aoMapSRV;
+        ComPtr<ID3D11ShaderResourceView> environmentMapSRV;
+        ComPtr<ID3D11ShaderResourceView> glossMapSRV;                               // t6: gloss/smoothness map
+        ComPtr<ID3D11ShaderResourceView> emissiveMapSRV;                            // t7: emissive texture map
+        ComPtr<ID3D11ShaderResourceView> shadowMapSRV;                              // t8: shadow depth map (set externally by shadow pass)
+        ComPtr<ID3D11Buffer>             environmentBuffer;
+        ComPtr<ID3D11Buffer>             shadowBuffer;                              // b6: ShadowBufferGPU constant buffer
+        ComPtr<ID3D11SamplerState>       environmentSamplerState;
+        ComPtr<ID3D11SamplerState>       shadowSamplerState;                        // s2: comparison sampler for PCF
 
-    // Shared_ptr texture owners for new map types (SRVs above point into these)
-    std::shared_ptr<Texture> glossMap;
-    std::shared_ptr<Texture> emissiveMapTexture;
+        // Shared_ptr texture owners for new map types (SRVs above point into these)
+        std::shared_ptr<Texture> glossMap;
+        std::shared_ptr<Texture> emissiveMapTexture;
 
-    bool useDiffuseMap      = false;                                            // true = sample t0 * Kd; false = use Kd directly
-    bool useMetallicMap     = false;
-    bool useRoughnessMap    = false;
-    bool useAOMap           = false;
-    bool useEnvironmentMap  = false;
-    bool useGlossMap        = false;                                            // true = use t6 gloss map
-    bool useEmissiveMap     = false;                                            // true = use t7 emissive texture
+        bool useDiffuseMap      = false;                                            // true = sample t0 * Kd; false = use Kd directly
+        bool useMetallicMap     = false;
+        bool useRoughnessMap    = false;
+        bool useAOMap           = false;
+        bool useEnvironmentMap  = false;
+        bool useGlossMap        = false;                                            // true = use t6 gloss map
+        bool useEmissiveMap     = false;                                            // true = use t7 emissive texture
 
-#if defined(__USE_DIRECTX_12__)
-    // Native DX12 upload-heap VB / IB / per-model CBs used by Model::RenderDX12().
-    // Created alongside the D3D11 11on12 buffers in DX12Models::SetupModelForRendering().
+        #if defined(__USE_DIRECTX_12__)
+            // Native DX12 upload-heap VB / IB / per-model CBs used by Model::RenderDX12().
+            // Created alongside the D3D11 11on12 buffers in DX12Models::SetupModelForRendering().
 
-    // Geometry buffers
-    ComPtr<ID3D12Resource>   d3d12VertexBuffer;
-    ComPtr<ID3D12Resource>   d3d12IndexBuffer;
-    D3D12_VERTEX_BUFFER_VIEW d3d12VBView      = {};
-    D3D12_INDEX_BUFFER_VIEW  d3d12IBView      = {};
-    UINT                     d3d12IndexCount  = 0;
+            // Geometry buffers
+            ComPtr<ID3D12Resource>   d3d12VertexBuffer;
+            ComPtr<ID3D12Resource>   d3d12IndexBuffer;
+            D3D12_VERTEX_BUFFER_VIEW d3d12VBView      = {};
+            D3D12_INDEX_BUFFER_VIEW  d3d12IBView      = {};
+            UINT                     d3d12IndexCount  = 0;
 
-    // Per-model constant buffers (upload heap, persistently mapped, 256-byte aligned)
-    ComPtr<ID3D12Resource>   d3d12ConstantBuffer;           // b0: world/view/proj
-    void*                    d3d12CBMapped       = nullptr;
-    ComPtr<ID3D12Resource>   d3d12LightBuffer;              // b1: per-model lights
-    void*                    d3d12LightMapped    = nullptr;
-    ComPtr<ID3D12Resource>   d3d12MaterialBuffer;           // b4: PBR material
-    void*                    d3d12MaterialMapped = nullptr;
-    ComPtr<ID3D12Resource>   d3d12DebugBuffer;              // b2: pixel shader debug mode
-    void*                    d3d12DebugMapped    = nullptr;
+            // Per-model constant buffers (upload heap, persistently mapped, 256-byte aligned)
+            ComPtr<ID3D12Resource>   d3d12ConstantBuffer;           // b0: world/view/proj
+            void*                    d3d12CBMapped       = nullptr;
+            ComPtr<ID3D12Resource>   d3d12LightBuffer;              // b1: per-model lights
+            void*                    d3d12LightMapped    = nullptr;
+            ComPtr<ID3D12Resource>   d3d12MaterialBuffer;           // b4: PBR material
+            void*                    d3d12MaterialMapped = nullptr;
+            ComPtr<ID3D12Resource>   d3d12DebugBuffer;              // b2: pixel shader debug mode
+            void*                    d3d12DebugMapped    = nullptr;
 
-    // Texture descriptor table for this model in the renderer's CBV/SRV/UAV heap.
-    // Six consecutive SRV slots (t0=diffuse, t1=normal, t2=metallic, t3=roughness, t4=AO, t5=env)
-    // are allocated in SetupModelForRendering and written by RegisterDX12Textures() on first render.
-    D3D12_GPU_DESCRIPTOR_HANDLE d3d12TextureGPUHandle   = { 0 };
-    UINT                        d3d12TextureHeapOffset  = 0;
-    bool                        d3d12TexturesRegistered = false;
-    ComPtr<ID3D12Resource>      d3d12TexResources[6];   // Underlying D3D12 resources [0..5]
-#endif
+            // Texture descriptor table for this model in the renderer's CBV/SRV/UAV heap.
+            // Nine consecutive SRV slots (t0=diffuse t1=normal t2=metallic t3=roughness t4=AO t5=env t6=gloss t7=emissive t8=shadow)
+            // are allocated in SetupModelForRendering and written by RegisterDX12Textures() on first render.
+            D3D12_GPU_DESCRIPTOR_HANDLE d3d12TextureGPUHandle   = { 0 };
+            UINT                        d3d12TextureHeapOffset  = 0;
+            bool                        d3d12TexturesRegistered = false;
+            ComPtr<ID3D12Resource>      d3d12TexResources[9];   // Underlying D3D12 resources [0..8] (t0-t8)
+        #endif
 
-#elif defined(__USE_OPENGL__)
-    GLuint VAO          = 0;    // Vertex Array Object
-    GLuint VBO          = 0;    // Vertex Buffer Object
-    GLuint EBO          = 0;    // Element (Index) Buffer Object
-    GLuint shaderProgram= 0;    // Linked shader program (vert + frag)
-    std::vector<GLuint> textureIDs;     // Per-material diffuse texture handles
-    std::vector<GLuint> normalMapIDs;   // Per-material normal map handles
-    GLuint metallicTexID    = 0;
-    GLuint roughnessTexID   = 0;
-    GLuint aoTexID          = 0;
-    GLuint envTexID         = 0;
-    GLuint glossTexID       = 0;                                                // t6: gloss/smoothness map
-    GLuint emissiveTexID    = 0;                                                // t7: emissive texture map
-    GLuint shadowTexID      = 0;                                                // t8: shadow depth map
-    std::vector<std::string> materials;
+    #elif defined(__USE_OPENGL__)
+        GLuint VAO          = 0;    // Vertex Array Object
+        GLuint VBO          = 0;    // Vertex Buffer Object
+        GLuint EBO          = 0;    // Element (Index) Buffer Object
+        GLuint shaderProgram= 0;    // Linked shader program (vert + frag)
+        std::vector<GLuint> textureIDs;     // Per-material diffuse texture handles
+        std::vector<GLuint> normalMapIDs;   // Per-material normal map handles
+        GLuint metallicTexID    = 0;
+        GLuint roughnessTexID   = 0;
+        GLuint aoTexID          = 0;
+        GLuint envTexID         = 0;
+        GLuint glossTexID       = 0;                                                // t6: gloss/smoothness map
+        GLuint emissiveTexID    = 0;                                                // t7: emissive texture map
+        GLuint shadowTexID      = 0;                                                // t8: shadow depth map
+        std::vector<std::string> materials;
 
-    float metallic          = 0.0f;
-    float roughness         = 0.5f;
-    float reflectionStrength= 1.0f;
-    float envIntensity      = 1.0f;
-    Vector3 envTint         = { 1.0f, 1.0f, 1.0f };
-    float mipLODBias        = 0.0f;
-    float fresnel0          = 0.04f;
+        float metallic          = 0.0f;
+        float roughness         = 0.5f;
+        float reflectionStrength= 1.0f;
+        float envIntensity      = 1.0f;
+        Vector3 envTint         = { 1.0f, 1.0f, 1.0f };
+        float mipLODBias        = 0.0f;
+        float fresnel0          = 0.04f;
 
-    bool useDiffuseMap      = false;
-    bool useMetallicMap     = false;
-    bool useRoughnessMap    = false;
-    bool useAOMap           = false;
-    bool useEnvironmentMap  = false;
-    bool useGlossMap        = false;
-    bool useEmissiveMap     = false;
+        bool useDiffuseMap      = false;
+        bool useMetallicMap     = false;
+        bool useRoughnessMap    = false;
+        bool useAOMap           = false;
+        bool useEnvironmentMap  = false;
+        bool useGlossMap        = false;
+        bool useEmissiveMap     = false;
 
-#elif defined(__USE_VULKAN__)
-    VkBuffer         vertexBuffer        = VK_NULL_HANDLE;
-    VkDeviceMemory   vertexBufferMemory  = VK_NULL_HANDLE;
-    VkBuffer         indexBuffer         = VK_NULL_HANDLE;
-    VkDeviceMemory   indexBufferMemory   = VK_NULL_HANDLE;
+    #elif defined(__USE_VULKAN__)
+        VkBuffer         vertexBuffer        = VK_NULL_HANDLE;
+        VkDeviceMemory   vertexBufferMemory  = VK_NULL_HANDLE;
+        VkBuffer         indexBuffer         = VK_NULL_HANDLE;
+        VkDeviceMemory   indexBufferMemory   = VK_NULL_HANDLE;
 
-    // Transform UBO (set=0 binding=0): model/view/proj/camPos/scale — updated every frame
-    VkBuffer         uniformBuffer       = VK_NULL_HANDLE;
-    VkDeviceMemory   uniformBufferMemory = VK_NULL_HANDLE;
-    void*            uniformBufferMapped = nullptr;
+        // Transform UBO (set=0 binding=0): model/view/proj/camPos/scale — updated every frame
+        VkBuffer         uniformBuffer       = VK_NULL_HANDLE;
+        VkDeviceMemory   uniformBufferMemory = VK_NULL_HANDLE;
+        void*            uniformBufferMapped = nullptr;
 
-    // Material UBO (set=0 binding=1): Kd/Ka/metallic/roughness/emissive/flags — set once per material
-    VkBuffer         materialUniformBuffer       = VK_NULL_HANDLE;
-    VkDeviceMemory   materialUniformBufferMemory = VK_NULL_HANDLE;
-    void*            materialUniformBufferMapped = nullptr;
+        // Material UBO (set=0 binding=1): Kd/Ka/metallic/roughness/emissive/flags — set once per material
+        VkBuffer         materialUniformBuffer       = VK_NULL_HANDLE;
+        VkDeviceMemory   materialUniformBufferMemory = VK_NULL_HANDLE;
+        void*            materialUniformBufferMapped = nullptr;
 
-    // Shadow UBO (set=0 binding=2): lightViewProj/bias/strength/flags — updated per frame when shadow pass active
-    VkBuffer         shadowUniformBuffer       = VK_NULL_HANDLE;
-    VkDeviceMemory   shadowUniformBufferMemory = VK_NULL_HANDLE;
-    void*            shadowUniformBufferMapped = nullptr;
+        // Shadow UBO (set=0 binding=2): lightViewProj/bias/strength/flags — updated per frame when shadow pass active
+        VkBuffer         shadowUniformBuffer       = VK_NULL_HANDLE;
+        VkDeviceMemory   shadowUniformBufferMemory = VK_NULL_HANDLE;
+        void*            shadowUniformBufferMapped = nullptr;
 
-    VkPipeline       pipeline            = VK_NULL_HANDLE;
-    VkPipelineLayout pipelineLayout      = VK_NULL_HANDLE;
-    VkDescriptorSet  descriptorSet       = VK_NULL_HANDLE; // set=0: transform UBO + material UBO + shadow UBO
-    VkDescriptorSet  textureDescriptorSet= VK_NULL_HANDLE; // set=1: diffuse/normal/ORM/AO/gloss/emissive/shadow textures
-    std::vector<std::string> materials;
+        VkPipeline       pipeline            = VK_NULL_HANDLE;
+        VkPipelineLayout pipelineLayout      = VK_NULL_HANDLE;
+        VkDescriptorSet  descriptorSet       = VK_NULL_HANDLE; // set=0: transform UBO + material UBO + shadow UBO
+        VkDescriptorSet  textureDescriptorSet= VK_NULL_HANDLE; // set=1: diffuse/normal/ORM/AO/gloss/emissive/shadow textures
+        std::vector<std::string> materials;
 
-    float metallic          = 0.0f;
-    float roughness         = 0.5f;
-    float reflectionStrength= 1.0f;
-    float envIntensity      = 1.0f;
-    Vector3 envTint         = { 1.0f, 1.0f, 1.0f };
-    float mipLODBias        = 0.0f;
-    float fresnel0          = 0.04f;
+        float metallic          = 0.0f;
+        float roughness         = 0.5f;
+        float reflectionStrength= 1.0f;
+        float envIntensity      = 1.0f;
+        Vector3 envTint         = { 1.0f, 1.0f, 1.0f };
+        float mipLODBias        = 0.0f;
+        float fresnel0          = 0.04f;
 
-    bool useDiffuseMap      = false;
-    bool useMetallicMap     = false;
-    bool useRoughnessMap    = false;
-    bool useAOMap           = false;
-    bool useEnvironmentMap  = false;
-    bool useGlossMap        = false;
-    bool useEmissiveMap     = false;
-#endif
+        bool useDiffuseMap      = false;
+        bool useMetallicMap     = false;
+        bool useRoughnessMap    = false;
+        bool useAOMap           = false;
+        bool useEnvironmentMap  = false;
+        bool useGlossMap        = false;
+        bool useEmissiveMap     = false;
+    #endif
 };
 
 //==============================================================================
@@ -531,60 +560,60 @@ public:
     void SetPosition(XMFLOAT3 position);
 
     // --- Platform-specific render call ---
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
-    void Render(ID3D11DeviceContext* deviceContext, float deltaTime);
-    HRESULT CompileShaderFromFile(const std::wstring& filePath, const std::string& entryPoint,
-                                  const std::string& shaderModel, ID3DBlob** blobOut);
-#elif defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
-    void Render(float deltaTime);
-#endif
+    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+        void Render(ID3D11DeviceContext* deviceContext, float deltaTime);
+        HRESULT CompileShaderFromFile(const std::wstring& filePath, const std::string& entryPoint,
+                                    const std::string& shaderModel, ID3DBlob** blobOut);
+    #elif defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        void Render(float deltaTime);
+    #endif
 
-#if defined(__USE_DIRECTX_12__)
-    // Native DX12 draw: updates all per-model constant buffers (b0/b1/b2/b4), registers
-    // texture SRVs on first call, then binds VB/IB and issues DrawIndexedInstanced.
-    // Called from DX12RenderFrame::RenderGamePlay() after SetPipelineState().
-    void RenderDX12(ID3D12GraphicsCommandList* cmdList, class DX12Renderer* dx12, float deltaTime);
+    #if defined(__USE_DIRECTX_12__)
+        // Native DX12 draw: updates all per-model constant buffers (b0/b1/b2/b4), registers
+        // texture SRVs on first call, then binds VB/IB and issues DrawIndexedInstanced.
+        // Called from DX12RenderFrame::RenderGamePlay() after SetPipelineState().
+        void RenderDX12(ID3D12GraphicsCommandList* cmdList, class DX12Renderer* dx12, float deltaTime);
 
-    // First-frame texture registration: unwraps the model's DX11-on-12 SRVs into native
-    // D3D12 resources, writes SRV descriptors into the pre-allocated heap slots, and records
-    // COMMON -> PIXEL_SHADER_RESOURCE barriers on cmdList.  Sets d3d12TexturesRegistered=true.
-    void RegisterDX12Textures(ID3D12GraphicsCommandList* cmdList, class DX12Renderer* dx12);
+        // First-frame texture registration: unwraps the model's DX11-on-12 SRVs into native
+        // D3D12 resources, writes SRV descriptors into the pre-allocated heap slots, and records
+        // COMMON -> PIXEL_SHADER_RESOURCE barriers on cmdList.  Sets d3d12TexturesRegistered=true.
+        void RegisterDX12Textures(ID3D12GraphicsCommandList* cmdList, class DX12Renderer* dx12);
 
-    // Uploads every Texture referenced by m_modelInfo (diffuse/normal/metallic/roughness/AO)
-    // to a native D3D12 DEFAULT-heap resource in d3d12TexResources[0..5].  Shared by
-    // SetupModelForRendering (first load, loader thread) and RefreshDX12Textures
-    // (cache-restore rebind).  Logs every skipped slot so missing-texture failures
-    // can be traced immediately instead of failing silently to NULL descriptors.
-    void UploadDX12ModelTextures(class DX12Renderer* dx12);
+        // Uploads every Texture referenced by m_modelInfo (diffuse/normal/metallic/roughness/AO/gloss/emissive)
+        // to a native D3D12 DEFAULT-heap resource in d3d12TexResources[0..8].  Shared by
+        // SetupModelForRendering (first load, loader thread) and RefreshDX12Textures
+        // (cache-restore rebind).  Logs every skipped slot so missing-texture failures
+        // can be traced immediately instead of failing silently to NULL descriptors.
+        void UploadDX12ModelTextures(class DX12Renderer* dx12);
 
-    // Cache-restore texture refresh: re-uploads the freshly rebound Texture objects to
-    // the DX12 heap and clears d3d12TexturesRegistered so RegisterDX12Textures rewrites
-    // the SRV descriptors on the next draw.  MUST be called by any code path that
-    // replaces m_modelInfo.textures / textureSRVs AFTER SetupModelForRendering has run
-    // (SceneManager cache-restore rebind steps) — without it the descriptor table keeps
-    // pointing at the null/stale SRVs written before the rebind and the model renders
-    // untextured or invisible.
-    void RefreshDX12Textures();
-#endif
+        // Cache-restore texture refresh: re-uploads the freshly rebound Texture objects to
+        // the DX12 heap and clears d3d12TexturesRegistered so RegisterDX12Textures rewrites
+        // the SRV descriptors on the next draw.  MUST be called by any code path that
+        // replaces m_modelInfo.textures / textureSRVs AFTER SetupModelForRendering has run
+        // (SceneManager cache-restore rebind steps) — without it the descriptor table keeps
+        // pointing at the null/stale SRVs written before the rebind and the model renders
+        // untextured or invisible.
+        void RefreshDX12Textures();
+    #endif
 
-#if defined(__USE_OPENGL__)
-    // Rebuilds the GL texture-handle lists (textureIDs / normalMapIDs / metallic /
-    // roughness / AO / gloss / emissive IDs) from the parsed m_materials set.
-    // OpenGL's analogue of RefreshDX12Textures: BindGLTFMaterialTexturesToModel only
-    // creates Texture objects and Material entries — it does not write GL handles
-    // into ModelInfo — so every code path that (re)binds materials after
-    // SetupModelForRendering (SceneManager cache-restore Step 4) MUST call this,
-    // otherwise textureIDs stays empty and the model renders untextured.
-    void RefreshOpenGLTextures();
-#endif
+    #if defined(__USE_OPENGL__)
+        // Rebuilds the GL texture-handle lists (textureIDs / normalMapIDs / metallic /
+        // roughness / AO / gloss / emissive IDs) from the parsed m_materials set.
+        // OpenGL's analogue of RefreshDX12Textures: BindGLTFMaterialTexturesToModel only
+        // creates Texture objects and Material entries — it does not write GL handles
+        // into ModelInfo — so every code path that (re)binds materials after
+        // SetupModelForRendering (SceneManager cache-restore Step 4) MUST call this,
+        // otherwise textureIDs stays empty and the model renders untextured.
+        void RefreshOpenGLTextures();
+    #endif
 
     // GetWorldMatrix: returns XMMATRIX on DX11/DX12 and Windows Vulkan (DirectXMath available);
     // returns Matrix4x4 on OpenGL and non-Windows Vulkan (portable stub type).
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__) || (defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))
-    XMMATRIX GetWorldMatrix() const { return m_modelInfo.worldMatrix; }
-#elif defined(__USE_OPENGL__) || (defined(__USE_VULKAN__) && !defined(PLATFORM_WINDOWS))
-    Matrix4x4 GetWorldMatrix() const { return m_modelInfo.worldMatrix; }
-#endif
+    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__) || (defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))
+        XMMATRIX GetWorldMatrix() const { return m_modelInfo.worldMatrix; }
+    #elif defined(__USE_OPENGL__) || (defined(__USE_VULKAN__) && !defined(PLATFORM_WINDOWS))
+        Matrix4x4 GetWorldMatrix() const { return m_modelInfo.worldMatrix; }
+    #endif
 
     // --- PBR extension methods ---
     bool SetupPBRResources();
@@ -595,11 +624,11 @@ public:
     void UpdateEnvironmentBuffer();
     void SetPBRProperties(float metallic, float roughness, float reflectionStrength);
 
-#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__) || (defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))
-    void SetEnvironmentProperties(float intensity, XMFLOAT3 tint, float mipBias, float fresnel0);
-#elif defined(__USE_OPENGL__) || (defined(__USE_VULKAN__) && !defined(PLATFORM_WINDOWS))
-    void SetEnvironmentProperties(float intensity, Vector3 tint, float mipBias, float fresnel0);
-#endif
+    #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__) || (defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))
+        void SetEnvironmentProperties(float intensity, XMFLOAT3 tint, float mipBias, float fresnel0);
+    #elif defined(__USE_OPENGL__) || (defined(__USE_VULKAN__) && !defined(PLATFORM_WINDOWS))
+        void SetEnvironmentProperties(float intensity, Vector3 tint, float mipBias, float fresnel0);
+    #endif
 
     std::unordered_map<std::string, Material> m_materials;
     std::mutex m_ModelMutex;

@@ -1,4 +1,4 @@
-﻿/* -------------------------------------------------------------------------------
+/* -------------------------------------------------------------------------------
    RENDERER SYSTEM FLOW DIAGRAM
    -------------------------------------------------------------------------------
    Purpose:
@@ -314,6 +314,157 @@ public:
     // Persisted in GameConfig.cfg as "showDebugInfo".
     bool bDebugOSDActive = false;
     std::chrono::steady_clock::time_point debugOSDStartTime;
+
+    #if defined(_DEBUG)
+    // F12 timing capture for renderer performance investigations.  The render
+    // thread writes samples only while this flag is enabled; the keyboard thread
+    // toggles it and dumps the last 25 frames through Debug::logDebugMessage().
+    struct RenderTimingSample {
+        uint32_t frameNumber = 0;
+        double totalMs = 0.0;
+        double waitPreviousMs = 0.0;
+        double resetMs = 0.0;
+        double backgroundPrePassMs = 0.0;
+        double commandRecordMs = 0.0;
+        double execute3DMs = 0.0;
+        double d2dOverlayMs = 0.0;
+        double presentMs = 0.0;
+        double moveNextMs = 0.0;
+        bool backgroundPrePass = false;
+        bool d2dAvailable = false;
+        bool screenRecorderActive = false;
+    };
+
+    static constexpr uint32_t TIMING_CAPTURE_FRAME_COUNT = 25;
+    std::atomic<bool> bTimingCaptureActive{ false };
+    bool bTimingOSDActive = false;
+    std::wstring timingOSDMessage;
+    std::chrono::steady_clock::time_point timingOSDStartTime;
+
+    bool IsTimingCaptureActive() const
+    {
+        return bTimingCaptureActive.load(std::memory_order_relaxed);
+    }
+
+    void ToggleTimingCapture()
+    {
+        if (IsTimingCaptureActive())
+            EndTimingCaptureAndLog();
+        else
+            BeginTimingCapture();
+    }
+
+    void BeginTimingCapture()
+    {
+        {
+            std::lock_guard<std::mutex> lock(m_timingCaptureMutex);
+            m_timingWriteIndex = 0;
+            m_timingSampleCount = 0;
+            m_timingFrameCounter = 0;
+            for (auto& sample : m_timingSamples)
+                sample = RenderTimingSample{};
+        }
+
+        bTimingCaptureActive.store(true, std::memory_order_release);
+        timingOSDMessage = L"=> Timing Performance: MONITORING";
+        timingOSDStartTime = std::chrono::steady_clock::now();
+        bTimingOSDActive = true;
+        Debug::logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[Renderer Timing] Monitoring enabled. Capturing last %u frames.",
+            TIMING_CAPTURE_FRAME_COUNT);
+    }
+
+    void EndTimingCaptureAndLog()
+    {
+        bTimingCaptureActive.store(false, std::memory_order_release);
+        timingOSDMessage = L"=> Timing Performance: OFF - details logged";
+        timingOSDStartTime = std::chrono::steady_clock::now();
+        bTimingOSDActive = true;
+
+        std::array<RenderTimingSample, TIMING_CAPTURE_FRAME_COUNT> samples = {};
+        uint32_t count = 0;
+        {
+            std::lock_guard<std::mutex> lock(m_timingCaptureMutex);
+            count = m_timingSampleCount;
+            const uint32_t first = (m_timingSampleCount == TIMING_CAPTURE_FRAME_COUNT)
+                ? m_timingWriteIndex
+                : 0;
+
+            for (uint32_t i = 0; i < count; ++i)
+                samples[i] = m_timingSamples[(first + i) % TIMING_CAPTURE_FRAME_COUNT];
+        }
+
+        Debug::logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[Renderer Timing] Monitoring disabled. Dumping %u captured frame(s).",
+            count);
+
+        if (count == 0)
+        {
+            Debug::logDebugMessage(LogLevel::LOG_DEBUG,
+                L"[Renderer Timing] No frame timing samples were captured.");
+            return;
+        }
+
+        double avgTotal = 0.0;
+        double avgWait = 0.0;
+        double avgRecord = 0.0;
+        double avgExecute = 0.0;
+        double avgD2D = 0.0;
+        double avgPresent = 0.0;
+
+        for (uint32_t i = 0; i < count; ++i)
+        {
+            const RenderTimingSample& s = samples[i];
+            avgTotal += s.totalMs;
+            avgWait += s.waitPreviousMs;
+            avgRecord += s.commandRecordMs;
+            avgExecute += s.execute3DMs;
+            avgD2D += s.d2dOverlayMs;
+            avgPresent += s.presentMs;
+
+            Debug::logDebugMessage(LogLevel::LOG_DEBUG,
+                L"[Renderer Timing] Frame %u: total=%.3fms waitPrev=%.3f reset=%.3f bgPre=%.3f record3D=%.3f exec3D=%.3f d2d=%.3f present=%.3f moveNext=%.3f flags(bg=%d d2d=%d rec=%d)",
+                s.frameNumber,
+                s.totalMs,
+                s.waitPreviousMs,
+                s.resetMs,
+                s.backgroundPrePassMs,
+                s.commandRecordMs,
+                s.execute3DMs,
+                s.d2dOverlayMs,
+                s.presentMs,
+                s.moveNextMs,
+                s.backgroundPrePass ? 1 : 0,
+                s.d2dAvailable ? 1 : 0,
+                s.screenRecorderActive ? 1 : 0);
+        }
+
+        const double invCount = 1.0 / static_cast<double>(count);
+        Debug::logDebugMessage(LogLevel::LOG_DEBUG,
+            L"[Renderer Timing] Average over %u frame(s): total=%.3fms waitPrev=%.3f record3D=%.3f exec3D=%.3f d2d=%.3f present=%.3f",
+            count,
+            avgTotal * invCount,
+            avgWait * invCount,
+            avgRecord * invCount,
+            avgExecute * invCount,
+            avgD2D * invCount,
+            avgPresent * invCount);
+    }
+
+    void RecordTimingSample(const RenderTimingSample& sample)
+    {
+        if (!IsTimingCaptureActive())
+            return;
+
+        std::lock_guard<std::mutex> lock(m_timingCaptureMutex);
+        RenderTimingSample stored = sample;
+        stored.frameNumber = ++m_timingFrameCounter;
+        m_timingSamples[m_timingWriteIndex] = stored;
+        m_timingWriteIndex = (m_timingWriteIndex + 1) % TIMING_CAPTURE_FRAME_COUNT;
+        if (m_timingSampleCount < TIMING_CAPTURE_FRAME_COUNT)
+            ++m_timingSampleCount;
+    }
+    #endif // defined(_DEBUG)
     // These are used when we resize our window
     int iOrigWidth = DEFAULT_WINDOW_WIDTH;
     int iOrigHeight = DEFAULT_WINDOW_HEIGHT;
@@ -392,6 +543,8 @@ public:
         // Blit a 2D image with a centered zoom crop: crops (zoomFactor*100)% in from each edge and scales the result to fill destW x destH.
         // zoomFactor 0.0 = full image; 0.75 = maximum zoom (centre 25% of image area stretched to full dest size).
         virtual void Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, int iDestY, int iDestW, int iDestH, float zoomFactor) = 0;
+        // Blit a 2D image scaled to the given rect with a custom opacity (0.0 = transparent, 1.0 = fully opaque).
+        virtual void Blit2DObjectToSizeWithAlpha(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float alpha) = 0;
     #endif
     #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__) || (defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))
         virtual void Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 color) = 0;
@@ -401,6 +554,13 @@ public:
 
 // Your private base declarations go here!
 private:
+#if defined(_DEBUG)
+    std::mutex m_timingCaptureMutex;
+    std::array<RenderTimingSample, TIMING_CAPTURE_FRAME_COUNT> m_timingSamples = {};
+    uint32_t m_timingWriteIndex = 0;
+    uint32_t m_timingSampleCount = 0;
+    uint32_t m_timingFrameCounter = 0;
+#endif
 
 
 // Your protected base declarations go here!

@@ -27,7 +27,7 @@
 #include "ExceptionHandler.h"
 #include "WinSystem.h"
 #include "Configuration.h"
-#include "DX_FXManager.h"
+#include "FXManager.h"
 #include "GUIManager.h"
 #include "ConsoleWindow.h"
 #include "Models.h"
@@ -203,19 +203,17 @@ void DX11Renderer::RenderFrame()
                 }
             }
 
-            // STEP 1: Calculate viewport dimensions based on fullscreen/windowed mode
-            if (!winMetrics.isFullScreen)
-            {
-                GetClientRect(hWnd, &rc);                               // Get windowed client area
-            }
-            else
-            {
-                rc = winMetrics.monitorFullArea;                        // Use fullscreen monitor area
-            }
-
-            // Configure viewport with calculated dimensions
-            float width = float(rc.right - rc.left);                   // Calculate viewport width
-            float height = float(rc.bottom - rc.top);                  // Calculate viewport height
+            // STEP 1: Calculate viewport dimensions from the renderer's actual back-buffer size.
+            // iOrigWidth/iOrigHeight are set by Resize() and always match the swap-chain back buffer,
+            // whether we are in windowed or fullscreen exclusive mode.
+            // Previously, fullscreen used winMetrics.monitorFullArea (from GetMonitorInfo.rcMonitor).
+            // That value reflects the OS monitor coordinate space and can be stale after a mode switch
+            // (e.g. reporting the native monitor resolution while the swap chain is at a non-native
+            // configured resolution), causing the 3D viewport to disagree with the D2D / 2D draw space
+            // (which always uses iOrigWidth x iOrigHeight).  Using iOrigWidth/iOrigHeight here keeps
+            // the 3D and 2D coordinate spaces in sync for all display modes.
+            float width  = static_cast<float>(iOrigWidth);             // Back-buffer width (always authoritative)
+            float height = static_cast<float>(iOrigHeight);            // Back-buffer height (always authoritative)
             viewport.Width = width;                                     // Set viewport width
             viewport.Height = height;                                   // Set viewport height
             viewport.MinDepth = 0.0f;                                   // Set minimum depth value
@@ -314,10 +312,33 @@ void DX11Renderer::RenderFrame()
                 }
             #endif
 
+            #if defined(_DEBUG)
+                const bool bCollectTiming = (scene.stSceneType == SceneType::SCENE_GAMETITLE) && IsTimingCaptureActive();
+                const auto timingFrameStart = std::chrono::steady_clock::now();
+                auto timingPhaseStart = timingFrameStart;
+                Renderer::RenderTimingSample timingSample = {};
+                timingSample.d2dAvailable = (m_d2dRenderTarget != nullptr);
+                timingSample.screenRecorderActive = screenRecorder.IsRecording();
+                auto timingMs = [](const std::chrono::steady_clock::time_point& start,
+                                   const std::chrono::steady_clock::time_point& end) -> double {
+                    return std::chrono::duration<double, std::milli>(end - start).count();
+                };
+            #endif
+
             // STEP 2: Render D2D background images before any 3D content.
             // D2D EndDraw (inside) releases the back-buffer binding; OMSetRenderTargets
             // below re-establishes it for D3D so no explicit rebind is needed here.
             RenderBackgroundImage();
+
+            #if defined(_DEBUG)
+                if (bCollectTiming)
+                {
+                    const auto timingAfterBackground = std::chrono::steady_clock::now();
+                    timingSample.backgroundPrePassMs = timingMs(timingPhaseStart, timingAfterBackground);
+                    timingSample.backgroundPrePass = true;
+                    timingPhaseStart = timingAfterBackground;
+                }
+            #endif
 
             // STEP 3: Re-bind render targets for 3D rendering (also restores after D2D EndDraw)
             m_d3dContext->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
@@ -357,8 +378,8 @@ void DX11Renderer::RenderFrame()
                     if (threadManager.threadVars.bLoaderTaskFinished.load())
                     {
                         int iModelID = scene.FindParentModelID(SplashShipName);
-                        if (scene.gltfAnimator.IsAnimationPlaying(iModelID))
-                            scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS);
+                        if (scene.modelAnimator.IsAnimationPlaying(iModelID))
+                            scene.modelAnimator.UpdateAnimations(deltaTime);
                     }
 
                     RenderGamePlay(deltaTime);
@@ -370,13 +391,22 @@ void DX11Renderer::RenderFrame()
                 {
                     // Update all model animations
                     int iModelID = scene.FindParentModelID(ShipName1);
-                    if (scene.gltfAnimator.IsAnimationPlaying(iModelID))
-                        scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS);
+                    if (scene.modelAnimator.IsAnimationPlaying(iModelID))
+                        scene.modelAnimator.UpdateAnimations(deltaTime);
 
                     RenderGamePlay(deltaTime);
                     break;
                 }
             }
+
+            #if defined(_DEBUG)
+                if (bCollectTiming)
+                {
+                    const auto timingAfter3D = std::chrono::steady_clock::now();
+                    timingSample.commandRecordMs = timingMs(timingPhaseStart, timingAfter3D);
+                    timingPhaseStart = timingAfter3D;
+                }
+            #endif
 
             // Pre-update the video frame BEFORE D2D BeginDraw.
             // context->Map() and CopyResource() between BeginDraw/EndDraw trigger
@@ -459,7 +489,10 @@ void DX11Renderer::RenderFrame()
                                {
                                    int startX = (iOrigWidth - 536) / 2; // Centered horizontally
                                    int startY = (iOrigHeight - 466) / 2; // Centered vertically
-                                   Blit2DObjectToSize(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
+                                   if (fxManager.IsImageFadeStrobeActive(BlitObj2DIndexType::IMG_TSOO))
+                                       fxManager.RenderImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
+                                   else
+                                       Blit2DObjectToSize(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
                                }
                                break;
                            }
@@ -617,6 +650,18 @@ void DX11Renderer::RenderFrame()
                            bDebugOSDActive = false;
                    }
 
+                   #if defined(_DEBUG)
+                       if (bTimingOSDActive)
+                       {
+                           float timingOsdElapsed = std::chrono::duration<float>(
+                               std::chrono::steady_clock::now() - timingOSDStartTime).count();
+                           if (timingOsdElapsed < 5.0f)
+                               DrawMyText(timingOSDMessage, Vector2(10.0f, 104.0f), MyColor(255, 220, 0, 255), 14.0f);
+                           else
+                               bTimingOSDActive = false;
+                       }
+                   #endif
+
                    // Render loading indicator if assets are still loading
                    if (!threadManager.threadVars.bLoaderTaskFinished.load())
                    {
@@ -712,7 +757,20 @@ void DX11Renderer::RenderFrame()
                }
            }
 
+           #if defined(_DEBUG)
+               if (bCollectTiming)
+               {
+                   const auto timingAfterOverlay = std::chrono::steady_clock::now();
+                   timingSample.d2dOverlayMs = timingMs(timingPhaseStart, timingAfterOverlay);
+                   timingPhaseStart = timingAfterOverlay;
+               }
+           #endif
+
            // STEP 9: Present the final frame to the display
+           #if defined(_DEBUG)
+               const auto timingPresentStart = std::chrono::steady_clock::now();
+           #endif
+
            try {
                #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
                    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[RENDERFRAME] Presenting frame to display");
@@ -757,6 +815,16 @@ void DX11Renderer::RenderFrame()
                    debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Present operation failed: %hs", e.what());
                #endif
            }
+
+           #if defined(_DEBUG)
+               if (bCollectTiming)
+               {
+                   const auto timingFrameEnd = std::chrono::steady_clock::now();
+                   timingSample.presentMs = timingMs(timingPresentStart, timingFrameEnd);
+                   timingSample.totalMs = timingMs(timingFrameStart, timingFrameEnd);
+                   RecordTimingSample(timingSample);
+               }
+           #endif
 
            // STEP 10: Clear rendering state for next frame
            threadManager.threadVars.bIsRendering.store(false);            // Clear rendering flag atomically
@@ -952,8 +1020,8 @@ inline void DX11Renderer::RenderIntroMovie()
                 Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - halfH, halfW, halfH);
         }
 
-        // Check for spacebar input to skip movie
-        if (GetAsyncKeyState(' ') & 0x8000)
+        // Check for spacebar input to skip movie — only in SCENE_INTRO_MOVIE, not splash SCENE_INTRO
+        if (scene.stSceneType == SceneType::SCENE_INTRO_MOVIE && (GetAsyncKeyState(' ') & 0x8000))
         {
             // Stop movie playback to trigger scene transition
             moviePlayer.Stop();

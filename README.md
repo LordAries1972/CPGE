@@ -99,3 +99,155 @@ To get started with CPGE, follow these steps:
    Visual Studio 2019/2022 then you may need to setup the project in your chosen IDE (CMAKE building now available).
    ```
 ---
+
+## Who I am Looking for as Contributors
+
+This project's future depends heavily on passionate, skilled developers who want to make a real difference in the open-source game engine space. CPGE is an ambitious, cross-platform C++ game engine targeting Windows, Linux, Android, macOS, and iOS — and to truly deliver on that promise, we need talented contributors across several key areas. If you see yourself in any of the profiles below, **we want to hear from you.**
+
+> To get involved, please visit us at: **[ultimanium.com/index.php?action=cpge](https://ultimanium.com/index.php?action=cpge)**
+
+---
+
+### 1. Game Developers — General & Those Eager to Learn
+
+**Who this is for:**
+Whether you are a seasoned game developer or someone who is just beginning to take their C++ and game development skills seriously, CPGE is an ideal place to contribute and grow. We welcome developers at varying experience levels provided you have a genuine passion for game systems and a willingness to work with low-level C++ code.
+
+**What you will be working on:**
+
+- Gameplay systems: player management, AI, scene transitions, scripting hooks
+- Game logic frameworks: state machines, event systems, entity management
+- 2D and 3D rendering features: particle systems, scrollers, UI controls, HUD elements
+- Audio/music integration, input handling (keyboard, mouse, gamepad/joystick)
+- Tools: configuration windows, in-game consoles, debug overlays
+- Testing and bug fixing across the existing feature set
+
+**What we expect from you:**
+
+- A solid understanding of C/C++ (at least intermediate level — the codebase is largely low-level)
+- Willingness to read and understand existing systems before modifying them
+- Respect for the modular architecture and coding standards used throughout the project
+- Patience — cross-platform development requires careful, considered changes
+- Communication via our website contact or GitHub pull requests before making major changes
+
+**What you will gain:**
+
+- Real-world experience with a production-scale C++ game engine
+- Exposure to multiple rendering APIs (DX11, DX12, Vulkan, OpenGL, Metal)
+- A visible, credited role in a growing open-source project
+- A portfolio piece that demonstrates serious low-level game development skills
+
+---
+
+### 2. Serious macOS / iPhone / iPadOS (Metal Framework) Developers
+
+**Who this is for:**
+Apple platform development is one of the most technically demanding areas of this project. We are specifically looking for developers who have hands-on experience with Apple's **Metal graphics framework** and who understand the unique constraints of developing for macOS, iPhone, and iPadOS (formerly iTabOS). The Metal renderer skeleton is already in the source — what we need now are developers who can bring it to life.
+
+**What you will be working on:**
+
+- Completing and stabilising the **Metal renderer** (`Metal/` directory already present in the codebase)
+- Ensuring render parity with the DX11/Vulkan/OpenGL pipelines for model rendering, lighting, and scene management
+- Adapting the engine's threading and memory model to Apple's GCD (Grand Central Dispatch) conventions
+- Input handling differences between macOS, iOS, and iPadOS (touch vs. mouse/keyboard)
+- Build system integration: CMake support for Xcode-based builds and Apple toolchains
+- Testing on physical Apple hardware — simulators are not sufficient for Metal validation
+- Shader porting: translating HLSL/GLSL shaders to Metal Shading Language (MSL)
+
+**What we need from you:**
+
+- Active Mac developer with access to macOS hardware (Intel or Apple Silicon — both are important)
+- Experience with Xcode, the Metal API, and Apple's performance tools (Instruments, GPU Frame Capture)
+- Understanding of Apple's memory management model (ARC) alongside manual C++ memory management
+- Ideally, experience shipping or testing on iPhone and/or iPad physical devices
+- Familiarity with the differences in filesystem, rendering pipelines, and sandboxing on iOS/iPadOS vs. macOS
+- Knowledge of Apple's App Store submission requirements is a plus (for any future distribution pathway)
+
+**Why this matters:**
+Apple hardware is increasingly dominant in the creative and gaming space, especially with the Apple Silicon transition dramatically improving GPU performance. Without a functional Metal renderer, CPGE cannot reach the enormous macOS and iOS user base. This contributor role is **critical** to the project's cross-platform ambitions.
+
+---
+
+### 3. DirectX 12 Developers with Capable Hardware
+
+**Who this is for:**
+DirectX 12 is one of the most powerful — and most complex — graphics APIs available on Windows. We are looking for developers who not only understand DX12 at a deep level but who also have access to a **modern DX12-capable GPU** (NVIDIA RTX series, AMD RDNA2/3, or equivalent) to properly develop, test, and profile DX12 rendering features. The DX12 renderer is partially implemented; we need developers who can push it to production-ready quality.
+
+**What you will be working on:**
+
+- Completing the **DX12 render pipeline** — resource management, descriptor heaps, command lists and queues
+- Fixing the known **DX12 window resizing crash** (currently listed as a known issue)
+- Implementing and validating **root signatures and PSO (Pipeline State Object)** management
+- GPU memory management: upload heaps, default heaps, and resource barriers
+- Multi-threaded command list recording to take full advantage of DX12's parallelism
+- Synchronisation primitives: fences, GPU/CPU synchronisation patterns
+- Shader compilation pipeline: DXIL, shader reflection, and runtime shader permutations
+- Eventually: DXR (DirectX Raytracing) integration for advanced lighting/reflection systems
+- Profiling and performance optimisation using tools such as PIX, RenderDoc, and NVIDIA Nsight
+
+**What we need from you:**
+
+- A modern DX12-capable GPU — not optional. DX12 advanced features cannot be meaningfully tested without real hardware
+- Solid understanding of the DX12 programming model (command queues, fences, descriptor heaps, resource states)
+- Experience with render graph or frame graph concepts is highly desirable
+- Familiarity with HLSL shader development and the DXC shader compiler
+- Understanding of GPU memory bandwidth, cache coherency, and GPU profiling
+- Previous experience with DX11 is helpful for comparing against the existing working DX11 renderer
+
+**Why this matters:**
+DirectX 12 is the primary high-performance rendering target on Windows 10/11 and is required for next-generation visual features. The DX12 renderer also forms the foundation for potential Xbox platform support in the future. This is one of the highest-priority contributor roles for Windows-platform quality.
+
+---
+
+### 4. Linux and Android Programmers
+
+**Who this is for:**
+Linux and Android represent a massive and growing gaming audience. We need developers who are fluent in Linux system programming, the Android NDK, and who understand the rendering and build system differences that come with targeting these platforms. Both Vulkan and OpenGL are supported on this platform tier — contributors will work across both.
+
+**What you will be working on:**
+
+**Linux:**
+
+- Maintaining and extending the Linux CMake build (`Linux/CMakeLists.txt` already present)
+- Ensuring Vulkan and OpenGL renderer compatibility on major Linux distributions (Ubuntu, Fedora, Arch, Debian)
+- Window management via Wayland and/or X11 (handling both display servers is important)
+- Input handling differences: evdev, libinput, XInput2
+- Audio backend integration: PulseAudio, PipeWire, ALSA
+- Linux-specific filesystem conventions, shared library (.so) management, and packaging
+- Radeon (ROCm/AMDVLK) renderer support on Linux is already on the feature list — contributors with AMD hardware are especially valuable here
+- Multi-distribution testing and CI/CD pipeline contributions
+
+**Android:**
+
+- Android NDK integration: adapting the C++ engine core for the Android build system
+- Vulkan on Android: VkSurface via ANativeWindow, swapchain management, touch-to-Vulkan input pipeline
+- OpenGL ES renderer adaptation for Android's GLES3+ environment
+- Android-specific input: touch events, accelerometer, soft keyboard, gamepad (via Android Input API)
+- JNI bridging: connecting the C++ engine core to Android Java/Kotlin activity lifecycle
+- APK packaging, permissions model, and integration with Android Studio or Gradle-based builds
+- Testing across a range of Android API levels (API 28 minimum recommended)
+
+**What we need from you:**
+
+- Strong command-line Linux skills and comfort working outside of GUI IDEs
+- Experience with the Vulkan API (the primary renderer on both Linux and Android)
+- For Android: familiarity with the NDK, CMake for Android, and the Android activity lifecycle
+- Physical Android device access for testing (emulators are insufficient for Vulkan validation)
+- Bonus: experience with Linux game distribution platforms (Steam for Linux, itch.io) or Android Play Store submission
+
+**Why this matters:**
+Linux gaming has seen explosive growth with Steam Deck and Proton, and Android represents the single largest mobile gaming platform on the planet. Without solid Linux and Android support, CPGE cannot fulfil its core cross-platform mission. These contributors directly expand the engine's potential audience by hundreds of millions of users.
+
+---
+
+### How to Contribute
+
+1. Visit our project page: [ultimanium.com/index.php?action=cpge](https://ultimanium.com/index.php?action=cpge)
+2. Review the existing codebase and identify an area that aligns with your expertise
+3. Contact us via the website before beginning significant work, so efforts are coordinated
+4. Submit pull requests against the main repository at: [github.com/LordAries1972/CPGE](https://github.com/LordAries1972/CPGE)
+5. Clearly describe what you changed, why, and which platform(s) you tested on
+
+All contributors will be credited in the project. Serious, sustained contributors may be invited into a core team role.
+
+---

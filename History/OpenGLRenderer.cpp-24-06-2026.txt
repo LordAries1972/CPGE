@@ -1,0 +1,2482 @@
+// -------------------------------------------------------------------------------------------------------------
+// OpenGLRenderer.cpp - OpenGL Renderer Implementation
+// 
+// This file contains the complete implementation of the OpenGLRenderer class for cross-platform
+// OpenGL rendering support. It handles initialization, resource management, and rendering operations
+// for Windows, Linux, Android, iOS, and macOS platforms using conditional compilation.
+//
+// The implementation follows the same architectural patterns as DX11Renderer but uses OpenGL
+// instead of DirectX for graphics operations.
+// -------------------------------------------------------------------------------------------------------------
+
+#define NOMINMAX                                                                // Prevent Windows min/max macro conflicts
+
+#include "Includes.h"
+
+// OpenGL Required Headers & Linking
+#include "Renderer.h"
+
+// Perform Renderer to USE Test.
+// This is done to ensure we only include required code.
+// Meaning, if we are NOT using this Renderer, forget it
+// and DO NOT include its code.
+#if defined(__USE_OPENGL__)
+#include "OpenGLRenderer.h"
+#include "Debug.h"
+#include "WinSystem.h"
+#include "Configuration.h"
+#include "OpenGLFXManager.h"
+#include "GUIManager.h"
+#include "Models.h"
+#include "OpenGLModels.h"
+#include "Lights.h"
+#include "SceneManager.h"
+#include "MoviePlayer.h"
+
+#if defined(__USE_MP3PLAYER__)
+#include "WinMediaPlayer.h"
+#elif defined(__USE_XMPLAYER__)
+#include "XMMODPlayer.h"
+#endif
+
+// Platform-specific linking directives
+#if defined(_WIN32) || defined(_WIN64)
+#pragma comment(lib, "opengl32.lib")                                            // Link Windows OpenGL library
+#pragma comment(lib, "glu32.lib")                                               // Link Windows GLU library
+#pragma comment(lib, "glew32s.lib")                                             // Link GLEW static library (GLEW_STATIC is defined in OpenGLRenderer.h)
+#pragma comment(lib, "gdiplus.lib")                                             // Link GDI+ for texture loading
+#pragma comment(lib, "dxgi.lib")                                                // DXGI — used for GPU VRAM / capability detection
+#include <gdiplus.h>
+#include <dxgi.h>                                                               // GPU adapter enumeration
+#endif
+
+// Static member initialization
+std::mutex OpenGLRenderer::s_renderMutex;                                      // Initialize static render synchronization mutex
+std::mutex OpenGLRenderer::s_loaderMutex;                                      // Initialize static loader synchronization mutex
+
+class LightsManager;                                                            // Forward declaration for lighting system
+
+// External global references required by the renderer
+extern HWND hwnd;                                                               // Main window handle
+extern HINSTANCE hInst;                                                         // Application instance handle
+extern GUIManager guiManager;                                                   // GUI management system
+extern Debug debug;                                                             // Debug logging system
+extern SystemUtils sysUtils;                                                    // System utilities
+extern SceneManager scene;                                                      // Scene management system
+extern ThreadManager threadManager;                                             // Thread management system
+extern GLFXManager fxManager;                                                    // Effects management system
+extern Vector2 myMouseCoords;                                                   // Current mouse coordinates
+extern Model models[MAX_MODELS];                                                // Global model array
+extern LightsManager lightsManager;                                             // Lighting management system
+extern MoviePlayer moviePlayer;                                                 // Video playback system
+extern WindowMetrics winMetrics;                                                // Window metrics and properties
+
+extern bool bResizing;                                                          // Window resize state flag
+extern std::atomic<bool> bResizeInProgress;                                     // Prevents multiple resize operations
+extern std::atomic<bool> bFullScreenTransition;                                // Prevents handling during fullscreen transitions
+
+#if defined(__USE_MP3PLAYER__)
+extern MediaPlayer player;                                                      // Media player for MP3 audio
+#elif defined(__USE_XMPLAYER__)
+extern XMMODPlayer xmPlayer;                                                    // XM/MOD music player
+#endif
+
+// Constructor/Destructor
+OpenGLRenderer::OpenGLRenderer()
+{
+    // IMPORTANT: Set the RendererType to OpenGL SO that the Engine knows which renderer to use and refer too.
+    sName = threadManager.getThreadName(THREAD_RENDERER);                       // Get thread name from thread manager
+    RenderType = RendererType::RT_OpenGL;                                       // Set renderer type to OpenGL
+
+    // Initialize OpenGL context structure to zero
+    SecureZeroMemory(&m_glContext, sizeof(m_glContext));                        // Clear OpenGL context structure
+    SecureZeroMemory(&m_2dTextures, sizeof(m_2dTextures));                      // Clear 2D texture array
+    SecureZeroMemory(&m_3dTextures, sizeof(m_3dTextures));                      // Clear 3D texture array
+    SecureZeroMemory(&My2DBlitQueue, sizeof(My2DBlitQueue));                    // Clear 2D blit queue
+    SecureZeroMemory(&screenModes, sizeof(screenModes));                        // Clear screen modes array
+    SecureZeroMemory(&m_uniformBuffers, sizeof(m_uniformBuffers));              // Clear uniform buffer array
+
+    // Initialize OpenGL object IDs to invalid values
+    m_framebufferID = 0;                                                        // Initialize framebuffer ID
+    m_colorTextureID = 0;                                                       // Initialize color texture ID
+    m_depthTextureID = 0;                                                       // Initialize depth texture ID
+    m_vertexArrayID = 0;                                                        // Initialize vertex array ID
+
+    // Initialize shader program structure
+    m_mainShaderProgram.programID = 0;                                          // Initialize main shader program ID
+    m_mainShaderProgram.vertexShaderID = 0;                                     // Initialize vertex shader ID
+    m_mainShaderProgram.fragmentShaderID = 0;                                   // Initialize fragment shader ID
+    m_mainShaderProgram.isLinked = false;                                       // Set shader program as not linked
+
+#if defined(_DEBUG_OPENGLRENDERER_) && defined(_DEBUG)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"OpenGLRenderer: Constructor initialized successfully"); // Log successful constructor initialization
+#endif
+}
+
+OpenGLRenderer::~OpenGLRenderer()
+{
+    if (bIsDestroyed.load()) return;                                            // Prevent double destruction
+
+    Cleanup();                                                                  // Perform cleanup operations
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"OpenGLRenderer: Cleaned up and Destroyed!"); // Log successful destruction
+    bIsDestroyed.store(true);                                                   // Mark as destroyed
+}
+
+//-----------------------------------------
+// Core Rendering Interface
+//-----------------------------------------
+void OpenGLRenderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
+    // Set the Renderer Name
+    RendererName(RENDERER_NAME);                                                // Set renderer identification name
+    // Use config as the authoritative back-buffer size — winMetrics.clientWidth/Height
+    // reflect the windowed window and would create a windowed-size context even when
+    // fullscreen exclusive is requested in the config.
+    iOrigWidth  = config.myConfig.resolutionWidth;
+    iOrigHeight = config.myConfig.resolutionHeight;
+
+#if defined(_WIN32) || defined(_WIN64)
+    // GDI+ must be started before any LoadTexture call (Gdiplus::Bitmap requires it)
+    if (!m_gdiplusToken) {
+        Gdiplus::GdiplusStartupInput gdiplusInput;
+        Gdiplus::GdiplusStartup(&m_gdiplusToken, &gdiplusInput, nullptr);
+    }
+#endif
+
+#if defined(_DEBUG_OPENGLRENDERER_) && defined(_DEBUG)
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"OpenGLRenderer: Initializing with dimensions %dx%d", iOrigWidth, iOrigHeight); // Log initialization parameters
+#endif
+
+    // Seed render-target dimensions before SetupViewport is called
+    m_renderTargetWidth  = iOrigWidth;
+    m_renderTargetHeight = iOrigHeight;
+
+    // Initialize OpenGL Context and Extensions
+    CreateOpenGLContext(hwnd);                                                  // Create platform-specific OpenGL context
+    SetupPlatformSpecificContext();                                             // Configure vsync and platform post-context state
+    InitializeOpenGLExtensions();                                               // Initialize OpenGL extensions and function pointers
+
+    // GPU capability detection — GL provides name; DXGI provides VRAM on Windows
+    {
+        const GLubyte* glRenderer = glGetString(GL_RENDERER);
+        const GLubyte* glVendor   = glGetString(GL_VENDOR);
+        std::wstring gpuName = L"Unknown";
+        if (glRenderer) { std::string s((const char*)glRenderer); gpuName = std::wstring(s.begin(), s.end()); }
+        std::wstring vendorName = L"Unknown";
+        if (glVendor)   { std::string s((const char*)glVendor);   vendorName = std::wstring(s.begin(), s.end()); }
+
+#if defined(_WIN32) || defined(_WIN64)
+        // Enumerate the default adapter via DXGI to get VRAM figures.
+        IDXGIFactory* dxgiFactory = nullptr;
+        if (SUCCEEDED(CreateDXGIFactory(__uuidof(IDXGIFactory), (void**)&dxgiFactory)))
+        {
+            IDXGIAdapter* adapter = nullptr;
+            if (SUCCEEDED(dxgiFactory->EnumAdapters(0, &adapter)))
+            {
+                DXGI_ADAPTER_DESC desc{};
+                if (SUCCEEDED(adapter->GetDesc(&desc)))
+                {
+                    m_dedicatedVRAMMB   = static_cast<UINT64>(desc.DedicatedVideoMemory / (1024 * 1024));
+                    m_sharedSystemMemMB = static_cast<UINT64>(desc.SharedSystemMemory   / (1024 * 1024));
+                }
+                adapter->Release();
+            }
+            dxgiFactory->Release();
+        }
+#endif
+        m_isUMA       = (m_dedicatedVRAMMB == 0);
+        m_isLowEndGPU = (m_dedicatedVRAMMB < 2048 || m_isUMA);
+
+        debug.logDebugMessage(LogLevel::LOG_INFO,
+            L"OpenGLRenderer: GPU Caps: %s (%s), VRAM: %llu MB, Shared: %llu MB, UMA: %s, LowEnd: %s",
+            gpuName.c_str(), vendorName.c_str(),
+            m_dedicatedVRAMMB, m_sharedSystemMemMB,
+            m_isUMA       ? L"Yes" : L"No",
+            m_isLowEndGPU ? L"Yes" : L"No");
+        if (m_isLowEndGPU)
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"OpenGLRenderer: Low-end GPU detected — reduced VRAM or integrated/UMA architecture.");
+    }
+    CreateFramebufferObjects();                                                 // Create OpenGL framebuffer objects
+    SetupViewport();                                                            // Setup OpenGL viewport configuration
+    SetupRenderStates();                                                        // Setup OpenGL rendering pipeline states
+    LoadShaders();                                                              // Load and compile OpenGL shaders
+
+    // Create Uniform Buffer Objects for shader data
+    for (int i = 0; i < 8; ++i) {                                               // Create 8 uniform buffer objects
+        glGenBuffers(1, &m_uniformBuffers[i].bufferID);                         // Generate OpenGL buffer object
+        m_uniformBuffers[i].target = GL_UNIFORM_BUFFER;                         // Set buffer target type
+        m_uniformBuffers[i].usage = GL_DYNAMIC_DRAW;                            // Set buffer usage pattern
+        m_uniformBuffers[i].isAllocated = false;                                // Mark as not yet allocated
+
+        #if defined(_DEBUG_OPENGLRENDERER_) && defined(_DEBUG)
+            if (!CheckOpenGLError("Create Uniform Buffer " + std::to_string(i))) {  // Check for OpenGL errors
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"OpenGLRenderer: Failed to create uniform buffer %d", i); // Log error if buffer creation failed
+                return;                                                             // Exit initialization on error
+            }
+        #endif
+    }
+
+    // Initialize Camera Uniform Buffer — GLSL binding 0 (ConstantBuffer: world/view/proj/camPos)
+    glBindBuffer(GL_UNIFORM_BUFFER, m_uniformBuffers[UNIFORM_VIEW_MATRIX].bufferID);
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(ConstantBuffer), nullptr, GL_DYNAMIC_DRAW);
+    m_uniformBuffers[UNIFORM_VIEW_MATRIX].size = sizeof(ConstantBuffer);
+    m_uniformBuffers[UNIFORM_VIEW_MATRIX].isAllocated = true;
+    glBindBufferBase(GL_UNIFORM_BUFFER, GLSL_BINDING_CONSTANT_BUFFER, m_uniformBuffers[UNIFORM_VIEW_MATRIX].bufferID);
+
+    #if defined(_DEBUG_OPENGLRENDERER_) && defined(_DEBUG)
+        if (!CheckOpenGLError("Camera Uniform Buffer Setup")) {                     // Check for OpenGL errors
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"OpenGLRenderer: Failed to create camera uniform buffer"); // Log error if camera buffer setup failed
+            return;                                                                 // Exit initialization on error
+        }
+    #endif
+
+    // Initialize our Camera to default values
+    if (!threadManager.threadVars.bIsResizing.load())                           // Only initialize camera if not resizing
+    {
+        myCamera.SetupDefaultCamera(iOrigWidth, iOrigHeight);                   // Setup camera with default parameters
+    }
+
+    // Create Global Light Uniform Buffer — GLSL binding 3 (GlobalLightBuffer in ModelPixel.glsl).
+    // IMPORTANT: use GLSL_BINDING_GLOBAL_LIGHT (3), not the array index UNIFORM_GLOBAL_LIGHT_BUFFER (5).
+    // The GLSL shader declares layout(std140, binding=3) uniform GlobalLightBuffer; the binding
+    // point in glBindBufferBase must match that declaration exactly.
+    glBindBuffer(GL_UNIFORM_BUFFER, m_uniformBuffers[UNIFORM_GLOBAL_LIGHT_BUFFER].bufferID);
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(GlobalLightBuffer), nullptr, GL_DYNAMIC_DRAW);
+    m_uniformBuffers[UNIFORM_GLOBAL_LIGHT_BUFFER].size = sizeof(GlobalLightBuffer);
+    m_uniformBuffers[UNIFORM_GLOBAL_LIGHT_BUFFER].isAllocated = true;
+    glBindBufferBase(GL_UNIFORM_BUFFER, GLSL_BINDING_GLOBAL_LIGHT, m_uniformBuffers[UNIFORM_GLOBAL_LIGHT_BUFFER].bufferID);
+
+    #if defined(_DEBUG_OPENGLRENDERER_) && defined(_DEBUG)
+        if (!CheckOpenGLError("Global Light Buffer Setup")) {                       // Check for OpenGL errors
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"OpenGLRenderer: Failed to create global light buffer"); // Log error if light buffer setup failed
+            return;                                                                 // Exit initialization on error
+        }
+    #endif
+
+    // Initialize LightBuffer UBO — GLSL binding 1 (per-model LightBuffer in ModelPixel.glsl).
+    // Scene lights are handled by GlobalLightBuffer (binding 3); this buffer is zeroed so that
+    // numLights=0 and the per-model lights loop in the fragment shader contributes nothing,
+    // avoiding any undefined behaviour from uninitialised GPU memory.
+    glBindBuffer(GL_UNIFORM_BUFFER, m_uniformBuffers[UNIFORM_LIGHT_BUFFER].bufferID);
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(GlobalLightBuffer), nullptr, GL_DYNAMIC_DRAW);
+    m_uniformBuffers[UNIFORM_LIGHT_BUFFER].size = sizeof(GlobalLightBuffer);
+    m_uniformBuffers[UNIFORM_LIGHT_BUFFER].isAllocated = true;
+    glBindBufferBase(GL_UNIFORM_BUFFER, GLSL_BINDING_LIGHT_BUFFER, m_uniformBuffers[UNIFORM_LIGHT_BUFFER].bufferID);
+    {   // Zero the buffer — numLights=0 prevents the per-model light loop in ModelPixel.glsl.
+        std::vector<uint8_t> zeros(sizeof(GlobalLightBuffer), 0);
+        glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(GlobalLightBuffer), zeros.data());
+    }
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+
+    // Initialize MaterialBuffer UBO — GLSL binding 4 (MaterialBuffer in ModelPixel.glsl).
+    // This is updated per-draw in RenderGamePlay().  We allocate storage here and zero it so
+    // the shader has consistent defaults (Kd=0, flags=0) until the first frame runs.
+    glBindBuffer(GL_UNIFORM_BUFFER, m_uniformBuffers[UNIFORM_MATERIAL_BUFFER].bufferID);
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(GLMaterialUBO), nullptr, GL_DYNAMIC_DRAW);
+    m_uniformBuffers[UNIFORM_MATERIAL_BUFFER].size = sizeof(GLMaterialUBO);
+    m_uniformBuffers[UNIFORM_MATERIAL_BUFFER].isAllocated = true;
+    glBindBufferBase(GL_UNIFORM_BUFFER, GLSL_BINDING_MATERIAL, m_uniformBuffers[UNIFORM_MATERIAL_BUFFER].bufferID);
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+
+    // Initialize DebugBuffer UBO — GLSL binding 2 (DebugBuffer in ModelPixel.glsl).
+    // debugMode=0 means full PBR rendering.  If this buffer is uninitialised the shader
+    // could read a garbage mode value and return a debug visualisation instead of the scene.
+    {
+        glBindBuffer(GL_UNIFORM_BUFFER, m_uniformBuffers[UNIFORM_PROJECTION_MATRIX].bufferID);
+        // DebugBuffer layout: int debugMode + float[3] pad = 16 bytes total.
+        constexpr GLsizei kDebugUBOSize = 16;
+        glBufferData(GL_UNIFORM_BUFFER, kDebugUBOSize, nullptr, GL_DYNAMIC_DRAW);
+        m_uniformBuffers[UNIFORM_PROJECTION_MATRIX].size = kDebugUBOSize;
+        m_uniformBuffers[UNIFORM_PROJECTION_MATRIX].isAllocated = true;
+        glBindBufferBase(GL_UNIFORM_BUFFER, GLSL_BINDING_DEBUG_BUFFER, m_uniformBuffers[UNIFORM_PROJECTION_MATRIX].bufferID);
+        std::vector<uint8_t> zeros(kDebugUBOSize, 0);           // debugMode=0 = full PBR
+        glBufferSubData(GL_UNIFORM_BUFFER, 0, kDebugUBOSize, zeros.data());
+        glBindBuffer(GL_UNIFORM_BUFFER, 0);
+    }
+
+    // Initialize EnvBuffer UBO — GLSL binding 5 (EnvBuffer in ModelPixel.glsl).
+    // Provides environment-map intensity, tint, and Fresnel F0 for PBR reflections.
+    // Matches DX12 defaults: envIntensity=1.0, envTint=white, fresnel0=0.04 (dielectric).
+    {
+        GLEnvUBO env = {};
+        env.envIntensity   = 1.0f;                          // full environment contribution
+        env.envTint[0]     = 1.0f;                          // red   tint = white
+        env.envTint[1]     = 1.0f;                          // green tint = white
+        env.envTint[2]     = 1.0f;                          // blue  tint = white
+        env.mipLODBias     = 0.0f;                          // no LOD bias
+        env.fresnel0       = 0.04f;                         // standard dielectric F0
+        glBindBuffer(GL_UNIFORM_BUFFER, m_uniformBuffers[UNIFORM_ENVIRONMENT_BUFFER].bufferID);
+        glBufferData(GL_UNIFORM_BUFFER, sizeof(GLEnvUBO), &env, GL_DYNAMIC_DRAW);
+        m_uniformBuffers[UNIFORM_ENVIRONMENT_BUFFER].size = sizeof(GLEnvUBO);
+        m_uniformBuffers[UNIFORM_ENVIRONMENT_BUFFER].isAllocated = true;
+        glBindBufferBase(GL_UNIFORM_BUFFER, GLSL_BINDING_ENV_BUFFER, m_uniformBuffers[UNIFORM_ENVIRONMENT_BUFFER].bufferID);
+        glBindBuffer(GL_UNIFORM_BUFFER, 0);
+    }
+
+    // Initialize ShadowBuffer UBO — GLSL binding 6 (ShadowBuffer in ModelPixel.glsl).
+    // useShadowMap=0.0 disables PCF shadow sampling until a shadow map is provided.
+    // Matches DX12 behaviour: shadow rendering is off by default; enable by setting useShadowMap=1.0
+    // and supplying a valid shadow depth map at texture unit TEXTURE_UNIT_SHADOW (t8).
+    {
+        GLShadowUBO shadow = {};                            // all zeros: useShadowMap=0.0 = shadows disabled
+        glBindBuffer(GL_UNIFORM_BUFFER, m_uniformBuffers[UNIFORM_SHADOW_BUFFER].bufferID);
+        glBufferData(GL_UNIFORM_BUFFER, sizeof(GLShadowUBO), &shadow, GL_DYNAMIC_DRAW);
+        m_uniformBuffers[UNIFORM_SHADOW_BUFFER].size = sizeof(GLShadowUBO);
+        m_uniformBuffers[UNIFORM_SHADOW_BUFFER].isAllocated = true;
+        glBindBufferBase(GL_UNIFORM_BUFFER, GLSL_BINDING_SHADOW_BUFFER, m_uniformBuffers[UNIFORM_SHADOW_BUFFER].bufferID);
+        glBindBuffer(GL_UNIFORM_BUFFER, 0);
+    }
+
+    #if defined(_DEBUG_OPENGLRENDERER_) && defined(_DEBUG)
+        if (!CheckOpenGLError("Material/Light/Debug/Env/Shadow Buffer Setup")) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"OpenGLRenderer: Failed to create material/light/debug/env/shadow UBOs");
+            return;
+        }
+    #endif
+
+    sysUtils.DisableMouseCursor();                                              // Hide system mouse cursor for custom rendering
+
+    // Context stays current on the main thread until StartRendererThreads() transfers it.
+    // This allows fxManager.Initialize() to compile GL shaders on the main thread.
+    bIsInitialized.store(true);                                                 // Mark renderer as initialized
+    if (threadManager.threadVars.bIsResizing.load())                            // Check if currently resizing
+    {
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"OpenGLRenderer: Rendering Engine Initialised and Activated."); // Log successful initialization
+    }
+    else
+    {
+        // We are resizing the window, so restart the loading sequence.
+        threadManager.ResumeThread(THREAD_LOADER);                              // Resume loader thread if not resizing
+    }
+
+    threadManager.threadVars.bIsResizing.store(false);                          // Clear resizing flag
+
+    #if defined(_DEBUG_OPENGLRENDERER_) && defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"OpenGLRenderer: Initialization completed successfully"); // Log successful completion
+    #endif
+}
+
+bool OpenGLRenderer::StartRendererThreads()
+{
+    bool result = true;                                                         // Initialize success flag
+    try
+    {
+        // Initialise and Start the Loader Thread
+        threadManager.SetThread(THREAD_LOADER, [this]() { LoaderTaskThread(); }, true); // Set loader thread with lambda function
+        threadManager.StartThread(THREAD_LOADER);                              // Start the loader thread
+
+        // Initialize & start the renderer thread
+        #ifdef RENDERER_IS_THREAD
+            #if defined(_WIN32) || defined(_WIN64)
+                // Transfer GL context ownership from main thread to render thread.
+                // fxManager.Initialize() has already compiled its shaders on the main thread.
+                wglMakeCurrent(nullptr, nullptr);
+            #endif
+
+            threadManager.SetThread(THREAD_RENDERER, [this]() { RenderFrame(); }, true); // Set renderer thread with lambda function
+            threadManager.StartThread(THREAD_RENDERER);                            // Start the renderer thread
+        #endif
+
+        #if defined(_DEBUG_OPENGLRENDERER_) && defined(_DEBUG)
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"OpenGLRenderer: Renderer threads started successfully"); // Log successful thread startup
+        #endif
+    }
+    catch (const std::exception& e)                                             // Catch any exceptions during thread creation
+    {
+        result = false;
+        #if defined(_DEBUG_OPENGLRENDERER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"OpenGLRenderer: Exception in StartRendererThreads: %s",
+                std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
+        #else
+            (void)e;
+        #endif
+    }
+
+    return result;                                                              // Return success/failure status
+}
+
+bool OpenGLRenderer::Resize(uint32_t width, uint32_t height)
+{
+    if (width == 0 || height == 0) return false;
+    m_renderTargetWidth  = static_cast<int>(width);
+    m_renderTargetHeight = static_cast<int>(height);
+    iOrigWidth           = static_cast<int>(width);
+    iOrigHeight          = static_cast<int>(height);
+    // glViewport is called every frame at the top of RenderFrame() using m_renderTargetWidth/Height.
+    return true;
+}
+
+void OpenGLRenderer::WaitForGPUToFinish()
+{
+    std::lock_guard<std::mutex> lock(s_renderMutex);
+    glFinish();
+}
+
+void OpenGLRenderer::WaitToFinishThenPauseThread()
+{
+    WaitForGPUToFinish();
+    threadManager.PauseThread(THREAD_RENDERER);
+}
+
+void OpenGLRenderer::Blit2DColoredPixel(int x, int y, float pixelSize, const Vector4& color)
+{
+    if (m_renderTargetHeight == 0) return;
+    // Render as a small filled rectangle — glBegin/glEnd/glVertex are removed in core 3.3
+    int sz = static_cast<int>(std::max(pixelSize, 1.0f));
+    MyColor c(
+        static_cast<uint8_t>(std::clamp(color.x, 0.0f, 1.0f) * 255.0f),
+        static_cast<uint8_t>(std::clamp(color.y, 0.0f, 1.0f) * 255.0f),
+        static_cast<uint8_t>(std::clamp(color.z, 0.0f, 1.0f) * 255.0f),
+        static_cast<uint8_t>(std::clamp(color.w, 0.0f, 1.0f) * 255.0f));
+    Render2DQuad(0, x, y, sz, sz, 0, 0, 0, 0, c, false);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GLSL source strings
+// ─────────────────────────────────────────────────────────────────────────────
+static const char* k_2dVertGLSL = R"(
+#version 330 core
+layout(location = 0) in vec2 aPos;
+layout(location = 1) in vec2 aUV;
+out vec2 vUV;
+uniform mat4 uOrtho;
+void main() {
+    gl_Position = uOrtho * vec4(aPos, 0.0, 1.0);
+    vUV = aUV;
+}
+)";
+
+static const char* k_2dFragGLSL = R"(
+#version 330 core
+in vec2 vUV;
+out vec4 fragColor;
+uniform sampler2D uTex;
+uniform vec4 uColor;
+uniform bool uUseTex;
+void main() {
+    if (uUseTex)
+        fragColor = texture(uTex, vUV) * uColor;
+    else
+        fragColor = uColor;
+}
+)";
+
+// ---------------------------------------------------------------------------
+// 3-D vertex shader — left-handed world space, tangent-space normal mapping.
+// Attributes match Models.h Vertex layout exactly:
+//   loc 0 = position (vec3)
+//   loc 1 = normal   (vec3)
+//   loc 2 = texCoord (vec2)
+//   loc 3 = tangent  (vec3)
+// ---------------------------------------------------------------------------
+static const char* k_3dVertGLSL = R"(
+#version 330 core
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec3 aNormal;
+layout(location = 2) in vec2 aUV;
+layout(location = 3) in vec3 aTangent;
+
+out vec3 vFragPos;
+out vec2 vUV;
+out mat3 vTBN;        // tangent-space basis for normal mapping
+out vec3 vNormal;     // world-space normal (fallback when no normal map)
+
+uniform mat4 uModel;
+uniform mat4 uView;
+uniform mat4 uProjection;
+
+void main() {
+    vec4 worldPos = uModel * vec4(aPos, 1.0);
+    gl_Position   = uProjection * uView * worldPos;
+    vFragPos      = worldPos.xyz;
+    vUV           = aUV;
+
+    mat3 normalMatrix = mat3(transpose(inverse(uModel)));
+    vec3 N = normalize(normalMatrix * aNormal);
+    vec3 T = normalize(normalMatrix * aTangent);
+    T = normalize(T - dot(T, N) * N);       // Gram-Schmidt re-orthogonalise
+    vec3 B = cross(T, N);                  // LH after GLTF Z-flip: swap operands vs RH
+    vTBN    = mat3(T, B, N);
+    vNormal = N;
+}
+)";
+
+// ---------------------------------------------------------------------------
+// 3-D fragment shader — Blinn-Phong + PBR approximation, up to 8 lights.
+// Supports directional (type=0), point (type=1), spot (type=2).
+// ---------------------------------------------------------------------------
+static const char* k_3dFragGLSL = R"(
+#version 330 core
+
+in vec3 vFragPos;
+in vec2 vUV;
+in mat3 vTBN;
+in vec3 vNormal;
+
+out vec4 fragColor;
+
+struct LightData {
+    vec3  position;
+    vec3  direction;
+    vec3  color;
+    vec3  ambient;
+    float intensity;
+    float range;
+    float innerCone;
+    float outerCone;
+    int   type;    // 0=directional, 1=point, 2=spot
+    int   active;
+};
+
+uniform LightData uLights[8];
+uniform int       uLightCount;
+
+// Legacy single-light fallback uniforms (populated by RenderGamePlay)
+uniform vec3  uLightDir;
+uniform vec3  uLightColor;
+uniform vec3  uAmbient;
+
+uniform vec3  uViewPos;
+uniform float uAlpha;
+
+// Material
+uniform sampler2D uDiffuse;
+uniform sampler2D uNormalMap;
+uniform float     uMetallic;
+uniform float     uRoughness;
+uniform float     uNormalScale;
+uniform vec3      uKd;
+uniform vec3      uKa;
+uniform vec3      uKs;
+uniform float     uNs;
+uniform vec3      uEmissiveFactor;
+uniform float     uEmissiveStrength;
+
+// Texture presence flags
+uniform bool uHasNormalMap;
+uniform bool uHasDiffuse;
+
+// Optional PBR texture maps
+uniform sampler2D uGlossMap;
+uniform sampler2D uEmissiveMap;
+uniform bool      uHasGlossMap;
+uniform bool      uHasEmissiveMap;
+
+void main() {
+    // Diffuse texture
+    vec4 albedo = uHasDiffuse
+        ? texture(uDiffuse, vUV)
+        : vec4(max(uKd, vec3(0.01)), 1.0);
+
+    if (albedo.a < 0.01) discard;
+
+    // Normal
+    vec3 N;
+    if (uHasNormalMap) {
+        vec3 nm = texture(uNormalMap, vUV).rgb * 2.0 - 1.0;
+        nm.y    = -nm.y;                   // DX/Blender G-channel flip to match LH DX11 convention
+        nm.xy   *= uNormalScale;
+        N = normalize(vTBN * nm);
+    } else {
+        N = normalize(vNormal);
+    }
+
+    vec3 V   = normalize(uViewPos - vFragPos);
+    vec3 col = vec3(0.0);
+
+    // Gloss map: derive effective roughness from 1 - gloss.r; overrides uRoughness.
+    float effectiveRoughness = uHasGlossMap ? (1.0 - texture(uGlossMap, vUV).r) : uRoughness;
+
+    if (uLightCount > 0) {
+        for (int i = 0; i < uLightCount && i < 8; ++i) {
+            if (uLights[i].active == 0) continue;
+
+            vec3 L;
+            float attenuation = 1.0;
+
+            if (uLights[i].type == 0) {         // directional
+                L = normalize(-uLights[i].direction);
+            } else {                             // point or spot
+                vec3 diff3 = uLights[i].position - vFragPos;
+                float dist = length(diff3);
+                L = normalize(diff3);
+                if (uLights[i].range > 0.0) {
+                    float t = clamp(1.0 - (dist / uLights[i].range), 0.0, 1.0);
+                    attenuation = t * t;
+                }
+                if (uLights[i].type == 2) {     // spot cone
+                    float cosAngle = dot(L, normalize(-uLights[i].direction));
+                    float inner    = cos(radians(uLights[i].innerCone));
+                    float outer    = cos(radians(uLights[i].outerCone));
+                    attenuation   *= clamp((cosAngle - outer) / (inner - outer + 0.0001), 0.0, 1.0);
+                }
+            }
+
+            float diff  = max(dot(N, L), 0.0);
+            vec3  H     = normalize(L + V);
+            float spec  = (diff > 0.0) ? pow(max(dot(N, H), 0.0), max(uNs, 1.0)) : 0.0;
+            float metallicSpec = mix(0.04, 1.0, uMetallic);
+            float roughFactor  = max(1.0 - effectiveRoughness, 0.0);
+
+            vec3 ambientCont = uLights[i].ambient * albedo.rgb * uKa;
+            vec3 diffCont    = diff * uLights[i].color * uLights[i].intensity * albedo.rgb * uKd;
+            vec3 specCont    = spec * uLights[i].color * uLights[i].intensity * uKs
+                               * metallicSpec * roughFactor;
+
+            col += (ambientCont + (diffCont + specCont) * attenuation);
+        }
+    } else {
+        // Legacy single-light fallback
+        vec3 L     = normalize(-uLightDir);
+        float diff = max(dot(N, L), 0.0);
+        col = (uAmbient + diff * uLightColor) * albedo.rgb;
+    }
+
+    // Emissive: sample emissive texture when present, else use material factor.
+    if (uHasEmissiveMap)
+        col += texture(uEmissiveMap, vUV).rgb * uEmissiveStrength;
+    else
+        col += uEmissiveFactor * uEmissiveStrength;
+
+    fragColor = vec4(col, albedo.a * uAlpha);
+}
+)";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Private helpers
+// ─────────────────────────────────────────────────────────────────────────────
+GLuint OpenGLRenderer::CompileShader(const std::string& source, GLenum type)
+{
+    GLuint id = glCreateShader(type);
+    const char* src = source.c_str();
+    glShaderSource(id, 1, &src, nullptr);
+    glCompileShader(id);
+    GLint ok = 0;
+    glGetShaderiv(id, GL_COMPILE_STATUS, &ok);
+    if (!ok) {
+        char buf[512]; glGetShaderInfoLog(id, 512, nullptr, buf);
+        debug.logLevelMessage(LogLevel::LOG_ERROR,
+            L"[OpenGLRenderer] Shader compile error: " +
+            std::wstring(buf, buf + strlen(buf)));
+        glDeleteShader(id);
+        return 0;
+    }
+    return id;
+}
+
+GLuint OpenGLRenderer::CreateShaderProgram(const std::string& vsrc, const std::string& fsrc)
+{
+    GLuint vs = CompileShader(vsrc, GL_VERTEX_SHADER);
+    GLuint fs = CompileShader(fsrc, GL_FRAGMENT_SHADER);
+    if (!vs || !fs) { glDeleteShader(vs); glDeleteShader(fs); return 0; }
+
+    GLuint prog = glCreateProgram();
+    glAttachShader(prog, vs); glAttachShader(prog, fs);
+    glLinkProgram(prog);
+    glDetachShader(prog, vs); glDetachShader(prog, fs);
+    glDeleteShader(vs); glDeleteShader(fs);
+
+    GLint ok = 0; glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        char buf[512]; glGetProgramInfoLog(prog, 512, nullptr, buf);
+        debug.logLevelMessage(LogLevel::LOG_ERROR,
+            L"[OpenGLRenderer] Shader link error: " +
+            std::wstring(buf, buf + strlen(buf)));
+        glDeleteProgram(prog);
+        return 0;
+    }
+    return prog;
+}
+
+bool OpenGLRenderer::CheckOpenGLError(const std::string& op)
+{
+    GLenum err = glGetError();
+    if (err == GL_NO_ERROR) return true;
+    debug.logLevelMessage(LogLevel::LOG_ERROR,
+        L"[OpenGLRenderer] GL error 0x" + std::to_wstring(err) +
+        L" in: " + std::wstring(op.begin(), op.end()));
+    return false;
+}
+
+inline void OpenGLRenderer::ThrowError(const std::string& msg)
+{
+    debug.logLevelMessage(LogLevel::LOG_CRITICAL,
+        L"[OpenGLRenderer] " + std::wstring(msg.begin(), msg.end()));
+    throw std::runtime_error(msg);
+}
+
+Vector4 OpenGLRenderer::ConvertColor(uint8_t r, uint8_t g, uint8_t b, uint8_t a)
+{
+    return Vector4(r / 255.0f, g / 255.0f, b / 255.0f, a / 255.0f);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Platform-specific OpenGL context creation (Windows WGL)
+// ─────────────────────────────────────────────────────────────────────────────
+bool OpenGLRenderer::CreateOpenGLContext(HWND hWnd)
+{
+    #if defined(_WIN32) || defined(_WIN64)
+        m_glContext.windowHandle = hWnd;
+        m_glContext.deviceContext = GetDC(hWnd);
+        if (!m_glContext.deviceContext) {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[OpenGLRenderer] GetDC failed");
+            return false;
+        }
+
+        PIXELFORMATDESCRIPTOR pfd = {};
+        pfd.nSize        = sizeof(pfd);
+        pfd.nVersion     = 1;
+        pfd.dwFlags      = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
+        pfd.iPixelType   = PFD_TYPE_RGBA;
+        pfd.cColorBits   = 32;
+        pfd.cDepthBits   = 24;
+        pfd.cStencilBits = 8;
+        pfd.iLayerType   = PFD_MAIN_PLANE;
+        m_glContext.pixelFormatDescriptor = pfd;
+
+        int pixelFormat = ChoosePixelFormat(m_glContext.deviceContext, &pfd);
+        if (!pixelFormat || !SetPixelFormat(m_glContext.deviceContext, pixelFormat, &pfd)) {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[OpenGLRenderer] SetPixelFormat failed");
+            return false;
+        }
+
+        // Create a legacy context first to bootstrap WGL extensions
+        HGLRC tempCtx = wglCreateContext(m_glContext.deviceContext);
+        if (!tempCtx) { debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[OpenGLRenderer] wglCreateContext (legacy) failed"); return false; }
+        wglMakeCurrent(m_glContext.deviceContext, tempCtx);
+
+        // Now init GLEW so we can use wglCreateContextAttribsARB
+        GLenum glewErr = glewInit();
+        if (glewErr != GLEW_OK) {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[OpenGLRenderer] GLEW init failed");
+            wglMakeCurrent(nullptr, nullptr);
+            wglDeleteContext(tempCtx);
+            return false;
+        }
+
+        if (WGLEW_ARB_create_context) {
+            int attribs[] = {
+                WGL_CONTEXT_MAJOR_VERSION_ARB, 3,
+                WGL_CONTEXT_MINOR_VERSION_ARB, 3,
+                WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
+                #if defined(_DEBUG)
+                    WGL_CONTEXT_FLAGS_ARB, WGL_CONTEXT_DEBUG_BIT_ARB,
+                #endif
+                0
+            };
+            m_glContext.renderingContext = wglCreateContextAttribsARB(m_glContext.deviceContext, nullptr, attribs);
+            wglMakeCurrent(nullptr, nullptr);
+            wglDeleteContext(tempCtx);
+            if (!m_glContext.renderingContext) {
+                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[OpenGLRenderer] Core 3.3 context creation failed");
+                return false;
+            }
+            wglMakeCurrent(m_glContext.deviceContext, m_glContext.renderingContext);
+        } else {
+            // Fall back to legacy context
+            m_glContext.renderingContext = tempCtx;
+        }
+
+        // Create a shared context for the loader thread so it can upload textures
+        // concurrently with the render thread (shared contexts share all GL objects).
+        if (WGLEW_ARB_create_context && m_glContext.renderingContext) {
+            int loaderAttribs[] = {
+                WGL_CONTEXT_MAJOR_VERSION_ARB, 3,
+                WGL_CONTEXT_MINOR_VERSION_ARB, 3,
+                WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
+                0
+            };
+            m_loaderGLContext = wglCreateContextAttribsARB(
+                m_glContext.deviceContext, m_glContext.renderingContext, loaderAttribs);
+            if (!m_loaderGLContext)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[OpenGLRenderer] Shared loader context creation failed — textures must load on render thread");
+            else
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"[OpenGLRenderer] Shared loader context created");
+        }
+
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[OpenGLRenderer] OpenGL 3.3 Core context created");
+        return true;
+    #else
+        // Linux / Android: implemented via GLX / EGL in SetupPlatformSpecificContext
+        return SetupPlatformSpecificContext(), true;
+    #endif
+}
+
+bool OpenGLRenderer::InitializeOpenGLExtensions()
+{
+    #if defined(_WIN32) || defined(_WIN64)
+        // GLEW was already initialised in CreateOpenGLContext; just verify it
+        if (!GLEW_VERSION_3_3) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[OpenGLRenderer] OpenGL 3.3 not supported");
+            return false;
+        }
+        return true;
+    #else
+        GLenum err = glewInit();
+        return err == GLEW_OK;
+    #endif
+}
+
+void OpenGLRenderer::SetupPlatformSpecificContext()
+{
+    // Platform-specific post-context setup (vsync, debug output, etc.)
+    #if defined(_WIN32) || defined(_WIN64)
+        if (WGLEW_EXT_swap_control)
+            wglSwapIntervalEXT(config.myConfig.enableVSync ? 1 : 0);
+    #endif
+}
+
+void OpenGLRenderer::CleanupPlatformSpecificContext()
+{
+    #if defined(_WIN32) || defined(_WIN64)
+        if (m_loaderGLContext) {
+            wglDeleteContext(m_loaderGLContext);
+            m_loaderGLContext = nullptr;
+        }
+        if (m_glContext.renderingContext) {
+            wglMakeCurrent(nullptr, nullptr);
+            wglDeleteContext(m_glContext.renderingContext);
+            m_glContext.renderingContext = nullptr;
+        }
+        if (m_glContext.deviceContext && m_glContext.windowHandle) {
+            ReleaseDC(m_glContext.windowHandle, m_glContext.deviceContext);
+            m_glContext.deviceContext = nullptr;
+        }
+    #elif defined(__linux__)
+        if (m_glContext.glxContext) {
+            glXMakeCurrent(m_glContext.display, None, nullptr);
+            glXDestroyContext(m_glContext.display, m_glContext.glxContext);
+            m_glContext.glxContext = nullptr;
+        }
+    #elif defined(__ANDROID__)
+        if (m_glContext.eglDisplay != EGL_NO_DISPLAY) {
+            eglMakeCurrent(m_glContext.eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+            if (m_glContext.eglContext  != EGL_NO_CONTEXT) eglDestroyContext(m_glContext.eglDisplay, m_glContext.eglContext);
+            if (m_glContext.eglSurface  != EGL_NO_SURFACE) eglDestroySurface(m_glContext.eglDisplay, m_glContext.eglSurface);
+            eglTerminate(m_glContext.eglDisplay);
+        }
+    #endif
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CreateFramebufferObjects / SetupViewport / SetupRenderStates / LoadShaders
+// ─────────────────────────────────────────────────────────────────────────────
+void OpenGLRenderer::CreateFramebufferObjects()
+{
+    // Default framebuffer is used for the back buffer.
+    // An offscreen FBO is optionally created here for post-processing.
+    m_framebufferID  = 0;   // 0 = default back buffer
+    m_colorTextureID = 0;
+    m_depthTextureID = 0;
+
+    // Create the global VAO used for legacy GL_POINTS draw calls
+    if (!m_vertexArrayID) glGenVertexArrays(1, &m_vertexArrayID);
+}
+
+void OpenGLRenderer::SetupViewport()
+{
+    glViewport(0, 0, m_renderTargetWidth, m_renderTargetHeight);
+    CheckOpenGLError("SetupViewport");
+}
+
+void OpenGLRenderer::SetupRenderStates()
+{
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS);
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
+    glFrontFace(GL_CCW);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_MULTISAMPLE);
+    CheckOpenGLError("SetupRenderStates");
+}
+
+void OpenGLRenderer::LoadShaders()
+{
+    // 2D shader
+    GLuint prog2D = CreateShaderProgram(k_2dVertGLSL, k_2dFragGLSL);
+    if (prog2D) {
+        m_2dShaderProgram.programID = prog2D;
+        m_2dShaderProgram.isLinked  = true;
+        m_uniforms2D.uOrtho  = glGetUniformLocation(prog2D, "uOrtho");
+        m_uniforms2D.uColor  = glGetUniformLocation(prog2D, "uColor");
+        m_uniforms2D.uUseTex = glGetUniformLocation(prog2D, "uUseTex");
+        m_uniforms2D.uTex    = glGetUniformLocation(prog2D, "uTex");
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[OpenGLRenderer] 2D shader program linked");
+    }
+
+    // 3D shader — load from Assets/Shaders/ModelVertex.glsl + ModelPixel.glsl.
+    // These are the UBO-based shaders that match the ConstantBuffer/MaterialBuffer/
+    // GlobalLightBuffer UBO uploads in RenderGamePlay().  The embedded k_3dVertGLSL /
+    // k_3dFragGLSL strings use standalone uniforms and are kept only as a last-resort
+    // compile-time fallback in case the asset files are absent.
+    GLuint prog3D = 0;
+    {
+        auto loadText = [](const std::filesystem::path& p) -> std::string {
+            std::ifstream f(p);
+            return f.is_open()
+                ? std::string(std::istreambuf_iterator<char>(f),
+                              std::istreambuf_iterator<char>())
+                : std::string{};
+        };
+        std::string vertSrc = loadText(ShadersDir / L"ModelVertex.glsl");
+        std::string fragSrc = loadText(ShadersDir / L"ModelPixel.glsl");
+        if (vertSrc.empty() || fragSrc.empty())
+        {
+            // Fall back to embedded strings (standalone-uniform path — matrices will be zero).
+            debug.logLevelMessage(LogLevel::LOG_ERROR,
+                L"[OpenGLRenderer] ModelVertex.glsl / ModelPixel.glsl not found — using embedded fallback (models may not render correctly)");
+            vertSrc = k_3dVertGLSL;
+            fragSrc = k_3dFragGLSL;
+        }
+        else
+        {
+            debug.logLevelMessage(LogLevel::LOG_INFO,
+                L"[OpenGLRenderer] Loaded 3D shaders from Assets/Shaders/");
+        }
+        prog3D = CreateShaderProgram(vertSrc, fragSrc);
+    }
+    if (prog3D) {
+        m_3dShaderProgram.programID = prog3D;
+        m_3dShaderProgram.isLinked  = true;
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[OpenGLRenderer] 3D shader program linked");
+
+        // Explicitly bind UBO blocks to their GLSL layout(binding=N) points.
+        // Belt-and-suspenders alongside the extension directive in the shader:
+        // glUniformBlockBinding is required on GL 3.3 drivers where
+        // GL_ARB_shading_language_420pack is absent or doesn't enable layout(binding=N).
+        // For the embedded fallback shaders (no UBO blocks) these calls are harmless
+        // because glGetUniformBlockIndex returns GL_INVALID_INDEX and the binding is skipped.
+        {
+            auto bindBlock = [prog3D](const char* name, GLuint point) {
+                GLuint idx = glGetUniformBlockIndex(prog3D, name);                  // GL_INVALID_INDEX if not present
+                if (idx != GL_INVALID_INDEX) glUniformBlockBinding(prog3D, idx, point);
+            };
+            bindBlock("ConstantBuffer",    (GLuint)GLSL_BINDING_CONSTANT_BUFFER);  // binding 0
+            bindBlock("LightBuffer",       (GLuint)GLSL_BINDING_LIGHT_BUFFER);     // binding 1
+            bindBlock("DebugBuffer",       (GLuint)GLSL_BINDING_DEBUG_BUFFER);     // binding 2
+            bindBlock("GlobalLightBuffer", (GLuint)GLSL_BINDING_GLOBAL_LIGHT);     // binding 3
+            bindBlock("MaterialBuffer",    (GLuint)GLSL_BINDING_MATERIAL);         // binding 4
+            bindBlock("EnvBuffer",         (GLuint)GLSL_BINDING_ENV_BUFFER);       // binding 5
+            bindBlock("ShadowBuffer",      (GLuint)GLSL_BINDING_SHADOW_BUFFER);    // binding 6
+        }
+
+        // Bind sampler uniforms to fixed texture units (one-time setup after linking).
+        // For the UBO-based asset shaders these names match the sampler2D/samplerCube
+        // declarations; for the embedded fallback shaders the names differ ("uDiffuse"
+        // vs "diffuseTexture") so these calls return -1 and are silently skipped.
+        glUseProgram(prog3D);
+        {
+            auto setUnit = [prog3D](const char* name, int unit) {
+                GLint loc = glGetUniformLocation(prog3D, name);
+                if (loc >= 0) glUniform1i(loc, unit);
+            };
+            // Asset-shader sampler names (ModelVertex/ModelPixel.glsl)
+            setUnit("diffuseTexture", TEXTURE_UNIT_DIFFUSE);       // t0
+            setUnit("normalMap",      TEXTURE_UNIT_NORMAL);         // t1
+            setUnit("metallicMap",    TEXTURE_UNIT_METALLIC);       // t2
+            setUnit("roughnessMap",   TEXTURE_UNIT_ROUGHNESS);      // t3
+            setUnit("aoMap",          TEXTURE_UNIT_AO);             // t4
+            setUnit("environmentMap", TEXTURE_UNIT_ENVIRONMENT);    // t5
+            setUnit("glossMap",       TEXTURE_UNIT_GLOSS);          // t6
+            setUnit("emissiveMap",    TEXTURE_UNIT_EMISSIVE);       // t7
+            setUnit("shadowMap",      TEXTURE_UNIT_SHADOW);         // t8
+            // Embedded-fallback sampler names (k_3dFragGLSL)
+            setUnit("uDiffuse",    TEXTURE_UNIT_DIFFUSE);           // same unit 0
+            setUnit("uNormalMap",  TEXTURE_UNIT_NORMAL);            // same unit 1
+            setUnit("uGlossMap",   TEXTURE_UNIT_GLOSS);             // unit 6
+            setUnit("uEmissiveMap",TEXTURE_UNIT_EMISSIVE);          // unit 7
+        }
+        glUseProgram(0);
+
+        // Populate individual uniform locations — works for both shader variants.
+        // For the UBO-based asset shaders (ModelVertex/ModelPixel.glsl) all of these
+        // return -1 (no individual matrix/material uniforms exist in those shaders).
+        // For the embedded fallback (k_3dVertGLSL / k_3dFragGLSL) the locations are
+        // valid and UploadModelUniformsCached will upload the data via glUniform*.
+        m_uniforms3D.uModel          = glGetUniformLocation(prog3D, "uModel");
+        m_uniforms3D.uView           = glGetUniformLocation(prog3D, "uView");
+        m_uniforms3D.uProjection     = glGetUniformLocation(prog3D, "uProjection");
+        m_uniforms3D.uViewPos        = glGetUniformLocation(prog3D, "uViewPos");
+        m_uniforms3D.uAlpha          = glGetUniformLocation(prog3D, "uAlpha");
+        m_uniforms3D.uLightCount     = glGetUniformLocation(prog3D, "uLightCount");
+        m_uniforms3D.uDiffuse        = glGetUniformLocation(prog3D, "uDiffuse");
+        m_uniforms3D.uNormalMap      = glGetUniformLocation(prog3D, "uNormalMap");
+        m_uniforms3D.uHasDiffuse     = glGetUniformLocation(prog3D, "uHasDiffuse");
+        m_uniforms3D.uHasNormalMap   = glGetUniformLocation(prog3D, "uHasNormalMap");
+        m_uniforms3D.uGlossMap       = glGetUniformLocation(prog3D, "uGlossMap");
+        m_uniforms3D.uEmissiveMap    = glGetUniformLocation(prog3D, "uEmissiveMap");
+        m_uniforms3D.uHasGlossMap    = glGetUniformLocation(prog3D, "uHasGlossMap");
+        m_uniforms3D.uHasEmissiveMap = glGetUniformLocation(prog3D, "uHasEmissiveMap");
+        m_uniforms3D.uMetallic       = glGetUniformLocation(prog3D, "uMetallic");
+        m_uniforms3D.uRoughness      = glGetUniformLocation(prog3D, "uRoughness");
+        m_uniforms3D.uNormalScale    = glGetUniformLocation(prog3D, "uNormalScale");
+        m_uniforms3D.uKd             = glGetUniformLocation(prog3D, "uKd");
+        m_uniforms3D.uKa             = glGetUniformLocation(prog3D, "uKa");
+        m_uniforms3D.uKs             = glGetUniformLocation(prog3D, "uKs");
+        m_uniforms3D.uNs             = glGetUniformLocation(prog3D, "uNs");
+        m_uniforms3D.uEmissiveFactor = glGetUniformLocation(prog3D, "uEmissiveFactor");
+        m_uniforms3D.uEmissiveStr    = glGetUniformLocation(prog3D, "uEmissiveStrength");
+        m_uniforms3D.uLightDir       = glGetUniformLocation(prog3D, "uLightDir");
+        m_uniforms3D.uLightColor     = glGetUniformLocation(prog3D, "uLightColor");
+        m_uniforms3D.uAmbient        = glGetUniformLocation(prog3D, "uAmbient");
+        for (int li = 0; li < 8; ++li) {
+            auto& ll = m_uniforms3D.lights[li];
+            std::string base = "uLights[" + std::to_string(li) + "].";
+            auto g = [&](const char* s) { return glGetUniformLocation(prog3D, (base + s).c_str()); };
+            ll.position  = g("position");
+            ll.direction = g("direction");
+            ll.color     = g("color");
+            ll.ambient   = g("ambient");
+            ll.intensity = g("intensity");
+            ll.range     = g("range");
+            ll.innerCone = g("innerCone");
+            ll.outerCone = g("outerCone");
+            ll.type      = g("type");
+            ll.active    = g("active");
+        }
+
+        // Mark uniforms as populated — both UBO path and embedded-fallback path are ready.
+        m_uniforms3D.populated = true;
+    }
+
+    // 2D quad VAO/VBO (6 vertices of float2+float2 = 4 floats each)
+    glGenVertexArrays(1, &m_2dVAO);
+    glGenBuffers(1, &m_2dVBO);
+    glBindVertexArray(m_2dVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, m_2dVBO);
+    glBufferData(GL_ARRAY_BUFFER, 6 * 4 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+    CheckOpenGLError("LoadShaders");
+}
+
+void OpenGLRenderer::UpdateUniformBuffers()
+{
+    // UBOs are updated per-draw in RenderGamePlay / RenderFrame
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Render2DQuad — internal helper used by Blit2D* / DrawTexture / DrawRectangle
+//
+// WINDING NOTE: The Y-flip in the ortho matrix (−2/H) maps screen Y=0 (top)
+// to NDC Y=+1, making screen-space vertices appear CLOCKWISE in window coords.
+// OpenGL's default front-face is GL_CCW, so without glDisable(GL_CULL_FACE)
+// every 2D quad is classified as a back face and culled → completely black screen.
+// We disable culling here and restore it after — 3D RenderGamePlay re-enables it.
+// ─────────────────────────────────────────────────────────────────────────────
+void OpenGLRenderer::Render2DQuad(GLuint textureID, int x, int y, int w, int h,
+                                   int srcX, int srcY, int srcW, int srcH,
+                                   const MyColor& tint, bool wrap)
+{
+    if (!m_2dShaderProgram.isLinked || !m_2dVAO) return;
+    if (w <= 0 || h <= 0) return;
+
+    float sx = static_cast<float>(x);
+    float sy = static_cast<float>(y);
+    float sw = static_cast<float>(w);
+    float sh = static_cast<float>(h);
+
+    float W = static_cast<float>(m_renderTargetWidth  > 0 ? m_renderTargetWidth  : iOrigWidth);
+    float H = static_cast<float>(m_renderTargetHeight > 0 ? m_renderTargetHeight : iOrigHeight);
+    if (W <= 0.0f || H <= 0.0f) return;
+
+    // Orthographic projection: screen pixels (top-left origin) → NDC.
+    // Recomputed only when screen dimensions change; cached to avoid per-call rebuild.
+    if (W != m_cachedOrthoW || H != m_cachedOrthoH) {
+        m_cachedOrthoW = W; m_cachedOrthoH = H;
+        m_cachedOrtho[0]  =  2.0f/W; m_cachedOrtho[1]  = 0.0f;
+        m_cachedOrtho[2]  =  0.0f;   m_cachedOrtho[3]  = 0.0f;
+        m_cachedOrtho[4]  =  0.0f;   m_cachedOrtho[5]  = -2.0f/H;
+        m_cachedOrtho[6]  =  0.0f;   m_cachedOrtho[7]  = 0.0f;
+        m_cachedOrtho[8]  =  0.0f;   m_cachedOrtho[9]  = 0.0f;
+        m_cachedOrtho[10] = -1.0f;   m_cachedOrtho[11] = 0.0f;
+        m_cachedOrtho[12] = -1.0f;   m_cachedOrtho[13] = 1.0f;
+        m_cachedOrtho[14] =  0.0f;   m_cachedOrtho[15] = 1.0f;
+    }
+
+    // UV coords — GDI+ stores images top-row-first, which GL places at t=0 (bottom).
+    // The Y-flip in the ortho matrix means screen-top samples t=0 (= image top row).
+    // So (u0,v0)=(0,0) at screen TL correctly maps to the image's top-left pixel.
+    float u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f;
+    if (textureID && (srcW > 0 || srcH > 0)) {
+        // Always query actual texture dimensions for sub-rect blits.
+        // The old "skip query when srcX==0, srcY==0" optimisation was wrong: it
+        // assumed srcW/srcH equalled the full texture width/height, breaking every
+        // frame-0 sprite-sheet blit (e.g. loader ring animation circle, frame 0
+        // has srcX=0 but the sheet is 320px wide, not 32px).
+        GLint tw = 0, th = 0;
+        glBindTexture(GL_TEXTURE_2D, textureID);
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH,  &tw);
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &th);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        if (tw <= 0) tw = srcW;
+        if (th <= 0) th = srcH;
+        if (tw > 0 && th > 0) {
+            u0 = static_cast<float>(srcX)        / static_cast<float>(tw);
+            v0 = static_cast<float>(srcY)        / static_cast<float>(th);
+            u1 = static_cast<float>(srcX + srcW) / static_cast<float>(tw);
+            v1 = static_cast<float>(srcY + srcH) / static_cast<float>(th);
+        }
+    }
+
+    float vertices[6][4] = {
+        { sx,      sy,      u0, v0 },
+        { sx + sw, sy,      u1, v0 },
+        { sx + sw, sy + sh, u1, v1 },
+        { sx,      sy,      u0, v0 },
+        { sx + sw, sy + sh, u1, v1 },
+        { sx,      sy + sh, u0, v1 },
+    };
+
+    glUseProgram(m_2dShaderProgram.programID);
+
+    if (m_uniforms2D.uOrtho  >= 0) glUniformMatrix4fv(m_uniforms2D.uOrtho,  1, GL_FALSE, m_cachedOrtho);
+    if (m_uniforms2D.uColor  >= 0) glUniform4f(m_uniforms2D.uColor,
+        tint.r / 255.0f, tint.g / 255.0f, tint.b / 255.0f, tint.a / 255.0f);
+
+    if (textureID) {
+        if (m_uniforms2D.uUseTex >= 0) glUniform1i(m_uniforms2D.uUseTex, 1);
+        if (m_uniforms2D.uTex    >= 0) glUniform1i(m_uniforms2D.uTex, 0);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, textureID);
+        if (wrap) {
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        } else {
+            // Ensure edge clamp in case a previous wrapped call changed the state
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        }
+    } else {
+        if (m_uniforms2D.uUseTex >= 0) glUniform1i(m_uniforms2D.uUseTex, 0);
+    }
+
+    // Disable depth test and face culling for 2D overlay rendering.
+    // Culling MUST be disabled: the ortho Y-flip makes quads appear CW in window
+    // space (back faces), which GL_CULL_FACE would silently discard → black screen.
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glBindVertexArray(m_2dVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, m_2dVBO);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+
+    if (textureID) glBindTexture(GL_TEXTURE_2D, 0);
+    // Restore 3D pipeline states
+    glEnable(GL_CULL_FACE);
+    glEnable(GL_DEPTH_TEST);
+    glUseProgram(0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cleanup
+// ─────────────────────────────────────────────────────────────────────────────
+void OpenGLRenderer::Cleanup()
+{
+    if (bHasCleanedUp) return;
+
+    // Restore screen resolution if we entered exclusive fullscreen — mirrors DX11/DX12 pattern
+    #if defined(_WIN32) || defined(_WIN64)
+        if (m_isExclusiveFullscreen) {
+            ChangeDisplaySettingsW(nullptr, 0);                                 // Restore desktop default
+            m_isExclusiveFullscreen = false;
+        }
+    #endif
+
+    FlushTextCache();
+
+    // Release 2D textures
+    for (auto& t : m_2dTextures) {
+        if (t.textureID) { glDeleteTextures(1, &t.textureID); t.textureID = 0; t.isLoaded = false; }
+    }
+    // Release 3D textures
+    for (auto& t : m_3dTextures) {
+        if (t.textureID) { glDeleteTextures(1, &t.textureID); t.textureID = 0; t.isLoaded = false; }
+    }
+
+    if (m_2dVBO)     { glDeleteBuffers(1, &m_2dVBO);             m_2dVBO = 0; }
+    if (m_2dVAO)     { glDeleteVertexArrays(1, &m_2dVAO);        m_2dVAO = 0; }
+    if (m_vertexArrayID) { glDeleteVertexArrays(1, &m_vertexArrayID); m_vertexArrayID = 0; }
+
+    for (auto& ub : m_uniformBuffers) {
+        if (ub.bufferID) { glDeleteBuffers(1, &ub.bufferID); ub.bufferID = 0; ub.isAllocated = false; }
+    }
+
+    if (m_2dShaderProgram.programID) {
+        glDeleteProgram(m_2dShaderProgram.programID);
+        m_2dShaderProgram.programID = 0; m_2dShaderProgram.isLinked = false;
+    }
+    if (m_3dShaderProgram.programID) {
+        glDeleteProgram(m_3dShaderProgram.programID);
+        m_3dShaderProgram.programID = 0; m_3dShaderProgram.isLinked = false;
+    }
+
+    #if defined(_WIN32) || defined(_WIN64)
+        if (m_gdiplusToken) {
+            Gdiplus::GdiplusShutdown(m_gdiplusToken);
+            m_gdiplusToken = 0;
+        }
+    #endif
+
+    CleanupPlatformSpecificContext();
+    bHasCleanedUp = true;
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[OpenGLRenderer] Cleanup complete");
+}
+
+void OpenGLRenderer::CleanupTextures()
+{
+    for (auto& t : m_2dTextures) {
+        if (t.textureID) { glDeleteTextures(1, &t.textureID); t.textureID = 0; t.isLoaded = false; }
+    }
+    for (auto& t : m_3dTextures) {
+        if (t.textureID) { glDeleteTextures(1, &t.textureID); t.textureID = 0; t.isLoaded = false; }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Texture loading — OpenGL API storage
+//
+// 2D (UI) textures:   GL_CLAMP_TO_EDGE wrap, GL_LINEAR[_MIPMAP_LINEAR] filter.
+// 3D (scene) textures: GL_REPEAT wrap, anisotropic filtering when supported.
+//
+// Windows:     decoded via GDI+ (supports PNG, JPG, BMP, GIF, TIFF).
+// Other platforms: decoded via stb_image through OpenGLModelUtils.
+// ─────────────────────────────────────────────────────────────────────────────
+bool OpenGLRenderer::LoadTexture(int textureId, const std::wstring& filename, bool is2D)
+{
+    // Bounds check before any array access
+    if (is2D  && (textureId < 0 || textureId >= MAX_TEXTURE_BUFFERS))    return false;
+    if (!is2D && (textureId < 0 || textureId >= MAX_TEXTURE_BUFFERS_3D)) return false;
+
+    auto& slot = is2D ? m_2dTextures[textureId] : m_3dTextures[textureId];
+
+    // Release any previously loaded texture in this slot
+    if (slot.isLoaded) { UnloadTexture(textureId, is2D); }
+
+    #if defined(_WIN32) || defined(_WIN64)
+        // ── Windows path: GDI+ decode ──────────────────────────────────────────
+        Gdiplus::Bitmap bmp(filename.c_str());
+        if (bmp.GetLastStatus() != Gdiplus::Ok) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR,
+                L"[OpenGLRenderer] LoadTexture: GDI+ cannot open: " + filename);
+            return false;
+        }
+
+        GLsizei W = static_cast<GLsizei>(bmp.GetWidth());
+        GLsizei H = static_cast<GLsizei>(bmp.GetHeight());
+        if (W == 0 || H == 0) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR,
+                L"[OpenGLRenderer] LoadTexture: zero-sized image: " + filename);
+            return false;
+        }
+
+        Gdiplus::BitmapData bd;
+        Gdiplus::Rect rect(0, 0, W, H);
+        // PixelFormat32bppARGB stores bytes as B,G,R,A in memory (little-endian).
+        // GL_BGRA maps this directly: no swizzle needed, stored as RGBA8 internally.
+        if (bmp.LockBits(&rect, Gdiplus::ImageLockModeRead, PixelFormat32bppARGB, &bd) != Gdiplus::Ok) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR,
+                L"[OpenGLRenderer] LoadTexture: GDI+ LockBits failed: " + filename);
+            return false;
+        }
+
+        glGenTextures(1, &slot.textureID);
+        if (!slot.textureID) {
+            bmp.UnlockBits(&bd);
+            debug.logLevelMessage(LogLevel::LOG_ERROR,
+                L"[OpenGLRenderer] LoadTexture: glGenTextures returned 0 (GL context not current?): " + filename);
+            return false;
+        }
+
+        glBindTexture(GL_TEXTURE_2D, slot.textureID);
+
+        // Upload pixel data. GL_BGRA is OpenGL 1.2+ standard; same value as GL_BGRA_EXT.
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, W, H, 0, GL_BGRA_EXT, GL_UNSIGNED_BYTE, bd.Scan0);
+        bmp.UnlockBits(&bd);
+
+        if (is2D) {
+            // 2D UI textures — no mipmaps. glGenerateMipmap on the shared loader
+            // context races with the render thread sampling the same texture on the
+            // main context (mipmap levels 1+ being written while the render thread
+            // samples them via GL_LINEAR_MIPMAP_LINEAR → nvoglv64 access violation).
+            // UI textures are always rendered at or near native resolution so
+            // GL_LINEAR is identical in quality and avoids the race entirely.
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        } else {
+            // 3D scene textures — mipmaps needed for textures at grazing angles.
+            // Mipmap generation is safe here because 3D textures are only used by
+            // the render thread after bLoaderTaskFinished is true (loader is paused).
+            glGenerateMipmap(GL_TEXTURE_2D);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+            // Anisotropic filtering for 3D textures viewed at grazing angles
+            GLfloat maxAniso = 1.0f;
+            glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &maxAniso);
+            if (maxAniso > 1.0f)
+                glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, maxAniso);
+        }
+
+        glBindTexture(GL_TEXTURE_2D, 0);
+
+        // Verify no GL error occurred during upload
+        GLenum glErr = glGetError();
+        if (glErr != GL_NO_ERROR) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR,
+                L"[OpenGLRenderer] LoadTexture: GL error 0x" + std::to_wstring(glErr) +
+                L" uploading: " + filename);
+            glDeleteTextures(1, &slot.textureID);
+            slot.textureID = 0;
+            return false;
+        }
+
+        slot.width    = W;
+        slot.height   = H;
+        slot.format   = GL_RGBA8;
+        slot.target   = GL_TEXTURE_2D;
+        slot.isLoaded = true;
+        return true;
+
+    #else
+        // ── Non-Windows path: stb_image via OpenGLModelUtils ──────────────────
+        GLuint texID = OpenGLModelUtils::LoadGLTextureFromFile(filename);
+        if (!texID) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR,
+                L"[OpenGLRenderer] LoadTexture: stb_image cannot open: " + filename);
+            return false;
+        }
+
+        glBindTexture(GL_TEXTURE_2D, texID);
+        glGenerateMipmap(GL_TEXTURE_2D);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        if (is2D) {
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        } else {
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+            GLfloat maxAniso = 1.0f;
+            glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &maxAniso);
+            if (maxAniso > 1.0f)
+                glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, maxAniso);
+        }
+
+        GLint W = 0, H = 0;
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH,  &W);
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &H);
+        glBindTexture(GL_TEXTURE_2D, 0);
+
+        slot.textureID = texID;
+        slot.width     = static_cast<GLsizei>(W);
+        slot.height    = static_cast<GLsizei>(H);
+        slot.format    = GL_RGBA8;
+        slot.target    = GL_TEXTURE_2D;
+        slot.isLoaded  = true;
+        return true;
+    #endif
+}
+
+bool OpenGLRenderer::LoadAllKnownTextures()
+{
+    int loadedCount = 0;
+    int failedCount = 0;
+
+    for (int i = 0; i < MAX_TEXTURE_BUFFERS; ++i) {
+        if (texFilename[i].empty()) continue;
+
+        const std::wstring& name = texFilename[i];
+        auto path = (AssetsDir / name).wstring();
+
+        if (LoadTexture(i, path, true)) {
+            ++loadedCount;
+        } else {
+            debug.logLevelMessage(LogLevel::LOG_WARNING,
+                L"[OpenGLRenderer] LoadAllKnownTextures: slot " + std::to_wstring(i) +
+                L" failed (" + name + L") — rendering may be incomplete");
+            ++failedCount;
+        }
+    }
+
+    debug.logLevelMessage(LogLevel::LOG_INFO,
+        L"[OpenGLRenderer] LoadAllKnownTextures: " + std::to_wstring(loadedCount) +
+        L" loaded, " + std::to_wstring(failedCount) + L" failed (total slots: " +
+        std::to_wstring(MAX_TEXTURE_BUFFERS) + L")");
+
+    return (failedCount == 0);
+}
+
+void OpenGLRenderer::UnloadTexture(int textureId, bool is2D)
+{
+    auto& slot = is2D ? m_2dTextures[textureId] : m_3dTextures[textureId];
+    if (slot.isLoaded && slot.textureID) {
+        glDeleteTextures(1, &slot.textureID);
+        slot.textureID = 0;
+        slot.isLoaded  = false;
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2D blit queue
+// ─────────────────────────────────────────────────────────────────────────────
+bool OpenGLRenderer::Place2DBlitObjectToQueue(BlitObj2DIndexType iIndex, BlitPhaseLevel BlitPhaseLvl,
+    BlitObj2DType objType, BlitObj2DDetails objDetails, CanBlitType BlitType)
+{
+    int idx = static_cast<int>(iIndex);
+    if (idx < 0 || idx >= MAX_2D_IMG_QUEUE_OBJS) return false;
+    My2DBlitQueue[idx].BlitPhase      = BlitPhaseLvl;
+    My2DBlitQueue[idx].BlitObjType   = objType;
+    My2DBlitQueue[idx].BlitObjDetails = objDetails;
+    My2DBlitQueue[idx].BlitType      = BlitType;
+    My2DBlitQueue[idx].bInUse        = true;
+    return true;
+}
+
+void OpenGLRenderer::Clear2DBlitQueue()
+{
+    SecureZeroMemory(&My2DBlitQueue, sizeof(My2DBlitQueue));
+}
+
+void OpenGLRenderer::Blit2DObject(BlitObj2DIndexType iIndex, int iX, int iY)
+{
+    int idx = static_cast<int>(iIndex);
+    if (idx < 0 || idx >= MAX_TEXTURE_BUFFERS) return;
+    const auto& tex = m_2dTextures[idx];
+    if (!tex.isLoaded) return;
+    Render2DQuad(tex.textureID, iX, iY, tex.width, tex.height,
+                 0, 0, tex.width, tex.height, MyColor(255,255,255,255), false);
+}
+
+void OpenGLRenderer::Blit2DObjectToSize(BlitObj2DIndexType iIndex, int iX, int iY, int iW, int iH)
+{
+    int idx = static_cast<int>(iIndex);
+    if (idx < 0 || idx >= MAX_TEXTURE_BUFFERS) return;
+    const auto& tex = m_2dTextures[idx];
+    if (!tex.isLoaded) return;
+    Render2DQuad(tex.textureID, iX, iY, iW, iH,
+                 0, 0, tex.width, tex.height, MyColor(255,255,255,255), false);
+}
+
+void OpenGLRenderer::Blit2DObjectToSizeWithAlpha(BlitObj2DIndexType iIndex, int iX, int iY, int iW, int iH, float alpha)
+{
+    int idx = static_cast<int>(iIndex);
+    if (idx < 0 || idx >= MAX_TEXTURE_BUFFERS) return;
+    const auto& tex = m_2dTextures[idx];
+    if (!tex.isLoaded) return;
+    float a = std::clamp(alpha, 0.0f, 1.0f);
+    Render2DQuad(tex.textureID, iX, iY, iW, iH,
+                 0, 0, tex.width, tex.height,
+                 MyColor(255, 255, 255, static_cast<int>(a * 255.0f)), false);
+}
+
+void OpenGLRenderer::Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, int iDestY, int iDestW, int iDestH, float zoomFactor)
+{
+    int idx = static_cast<int>(iIndex);
+    if (idx < 0 || idx >= MAX_TEXTURE_BUFFERS) return;
+    const auto& tex = m_2dTextures[idx];
+    if (!tex.isLoaded) return;
+
+    // Clamp zoom factor to valid range (0.0–0.75)
+    float z     = std::clamp(zoomFactor, 0.0f, 0.75f);
+    float texW  = static_cast<float>(tex.width);
+    float texH  = static_cast<float>(tex.height);
+    float srcWf = texW * (1.0f - z);                           // Cropped source width (float — never round)
+    float srcHf = texH * (1.0f - z);                           // Cropped source height (float — never round)
+    float srcXf = (texW - srcWf) * 0.5f;                       // Centre-crop origin X (float — sub-pixel accurate)
+    float srcYf = (texH - srcHf) * 0.5f;                       // Centre-crop origin Y (float — sub-pixel accurate)
+
+    // Compute normalised UV coords from float values so the zoom glides smoothly.
+    // Integer conversion (the old path) caused 1-pixel UV jumps every few frames,
+    // producing the visible stutter / pixelation on the OpenGL pipeline.
+    float u0 = srcXf          / texW;
+    float v0 = srcYf          / texH;
+    float u1 = (srcXf + srcWf) / texW;
+    float v1 = (srcYf + srcHf) / texH;
+
+    // Force bilinear filtering — cropped region is magnified to fill the dest rect;
+    // GL_NEAREST would produce a blocky/jaggy appearance during the zoom animation
+    glBindTexture(GL_TEXTURE_2D, tex.textureID);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    Render2DQuadUV(tex.textureID, iDestX, iDestY, iDestW, iDestH, u0, v0, u1, v1,
+                   MyColor(255, 255, 255, 255));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Render2DQuadUV — variant that accepts pre-computed normalised float UVs.
+// Used by Blit2DCenteredZoom to eliminate the integer-truncation stutter
+// that the normal Render2DQuad (integer srcX/srcY/srcW/srcH) causes when
+// zoom values are small and the source-rect origin changes by sub-pixel amounts.
+// ─────────────────────────────────────────────────────────────────────────────
+void OpenGLRenderer::Render2DQuadUV(GLuint textureID, int x, int y, int w, int h,
+                                     float u0, float v0, float u1, float v1,
+                                     const MyColor& tint)
+{
+    if (!m_2dShaderProgram.isLinked || !m_2dVAO) return;
+    if (w <= 0 || h <= 0) return;
+
+    float sx = static_cast<float>(x);
+    float sy = static_cast<float>(y);
+    float sw = static_cast<float>(w);
+    float sh = static_cast<float>(h);
+
+    float W = static_cast<float>(m_renderTargetWidth  > 0 ? m_renderTargetWidth  : iOrigWidth);
+    float H = static_cast<float>(m_renderTargetHeight > 0 ? m_renderTargetHeight : iOrigHeight);
+    if (W <= 0.0f || H <= 0.0f) return;
+
+    // Reuse cached ortho matrix (updated in Render2DQuad when dimensions change)
+    if (W != m_cachedOrthoW || H != m_cachedOrthoH) {
+        m_cachedOrthoW = W; m_cachedOrthoH = H;
+        m_cachedOrtho[0]  =  2.0f/W; m_cachedOrtho[1]  = 0.0f;
+        m_cachedOrtho[2]  =  0.0f;   m_cachedOrtho[3]  = 0.0f;
+        m_cachedOrtho[4]  =  0.0f;   m_cachedOrtho[5]  = -2.0f/H;
+        m_cachedOrtho[6]  =  0.0f;   m_cachedOrtho[7]  = 0.0f;
+        m_cachedOrtho[8]  =  0.0f;   m_cachedOrtho[9]  = 0.0f;
+        m_cachedOrtho[10] = -1.0f;   m_cachedOrtho[11] = 0.0f;
+        m_cachedOrtho[12] = -1.0f;   m_cachedOrtho[13] = 1.0f;
+        m_cachedOrtho[14] =  0.0f;   m_cachedOrtho[15] = 1.0f;
+    }
+
+    float vertices[6][4] = {
+        { sx,      sy,      u0, v0 },
+        { sx + sw, sy,      u1, v0 },
+        { sx + sw, sy + sh, u1, v1 },
+        { sx,      sy,      u0, v0 },
+        { sx + sw, sy + sh, u1, v1 },
+        { sx,      sy + sh, u0, v1 },
+    };
+
+    glUseProgram(m_2dShaderProgram.programID);
+
+    if (m_uniforms2D.uOrtho >= 0) glUniformMatrix4fv(m_uniforms2D.uOrtho, 1, GL_FALSE, m_cachedOrtho);
+    if (m_uniforms2D.uColor >= 0) glUniform4f(m_uniforms2D.uColor,
+        tint.r / 255.0f, tint.g / 255.0f, tint.b / 255.0f, tint.a / 255.0f);
+
+    if (textureID) {
+        if (m_uniforms2D.uUseTex >= 0) glUniform1i(m_uniforms2D.uUseTex, 1);
+        if (m_uniforms2D.uTex    >= 0) glUniform1i(m_uniforms2D.uTex, 0);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, textureID);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    } else {
+        if (m_uniforms2D.uUseTex >= 0) glUniform1i(m_uniforms2D.uUseTex, 0);
+    }
+
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glBindVertexArray(m_2dVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, m_2dVBO);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+
+    if (textureID) glBindTexture(GL_TEXTURE_2D, 0);
+    glEnable(GL_CULL_FACE);
+    glEnable(GL_DEPTH_TEST);
+    glUseProgram(0);
+}
+
+void OpenGLRenderer::Blit2DObjectAtOffset(BlitObj2DIndexType iIndex,
+    int iBlitX, int iBlitY, int iXOff, int iYOff, int iTileSzX, int iTileSzY)
+{
+    int idx = static_cast<int>(iIndex);
+    if (idx < 0 || idx >= MAX_TEXTURE_BUFFERS) return;
+    const auto& tex = m_2dTextures[idx];
+    if (!tex.isLoaded) return;
+    Render2DQuad(tex.textureID, iBlitX, iBlitY, iTileSzX, iTileSzY,
+                 iXOff, iYOff, iTileSzX, iTileSzY, MyColor(255,255,255,255), false);
+}
+
+void OpenGLRenderer::Blit2DWrappedObjectAtOffset(BlitObj2DIndexType iIndex,
+    int iBlitX, int iBlitY, int iXOff, int iYOff, int iTileSzX, int iTileSzY)
+{
+    int idx = static_cast<int>(iIndex);
+    if (idx < 0 || idx >= MAX_TEXTURE_BUFFERS) return;
+    const auto& tex = m_2dTextures[idx];
+    if (!tex.isLoaded) return;
+    Render2DQuad(tex.textureID, iBlitX, iBlitY, iOrigWidth, iOrigHeight,
+                 iXOff, iYOff, iTileSzX, iTileSzY, MyColor(255,255,255,255), true);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Video frame rendering
+// ─────────────────────────────────────────────────────────────────────────────
+void OpenGLRenderer::DrawVideoFrame(const Vector2& position, const Vector2& size,
+                                     const MyColor& tintColor, GLuint textureID)
+{
+    if (!textureID) return;
+    Render2DQuad(textureID,
+        static_cast<int>(position.x), static_cast<int>(position.y),
+        static_cast<int>(size.x),     static_cast<int>(size.y),
+        0, 0, 0, 0, tintColor, false);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DrawRectangle
+// ─────────────────────────────────────────────────────────────────────────────
+void OpenGLRenderer::DrawRectangle(const Vector2& position, const Vector2& size,
+                                    const MyColor& color, bool is2D)
+{
+    Render2DQuad(0,
+        static_cast<int>(position.x), static_cast<int>(position.y),
+        static_cast<int>(size.x),     static_cast<int>(size.y),
+        0, 0, 0, 0, color, false);
+}
+
+void OpenGLRenderer::DrawCircle(const Vector2& center, float radius, const MyColor& color, bool filled) {
+    if (radius <= 0.0f) return;
+    if (filled) {
+        int r = static_cast<int>(std::ceil(radius));
+        for (int dy = -r; dy <= r; ++dy) {
+            float dx = std::sqrt(std::max(0.0f, radius * radius - (float)(dy * dy)));
+            DrawRectangle(Vector2(center.x - dx, center.y + dy), Vector2(dx * 2.0f, 1.0f), color, true);
+        }
+    } else {
+        int r = static_cast<int>(radius);
+        for (int dy = -r; dy <= r; ++dy) {
+            float dx = std::sqrt(std::max(0.0f, radius * radius - (float)(dy * dy)));
+            DrawRectangle(Vector2(center.x - dx, center.y + dy), Vector2(1.0f, 1.0f), color, true);
+            if (dx > 0.5f)
+                DrawRectangle(Vector2(center.x + dx - 1.0f, center.y + dy), Vector2(1.0f, 1.0f), color, true);
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DrawTexture
+// ─────────────────────────────────────────────────────────────────────────────
+void OpenGLRenderer::DrawTexture(int textureId, const Vector2& position, const Vector2& size,
+                                  const MyColor& tintColor, bool is2D)
+{
+    if (textureId < 0) return;
+    GLuint texID = 0;
+    if (is2D && textureId < MAX_TEXTURE_BUFFERS && m_2dTextures[textureId].isLoaded)
+        texID = m_2dTextures[textureId].textureID;
+    else if (!is2D && textureId < MAX_TEXTURE_BUFFERS_3D && m_3dTextures[textureId].isLoaded)
+        texID = m_3dTextures[textureId].textureID;
+
+    if (!texID) {
+        // Fallback: texture not loaded — draw a solid rectangle with the tint colour
+        // so controls are never invisible when their texture isn't present (e.g. the
+        // GUI textures that DX11 loaded but OpenGL did not).  This ensures title bars,
+        // buttons and content panels always have a visible background.
+        DrawRectangle(position, size, tintColor, is2D);
+        return;
+    }
+    Render2DQuad(texID,
+        static_cast<int>(position.x), static_cast<int>(position.y),
+        static_cast<int>(size.x),     static_cast<int>(size.y),
+        0, 0, 0, 0, tintColor, false);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Text rendering via GDI-to-texture (Windows)
+// ─────────────────────────────────────────────────────────────────────────────
+GLuint OpenGLRenderer::RenderTextToTexture(const std::wstring& text,
+    const std::wstring& fontName, float fontSize,
+    const MyColor& color, int& outW, int& outH)
+{
+    #if defined(_WIN32) || defined(_WIN64)
+        // Use GDI to measure and rasterise text
+        HDC memDC = CreateCompatibleDC(nullptr);
+        if (!memDC) return 0;
+
+        // Root cause of AV: CreateCompatibleDC(nullptr) starts with a 1×1 MONOCHROME
+        // (1 BPP) bitmap selected.  DrawTextW with any antialiased font on a 1 BPP DC
+        // crashes inside USER32.dll because GDI's antialiasing path reads the DC bit depth,
+        // finds 1, and faults accessing subpixel-rendering tables that don't exist for
+        // monochrome surfaces.  GetDC(nullptr) (used by CalculateTextWidth) returns the
+        // 32-bit screen DC, which is why those calls never crash.
+        //
+        // Fix: select a throwaway 1×1 32-bit DIB into the DC BEFORE font selection and
+        // measurement, making it a colour-capable DC throughout.  Swap the real bitmap in
+        // after measurement.
+
+        // --- Throwaway 32-bit colour surface (makes DC colour-capable before font select) ---
+        BITMAPINFO stubBmi{};
+        stubBmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+        stubBmi.bmiHeader.biWidth       = 1;
+        stubBmi.bmiHeader.biHeight      = -1;
+        stubBmi.bmiHeader.biPlanes      = 1;
+        stubBmi.bmiHeader.biBitCount    = 32;
+        stubBmi.bmiHeader.biCompression = BI_RGB;
+        void* stubBits = nullptr;
+        HBITMAP stubBmp = CreateDIBSection(memDC, &stubBmi, DIB_RGB_COLORS, &stubBits, nullptr, 0);
+        HBITMAP preMeasBmp = stubBmp
+            ? reinterpret_cast<HBITMAP>(SelectObject(memDC, stubBmp))
+            : nullptr;
+
+        int ptSize = std::max(1, static_cast<int>(fontSize * 1.333f));
+        HFONT hFont = CreateFontW(-ptSize, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
+            fontName.empty() ? L"Arial" : fontName.c_str());
+        if (!hFont) {
+            if (stubBmp) { SelectObject(memDC, preMeasBmp); DeleteObject(stubBmp); }
+            DeleteDC(memDC); return 0;
+        }
+        HFONT oldFont = reinterpret_cast<HFONT>(SelectObject(memDC, hFont));
+
+        // Measure text — safe now; the DC is 32 BPP
+        RECT rc = { 0, 0, 4096, 4096 };
+        DrawTextW(memDC, text.c_str(), -1, &rc, DT_CALCRECT | DT_WORDBREAK);
+        outW = rc.right  + 2;
+        outH = rc.bottom + 2;
+
+        // Swap out the stub bitmap; deselect before deleting
+        if (stubBmp) { SelectObject(memDC, preMeasBmp); DeleteObject(stubBmp); }
+
+        if (outW <= 2 || outH <= 2) {
+            SelectObject(memDC, oldFont); DeleteObject(hFont); DeleteDC(memDC);
+            return 0;
+        }
+
+        // Create the real RGBA render bitmap
+        BITMAPINFO bmi = {};
+        bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+        bmi.bmiHeader.biWidth       = outW;
+        bmi.bmiHeader.biHeight      = -outH;  // top-down
+        bmi.bmiHeader.biPlanes      = 1;
+        bmi.bmiHeader.biBitCount    = 32;
+        bmi.bmiHeader.biCompression = BI_RGB;
+        void* bits = nullptr;
+        HBITMAP hBmp = CreateDIBSection(memDC, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
+        if (!hBmp || !bits) {
+            SelectObject(memDC, oldFont); DeleteObject(hFont); DeleteDC(memDC);
+            return 0;
+        }
+        HBITMAP oldBmp = reinterpret_cast<HBITMAP>(SelectObject(memDC, hBmp));
+
+        // Fill black background (transparent)
+        RECT fill = { 0, 0, outW, outH };
+        HBRUSH black = CreateSolidBrush(RGB(0,0,0));
+        FillRect(memDC, &fill, black);
+        DeleteObject(black);
+
+        // Draw text — always rasterize in WHITE so (r+g+b)/3 yields correct luminance-as-alpha
+        // for every requested color.  Dark/black text rasterized in its own color produces
+        // luminance=0 → alpha=0 everywhere (invisible).  We override the pixel RGB to the
+        // requested color AFTER extraction so the final texture carries the right color AND
+        // the right alpha regardless of how dark the color is.
+        SetBkMode(memDC, TRANSPARENT);
+        SetTextColor(memDC, RGB(255, 255, 255));   // always white in GDI
+        RECT draw = { 1, 1, outW - 1, outH - 1 };
+        DrawTextW(memDC, text.c_str(), -1, &draw, DT_WORDBREAK | DT_LEFT);
+
+        // Convert BGRA→RGBA: use white-glyph luminance as alpha, override RGB with requested color.
+        uint8_t* pixels = reinterpret_cast<uint8_t*>(bits);
+        for (int py = 0; py < outH; ++py) {
+            for (int px = 0; px < outW; ++px) {
+                int     base      = (py * outW + px) * 4;
+                uint8_t b         = pixels[base + 0];   // GDI stores BGR
+                uint8_t g         = pixels[base + 1];
+                uint8_t r         = pixels[base + 2];
+                uint8_t luminance = static_cast<uint8_t>((r + g + b) / 3);
+                pixels[base + 0]  = color.r;            // override to requested color
+                pixels[base + 1]  = color.g;
+                pixels[base + 2]  = color.b;
+                pixels[base + 3]  = static_cast<uint8_t>((uint32_t)luminance * color.a / 255);
+            }
+        }
+
+        GLuint texID = 0;
+        glGenTextures(1, &texID);
+        glBindTexture(GL_TEXTURE_2D, texID);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, outW, outH, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glBindTexture(GL_TEXTURE_2D, 0);
+
+        SelectObject(memDC, oldBmp); SelectObject(memDC, oldFont);
+        DeleteObject(hBmp); DeleteObject(hFont); DeleteDC(memDC);
+        return texID;
+    #else
+        outW = 0; outH = 0;
+        return 0;
+    #endif
+}
+
+void OpenGLRenderer::DrawMyText(const std::wstring& text, const Vector2& position,
+                                  const MyColor& color, const float fontSize)
+{
+    if (text.empty()) return;
+    int tw = 0, th = 0;
+    GLuint texID = AcquireTextTexture(text, L"Arial", fontSize, color, tw, th);
+    if (!texID) return;
+    Render2DQuad(texID,
+        static_cast<int>(position.x), static_cast<int>(position.y),
+        tw, th, 0, 0, tw, th, MyColor(255, 255, 255, 255), false);
+}
+
+void OpenGLRenderer::DrawMyText(const std::wstring& text, const Vector2& position,
+                                  const Vector2& size, const MyColor& color, const float fontSize)
+{
+    if (text.empty()) return;
+    int tw = 0, th = 0;
+    GLuint texID = AcquireTextTexture(text, L"Arial", fontSize, color, tw, th);
+    if (!texID) return;
+    // 'size' is a clipping hint (matches DX11/Vulkan DirectWrite rect semantics).
+    // Render at natural glyph dimensions — NEVER stretch the texture to fill size.
+    // Clip to size.x so text cannot overflow its container; height is always natural.
+    int clipW = (size.x > 0.0f) ? std::min(tw, static_cast<int>(size.x)) : tw;
+    Render2DQuad(texID,
+        static_cast<int>(position.x), static_cast<int>(position.y),
+        clipW, th,
+        0, 0, clipW, th, MyColor(255, 255, 255, 255), false);
+}
+
+void OpenGLRenderer::DrawMyTextWithFont(const std::wstring& text, const Vector2& position,
+    const MyColor& color, const float fontSize, const std::wstring& fontName)
+{
+    if (text.empty()) return;
+    int tw = 0, th = 0;
+    GLuint texID = AcquireTextTexture(text, fontName, fontSize, color, tw, th);
+    if (!texID) return;
+    Render2DQuad(texID,
+        static_cast<int>(position.x), static_cast<int>(position.y),
+        tw, th, 0, 0, tw, th, MyColor(255, 255, 255, 255), false);
+}
+
+void OpenGLRenderer::DrawMyTextStyled(const std::wstring& text, const Vector2& position,
+    const MyColor& color, const TextRenderStyle& style)
+{
+    if (text.empty()) return;
+    int tw = 0, th = 0;
+    #if defined(_WIN32) || defined(_WIN64)
+        // Windows: GDI rasterise with full style attributes
+        HDC memDC = CreateCompatibleDC(nullptr);
+        if (!memDC) return;
+
+        int ptSize = static_cast<int>(style.fontSize * 1.333f);
+        HFONT hFont = CreateFontW(
+            -ptSize, 0, 0, 0,
+            style.bold        ? FW_BOLD    : FW_NORMAL,
+            style.italic      ? TRUE       : FALSE,
+            style.underline   ? TRUE       : FALSE,
+            style.strikethrough ? TRUE     : FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
+            style.fontName.empty() ? L"Arial" : style.fontName.c_str());
+        HFONT oldFont = reinterpret_cast<HFONT>(SelectObject(memDC, hFont));
+
+        RECT rc = { 0, 0, 4096, 4096 };
+        DrawTextW(memDC, text.c_str(), -1, &rc, DT_CALCRECT | DT_WORDBREAK);
+        tw = rc.right + 2; th = rc.bottom + 2;
+
+        if (tw > 0 && th > 0) {
+            BITMAPINFO bmi = {};
+            bmi.bmiHeader.biSize     = sizeof(BITMAPINFOHEADER);
+            bmi.bmiHeader.biWidth    = tw;
+            bmi.bmiHeader.biHeight   = -th;
+            bmi.bmiHeader.biPlanes   = 1;
+            bmi.bmiHeader.biBitCount = 32;
+            bmi.bmiHeader.biCompression = BI_RGB;
+            void* bits = nullptr;
+            HBITMAP hBmp = CreateDIBSection(memDC, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
+            HBITMAP oldBmp = reinterpret_cast<HBITMAP>(SelectObject(memDC, hBmp));
+
+            RECT fill = { 0, 0, tw, th };
+            HBRUSH black = CreateSolidBrush(RGB(0, 0, 0));
+            FillRect(memDC, &fill, black);
+            DeleteObject(black);
+
+            SetBkMode(memDC, TRANSPARENT);
+            SetTextColor(memDC, RGB(255, 255, 255));   // always white — see RenderTextToTexture for rationale
+            RECT draw = { 1, 1, tw - 1, th - 1 };
+            DrawTextW(memDC, text.c_str(), -1, &draw, DT_WORDBREAK | DT_LEFT);
+
+            uint8_t* pixels = reinterpret_cast<uint8_t*>(bits);
+            for (int py = 0; py < th; ++py) {
+                for (int px = 0; px < tw; ++px) {
+                    int     base      = (py * tw + px) * 4;
+                    uint8_t b2        = pixels[base + 0];
+                    uint8_t g2        = pixels[base + 1];
+                    uint8_t r2        = pixels[base + 2];
+                    uint8_t luminance = static_cast<uint8_t>((r2 + g2 + b2) / 3);
+                    pixels[base + 0]  = color.r;
+                    pixels[base + 1]  = color.g;
+                    pixels[base + 2]  = color.b;
+                    pixels[base + 3]  = static_cast<uint8_t>((uint32_t)luminance * color.a / 255);
+                }
+            }
+
+            GLuint texID = 0;
+            glGenTextures(1, &texID);
+            glBindTexture(GL_TEXTURE_2D, texID);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, tw, th, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glBindTexture(GL_TEXTURE_2D, 0);
+
+            // Horizontal centering: when style.centered is set, ignore posX and derive it
+            // from the render-target width so the text is centred across the full viewport
+            // (mirrors DX11/Vulkan DrawMyTextStyled centring behaviour).
+            int renderX = static_cast<int>(position.x);
+            if (style.centered) {
+                int rtW = m_renderTargetWidth > 0 ? m_renderTargetWidth : iOrigWidth;
+                renderX = (rtW - tw) / 2;
+            }
+
+            Render2DQuad(texID,
+                renderX, static_cast<int>(position.y),
+                tw, th, 0, 0, tw, th, MyColor(255, 255, 255, 255), false);
+            glDeleteTextures(1, &texID);
+
+            SelectObject(memDC, oldBmp);
+            DeleteObject(hBmp);
+        }
+
+        SelectObject(memDC, oldFont);
+        DeleteObject(hFont);
+        DeleteDC(memDC);
+    #elif defined(__linux__) || defined(__ANDROID__)
+        // Linux / Android: delegate to DrawMyTextWithFont (no style attributes yet)
+        DrawMyTextWithFont(text, position, color, style.fontSize,
+                        style.fontName.empty() ? L"Sans" : style.fontName);
+    #else
+        DrawMyTextWithFont(text, position, color, style.fontSize,
+                        style.fontName.empty() ? L"Arial" : style.fontName);
+    #endif
+}
+
+void OpenGLRenderer::PushClipRect(float x, float y, float w, float h) {
+    // OpenGL scissor: Y is from the bottom of the window
+    GLint glY = m_renderTargetHeight - static_cast<GLint>(y + h);
+    glScissor(static_cast<GLint>(x), glY, static_cast<GLint>(w), static_cast<GLint>(h));
+    glEnable(GL_SCISSOR_TEST);
+}
+
+void OpenGLRenderer::PopClipRect() {
+    glDisable(GL_SCISSOR_TEST);
+}
+
+void OpenGLRenderer::DrawMyTextCentered(const std::wstring& text, const Vector2& position,
+    const MyColor& color, const float fontSize, float controlWidth, float controlHeight,
+    bool bold)
+{
+    if (text.empty()) return;
+    int cw = std::max(1, static_cast<int>(controlWidth));
+    int ch = std::max(1, static_cast<int>(controlHeight));
+    int tw = 0, th = 0;
+    // cw/ch and bold baked into the cache key — each unique combination gets its own entry.
+    GLuint texID = AcquireTextTexture(text, L"Arial", fontSize, color, tw, th, cw, ch, bold);
+    if (!texID) return;
+    Render2DQuad(texID,
+        static_cast<int>(position.x), static_cast<int>(position.y),
+        cw, ch, 0, 0, cw, ch, MyColor(255, 255, 255, 255), false);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Text texture cache helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Extracts the GDI-rasterise path from DrawMyTextCentered so it can be reused by
+// the text cache.  Returns 0 on failure; outW/outH receive the texture dims (= cw, ch).
+GLuint OpenGLRenderer::RenderTextCenteredToTexture(const std::wstring& text, float fontSize,
+    const MyColor& color, int cw, int ch, int& outW, int& outH, bool bold)
+{
+    outW = cw; outH = ch;
+    #if defined(_WIN32) || defined(_WIN64)
+        HDC memDC = CreateCompatibleDC(nullptr);
+        if (!memDC) return 0;
+
+        BITMAPINFO stubBmi{};
+        stubBmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+        stubBmi.bmiHeader.biWidth       = 1;
+        stubBmi.bmiHeader.biHeight      = -1;
+        stubBmi.bmiHeader.biPlanes      = 1;
+        stubBmi.bmiHeader.biBitCount    = 32;
+        stubBmi.bmiHeader.biCompression = BI_RGB;
+        void* stubBits = nullptr;
+        HBITMAP stubBmp = CreateDIBSection(memDC, &stubBmi, DIB_RGB_COLORS, &stubBits, nullptr, 0);
+        HBITMAP preStub = stubBmp ? reinterpret_cast<HBITMAP>(SelectObject(memDC, stubBmp)) : nullptr;
+
+        int ptSize = std::max(1, static_cast<int>(fontSize * 1.333f));
+        HFONT hFont = CreateFontW(-ptSize, 0, 0, 0, bold ? FW_BOLD : FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
+        if (!hFont) {
+            if (stubBmp) { SelectObject(memDC, preStub); DeleteObject(stubBmp); }
+            DeleteDC(memDC); return 0;
+        }
+        HFONT oldFont = reinterpret_cast<HFONT>(SelectObject(memDC, hFont));
+        if (stubBmp) { SelectObject(memDC, preStub); DeleteObject(stubBmp); }
+
+        BITMAPINFO bmi{};
+        bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+        bmi.bmiHeader.biWidth       = cw;
+        bmi.bmiHeader.biHeight      = -ch;
+        bmi.bmiHeader.biPlanes      = 1;
+        bmi.bmiHeader.biBitCount    = 32;
+        bmi.bmiHeader.biCompression = BI_RGB;
+        void* bits = nullptr;
+        HBITMAP hBmp = CreateDIBSection(memDC, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
+        if (!hBmp || !bits) {
+            SelectObject(memDC, oldFont); DeleteObject(hFont); DeleteDC(memDC); return 0;
+        }
+        HBITMAP oldBmp = reinterpret_cast<HBITMAP>(SelectObject(memDC, hBmp));
+        memset(bits, 0, static_cast<size_t>(cw) * ch * 4);
+
+        SetBkMode(memDC, TRANSPARENT);
+        SetTextColor(memDC, RGB(255, 255, 255));
+        RECT draw = { 0, 0, cw, ch };
+        DrawTextW(memDC, text.c_str(), -1, &draw, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+        uint8_t* pixels = reinterpret_cast<uint8_t*>(bits);
+        int total = cw * ch;
+        for (int i = 0; i < total; ++i) {
+            uint8_t lum     = static_cast<uint8_t>((pixels[i*4+0] + pixels[i*4+1] + pixels[i*4+2]) / 3);
+            pixels[i*4+0]  = color.r;
+            pixels[i*4+1]  = color.g;
+            pixels[i*4+2]  = color.b;
+            pixels[i*4+3]  = static_cast<uint8_t>(static_cast<uint32_t>(lum) * color.a / 255);
+        }
+
+        GLuint texID = 0;
+        glGenTextures(1, &texID);
+        glBindTexture(GL_TEXTURE_2D, texID);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, cw, ch, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glBindTexture(GL_TEXTURE_2D, 0);
+
+        SelectObject(memDC, oldBmp); SelectObject(memDC, oldFont);
+        DeleteObject(hBmp); DeleteObject(hFont); DeleteDC(memDC);
+        return texID;
+    #else
+        int tw = 0, th = 0;
+        return RenderTextToTexture(text, L"Arial", fontSize, color, tw, th);
+    #endif
+}
+
+GLuint OpenGLRenderer::AcquireTextTexture(const std::wstring& text,
+    const std::wstring& fontName, float fontSize, const MyColor& color,
+    int& outW, int& outH, int cw, int ch, bool bold)
+{
+    uint32_t pack = (static_cast<uint32_t>(color.r) << 24) |
+                    (static_cast<uint32_t>(color.g) << 16) |
+                    (static_cast<uint32_t>(color.b) <<  8) |
+                     static_cast<uint32_t>(color.a);
+
+    TextCacheKey key{ text, fontName, fontSize, pack, cw, ch, bold };
+    auto it = m_textCache.find(key);
+    if (it != m_textCache.end() && it->second.id != 0) {
+        it->second.lastFrame = m_textCacheFrame;
+        outW = it->second.w;
+        outH = it->second.h;
+        return it->second.id;
+    }
+
+    GLuint texID = 0;
+    int tw = 0, th = 0;
+    if (cw > 0 && ch > 0)
+        texID = RenderTextCenteredToTexture(text, fontSize, color, cw, ch, tw, th, bold);
+    else
+        texID = RenderTextToTexture(text, fontName, fontSize, color, tw, th);
+
+    if (!texID) { outW = 0; outH = 0; return 0; }
+
+    // Evict oldest entry if at capacity
+    if (m_textCache.size() >= 256) {
+        auto oldest = m_textCache.begin();
+        for (auto jt = m_textCache.begin(); jt != m_textCache.end(); ++jt)
+            if (jt->second.lastFrame < oldest->second.lastFrame) oldest = jt;
+        if (oldest->second.id) glDeleteTextures(1, &oldest->second.id);
+        m_textCache.erase(oldest);
+    }
+
+    m_textCache[key] = { texID, tw, th, m_textCacheFrame };
+    outW = tw; outH = th;
+    return texID;
+}
+
+void OpenGLRenderer::EvictStaleTextCache()
+{
+    ++m_textCacheFrame;
+    if (m_textCacheFrame % 60 != 0) return;  // scan every 60 frames
+
+    for (auto it = m_textCache.begin(); it != m_textCache.end(); ) {
+        if (m_textCacheFrame - it->second.lastFrame > 120) {
+            if (it->second.id) glDeleteTextures(1, &it->second.id);
+            it = m_textCache.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+void OpenGLRenderer::FlushTextCache()
+{
+    for (auto& [key, entry] : m_textCache)
+        if (entry.id) glDeleteTextures(1, &entry.id);
+    m_textCache.clear();
+    m_textCacheFrame = 0;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Text metrics (GDI on Windows)
+// ─────────────────────────────────────────────────────────────────────────────
+float OpenGLRenderer::GetCharacterWidth(wchar_t character, float fontSize)
+{
+    return GetCharacterWidth(character, fontSize, L"Arial");
+}
+
+float OpenGLRenderer::GetCharacterWidth(wchar_t character, float fontSize,
+                                         const std::wstring& fontName)
+{
+    #if defined(_WIN32) || defined(_WIN64)
+        HDC dc = GetDC(nullptr);
+        if (!dc) return fontSize * 0.6f;
+        int ptSize = std::max(1, static_cast<int>(fontSize * 1.333f));
+        HFONT hFont = CreateFontW(-ptSize, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
+            fontName.empty() ? L"Arial" : fontName.c_str());
+        if (!hFont) { ReleaseDC(nullptr, dc); return fontSize * 0.6f; }
+        HFONT old = reinterpret_cast<HFONT>(SelectObject(dc, hFont));
+        SIZE sz = {};
+        GetTextExtentPoint32W(dc, &character, 1, &sz);
+        SelectObject(dc, old);
+        DeleteObject(hFont);
+        ReleaseDC(nullptr, dc);
+        return static_cast<float>(sz.cx);
+    #else
+        return fontSize * 0.6f;
+    #endif
+}
+
+float OpenGLRenderer::CalculateTextWidth(const std::wstring& text, float fontSize,
+                                          float containerWidth)
+{
+    #if defined(_WIN32) || defined(_WIN64)
+        if (text.empty()) return 0.0f;
+        HDC dc = GetDC(nullptr);
+        if (!dc) return static_cast<float>(text.size()) * fontSize * 0.6f;
+        int ptSize = std::max(1, static_cast<int>(fontSize * 1.333f));
+        HFONT hFont = CreateFontW(-ptSize, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
+        if (!hFont) { ReleaseDC(nullptr, dc); return static_cast<float>(text.size()) * fontSize * 0.6f; }
+        HFONT old = reinterpret_cast<HFONT>(SelectObject(dc, hFont));
+        SIZE sz = {};
+        GetTextExtentPoint32W(dc, text.c_str(), static_cast<int>(text.size()), &sz);
+        SelectObject(dc, old);
+        DeleteObject(hFont);
+        ReleaseDC(nullptr, dc);
+        return static_cast<float>(sz.cx);
+    #else
+        return static_cast<float>(text.size()) * fontSize * 0.6f;
+    #endif
+}
+
+float OpenGLRenderer::CalculateTextHeight(const std::wstring& text, float fontSize,
+                                           float containerHeight)
+{
+    #if defined(_WIN32) || defined(_WIN64)
+        if (text.empty()) return fontSize * 1.5f;
+        HDC dc = GetDC(nullptr);
+        if (!dc) return fontSize * 1.5f;
+        int ptSize = std::max(1, static_cast<int>(fontSize * 1.333f));
+        HFONT hFont = CreateFontW(-ptSize, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
+        if (!hFont) { ReleaseDC(nullptr, dc); return fontSize * 1.5f; }
+        HFONT old = reinterpret_cast<HFONT>(SelectObject(dc, hFont));
+        RECT rc = { 0, 0, 4096, 4096 };
+        DrawTextW(dc, text.c_str(), -1, &rc, DT_CALCRECT | DT_WORDBREAK);
+        SelectObject(dc, old);
+        DeleteObject(hFont);
+        ReleaseDC(nullptr, dc);
+        return static_cast<float>(rc.bottom + 2);  // +2 matches RenderTextToTexture padding
+    #else
+        return fontSize * 1.5f;
+    #endif
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Renderer name
+// ─────────────────────────────────────────────────────────────────────────────
+void OpenGLRenderer::RendererName(std::string sThisName)
+{
+    sName = sThisName;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Loader resume
+// ─────────────────────────────────────────────────────────────────────────────
+void OpenGLRenderer::ResumeLoader(bool isResizing)
+{
+    wasResizing.store(isResizing);
+    threadManager.ResumeThread(THREAD_LOADER);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Background image
+// ─────────────────────────────────────────────────────────────────────────────
+void OpenGLRenderer::RenderBackgroundImage()
+{
+    // Scene-aware background image rendering — mirrors DXRenderFrame::RenderBackgroundImage().
+    // Called before 3D scene rendering each frame.
+
+    // Guard: skip if system state makes rendering unsafe (mirrors DX11 guard)
+    if (threadManager.threadVars.bIsShuttingDown.load() ||
+        bIsMinimized.load()                             ||
+        threadManager.threadVars.bIsResizing.load()     ||
+        !bIsInitialized.load())
+        return;
+
+    switch (scene.stSceneType)
+    {
+        case SceneType::SCENE_GAMETITLE:
+        {
+            if (threadManager.threadVars.bLoaderTaskFinished.load())
+            {
+                // Game title background — zoom-aware so the zoomed blit lands before the starfield
+                if (m_2dTextures[int(BlitObj2DIndexType::IMG_GAMEINTRO1)].isLoaded) {
+                    if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_GAMEINTRO1)))
+                        fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
+                    else
+                        Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
+                }
+
+                // Company logo — half size, bottom-left corner (mirrors DX11)
+                int logoIdx = int(BlitObj2DIndexType::IMG_COMPANYLOGO);
+                if (m_2dTextures[logoIdx].isLoaded) {
+                    int halfW = m_2dTextures[logoIdx].width  / 2;
+                    int halfH = m_2dTextures[logoIdx].height / 2;
+                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO,
+                                       0, iOrigHeight - halfH, halfW, halfH);
+                }
+
+                // Starfield and warp-dot tunnel (mirrors DX11 fxManager.RenderFX calls).
+                // GLFXManager::RenderFX takes XMMATRIX (= Matrix4x4, row-major on Windows OpenGL).
+                // Convert glm::mat4 (column-major): result.m[row][col] = glm[col][row].
+                {
+                    glm::mat4 glmView = myCamera.GetViewMatrix();
+                    XMMATRIX viewXM;
+                    for (int r = 0; r < 4; ++r)
+                        for (int c = 0; c < 4; ++c)
+                            viewXM.m[r][c] = glmView[c][r];
+
+                    if (fxManager.starfieldID > 0)
+                        fxManager.RenderFX(fxManager.starfieldID, viewXM);
+
+                    if (fxManager.tunnelID > 0)
+                        fxManager.RenderFX(fxManager.tunnelID, viewXM);
+                }
+
+                // Fireworks pass — matches DX11 RenderBackgroundImage order.
+                // Note: IMG_TSOO is rendered as a post-3D overlay in OpenGLRenderFrame.cpp
+                // (with ImageFadeStrobe support) — do NOT blit it here in the background pass.
+                fxManager.RenderFireworks();
+            }
+            else
+            {
+                // Still loading: show loading screen background
+                if (m_2dTextures[int(BlitObj2DIndexType::IMG_LOADING)].isLoaded) {
+                    if (threadManager.threadVars.bInitiateFader.load()) {
+                        threadManager.threadVars.bInitiateFader.store(false);
+                        fxManager.FadeToImage(1.0f, 0.1f);
+                    }
+                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
+                }
+            }
+            break;
+        }
+
+        case SceneType::SCENE_GAMEPLAY:
+        {
+            if (!threadManager.threadVars.bLoaderTaskFinished.load())
+            {
+                if (m_2dTextures[int(BlitObj2DIndexType::IMG_LOADING)].isLoaded) {
+                    if (threadManager.threadVars.bInitiateFader.load()) {
+                        threadManager.threadVars.bInitiateFader.store(false);
+                        fxManager.FadeToImage(1.0f, 0.1f);
+                    }
+                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
+                }
+            }
+            break;
+        }
+
+    #if defined(_DEBUG)
+        case SceneType::SCENE_EXPERIMENT:
+        {
+            if (threadManager.threadVars.bLoaderTaskFinished.load())
+            {
+                // Black background; tunnel rendered via FX manager (mirrors DX11 SCENE_EXPERIMENT path).
+                // Convert glm::mat4 → XMMATRIX (= Matrix4x4 row-major on Windows OpenGL).
+                if (fxManager.tunnelID > 0) {
+                    glm::mat4 glmView = myCamera.GetViewMatrix();
+                    XMMATRIX viewXM;
+                    for (int r = 0; r < 4; ++r)
+                        for (int c = 0; c < 4; ++c)
+                            viewXM.m[r][c] = glmView[c][r];
+                    fxManager.RenderFX(fxManager.tunnelID, viewXM);
+                }
+            }
+            break;
+        }
+    #endif
+
+        default:
+            break;
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Display mode switching (Windows)
+// ─────────────────────────────────────────────────────────────────────────────
+bool OpenGLRenderer::SetFullScreen()
+{
+    #if defined(_WIN32) || defined(_WIN64)
+        HWND hWnd = m_glContext.windowHandle;
+        SetWindowLongW(hWnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+        int w = GetSystemMetrics(SM_CXSCREEN);
+        int h = GetSystemMetrics(SM_CYSCREEN);
+        SetWindowPos(hWnd, HWND_TOP, 0, 0, w, h, SWP_FRAMECHANGED);
+        iOrigWidth  = w;
+        iOrigHeight = h;
+        return true;
+    #else
+        return false;
+    #endif
+}
+
+bool OpenGLRenderer::SetFullExclusive(uint32_t width, uint32_t height)
+{
+    #if defined(_WIN32) || defined(_WIN64)
+        // Capture the original desktop mode before switching so Cleanup can restore it
+        if (!m_isExclusiveFullscreen) {
+            m_originalDesktopMode.dmSize = sizeof(DEVMODE);
+            EnumDisplaySettingsW(nullptr, ENUM_CURRENT_SETTINGS,
+                reinterpret_cast<DEVMODEW*>(&m_originalDesktopMode));
+        }
+
+        DEVMODEW dm = {};
+        dm.dmSize       = sizeof(dm);
+        dm.dmPelsWidth  = width;
+        dm.dmPelsHeight = height;
+        dm.dmBitsPerPel = 32;
+        dm.dmFields     = DM_PELSWIDTH | DM_PELSHEIGHT | DM_BITSPERPEL;
+        if (ChangeDisplaySettingsW(&dm, CDS_FULLSCREEN) != DISP_CHANGE_SUCCESSFUL) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[OpenGLRenderer] SetFullExclusive: ChangeDisplaySettings failed");
+            return false;
+        }
+        m_isExclusiveFullscreen = true;
+
+        // Gate the WM_SIZE fired by SetWindowPos inside SetFullScreen so it is
+        // suppressed by the new simplified WM_SIZE handler rather than attempting
+        // a spurious winMetrics sync against stale renderer state mid-transition.
+        threadManager.threadVars.bSettingFullScreen.store(true);
+        bool result = SetFullScreen();
+
+        // Override iOrigWidth/iOrigHeight with the explicitly requested dimensions.
+        // SetFullScreen() derives w/h from GetSystemMetrics(SM_CXSCREEN/SM_CYSCREEN),
+        // which can return stale native-resolution values immediately after
+        // ChangeDisplaySettingsW on some driver/OS combinations before the mode change
+        // is fully committed.  The caller already validated the requested resolution;
+        // use it directly so the renderer's back-buffer size matches winMetrics and the
+        // coordinate space is coherent from the very first frame.
+        iOrigWidth  = static_cast<int>(width);
+        iOrigHeight = static_cast<int>(height);
+
+        // Sync the render-target dimensions used by Render2DQuad / glViewport every frame.
+        // Without this, the ortho matrix and viewport continue to use the pre-fullscreen
+        // windowed size, causing a mismatch between the surface and the presentation path.
+        m_renderTargetWidth  = iOrigWidth;
+        m_renderTargetHeight = iOrigHeight;
+
+        // Sync winMetrics from the confirmed fullscreen dimensions so every subsystem
+        // (cameras, GUI, FX, loader thread) sees a coherent coordinate space.
+        winMetrics.x               = 0;
+        winMetrics.y               = 0;
+        winMetrics.width           = iOrigWidth;
+        winMetrics.height          = iOrigHeight;
+        winMetrics.clientWidth     = iOrigWidth;
+        winMetrics.clientHeight    = iOrigHeight;
+        winMetrics.borderWidth     = 0;
+        winMetrics.titleBarHeight  = 0;
+        winMetrics.monitorFullArea = { 0, 0, iOrigWidth, iOrigHeight };
+        winMetrics.monitorWorkArea = { 0, 0, iOrigWidth, iOrigHeight };
+
+        #if defined(_DEBUG_OPENGLRENDERER_) && defined(_DEBUG)
+        // Fullscreen presentation diagnostics: verify GL viewport, window, and surface
+        // sizes all agree.  A mismatch explains the "top-left quarter visible" symptom.
+        {
+            GLint vp[4] = {};
+            glGetIntegerv(GL_VIEWPORT, vp);
+            UINT   dpi        = GetDpiForWindow(m_glContext.windowHandle);
+            RECT   windowRect = {}, clientRect = {};
+            GetWindowRect(m_glContext.windowHandle, &windowRect);
+            GetClientRect(m_glContext.windowHandle,  &clientRect);
+            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                L"[OpenGLRenderer] Fullscreen diag: DPI=%u  WindowRect=%dx%d  ClientRect=%dx%d  "
+                L"Config=%dx%d  RenderTarget=%dx%d  GLViewport=%dx%d",
+                dpi,
+                windowRect.right  - windowRect.left,
+                windowRect.bottom - windowRect.top,
+                clientRect.right  - clientRect.left,
+                clientRect.bottom - clientRect.top,
+                config.myConfig.resolutionWidth, config.myConfig.resolutionHeight,
+                m_renderTargetWidth, m_renderTargetHeight,
+                vp[2], vp[3]);
+        }
+        #endif
+
+        threadManager.threadVars.bSettingFullScreen.store(false);
+        return result;
+    #else
+        return false;
+    #endif
+}
+
+bool OpenGLRenderer::SetWindowedScreen()
+{
+    #if defined(_WIN32) || defined(_WIN64)
+        // Restore display settings if we entered exclusive fullscreen
+        if (m_isExclusiveFullscreen) {
+            ChangeDisplaySettingsW(nullptr, 0);
+            m_isExclusiveFullscreen = false;
+        }
+        HWND hWnd = m_glContext.windowHandle;
+        // Non-resizable windowed style — no WS_THICKFRAME (drag border) or WS_MAXIMIZEBOX
+        DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE;
+        SetWindowLongW(hWnd, GWL_STYLE, style);
+        SetWindowPos(hWnd, nullptr,
+            100, 100, prevWindowedWidth, prevWindowedHeight,
+            SWP_FRAMECHANGED | SWP_NOZORDER);
+        iOrigWidth  = static_cast<int>(prevWindowedWidth);
+        iOrigHeight = static_cast<int>(prevWindowedHeight);
+        return true;
+    #else
+        return false;
+    #endif
+}
+
+#endif // __USE_OPENGL__

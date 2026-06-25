@@ -4,11 +4,11 @@
 #include <thread>
 
 #if defined(__USE_OPENGL__)
-#include "OpenGLFXManager.h"
+    #include "FXManager.h"
 #elif defined(__USE_VULKAN__)
-#include "VULKAN_FXManager.h"
+    #include "FXManager.h"
 #else
-#include "DX_FXManager.h"
+    #include "FXManager.h"
 #endif
 
 #include "ThreadManager.h"
@@ -21,17 +21,18 @@
 extern std::shared_ptr<Renderer> renderer;
 extern SoundManager soundManager;
 #if defined(__USE_OPENGL__)
-extern GLFXManager fxManager;
+    extern FXManager fxManager;
 #elif defined(__USE_VULKAN__)
-extern VKFXManager fxManager;
+    extern FXManager fxManager;
 #else
-extern FXManager fxManager;
+    extern FXManager fxManager;
 #endif
+
 extern ThreadManager threadManager;
 
 // Forward-declared in main.cpp (no longer static)
 #if defined(PLATFORM_WINDOWS)
-void ApplySystemMasterVolume(int vol64);
+    void ApplySystemMasterVolume(int vol64);
 #endif
 
 // ---------------------------------------------------------------------------
@@ -46,6 +47,8 @@ static std::vector<DispMode> ScanDisplayModes()
     dm.dmSize = sizeof(dm);
     for (DWORD i = 0; EnumDisplaySettingsW(nullptr, i, &dm); ++i) {
         if (dm.dmBitsPerPel != 32) continue;
+        // Minimum supported resolution is 800x600
+        if ((int)dm.dmPelsWidth < 800 || (int)dm.dmPelsHeight < 600) continue;
         DispMode m{ (int)dm.dmPelsWidth, (int)dm.dmPelsHeight, (int)dm.dmDisplayFrequency };
         bool dup = false;
         for (auto& e : out) if (e.w == m.w && e.h == m.h && e.hz == m.hz) { dup = true; break; }
@@ -84,6 +87,12 @@ static std::vector<int> RatesFor(const std::vector<DispMode>& modes, int w, int 
     return rates;
 }
 
+static int AspGcd(int a, int b) { return b ? AspGcd(b, a % b) : a; }
+static std::wstring AspRatioName(int w, int h) {
+    int g = AspGcd(w, h);
+    return std::to_wstring(w / g) + L":" + std::to_wstring(h / g);
+}
+
 // Display mode name strings — file scope so lambdas need no capture
 static const wchar_t* const DISP_MODE_NAMES[3] = {
     L"Windowed", L"Borderless", L"Full Screen"
@@ -95,22 +104,25 @@ static const wchar_t* const DISP_MODE_NAMES[3] = {
 // Linux/Android: only compiled-in backends are shown; slider hidden when count == 1.
 struct RendererEntry { int type; const wchar_t* name; };
 #if defined(PLATFORM_WINDOWS)
-static const RendererEntry AVAILABLE_RENDERERS[] = {
-    { 0, L"DirectX 11" },
-    { 1, L"DirectX 12" },
-    { 2, L"OpenGL"     },
-    { 3, L"Vulkan"     },
-};
+    static const RendererEntry AVAILABLE_RENDERERS[] = {
+        { 0, L"DirectX 11" },
+        { 1, L"DirectX 12" },
+        { 2, L"OpenGL"     },
+        { 3, L"Vulkan"     },
+    };
 #else
-static const RendererEntry AVAILABLE_RENDERERS[] = {
-#  if defined(__USE_OPENGL__)
-    { 0, L"OpenGL" },
-#  endif
-#  if defined(__USE_VULKAN__)
-    { 1, L"Vulkan" },
-#  endif
-};
+    static const RendererEntry AVAILABLE_RENDERERS[] = {
+        #if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+            { 0, L"OpenGL" },
+            { 1, L"Vulkan" },
+        #elif defined(PLATFORM_APPLE) || defined(PLATFORM_IOS)
+            { 0, L"OpenGL" },
+        #else
+            #error "AVAILABLE_RENDERERS is not defined for this platform"
+        #endif
+    };
 #endif
+
 static constexpr int RENDERER_COUNT =
     (int)(sizeof(AVAILABLE_RENDERERS) / sizeof(AVAILABLE_RENDERERS[0]));
 
@@ -204,16 +216,19 @@ void GUIManager::CreateConfigWindow()
     // ROW = 32, CONT_H = 370, top padding = 10
     // tabContentH[i] = 10 + numRows[i] * 32  (total virtual content height)
     // -----------------------------------------------------------------------
-    const float CFG_SCROLL_W = 12.0f;   // scrollbar width in pixels (user-specified)
+    const float CFG_SCROLL_W = 18.0f;   // scrollbar width in pixels
     const std::array<float, 5> tabContentH = {
-        10.0f + 7.0f  * 32.0f,   // Tab 0: zoom/move/maxP/minP/near/far/debug (7)
+        10.0f + 1.0f  * 32.0f,   // Tab 0: debug (1)
         10.0f + 8.0f  * 32.0f,   // Tab 1: 4 vols + music + TTS + TTSvol + mic (8)
-        10.0f + 12.0f * 32.0f,   // Tab 2: fov/renderer/disp/res/hz/vsync/aa/msaa/mip/cull/tripbuf/aspect (12)
-        10.0f + 2.0f  * 32.0f,   // Tab 3: joystick + joystick-rot (2)
+        10.0f + 14.0f * 32.0f,   // Tab 2: fov/renderer/disp/res/hz/aspect/vsync/aa/msaa/mip/cull/tripbuf/near/far (14)
+        10.0f + 6.0f  * 32.0f,   // Tab 3: zoom/move/maxP/minP/joystick/joystick-rot (6)
         10.0f + 6.0f  * 32.0f,   // Tab 4: placeholder
     };
     auto tabScrollY = std::make_shared<std::array<float, 5>>();
     tabScrollY->fill(0.0f);
+
+    // Tracks the last time the scrollbar was clicked/dragged so the thumb flashes gold
+    auto lastScrollClick = std::make_shared<std::atomic<uint64_t>>(0);
 
     // Scroll the active tab by `delta` pixels (positive = scroll down / content moves up).
     // After shifting, controls that have left the content area are hidden so they
@@ -266,6 +281,27 @@ void GUIManager::CreateConfigWindow()
     }
     auto rateVec = std::make_shared<std::vector<int>>(startRates);
     auto rateIdx = std::make_shared<int>(startRateIdx);
+
+    // Unique aspect ratios available from the scanned display
+    struct AspRatio { float value; std::wstring name; };
+    auto aspRatios = std::make_shared<std::vector<AspRatio>>();
+    {
+        for (auto& m : *allModes) {
+            float r = (float)m.w / (float)m.h;
+            bool dup = false;
+            for (auto& a : *aspRatios) if (std::abs(a.value - r) < 0.005f) { dup = true; break; }
+            if (!dup) aspRatios->push_back({ r, AspRatioName(m.w, m.h) });
+        }
+        std::sort(aspRatios->begin(), aspRatios->end(),
+            [](const AspRatio& a, const AspRatio& b) { return a.value < b.value; });
+    }
+    int startAspIdx = 0;
+    {
+        float curAsp = (float)config.myConfig.aspectRatio;
+        for (int i = 0; i < (int)aspRatios->size(); ++i)
+            if (std::abs((*aspRatios)[i].value - curAsp) < 0.005f) { startAspIdx = i; break; }
+    }
+    auto aspIdx = std::make_shared<int>(startAspIdx);
 
     // -----------------------------------------------------------------------
     // Tab switching — show/hide t{n}_* controls, re-colour tab buttons
@@ -371,7 +407,7 @@ void GUIManager::CreateConfigWindow()
         tc.type             = GUIControlType::ToggleSlider;
         tc.id               = pfx + "_tog";
         tc.position         = Vector2(VAL_X(), y);
-        tc.size             = Vector2(90.0f, ROW_H);
+        tc.size             = Vector2(52.0f, ROW_H);
         tc.isVisible        = vis;
         tc.bgColor          = MyColor(0, 0, 0, 0);
         tc.hoverColor       = MyColor(0, 0, 0, 0);
@@ -454,15 +490,15 @@ void GUIManager::CreateConfigWindow()
     // Saves config and closes (mirrors Save but without restart prompt).
     // A shared atomic flag guards against double-fire.
     // -----------------------------------------------------------------------
-    constexpr float CB_OFF_X = 15.0f;    // px from window right edge to circle centre
-    constexpr float CB_R     = 8.5f;     // circle radius
+    const float CLOSE_BTN_W = 22.0f;             // close button width
+    const float CLOSE_BTN_H = TITLEBAR_HEIGHT - 4.0f;   // close button height
     {
         auto closeGuard = std::make_shared<std::atomic<bool>>(false);
 
         GUIControl cbBtn;
         cbBtn.type = GUIControlType::Button;  cbBtn.id = "btn_circleclose";
-        cbBtn.position = Vector2(WX + WW - CB_OFF_X - CB_R, WY + TITLEBAR_HEIGHT * 0.5f - CB_R);
-        cbBtn.size     = Vector2(CB_R * 2.0f, CB_R * 2.0f);
+        cbBtn.position = Vector2(WX + WW - CLOSE_BTN_W - 3.0f, WY + 2.0f);
+        cbBtn.size     = Vector2(CLOSE_BTN_W, CLOSE_BTN_H);
         cbBtn.bgColor  = MyColor(0, 0, 0, 0);       // fully transparent — circle is drawn by onCustomRender
         cbBtn.bgTextureId = cbBtn.bgTextureHoverId = int(BlitObj2DIndexType::NONE);
         cbBtn.label = L"";  cbBtn.lblFontSize = 1.0f;  cbBtn.isVisible = true;
@@ -534,50 +570,6 @@ void GUIManager::CreateConfigWindow()
     // ===================================================================
     {
         float y = CY;
-
-        addSliderRow("t0_zoom", y, L"Zoom Sensitivity:", true, 0,
-            0.001f, 0.050f, (float)config.myConfig.zoomSensitivity,
-            [](float v) { return CfgFmtFloat((long double)v, 4); },
-            [](float v) { config.myConfig.zoomSensitivity = (long double)v; });
-        y += ROW;
-
-        addSliderRow("t0_move", y, L"Move Sensitivity:", true, 0,
-            0.0001f, 0.0050f, (float)config.myConfig.moveSensitivity,
-            [](float v) { return CfgFmtFloat((long double)v, 5); },
-            [](float v) { config.myConfig.moveSensitivity = (long double)v; });
-        y += ROW;
-
-        addSliderRow("t0_maxp", y, L"Max Pitch (deg):", true, 0,
-            1.0f, 89.0f, (float)config.myConfig.maxPitch,
-            [](float v) { return CfgFmtFloat((long double)std::round(v), 1); },
-            [](float v) {
-                float s = std::round(v);
-                if (s > (float)config.myConfig.minPitch + 1.0f)
-                    config.myConfig.maxPitch = (long double)s;
-            });
-        y += ROW;
-
-        addSliderRow("t0_minp", y, L"Min Pitch (deg):", true, 0,
-            -89.0f, 88.0f, (float)config.myConfig.minPitch,
-            [](float v) { return CfgFmtFloat((long double)std::round(v), 1); },
-            [](float v) {
-                float s = std::round(v);
-                if (s < (float)config.myConfig.maxPitch - 1.0f)
-                    config.myConfig.minPitch = (long double)s;
-            });
-        y += ROW;
-
-        addSliderRow("t0_near", y, L"Near Plane:", true, 0,
-            0.1f, 2.0f, (float)config.myConfig.nearPlane,
-            [](float v) { return CfgFmtFloat((long double)v, 2); },
-            [](float v) { config.myConfig.nearPlane = (long double)std::clamp(v, 0.1f, 2.0f); });
-        y += ROW;
-
-        addSliderRow("t0_far", y, L"Far Plane:", true, 0,
-            500.0f, 2000.0f, (float)config.myConfig.farPlane,
-            [](float v) { return CfgFmtInt((int)std::round(v)); },
-            [](float v) { config.myConfig.farPlane = (long double)std::clamp(std::round(v), 500.0f, 2000.0f); });
-        y += ROW;
 
         addTogSlider("t0_dbg", y, L"Show Debug Info:", config.myConfig.showDebugInfo, true, 0,
             [](bool on) { config.myConfig.showDebugInfo = on; });
@@ -663,7 +655,8 @@ void GUIManager::CreateConfigWindow()
     // TAB 2: VIDEO
     // All settings flag needsVideoRestart; renderer/OS changes take effect
     // only after a game restart. The config is saved immediately on Save.
-    // Row order: Display Mode, Resolution, Refresh Rate, then toggles.
+    // Row order: FOV, Renderer, Display Mode, Resolution, Refresh Rate,
+    //            Aspect Ratio, toggles, Near Plane, Far Plane.
     // ===================================================================
     {
         float y = CY;
@@ -728,7 +721,7 @@ void GUIManager::CreateConfigWindow()
                     return std::to_wstring(r.first) + L"x" + std::to_wstring(r.second);
                 },
                 [allModes, uniqueRes, resIdx, rateVec, rateIdx, needsVideoRestart,
-                 weakWin, updLabel](float v) {
+                 weakWin, updLabel, aspRatios, aspIdx](float v) {
                     if (uniqueRes->empty()) return;
                     int sz = (int)uniqueRes->size();
                     int i  = sz - 1 - std::clamp((int)std::round(v), 0, sz - 1);
@@ -740,7 +733,17 @@ void GUIManager::CreateConfigWindow()
                     *rateIdx = 0;
                     if (!rateVec->empty()) config.myConfig.refreshRate = (*rateVec)[0];
                     config.myConfig.aspectRatio = LookupAspectRatio(r.first, r.second);
-                    updLabel("t2_asp", CfgFmtFloat(config.myConfig.aspectRatio, 4));
+                    {
+                        float newAsp = (float)config.myConfig.aspectRatio;
+                        int newAspIdx = 0;
+                        for (int j = 0; j < (int)aspRatios->size(); ++j)
+                            if (std::abs((*aspRatios)[j].value - newAsp) < 0.005f) { newAspIdx = j; break; }
+                        *aspIdx = newAspIdx;
+                        updLabel("t2_asp_val", aspRatios->empty() ? L"N/A" : (*aspRatios)[newAspIdx].name);
+                        if (auto w2 = weakWin.lock())
+                            for (auto& c2 : w2->controls)
+                                if (c2.id == "t2_asp_sldr") { c2.sliderValue = (float)newAspIdx; break; }
+                    }
                     *needsVideoRestart = true;
                     // Rebuild rate slider; default to highest rate = rightmost position
                     float newMax = rateVec->empty() ? 0.0f : (float)((int)rateVec->size() - 1);
@@ -783,6 +786,27 @@ void GUIManager::CreateConfigWindow()
                 });
             y += ROW;
         }
+
+        // --- Aspect Ratio (auto-updated when Resolution changes) ---
+        {
+            float aspMax = aspRatios->empty() ? 0.0f : (float)((int)aspRatios->size() - 1);
+            addSliderRow("t2_asp", y, L"Aspect Ratio:",
+                false, 2,
+                0.0f, aspMax, (float)startAspIdx,
+                [aspRatios](float v) -> std::wstring {
+                    if (aspRatios->empty()) return L"N/A";
+                    int i = std::clamp((int)std::round(v), 0, (int)aspRatios->size() - 1);
+                    return (*aspRatios)[i].name;
+                },
+                [aspRatios, aspIdx, needsVideoRestart](float v) {
+                    if (aspRatios->empty()) return;
+                    int i = std::clamp((int)std::round(v), 0, (int)aspRatios->size() - 1);
+                    *aspIdx = i;
+                    config.myConfig.aspectRatio = (long double)(*aspRatios)[i].value;
+                    *needsVideoRestart = true;
+                });
+        }
+        y += ROW;
 
         // --- Toggles (all require restart) ---
         addTogSlider("t2_vsync", y, L"Vertical Sync:", config.myConfig.enableVSync, false, 2,
@@ -827,14 +851,56 @@ void GUIManager::CreateConfigWindow()
             });
         y += ROW;
 
-        addInfoRow("t2_asp", y, L"Aspect Ratio:", CfgFmtFloat(config.myConfig.aspectRatio, 4), true);
+        // --- Near / Far Plane (apply live; moved from Game Play tab) ---
+        addSliderRow("t2_near", y, L"Near Plane:", false, 2,
+            0.1f, 2.0f, (float)config.myConfig.nearPlane,
+            [](float v) { return CfgFmtFloat((long double)v, 2); },
+            [](float v) { config.myConfig.nearPlane = (long double)std::clamp(v, 0.1f, 2.0f); });
+        y += ROW;
+
+        addSliderRow("t2_far", y, L"Far Plane:", false, 2,
+            500.0f, 2000.0f, (float)config.myConfig.farPlane,
+            [](float v) { return CfgFmtInt((int)std::round(v)); },
+            [](float v) { config.myConfig.farPlane = (long double)std::clamp(std::round(v), 500.0f, 2000.0f); });
     }
 
     // ===================================================================
-    // TAB 3: CONTROLS  (joystick-specific; zoom/move are in Game Play)
+    // TAB 3: CONTROLS
     // ===================================================================
     {
         float y = CY;
+
+        addSliderRow("t3_zoom", y, L"Zoom Sensitivity:", false, 3,
+            0.001f, 0.050f, (float)config.myConfig.zoomSensitivity,
+            [](float v) { return CfgFmtFloat((long double)v, 4); },
+            [](float v) { config.myConfig.zoomSensitivity = (long double)v; });
+        y += ROW;
+
+        addSliderRow("t3_move", y, L"Move Sensitivity:", false, 3,
+            0.0001f, 0.0050f, (float)config.myConfig.moveSensitivity,
+            [](float v) { return CfgFmtFloat((long double)v, 5); },
+            [](float v) { config.myConfig.moveSensitivity = (long double)v; });
+        y += ROW;
+
+        addSliderRow("t3_maxp", y, L"Max Pitch (deg):", false, 3,
+            1.0f, 89.0f, (float)config.myConfig.maxPitch,
+            [](float v) { return CfgFmtFloat((long double)std::round(v), 1); },
+            [](float v) {
+                float s = std::round(v);
+                if (s > (float)config.myConfig.minPitch + 1.0f)
+                    config.myConfig.maxPitch = (long double)s;
+            });
+        y += ROW;
+
+        addSliderRow("t3_minp", y, L"Min Pitch (deg):", false, 3,
+            -89.0f, 88.0f, (float)config.myConfig.minPitch,
+            [](float v) { return CfgFmtFloat((long double)std::round(v), 1); },
+            [](float v) {
+                float s = std::round(v);
+                if (s < (float)config.myConfig.maxPitch - 1.0f)
+                    config.myConfig.minPitch = (long double)s;
+            });
+        y += ROW;
 
         addSliderRow("t3_jsens", y, L"Joystick Sensitivity:", false, 3,
             0.001f, 0.100f, (float)config.myConfig.joystickSensitivity,
@@ -891,48 +957,37 @@ void GUIManager::CreateConfigWindow()
                 return;
             }
 
-            // Build notification window BEFORE closing config window so we never
+            // Build 3D notification window BEFORE closing config window so we never
             // access closure captures after RemoveWindow.
             const std::string NOTIFY_WIN = "restart_notify";
 #if defined(__USE_OPENGL__)
-            const float NW = 420.0f, NH = 170.0f;   // −10 per user spec
+            const float NW = 420.0f, NH = 188.0f;
 #else
-            const float NW = 440.0f, NH = 170.0f;
+            const float NW = 440.0f, NH = 188.0f;
 #endif
             const float NX = (static_cast<float>(self->myRenderer->iOrigWidth)  - NW) / 2.0f;
             const float NY = (static_cast<float>(self->myRenderer->iOrigHeight) - NH) / 2.0f;
 
+            // Solid dark background so controls render correctly.
+            // onCustomRender only draws the bevel border + titlebar area on top.
             self->CreateMyWindow(NOTIFY_WIN, GUIWindowType::Dialog,
                 Vector2(NX, NY), Vector2(NW, NH),
-                MyColor(0, 0, 0, 220), int(BlitObj2DIndexType::NONE));
+                MyColor(18, 20, 32, 252), int(BlitObj2DIndexType::NONE));
 
             auto nw = self->GetWindow(NOTIFY_WIN);
             if (!nw) { RemoveWindow(win); return; }
             nw->isModal = true;
 
-            // Titlebar
-            {
-                GUIControl tb;
-                tb.type = GUIControlType::TitleBar;  tb.id = "n_title";
-                tb.position = Vector2(NX, NY);
-                tb.size     = Vector2(NW - (CLOSEWINBUTTON_SIZE + 6.0f), TITLEBAR_HEIGHT);
-                tb.bgColor  = MyColor(0, 0, 0, 255);
-                tb.txtColor = MyColor(255, 80, 80, 255);
-                tb.bgTextureId = tb.bgTextureHoverId = int(BlitObj2DIndexType::IMG_TITLEBAR1);
-                tb.label = L"Video Settings — Restart Required";
-                tb.lblFontSize = 14.0f;  tb.isVisible = true;
-                nw->AddControl(tb);
-            }
             // Message
             {
                 GUIControl c;
                 c.type = GUIControlType::TextArea;  c.id = "n_msg";
-                c.position = Vector2(NX + 12.0f, NY + TITLEBAR_HEIGHT + 14.0f);
-                c.size     = Vector2(NW - 24.0f, 26.0f);
+                c.position = Vector2(NX + 14.0f, NY + TITLEBAR_HEIGHT + 16.0f);
+                c.size     = Vector2(NW - 28.0f, 26.0f);
                 c.bgColor  = MyColor(0, 0, 0, 0);
                 c.hoverColor = MyColor(0, 0, 0, 0);
                 c.bgTextureId = c.bgTextureHoverId = int(BlitObj2DIndexType::NONE);
-                c.txtColor = MyColor(200, 200, 200, 255);
+                c.txtColor = MyColor(205, 205, 210, 255);
                 c.label = L"Video settings saved. A restart is required to apply them.";
                 c.lblFontSize = 13.0f;  c.isVisible = true;
                 nw->AddControl(c);
@@ -941,32 +996,32 @@ void GUIManager::CreateConfigWindow()
             {
                 GUIControl c;
                 c.type = GUIControlType::TextArea;  c.id = "n_countdown";
-                c.position = Vector2(NX + 12.0f, NY + TITLEBAR_HEIGHT + 46.0f);
-                c.size     = Vector2(NW - 24.0f, 26.0f);
+                c.position = Vector2(NX + 14.0f, NY + TITLEBAR_HEIGHT + 50.0f);
+                c.size     = Vector2(NW - 28.0f, 26.0f);
                 c.bgColor  = MyColor(0, 0, 0, 0);
                 c.hoverColor = MyColor(0, 0, 0, 0);
                 c.bgTextureId = c.bgTextureHoverId = int(BlitObj2DIndexType::NONE);
-                c.txtColor = MyColor(255, 220, 80, 255);
-                c.label = L"Restarting automatically in 10 seconds...";
+                c.txtColor = MyColor(255, 218, 75, 255);
+                c.label = L"Restarting automatically in 30 seconds...";
                 c.lblFontSize = 13.0f;  c.isVisible = true;
                 nw->AddControl(c);
             }
 
             auto restartDone = std::make_shared<std::atomic<bool>>(false);
 
-            // Restart Now button — captures self (stack copy of this), not closure this
+            const float N_BTN_Y = NY + TITLEBAR_HEIGHT + 100.0f;
+
+            // Restart Now button
             {
                 GUIControl c;
                 c.type = GUIControlType::Button;  c.id = "n_btn_now";
-                c.position = Vector2(NX + 12.0f, NY + TITLEBAR_HEIGHT + 86.0f);
-                c.size     = Vector2(160.0f, 32.0f);
+                c.position = Vector2(NX + 14.0f, N_BTN_Y);
+                c.size     = Vector2(168.0f, 34.0f);
                 c.bgColor  = MyColor(20, 20, 35, 102);
                 c.hoverColor = MyColor(60, 60, 90, 255);
                 c.bgTextureId = c.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTONUP1);
-                c.txtColor = MyColor(210, 210, 210, 255);
-#if defined(__USE_OPENGL__)
+                c.txtColor = MyColor(215, 215, 215, 255);
                 c.bold = true;
-#endif
                 c.label = L"Restart Now";  c.lblFontSize = 13.0f;  c.isVisible = true;
                 c.onMouseBtnDown = [self, NOTIFY_WIN, restartDone]() {
                     if (restartDone->exchange(true)) return;
@@ -986,15 +1041,13 @@ void GUIManager::CreateConfigWindow()
             {
                 GUIControl c;
                 c.type = GUIControlType::Button;  c.id = "n_btn_cancel";
-                c.position = Vector2(NX + 188.0f, NY + TITLEBAR_HEIGHT + 86.0f);
-                c.size     = Vector2(160.0f, 32.0f);
+                c.position = Vector2(NX + 196.0f, N_BTN_Y);
+                c.size     = Vector2(168.0f, 34.0f);
                 c.bgColor  = MyColor(20, 20, 35, 102);
                 c.hoverColor = MyColor(60, 60, 90, 255);
                 c.bgTextureId = c.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTONUP1);
-                c.txtColor = MyColor(210, 210, 210, 255);
-#if defined(__USE_OPENGL__)
+                c.txtColor = MyColor(215, 215, 215, 255);
                 c.bold = true;
-#endif
                 c.label = L"Cancel Restart";  c.lblFontSize = 13.0f;  c.isVisible = true;
                 c.onMouseBtnDown = [self, NOTIFY_WIN, restartDone]() {
                     restartDone->store(true);
@@ -1004,13 +1057,84 @@ void GUIManager::CreateConfigWindow()
                 nw->AddControl(c);
             }
 
+            // 3D window frame + solid gradient titlebar drawn by onCustomRender
+            // All positions are captured by value (NX/NY are fixed — Dialog windows don't drag)
+            const float kNTH = TITLEBAR_HEIGHT;   // local copy so lambda can capture it
+            nw->onCustomRender = [NX, NY, NW, NH, kNTH](Renderer* r2) {
+                // ── OUTER RAISED BEVEL BORDER (edges only — body already filled by window bg)
+                // Highlight edges (top + left = light)
+                r2->DrawRectangle(Vector2(NX, NY), Vector2(NW, 1.0f),
+                    MyColor(95, 105, 145, 240), true);
+                r2->DrawRectangle(Vector2(NX, NY), Vector2(1.0f, NH),
+                    MyColor(88, 98, 138, 228), true);
+                // Shadow edges (bottom + right = dark)
+                r2->DrawRectangle(Vector2(NX, NY + NH - 1.0f), Vector2(NW, 1.0f),
+                    MyColor(4, 5, 10, 240), true);
+                r2->DrawRectangle(Vector2(NX + NW - 1.0f, NY), Vector2(1.0f, NH),
+                    MyColor(4, 5, 10, 240), true);
+                // Inner bevel (second depth level)
+                r2->DrawRectangle(Vector2(NX + 1.0f, NY + 1.0f), Vector2(NW - 2.0f, 1.0f),
+                    MyColor(68, 78, 112, 200), true);
+                r2->DrawRectangle(Vector2(NX + 1.0f, NY + 1.0f), Vector2(1.0f, NH - 2.0f),
+                    MyColor(62, 72, 105, 185), true);
+                r2->DrawRectangle(Vector2(NX + 1.0f, NY + NH - 2.0f), Vector2(NW - 2.0f, 1.0f),
+                    MyColor(8, 9, 16, 220), true);
+                r2->DrawRectangle(Vector2(NX + NW - 2.0f, NY + 1.0f), Vector2(1.0f, NH - 2.0f),
+                    MyColor(8, 9, 16, 220), true);
+
+                // ── SMOOTH GRADIENT TITLEBAR (per-pixel linear interpolation, 1px bands) ──
+                {
+                    struct GStop2 { float t, r, g, b, a; };
+                    static const GStop2 kStops2[] = {
+                        {0.00f, 162.f, 205.f, 255.f, 210.f},   // top: sky sheen
+                        {0.15f, 110.f, 165.f, 248.f, 220.f},   // bright blue
+                        {0.35f,  62.f, 110.f, 218.f, 230.f},   // royal blue
+                        {0.55f,  28.f,  58.f, 148.f, 240.f},   // cobalt
+                        {0.75f,  12.f,  24.f,  72.f, 248.f},   // dark navy
+                        {1.00f,   4.f,   6.f,  22.f, 255.f},   // near-black
+                    };
+                    const int nS2   = (int)(sizeof(kStops2) / sizeof(kStops2[0]));
+                    const float tbH = kNTH - 2.0f;
+                    const int kRows = std::max(1, (int)tbH);
+                    for (int row = 0; row < kRows; ++row) {
+                        float t = (kRows > 1) ? (float)row / (float)(kRows - 1) : 0.f;
+                        float cr = 4.f, cg = 6.f, cb = 22.f, ca = 255.f;
+                        for (int si = 0; si < nS2 - 1; ++si) {
+                            if (t >= kStops2[si].t && t <= kStops2[si + 1].t) {
+                                float denom = kStops2[si + 1].t - kStops2[si].t;
+                                float u = (denom > 0.f) ? (t - kStops2[si].t) / denom : 0.f;
+                                cr = kStops2[si].r + u * (kStops2[si + 1].r - kStops2[si].r);
+                                cg = kStops2[si].g + u * (kStops2[si + 1].g - kStops2[si].g);
+                                cb = kStops2[si].b + u * (kStops2[si + 1].b - kStops2[si].b);
+                                ca = kStops2[si].a + u * (kStops2[si + 1].a - kStops2[si].a);
+                                break;
+                            }
+                        }
+                        r2->DrawRectangle(Vector2(NX + 2.0f, NY + 2.0f + (float)row),
+                            Vector2(NW - 4.0f, 1.0f),
+                            MyColor((uint8_t)cr, (uint8_t)cg, (uint8_t)cb, (uint8_t)ca), true);
+                    }
+                }
+                // Divider between titlebar and content
+                r2->DrawRectangle(Vector2(NX + 2.0f, NY + kNTH - 1.0f),
+                    Vector2(NW - 4.0f, 1.0f), MyColor(2, 3, 8, 255), true);
+                r2->DrawRectangle(Vector2(NX + 2.0f, NY + kNTH),
+                    Vector2(NW - 4.0f, 1.0f), MyColor(48, 55, 85, 180), true);
+
+                // Title text — bold, centred in titlebar
+                r2->DrawMyTextCentered(L"Video Settings - Restart Required",
+                    Vector2(NX + 2.0f, NY + 2.0f),
+                    MyColor(255, 82, 82, 255), 13.0f,
+                    NW - 4.0f, kNTH - 2.0f, true);
+            };
+
             // Close config window — after this the outer closure may be freed.
             // Everything below uses only local stack variables (self, NOTIFY_WIN, restartDone).
             RemoveWindow(win);
 
             // Countdown thread — captures self and NOTIFY_WIN by value from the stack
             std::thread([self, NOTIFY_WIN, restartDone]() {
-                for (int s = 10; s > 0; --s) {
+                for (int s = 30; s > 0; --s) {
                     if (restartDone->load()) return;
                     if (auto w = self->GetWindow(NOTIFY_WIN)) {
                         for (auto& c : w->controls) {
@@ -1077,7 +1201,7 @@ void GUIManager::CreateConfigWindow()
     }
     configWindow->m_hasClip  = true;
     configWindow->m_clipPos  = Vector2(WX, CONT_Y + 4.0f);
-    configWindow->m_clipSize = Vector2(WW, CONT_H - 4.0f);
+    configWindow->m_clipSize = Vector2(WW, CONT_H - 9.0f);
 
     // ===================================================================
     // SCROLLBAR — drawn on top of all controls via onCustomRender.
@@ -1094,7 +1218,7 @@ void GUIManager::CreateConfigWindow()
         // onCustomRender: all positions derived from weakWin at render time so that
         // window dragging keeps titlebar, circle button, and scrollbar in sync.
         configWindow->onCustomRender = [weakWin, actTab, tabScrollY, tabContentH,
-                                         CFG_SCROLL_W, SCROLL_H, CB_R](Renderer* r) {
+                                         CFG_SCROLL_W, SCROLL_H, lastScrollClick](Renderer* r) {
             auto w = weakWin.lock();
             if (!w) return;
 
@@ -1103,62 +1227,198 @@ void GUIManager::CreateConfigWindow()
             const float wx  = w->position.x;
             const float wy  = w->position.y;
             const float ww  = w->size.x;
-            // Scrollbar positions
+            const float wh  = w->size.y;
+
+            // ── WINDOW DROP SHADOW ────────────────────────────────────────
+            r->DrawRectangle(Vector2(wx + 6.0f, wy + 8.0f), Vector2(ww, wh),
+                MyColor(0, 0, 0, 95), true);
+
+            // ── SMOOTH GRADIENT TITLEBAR (per-pixel linear interpolation, 1px bands) ──
+            {
+                struct GStop { float t, r, g, b, a; };
+                static const GStop kStops[] = {
+                    {0.00f, 195.f, 225.f, 255.f, 200.f},   // top: bright glass cap
+                    {0.06f, 162.f, 205.f, 255.f, 210.f},   // near-white sheen
+                    {0.12f, 125.f, 178.f, 255.f, 218.f},   // sky-blue highlight
+                    {0.25f,  95.f, 148.f, 245.f, 225.f},   // royal blue
+                    {0.38f,  68.f, 108.f, 210.f, 232.f},   // mid-blue
+                    {0.50f,  42.f,  68.f, 158.f, 238.f},   // cobalt
+                    {0.62f,  22.f,  35.f,  95.f, 245.f},   // dark navy
+                    {0.74f,  10.f,  16.f,  50.f, 248.f},   // deep navy
+                    {0.85f,   6.f,   8.f,  28.f, 252.f},   // near-black navy
+                    {1.00f,   2.f,   3.f,  12.f, 255.f},   // bottom shadow
+                };
+                const int nS    = (int)(sizeof(kStops) / sizeof(kStops[0]));
+                const int kRows = std::max(1, (int)kTH);
+                for (int row = 0; row < kRows; ++row) {
+                    float t = (kRows > 1) ? (float)row / (float)(kRows - 1) : 0.f;
+                    float cr = 2.f, cg = 3.f, cb = 12.f, ca = 255.f;
+                    for (int si = 0; si < nS - 1; ++si) {
+                        if (t >= kStops[si].t && t <= kStops[si + 1].t) {
+                            float denom = kStops[si + 1].t - kStops[si].t;
+                            float u = (denom > 0.f) ? (t - kStops[si].t) / denom : 0.f;
+                            cr = kStops[si].r + u * (kStops[si + 1].r - kStops[si].r);
+                            cg = kStops[si].g + u * (kStops[si + 1].g - kStops[si].g);
+                            cb = kStops[si].b + u * (kStops[si + 1].b - kStops[si].b);
+                            ca = kStops[si].a + u * (kStops[si + 1].a - kStops[si].a);
+                            break;
+                        }
+                    }
+                    r->DrawRectangle(Vector2(wx, wy + (float)row), Vector2(ww, 1.0f),
+                        MyColor((uint8_t)cr, (uint8_t)cg, (uint8_t)cb, (uint8_t)ca), true);
+                }
+            }
+            // Top edge glass line
+            r->DrawRectangle(Vector2(wx + 1.0f, wy + 1.0f), Vector2(ww - 2.0f, 1.0f),
+                MyColor(220, 240, 255, 120), true);
+            // Bottom edge hard divider
+            r->DrawRectangle(Vector2(wx, wy + kTH - 1.0f), Vector2(ww, 1.0f),
+                MyColor(2, 3, 10, 255), true);
+            // Outer raised bevel on titlebar edges
+            r->DrawRectangle(Vector2(wx, wy), Vector2(ww, 1.0f),
+                MyColor(110, 125, 165, 230), true);
+            r->DrawRectangle(Vector2(wx, wy), Vector2(1.0f, kTH),
+                MyColor(100, 118, 158, 220), true);
+            r->DrawRectangle(Vector2(wx + ww - 1.0f, wy), Vector2(1.0f, kTH),
+                MyColor(4, 5, 14, 220), true);
+
+            // Title text — left-aligned, vertically centred, 16pt pseudo-bold
+            // DrawMyText has no bold param; drawing twice at +1px x gives the bold weight.
+            {
+                constexpr float kTitleFS = 16.0f;
+                const float tbTextY = wy + (kTH - kTitleFS * 1.1f) * 0.5f;
+                // Back pass (1px right) at reduced alpha — widens strokes
+                r->DrawMyText(L"System Configuration",
+                    Vector2(wx + 9.0f, tbTextY), MyColor(255, 228, 90, 160), kTitleFS);
+                // Front pass — full alpha, correct position
+                r->DrawMyText(L"System Configuration",
+                    Vector2(wx + 8.0f, tbTextY), MyColor(255, 228, 90, 255), kTitleFS);
+            }
+
+            // ── RECTANGULAR CLOSE BUTTON ──────────────────────────────────
+            const float clBtnW = 22.0f;
+            const float clBtnH = kTH - 4.0f;
+            const float clBtnX = wx + ww - clBtnW - 3.0f;
+            const float clBtnY = wy + 2.0f;
+
+            // Button drop shadow
+            r->DrawRectangle(Vector2(clBtnX + 1.5f, clBtnY + 1.5f), Vector2(clBtnW, clBtnH),
+                MyColor(0, 0, 0, 105), true);
+            // Button body base (dark red)
+            r->DrawRectangle(Vector2(clBtnX, clBtnY), Vector2(clBtnW, clBtnH),
+                MyColor(165, 30, 26, 255), true);
+            // Upper half brighter
+            r->DrawRectangle(Vector2(clBtnX, clBtnY), Vector2(clBtnW, std::floor(clBtnH * 0.50f)),
+                MyColor(210, 52, 46, 255), true);
+            // Top glass line
+            r->DrawRectangle(Vector2(clBtnX + 1.0f, clBtnY + 1.0f), Vector2(clBtnW - 2.0f, 1.0f),
+                MyColor(255, 165, 158, 88), true);
+            // Raised outer bevel
+            r->DrawRectangle(Vector2(clBtnX, clBtnY), Vector2(clBtnW, 1.0f),
+                MyColor(228, 88, 82, 220), true);
+            r->DrawRectangle(Vector2(clBtnX, clBtnY), Vector2(1.0f, clBtnH),
+                MyColor(218, 78, 72, 200), true);
+            r->DrawRectangle(Vector2(clBtnX, clBtnY + clBtnH - 1.0f), Vector2(clBtnW, 1.0f),
+                MyColor(78, 10, 8, 220), true);
+            r->DrawRectangle(Vector2(clBtnX + clBtnW - 1.0f, clBtnY), Vector2(1.0f, clBtnH),
+                MyColor(78, 10, 8, 220), true);
+            // Bold "X" symbol centred
+            r->DrawMyTextCentered(L"X",
+                Vector2(clBtnX, clBtnY), MyColor(255, 228, 220, 255), 13.0f,
+                clBtnW, clBtnH, true);
+
+            // ── SCROLLBAR ─────────────────────────────────────────────────
             const float contY   = wy + kTH + 26.0f;
             const float scrollX = wx + ww - CFG_SCROLL_W - 7.0f;
             const float scrollY = contY + 5.0f;
-            // Circle close-button centre (15 px from right edge, titlebar vertical centre)
-            const float cbX = wx + ww - 15.0f;
-            const float cbY = wy + kTH * 0.5f;
 
-            // ── 3-D TITLEBAR ──────────────────────────────────────────────
-            r->DrawRectangle(Vector2(wx, wy), Vector2(ww, kTH),
-                MyColor(15, 18, 38, 255), true);
-            r->DrawRectangle(Vector2(wx, wy), Vector2(ww, 2.0f),
-                MyColor(80, 105, 200, 210), true);
-            r->DrawRectangle(Vector2(wx, wy + 2.0f), Vector2(ww, 1.0f),
-                MyColor(45, 58, 118, 160), true);
-            r->DrawRectangle(Vector2(wx, wy + 3.0f), Vector2(ww, kTH - 5.0f),
-                MyColor(22, 28, 54, 235), true);
-            r->DrawRectangle(Vector2(wx, wy + kTH - 1.0f), Vector2(ww, 1.0f),
-                MyColor(4, 5, 12, 255), true);
-
-            // Title text centred (leave room on right for circle button)
-            r->DrawMyTextCentered(L"System Configuration",
-                Vector2(wx, wy), MyColor(255, 220, 75, 255), 16.0f, ww - 34.0f, kTH);
-
-            // ── CIRCULAR CLOSE BUTTON ─────────────────────────────────────
-            r->DrawCircle(Vector2(cbX, cbY), CB_R + 1.5f, MyColor(55, 14, 14, 200), true);
-            r->DrawCircle(Vector2(cbX, cbY), CB_R,        MyColor(190, 38, 38, 255), true);
-            // "x" centred inside circle — horizontally and vertically
-            r->DrawMyTextCentered(L"x",
-                Vector2(cbX - CB_R, cbY - CB_R),
-                MyColor(255, 215, 215, 255), 10.0f,
-                CB_R * 2.0f, CB_R * 2.0f);
-
-            // ── SCROLLBAR ─────────────────────────────────────────────────
             int   t         = *actTab;
             float contentH  = tabContentH[t];
             float scrollOff = (*tabScrollY)[t];
             float maxS      = std::max(0.0f, contentH - kVisH);
+            const bool hasScroll = (maxS > 0.0f);
 
+            // Track outer background
             r->DrawRectangle(Vector2(scrollX, scrollY),
-                Vector2(CFG_SCROLL_W, SCROLL_H), MyColor(15, 15, 22, 210), true);
+                Vector2(CFG_SCROLL_W, SCROLL_H), MyColor(12, 14, 22, 245), true);
+            // Track sunken bevel (top-left dark, bottom-right light)
             r->DrawRectangle(Vector2(scrollX, scrollY),
-                Vector2(1.0f, SCROLL_H), MyColor(55, 55, 75, 130), true);
+                Vector2(CFG_SCROLL_W, 1.0f), MyColor(4, 5, 12, 230), true);
+            r->DrawRectangle(Vector2(scrollX, scrollY),
+                Vector2(1.0f, SCROLL_H), MyColor(4, 5, 12, 230), true);
+            r->DrawRectangle(Vector2(scrollX, scrollY + SCROLL_H - 1.0f),
+                Vector2(CFG_SCROLL_W, 1.0f), MyColor(62, 68, 92, 200), true);
+            r->DrawRectangle(Vector2(scrollX + CFG_SCROLL_W - 1.0f, scrollY),
+                Vector2(1.0f, SCROLL_H), MyColor(62, 68, 92, 200), true);
+            // Inner trough
+            r->DrawRectangle(Vector2(scrollX + 1.0f, scrollY + 1.0f),
+                Vector2(CFG_SCROLL_W - 2.0f, SCROLL_H - 2.0f),
+                MyColor(8, 10, 18, 255), true);
 
-            float thumbH = (maxS > 0.0f)
-                ? std::max(20.0f, SCROLL_H * (kVisH / contentH))
-                : SCROLL_H - 2.0f;
-            float thumbY = (maxS > 0.0f)
-                ? scrollY + (SCROLL_H - thumbH) * (scrollOff / maxS)
-                : scrollY + 1.0f;
-            MyColor thumbCol = (maxS > 0.0f)
-                ? MyColor(80, 92, 145, 235) : MyColor(38, 38, 58, 150);
-            r->DrawRectangle(Vector2(scrollX + 2.0f, thumbY),
-                Vector2(CFG_SCROLL_W - 4.0f, thumbH), thumbCol, true);
-            r->DrawRectangle(Vector2(scrollX + 2.0f, thumbY),
-                Vector2(CFG_SCROLL_W - 4.0f, 2.0f), MyColor(255, 255, 255, 45), true);
+            // Scrollbar thumb
+            float thumbH = hasScroll
+                ? std::max(24.0f, SCROLL_H * (kVisH / contentH))
+                : SCROLL_H - 4.0f;
+            float thumbY = hasScroll
+                ? scrollY + 1.0f + (SCROLL_H - 2.0f - thumbH) * (scrollOff / maxS)
+                : scrollY + 2.0f;
+
+            const float tx = scrollX + 2.0f;
+            const float tw = CFG_SCROLL_W - 4.0f;
+
+            // Active = scrollbar was clicked/dragged within the last 600 ms
+            const bool  scrollActive = (GetTickCount64() - lastScrollClick->load()) < 600;
+            const bool  scrollFlash  = scrollActive && ((GetTickCount64() / 220) % 2 == 0);
+
+            // Thumb drop shadow
+            r->DrawRectangle(Vector2(tx + 1.0f, thumbY + 1.0f), Vector2(tw, thumbH),
+                MyColor(0, 0, 0, 88), true);
+
+            // Thumb body — gold when scrollable, dark when at full size (no scroll needed)
+            // Flash between bright and dimmer gold when actively dragging
+            float thumbHalf = std::floor(thumbH * 0.5f);
+            MyColor goldTop, goldBot;
+            if (hasScroll) {
+                if (scrollFlash) {
+                    goldTop = MyColor(255, 235, 80,  255);   // bright flash top
+                    goldBot = MyColor(215, 175, 28,  255);   // bright flash bottom
+                } else if (scrollActive) {
+                    goldTop = MyColor(235, 205, 50,  250);   // active top
+                    goldBot = MyColor(190, 148, 18,  250);   // active bottom
+                } else {
+                    goldTop = MyColor(210, 178, 40,  238);   // idle gold top
+                    goldBot = MyColor(165, 128, 12,  238);   // idle gold bottom
+                }
+            } else {
+                goldTop = MyColor(42, 44, 60, 180);
+                goldBot = MyColor(30, 32, 44, 180);
+            }
+            r->DrawRectangle(Vector2(tx, thumbY), Vector2(tw, thumbHalf), goldTop, true);
+            r->DrawRectangle(Vector2(tx, thumbY + thumbHalf),
+                Vector2(tw, thumbH - thumbHalf), goldBot, true);
+
+            // Thumb raised bevel — gold highlight edges
+            r->DrawRectangle(Vector2(tx, thumbY), Vector2(tw, 1.0f),
+                MyColor(255, 245, 140, hasScroll ? 210 : 100), true);
+            r->DrawRectangle(Vector2(tx, thumbY), Vector2(1.0f, thumbH),
+                MyColor(245, 230, 110, hasScroll ? 195 : 90), true);
+            r->DrawRectangle(Vector2(tx, thumbY + thumbH - 1.0f), Vector2(tw, 1.0f),
+                MyColor(80, 55, 5, hasScroll ? 210 : 100), true);
+            r->DrawRectangle(Vector2(tx + tw - 1.0f, thumbY), Vector2(1.0f, thumbH),
+                MyColor(80, 55, 5, hasScroll ? 210 : 100), true);
+
+            // Thumb grip lines (3 horizontal dashes centred in thumb)
+            if (hasScroll && thumbH >= 18.0f) {
+                float gCX = tx + tw * 0.5f;
+                float gCY = thumbY + thumbH * 0.5f;
+                for (int gi = -1; gi <= 1; ++gi) {
+                    float gy = gCY + gi * 3.0f;
+                    r->DrawRectangle(Vector2(gCX - 4.0f, gy - 1.0f),
+                        Vector2(8.0f, 1.0f), MyColor(255, 245, 180, 55), true);
+                    r->DrawRectangle(Vector2(gCX - 4.0f, gy),
+                        Vector2(8.0f, 1.0f), MyColor(0, 0, 0, 80), true);
+                }
+            }
         };
 
         // Mouse-wheel: 18 px per notch, positive delta = scroll up
@@ -1169,7 +1429,8 @@ void GUIManager::CreateConfigWindow()
         // Scrollbar track click: jump to proportional position.
         // Close-button clicks are handled by the "btn_circleclose" Button control.
         configWindow->onCustomMouseInput = [weakWin, actTab, tabScrollY, tabContentH,
-                                             CFG_SCROLL_W, SCROLL_H, setTabScroll](float mx, float my) {
+                                             CFG_SCROLL_W, SCROLL_H, setTabScroll,
+                                             lastScrollClick](float mx, float my) {
             auto w = weakWin.lock();
             if (!w) return;
             constexpr float kVisH = 370.0f;
@@ -1179,6 +1440,10 @@ void GUIManager::CreateConfigWindow()
 
             if (mx < scrollX || mx > scrollX + CFG_SCROLL_W) return;
             if (my < scrollY || my > scrollY + SCROLL_H)     return;
+
+            // Mark scrollbar active so thumb flashes gold while dragging
+            lastScrollClick->store(GetTickCount64());
+
             int   t    = *actTab;
             float maxS = std::max(0.0f, tabContentH[t] - kVisH);
             if (maxS <= 0.0f) return;

@@ -85,11 +85,11 @@ extern Debug debug;
 // These macros enforce CPGE debug output rules for this module.
 // They compile out completely unless _DEBUG_THREADMANAGER_ and _DEBUG are both defined.
 #if defined(_DEBUG_THREADMANAGER_) && defined(_DEBUG)
-    #define TM_LOG_LEVEL(lvl, msg) TM_LOG_LEVEL((lvl), (msg))
-    #define TM_LOG_DEBUG(lvl, fmt, ...) TM_LOG_DEBUG((lvl), (fmt), __VA_ARGS__)
+    #define TM_LOG_LEVEL(lvl, msg)          debug.logLevelMessage((lvl), (msg))
+    #define TM_LOG_DEBUG(lvl, fmt, ...)     debug.logDebugMessage((lvl), (fmt), ##__VA_ARGS__)
 #else
-    #define TM_LOG_LEVEL(lvl, msg) do { (void)(lvl); (void)(msg); } while (0)
-    #define TM_LOG_DEBUG(lvl, fmt, ...) do { (void)(lvl); (void)(fmt); } while (0)
+    #define TM_LOG_LEVEL(lvl, msg)          do { (void)(lvl); (void)(msg); } while (0)
+    #define TM_LOG_DEBUG(lvl, fmt, ...)     do { (void)(lvl); (void)(fmt); } while (0)
 #endif
 
 
@@ -129,7 +129,231 @@ std::wstring ThreadManager::StringToWString(const std::string& str) {
     return wstr;
 }
 
-void ThreadManager::SetThread(const ThreadNameID id, std::function<void()> task, bool debugMode) {
+//-------------------------------------------------------------------------------------------------
+// ThreadUtils - Windows thread scheduling and naming utilities (PLATFORM_WINDOWS only).
+//-------------------------------------------------------------------------------------------------
+// All methods operate on the CALLING thread (GetCurrentThread()).
+// Must be called from within the thread function body, not from the creating thread.
+//-------------------------------------------------------------------------------------------------
+#if defined(PLATFORM_WINDOWS)
+
+void ThreadUtils::NameCurrentThread(const wchar_t* name) {
+    // SetThreadDescription requires Windows 10 1607 (Build 14393) or later.
+    // The name is visible in VS 2022 debugger, PIX for Windows, RenderDoc, and WPA.
+    HRESULT hr = SetThreadDescription(GetCurrentThread(), name);
+
+    #if defined(_DEBUG_THREADMANAGER_) && defined(_DEBUG)
+        if (SUCCEEDED(hr))
+            debug.logLevelMessage(LogLevel::LOG_INFO,
+                std::wstring(L"[ThreadUtils] Thread named: ") + name);
+        else
+            debug.logLevelMessage(LogLevel::LOG_WARNING,
+                std::wstring(L"[ThreadUtils] SetThreadDescription failed for: ") + name);
+    #else
+        (void)hr; // Suppress unused-variable warning in release builds
+    #endif
+}
+
+bool ThreadUtils::PreferCore(DWORD coreIndex) {
+    // SetThreadIdealProcessor() provides a soft scheduling hint to the Windows kernel.
+    // The OS retains the right to migrate the thread for load balancing, power management,
+    // and Intel Thread Director (hybrid P+E core) policy decisions.
+    SYSTEM_INFO si{};
+    GetSystemInfo(&si);
+
+    // Validate the requested LP index before calling the API.
+    if (coreIndex >= si.dwNumberOfProcessors) {
+        #if defined(_DEBUG_THREADMANAGER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_WARNING,
+                L"[ThreadUtils] PreferCore(" + std::to_wstring(coreIndex) +
+                L") out of range -- system has " + std::to_wstring(si.dwNumberOfProcessors) +
+                L" logical processor(s).");
+        #endif
+        return false;
+    }
+
+    // Request the ideal processor. Returns the previous ideal processor, or MAXDWORD on failure.
+    DWORD prev = SetThreadIdealProcessor(GetCurrentThread(), coreIndex);
+    bool  ok   = (prev != MAXDWORD);
+
+    #if defined(_DEBUG_THREADMANAGER_) && defined(_DEBUG)
+        if (ok)
+            debug.logLevelMessage(LogLevel::LOG_INFO,
+                L"[ThreadUtils] Ideal processor -> LP " + std::to_wstring(coreIndex) +
+                L" (was LP " + std::to_wstring(prev) + L").");
+        else
+            debug.logLevelMessage(LogLevel::LOG_WARNING,
+                L"[ThreadUtils] SetThreadIdealProcessor failed for LP " +
+                std::to_wstring(coreIndex) + L".");
+    #endif
+
+    return ok;
+}
+
+bool ThreadUtils::ForceCore(DWORD coreIndex) {
+    // SetThreadAffinityMask() hard-pins the thread to a single logical processor.
+    // This completely prevents Windows from migrating the thread for any reason, including:
+    //   - thermal throttling compensation
+    //   - Intel Thread Director P-core/E-core placement
+    //   - multi-CCD Ryzen load distribution
+    // USE ONLY FOR DEBUG, PROFILING, AND BENCHMARKING -- never in production game builds.
+    SYSTEM_INFO si{};
+    GetSystemInfo(&si);
+
+    // Safety check before constructing the affinity mask.
+    if (coreIndex >= si.dwNumberOfProcessors) {
+        #if defined(_DEBUG_THREADMANAGER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_WARNING,
+                L"[ThreadUtils] ForceCore(" + std::to_wstring(coreIndex) +
+                L") out of range -- system has " + std::to_wstring(si.dwNumberOfProcessors) +
+                L" logical processor(s).");
+        #endif
+        return false;
+    }
+
+    // Build a bitmask for the target LP only (e.g., LP 2 -> bitmask 0x4).
+    DWORD_PTR mask = (DWORD_PTR)1 << coreIndex;
+    bool      ok   = (SetThreadAffinityMask(GetCurrentThread(), mask) != 0);
+
+    #if defined(_DEBUG_THREADMANAGER_) && defined(_DEBUG)
+        if (ok)
+            debug.logLevelMessage(LogLevel::LOG_WARNING,
+                L"[ThreadUtils] Hard affinity set -> LP " + std::to_wstring(coreIndex) +
+                L". DEBUG/PROFILING USE ONLY -- disables Windows load balancing.");
+        else
+            debug.logLevelMessage(LogLevel::LOG_ERROR,
+                L"[ThreadUtils] SetThreadAffinityMask failed for LP " +
+                std::to_wstring(coreIndex) + L".");
+    #endif
+
+    return ok;
+}
+
+void ThreadUtils::SetPriority(int priority) {
+    // SetThreadPriority adjusts the scheduling weight relative to other threads.
+    // Avoid THREAD_PRIORITY_TIME_CRITICAL in production; it can preempt audio drivers,
+    // Windows system services, and even interrupt the message pump.
+    bool ok = (SetThreadPriority(GetCurrentThread(), priority) != 0);
+
+    #if defined(_DEBUG_THREADMANAGER_) && defined(_DEBUG)
+        if (ok) {
+            // Map the priority integer constant to a readable label for logging.
+            const wchar_t* label = L"UNKNOWN";
+            switch (priority) {
+                case THREAD_PRIORITY_ABOVE_NORMAL:  label = L"ABOVE_NORMAL";    break;
+                case THREAD_PRIORITY_NORMAL:        label = L"NORMAL";          break;
+                case THREAD_PRIORITY_BELOW_NORMAL:  label = L"BELOW_NORMAL";    break;
+                case THREAD_PRIORITY_HIGHEST:       label = L"HIGHEST";         break;
+                case THREAD_PRIORITY_LOWEST:        label = L"LOWEST";          break;
+                case THREAD_PRIORITY_TIME_CRITICAL: label = L"TIME_CRITICAL";   break;
+                case THREAD_PRIORITY_IDLE:          label = L"IDLE";            break;
+            }
+            debug.logLevelMessage(LogLevel::LOG_INFO,
+                std::wstring(L"[ThreadUtils] Thread priority -> ") + label + L".");
+        }
+        else {
+            debug.logLevelMessage(LogLevel::LOG_WARNING,
+                L"[ThreadUtils] SetThreadPriority failed.");
+        }
+    #else
+        (void)ok; // Suppress unused-variable warning in release builds
+    #endif
+}
+
+DWORD ThreadUtils::GetLogicalProcessorCount() {
+    // dwNumberOfProcessors from SYSTEM_INFO includes all logical processors:
+    // P-cores, E-cores, and hyper-threaded siblings on Intel hybrid CPUs.
+    SYSTEM_INFO si{};
+    GetSystemInfo(&si);
+    return si.dwNumberOfProcessors;
+}
+
+#endif // PLATFORM_WINDOWS
+
+//-------------------------------------------------------------------------------------------------
+// ThreadManager::InitialiseThreadAffinity
+//-------------------------------------------------------------------------------------------------
+// Queries the system logical processor count, validates that the recommended engine thread
+// layout can be satisfied, and logs the full LP assignment table at startup.
+// Must be called BEFORE any SetThread() so the processor count is known and logged.
+//-------------------------------------------------------------------------------------------------
+bool ThreadManager::InitialiseThreadAffinity() {
+#if defined(PLATFORM_WINDOWS)
+    // Query hardware LP count via GetSystemInfo() -- includes all hyper-threads and E-cores.
+    SYSTEM_INFO si{};
+    GetSystemInfo(&si);
+    m_processorCount = si.dwNumberOfProcessors;
+
+    // Always log the LP count -- this is mandatory startup diagnostic information.
+    debug.logLevelMessage(LogLevel::LOG_INFO,
+        L"[ThreadManager] ======== Thread Affinity Report ========");
+    debug.logLevelMessage(LogLevel::LOG_INFO,
+        L"[ThreadManager] System logical processor count: " +
+        std::to_wstring(m_processorCount));
+
+    // A single-core system cannot benefit from ideal processor hints.
+    if (m_processorCount < 2) {
+        debug.logLevelMessage(LogLevel::LOG_WARNING,
+            L"[ThreadManager] Only 1 logical processor detected -- multi-core affinity hints not applicable.");
+        debug.logLevelMessage(LogLevel::LOG_INFO,
+            L"[ThreadManager] =========================================");
+        return false;
+    }
+
+    // Log the recommended engine thread -> logical processor mapping.
+    // LP 0 is reserved for the main thread, Windows message pump, and OS scheduler work.
+    debug.logLevelMessage(LogLevel::LOG_INFO,
+        L"[ThreadManager] Scheduling mode: SetThreadIdealProcessor() (soft hints -- recommended for production).");
+    debug.logLevelMessage(LogLevel::LOG_INFO,
+        L"[ThreadManager] Recommended engine thread layout:");
+    debug.logLevelMessage(LogLevel::LOG_INFO,
+        L"[ThreadManager]   LP 0  : Main thread / Window message pump / Windows OS");
+
+    // Helper lambda to log a layout slot; warns when the LP is not available on this machine.
+    auto logSlot = [&](DWORD lp, const wchar_t* desc) {
+        if (lp < m_processorCount) {
+            debug.logLevelMessage(LogLevel::LOG_INFO,
+                L"[ThreadManager]   LP " + std::to_wstring(lp) + L"  : " + desc);
+        }
+        else {
+            debug.logLevelMessage(LogLevel::LOG_WARNING,
+                L"[ThreadManager]   LP " + std::to_wstring(lp) + L"  : " + desc +
+                L" (NOT AVAILABLE -- system has only " +
+                std::to_wstring(m_processorCount) + L" LP(s); scheduler will decide)");
+        }
+    };
+
+    logSlot(1, L"GE-AI-Thread                 [THREAD_PRIORITY_NORMAL]");
+    logSlot(2, L"GE-Rendering-Thread          [THREAD_PRIORITY_ABOVE_NORMAL]");
+    logSlot(3, L"GE-Loader-Thread             [THREAD_PRIORITY_NORMAL]");
+    logSlot(4, L"GE-FileIO-Processing-Thread  [THREAD_PRIORITY_NORMAL]");
+
+    // LP 5+ for audio and background jobs -- only log if enough processors exist.
+    if (m_processorCount > 5) {
+        logSlot(5, L"Audio / Worker jobs          [THREAD_PRIORITY_HIGHEST -- set in SoundManager]");
+    }
+
+    debug.logLevelMessage(LogLevel::LOG_INFO,
+        L"[ThreadManager] Note: SetThreadAffinityMask() (ForceCore) is available for "
+        L"debugging and profiling only -- do NOT use in production builds.");
+    debug.logLevelMessage(LogLevel::LOG_INFO,
+        L"[ThreadManager] =========================================");
+
+    return true;
+
+#else
+    // Non-Windows platforms do not expose SetThreadIdealProcessor; log and skip gracefully.
+    debug.logLevelMessage(LogLevel::LOG_INFO,
+        L"[ThreadManager] Platform thread affinity API not available -- skipping.");
+    return false;
+#endif
+}
+
+void ThreadManager::SetThread(const ThreadNameID id, std::function<void()> task, bool debugMode
+#if defined(PLATFORM_WINDOWS)
+    , const ThreadSchedulingConfig& scheduling
+#endif
+) {
     std::lock_guard<std::mutex> lock(threadsMutex);
     if (bShutdownRequested) {
         TM_LOG_LEVEL(LogLevel::LOG_WARNING, L"Cannot create new thread during shutdown");
@@ -148,17 +372,67 @@ void ThreadManager::SetThread(const ThreadNameID id, std::function<void()> task,
 
     ThreadInfo info = { std::thread::id(), ThreadStatus::NotStarted, debugMode };
 
-    std::thread newThread([this, id, task, name]() {
+    std::thread newThread([this, id, task, name
+#if defined(PLATFORM_WINDOWS)
+        , scheduling   // Captured by value so the lambda owns a copy of the config
+#endif
+    ]() {
         {
             std::lock_guard<std::mutex> lock(threadsMutex);
             if (!bShutdownRequested) {
                 auto& info = GetThreadInfoUnsafe(id);
-                info.status = ThreadStatus::Running;
+                info.status   = ThreadStatus::Running;
                 info.threadID = std::this_thread::get_id();
             }
         }
 
         if (!bShutdownRequested) {
+            // -----------------------------------------------------------------
+            // Apply thread scheduling configuration from inside the new thread.
+            // GetCurrentThread() resolves to THIS thread's handle only when
+            // called from within the thread itself -- not from the creator.
+            // -----------------------------------------------------------------
+            #if defined(PLATFORM_WINDOWS)
+            {
+                // Determine effective ideal core and priority.
+                // When useEngineDefaults=true the engine fills in the recommended
+                // values for each known ThreadNameID; the caller's explicit values
+                // (or the default {MAXDWORD, NORMAL}) are overridden automatically.
+                DWORD effectiveCore     = scheduling.idealCore;
+                int   effectivePriority = scheduling.priority;
+
+                if (scheduling.useEngineDefaults) {
+                    // Built-in defaults match the recommended CPGE layout:
+                    //   LP 0  Main/OS   -- never assign an engine thread here
+                    //   LP 1  AI        NORMAL
+                    //   LP 2  Renderer  ABOVE_NORMAL (rendering must run slightly ahead)
+                    //   LP 3  Loader    NORMAL
+                    //   LP 4  FileIO    NORMAL
+                    //   LP 5  Network   NORMAL
+                    switch (id) {
+                        case THREAD_AI_PROCESSING: effectiveCore = 1; effectivePriority = THREAD_PRIORITY_NORMAL;       break;
+                        case THREAD_RENDERER:      effectiveCore = 2; effectivePriority = THREAD_PRIORITY_ABOVE_NORMAL; break;
+                        case THREAD_LOADER:        effectiveCore = 3; effectivePriority = THREAD_PRIORITY_NORMAL;       break;
+                        case THREAD_FILEIO:        effectiveCore = 4; effectivePriority = THREAD_PRIORITY_NORMAL;       break;
+                        case THREAD_NETWORK:       effectiveCore = 5; effectivePriority = THREAD_PRIORITY_NORMAL;       break;
+                        default:                   break; // Unknown thread type: leave defaults
+                    }
+                }
+
+                // Register the thread name with the OS debugger infrastructure.
+                ThreadUtils::NameCurrentThread(StringToWString(name).c_str());
+
+                // Apply ideal processor hint when a valid LP was resolved.
+                // PreferCore() internally validates against the system LP count.
+                if (effectiveCore != MAXDWORD) {
+                    ThreadUtils::PreferCore(effectiveCore);
+                }
+
+                // Apply the scheduling priority for this thread.
+                ThreadUtils::SetPriority(effectivePriority);
+            }
+            #endif // PLATFORM_WINDOWS
+
             TM_LOG_LEVEL(LogLevel::LOG_INFO,
                 L"Thread '" + StringToWString(name) + L"' started.");
             task();

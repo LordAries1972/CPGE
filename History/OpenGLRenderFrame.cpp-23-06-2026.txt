@@ -1,0 +1,9 @@
+OpenGLRenderFrame.cpp - Modified 23 June 2026
+==============================================
+Replaced hard-coded GLTFAnimator calls with unified ModelAnimator calls:
+  scene.gltfAnimator.IsAnimationPlaying(iModelID)
+    -> scene.modelAnimator.IsAnimationPlaying(iModelID)
+  scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS)
+    -> scene.modelAnimator.UpdateAnimations(deltaTime)
+
+Affected locations: SCENE_GAMETITLE and SCENE_GAMEPLAY blocks (2 occurrences each).

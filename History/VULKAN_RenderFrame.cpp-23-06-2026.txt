@@ -1,0 +1,8 @@
+VULKAN_RenderFrame.cpp - Modified 23 June 2026
+===============================================
+Replaced hard-coded GLTFAnimator calls with unified ModelAnimator calls:
+  scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS)
+    -> scene.modelAnimator.UpdateAnimations(deltaTime)
+
+Affected locations: SCENE_GAMETITLE (conditional) and SCENE_GAMEPLAY (unconditional) blocks.
+Vulkan path has no IsAnimationPlaying guard (calls UpdateAnimations unconditionally).

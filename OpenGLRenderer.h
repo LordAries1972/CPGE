@@ -306,6 +306,7 @@ public:
     void Blit2DObjectAtOffset(BlitObj2DIndexType iIndex, int iBlitX, int iBlitY, int iXOffset, int iYOffset, int iTileSizeX, int iTileSizeY); // Render 2D object with texture offset
     void Blit2DWrappedObjectAtOffset(BlitObj2DIndexType iIndex, int iBlitX, int iBlitY, int iXOffset, int iYOffset, int iTileSizeX, int iTileSizeY); // Render wrapped 2D object with offset
     void Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, int iDestY, int iDestW, int iDestH, float zoomFactor); // Render 2D object with centered zoom crop
+    void Blit2DObjectToSizeWithAlpha(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float alpha);   // Render 2D object scaled to rect with custom opacity
     void Clear2DBlitQueue();                                                    // Clear all objects from 2D rendering queue
     void ResumeLoader(bool isResizing = false) override;                        // Resume asset loading thread
 
@@ -506,6 +507,9 @@ private:
     void Render2DQuad(GLuint textureID, int x, int y, int w, int h,
                       int srcX, int srcY, int srcW, int srcH,
                       const MyColor& tint, bool wrap);                          // Internal 2D textured quad renderer
+    void Render2DQuadUV(GLuint textureID, int x, int y, int w, int h,
+                        float u0, float v0, float u1, float v1,
+                        const MyColor& tint);                                   // Internal 2D textured quad renderer (sub-pixel float UV)
 
     // Text rendering (GDI-to-texture on Windows)
     GLuint RenderTextToTexture(const std::wstring& text, const std::wstring& fontName,
@@ -533,6 +537,12 @@ private:
 
     // Mutexes for thread safety
     static std::mutex s_loaderMutex;                                            // Static mutex for loader thread synchronization
+
+    // Exclusive fullscreen tracking — mirrors DX11/DX12 pattern
+    #if defined(_WIN32) || defined(_WIN64)
+        bool    m_isExclusiveFullscreen = false;                                // True while in exclusive fullscreen (ChangeDisplaySettings)
+        DEVMODE m_originalDesktopMode   = {};                                   // Desktop mode captured before entering exclusive fullscreen
+    #endif
 };
 
 // We must do this so that our renderers know of our global reference

@@ -1,4 +1,4 @@
-﻿/* ------------------------------------------------------------------------------ */
+/* ------------------------------------------------------------------------------ */
 // Main.cpp, the starting code to everything.
 //
 /* ------------------------------------------------------------------------------ */
@@ -114,11 +114,11 @@
 // Include these after the Renderer's includes
 // --------------------------------------------
 #if defined(__USE_OPENGL__)
-    #include "OpenGLFXManager.h"
+    #include "FXManager.h"
 #elif defined(__USE_VULKAN__)
-    #include "VULKAN_FXManager.h"
+    #include "FXManager.h"
 #else
-    #include "DX_FXManager.h"
+    #include "FXManager.h"
 #endif
 
 #include "SceneManager.h"
@@ -165,9 +165,9 @@ Joystick js;
 SoundManager soundManager;
 GUIManager guiManager;
 #if defined(__USE_OPENGL__)
-    GLFXManager fxManager;
+    FXManager fxManager;
 #elif defined(__USE_VULKAN__)
-    VKFXManager fxManager;
+    FXManager fxManager;
 #else
     FXManager fxManager;
 #endif
@@ -177,6 +177,11 @@ SceneManager scene;
 ShaderManager shaderManager;
 MoviePlayer moviePlayer;
 ScreenRecorder screenRecorder;
+
+// Our externals we require
+extern const std::string DIFFICULTY_WINDOW_NAME;
+extern const std::string GameMenu_WindowName;
+extern const std::string GAMEPLAYTYPES_WINDOW_NAME;
 extern ConsoleWindow consoleWindow;
 
 #ifdef __USE_SCRIPT_MANAGER__
@@ -243,6 +248,9 @@ static std::chrono::steady_clock::time_point lastScenePhaseChangeTime;  // Suppr
 static const int RESIZE_DEBOUNCE_MS = 100;                              // Minimum time between resize operations
 static const int SCENE_PHASE_RESIZE_IGNORE_MS = 15000;                  // Ignore WM_SIZE for 15s after a phase change
 
+// Fixed (non-resizable) windowed style — no WS_THICKFRAME (resize border), no WS_MAXIMIZEBOX
+static constexpr DWORD WS_WINDOWED_FIXED = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+
 int textScrollerEffectID = 0;
 char errorMsg[512];
 POINT lastMousePos = {};
@@ -256,6 +264,7 @@ extern std::shared_ptr<Renderer> renderer;
 // Forward Declarations
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 void SwitchToGamePlay();
+void StartGame();
 void SwitchToGameIntro();
 void SwitchToMovieIntro();
 void OpenStartMovieAndPlay();
@@ -390,6 +399,21 @@ void ApplySystemMasterVolume(int vol64)
     }
     pDevice->Release();
 }
+
+// Sets DPI awareness before any window or display-mode API call so Win32 APIs report physical
+// pixels.  Without this, on 150-200% scaled monitors, the window/surface/display mode can be
+// mismatched: DXGI/OpenGL/Vulkan render at physical resolution while the window is positioned
+// in logical pixels, producing the "only top-left quarter visible" symptom.
+// Tries DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 (Win10 1703+) first, falls back to V1,
+// then to the legacy SetProcessDPIAware for older Windows 10 builds.
+static void ConfigureProcessDpiAwareness()
+{
+    if (SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
+        return;
+    if (SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE))
+        return;
+    SetProcessDPIAware();
+}
 #endif
 
 // *----------------------------------------------------------------------------------------------
@@ -413,6 +437,16 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             MessageBox(nullptr, L"Unsupported Windows Version.\nPlease use Windows 10 SP1 64Bit or later.", L"Error", MB_OK | MB_ICONERROR);
             return EXIT_FAILURE;
         }
+    #endif
+
+    // Set DPI awareness before any Win32 window creation or display-mode query.
+    // Must be called here — before RegisterClassEx / CreateWindowEx / AdjustWindowRect —
+    // so every subsequent Win32 call returns physical pixels, matching what DXGI / WGL /
+    // Vulkan surface allocation uses.  On a 200% scaled display without this, the window
+    // is created at logical (half) dimensions while the swap chain renders at full physical
+    // resolution, causing the "top-left quarter visible" fullscreen presentation bug.
+    #if defined(PLATFORM_WINDOWS)
+        ConfigureProcessDpiAwareness();
     #endif
 
     // Create appropriate Renderer Interface
@@ -444,22 +478,23 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     }
 
     // Compute outer window size so the CLIENT area equals the configured resolution.
-    // CreateWindowEx treats width/height as the OUTER (frame-inclusive) dimensions, so
-    // without this adjustment the client rect ends up smaller than configured by the
-    // title bar height and border widths.
+    // Windowed mode uses WS_WINDOWED_FIXED (no resize border / maximize) so the frame
+    // is slightly thinner than WS_OVERLAPPEDWINDOW; AdjustWindowRect accounts for this.
+    // Borderless and fullscreen override the style after creation so we use the fixed
+    // style here — the override makes the initial style irrelevant for those modes.
     int wndOuterW = config.myConfig.resolutionWidth;
     int wndOuterH = config.myConfig.resolutionHeight;
     #if defined(PLATFORM_WINDOWS)
     {
         RECT wndRect = { 0, 0, config.myConfig.resolutionWidth, config.myConfig.resolutionHeight };
-        AdjustWindowRect(&wndRect, WS_OVERLAPPEDWINDOW, FALSE);
+        AdjustWindowRect(&wndRect, WS_WINDOWED_FIXED, FALSE);
         wndOuterW = wndRect.right  - wndRect.left;
         wndOuterH = wndRect.bottom - wndRect.top;
     }
     #endif
 
     // Attempt to create our primary master window for our game!
-    hwnd = CreateWindowEx(0, lpDEFAULT_NAME, MY_WINDOW_TITLE, WS_OVERLAPPEDWINDOW,
+    hwnd = CreateWindowEx(0, lpDEFAULT_NAME, MY_WINDOW_TITLE, WS_WINDOWED_FIXED,
         CW_USEDEFAULT, CW_USEDEFAULT, wndOuterW, wndOuterH,
         nullptr, nullptr, hInstance, nullptr);
 
@@ -500,6 +535,15 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         // wrong output — the mismatch will be visible here.
         #if defined(PLATFORM_WINDOWS)
             DetectAndLogAudioDevices();
+        #endif
+
+        // Query the system logical processor count and log the recommended engine thread
+        // layout.  This MUST be called before any SetThread() invocation so that:
+        //   (a) the LP count is confirmed and logged as startup diagnostic info,
+        //   (b) SetThread() can safely call PreferCore() knowing available LP indices.
+        // All renderer, loader, FileIO, AI, and network threads are started after this point.
+        #if defined(PLATFORM_WINDOWS) && defined(_DEBUG)
+            threadManager.InitialiseThreadAffinity();
         #endif
 
         // Initialise our Randomizer system.
@@ -576,6 +620,23 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         // Obtain Window Metrics
         sysUtils.GetWindowMetrics(hwnd, winMetrics);
 
+        // GetWindowMetrics reads the just-created windowed window, so in fullscreen exclusive
+        // mode it returns the windowed size (e.g. 800x600) rather than the target resolution.
+        // Override the client dimensions from config immediately so every subsystem initialised
+        // before SetFullExclusive() — including renderer->Initialize() — sees the correct target.
+        // SetFullExclusive() will re-confirm these from the actual back-buffer and update again.
+        #if defined(PLATFORM_WINDOWS)
+            if (config.myConfig.displayMode == 2)
+            {
+                winMetrics.width         = config.myConfig.resolutionWidth;
+                winMetrics.height        = config.myConfig.resolutionHeight;
+                winMetrics.clientWidth   = config.myConfig.resolutionWidth;
+                winMetrics.clientHeight  = config.myConfig.resolutionHeight;
+                winMetrics.borderWidth   = 0;
+                winMetrics.titleBarHeight = 0;
+            }
+        #endif
+
         // Initialize the GamePlayer system with basic initialization
         gamePlayer.Initialize();
         PlayerInfo* player = gamePlayer.GetPlayerInfo(PLAYER_1);                                // Get player information
@@ -622,6 +683,40 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
             UnregisterClass(lpDEFAULT_NAME, hInstance);
             return EXIT_FAILURE;
+        }
+
+        // Apply the display mode selected in the configuration file.
+        // Cursor policy:
+        //   Windowed    — Windows cursor visible on title bar / borders, hidden inside client area
+        //   Borderless  — Windows cursor hidden inside client area, visible outside the window
+        //   Full Screen — Windows cursor fully suppressed; engine owns the entire display
+        // WM_SETCURSOR in WindowProc enforces the client-area hide for Windowed and Borderless.
+        switch (config.myConfig.displayMode)
+        {
+            case 0:  // Windowed — set flags only; geometry applied after threads start
+            {
+                winMetrics.isFullScreen = false;
+                winMetrics.isBorderless = false;
+                break;
+            }
+            case 1:  // Borderless windowed — strip title bar now; resize applied after threads start
+            {
+                winMetrics.isFullScreen = false;
+                winMetrics.isBorderless = true;
+                SetWindowLong(hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+                break;
+            }
+            default:  // 2 = Full Screen exclusive (and any unrecognised value)
+            {
+                winMetrics.isFullScreen = true;
+                winMetrics.isBorderless = false;
+                sysUtils.DisableMouseCursor();
+                // Enter exclusive fullscreen now that the swap chain exists at config resolution.
+                // SetFullExclusive() populates winMetrics from the confirmed back-buffer dims.
+                renderer->SetFullExclusive(config.myConfig.resolutionWidth,
+                                        config.myConfig.resolutionHeight);
+                break;
+            }
         }
 
         #if defined(_DEBUG)
@@ -706,37 +801,6 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             exceptionHandler.SetCrashDumpEnabled(true);
         #endif
 
-        // Apply the display mode selected in the configuration file.
-        // Cursor policy:
-        //   Windowed    — Windows cursor visible on title bar / borders, hidden inside client area
-        //   Borderless  — Windows cursor hidden inside client area, visible outside the window
-        //   Full Screen — Windows cursor fully suppressed; engine owns the entire display
-        // WM_SETCURSOR in WindowProc enforces the client-area hide for Windowed and Borderless.
-        switch (config.myConfig.displayMode)
-        {
-            case 0:  // Windowed — set flags only; geometry applied after threads start
-            {
-                winMetrics.isFullScreen = false;
-                winMetrics.isBorderless = false;
-                break;
-            }
-            case 1:  // Borderless windowed — strip title bar now; resize applied after threads start
-            {
-                winMetrics.isFullScreen = false;
-                winMetrics.isBorderless = true;
-                SetWindowLong(hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
-                break;
-            }
-            default:  // 2 = Full Screen exclusive (and any unrecognised value)
-            {
-                winMetrics.isFullScreen = true;
-                winMetrics.isBorderless = false;
-                sysUtils.DisableMouseCursor();
-                renderer->SetFullExclusive(config.myConfig.resolutionWidth, config.myConfig.resolutionHeight);
-                break;
-            }
-        }
-
         // Start renderer and loader threads BEFORE any SetWindowPos call.
         // SetWindowPos with a size change fires WM_SIZE synchronously, which triggers
         // Resize() -> Clean2DTextures() -> m_d2dRenderTarget.Reset() and wipes D2D state
@@ -759,8 +823,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         }
         else if (!winMetrics.isFullScreen)
         {
-             RECT rc = { 0, 0, config.myConfig.resolutionWidth, config.myConfig.resolutionHeight };
-            AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
+            RECT rc = { 0, 0, config.myConfig.resolutionWidth, config.myConfig.resolutionHeight };
+            AdjustWindowRect(&rc, WS_WINDOWED_FIXED, FALSE);
             SetWindowPos(hwnd, nullptr, 0, 0, rc.right - rc.left, rc.bottom - rc.top,
                          SWP_NOMOVE | SWP_NOZORDER | SWP_FRAMECHANGED);
             sysUtils.CenterSystemWindow(hwnd);
@@ -1825,265 +1889,97 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             return 0;
         }
 
+        case WM_GETMINMAXINFO:
+        {
+            // Prevent the window from being resized or maximised in Windowed and Borderless modes.
+            // Fullscreen is handled by the OS/exclusive mode; no restriction needed there.
+            if (!winMetrics.isFullScreen)
+            {
+                MINMAXINFO* mmi = reinterpret_cast<MINMAXINFO*>(lParam);
+
+                // Calculate the required outer window size for the configured client resolution.
+                RECT rc = { 0, 0, config.myConfig.resolutionWidth, config.myConfig.resolutionHeight };
+                if (!winMetrics.isBorderless)
+                    AdjustWindowRect(&rc, WS_WINDOWED_FIXED, FALSE);
+                const int totalW = rc.right  - rc.left;
+                const int totalH = rc.bottom - rc.top;
+
+                // Lock both min and max to the same size to prevent any resize.
+                mmi->ptMinTrackSize.x = totalW;
+                mmi->ptMinTrackSize.y = totalH;
+                mmi->ptMaxTrackSize.x = totalW;
+                mmi->ptMaxTrackSize.y = totalH;
+                return 0;
+            }
+            return DefWindowProc(hwnd, uMsg, wParam, lParam);
+        }
+
         case WM_SIZE:
         {
-            // Step 1: Early exit conditions and debouncing
-            if (!isSystemInitialized || bResizeInProgress.load()) {
-                #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
-                    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[WM_SIZE] Skipping resize - system not ready or already resizing. Init: %d, InProgress: %d",
-                        isSystemInitialized, bResizeInProgress.load());
-                #endif
+            // User window-resizing is NOT supported — window geometry is managed entirely by
+            // SetFullExclusive() / SetWindowedScreen() in the renderer.  WM_SIZE fires as a
+            // side-effect of those transitions (SetFullscreenState, SetWindowPos) and also for
+            // system events such as minimise/restore.  All those renderer-internal transitions
+            // gate themselves with bSettingFullScreen; the only actions we take here are:
+            //   a) minimise   → set bIsMinimized so the render thread skips frames
+            //   b) restore    → clear bIsMinimized so rendering resumes
+            //   c) anything else → sync winMetrics from the renderer's confirmed back-buffer
+            //      dimensions (iOrigWidth / iOrigHeight) so the coordinate spaces used by the
+            //      cameras, GUI, FX system, and loader thread remain coherent.
+
+            // Block re-entrant processing (e.g. triggered from within DefWindowProc)
+            if (bResizeInProgress.load())
                 return 0;
-            }
 
-            // Suppress spurious WM_SIZE fired during/after scene phase transitions (initial loads, scene switches).
-            {
-                auto msSincePhaseChange = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock::now() - lastScenePhaseChangeTime).count();
-                if (msSincePhaseChange < SCENE_PHASE_RESIZE_IGNORE_MS) {
-                    #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
-                        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[WM_SIZE] Ignoring resize - only %lldms since last scene phase change (suppressing for %dms)",
-                            msSincePhaseChange, SCENE_PHASE_RESIZE_IGNORE_MS);
-                    #endif
-                    return 0;
-                }
-            }
-
-            // Block resize while a scene switch is actively in progress.
-            if (scene.bSceneSwitching) {
-                #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
-                    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[WM_SIZE] Ignoring resize - scene switch in progress");
-                #endif
+            // Suppress any WM_SIZE that fires during an active fullscreen/windowed transition —
+            // the renderer is already handling the resize internally at that point.
+            if (threadManager.threadVars.bSettingFullScreen.load())
                 return 0;
-            }
 
-            // Block resize until the loader thread has finished its current scene load.
-            if (!threadManager.threadVars.bLoaderTaskFinished.load()) {
-                #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
-                    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[WM_SIZE] Ignoring resize - loader task not yet finished");
-                #endif
-                return 0;
-            }
-
-            // Lock out any re-entrant WM_SIZE delivered during DefWindowProc/message pump calls below.
             bResizeInProgress.store(true);
 
-            // Handle minimization state immediately without further processing
+            // --- Minimise ---
             if (wParam == SIZE_MINIMIZED) {
                 #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
-                    debug.logLevelMessage(LogLevel::LOG_INFO, L"[WM_SIZE] Window minimized - setting renderer minimized flag");
+                    debug.logLevelMessage(LogLevel::LOG_INFO, L"[WM_SIZE] Window minimised");
                 #endif
-                
                 if (renderer && renderer->bIsInitialized.load())
                     renderer->bIsMinimized.store(true);
                 bResizeInProgress.store(false);
                 return 0;
             }
 
-            // Handle restoration from minimized state
-            if (wParam == SIZE_RESTORED && renderer && renderer->bIsInitialized.load()) {
-                #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
-                    debug.logLevelMessage(LogLevel::LOG_INFO, L"[WM_SIZE] Window restored from minimized state");
-                #endif
-                
+            // --- Restore from minimise ---
+            if (renderer && renderer->bIsInitialized.load())
                 renderer->bIsMinimized.store(false);
-            }
 
-            // Only process resize for valid size changes when renderer is ready
-            if (renderer && renderer->bIsInitialized.load() && 
-                !threadManager.threadVars.bIsShuttingDown.load() && 
-                !threadManager.threadVars.bSettingFullScreen.load() &&
-                !threadManager.threadVars.bIsResizing.load()) {
+            // --- Sync winMetrics from the renderer's confirmed back-buffer dimensions ---
+            // The renderer's SetFullExclusive / SetWindowedScreen / Resize() methods own the
+            // actual back-buffer size.  Update winMetrics from those authoritative values so
+            // the camera, GUI, FX, and loader thread all share a coherent coordinate space.
+            // This replaces the old GetWindowMetrics() call (which could return stale OS values).
+            if (isSystemInitialized && renderer && renderer->bIsInitialized.load() &&
+                !threadManager.threadVars.bIsShuttingDown.load()) {
 
-                // Implement debouncing to prevent rapid resize message flooding
-                auto currentTime = std::chrono::steady_clock::now();
-                auto timeSinceLastResize = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    currentTime - lastResizeTime).count();
-
-                if (timeSinceLastResize < RESIZE_DEBOUNCE_MS) {
-                    #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
-                        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[WM_SIZE] Debouncing resize message - only %lld ms since last resize", timeSinceLastResize);
-                    #endif
-                    bResizeInProgress.store(false);
-                    return 0;
-                }
-
-                lastResizeTime = currentTime;                           // Update last resize time for debouncing
-
-                // Extract new dimensions from message parameters
-                UINT width = LOWORD(lParam);                            // Extract width from low word
-                UINT height = HIWORD(lParam);                           // Extract height from high word
-
-                // Validate dimensions are reasonable (prevent zero or invalid sizes)
-                if (width < 320 || height < 240 || width > 4096 || height > 4096) {
-                    #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
-                        debug.logDebugMessage(LogLevel::LOG_WARNING, L"[WM_SIZE] Invalid resize dimensions: %dx%d - ignoring", width, height);
-                    #endif
-                    bResizeInProgress.store(false);
-                    return 0;
-                }
-
-                #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
-                    debug.logDebugMessage(LogLevel::LOG_INFO, L"[WM_SIZE] Beginning controlled resize operation to %dx%d", width, height);
-                #endif
-
-                // bResizeInProgress already set above (after the initial guard check)
-                threadManager.threadVars.bIsResizing.store(true);       // ThreadManager flag for resize state
-
-                // Use ThreadManager locking system for proper synchronization
-                ThreadLockHelper resizeLock(threadManager, "window_resize_operation", 5000);
-                if (!resizeLock.IsLocked()) {
-                    #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
-                        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[WM_SIZE] Failed to acquire resize lock - aborting resize operation");
-                    #endif
-                    bResizeInProgress.store(false);                     // Clear progress flag on lock failure
-                    threadManager.threadVars.bIsResizing.store(false);  // Clear ThreadManager resize flag
-                    return 0;
-                }
-
-                try {
-                    // Wait for renderer to finish current operations and pause thread
-                    #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
-                        debug.logLevelMessage(LogLevel::LOG_INFO, L"[WM_SIZE] Step 2: Waiting for renderer completion and pausing thread");
-                    #endif
-
-                    // Wait for RenderFrame() & GPU to complete, then to safely pause renderer thread
-                    renderer->WaitToFinishThenPauseThread();
-
-                    // Pause the loader thread and wait for it to stop before resize
-                    threadManager.PauseThread(THREAD_LOADER);
-                    {
-                        int loaderWait = 0;
-                        while (threadManager.GetThreadStatus(THREAD_LOADER) == ThreadStatus::Running && loaderWait < 200)
-                        {
-                            Sleep(10);
-                            ++loaderWait;
-                        }
+                int w = renderer->iOrigWidth;
+                int h = renderer->iOrigHeight;
+                if (w > 0 && h > 0) {
+                    winMetrics.width        = w;
+                    winMetrics.height       = h;
+                    winMetrics.clientWidth  = w;
+                    winMetrics.clientHeight = h;
+                    if (winMetrics.isFullScreen) {
+                        // In fullscreen exclusive the monitor rect equals the back-buffer rect
+                        winMetrics.monitorFullArea = { 0, 0, w, h };
+                        winMetrics.monitorWorkArea = { 0, 0, w, h };
                     }
-
-                    // Free all resources required for DirectX resize process
                     #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
-                        debug.logLevelMessage(LogLevel::LOG_INFO, L"[WM_SIZE] Step 3: Freeing DirectX resources for resize");
+                        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[WM_SIZE] winMetrics synced to renderer dims %dx%d", w, h);
                     #endif
-
-                    // Save camera state BEFORE any resize operations
-                    renderer->myCamera.SaveCameraStateForResize();
-
-                    // Stop all FX effects before resize to prevent rendering conflicts
-                    fxManager.StopAllFXForResize();
-
-                    // Handle scene-specific resize operations
-                    switch (scene.stSceneType)
-                    {
-                        case SceneType::SCENE_INTRO:
-                        case SceneType::SCENE_GAMEPLAY:
-                        case SceneType::SCENE_GAMETITLE:
-                        case SceneType::SCENE_INTRO_MOVIE:
-#if defined(_DEBUG)
-                        case SceneType::SCENE_EXPERIMENT:
-#endif
-                        {
-                            #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
-                                debug.logDebugMessage(LogLevel::LOG_INFO, L"[WM_SIZE] Processing resize for scene type: %d", static_cast<int>(scene.stSceneType));
-                            #endif
-
-                            // Clear minimized flag for valid resize operations (all pipelines)
-                            renderer->bIsMinimized.store(false);         // Clear minimized state
-
-                            // Perform the actual DirectX resize operation with error handling
-                            try {
-                                // Execute DirectX buffer resize
-                                if (!renderer->Resize(width, height))
-                                {
-                                    // Clear flags on resize failure
-                                    threadManager.threadVars.bIsResizing.store(false);
-                                    bResizeInProgress.store(false);
-                                    #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
-                                        debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"[WM_SIZE] DirectX resize operation failed for %dx%d", width, height);
-                                    #endif
-                                    
-                                    return 0; // Exit early on failure
-                                }
-                                
-                                #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
-                                    debug.logDebugMessage(LogLevel::LOG_INFO, L"[WM_SIZE] DirectX resize operation completed successfully for %dx%d", width, height);
-                                #endif
-
-                                // Update window metrics after successful resize
-                                sysUtils.GetWindowMetrics(hwnd, winMetrics);
-
-                                #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
-                                    debug.logDebugMessage(LogLevel::LOG_INFO, L"[WM_SIZE] Window metrics updated - new size: %dx%d", winMetrics.width, winMetrics.height);
-                                #endif
-                            }
-                            catch (const std::exception& e) {
-                                #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
-                                    debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"[WM_SIZE] DirectX resize operation failed: %hs", e.what());
-                                #endif
-                                
-                                // Clear flags on resize failure
-                                threadManager.threadVars.bIsResizing.store(false);
-                                bResizeInProgress.store(false);
-                                return 0;
-                            }
-
-                            // STEP 4: Resume the Renderer Thread
-                            #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
-                                debug.logLevelMessage(LogLevel::LOG_INFO, L"[WM_SIZE] Step 4: Resuming renderer thread");
-                            #endif
-
-                            threadManager.ResumeThread(THREAD_RENDERER);    // Resume renderer thread for continued operation
-
-                            // STEP 5: Resume the Loader Thread to reload required resources
-                            #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
-                                debug.logLevelMessage(LogLevel::LOG_INFO, L"[WM_SIZE] Step 5: Resuming loader thread for resource reload");
-                            #endif
-
-                            renderer->ResumeLoader(true);                   // Resume loader with resize flag to reload resources
-
-                            // Restore camera state AFTER all resources are recreated
-                            renderer->myCamera.RestoreCameraStateAfterResize();
-
-                            break;
-                        }
-
-                        default:
-                            #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
-                                debug.logDebugMessage(LogLevel::LOG_WARNING, L"[WM_SIZE] Resize attempted in unsupported scene type: %d", static_cast<int>(scene.stSceneType));
-                            #endif
-                            break;
-                    }
                 }
-                catch (const std::exception& e) {
-                    // CRITICAL: Exception handling to prevent crashes
-                    #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
-                        debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"[WM_SIZE] Exception during resize operation: %hs", e.what());
-                    #endif
-
-                    // Clean up all flags on exception
-                    threadManager.threadVars.bIsResizing.store(false);
-                }
-
-                // STEP 6: Clear resize flags to indicate completion
-                threadManager.threadVars.bIsResizing.store(false);      // Clear ThreadManager resize flag
-                bResizeInProgress.store(false);                         // Clear atomic resize progress flag
-
-                #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
-                    debug.logLevelMessage(LogLevel::LOG_INFO, L"[WM_SIZE] Step 6: Resize operation completed successfully - flags cleared");
-                #endif
-            }
-            else {
-                #if defined(_DEBUG_WINSYSTEM_) && defined(_DEBUG)
-                    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[WM_SIZE] Skipping resize - conditions not met. Renderer: %s, Initialized: %d, Shutting down: %d, Setting fullscreen: %d, Resizing: %d",
-                        renderer ? "valid" : "null",
-                        renderer ? renderer->bIsInitialized.load() : 0,
-                        threadManager.threadVars.bIsShuttingDown.load(),
-                        threadManager.threadVars.bSettingFullScreen.load(),
-                        threadManager.threadVars.bIsResizing.load());
-                #endif
-                bResizeInProgress.store(false);
             }
 
+            bResizeInProgress.store(false);
             return 0;
         }
 
@@ -2105,9 +2001,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             // Route scroll wheel through GUIManager to the focused window (e.g. console scroll).
             guiManager.HandleMouseWheel(GET_WHEEL_DELTA_WPARAM(wParam));
 
-            // Console is the topmost GUIManager window when visible; absorb the wheel
-            // event so it does not also move the game camera.
-            if (consoleWindow.bIsVisible)
+            // Any open GUI window (console, config, dialog …) holds exclusive wheel focus.
+            // Absorb the event so backend camera zoom never fires while the UI is active.
+            if (guiManager.GetFocusedWindow())
                 return 0;
 
             switch (scene.stSceneType)
@@ -2429,6 +2325,29 @@ bool Load_Music()
     #endif
 
     return true;
+}
+
+void StartGame()
+{
+    // Start Game
+    // Initiate fade to black effect with proper timing
+    fxManager.FadeToBlack(1.0f, 0.06f);
+
+    // Wait for fade effect to complete with proper timeout to prevent infinite loop
+    int fadeTimeout = 0;
+    const int MAX_FADE_TIMEOUT = 300; // 3 seconds maximum wait time (300 * 10ms)
+    while (fxManager.IsFadeActive() && fadeTimeout < MAX_FADE_TIMEOUT) {
+        Sleep(10); // Sleep for 10 milliseconds
+        fadeTimeout++;
+    }
+
+    // Remove the game menu window safely before application shutdown
+    guiManager.RemoveWindow(GameMenu_WindowName);
+
+    // Initialize Player #1 for Game Play.
+
+    // Switch to GamePlay Scene.
+    SwitchToGamePlay();
 }
 
 #pragma warning(pop)

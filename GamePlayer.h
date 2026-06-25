@@ -32,6 +32,7 @@
 // Forward declarations
 extern Debug debug;
 extern PUNPack punPack;
+constexpr int MAX_PLAYERS = 8;                                          // Maximum supported players
 
 //==============================================================================
 // Game Type Enumeration - Defines various game genres and styles
@@ -90,6 +91,35 @@ enum class DeathAnimationState : uint8_t {
     CUSTOM_EFFECT = 4                                                   // Custom death effect
 };
 
+enum class DifficultyLevel : uint8_t {
+    DIFFICULTY_EASY = 0,
+    DIFFICULTY_NORMAL = 1,
+    DIFFICULTY_HARD = 2,
+    DIFFICULTY_VERYHARD = 3,
+    DIFFICULTY_HELL = 4
+};
+
+enum class PlayerAction : uint8_t {
+    ACTION_NONE = 0,
+    ACTION_MOVE_UP = 1,
+    ACTION_MOVE_DOWN = 2,
+    ACTION_MOVE_LEFT = 3,
+    ACTION_MOVE_RIGHT = 4,
+    ACTION_JUMP = 5,
+    ACTION_SHOOT = 6,
+    ACTION_SPECIAL = 7
+};
+
+enum class GameMode : uint8_t {
+    MODE_CAMPAIGN = 0,
+    MODE_ARCADE = 1,
+    MODE_TIMERUSH = 2,
+    MODE_COCKPIT = 3,
+    MODE_RANDOM = 4,
+    MODE_STAGESELECT = 5,
+    MODE_ONEMAN_MISSION = 6
+};
+
 //==============================================================================
 // Comprehensive Player Information Structure
 // Contains all data necessary for player management across different game types
@@ -130,6 +160,8 @@ struct PlayerInfo {
     // Game Scoring and Progress
     uint64_t score;                                                     // Player current score
     uint64_t highScore;                                                 // Player best score
+    DifficultyLevel Difficulty;
+    GameMode gameMode;                                                  // The Mode the game is to run under
     int lives;                                                          // Remaining lives count
     int level;                                                          // Current player level
     uint64_t experience;                                                // Experience points earned
@@ -210,13 +242,13 @@ struct PlayerInfo {
         deathAnimation(DeathAnimationState::NONE),                      // No death animation
         health(100),                                                    // Default health value
         maxHealth(100),                                                 // Default max health
-        armour(0),                                                      // No initial armour
+        armour(100),                                                      // No initial armour
         maxArmour(100),                                                 // Default max armour
-        shield(0),                                                      // No initial shield
+        shield(100),                                                      // No initial shield
         maxShield(100),                                                 // Default max shield
         score(0),                                                       // No initial score
         highScore(0),                                                   // No high score
-        lives(3),                                                       // Standard 3 lives
+        lives(5),                                                       // Standard 3 lives
         level(1),                                                       // Start at level 1
         experience(0),                                                  // No initial experience
         experienceToNext(1000),                                         // 1000 XP to level 2
@@ -248,14 +280,14 @@ struct PlayerInfo {
         collisionOffset(Vector2(0.0f, 0.0f)),                           // No collision offset
         equippedWeapon(-1),                                             // No weapon equipped
         equippedArmour(-1),                                             // No armour equipped
-#if defined(_USE_NETWORKMANAGER_)
-        equippedAccessory(-1),                                          // No accessory equipped
-        isNetworkPlayer(false),                                         // Local player by default
-        networkSessionID(""),                                           // No network session
-        networkLatency(0)                                               // No network latency
-#else
-        equippedAccessory(-1)                                           // No accessory equipped
-#endif
+        #if defined(_USE_NETWORKMANAGER_)
+            equippedAccessory(-1),                                          // No accessory equipped
+            isNetworkPlayer(false),                                         // Local player by default
+            networkSessionID(""),                                           // No network session
+            networkLatency(0)                                               // No network latency
+        #else
+            equippedAccessory(-1)                                           // No accessory equipped
+        #endif
     {
         // Reserve space for common inventory size to avoid frequent reallocations
         inventory.reserve(50);                                          // Reserve space for 50 items
@@ -476,7 +508,6 @@ private:
     std::atomic<bool> m_hasCleanedUp;                                       // Cleanup completion flag
 
     // Player Data Storage (supporting up to 8 players)
-    static const int MAX_PLAYERS = 8;                                       // Maximum supported players
     PlayerInfo m_players[MAX_PLAYERS];                                      // Array of player information
     bool m_playerSlotActive[MAX_PLAYERS];                                   // Track which player slots are in use
 

@@ -31,6 +31,7 @@ namespace SoundSystem {
         SFX_INVALID = -1,
         SFX_CLICK = 1,
         SFX_BEEP = 2,
+        SFX_VOICE1 = 3,
     };
 
     enum class SFX_PRIORITY {
@@ -135,6 +136,7 @@ namespace SoundSystem {
         const std::unordered_map<SFX_ID, std::wstring> sfxFileNames = {
             { SFX_ID::SFX_CLICK,    L"./Assets/click1.wav" },
             { SFX_ID::SFX_BEEP,   L"./Assets/beep1.wav" },
+            { SFX_ID::SFX_VOICE1,   L"./Assets/voice1.wav" },
 //            { SFX_ID::SFX_ALERT,   L"./Assets/alert.wav" },
 //            { SFX_ID::SFX_CANCEL,  L"./Assets/cancel.wav" }
         };

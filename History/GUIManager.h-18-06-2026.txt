@@ -1,0 +1,240 @@
+#pragma once
+
+//-------------------------------------------------------------------------------------------------
+// GUIManager.h - Graphical UI Management System
+//-------------------------------------------------------------------------------------------------
+
+#include "Includes.h"
+#include "Vectors.h"
+#include "Color.h"
+#include "Renderer.h"
+#include "SoundManager.h"
+
+// Forward declarations — renderer-specific
+#if defined(__USE_DIRECTX_11__)
+class DX11Renderer;
+#elif defined(__USE_DIRECTX_12__)
+class DX12Renderer;
+#elif defined(__USE_OPENGL__)
+class OpenGLRenderer;
+#elif defined(__USE_VULKAN__)
+class VulkanRenderer;
+#endif
+class Debug;
+
+// Forward declaration for scene switching function from main.cpp
+extern void SwitchToGamePlay();
+
+using namespace SoundSystem;
+
+const float SNAP_THRESHOLD = 10.0f;                     // Distance to screen edge to trigger snapping
+
+enum class GUIWindowOverlayType {
+    Overlay2D,
+    Overlay3D,
+};
+
+enum class GUIWindowType {
+    Standard,
+    Alert,
+    Dialog,
+};
+
+enum class GUIWindowFadeType {
+    FadeIn,
+    FadeOut,
+};
+
+enum class GUIControlType {
+    None,
+    Button,
+    Scrollbar,
+    HSlider,
+    ToggleSlider,
+    TitleBar,
+    TextArea
+};
+
+const float SCROLLBAR_WIDTH = 10;
+const float BUTTON_WIDTH = 128;
+const float GAMEMENU_BUTTON_WIDTH  = 250;
+const float GAMEMENU_WINDOW_WIDTH  = 300;
+const float CLOSEWINBUTTON_SIZE = 16;
+const float TITLEBAR_HEIGHT = 28;
+
+struct GUIControl {
+    std::string id;
+    std::wstring label;
+    bool isClickHandled = true;                         // Safety state flag to ensure clicking of mouse is handle correctly.
+    bool isVisible = true;                              // State if the window is visible and should be rendered.
+    bool useShadowedText = false;                       // State if we are to use text shadowing.
+    Vector2 position;
+    Vector2 size;
+    float lblFontSize = 8;                              // Label Font Size to use.
+    MyColor bgColor;                                    // Background color
+    int bgTextureId = -1;                               // Optional background texture ID
+    int bgTextureHoverId = -1;                          // Optional background texture ID for when the control is hovered over (used with bgTextureID)
+
+    MyColor shadowedTxtColor = MyColor(0, 0, 0, 255);   // Shadowed Text color (default: black)
+    MyColor txtColor = MyColor(255, 255, 255, 255);     // Text color (default: white)
+    MyColor hoverColor = MyColor(200, 200, 200, 255);   // Hover color (default: light gray)
+
+    std::function<void()> onMouseBtnDown;
+    std::function<void()> onMouseBtnUp;
+    std::function<void()> onMouseOver;
+    std::function<void()> onMouseMove;                  // Used for TitleBar Control
+    std::function<void(int)> onScroll;                  // For scrollbar events
+    std::function<void(float)> onSliderChanged;         // For HSlider: fires with normalised [min..max] value
+    float sliderMin   = 0.0f;
+    float sliderMax   = 1.0f;
+    float sliderValue = 0.0f;
+    bool isHovered   = false;
+    bool isPressed   = false;
+    bool isActive    = false;                           // HSlider: true on the last-touched knob (flashes)
+    bool lblCenterH  = true;                            // TitleBar: true=H+V centered, false=left-aligned+V centered
+    bool clipContent = false;                           // true = this control is scissored to the window's m_clipRect
+    bool bold        = false;                           // true = button label rendered bold (OpenGL-effective; other renderers accept param but keep NORMAL weight)
+    GUIControlType type = GUIControlType::None;         // New field to specify control type
+};
+
+class GUIManager;                                       // Forward declare
+
+class GUIWindow {
+public:
+    std::string name;                                   // Windows Assigned Name for Lookup
+    GUIWindowType type;                                 // Window Type
+    GUIWindowOverlayType overlayType = GUIWindowOverlayType::Overlay2D;   // Overlay Type used for Rendering, 2D or 3D ?
+    Vector2 position;                                   // Starting Position for our Window
+    Vector2 dragStartPosition;                          // Start Position from when dragging began.
+    Vector2 dragStartMousePosition;                     // where the mouse was clicked initially
+    Vector2 size;                                       // Size of our Window.
+    MyColor backgroundColor;                            // Background Colour.
+    int backgroundTextureId;                            // Optional background texture
+    bool isVisible = true;                              // State of Window Visibility
+    bool isMinimised = false;                           // State true if the window is minimised.
+    bool isDragging = false;                            // true while dragging a window
+    bool wasDragging = false;
+    bool bWindowDestroy = false;                        // Safety Flag to state when window is closing.
+    bool isModal = false;                               // When true, all other windows are blocked from receiving input.
+    int  zOrder  = 0;                                   // Draw/input order; higher value = on top.
+    std::vector<GUIControl> controls;                   // Our Controls list pertaining to this window.
+    int scrollPosition = 0;                             // Current scroll position
+    int maxScrollPosition = 0;                          // Maximum scroll position
+    std::wstring contentText;                           // Text content for the window
+
+    // Clip rect applied to all controls that have clipContent=true.
+    // Screen coordinates; set by the creator (e.g. GUIConfigWindow) to the
+    // content area so tab controls are scissored inside the bevel box.
+    bool    m_hasClip  = false;
+    Vector2 m_clipPos  = {};
+    Vector2 m_clipSize = {};
+    Renderer* myRenderer = nullptr;                     // Renderer reference
+    Vector2 contentAreaSize;                            // Size of the content area
+
+    GUIWindow(const std::string& name, GUIWindowType type, const Vector2& position,
+        const Vector2& size, const MyColor& backgroundColor, int backgroundTextureId, Renderer* myRenderer);
+
+    void AddControl(const GUIControl& control);
+    void Render();
+    void UpdateScrollbar(int newPosition);
+    void HandleMouseMove(const Vector2& mousePosition, const std::unordered_map<std::string, std::shared_ptr<GUIWindow>>& allWindows);
+    void HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick, GUIManager* guiMgr, bool& clickConsumed);
+    void CalculateScrollbarRange(float FontSize);
+    std::wstring WrapText(const std::wstring& text, float maxWidth, float FontSize);
+    void MoveWindow(const Vector2& newPosition, const std::unordered_map<std::string, std::shared_ptr<GUIWindow>>& allWindows);
+
+    // Custom rendering callback — invoked at the end of Render() for windows whose
+    // content (e.g. scrollable text, command line) is drawn outside the GUIControl set.
+    std::function<void(Renderer*)>        onCustomRender;
+
+    // Keyboard and wheel callbacks — dispatched by GUIManager::HandleChar /
+    // HandleBackspace / HandleEnter / HandleMouseWheel to the focused window.
+    std::function<void(wchar_t)>          onCharInput;
+    std::function<void()>                 onBackspace;
+    std::function<void()>                 onEnter;
+    std::function<void(int)>              onMouseWheel;
+
+    // Custom mouse hit-test extension — called when a left-click lands inside the
+    // window bounds but was not consumed by any registered GUIControl (e.g. a
+    // custom scrollbar implemented outside the control system).
+    std::function<void(float, float)>     onCustomMouseInput;
+
+    // --- Window Fade ---
+    float m_fadeAlpha = 1.0f;                              // Current opacity multiplier (0.0=transparent, 1.0=opaque)
+
+    struct WindowFadeState {
+        bool                                  active   = false;
+        GUIWindowFadeType                     fadeType = GUIWindowFadeType::FadeIn;
+        float                                 duration = 0.0f;            // Total fade duration in seconds
+        std::chrono::steady_clock::time_point startTime;                  // Time the fade began
+        std::function<void()>                 onComplete;                 // Optional callback fired on completion
+    };
+    WindowFadeState m_fade;
+
+    friend class GUIManager;                                               // Allow GUIManager access to internals
+
+private:
+    std::timed_mutex mutex;                                                // Mutex for thread safety
+};
+
+class GUIManager {
+public:
+    GUIManager();
+    ~GUIManager();
+
+    void Initialize(Renderer* renderer);                                    // Updated to accept Renderer
+    void CreateAlertWindow(const std::wstring& message);                    // No longer needs Renderer parameter
+    void CreateGameMenuWindow(const std::wstring& message);
+    void CreateConfigWindow();
+    void CreateMyWindow(const std::string& name, GUIWindowType type,
+        const Vector2& position, const Vector2& size,
+        const MyColor& backgroundColor,
+        int backgroundTextureId);                                           // No longer needs Renderer parameter
+
+    void RemoveWindow(const std::string& name);
+    void OnWindowResize(int newWidth, int newHeight);
+    void Render();
+    void HandleInput(const std::string& windowName, const Vector2& mousePosition, bool& isLeftClick);
+    void HandleAllInput(const Vector2& mousePosition, bool& isLeftClick);
+    void SetWindowVisibility(const std::string& name, bool isVisible);
+    void BringWindowToFront(const std::string& name);
+
+    // Keyboard and scroll-wheel routing — dispatched to the currently focused
+    // (highest-zOrder visible) window that has registered the matching callback.
+    void HandleChar(wchar_t c);
+    void HandleBackspace();
+    void HandleEnter();
+    void HandleMouseWheel(int delta);
+
+    std::shared_ptr<GUIWindow> GetWindow(const std::string& name);
+    std::unordered_map<std::string, std::shared_ptr<GUIWindow>> windows;
+
+    // Window fade — non-blocking alpha transparency transitions.
+    // ApplyWindowFade     : fire-and-forget fade; completes silently.
+    // ApplyWindowFadeCallback : same, but fires a lambda when the fade finishes.
+    void ApplyWindowFade(GUIWindowFadeType winfadeType, float overTimePeriod, const std::string& windowName);
+    void ApplyWindowFadeCallback(GUIWindowFadeType winfadeType, float overTimePeriod, const std::string& windowName, std::function<void()> callback);
+
+private:
+    bool bHasCleanedUp = false;
+    char buffer[256] = { 0 };
+
+    Renderer* myRenderer = nullptr;                                           // Store the renderer
+
+    std::timed_mutex mutex;                                                   // Mutex for thread safety
+
+    int  m_nextZOrder = 0;                                   // Monotonic counter assigned to each new window.
+
+    // Click-event cooldown: prevents cross-window event bleed within the same frame
+    // (clickConsumed flag) and across frames (1-second timestamp lock).
+    std::chrono::steady_clock::time_point m_clickLockExpiry{};
+    static constexpr std::chrono::milliseconds kClickCooldown{ 1000 };
+    bool IsClickCoolingDown() const;
+    void AcquireClickLock();
+
+
+    friend class GUIWindow;
+
+    // Returns the visible, non-destroyed window with the highest zOrder (the focused window).
+    std::shared_ptr<GUIWindow> GetFocusedWindow();
+};

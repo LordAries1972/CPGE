@@ -8,6 +8,8 @@
 //   set 1, binding 1  — normalMap
 //   set 1, binding 2  — ormTexture    (GLTF pbrMetallicRoughness: R=AO, G=roughness, B=metallic)
 //   set 1, binding 3  — aoTexture     (standalone ambient occlusion)
+//   set 1, binding 4  — glossTexture
+//   set 1, binding 5  — emissiveTexture
 //   push_constant (fragment) — single directional light (lightDir/intensity/color/ambient)
 //
 // Normal map convention: GLTF 2.0 / OpenGL format stored with V-origin at top.
@@ -30,6 +32,8 @@ layout(set = 1, binding = 0) uniform sampler2D diffuseTexture;
 layout(set = 1, binding = 1) uniform sampler2D normalMap;
 layout(set = 1, binding = 2) uniform sampler2D ormTexture;
 layout(set = 1, binding = 3) uniform sampler2D aoTexture;
+layout(set = 1, binding = 4) uniform sampler2D glossTex;
+layout(set = 1, binding = 5) uniform sampler2D emissiveTex;
 
 #define PI 3.14159265359
 
@@ -42,12 +46,13 @@ layout(set = 0, binding = 0) uniform TransformUBO {
     vec4  scale;    // xyz = model scale (baked into world matrix; usually 1,1,1)
 } cb;
 
+// Layout must match VKMatUBO in Models.h (80 bytes, 5 × float4 rows)
 layout(set = 0, binding = 1) uniform MaterialUBO {
     vec3  Kd;              float metallic;
     vec3  Ka;              float roughness;
     vec3  emissive;        float emissiveStrength;
-    float normalScale;     float useNormal;    // 0=off, 1=on
-    float useORM;          float useAO;        // flags for packed/separate AO
+    float normalScale;     float useNormal;     float useORM;          float useAO;
+    float useDiffuseMap;   float useGlossMap;   float useEmissiveMap;  float _pad;
 } mat;
 
 // ── Push constant: directional light ─────────────────────────────────────────
@@ -134,7 +139,12 @@ void main()
     vec3 direct   = (kD * albedoColor.rgb / PI + spec)
                   * lpc.lightColor * lpc.lightIntensity * NdotL;
     vec3 ambient  = mat.Ka * albedoColor.rgb * aoV * lpc.ambientStrength;
-    vec3 emissive = mat.emissive * mat.emissiveStrength;
+
+    // Emissive — sample texture when bound, otherwise use emissiveFactor colour
+    vec3 emissiveSample = mat.useEmissiveMap > 0.5
+        ? texture(emissiveTex, vTexCoord).rgb
+        : vec3(1.0);                            // factor-only: shader multiplies colour below
+    vec3 emissive = mat.emissive * emissiveSample * mat.emissiveStrength;
 
     // Linear output — the SRGB swap chain (VK_FORMAT_B8G8R8A8_SRGB) applies
     // hardware gamma correction automatically; manual tone-map + pow(1/2.2)

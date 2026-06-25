@@ -1,0 +1,29 @@
+FBXAnimator.h - Created 23 June 2026
+=====================================
+NEW FILE: Native FBX animation playback header, parallel to GLTFAnimator.h.
+
+Structures added:
+  FBXAnimChannel  -- one animated property (Translation/Rotation/Scale) on one FBX model node.
+                     Contains resolved FBXAnimCurve copies for X/Y/Z axes, plus preRotation
+                     degrees and rotationOrder needed for correct Euler->Quat conversion.
+  FBXAnimationClip -- one FBX AnimStack in engine-friendly form (name, startTime, duration,
+                      vector of FBXAnimChannel).
+
+Class FBXAnimator:
+  Public interface mirrors GLTFAnimator exactly so ModelAnimator can dispatch transparently.
+  Parse:   ParseAnimationsFromFBX(FBXScene, fbxIDToModelSlot)
+  Control: CreateAnimationInstance, StartAnimation, StopAnimation, PauseAnimation,
+           ResumeAnimation, UpdateAnimations, ForceAnimationReset
+  Query:   GetAnimationCount, GetClip, GetAnimationInstance, IsAnimationPlaying,
+           GetAnimationTime, GetAnimationDuration
+  Params:  SetAnimationSpeed, SetAnimationLooping, SetAnimationTime, SetAnimationDirection,
+           AtAnimationEndFrame, HoldAnimationAtFrame
+  Cleanup: ClearAllAnimations, RemoveAnimationInstance
+
+Private helpers:
+  EvaluateCurve, EvaluateCurveOrDefault, GetInterpolationTypeForKey
+  ApplyCoordFlip (Z-negate for RH->LH), ApplyRotationFlip (M*R*M similarity transform)
+  EulerToMatrix (all 6 rotation orders), MatrixToQuaternion (DirectX row-vector Shepperd)
+  SlerpQuaternions, ApplyChannelToSlot
+  IsInHierarchy, ResetLocalTRSToBase, RecomposeWorldFromLocalTRS
+  LogInfo, LogWarning, LogError

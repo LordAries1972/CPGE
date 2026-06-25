@@ -1,0 +1,34 @@
+// History snapshot for main.cpp - 23 June 2026
+// Change: Added threadManager.InitialiseThreadAffinity() call before thread startup.
+// Location: Inside WinMain(), after DetectAndLogAudioDevices(), before myRandomizer.Initialize().
+//
+// --- PRE-CHANGE SECTION (lines ~504-515) ---
+//
+//        // Detect and log every active audio endpoint so it is immediately clear which
+//        // physical device (headphones, speakers, headset mic, built-in mic, etc.) each
+//        // audio subsystem will route through. Check the debug log if audio goes to the
+//        // wrong output - the mismatch will be visible here.
+//        #if defined(PLATFORM_WINDOWS)
+//            DetectAndLogAudioDevices();
+//        #endif
+//
+//        // Initialise our Randomizer system.
+//        if (!myRandomizer.Initialize()) {
+//
+// --- POST-CHANGE SECTION ---
+//
+//        #if defined(PLATFORM_WINDOWS)
+//            DetectAndLogAudioDevices();
+//        #endif
+//
+//        // Query the system logical processor count and log the recommended engine thread
+//        // layout. This MUST be called before any SetThread() invocation so that:
+//        //   (a) the LP count is confirmed and logged as startup diagnostic info,
+//        //   (b) SetThread() can safely call PreferCore() knowing available LP indices.
+//        // All renderer, loader, FileIO, AI, and network threads are started after this point.
+//        #if defined(PLATFORM_WINDOWS)
+//            threadManager.InitialiseThreadAffinity();
+//        #endif
+//
+//        // Initialise our Randomizer system.
+//        if (!myRandomizer.Initialize()) {

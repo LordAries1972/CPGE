@@ -1,6 +1,10 @@
 @echo off
 setlocal
 
+:: Anchor all file operations to the directory containing this script so the
+:: build works correctly regardless of the caller's working directory.
+set "SCRIPT_DIR=%~dp0"
+
 :: cmake-build <renderer> <Debug|Release>
 ::   renderer : dx11 | dx12 | opengl | vulkan | all
 ::   config   : debug | release  (default: Debug)
@@ -15,10 +19,13 @@ setlocal
 set ARG1=%1
 set ARG2=%2
 
-:: Locate cmake: prefer PATH, fall back to the local install on this machine
+:: Locate cmake from PATH — no hardcoded path.
 set CMAKE_EXE=
 for %%X in (cmake.exe) do set CMAKE_EXE=%%~$PATH:X
-if "%CMAKE_EXE%"=="" set CMAKE_EXE=D:\Programs\CMake\bin\cmake.exe
+if "%CMAKE_EXE%"=="" (
+    echo ERROR: cmake not found on PATH. Install CMake and add it to your PATH.
+    exit /b 1
+)
 
 :: --- Detect OS ---
 set DETECTED_OS=Unknown
@@ -27,12 +34,14 @@ if /i "%OS%"=="Windows_NT" set DETECTED_OS=Windows
 :: --- Clean ---
 if /i "%ARG1%"=="clean" (
     echo Cleaning all build directories and compiled artifacts...
-    if exist "build"              rmdir /s /q "build"
-    if exist "x64"               rmdir /s /q "x64"
-    if exist "CrossPla.2bd3f178" rmdir /s /q "CrossPla.2bd3f178"
+    if exist "%SCRIPT_DIR%build"              rmdir /s /q "%SCRIPT_DIR%build"
+    if exist "%SCRIPT_DIR%x64"               rmdir /s /q "%SCRIPT_DIR%x64"
+    if exist "%SCRIPT_DIR%CrossPla.2bd3f178" rmdir /s /q "%SCRIPT_DIR%CrossPla.2bd3f178"
+    pushd "%SCRIPT_DIR%"
     for %%F in (*.pdb *.ilk *.obj *.pch *.idb) do (
         if exist "%%F" del /q "%%F"
     )
+    popd
     echo Clean complete.
     goto :end
 )
@@ -112,18 +121,18 @@ if /i "%ARG1%"=="all" (
     :: --- Run install ONCE after all pipelines finish (only when all succeeded) ---
     if !ALL_FAIL_COUNT! EQU 0 (
         if /i "!ALL_CONFIG!"=="Debug" (
-            if exist "install-debug.bat" (
+            if exist "%SCRIPT_DIR%install-debug.bat" (
                 echo Running install-debug.bat ...
-                call install-debug.bat
+                call "%SCRIPT_DIR%install-debug.bat"
                 if errorlevel 1 echo WARNING: install-debug.bat returned an error.
             ) else (
                 echo WARNING: install-debug.bat not found -- skipping install.
             )
         )
         if /i "!ALL_CONFIG!"=="Release" (
-            if exist "install-release.bat" (
+            if exist "%SCRIPT_DIR%install-release.bat" (
                 echo Running install-release.bat ...
-                call install-release.bat
+                call "%SCRIPT_DIR%install-release.bat"
                 if errorlevel 1 echo WARNING: install-release.bat returned an error.
             ) else (
                 echo WARNING: install-release.bat not found -- skipping install.
@@ -184,6 +193,19 @@ set CONFIG=Debug
 if /i "%ARG2%"=="release" set CONFIG=Release
 if /i "%ARG2%"=="debug"   set CONFIG=Debug
 
+:: --- Version increment ---
+:: Read Version.id, bump the build number, write back both Version.id and BuildInfo.h.
+:: SKIP_VERSION_INCREMENT is set by 'cmake-build all' for all pipelines after the first,
+:: so the build number advances exactly once per user-initiated build invocation.
+if not defined SKIP_VERSION_INCREMENT (
+    echo Incrementing build number...
+    powershell -NoProfile -Command "& { $vf='%SCRIPT_DIR%Version.id'; $bf='%SCRIPT_DIR%BuildInfo.h'; $rf='%SCRIPT_DIR%ReleaseInfo.md'; $line=(Get-Content $vf -Raw).Trim(); if ($line -match 'v(\d+)\.(\d+)\.(\d+)') { $maj=[int]$Matches[1]; $min=[int]$Matches[2]; $bld=[int]$Matches[3]+1; [IO.File]::WriteAllText($vf,'Current Build Version: v'+$maj+'.'+$min+'.'+$bld); $t=[IO.File]::ReadAllText($bf); $t=$t -replace '(?m)^constexpr int CURRENT_BUILD_VERSION\s*=\s*\d+;',('constexpr int CURRENT_BUILD_VERSION    = '+$maj+';'); $t=$t -replace '(?m)^constexpr int CURRENT_BUILD_SUBVERSION\s*=\s*\d+;',('constexpr int CURRENT_BUILD_SUBVERSION = '+$min+';'); $t=$t -replace '(?m)^constexpr int CURRENT_BUILD\s*=\s*\d+;',('constexpr int CURRENT_BUILD            = '+$bld+';'); [IO.File]::WriteAllText($bf,$t); $r=[IO.File]::ReadAllText($rf); $r=$r -replace '(?m)^\*Current Build Version: v\d+\.\d+\.\d+\*',('*Current Build Version: v'+$maj+'.'+$min+'.'+$bld+'*'); [IO.File]::WriteAllText($rf,$r); Write-Host ('Build number: v'+$maj+'.'+$min+'.'+$bld) } else { Write-Error 'ERROR: Could not parse Version.id'; exit 1 } }"
+    if errorlevel 1 (
+        echo ERROR: Failed to increment build number -- build aborted.
+        exit /b 1
+    )
+)
+
 :: --- Patch Includes.h ---
 :: Use PowerShell to comment out ALL Windows renderer #define lines, then
 :: uncomment only the one matching the requested renderer.
@@ -191,7 +213,7 @@ if /i "%ARG2%"=="debug"   set CONFIG=Debug
 :: The Windows block uses 8 spaces; Linux/Android use //#define (no gap),
 :: so [ \t]+ after optional // safely targets only the Windows block.
 echo Patching Includes.h: enabling %RENDERER_DEFINE% on %DETECTED_OS% ...
-powershell -NoProfile -Command "& { $define='%RENDERER_DEFINE%'; $f='Includes.h'; $t=[IO.File]::ReadAllText($f); foreach ($d in @('DIRECTX_11','DIRECTX_12','OPENGL','VULKAN','RADEON')) { $t=$t -replace ('(?m)^(?://)?([ \t]+#define __USE_'+$d+'__)'), '//$1' }; $t=$t -replace ('(?m)^//([ \t]+#define '+$define+')'), '$1'; [IO.File]::WriteAllText($f,$t) }"
+powershell -NoProfile -Command "& { $define='%RENDERER_DEFINE%'; $f='%SCRIPT_DIR%Includes.h'; $t=[IO.File]::ReadAllText($f); foreach ($d in @('DIRECTX_11','DIRECTX_12','OPENGL','VULKAN','RADEON')) { $t=$t -replace ('(?m)^(?://)?([ \t]+#define __USE_'+$d+'__)'), '//$1' }; $t=$t -replace ('(?m)^//([ \t]+#define '+$define+')'), '$1'; [IO.File]::WriteAllText($f,$t) }"
 if errorlevel 1 (
     echo ERROR: Failed to patch Includes.h — build aborted.
     exit /b 1
@@ -204,7 +226,7 @@ echo Includes.h patched.
 :: "kill at start" is the primary guarantee.
 call :killcompiler
 
-set BUILD_DIR=build\%RENDERER%\%CONFIG%
+set "BUILD_DIR=%SCRIPT_DIR%build\%RENDERER%\%CONFIG%"
 
 if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
 
@@ -212,9 +234,11 @@ echo.
 echo Building: OS=%DETECTED_OS%  Renderer=%RENDERER%  Config=%CONFIG%  Dir=%BUILD_DIR%
 echo.
 
-"%CMAKE_EXE%" -S . -B "%BUILD_DIR%" -G "Visual Studio 17 2022" -A x64 -DRENDERER:STRING=%RENDERER%
+"%CMAKE_EXE%" -S "%SCRIPT_DIR:~0,-1%" -B "%BUILD_DIR%" -G "Visual Studio 17 2022" -A x64 -DRENDERER:STRING=%RENDERER%
 if errorlevel 1 goto :error
 
+:: cmake-build already incremented the version; tell IncrementVersion.cmake PRE_BUILD hook to skip.
+set SKIP_VERSION_INCREMENT=1
 "%CMAKE_EXE%" --build "%BUILD_DIR%" --config %CONFIG% --parallel
 if errorlevel 1 goto :error
 
@@ -224,18 +248,18 @@ echo Build succeeded: %RENDERER% %CONFIG% -- %DATE%  %TIME%
 :: --- Run install script on success (skipped when called from 'cmake-build all') ---
 if not defined SKIP_INSTALL (
     if /i "%CONFIG%"=="Debug" (
-        if exist "install-debug.bat" (
+        if exist "%SCRIPT_DIR%install-debug.bat" (
             echo Running install-debug.bat ...
-            call install-debug.bat
+            call "%SCRIPT_DIR%install-debug.bat"
             if errorlevel 1 echo WARNING: install-debug.bat returned an error.
         ) else (
             echo WARNING: install-debug.bat not found -- skipping install.
         )
     )
     if /i "%CONFIG%"=="Release" (
-        if exist "install-release.bat" (
+        if exist "%SCRIPT_DIR%install-release.bat" (
             echo Running install-release.bat ...
-            call install-release.bat
+            call "%SCRIPT_DIR%install-release.bat"
             if errorlevel 1 echo WARNING: install-release.bat returned an error.
         ) else (
             echo WARNING: install-release.bat not found -- skipping install.

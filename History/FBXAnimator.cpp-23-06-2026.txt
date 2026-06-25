@@ -1,0 +1,22 @@
+FBXAnimator.cpp - Created 23 June 2026
+=======================================
+NEW FILE: Implementation of native FBX animation playback.
+
+Key design points:
+  - Follows GLTFAnimator.cpp pattern exactly (non-DX math stubs block, same hierarchy helpers).
+  - Non-DX stubs supply: XMMatrixRotationX/Y/Z, XMConvertToRadians, XMQuaternionRotationMatrix
+    (DirectX row-vector Shepperd method), XMLoadFloat4x4, plus all existing GLTFAnimator stubs.
+  - ParseAnimationsFromFBX: builds fast ID-lookup maps for FBXAnimLayer/FBXAnimCurveNode/FBXAnimCurve,
+    then iterates stacks->layers->curveNodes to produce FBXAnimationClip list.
+    Copies preRotation + rotationOrder from FBXModel for each channel.
+    Duration derived from localStart/localStop (FBX time units -> seconds); falls back to
+    scanning actual curve key ranges when stack timing is zero.
+  - EvaluateCurve: converts timeSeconds*FBX_TIME_UNIT, binary scan, GetInterpolationTypeForKey
+    for step (flag & 0x02) vs linear/cubic (treated as linear).
+  - ApplyChannelToSlot: TRANSLATION negates Z (ApplyCoordFlip); ROTATION evaluates Euler +
+    preRotation -> EulerToMatrix -> ApplyRotationFlip -> MatrixToQuaternion -> normalize -> store;
+    SCALE copies directly (no handedness change).
+  - ApplyRotationFlip: XMFLOAT4X4 bridge, negates _13,_23,_31,_32 for M*R*M with M=diag(1,1,-1).
+  - UpdateAnimations: identical time-advance + direction/bounce/loop logic to GLTFAnimator;
+    calls ResetLocalTRSToBase, ApplyChannelToSlot per channel, RecomposeWorldFromLocalTRS.
+  - All control/query/cleanup methods match GLTFAnimator signature and semantics.

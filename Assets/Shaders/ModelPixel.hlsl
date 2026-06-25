@@ -272,20 +272,26 @@ float3 ProcessLight(LightStruct light, float3 N, float3 V, float3 worldPos,
 // Values between are produced by the PCF kernel averaging.
 float SampleShadow(float3 worldPos)
 {
-    if (useShadowMap < 0.5f)
-        return 1.0f;
+    float shadowFactor = 1.0f;
 
-    // Transform world position to light clip space
-    float4 lightClip   = mul(float4(worldPos, 1.0f), lightViewProj);
-    float3 projCoords  = lightClip.xyz / lightClip.w;
+    if (useShadowMap < 0.5f)
+        return shadowFactor;
+
+    // Transform world position to light clip space. Treat invalid clip-space W as lit
+    // so bad shadow data cannot produce undefined projection values in the PCF path.
+    float4 lightClip = mul(float4(worldPos, 1.0f), lightViewProj);
+    if (abs(lightClip.w) < 0.00001f)
+        return shadowFactor;
+
+    float3 projCoords = lightClip.xyz / lightClip.w;
 
     // Discard samples outside the shadow frustum
     if (projCoords.z > 1.0f || projCoords.z < 0.0f)
-        return 1.0f;
+        return shadowFactor;
     if (projCoords.x < -1.0f || projCoords.x > 1.0f)
-        return 1.0f;
+        return shadowFactor;
     if (projCoords.y < -1.0f || projCoords.y > 1.0f)
-        return 1.0f;
+        return shadowFactor;
 
     // Remap X,Y from NDC [-1,1] to texture [0,1]; flip Y for DX clip convention
     // float2 initialised with constructor — component-wise assignment triggers X4000 in FXC.
@@ -309,7 +315,8 @@ float SampleShadow(float3 worldPos)
     shadow /= 9.0f;
 
     // shadow=1 (lit) → lerp controls darkness: 0 strength=no shadow, 1 strength=full shadow
-    return lerp(1.0f - shadowStrength, 1.0f, shadow);
+    shadowFactor = lerp(1.0f - shadowStrength, 1.0f, shadow);
+    return shadowFactor;
 }
 
 // ── Pixel Shader Entry Point ──────────────────────────────────────────────────

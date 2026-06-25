@@ -1,0 +1,282 @@
+@echo off
+setlocal
+
+:: cmake-build <renderer> <Debug|Release>
+::   renderer : dx11 | dx12 | opengl | vulkan | all
+::   config   : debug | release  (default: Debug)
+::
+:: Examples:
+::   cmake-build dx11 debug
+::   cmake-build vulkan release
+::   cmake-build all debug          <- builds every pipeline in Debug
+::   cmake-build all release        <- builds every pipeline in Release
+::   cmake-build clean
+
+set ARG1=%1
+set ARG2=%2
+
+:: Locate cmake: prefer PATH, fall back to the local install on this machine
+set CMAKE_EXE=
+for %%X in (cmake.exe) do set CMAKE_EXE=%%~$PATH:X
+if "%CMAKE_EXE%"=="" set CMAKE_EXE=D:\Programs\CMake\bin\cmake.exe
+
+:: --- Detect OS ---
+set DETECTED_OS=Unknown
+if /i "%OS%"=="Windows_NT" set DETECTED_OS=Windows
+
+:: --- Clean ---
+if /i "%ARG1%"=="clean" (
+    echo Cleaning all build directories and compiled artifacts...
+    if exist "build"              rmdir /s /q "build"
+    if exist "x64"               rmdir /s /q "x64"
+    if exist "CrossPla.2bd3f178" rmdir /s /q "CrossPla.2bd3f178"
+    for %%F in (*.pdb *.ilk *.obj *.pch *.idb) do (
+        if exist "%%F" del /q "%%F"
+    )
+    echo Clean complete.
+    goto :end
+)
+
+:: --- Usage ---
+if "%ARG1%"=="" (
+    echo.
+    echo Usage: cmake-build ^<renderer^> [Debug^|Release]
+    echo   Renderers : dx11  dx12  opengl  vulkan
+    echo   Special   : all   ^(builds every pipeline in the specified config^)
+    echo   Config    : debug  release  ^(default: Debug^)
+    echo.
+    echo Examples:
+    echo   cmake-build dx11 debug
+    echo   cmake-build vulkan release
+    echo   cmake-build all debug
+    echo   cmake-build all release
+    echo   cmake-build clean
+    exit /b 1
+)
+
+:: --- Build ALL pipelines ---
+:: Iterates over every known renderer, calling this script for each one so
+:: that Includes.h patching, OS validation, and the build steps run as normal.
+:: DirectX pipelines are skipped automatically on non-Windows hosts.
+if /i "%ARG1%"=="all" (
+    setlocal enabledelayedexpansion
+
+    set "ALL_CONFIG=Debug"
+    if /i "%ARG2%"=="release" set "ALL_CONFIG=Release"
+    if /i "%ARG2%"=="debug"   set "ALL_CONFIG=Debug"
+
+    echo.
+    echo ============================================================
+    echo  Building ALL render pipelines  --  Config: !ALL_CONFIG!
+    echo ============================================================
+    echo.
+
+    set /a ALL_FAIL_COUNT=0
+    set "ALL_PASS_LIST="
+    set "ALL_FAIL_LIST="
+    set "IS_FIRST_BUILD=1"
+    set "SKIP_INSTALL=1"
+
+    for %%R in (dx11 dx12 opengl vulkan) do (
+        set "SKIP_RENDERER=0"
+        if /i "%%R"=="dx11" if /i not "!DETECTED_OS!"=="Windows" set "SKIP_RENDERER=1"
+        if /i "%%R"=="dx12" if /i not "!DETECTED_OS!"=="Windows" set "SKIP_RENDERER=1"
+
+        if "!SKIP_RENDERER!"=="1" (
+            echo   [SKIP] %%R  ^(DirectX not supported on !DETECTED_OS!^)
+        ) else (
+            echo.
+            echo   ---- Building %%R !ALL_CONFIG! ----
+            if "!IS_FIRST_BUILD!"=="0" set SKIP_VERSION_INCREMENT=1
+            call "%~f0" %%R !ALL_CONFIG!
+            set "BUILD_ERR=!ERRORLEVEL!"
+            set SKIP_VERSION_INCREMENT=
+            set "IS_FIRST_BUILD=0"
+            if "!BUILD_ERR!" NEQ "0" (
+                set /a ALL_FAIL_COUNT+=1
+                set "ALL_FAIL_LIST=!ALL_FAIL_LIST! %%R"
+            ) else (
+                set "ALL_PASS_LIST=!ALL_PASS_LIST! %%R"
+            )
+        )
+    )
+
+    echo.
+    echo ============================================================
+    echo  ALL BUILD SUMMARY  --  %DATE%  %TIME%
+    if not "!ALL_PASS_LIST!"=="" echo   PASSED :!ALL_PASS_LIST!
+    if not "!ALL_FAIL_LIST!"=="" echo   FAILED :!ALL_FAIL_LIST!
+    echo ============================================================
+    echo.
+
+    :: --- Run install ONCE after all pipelines finish (only when all succeeded) ---
+    if !ALL_FAIL_COUNT! EQU 0 (
+        if /i "!ALL_CONFIG!"=="Debug" (
+            if exist "install-debug.bat" (
+                echo Running install-debug.bat ...
+                call install-debug.bat
+                if errorlevel 1 echo WARNING: install-debug.bat returned an error.
+            ) else (
+                echo WARNING: install-debug.bat not found -- skipping install.
+            )
+        )
+        if /i "!ALL_CONFIG!"=="Release" (
+            if exist "install-release.bat" (
+                echo Running install-release.bat ...
+                call install-release.bat
+                if errorlevel 1 echo WARNING: install-release.bat returned an error.
+            ) else (
+                echo WARNING: install-release.bat not found -- skipping install.
+            )
+        )
+    )
+
+    if !ALL_FAIL_COUNT! GTR 0 (
+        endlocal
+        exit /b 1
+    )
+    endlocal
+    goto :end
+)
+
+:: --- Map renderer argument to CMake string and Includes.h define ---
+set RENDERER=
+set RENDERER_DEFINE=
+
+if /i "%ARG1%"=="dx11" (
+    set RENDERER=DX11
+    set RENDERER_DEFINE=__USE_DIRECTX_11__
+)
+if /i "%ARG1%"=="dx12" (
+    set RENDERER=DX12
+    set RENDERER_DEFINE=__USE_DIRECTX_12__
+)
+if /i "%ARG1%"=="opengl" (
+    set RENDERER=OpenGL
+    set RENDERER_DEFINE=__USE_OPENGL__
+)
+if /i "%ARG1%"=="vulkan" (
+    set RENDERER=Vulkan
+    set RENDERER_DEFINE=__USE_VULKAN__
+)
+
+if "%RENDERER%"=="" (
+    echo Unknown renderer: "%ARG1%"
+    echo Valid renderers: dx11  dx12  opengl  vulkan
+    exit /b 1
+)
+
+:: --- Validate renderer against OS ---
+:: DirectX 11 and 12 are Windows-only; OpenGL and Vulkan are cross-platform.
+if /i "%DETECTED_OS%"=="Windows" goto :renderer_ok
+if /i "%RENDERER%"=="DX11" (
+    echo ERROR: DirectX 11 is only supported on Windows. Detected OS: %DETECTED_OS%
+    exit /b 1
+)
+if /i "%RENDERER%"=="DX12" (
+    echo ERROR: DirectX 12 is only supported on Windows. Detected OS: %DETECTED_OS%
+    exit /b 1
+)
+:renderer_ok
+
+:: --- Config ---
+set CONFIG=Debug
+if /i "%ARG2%"=="release" set CONFIG=Release
+if /i "%ARG2%"=="debug"   set CONFIG=Debug
+
+:: --- Version increment ---
+:: Read Version.id, bump the build number, write back both Version.id and BuildInfo.h.
+:: SKIP_VERSION_INCREMENT is set by 'cmake-build all' for all pipelines after the first,
+:: so the build number advances exactly once per user-initiated build invocation.
+if not defined SKIP_VERSION_INCREMENT (
+    echo Incrementing build number...
+    powershell -NoProfile -Command "& { $vf='Version.id'; $bf='BuildInfo.h'; $line=(Get-Content $vf -Raw).Trim(); if ($line -match 'v(\d+)\.(\d+)\.(\d+)') { $maj=[int]$Matches[1]; $min=[int]$Matches[2]; $bld=[int]$Matches[3]+1; [IO.File]::WriteAllText($vf,'Current Build Version: v'+$maj+'.'+$min+'.'+$bld); $t=[IO.File]::ReadAllText($bf); $t=$t -replace '(?m)^constexpr int CURRENT_BUILD_VERSION\s*=\s*\d+;',('constexpr int CURRENT_BUILD_VERSION    = '+$maj+';'); $t=$t -replace '(?m)^constexpr int CURRENT_BUILD_SUBVERSION\s*=\s*\d+;',('constexpr int CURRENT_BUILD_SUBVERSION = '+$min+';'); $t=$t -replace '(?m)^constexpr int CURRENT_BUILD\s*=\s*\d+;',('constexpr int CURRENT_BUILD            = '+$bld+';'); [IO.File]::WriteAllText($bf,$t); Write-Host ('Build number: v'+$maj+'.'+$min+'.'+$bld) } else { Write-Error 'ERROR: Could not parse Version.id'; exit 1 } }"
+    if errorlevel 1 (
+        echo ERROR: Failed to increment build number -- build aborted.
+        exit /b 1
+    )
+)
+
+:: --- Patch Includes.h ---
+:: Use PowerShell to comment out ALL Windows renderer #define lines, then
+:: uncomment only the one matching the requested renderer.
+:: Pattern: lines of the form [optional //][whitespace+]#define __USE_<X>__
+:: The Windows block uses 8 spaces; Linux/Android use //#define (no gap),
+:: so [ \t]+ after optional // safely targets only the Windows block.
+echo Patching Includes.h: enabling %RENDERER_DEFINE% on %DETECTED_OS% ...
+powershell -NoProfile -Command "& { $define='%RENDERER_DEFINE%'; $f='Includes.h'; $t=[IO.File]::ReadAllText($f); foreach ($d in @('DIRECTX_11','DIRECTX_12','OPENGL','VULKAN','RADEON')) { $t=$t -replace ('(?m)^(?://)?([ \t]+#define __USE_'+$d+'__)'), '//$1' }; $t=$t -replace ('(?m)^//([ \t]+#define '+$define+')'), '$1'; [IO.File]::WriteAllText($f,$t) }"
+if errorlevel 1 (
+    echo ERROR: Failed to patch Includes.h — build aborted.
+    exit /b 1
+)
+echo Includes.h patched.
+
+:: --- Kill stale compiler processes ---
+:: Release any file handles left by a previous cancelled or failed build
+:: before we start a new one. Ctrl+C cannot be trapped in batch so this
+:: "kill at start" is the primary guarantee.
+call :killcompiler
+
+set BUILD_DIR=build\%RENDERER%\%CONFIG%
+
+if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
+
+echo.
+echo Building: OS=%DETECTED_OS%  Renderer=%RENDERER%  Config=%CONFIG%  Dir=%BUILD_DIR%
+echo.
+
+"%CMAKE_EXE%" -S . -B "%BUILD_DIR%" -G "Visual Studio 17 2022" -A x64 -DRENDERER:STRING=%RENDERER%
+if errorlevel 1 goto :error
+
+:: cmake-build already incremented the version; tell IncrementVersion.cmake PRE_BUILD hook to skip.
+set SKIP_VERSION_INCREMENT=1
+"%CMAKE_EXE%" --build "%BUILD_DIR%" --config %CONFIG% --parallel
+if errorlevel 1 goto :error
+
+echo.
+echo Build succeeded: %RENDERER% %CONFIG% -- %DATE%  %TIME%
+
+:: --- Run install script on success (skipped when called from 'cmake-build all') ---
+if not defined SKIP_INSTALL (
+    if /i "%CONFIG%"=="Debug" (
+        if exist "install-debug.bat" (
+            echo Running install-debug.bat ...
+            call install-debug.bat
+            if errorlevel 1 echo WARNING: install-debug.bat returned an error.
+        ) else (
+            echo WARNING: install-debug.bat not found -- skipping install.
+        )
+    )
+    if /i "%CONFIG%"=="Release" (
+        if exist "install-release.bat" (
+            echo Running install-release.bat ...
+            call install-release.bat
+            if errorlevel 1 echo WARNING: install-release.bat returned an error.
+        ) else (
+            echo WARNING: install-release.bat not found -- skipping install.
+        )
+    )
+)
+
+goto :end
+
+:error
+:: Release handles from the build that just failed or was cancelled
+call :killcompiler
+echo.
+echo Build FAILED: %RENDERER% %CONFIG% -- %DATE%  %TIME%
+exit /b 1
+
+:end
+endlocal
+exit /b 0
+
+:: -----------------------------------------------------------------------
+:: Kill all cl.exe and mspdbsrv.exe processes to release any locked handles.
+:: Errors are suppressed — if nothing is running, taskkill exits non-zero
+:: but that is harmless.
+:: -----------------------------------------------------------------------
+:killcompiler
+taskkill /F /IM cl.exe       >nul 2>&1
+taskkill /F /IM mspdbsrv.exe >nul 2>&1
+exit /b 0

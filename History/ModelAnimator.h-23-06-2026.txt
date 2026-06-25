@@ -1,0 +1,24 @@
+ModelAnimator.h - Created 23 June 2026
+=======================================
+NEW FILE: Universal animation dispatcher header.
+
+Purpose: owns one GLTFAnimator and one FBXAnimator as public members.
+         Exposes a single unified interface so render-frame and gameplay code
+         never needs to know which importer produced a given model.
+
+Public members:
+  GLTFAnimator gltfAnimator  -- SceneManager can call GLTF-specific APIs directly when needed
+  FBXAnimator  fbxAnimator   -- SceneManager can call FBX-specific APIs directly when needed
+
+Key methods:
+  SetModels(Model*, int)      -- binds scene array (called once from SceneManager::Initialize)
+  IsAnimationPlaying(id)      -- true if EITHER sub-animator has an active instance
+  StartAnimation(id, clip)    -- dispatches by ModelInfo::importType
+  Stop/Pause/Resume           -- applied to both sub-animators (whichever owns the instance wins)
+  UpdateAnimations(deltaTime) -- advances both sub-animators, uses internally stored model array
+  SetAnimationSpeed/Looping/Time/Direction, AtAnimationEndFrame, HoldAnimationAtFrame
+  ForceAnimationReset, ClearAllAnimations
+
+Private:
+  m_models, m_maxModels       -- bound scene array
+  GetModelImportType(id)      -- looks up scene_models[id].m_modelInfo.importType

@@ -6,7 +6,7 @@ This file contains the implementation of the GUIManager class, which manages GUI
 It includes methods for creating, removing, and rendering GUI windows, as well as handling input events.
 
 Dependencies: Includes.h, Renderer.h, DX11Renderer.h, DX12Renderer.h, VulkanRenderer.h, OpenGLRenderer.h,
-              GUIManager.h, SoundManager.h, Debug.h
+              GUIManager.h, SoundManager.h, Debug.h, GamePlayer.h
 
 */
 #pragma once
@@ -18,13 +18,13 @@ Dependencies: Includes.h, Renderer.h, DX11Renderer.h, DX12Renderer.h, VulkanRend
 
 #if defined(_WIN32) || defined(_WIN64)
     #if defined(__USE_DIRECTX_11__)
-    #include "DX11Renderer.h"
+        #include "DX11Renderer.h"
     #elif defined(__USE_DIRECTX_12__)
-    #include "DX12Renderer.h"
+        #include "DX12Renderer.h"
     #elif defined(__USE_VULKAN__)
-    #include "VULKAN_Renderer.h"
+        #include "VULKAN_Renderer.h"
     #elif defined(__USE_OPENGL__)
-    #include "OpenGLRenderer.h"
+        #include "OpenGLRenderer.h"
     #endif
 #endif  // End of #if defined(_WIN32) || defined(_WIN64)
 
@@ -175,6 +175,18 @@ void GUIManager::RemoveWindow(const std::string& name) {
     windowToDestroy.reset();
 }
 
+void GUIManager::CloseAllWindows() {
+    std::vector<std::string> names;
+    {
+        std::lock_guard<std::timed_mutex> lock(mutex);
+        names.reserve(windows.size());
+        for (const auto& [name, _] : windows)
+            names.push_back(name);
+    }
+    for (const auto& name : names)
+        RemoveWindow(name);
+}
+
 void GUIManager::OnWindowResize(int newWidth, int newHeight)
 {
     auto menu = GetWindow("GameMenuWindow");
@@ -191,6 +203,10 @@ void GUIManager::OnWindowResize(int newWidth, int newHeight)
 void GUIManager::Render() {
     if (!myRenderer) return;
 
+    // Collect completed-fade callbacks to fire AFTER the mutex is released
+    // so they can safely re-enter GUIManager methods without deadlocking.
+    std::vector<std::function<void()>> completedCallbacks;
+
     // Build an owned-snapshot under the mutex so no concurrent RemoveWindow()
     // can free a window while we render it.  The lock is blocking (not try),
     // so the renderer thread waits the tiny fraction of a millisecond that
@@ -200,6 +216,39 @@ void GUIManager::Render() {
     std::vector<std::shared_ptr<GUIWindow>> snapshot;
     {
         std::lock_guard<std::timed_mutex> lock(mutex);
+
+        // --- Tick all active window fades ---
+        auto now = std::chrono::steady_clock::now();
+        for (auto& [name, win] : windows) {
+            if (!win || win->bWindowDestroy || !win->m_fade.active) continue;
+
+            // Compute normalised progress [0, 1]
+            float elapsed  = std::chrono::duration<float>(now - win->m_fade.startTime).count();
+            float t        = (win->m_fade.duration > 0.0f)
+                             ? std::clamp(elapsed / win->m_fade.duration, 0.0f, 1.0f)
+                             : 1.0f;
+
+            win->m_fadeAlpha = (win->m_fade.fadeType == GUIWindowFadeType::FadeIn)
+                               ? t : (1.0f - t);
+
+            if (t >= 1.0f) {
+                // Fade finished
+                win->m_fade.active = false;
+                if (win->m_fade.fadeType == GUIWindowFadeType::FadeOut) {
+                    // Hide the window and restore full alpha for the next show
+                    win->isVisible   = false;
+                    win->m_fadeAlpha = 1.0f;
+                } else {
+                    win->m_fadeAlpha = 1.0f;   // Ensure fully opaque after fade-in
+                }
+                // Queue callback for post-mutex dispatch
+                if (win->m_fade.onComplete) {
+                    completedCallbacks.push_back(std::move(win->m_fade.onComplete));
+                    win->m_fade.onComplete = nullptr;
+                }
+            }
+        }
+
         snapshot.reserve(windows.size());
         for (const auto& [name, window] : windows) {
             if (window && !window->bWindowDestroy && window->isVisible)
@@ -208,7 +257,12 @@ void GUIManager::Render() {
         // Render lowest zOrder first so the highest (topmost) window appears on top.
         std::sort(snapshot.begin(), snapshot.end(),
             [](const auto& a, const auto& b) { return a->zOrder < b->zOrder; });
-    }  // mutex released before any rendering
+    }  // mutex released before any rendering or callbacks
+
+    // Fire completed-fade callbacks outside the mutex to prevent deadlocks
+    for (auto& cb : completedCallbacks) {
+        if (cb) cb();
+    }
 
     for (const auto& window : snapshot) {
         if (!window->bWindowDestroy && window->isVisible)
@@ -382,6 +436,37 @@ void GUIManager::BringWindowToFront(const std::string& name) {
         it->second->zOrder = m_nextZOrder++;
 }
 
+void GUIManager::ApplyWindowFade(GUIWindowFadeType winfadeType, float overTimePeriod, const std::string& windowName) {
+    ApplyWindowFadeCallback(winfadeType, overTimePeriod, windowName, nullptr);
+}
+
+void GUIManager::ApplyWindowFadeCallback(GUIWindowFadeType winfadeType, float overTimePeriod, const std::string& windowName, std::function<void()> callback) {
+    std::lock_guard<std::timed_mutex> lock(mutex);
+    auto it = windows.find(windowName);
+    if (it == windows.end() || !it->second || it->second->bWindowDestroy) {
+        debug.logLevelMessage(LogLevel::LOG_WARNING,
+            L"ApplyWindowFadeCallback - Window not found or already destroyed");
+        return;
+    }
+
+    auto& win           = *it->second;
+    win.m_fade.active   = true;
+    win.m_fade.fadeType = winfadeType;
+    win.m_fade.duration = overTimePeriod;
+    win.m_fade.startTime= std::chrono::steady_clock::now();
+    win.m_fade.onComplete = std::move(callback);
+
+    if (winfadeType == GUIWindowFadeType::FadeIn) {
+        // Start fully transparent and make window visible so it appears this frame
+        win.m_fadeAlpha = 0.0f;
+        win.isVisible   = true;
+    } else {
+        // Start fully opaque; the tick will hide the window once alpha reaches 0
+        win.m_fadeAlpha = 1.0f;
+        win.isVisible   = true;
+    }
+}
+
 void GUIManager::HandleChar(wchar_t c) {
     auto focused = GetFocusedWindow();
     if (focused && focused->onCharInput)
@@ -402,12 +487,31 @@ void GUIManager::HandleEnter() {
 
 void GUIManager::HandleMouseWheel(int delta) {
     auto focused = GetFocusedWindow();
-    if (focused && focused->onMouseWheel)
+    if (!focused) return;
+
+    // If the focused window has registered its own wheel handler, use it.
+    if (focused->onMouseWheel) {
         focused->onMouseWheel(delta);
+        return;
+    }
+
+    // Otherwise try to scroll the first visible ListBox in that window.
+    // delta is positive = scroll up (decrease offset), negative = scroll down.
+    for (auto& ctrl : focused->controls) {
+        if (ctrl.type != GUIControlType::ListBox || !ctrl.isVisible) continue;
+        const int iH    = ctrl.listItemHeight > 0 ? ctrl.listItemHeight : 22;
+        const int vis   = static_cast<int>(ctrl.size.y / static_cast<float>(iH));
+        const int total = static_cast<int>(ctrl.items.size());
+        int step        = (delta > 0) ? -3 : 3;          // 3-row scroll per tick
+        ctrl.listScrollOffset = std::clamp(
+            ctrl.listScrollOffset + step, 0, std::max(0, total - vis));
+        break;                                             // only scroll the first ListBox
+    }
 }
 
 void GUIWindow::HandleMouseMove(const Vector2& mousePosition, const std::unordered_map<std::string, std::shared_ptr<GUIWindow>>& allWindows) {
     if (bWindowDestroy || !isVisible) return;
+    if (m_fade.active) return;
 
     for (auto& control : controls) {
         bool isMouseOver =
@@ -458,8 +562,50 @@ void GUIWindow::HandleMouseMove(const Vector2& mousePosition, const std::unorder
                 break;
             }
 
+            case GUIControlType::Scrollbar:
+            {
+                if (control.isPressed) {
+                    int newPosition = static_cast<int>(mousePosition.y - control.position.y);
+                    UpdateScrollbar(newPosition);
+                }
+                break;
+            }
+
             case GUIControlType::ToggleSlider:
                 break;  // click-only control, no drag logic
+
+            case GUIControlType::Panel:
+                break;  // decorative only
+
+            case GUIControlType::TextInput:
+                break;  // cursor placement handled in HandleMouseClick
+
+            case GUIControlType::ListBox:
+            {
+                // Continue scrollbar thumb drag while button is held
+                if (control.isPressed && control.isActive) {
+                    const int   total = static_cast<int>(control.items.size());
+                    const int   vis   = static_cast<int>(control.size.y /
+                        static_cast<float>(control.listItemHeight > 0 ? control.listItemHeight : 22));
+                    float maxScr  = static_cast<float>(total - vis);
+                    if (maxScr > 0.0f) {
+                        float delta   = mousePosition.y - control.sliderValue;
+                        control.sliderValue = mousePosition.y;
+                        float trackH  = control.size.y - 2.0f;
+                        float iHf     = static_cast<float>(control.listItemHeight > 0 ? control.listItemHeight : 22);
+                        float thumbH  = std::max(20.0f, trackH * (static_cast<float>(vis) / static_cast<float>(total)));
+                        float step    = (maxScr / std::max(1.0f, trackH - thumbH)) * delta;
+                        float newOff  = std::clamp(
+                            static_cast<float>(control.listScrollOffset) + step,
+                            0.0f, maxScr);
+                        control.listScrollOffset = static_cast<int>(std::round(newOff));
+                    }
+                }
+                break;
+            }
+
+            case GUIControlType::ComboBox:
+                break;  // dropdown hover tracking done in click handler
 
             default:
                 break;
@@ -469,6 +615,33 @@ void GUIWindow::HandleMouseMove(const Vector2& mousePosition, const std::unorder
 
 void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick, GUIManager* guiMgr, bool& clickConsumed) {
     if (bWindowDestroy) return;
+    if (m_fade.active) return;
+
+    // Pre-pass: close any open ComboBox whose click lands outside both its main
+    // rect AND its open dropdown panel so the dropdown dismisses properly.
+    if (isLeftClick) {
+        for (auto& ctrl : controls) {
+            if (ctrl.type != GUIControlType::ComboBox || !ctrl.isDropdownOpen) continue;
+            // Main box rect
+            bool inMain = (mousePosition.x >= ctrl.position.x &&
+                           mousePosition.x <= ctrl.position.x + ctrl.size.x &&
+                           mousePosition.y >= ctrl.position.y &&
+                           mousePosition.y <= ctrl.position.y + ctrl.size.y);
+            // Dropdown rect (below the control)
+            const int   total    = static_cast<int>(ctrl.items.size());
+            const int   maxRows  = std::min(ctrl.dropdownMaxRows, total);
+            const float iH       = static_cast<float>(ctrl.listItemHeight > 0 ? ctrl.listItemHeight : 22);
+            const float dropH    = static_cast<float>(maxRows) * iH + 4.0f;
+            float dropY          = ctrl.position.y + ctrl.size.y;
+            bool inDrop = (mousePosition.x >= ctrl.position.x &&
+                           mousePosition.x <= ctrl.position.x + ctrl.size.x &&
+                           mousePosition.y >= dropY &&
+                           mousePosition.y <= dropY + dropH);
+            if (!inMain && !inDrop) {
+                ctrl.isDropdownOpen = false;
+            }
+        }
+    }
 
     for (auto& control : controls) {
         bool isMouseOver =
@@ -530,14 +703,25 @@ void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick
 
         case GUIControlType::Scrollbar:
         {
-            if (control.onMouseBtnDown && !clickConsumed && (!guiMgr || !guiMgr->IsClickCoolingDown())) {
-                control.onMouseBtnDown();
-                control.isPressed = true;
-                clickConsumed = true;
-                if (guiMgr) guiMgr->AcquireClickLock();
+            if (isLeftClick) {
+                if (isMouseOver && !control.isPressed && !clickConsumed && (!guiMgr || !guiMgr->IsClickCoolingDown())) {
+                    control.isPressed = true;
+                    clickConsumed = true;
+                    if (guiMgr) guiMgr->AcquireClickLock();
+                    SetCapture(hwnd);
+                    if (control.onMouseBtnDown) control.onMouseBtnDown();
+                }
+                if (control.isPressed) {
+                    int newPosition = static_cast<int>(mousePosition.y - control.position.y);
+                    UpdateScrollbar(newPosition);
+                }
+            } else {
+                if (control.isPressed) {
+                    control.isPressed = false;
+                    ReleaseCapture();
+                    if (control.onMouseBtnUp) control.onMouseBtnUp();
+                }
             }
-            int newPosition = mousePosition.y - control.position.y;
-            UpdateScrollbar(newPosition);
             break;
         }
 
@@ -577,6 +761,148 @@ void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick
                     control.isPressed   = true;
                     control.sliderValue = (control.sliderValue >= 0.5f) ? 0.0f : 1.0f;
                     if (control.onSliderChanged) control.onSliderChanged(control.sliderValue);
+                }
+            }
+            else if (!isLeftClick) {
+                control.isPressed = false;
+            }
+            break;
+        }
+
+        // Panel controls are purely decorative — no click handling needed.
+        case GUIControlType::Panel:
+            break;
+
+        case GUIControlType::TextInput:
+        {
+            if (!control.isVisible) break;
+            if (isMouseOver && isLeftClick) {
+                if (!control.isPressed && !clickConsumed && (!guiMgr || !guiMgr->IsClickCoolingDown())) {
+                    control.isPressed   = true;
+                    clickConsumed       = true;
+                    if (guiMgr) guiMgr->AcquireClickLock();
+
+                    // Give keyboard focus to this TextInput; strip it from every other
+                    for (auto& other : controls)
+                        if (&other != &control && other.type == GUIControlType::TextInput)
+                            other.isFocused = false;
+                    control.isFocused = true;
+
+                    // Position cursor at the click point
+                    const float fs     = control.lblFontSize > 0.0f ? control.lblFontSize : 12.0f;
+                    const float textX  = control.position.x + 6.0f;
+                    float runX         = textX;
+                    int   newCursor    = 0;
+                    for (int ci = 0; ci < (int)control.inputText.size(); ++ci) {
+                        float cw = myRenderer ? myRenderer->GetCharacterWidth(control.inputText[ci], fs) : fs * 0.6f;
+                        if (mousePosition.x < runX + cw * 0.5f) break;
+                        runX += cw;
+                        newCursor = ci + 1;
+                    }
+                    control.cursorPos = newCursor;
+                }
+            }
+            else if (!isLeftClick) {
+                control.isPressed = false;
+            }
+            break;
+        }
+
+        case GUIControlType::ListBox:
+        {
+            if (!control.isVisible) break;
+            const float sbW  = 12.0f;
+            const float iH   = static_cast<float>(control.listItemHeight > 0 ? control.listItemHeight : 22);
+            const float sbX  = control.position.x + control.size.x - sbW - 1.0f;
+            const int   total= static_cast<int>(control.items.size());
+            const int   vis  = static_cast<int>(control.size.y / iH);
+
+            bool inScrollbar = (isMouseOver &&
+                                mousePosition.x >= sbX &&
+                                total > vis);
+
+            if (isLeftClick) {
+                if (isMouseOver && !clickConsumed && (!guiMgr || !guiMgr->IsClickCoolingDown())) {
+                    if (!control.isPressed) {
+                        control.isPressed = true;
+                        clickConsumed     = true;
+                        if (guiMgr) guiMgr->AcquireClickLock();
+
+                        if (inScrollbar) {
+                            // Start scrollbar thumb drag
+                            control.isActive    = true;
+                            control.sliderValue = mousePosition.y;  // drag anchor Y
+                            SetCapture(hwnd);
+                        } else {
+                            // Item selection
+                            control.isActive = false;
+                            int clicked = control.listScrollOffset +
+                                          static_cast<int>((mousePosition.y - control.position.y) / iH);
+                            if (clicked >= 0 && clicked < total) {
+                                control.selectedIndex = clicked;
+                                if (control.onSelectionChanged)
+                                    control.onSelectionChanged(control.selectedIndex);
+                            }
+                        }
+                    } else if (control.isActive) {
+                        // Continue scrollbar drag in the same press
+                        float delta    = mousePosition.y - control.sliderValue;
+                        control.sliderValue = mousePosition.y;
+                        float maxScr   = static_cast<float>(total - vis);
+                        if (maxScr > 0.0f) {
+                            float trackH  = control.size.y - 2.0f;
+                            float thumbH  = std::max(20.0f, trackH * (float(vis) / float(total)));
+                            float step    = (maxScr / std::max(1.0f, trackH - thumbH)) * delta;
+                            float newOff  = std::clamp(
+                                static_cast<float>(control.listScrollOffset) + step,
+                                0.0f, maxScr);
+                            control.listScrollOffset = static_cast<int>(std::round(newOff));
+                        }
+                    }
+                }
+            } else {
+                if (control.isPressed) {
+                    control.isPressed = false;
+                    if (control.isActive) {
+                        control.isActive = false;
+                        ReleaseCapture();
+                    }
+                }
+            }
+            break;
+        }
+
+        case GUIControlType::ComboBox:
+        {
+            if (!control.isVisible) break;
+            if (isMouseOver && isLeftClick) {
+                if (!control.isPressed && !clickConsumed && (!guiMgr || !guiMgr->IsClickCoolingDown())) {
+                    control.isPressed = true;
+                    clickConsumed     = true;
+                    if (guiMgr) guiMgr->AcquireClickLock();
+
+                    if (!control.isDropdownOpen) {
+                        // Open the dropdown
+                        control.isDropdownOpen = true;
+                    } else {
+                        // Dropdown is open — check if click is inside the dropdown panel
+                        const int   total   = static_cast<int>(control.items.size());
+                        const int   maxRows = std::min(control.dropdownMaxRows, total);
+                        const float iH      = static_cast<float>(control.listItemHeight > 0 ? control.listItemHeight : 22);
+                        float dropY         = control.position.y + control.size.y;
+
+                        if (mousePosition.y >= dropY &&
+                            mousePosition.y <  dropY + float(maxRows) * iH + 4.0f) {
+                            // Clicked inside the open dropdown list
+                            int row = static_cast<int>((mousePosition.y - dropY - 2.0f) / iH);
+                            if (row >= 0 && row < total) {
+                                control.selectedIndex = row;
+                                if (control.onSelectionChanged)
+                                    control.onSelectionChanged(control.selectedIndex);
+                            }
+                        }
+                        control.isDropdownOpen = false;
+                    }
                 }
             }
             else if (!isLeftClick) {
@@ -726,13 +1052,21 @@ void GUIWindow::Render() {
         threadManager.threadVars.bSettingFullScreen.load() ||
         threadManager.threadVars.bIsResizing.load()) return;
 
+    // Fade alpha helper — scales a colour's alpha channel by the current window
+    // opacity so all draw calls honour the fade state across all render pipelines.
+    auto fc = [this](MyColor c) -> MyColor {
+        c.a = static_cast<uint8_t>(c.a * m_fadeAlpha);
+        return c;
+    };
+
     // Render the background texture if it exists
     if (backgroundTextureId != -1) {
-        r->DrawTexture(backgroundTextureId, position, size, MyColor(1.0f, 1.0f, 1.0f, 1.0f), true);
+        r->DrawTexture(backgroundTextureId, position, size,
+                       fc(MyColor(255, 255, 255, 255)), true);
     }
     else {
-        // Render the window background texture
-        r->DrawRectangle(position, size, backgroundColor, true);
+        // Render the window background
+        r->DrawRectangle(position, size, fc(backgroundColor), true);
     }
 
     // Render each control.
@@ -764,14 +1098,14 @@ void GUIWindow::Render() {
                 {
                     if (control.isHovered) {
                         // Hover: always fully opaque regardless of bgColor.a
-                        r->DrawTexture(control.bgTextureHoverId, control.position, control.size, MyColor(255, 255, 255, 255), true);
+                        r->DrawTexture(control.bgTextureHoverId, control.position, control.size, fc(MyColor(255, 255, 255, 255)), true);
                     }
                     else
                     {
                         // Default: use bgColor.a as the alpha tint so semi-transparent
                         // buttons (bgColor.a < 255) render at the correct opacity.
                         r->DrawTexture(control.bgTextureId, control.position, control.size,
-                                       MyColor(255, 255, 255, control.bgColor.a), true);
+                                       fc(MyColor(255, 255, 255, control.bgColor.a)), true);
                     }
 
                     // Pass the button's top-left corner and dimensions; DrawMyTextCentered
@@ -780,25 +1114,25 @@ void GUIWindow::Render() {
                     {
                         r->DrawMyTextCentered(control.label,
                             Vector2(control.position.x + 2.0f, control.position.y + 2.0f),
-                            control.shadowedTxtColor, control.lblFontSize, control.size.x, control.size.y, control.bold);
+                            fc(control.shadowedTxtColor), control.lblFontSize, control.size.x, control.size.y, control.bold);
                     }
                     r->DrawMyTextCentered(control.label, control.position,
-                        control.txtColor, control.lblFontSize, control.size.x, control.size.y, control.bold);
+                        fc(control.txtColor), control.lblFontSize, control.size.x, control.size.y, control.bold);
                     break;
                 }
                 else
                 {
                     // Draw the button background
-                    r->DrawRectangle(control.position, control.size, bgColor, true);
+                    r->DrawRectangle(control.position, control.size, fc(bgColor), true);
 
                     if (control.useShadowedText)
                     {
                         r->DrawMyTextCentered(control.label,
                             Vector2(control.position.x + 2.0f, control.position.y + 2.0f),
-                            control.shadowedTxtColor, control.lblFontSize, control.size.x, control.size.y, control.bold);
+                            fc(control.shadowedTxtColor), control.lblFontSize, control.size.x, control.size.y, control.bold);
                     }
                     r->DrawMyTextCentered(control.label, control.position,
-                        control.txtColor, control.lblFontSize, control.size.x, control.size.y, control.bold);
+                        fc(control.txtColor), control.lblFontSize, control.size.x, control.size.y, control.bold);
                 }
                 break;
             }
@@ -807,17 +1141,17 @@ void GUIWindow::Render() {
                 if (control.bgTextureId != -1)
                 {
                     if (control.isHovered) {
-                        r->DrawTexture(control.bgTextureHoverId, control.position, control.size, MyColor(255, 255, 255, 255), true);
+                        r->DrawTexture(control.bgTextureHoverId, control.position, control.size, fc(MyColor(255, 255, 255, 255)), true);
                     }
                     else
                     {
-                        r->DrawTexture(control.bgTextureId, control.position, control.size, MyColor(128, 128, 128, 255), true);
+                        r->DrawTexture(control.bgTextureId, control.position, control.size, fc(MyColor(128, 128, 128, 255)), true);
                     }
                 }
                 else
                 {
                     // Draw the text area background using the control's color
-                    r->DrawRectangle(control.position, control.size, bgColor, true);
+                    r->DrawRectangle(control.position, control.size, fc(bgColor), true);
 
                 }
 
@@ -831,7 +1165,7 @@ void GUIWindow::Render() {
                 resize.x -= 12.0f;
                 resize.y -= 6.0f;
                 // Draw the text content with the specified text color
-                r->DrawMyText(control.label, resizedPos, resize, control.txtColor, control.lblFontSize);
+                r->DrawMyText(control.label, resizedPos, resize, fc(control.txtColor), control.lblFontSize);
 
                 break;
             }
@@ -840,197 +1174,610 @@ void GUIWindow::Render() {
                 if (control.bgTextureId != -1)
                 {
                     if (control.isHovered) {
-                        r->DrawTexture(control.bgTextureHoverId, control.position, control.size, MyColor(255, 255, 255, 255), true);
+                        r->DrawTexture(control.bgTextureHoverId, control.position, control.size, fc(MyColor(255, 255, 255, 255)), true);
                     }
                     else
                     {
-                        r->DrawTexture(control.bgTextureId, control.position, control.size, MyColor(200, 200, 200, 255), true);
+                        r->DrawTexture(control.bgTextureId, control.position, control.size, fc(MyColor(200, 200, 200, 255)), true);
                     }
                 }
                 else
                 {
-                    r->DrawRectangle(control.position, control.size, bgColor, true);
+                    r->DrawRectangle(control.position, control.size, fc(bgColor), true);
                 }
-                // Draw title bar label: H+V centred when lblCenterH=true (default),
-                // or left-aligned with manual V-centering when lblCenterH=false.
+                // Draw title bar label using the same caption-height based Y offset
+                // across centered and left-aligned titlebars so the caption sits
+                // consistently in the visible bar chrome.
                 if (!control.label.empty())
                 {
+                    const float captionH = control.lblFontSize * 1.25f;
+                    const float captionY = control.position.y +
+                        control.size.y - (captionH + (captionH * 0.5f));
+
                     if (control.lblCenterH)
                     {
-                        r->DrawMyTextCentered(control.label, control.position,
-                                              control.txtColor, control.lblFontSize,
-                                              control.size.x, control.size.y);
+                        float captionW = 0.0f;
+                        for (wchar_t ch : control.label)
+                            captionW += r->GetCharacterWidth(ch, control.lblFontSize);
+
+                        const float captionX = control.position.x +
+                            (control.size.x - captionW) * 0.5f;
+                        r->DrawMyText(control.label,
+                                      Vector2(captionX, captionY),
+                                      fc(control.txtColor), control.lblFontSize);
                     }
                     else
                     {
-                        // Vertically centre the text without horizontal centering.
-                        // Approximate glyph height = fontSize * 1.25; 6px left padding.
-                        const float approxH  = control.lblFontSize * 1.25f;
-                        const float centredY = control.position.y +
-                                               (control.size.y - approxH) * 0.5f;
                         r->DrawMyText(control.label,
-                                      Vector2(control.position.x + 6.0f, centredY),
-                                      control.txtColor, control.lblFontSize);
+                                      Vector2(control.position.x + 6.0f, captionY),
+                                      fc(control.txtColor), control.lblFontSize);
                     }
                 }
                 break;
             }
             case GUIControlType::Scrollbar: {
                 // Draw the scrollbar background
-                r->DrawRectangle(control.position, control.size, bgColor, true);
+                r->DrawRectangle(control.position, control.size, fc(bgColor), true);
                 break;
             }
 
             case GUIControlType::ToggleSlider: {
                 const bool  on    = (control.sliderValue >= 0.5f);
-                const float knobW = 28.0f;
                 const float knobH = control.size.y - 6.0f;
+                const float knobW = knobH;                              // Equal width = circular knob
                 const float knobY = control.position.y + 3.0f;
 
-                // Track background — green when ON, red-dark when OFF
-                MyColor trackBg;
-                if (on)
-                    trackBg = control.isHovered
-                        ? MyColor(24, 88, 32, 245) : MyColor(16, 64, 22, 228);
-                else
-                    trackBg = control.isHovered
-                        ? MyColor(78, 26, 20, 245) : MyColor(58, 18, 14, 222);
-                r->DrawRectangle(control.position, control.size, trackBg, true);
+                // Track — pill / capsule shape. Keep the track fully opaque so
+                // antialiased cap pixels do not blend into visible circular bands.
+                const MyColor trackBg = on
+                    ? (control.isHovered ? MyColor(34, 172, 56, 255) : MyColor(24, 138, 42, 255))
+                    : (control.isHovered ? MyColor(78, 80, 88, 255) : MyColor(54, 56, 64, 255));
 
-                // 1px inset border (top highlight, bottom shadow)
-                r->DrawRectangle(
-                    Vector2(control.position.x, control.position.y),
-                    Vector2(control.size.x, 1.0f),
-                    MyColor(200, 200, 200, 40), true);
-                r->DrawRectangle(
-                    Vector2(control.position.x, control.position.y + control.size.y - 1.0f),
-                    Vector2(control.size.x, 1.0f),
-                    MyColor(0, 0, 0, 60), true);
+                // Pill geometry: draw middle rect base first, then circles overdraw for clean rounded caps
+                const float pillR  = control.size.y * 0.5f;
+                const float pillCY = control.position.y + pillR;
+                const float pillLX = control.position.x + pillR;       // left cap centre X
+                const float pillRX = control.position.x + control.size.x - pillR; // right cap X
+                // Base: middle fill rectangle drawn first so cap circles cleanly overdraw its corners
+                r->DrawRectangle(Vector2(pillLX, control.position.y),
+                    Vector2(pillRX - pillLX, control.size.y), fc(trackBg), true);
+                // Left rounded cap — drawn on top to cover rect corner artifacts
+                r->DrawCircle(Vector2(pillLX, pillCY), pillR, fc(trackBg), true);
+                // Right rounded cap — drawn on top to cover rect corner artifacts
+                r->DrawCircle(Vector2(pillRX, pillCY), pillR, fc(trackBg), true);
 
                 // Knob x position (left = OFF, right = ON)
                 float knobX = on
                     ? control.position.x + control.size.x - knobW - 2.0f
                     : control.position.x + 2.0f;
 
-                // State text — centred within the non-knob half via DrawMyTextCentered
-                // so all renderers (DX11, Vulkan, OpenGL) produce identical layout.
-                const std::wstring stateText = on ? L"ON" : L"OFF";
-                MyColor textCol = on
-                    ? MyColor(115, 255, 130, 210) : MyColor(195, 105, 100, 200);
-                constexpr float kToggleFontSize = 9.0f;
-                if (on) {
-                    // Knob on RIGHT → text centred in the LEFT portion
-                    float areaW = knobX - control.position.x - 2.0f;
-                    r->DrawMyTextCentered(stateText,
-                        Vector2(control.position.x + 1.0f, control.position.y),
-                        textCol, kToggleFontSize, areaW, control.size.y);
-                } else {
-                    // Knob on LEFT → text centred in the RIGHT portion
-                    float areaX = control.position.x + knobW + 2.0f;
-                    float areaW = control.size.x - knobW - 4.0f;
-                    r->DrawMyTextCentered(stateText,
-                        Vector2(areaX, control.position.y),
-                        textCol, kToggleFontSize, areaW, control.size.y);
+                // Circular knob — centre point for DrawCircle
+                const float knobR  = knobW * 0.5f;
+                const float knobCX = knobX + knobR;
+                const float knobCY = knobY + knobR;
+
+                // Knob drop-shadow circle
+                r->DrawCircle(Vector2(knobCX + 1.5f, knobCY + 1.5f), knobR,
+                    fc(MyColor(0, 0, 0, 110)), true);
+
+                // Knob body — same beveled drawing for both states. The ON state
+                // receives a warmer green-tinted gradient instead of a flat white disc.
+                MyColor knobFill = on
+                    ? MyColor(202, 230, 206, 255) : MyColor(182, 186, 200, 255);
+                r->DrawCircle(Vector2(knobCX, knobCY), knobR, fc(knobFill), true);
+
+                // Soft radial-style layering keeps the knob readable on both
+                // green and grey tracks without allocating textures.
+                r->DrawCircle(Vector2(knobCX - knobR * 0.12f, knobCY - knobR * 0.18f), knobR * 0.72f,
+                    fc(on ? MyColor(238, 255, 240, 115) : MyColor(245, 247, 255, 92)), true);
+                r->DrawCircle(Vector2(knobCX + knobR * 0.16f, knobCY + knobR * 0.18f), knobR * 0.56f,
+                    fc(on ? MyColor(105, 160, 112, 52) : MyColor(92, 98, 118, 58)), true);
+
+                // Outer ring bevel — lighter top-left, darker bottom-right
+                {
+                    MyColor ringHi = on ? MyColor(250, 255, 250, 170) : MyColor(218, 222, 234, 180);
+                    // Top-left arc approximated with a slightly offset unfilled circle
+                    r->DrawCircle(Vector2(knobCX, knobCY), knobR, fc(ringHi), false);
                 }
 
-                // Knob drop-shadow
-                r->DrawRectangle(
-                    Vector2(knobX + 1.0f, knobY + 1.0f),
-                    Vector2(knobW, knobH),
-                    MyColor(0, 0, 0, 85), true);
-
-                // Knob body
-                MyColor knobCol = on
-                    ? MyColor(55, 215, 80, 255) : MyColor(188, 58, 48, 255);
-                r->DrawRectangle(
-                    Vector2(knobX, knobY),
-                    Vector2(knobW, knobH),
-                    knobCol, true);
-
-                // Knob shine strip (top highlight)
-                r->DrawRectangle(
-                    Vector2(knobX + 3.0f, knobY + 1.0f),
-                    Vector2(knobW - 6.0f, 3.0f),
-                    MyColor(255, 255, 255, 70), true);
-
-                // Knob centre groove
-                r->DrawRectangle(
-                    Vector2(knobX + knobW * 0.5f - 1.0f, knobY + 4.0f),
-                    Vector2(2.0f, knobH - 8.0f),
-                    MyColor(0, 0, 0, 65), true);
+                // Knob top glass shine (small bright circle near top)
+                r->DrawCircle(Vector2(knobCX, knobCY - knobR * 0.3f), knobR * 0.28f,
+                    fc(MyColor(255, 255, 255, on ? 110 : 85)), true);
 
                 break;
             }
 
             case GUIControlType::HSlider: {
-                const float knobW  = 14.0f;
-                const float trackH = 6.0f;
+                const float knobW  = 16.0f;
+                const float trackH = 8.0f;
 
-                // Sunken panel behind the whole slider area
+                // Outer area dark fill (backdrop for the whole slider)
                 r->DrawRectangle(control.position, control.size,
-                    MyColor(10, 10, 18, 200), true);
+                    fc(MyColor(8, 9, 16, 210)), true);
 
-                // Track groove (dark channel)
+                // Track groove — 3D sunken bevel channel
                 float trackY = control.position.y + (control.size.y - trackH) * 0.5f;
                 float trackStartX = control.position.x + knobW * 0.5f;
                 float trackUsableW = control.size.x - knobW;
-                r->DrawRectangle(
-                    Vector2(trackStartX, trackY),
-                    Vector2(trackUsableW, trackH),
-                    MyColor(25, 25, 40, 255), true);
 
-                // Filled portion (progress left of knob centre)
+                // Outer sunken bevel (top-left dark, bottom-right light)
+                r->DrawRectangle(Vector2(trackStartX, trackY),
+                    Vector2(trackUsableW, trackH), fc(MyColor(6, 7, 14, 255)), true);
+                r->DrawRectangle(Vector2(trackStartX, trackY),
+                    Vector2(trackUsableW, 1.0f), fc(MyColor(4, 5, 10, 255)), true);
+                r->DrawRectangle(Vector2(trackStartX, trackY),
+                    Vector2(1.0f, trackH), fc(MyColor(4, 5, 10, 255)), true);
+                r->DrawRectangle(Vector2(trackStartX, trackY + trackH - 1.0f),
+                    Vector2(trackUsableW, 1.0f), fc(MyColor(62, 70, 105, 200)), true);
+                r->DrawRectangle(Vector2(trackStartX + trackUsableW - 1.0f, trackY),
+                    Vector2(1.0f, trackH), fc(MyColor(62, 70, 105, 200)), true);
+                // Inner trough (recessed channel)
+                r->DrawRectangle(Vector2(trackStartX + 1.0f, trackY + 1.0f),
+                    Vector2(trackUsableW - 2.0f, trackH - 2.0f),
+                    fc(MyColor(12, 15, 28, 255)), true);
+
+                // Progress fill — two-tone gradient (top lighter, bottom darker)
                 float t = (control.sliderMax > control.sliderMin)
                     ? std::clamp((control.sliderValue - control.sliderMin)
                                  / (control.sliderMax - control.sliderMin), 0.0f, 1.0f)
                     : 0.0f;
                 float knobCentreX = trackStartX + t * trackUsableW;
-                float fillW = knobCentreX - trackStartX;
-                if (fillW > 0.5f)
-                    r->DrawRectangle(
-                        Vector2(trackStartX, trackY),
-                        Vector2(fillW, trackH),
-                        MyColor(50, 110, 210, 200), true);
+                float fillW = knobCentreX - trackStartX - 1.0f;
+                if (fillW > 1.5f) {
+                    float fillH2 = std::floor((trackH - 2.0f) * 0.45f);
+                    r->DrawRectangle(Vector2(trackStartX + 1.0f, trackY + 1.0f),
+                        Vector2(fillW, fillH2), fc(MyColor(82, 158, 255, 220)), true);
+                    r->DrawRectangle(Vector2(trackStartX + 1.0f, trackY + 1.0f + fillH2),
+                        Vector2(fillW, trackH - 2.0f - fillH2),
+                        fc(MyColor(42, 108, 218, 220)), true);
+                }
 
-                // Track border highlight (top edge of groove, 1px)
-                r->DrawRectangle(
-                    Vector2(trackStartX, trackY),
-                    Vector2(trackUsableW, 1.0f),
-                    MyColor(60, 60, 90, 180), true);
-
-                // Knob colour — flash gold when active, else steel blue / hover
-                bool flashOn = (GetTickCount64() / 1000) % 2 == 0;
-                MyColor knobCol;
-                if (control.isActive)
-                    knobCol = flashOn ? MyColor(255, 195, 35, 255) : MyColor(130, 95, 15, 255);
-                else if (control.isHovered)
-                    knobCol = MyColor(120, 130, 200, 255);
-                else
-                    knobCol = MyColor(65, 70, 115, 255);
+                // Knob colour — gold when active (dragging), blue-hue otherwise
+                bool flashOn = (GetTickCount64() / 500) % 2 == 0;
+                MyColor knobTop, knobBot;
+                if (control.isActive) {
+                    knobTop = flashOn ? MyColor(255, 218, 82, 255) : MyColor(195, 162, 38, 255);
+                    knobBot = flashOn ? MyColor(195, 148, 18, 255) : MyColor(138, 108, 12, 255);
+                } else if (control.isHovered) {
+                    knobTop = MyColor(160, 182, 248, 255);
+                    knobBot = MyColor(88, 110, 205, 255);
+                } else {
+                    knobTop = MyColor(108, 118, 182, 255);
+                    knobBot = MyColor(58, 65, 128, 255);
+                }
 
                 float knobX = knobCentreX - knobW * 0.5f;
-                // Knob shadow (1px offset dark rectangle)
-                r->DrawRectangle(
-                    Vector2(knobX + 1.0f, control.position.y + 1.0f),
-                    Vector2(knobW, control.size.y),
-                    MyColor(0, 0, 0, 100), true);
-                // Knob body
-                r->DrawRectangle(
-                    Vector2(knobX, control.position.y),
-                    Vector2(knobW, control.size.y),
-                    knobCol, true);
-                // Knob shine strip (top highlight)
-                r->DrawRectangle(
-                    Vector2(knobX + 2.0f, control.position.y + 1.0f),
-                    Vector2(knobW - 4.0f, 3.0f),
-                    MyColor(255, 255, 255, 55), true);
-                // Knob centre groove (vertical notch)
-                r->DrawRectangle(
-                    Vector2(knobCentreX - 1.0f, control.position.y + 3.0f),
-                    Vector2(2.0f, control.size.y - 6.0f),
-                    MyColor(0, 0, 0, 80), true);
+                float ky    = control.position.y;
+                float kh    = control.size.y;
+
+                // Knob drop shadow
+                r->DrawRectangle(Vector2(knobX + 2.0f, ky + 2.0f), Vector2(knobW, kh),
+                    fc(MyColor(0, 0, 0, 115)), true);
+
+                // Knob body — gradient: bright top half, dark bottom half
+                float kHalf = std::floor(kh * 0.5f);
+                r->DrawRectangle(Vector2(knobX, ky), Vector2(knobW, kHalf), fc(knobTop), true);
+                r->DrawRectangle(Vector2(knobX, ky + kHalf), Vector2(knobW, kh - kHalf), fc(knobBot), true);
+
+                // Knob outer raised bevel (3-D lifted edges)
+                r->DrawRectangle(Vector2(knobX, ky), Vector2(knobW, 1.0f),
+                    fc(MyColor(255, 255, 255, 92)), true);
+                r->DrawRectangle(Vector2(knobX, ky), Vector2(1.0f, kh),
+                    fc(MyColor(255, 255, 255, 82)), true);
+                r->DrawRectangle(Vector2(knobX, ky + kh - 1.0f), Vector2(knobW, 1.0f),
+                    fc(MyColor(0, 0, 0, 145)), true);
+                r->DrawRectangle(Vector2(knobX + knobW - 1.0f, ky), Vector2(1.0f, kh),
+                    fc(MyColor(0, 0, 0, 145)), true);
+
+                // Inner bevel (second depth level)
+                r->DrawRectangle(Vector2(knobX + 1.0f, ky + 1.0f), Vector2(knobW - 2.0f, 1.0f),
+                    fc(MyColor(255, 255, 255, 50)), true);
+                r->DrawRectangle(Vector2(knobX + 1.0f, ky + kh - 2.0f), Vector2(knobW - 2.0f, 1.0f),
+                    fc(MyColor(0, 0, 0, 82)), true);
+
+                // Centre grip lines (3 paired vertical notches — tactile indicator)
+                {
+                    float gx = knobCentreX - 5.0f;   // shifted 2px left per spec
+                    float gy = ky + 3.0f;
+                    float gh = kh - 6.0f;
+                    for (int gi = 0; gi < 3; ++gi) {
+                        r->DrawRectangle(Vector2(gx + gi * 3.0f, gy),
+                            Vector2(1.0f, gh), fc(MyColor(0, 0, 0, 88)), true);
+                        r->DrawRectangle(Vector2(gx + gi * 3.0f + 1.0f, gy),
+                            Vector2(1.0f, gh), fc(MyColor(255, 255, 255, 38)), true);
+                    }
+                }
                 break;
             }
+
+            // -----------------------------------------------------------------
+            // Panel — 3D raised or sunken decorative panel
+            // sliderValue >= 0.5 = raised;  < 0.5 = sunken
+            // -----------------------------------------------------------------
+            case GUIControlType::Panel: {
+                bool raised = (control.sliderValue >= 0.5f);
+
+                // Drop shadow (raised panels cast a shadow; sunken panels are inset)
+                if (raised) {
+                    r->DrawRectangle(
+                        Vector2(control.position.x + 4.0f, control.position.y + 4.0f),
+                        control.size,
+                        fc(MyColor(0, 0, 0, 90)), true);
+                }
+
+                // Main panel background
+                r->DrawRectangle(control.position, control.size, fc(control.bgColor), true);
+
+                // Outer bevel edges
+                // Raised: top/left bright, bottom/right dark — "sticking out of the surface"
+                // Sunken: top/left dark, bottom/right bright — "pushed into the surface"
+                MyColor outerHigh = raised ? MyColor(88, 94, 118, 220) : MyColor(8, 10, 18, 230);
+                MyColor outerShad = raised ? MyColor(8, 10, 18, 220)   : MyColor(88, 94, 118, 220);
+                r->DrawRectangle(Vector2(control.position.x, control.position.y),
+                    Vector2(control.size.x, 1.0f), fc(outerHigh), true); // top
+                r->DrawRectangle(Vector2(control.position.x, control.position.y),
+                    Vector2(1.0f, control.size.y), fc(outerHigh), true); // left
+                r->DrawRectangle(Vector2(control.position.x, control.position.y + control.size.y - 1.0f),
+                    Vector2(control.size.x, 1.0f), fc(outerShad), true); // bottom
+                r->DrawRectangle(Vector2(control.position.x + control.size.x - 1.0f, control.position.y),
+                    Vector2(1.0f, control.size.y), fc(outerShad), true); // right
+
+                // Inner bevel (second level of depth)
+                MyColor innerHigh = raised ? MyColor(60, 65, 84, 160) : MyColor(14, 16, 26, 180);
+                MyColor innerShad = raised ? MyColor(14, 16, 26, 160) : MyColor(60, 65, 84, 180);
+                r->DrawRectangle(Vector2(control.position.x + 1.0f, control.position.y + 1.0f),
+                    Vector2(control.size.x - 2.0f, 1.0f), fc(innerHigh), true);
+                r->DrawRectangle(Vector2(control.position.x + 1.0f, control.position.y + 1.0f),
+                    Vector2(1.0f, control.size.y - 2.0f), fc(innerHigh), true);
+                r->DrawRectangle(Vector2(control.position.x + 1.0f, control.position.y + control.size.y - 2.0f),
+                    Vector2(control.size.x - 2.0f, 1.0f), fc(innerShad), true);
+                r->DrawRectangle(Vector2(control.position.x + control.size.x - 2.0f, control.position.y + 1.0f),
+                    Vector2(1.0f, control.size.y - 2.0f), fc(innerShad), true);
+
+                // Render label text if present (left-aligned, vertically centred)
+                if (!control.label.empty()) {
+                    const float approxH = control.lblFontSize * 1.25f;
+                    const float centredY = control.position.y + (control.size.y - approxH) * 0.5f;
+                    r->DrawMyText(control.label,
+                        Vector2(control.position.x + 6.0f, centredY),
+                        fc(control.txtColor), control.lblFontSize);
+                }
+                break;
+            }
+
+            // -----------------------------------------------------------------
+            // TextInput — editable single-line text field
+            // -----------------------------------------------------------------
+            case GUIControlType::TextInput: {
+                const float px = control.position.x;
+                const float py = control.position.y;
+                const float pw = control.size.x;
+                const float ph = control.size.y;
+
+                // Soft drop shadow behind the field
+                r->DrawRectangle(Vector2(px + 2.0f, py + 2.0f), control.size,
+                    fc(MyColor(0, 0, 0, 70)), true);
+
+                // Outer sunken frame (dark perimeter — top/left darker = sunken look)
+                r->DrawRectangle(control.position, control.size,
+                    fc(MyColor(8, 10, 18, 255)), true);
+                // Bottom/right counter-highlights (lighter = make it look like it goes in)
+                r->DrawRectangle(Vector2(px, py + ph - 1.0f), Vector2(pw, 1.0f),
+                    fc(MyColor(65, 70, 92, 220)), true);
+                r->DrawRectangle(Vector2(px + pw - 1.0f, py), Vector2(1.0f, ph),
+                    fc(MyColor(65, 70, 92, 220)), true);
+
+                // Inner background
+                MyColor innerBg = control.isFocused
+                    ? MyColor(18, 22, 38, 255) : MyColor(12, 15, 24, 255);
+                r->DrawRectangle(Vector2(px + 1.0f, py + 1.0f),
+                    Vector2(pw - 2.0f, ph - 2.0f), fc(innerBg), true);
+
+                // Focus ring — blue-glow outline when the field has keyboard focus
+                if (control.isFocused) {
+                    r->DrawRectangle(Vector2(px, py), Vector2(pw, 1.0f),
+                        fc(MyColor(45, 105, 210, 200)), true);
+                    r->DrawRectangle(Vector2(px, py), Vector2(1.0f, ph),
+                        fc(MyColor(45, 105, 210, 200)), true);
+                    r->DrawRectangle(Vector2(px, py + ph - 1.0f), Vector2(pw, 1.0f),
+                        fc(MyColor(45, 105, 210, 200)), true);
+                    r->DrawRectangle(Vector2(px + pw - 1.0f, py), Vector2(1.0f, ph),
+                        fc(MyColor(45, 105, 210, 200)), true);
+                }
+
+                // Shine strip along the top inner edge (depth illusion)
+                r->DrawRectangle(Vector2(px + 2.0f, py + 1.0f), Vector2(pw - 4.0f, 1.0f),
+                    fc(MyColor(255, 255, 255, 10)), true);
+
+                // --- Text + cursor ---
+                const float fs    = control.lblFontSize > 0.0f ? control.lblFontSize : 12.0f;
+                const float textX = px + 6.0f;
+                // Vertically centre text within the field
+                const float approxH = fs * 1.25f;
+                const float textY   = py + (ph - approxH) * 0.5f;
+
+                if (control.inputText.empty() && !control.placeholder.empty()) {
+                    // Placeholder hint in muted grey
+                    r->DrawMyText(control.placeholder, Vector2(textX, textY),
+                        fc(MyColor(80, 85, 108, 200)), fs);
+                }
+                else {
+                    r->DrawMyText(control.inputText, Vector2(textX, textY),
+                        fc(control.txtColor), fs);
+                }
+
+                // Blinking cursor bar (fires at ~1 Hz)
+                if (control.isFocused) {
+                    bool showCursor = (GetTickCount64() / 530) % 2 == 0;
+                    if (showCursor) {
+                        // Sum character widths up to cursorPos for precise placement
+                        float cursorOffX = 0.0f;
+                        int limit = std::min(control.cursorPos, (int)control.inputText.size());
+                        for (int ci = 0; ci < limit; ++ci)
+                            cursorOffX += r->GetCharacterWidth(control.inputText[ci], fs);
+                        r->DrawRectangle(
+                            Vector2(textX + cursorOffX, py + 3.0f),
+                            Vector2(2.0f, ph - 6.0f),
+                            fc(MyColor(190, 205, 235, 255)), true);
+                    }
+                }
+                break;
+            }
+
+            // -----------------------------------------------------------------
+            // ListBox — scrollable selectable list with embedded scrollbar
+            // Scrollbar occupies the rightmost 12 px of the control.
+            // isActive = true while the scrollbar thumb is being dragged.
+            // -----------------------------------------------------------------
+            case GUIControlType::ListBox: {
+                const float lx  = control.position.x;
+                const float ly  = control.position.y;
+                const float lw  = control.size.x;
+                const float lh  = control.size.y;
+                const float sbW = 12.0f;                    // scrollbar track width
+                const float iH  = static_cast<float>(control.listItemHeight > 0 ? control.listItemHeight : 22);
+                const int   visCount = static_cast<int>(lh / iH);
+                const int   total    = static_cast<int>(control.items.size());
+
+                // Drop shadow
+                r->DrawRectangle(Vector2(lx + 3.0f, ly + 3.0f), control.size,
+                    fc(MyColor(0, 0, 0, 85)), true);
+
+                // Outer sunken frame
+                r->DrawRectangle(control.position, control.size,
+                    fc(MyColor(8, 10, 18, 255)), true);
+                r->DrawRectangle(Vector2(lx, ly + lh - 1.0f), Vector2(lw, 1.0f),
+                    fc(MyColor(70, 75, 96, 200)), true); // bottom highlight
+                r->DrawRectangle(Vector2(lx + lw - 1.0f, ly), Vector2(1.0f, lh),
+                    fc(MyColor(70, 75, 96, 200)), true); // right highlight
+
+                // Item area background
+                float itemAreaW = lw - sbW - 2.0f;
+                r->DrawRectangle(Vector2(lx + 1.0f, ly + 1.0f),
+                    Vector2(itemAreaW, lh - 2.0f), fc(MyColor(14, 17, 27, 255)), true);
+
+                // Inner top shine (depth illusion)
+                r->DrawRectangle(Vector2(lx + 2.0f, ly + 1.0f), Vector2(itemAreaW - 2.0f, 1.0f),
+                    fc(MyColor(255, 255, 255, 8)), true);
+
+                // --- Visible rows ---
+                int start = std::max(0, control.listScrollOffset);
+                for (int i = start; i < total && (i - start) < visCount; ++i) {
+                    float rowY = ly + 1.0f + static_cast<float>(i - start) * iH;
+
+                    // Row background — alternating shades + selected highlight
+                    MyColor rowBg;
+                    if (i == control.selectedIndex) {
+                        // Selected: blue-tinted raised row
+                        rowBg = control.isHovered ? MyColor(50, 98, 185, 220) : MyColor(38, 80, 160, 210);
+                    } else {
+                        rowBg = ((i % 2) == 0)
+                            ? MyColor(14, 17, 27, 255)
+                            : MyColor(18, 22, 34, 255);
+                    }
+                    r->DrawRectangle(Vector2(lx + 1.0f, rowY),
+                        Vector2(itemAreaW, iH), fc(rowBg), true);
+
+                    // Selected-row inner glow (top thin line)
+                    if (i == control.selectedIndex) {
+                        r->DrawRectangle(Vector2(lx + 1.0f, rowY),
+                            Vector2(itemAreaW, 1.0f), fc(MyColor(80, 130, 220, 120)), true);
+                    }
+
+                    // Row text (4px left padding)
+                    MyColor txtCol = (i == control.selectedIndex)
+                        ? MyColor(240, 245, 255, 255) : MyColor(195, 200, 218, 255);
+                    // Directories are tinted slightly gold
+                    if (!control.items[i].empty() && control.items[i][0] == L'\u25BA')
+                        txtCol = MyColor(235, 205, 120, 255);
+
+                    const float fs = control.lblFontSize > 0.0f ? control.lblFontSize : 12.0f;
+                    r->DrawMyText(control.items[i], Vector2(lx + 5.0f, rowY + 3.0f),
+                        fc(txtCol), fs);
+                }
+
+                // --- Scrollbar track ---
+                float sbX = lx + lw - sbW - 1.0f;
+                r->DrawRectangle(Vector2(sbX, ly + 1.0f), Vector2(sbW, lh - 2.0f),
+                    fc(MyColor(16, 19, 30, 255)), true);
+                r->DrawRectangle(Vector2(sbX, ly + 1.0f), Vector2(1.0f, lh - 2.0f),
+                    fc(MyColor(6, 8, 14, 200)), true); // left shadow of track
+
+                // Scrollbar thumb
+                if (total > visCount) {
+                    float ratio    = static_cast<float>(visCount) / static_cast<float>(total);
+                    float thumbH   = std::max(20.0f, (lh - 2.0f) * ratio);
+                    float maxScr   = static_cast<float>(total - visCount);
+                    float scrollT  = (maxScr > 0.0f) ? static_cast<float>(control.listScrollOffset) / maxScr : 0.0f;
+                    float thumbY   = ly + 1.0f + scrollT * ((lh - 2.0f) - thumbH);
+
+                    // Thumb shadow
+                    r->DrawRectangle(Vector2(sbX + 1.0f, thumbY + 1.0f),
+                        Vector2(sbW - 1.0f, thumbH), fc(MyColor(0, 0, 0, 80)), true);
+                    // Thumb body
+                    MyColor thumbCol = control.isActive
+                        ? MyColor(80, 92, 130, 255) : MyColor(55, 62, 88, 255);
+                    r->DrawRectangle(Vector2(sbX, thumbY),
+                        Vector2(sbW, thumbH), fc(thumbCol), true);
+                    // Thumb top highlight (3D raised)
+                    r->DrawRectangle(Vector2(sbX, thumbY),
+                        Vector2(sbW, 1.0f), fc(MyColor(95, 108, 150, 200)), true);
+                    r->DrawRectangle(Vector2(sbX, thumbY),
+                        Vector2(1.0f, thumbH), fc(MyColor(95, 108, 150, 180)), true);
+                    // Thumb bottom shadow
+                    r->DrawRectangle(Vector2(sbX, thumbY + thumbH - 1.0f),
+                        Vector2(sbW, 1.0f), fc(MyColor(12, 14, 22, 200)), true);
+                    // Grip lines (centre horizontal notches)
+                    float midY = thumbY + thumbH * 0.5f;
+                    for (int gi = -1; gi <= 1; ++gi) {
+                        r->DrawRectangle(Vector2(sbX + 2.0f, midY + gi * 4.0f),
+                            Vector2(sbW - 4.0f, 1.0f), fc(MyColor(30, 34, 50, 180)), true);
+                        r->DrawRectangle(Vector2(sbX + 2.0f, midY + gi * 4.0f - 1.0f),
+                            Vector2(sbW - 4.0f, 1.0f), fc(MyColor(90, 100, 140, 100)), true);
+                    }
+                }
+                break;
+            }
+
+            // -----------------------------------------------------------------
+            // ComboBox — closed: button + selected text; open: dropdown list
+            // The dropdown panel is rendered in a second pass (after the main
+            // loop) so it appears on top of all other controls.
+            // -----------------------------------------------------------------
+            case GUIControlType::ComboBox: {
+                const float cx  = control.position.x;
+                const float cy  = control.position.y;
+                const float cw  = control.size.x;
+                const float ch  = control.size.y;
+                const float btnW = 22.0f;                // ▼ button width
+
+                // Drop shadow
+                r->DrawRectangle(Vector2(cx + 2.0f, cy + 2.0f), control.size,
+                    fc(MyColor(0, 0, 0, 80)), true);
+
+                // Outer raised frame
+                r->DrawRectangle(control.position, control.size,
+                    fc(MyColor(48, 52, 70, 255)), true);
+                // Top/left highlight (raised edge)
+                r->DrawRectangle(Vector2(cx, cy), Vector2(cw, 1.0f),
+                    fc(MyColor(82, 88, 112, 220)), true);
+                r->DrawRectangle(Vector2(cx, cy), Vector2(1.0f, ch),
+                    fc(MyColor(82, 88, 112, 220)), true);
+                // Bottom/right shadow (raised edge)
+                r->DrawRectangle(Vector2(cx, cy + ch - 1.0f), Vector2(cw, 1.0f),
+                    fc(MyColor(10, 12, 20, 220)), true);
+                r->DrawRectangle(Vector2(cx + cw - 1.0f, cy), Vector2(1.0f, ch),
+                    fc(MyColor(10, 12, 20, 220)), true);
+
+                // Main inner background (text area, excluding ▼ button)
+                float textAreaW = cw - btnW - 2.0f;
+                r->DrawRectangle(Vector2(cx + 1.0f, cy + 1.0f),
+                    Vector2(textAreaW, ch - 2.0f), fc(MyColor(14, 17, 27, 255)), true);
+
+                // ▼ button face (raised pill on the right)
+                bool btnHov = control.isHovered;
+                MyColor btnFace = btnHov
+                    ? MyColor(70, 80, 118, 255) : MyColor(40, 46, 66, 255);
+                float btnX = cx + cw - btnW - 1.0f;
+                r->DrawRectangle(Vector2(btnX, cy + 1.0f),
+                    Vector2(btnW, ch - 2.0f), fc(btnFace), true);
+                // Button top highlight
+                r->DrawRectangle(Vector2(btnX, cy + 1.0f), Vector2(btnW, 1.0f),
+                    fc(MyColor(90, 100, 140, 180)), true);
+                r->DrawRectangle(Vector2(btnX, cy + 1.0f), Vector2(1.0f, ch - 2.0f),
+                    fc(MyColor(85, 95, 132, 160)), true);
+                // Button bottom shadow
+                r->DrawRectangle(Vector2(btnX, cy + ch - 2.0f), Vector2(btnW, 1.0f),
+                    fc(MyColor(8, 10, 18, 180)), true);
+                // Divider line between text area and button
+                r->DrawRectangle(Vector2(btnX - 1.0f, cy + 2.0f), Vector2(1.0f, ch - 4.0f),
+                    fc(MyColor(28, 32, 48, 255)), true);
+
+                // ▼ arrow centred in button
+                r->DrawMyTextCentered(L"▼",
+                    Vector2(btnX, cy), fc(MyColor(195, 205, 228, 225)),
+                    9.0f, btnW, ch, false);
+
+                // Selected item text
+                if (control.selectedIndex >= 0 &&
+                    control.selectedIndex < (int)control.items.size()) {
+                    const float fs = control.lblFontSize > 0.0f ? control.lblFontSize : 12.0f;
+                    const float approxH = fs * 1.25f;
+                    const float textY   = cy + (ch - approxH) * 0.5f;
+                    r->DrawMyText(control.items[control.selectedIndex],
+                        Vector2(cx + 6.0f, textY), fc(control.txtColor), fs);
+                }
+
+                // NOTE: The open dropdown is rendered in a SECOND PASS after
+                // this main loop so it appears on top of every other control.
+                break;
+            }
+        }
+    }
+
+    // --- Second pass: open ComboBox dropdowns (must paint over all other controls) ---
+    for (auto& control : controls) {
+        if (control.type != GUIControlType::ComboBox) continue;
+        if (!control.isVisible || !control.isDropdownOpen) continue;
+
+        const float cx   = control.position.x;
+        const float cy   = control.position.y;
+        const float cw   = control.size.x;
+        const float ch   = control.size.y;
+        const int   total    = static_cast<int>(control.items.size());
+        const int   maxRows  = std::min(control.dropdownMaxRows, total);
+        const float iH       = static_cast<float>(control.listItemHeight > 0 ? control.listItemHeight : 22);
+        const float dropH    = static_cast<float>(maxRows) * iH + 4.0f;
+
+        // Position dropdown: below the control normally;
+        // flip above if not enough room (simplistic — assumes 600px screen min)
+        float dropY = cy + ch;
+
+        // Dropdown shadow
+        r->DrawRectangle(Vector2(cx + 4.0f, dropY + 4.0f), Vector2(cw, dropH),
+            fc(MyColor(0, 0, 0, 110)), true);
+
+        // Dropdown outer panel (raised)
+        r->DrawRectangle(Vector2(cx, dropY), Vector2(cw, dropH),
+            fc(MyColor(32, 36, 52, 255)), true);
+        // Outer bevel edges
+        r->DrawRectangle(Vector2(cx, dropY), Vector2(cw, 1.0f),
+            fc(MyColor(80, 88, 115, 220)), true);
+        r->DrawRectangle(Vector2(cx, dropY), Vector2(1.0f, dropH),
+            fc(MyColor(80, 88, 115, 220)), true);
+        r->DrawRectangle(Vector2(cx, dropY + dropH - 1.0f), Vector2(cw, 1.0f),
+            fc(MyColor(8, 10, 18, 220)), true);
+        r->DrawRectangle(Vector2(cx + cw - 1.0f, dropY), Vector2(1.0f, dropH),
+            fc(MyColor(8, 10, 18, 220)), true);
+        // Inner bevel
+        r->DrawRectangle(Vector2(cx + 1.0f, dropY + 1.0f), Vector2(cw - 2.0f, 1.0f),
+            fc(MyColor(55, 62, 85, 160)), true);
+
+        // Render visible items
+        for (int i = 0; i < maxRows; ++i) {
+            float rowY = dropY + 2.0f + static_cast<float>(i) * iH;
+            MyColor rowBg;
+            if (i == control.selectedIndex) {
+                rowBg = MyColor(42, 84, 168, 210);
+            } else if (control.isHovered && i == control.selectedIndex) {
+                rowBg = MyColor(50, 95, 180, 220);
+            } else {
+                rowBg = ((i % 2) == 0)
+                    ? MyColor(32, 36, 52, 255)
+                    : MyColor(26, 30, 44, 255);
+            }
+            r->DrawRectangle(Vector2(cx + 1.0f, rowY), Vector2(cw - 2.0f, iH), fc(rowBg), true);
+
+            // Selected row glow line
+            if (i == control.selectedIndex) {
+                r->DrawRectangle(Vector2(cx + 1.0f, rowY), Vector2(cw - 2.0f, 1.0f),
+                    fc(MyColor(70, 120, 215, 130)), true);
+            }
+
+            MyColor txtCol = (i == control.selectedIndex)
+                ? MyColor(240, 245, 255, 255) : MyColor(190, 198, 218, 255);
+            const float fs = control.lblFontSize > 0.0f ? control.lblFontSize : 12.0f;
+            r->DrawMyText(control.items[i], Vector2(cx + 8.0f, rowY + 3.0f), fc(txtCol), fs);
         }
     }
 

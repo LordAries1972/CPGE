@@ -1,0 +1,16 @@
+FBXAnimator.cpp -- 23-06-2026
+==============================
+
+Fix: Removed redundant inline XMConvertToRadians function stub (line 30).
+
+Includes.h defines XMConvertToRadians as a function-like macro (#define XMConvertToRadians(deg) ...)
+outside the CPGE_MATH_STUBS_DEFINED guard, so it is always active for all build targets including
+OpenGL. When FBXAnimator.cpp then tried to declare an inline function with the same name, the
+preprocessor expanded the macro into the declaration, producing unparseable output:
+
+  C2062: type 'float' unexpected
+  C2143: syntax error: missing ';' before '{'
+  C2447: '{': missing function header
+
+Fix: Replaced the inline function with a comment pointing to the Includes.h macro, which already
+provides identical behaviour (degrees * pi/180).

@@ -1,0 +1,11 @@
+OpenGLFXManager.cpp - 24-06-2026
+=================================
+
+Changes:
+- Render2D(): added ImageFadeStrobe case to switch (calls UpdateImageFadeStrobe with delta time).
+- RemoveCompletedEffects(): added ImageFadeStrobe guard (only removed when progress >= 1.0).
+- Added full ImageFadeStrobe implementations at end of file (before #pragma warning(pop)):
+    StartImageFadeStrobe, StopImageFadeStrobe, IsImageFadeStrobeActive,
+    GetImageFadeStrobeAlpha, RenderImageFadeStrobe, UpdateImageFadeStrobe.
+  Uses GLFXManager:: prefix, GLFXItem& parameter type, GLImageFadeStrobeData struct.
+  RenderImageFadeStrobe calls renderer->Blit2DObjectToSizeWithAlpha (no platform guard needed for GL).

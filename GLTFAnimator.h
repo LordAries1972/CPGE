@@ -46,6 +46,9 @@ public:
     float GetAnimationTime(int parentModelID) const;
     float GetAnimationDuration(int animationIndex) const;
     bool IsAnimationPlaying(int parentModelID) const;
+    void SetAnimationDirection(int parentModelID, AnimationDirection direction);     // Set playback direction (NONE/FORWARD/REVERSE/BOUNCE)
+    bool AtAnimationEndFrame(int parentModelID, int& frameIndex);                   // Returns TRUE + last frame index if animation is at its final keyframe
+    void HoldAnimationAtFrame(int parentModelID, int frameIndex);                   // Pause and display the animation frozen at the given keyframe index
 
     // Cleanup and utility functions
     void ClearAllAnimations();

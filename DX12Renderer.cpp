@@ -14,7 +14,7 @@
     #include "Debug.h"
     #include "WinSystem.h"
     #include "Configuration.h"
-    #include "DX12FXManager.h"
+    #include "FXManager.h"
     #include "GUIManager.h"
     #include "DX12Models.h"
     #include "Lights.h"
@@ -232,6 +232,23 @@ void DX12Renderer::CreateDevice() {
                     D3D12_FEATURE_D3D12_OPTIONS, &opts, sizeof(opts))))
                 m_resourceBindingTier = opts.ResourceBindingTier;
 
+            // Native DX12 mode is intentionally stricter than "can create an
+            // ID3D12Device".  FL11_x adapters can expose the DX12 API but still
+            // perform best on the compatibility shader path; FL12_x plus SM6
+            // is the engine's gate for the newer DX12 3D pipeline assets.
+            D3D12_FEATURE_DATA_SHADER_MODEL shaderModelData = {};
+            shaderModelData.HighestShaderModel = D3D_SHADER_MODEL_6_0;
+            if (SUCCEEDED(m_d3d12Device->CheckFeatureSupport(
+                    D3D12_FEATURE_SHADER_MODEL, &shaderModelData, sizeof(shaderModelData))))
+                m_shaderModel = shaderModelData.HighestShaderModel;
+            else
+                m_shaderModel = D3D_SHADER_MODEL_5_1;
+
+            const bool supportsNativeDX12 =
+                (m_maxFeatureLevel >= D3D_FEATURE_LEVEL_12_0) &&
+                (m_shaderModel     >= D3D_SHADER_MODEL_6_0);
+            bUseNativeDX12Calls.store(supportsNativeDX12, std::memory_order_release);
+
             DXGI_ADAPTER_DESC3 adDesc = {};
             if (SUCCEEDED(bestAdapter->GetDesc3(&adDesc)))
             {
@@ -242,11 +259,14 @@ void DX12Renderer::CreateDevice() {
             m_isLowEndGPU = (m_dedicatedVRAMMB < 2048 || m_isUMA);
 
             debug.logDebugMessage(LogLevel::LOG_INFO,
-                L"DX12Renderer: GPU Caps: VRAM: %llu MB, Shared: %llu MB, UMA: %s, LowEnd: %s, BindingTier: %d",
+                L"DX12Renderer: GPU Caps: VRAM: %llu MB, Shared: %llu MB, UMA: %s, LowEnd: %s, BindingTier: %d, FeatureLevel: 0x%04X, ShaderModel: 0x%04X, NativeDX12: %s",
                 m_dedicatedVRAMMB, m_sharedSystemMemMB,
                 m_isUMA       ? L"Yes" : L"No",
                 m_isLowEndGPU ? L"Yes" : L"No",
-                static_cast<int>(m_resourceBindingTier));
+                static_cast<int>(m_resourceBindingTier),
+                static_cast<unsigned int>(m_maxFeatureLevel),
+                static_cast<unsigned int>(m_shaderModel),
+                bUseNativeDX12Calls.load(std::memory_order_acquire) ? L"Yes" : L"No");
 
             if (m_isLowEndGPU)
                 debug.logLevelMessage(LogLevel::LOG_WARNING,
@@ -325,6 +345,20 @@ void DX12Renderer::CreateSwapChain(HWND hwnd)
             return;
         }
 
+        // Detect tearing support before creating the swap chain. Present(0, 0)
+        // can still block behind DWM/flip-queue pacing; ALLOW_TEARING is the DXGI
+        // path that makes VSync-off presentation genuinely low-latency in windowed mode.
+        m_allowTearing = false;
+        ComPtr<IDXGIFactory5> factory5;
+        if (SUCCEEDED(factory.As(&factory5))) {
+            BOOL allowTearing = FALSE;
+            HRESULT tearingHr = factory5->CheckFeatureSupport(
+                DXGI_FEATURE_PRESENT_ALLOW_TEARING,
+                &allowTearing,
+                sizeof(allowTearing));
+            m_allowTearing = SUCCEEDED(tearingHr) && allowTearing;
+        }
+
         // Describe the swap chain for optimal DirectX 12 performance
         DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};
         swapChainDesc.Width = 0;                                                // Use window width automatically
@@ -335,10 +369,17 @@ void DX12Renderer::CreateSwapChain(HWND hwnd)
         swapChainDesc.SampleDesc.Quality = 0;                                   // No multi-sampling quality
         swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;            // Render target output usage
         swapChainDesc.BufferCount = m_effectiveFrameCount;                      // 3=triple / 2=double per config
-        swapChainDesc.Scaling = DXGI_SCALING_STRETCH;                           // Stretch scaling mode
+        // DXGI_SCALING_NONE: back buffer always matches window size (Resize() is called on every resize),
+        // so no scaling is ever needed — and NONE is required for FRAME_LATENCY_WAITABLE_OBJECT support.
+        swapChainDesc.Scaling = DXGI_SCALING_NONE;
         swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;               // Efficient flip and discard for DirectX 12
         swapChainDesc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;                  // No alpha mode specified
-        swapChainDesc.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;           // Allow fullscreen mode switching
+        // FRAME_LATENCY_WAITABLE_OBJECT moves the vblank stall out of Present() and into
+        // a WaitForSingleObjectEx at the start of each frame, keeping Present non-blocking.
+        swapChainDesc.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH |
+                              DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+        if (m_allowTearing)
+            swapChainDesc.Flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;           // Required for Present(0, ALLOW_TEARING)
 
         // Create the swap chain using the command queue and window handle
         ComPtr<IDXGISwapChain1> swapChain1;
@@ -378,6 +419,26 @@ void DX12Renderer::CreateSwapChain(HWND hwnd)
 
         // Get the current frame index from the swap chain
         m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+
+        // Acquire the frame latency waitable object (requires IDXGISwapChain2).
+        // SetMaximumFrameLatency(2) lets DXGI queue up to 2 frames; the CPU blocks at the
+        // start of each frame (not inside Present), so Present() returns immediately.
+        {
+            ComPtr<IDXGISwapChain2> sc2;
+            if (SUCCEEDED(m_swapChain.As(&sc2)))
+            {
+                sc2->SetMaximumFrameLatency(1);  // 1 frame queued at a time: fires once per vblank
+                m_frameLatencyWaitableObject = sc2->GetFrameLatencyWaitableObject();
+                #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+                    if (m_frameLatencyWaitableObject)
+                        debug.logLevelMessage(LogLevel::LOG_INFO,
+                            L"DX12Renderer: Frame latency waitable acquired (MaxFrameLatency=2) -- Present() is now non-blocking.");
+                    else
+                        debug.logLevelMessage(LogLevel::LOG_WARNING,
+                            L"DX12Renderer: GetFrameLatencyWaitableObject returned null -- Present() may still block.");
+                #endif
+            }
+        }
 
         // Set swap chain name for debugging
         m_swapChain->SetPrivateData(WKPDID_D3DDebugObjectName,
@@ -452,7 +513,7 @@ void DX12Renderer::CreateDescriptorHeaps() {
 
         // Create CBV/SRV/UAV descriptor heap for textures and constant buffers
         D3D12_DESCRIPTOR_HEAP_DESC cbvSrvUavHeapDesc = {};
-        cbvSrvUavHeapDesc.NumDescriptors = DX12_MODEL_TEXTURE_HEAP_BASE + DX12_MODEL_TEXTURE_HEAP_CAPACITY; // Null(6)+reserved(4)+scene+model SRVs
+        cbvSrvUavHeapDesc.NumDescriptors = DX12_MODEL_TEXTURE_HEAP_BASE + DX12_MODEL_TEXTURE_HEAP_CAPACITY + FrameCount; // +FrameCount for D2D off-screen composite SRVs
         cbvSrvUavHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;        // Combined heap type
         cbvSrvUavHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;    // Shader visible for binding
         cbvSrvUavHeapDesc.NodeMask = 0;                                         // Single GPU node
@@ -657,6 +718,15 @@ void DX12Renderer::CreateCommandList() {
             // Set command allocator name for debugging
             std::wstring allocatorName = L"DX12Renderer_CommandAllocator_" + std::to_wstring(i);
             m_frameContexts[i].commandAllocator->SetName(allocatorName.c_str());
+
+            // Create composite allocator (used for the D2D off-screen composite pass at frame end)
+            hr = m_d3d12Device->CreateCommandAllocator(
+                D3D12_COMMAND_LIST_TYPE_DIRECT,
+                IID_PPV_ARGS(&m_frameContexts[i].compositeAllocator));
+            if (SUCCEEDED(hr)) {
+                std::wstring compAllocName = L"DX12Renderer_CompositeAllocator_" + std::to_wstring(i);
+                m_frameContexts[i].compositeAllocator->SetName(compAllocName.c_str());
+            }
 
             // Initialize fence value for this frame
             m_frameContexts[i].fenceValue = 0;
@@ -895,16 +965,16 @@ void DX12Renderer::CreateDebugLayer() {
 #endif
 
     try {
-        // Set up info queue for detailed debug messages
-        ComPtr<ID3D12InfoQueue> infoQueue;
-        if (SUCCEEDED(m_d3d12Device.As(&infoQueue))) {
+        // Set up info queue for detailed debug messages; store in m_infoQueue so
+        // DrainInfoQueue() can forward validation errors to the game log on demand.
+        if (SUCCEEDED(m_d3d12Device.As(&m_infoQueue))) {
             // Only break on data corruption — breaking on ERROR or WARNING raises
             // RaiseException() which crashes the process on any validation hit,
             // including false positives in a WIP pipeline. Errors/warnings are still
             // captured by the storage filter and visible in the debug output.
-            infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, TRUE);
-            infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR,      FALSE);
-            infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING,    FALSE);
+            m_infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, TRUE);
+            m_infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR,      FALSE);
+            m_infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING,    FALSE);
 
             // Filter out less important messages to reduce noise
             D3D12_MESSAGE_SEVERITY severities[] = {
@@ -923,7 +993,7 @@ void DX12Renderer::CreateDebugLayer() {
             filter.DenyList.NumIDs = _countof(denyIds);
             filter.DenyList.pIDList = denyIds;
 
-            infoQueue->PushStorageFilter(&filter);
+            m_infoQueue->PushStorageFilter(&filter);
 
 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
             debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Debug layer configured successfully.");
@@ -943,6 +1013,46 @@ void DX12Renderer::CreateDebugLayer() {
 }
 
 //-----------------------------------------
+// DrainInfoQueue
+// Reads every pending message from the D3D12 info queue and routes it to the
+// game log. Call after any important DX12 failure to get the exact validation
+// error that the runtime produced, not just the numeric HRESULT.
+//-----------------------------------------
+#ifdef _DEBUG
+void DX12Renderer::DrainInfoQueue()
+{
+    if (!m_infoQueue) return;
+
+    const UINT64 count = m_infoQueue->GetNumStoredMessages();
+    for (UINT64 i = 0; i < count; ++i)
+    {
+        SIZE_T msgSize = 0;
+        m_infoQueue->GetMessage(i, nullptr, &msgSize);
+        if (msgSize == 0) continue;
+
+        std::vector<BYTE> buf(msgSize);
+        auto* msg = reinterpret_cast<D3D12_MESSAGE*>(buf.data());
+        if (FAILED(m_infoQueue->GetMessage(i, msg, &msgSize))) continue;
+
+        // Convert the ASCII description to a wide string for our logger
+        const SIZE_T descLen = msg->DescriptionByteLength > 0 ? msg->DescriptionByteLength - 1 : 0;
+        std::wstring wDesc(msg->pDescription, msg->pDescription + descLen);
+
+        LogLevel level = LogLevel::LOG_WARNING;
+        switch (msg->Severity)
+        {
+        case D3D12_MESSAGE_SEVERITY_CORRUPTION: level = LogLevel::LOG_CRITICAL; break;
+        case D3D12_MESSAGE_SEVERITY_ERROR:      level = LogLevel::LOG_ERROR;    break;
+        case D3D12_MESSAGE_SEVERITY_WARNING:    level = LogLevel::LOG_WARNING;  break;
+        default:                                level = LogLevel::LOG_DEBUG;    break;
+        }
+        debug.logDebugMessage(level, L"[D3D12 Validation] %s", wDesc.c_str());
+    }
+    m_infoQueue->ClearStoredMessages();
+}
+#endif
+
+//-----------------------------------------
 // Log Adapter Information for Debugging
 //-----------------------------------------
 void DX12Renderer::LogAdapterInfo(IDXGIAdapter4* adapter) {
@@ -952,45 +1062,45 @@ void DX12Renderer::LogAdapterInfo(IDXGIAdapter4* adapter) {
         DXGI_ADAPTER_DESC3 desc;
         HRESULT hr = adapter->GetDesc3(&desc);
         if (FAILED(hr)) {
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to get adapter description.");
-#endif
+            #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to get adapter description.");
+            #endif
             return;
         }
 
         std::wstring adapterName(desc.Description);
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: === Adapter Information ===");
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Description: %s", adapterName.c_str());
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Vendor ID: 0x%04X", desc.VendorId);
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Device ID: 0x%04X", desc.DeviceId);
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Dedicated Video Memory: %llu MB",
-            desc.DedicatedVideoMemory / (1024 * 1024));
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Dedicated System Memory: %llu MB",
-            desc.DedicatedSystemMemory / (1024 * 1024));
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Shared System Memory: %llu MB",
-            desc.SharedSystemMemory / (1024 * 1024));
+        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: === Adapter Information ===");
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Description: %s", adapterName.c_str());
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Vendor ID: 0x%04X", desc.VendorId);
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Device ID: 0x%04X", desc.DeviceId);
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Dedicated Video Memory: %llu MB",
+                desc.DedicatedVideoMemory / (1024 * 1024));
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Dedicated System Memory: %llu MB",
+                desc.DedicatedSystemMemory / (1024 * 1024));
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Shared System Memory: %llu MB",
+                desc.SharedSystemMemory / (1024 * 1024));
 
-        // Log vendor-specific information
-        const wchar_t* vendorName = L"Unknown";
-        switch (desc.VendorId) {
-        case 0x10DE: vendorName = L"NVIDIA"; break;
-        case 0x1002: vendorName = L"AMD"; break;
-        case 0x8086: vendorName = L"Intel"; break;
-        }
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Vendor: %s", vendorName);
+            // Log vendor-specific information
+            const wchar_t* vendorName = L"Unknown";
+            switch (desc.VendorId) {
+            case 0x10DE: vendorName = L"NVIDIA"; break;
+            case 0x1002: vendorName = L"AMD"; break;
+            case 0x8086: vendorName = L"Intel"; break;
+            }
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Vendor: %s", vendorName);
 
-        // Log flags
-        if (desc.Flags & DXGI_ADAPTER_FLAG3_SOFTWARE) {
-            debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Adapter Type: Software");
-        }
-        else {
-            debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Adapter Type: Hardware");
-        }
+            // Log flags
+            if (desc.Flags & DXGI_ADAPTER_FLAG3_SOFTWARE) {
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Adapter Type: Software");
+            }
+            else {
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Adapter Type: Hardware");
+            }
 
-        debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: ========================");
-#endif
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: ========================");
+        #endif
     }
     catch (const std::exception& e) {
         std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
@@ -1025,19 +1135,19 @@ XMFLOAT4 DX12Renderer::ConvertColor(uint8_t r, uint8_t g, uint8_t b, uint8_t a) 
 void DX12Renderer::RendererName(std::string sThisName)
 {
     sName = sThisName;
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-    std::wstring wideName = std::wstring(sThisName.begin(), sThisName.end());
-    debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Renderer name set to: %s", wideName.c_str());
-#endif
+    #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+        std::wstring wideName = std::wstring(sThisName.begin(), sThisName.end());
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Renderer name set to: %s", wideName.c_str());
+    #endif
 }
 
 //-----------------------------------------
 // Create Root Signature for DirectX 12 Pipeline
 //-----------------------------------------
 void DX12Renderer::CreateRootSignature() {
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Creating root signature...");
-#endif
+    #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Creating root signature...");
+    #endif
 
     try {
         // Define root parameters for the graphics pipeline (8 entries: b0-b5 CBVs + texture SRV table + b6 shadow CBV)
@@ -1214,9 +1324,9 @@ void DX12Renderer::CreateRootSignature() {
         // Set root signature name for debugging
         m_rootSignature->SetName(L"DX12Renderer_MainRootSignature");
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Root signature created successfully.");
-#endif
+        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Root signature created successfully.");
+        #endif
     }
     catch (const std::exception& e) {
         std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
@@ -1229,9 +1339,9 @@ void DX12Renderer::CreateRootSignature() {
 // Create Pipeline State Object for DirectX 12 Rendering
 //-----------------------------------------
 void DX12Renderer::CreatePipelineState() {
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Creating pipeline state object...");
-#endif
+    #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Creating pipeline state object...");
+    #endif
 
     try {
         // Resolve the directory that contains the executable so we can locate the
@@ -1243,27 +1353,64 @@ void DX12Renderer::CreatePipelineState() {
         if (lastSlash != std::wstring::npos)
             exeDir = exeDir.substr(0, lastSlash + 1);
 
-        // Load pre-compiled vertex shader (ModelVShader.cso — compiled by FXC during build)
+        // Native FL12/SM6 adapters use DXIL shaders compiled from the DX12-native
+        // HLSL sources.  FL11_x adapters stay on the proven FXC shader pair so
+        // hardware such as GTX 960M avoids the newer shader path entirely.
         ComPtr<ID3DBlob> vertexShader;
         ComPtr<ID3DBlob> pixelShader;
+        const bool useNativeShaders = bUseNativeDX12Calls.load(std::memory_order_acquire);
 
-        std::wstring vsPath = exeDir + L"ModelVShader.cso";
-        HRESULT hr = D3DReadFileToBlob(vsPath.c_str(), &vertexShader);
-        if (FAILED(hr)) {
+        auto loadShaderBlob = [&](const wchar_t* preferredName,
+                                  const wchar_t* fallbackName,
+                                  const wchar_t* shaderLabel,
+                                  ComPtr<ID3DBlob>& outBlob) -> bool
+        {
+            std::wstring shaderPath = exeDir + preferredName;
+            HRESULT hr = D3DReadFileToBlob(shaderPath.c_str(), &outBlob);
+            if (SUCCEEDED(hr))
+            {
+                debug.logDebugMessage(LogLevel::LOG_INFO,
+                    L"DX12Renderer: Loaded %s shader: %s", shaderLabel, shaderPath.c_str());
+                return true;
+            }
+
+            if (fallbackName && fallbackName[0] != L'\0')
+            {
+                debug.logDebugMessage(LogLevel::LOG_WARNING,
+                    L"DX12Renderer: Preferred %s shader missing: %s. Falling back to %s.",
+                    shaderLabel, shaderPath.c_str(), fallbackName);
+
+                shaderPath = exeDir + fallbackName;
+                hr = D3DReadFileToBlob(shaderPath.c_str(), &outBlob);
+                if (SUCCEEDED(hr))
+                    return true;
+            }
+
             debug.logDebugMessage(LogLevel::LOG_CRITICAL,
-                L"DX12Renderer: Failed to load ModelVShader.cso from: %s", vsPath.c_str());
-            ThrowError("Vertex shader load failed (ModelVShader.cso not found)");
+                L"DX12Renderer: Failed to load %s shader from: %s", shaderLabel, shaderPath.c_str());
+            return false;
+        };
+
+        if (!loadShaderBlob(useNativeShaders ? L"DX12NativeModelVShader.cso" : L"ModelVShader.cso",
+                            useNativeShaders ? L"ModelVShader.cso" : nullptr,
+                            L"vertex", vertexShader))
+        {
+            ThrowError("Vertex shader load failed");
             return;
         }
 
-        // Load pre-compiled pixel shader (ModelPShader.cso — compiled by FXC during build)
-        std::wstring psPath = exeDir + L"ModelPShader.cso";
-        hr = D3DReadFileToBlob(psPath.c_str(), &pixelShader);
-        if (FAILED(hr)) {
-            debug.logDebugMessage(LogLevel::LOG_CRITICAL,
-                L"DX12Renderer: Failed to load ModelPShader.cso from: %s", psPath.c_str());
-            ThrowError("Pixel shader load failed (ModelPShader.cso not found)");
+        if (!loadShaderBlob(useNativeShaders ? L"DX12NativeModelPShader.cso" : L"ModelPShader.cso",
+                            useNativeShaders ? L"ModelPShader.cso" : nullptr,
+                            L"pixel", pixelShader))
+        {
+            ThrowError("Pixel shader load failed");
             return;
+        }
+
+        if (useNativeShaders)
+        {
+            debug.logLevelMessage(LogLevel::LOG_INFO,
+                L"DX12Renderer: Native DX12 shader path selected for the 3D pipeline.");
         }
 
         // Define the vertex input layout matching the Model vertex structure.
@@ -1333,7 +1480,7 @@ void DX12Renderer::CreatePipelineState() {
         psoDesc.SampleDesc.Quality = 0;                                         // No multisampling quality
 
         // Create the pipeline state object
-        hr = m_d3d12Device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineState));
+        HRESULT hr = m_d3d12Device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineState));
         if (FAILED(hr)) {
             debug.logDebugMessage(LogLevel::LOG_CRITICAL,
                 L"DX12Renderer: CreateGraphicsPipelineState failed. HRESULT: 0x%08X", hr);
@@ -1344,9 +1491,9 @@ void DX12Renderer::CreatePipelineState() {
         // Set pipeline state name for debugging
         m_pipelineState->SetName(L"DX12Renderer_MainPipelineState");
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Pipeline state object created successfully.");
-#endif
+        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Pipeline state object created successfully.");
+        #endif
     }
     catch (const std::exception& e) {
         std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
@@ -1359,9 +1506,9 @@ void DX12Renderer::CreatePipelineState() {
 // Load and Compile Shaders for DirectX 12
 //-----------------------------------------
 void DX12Renderer::LoadShaders() {
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Loading and validating shaders...");
-#endif
+    #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Loading and validating shaders...");
+    #endif
 
     try {
         // Validate HLSL source files exist in Assets/Shaders/ (same path as DX11 pipeline)
@@ -1371,24 +1518,24 @@ void DX12Renderer::LoadShaders() {
         if (!std::filesystem::exists(vsPath))
             debug.logDebugMessage(LogLevel::LOG_WARNING,
                 L"DX12Renderer: HLSL source not found at %ls (CSO may still exist in exe dir)", vsPath.c_str());
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        else
-            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Found HLSL source: %ls", vsPath.c_str());
-#endif
+        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+            else
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Found HLSL source: %ls", vsPath.c_str());
+        #endif
 
         if (!std::filesystem::exists(psPath))
             debug.logDebugMessage(LogLevel::LOG_WARNING,
                 L"DX12Renderer: HLSL source not found at %ls (CSO may still exist in exe dir)", psPath.c_str());
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        else
-            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Found HLSL source: %ls", psPath.c_str());
-#endif
+        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+            else
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Found HLSL source: %ls", psPath.c_str());
+        #endif
 
         // Pre-compiled CSO files are loaded in CreatePipelineState() via D3DReadFileToBlob
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Shader validation completed.");
-#endif
+        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Shader validation completed.");
+        #endif
     }
     catch (const std::exception& e) {
         std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
@@ -1401,9 +1548,9 @@ void DX12Renderer::LoadShaders() {
 // Create Constant Buffers for DirectX 12
 //-----------------------------------------
 void DX12Renderer::CreateConstantBuffers() {
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Creating constant buffers...");
-#endif
+    #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Creating constant buffers...");
+    #endif
 
     try {
         // Create camera constant buffer (matches DX11 ConstantBuffer structure)
@@ -1416,7 +1563,7 @@ void DX12Renderer::CreateConstantBuffers() {
             &heapProps,                                                         // Upload heap for CPU writes
             D3D12_HEAP_FLAG_NONE,                                               // No special heap flags
             &bufferDesc,                                                        // Buffer description
-            D3D12_RESOURCE_STATE_GENERIC_READ,                                  // Generic read state for upload heap
+            D3D12_RESOURCE_STATE_COMMON,                                        // Upload-heap buffers are always in COMMON
             nullptr,                                                            // No optimized clear value
             IID_PPV_ARGS(&m_constantBuffer)                                     // Output constant buffer
         );
@@ -1439,7 +1586,7 @@ void DX12Renderer::CreateConstantBuffers() {
             &heapProps,                                                         // Upload heap for CPU writes
             D3D12_HEAP_FLAG_NONE,                                               // No special heap flags
             &lightBufferDesc,                                                   // Buffer description
-            D3D12_RESOURCE_STATE_GENERIC_READ,                                  // Generic read state for upload heap
+            D3D12_RESOURCE_STATE_COMMON,                                        // Upload-heap buffers are always in COMMON
             nullptr,                                                            // No optimized clear value
             IID_PPV_ARGS(&m_globalLightBuffer)                                  // Output global light buffer
         );
@@ -1462,7 +1609,7 @@ void DX12Renderer::CreateConstantBuffers() {
             &heapProps,
             D3D12_HEAP_FLAG_NONE,
             &envBufferDesc,
-            D3D12_RESOURCE_STATE_GENERIC_READ,
+            D3D12_RESOURCE_STATE_COMMON,
             nullptr,
             IID_PPV_ARGS(&m_envBuffer)
         );
@@ -1500,7 +1647,7 @@ void DX12Renderer::CreateConstantBuffers() {
             &heapProps,
             D3D12_HEAP_FLAG_NONE,
             &shadowBufferDesc,
-            D3D12_RESOURCE_STATE_GENERIC_READ,
+            D3D12_RESOURCE_STATE_COMMON,
             nullptr,
             IID_PPV_ARGS(&m_shadowBuffer)
         );
@@ -1524,10 +1671,10 @@ void DX12Renderer::CreateConstantBuffers() {
             }
         }
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Constant buffers created successfully. Camera CB Size: %d, Light CB Size: %d, Env CB Size: %d, Shadow CB Size: %d",
-            constantBufferSize, lightBufferSize, envBufferSize, shadowBufferSize);
-#endif
+        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Constant buffers created successfully. Camera CB Size: %d, Light CB Size: %d, Env CB Size: %d, Shadow CB Size: %d",
+                constantBufferSize, lightBufferSize, envBufferSize, shadowBufferSize);
+        #endif
     }
     catch (const std::exception& e) {
         std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
@@ -1540,17 +1687,17 @@ void DX12Renderer::CreateConstantBuffers() {
 // Create Samplers for Texture Sampling
 //-----------------------------------------
 void DX12Renderer::CreateSamplers() {
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Creating texture samplers...");
-#endif
+    #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Creating texture samplers...");
+    #endif
 
     try {
         // Note: We use static samplers in the root signature for better performance
         // This function is for any dynamic samplers that might be needed in the future
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Using static samplers from root signature. No dynamic samplers created.");
-#endif
+        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Using static samplers from root signature. No dynamic samplers created.");
+        #endif
     }
     catch (const std::exception& e) {
         std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
@@ -1579,32 +1726,32 @@ void DX12Renderer::TransitionResource(ID3D12Resource* resource, D3D12_RESOURCE_S
         // Add the barrier to the command list
         m_commandList->ResourceBarrier(1, &barrier);
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        // Log state transitions for debugging (only in debug builds)
-        const wchar_t* beforeStr = L"UNKNOWN";
-        const wchar_t* afterStr = L"UNKNOWN";
+        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+            // Log state transitions for debugging (only in debug builds)
+            const wchar_t* beforeStr = L"UNKNOWN";
+            const wchar_t* afterStr = L"UNKNOWN";
 
-        // Convert states to readable strings for debugging
-        switch (stateBefore) {
-        case D3D12_RESOURCE_STATE_RENDER_TARGET: beforeStr = L"RENDER_TARGET"; break;
-        case D3D12_RESOURCE_STATE_DEPTH_WRITE: beforeStr = L"DEPTH_WRITE"; break;
-        case D3D12_RESOURCE_STATE_PRESENT: beforeStr = L"PRESENT"; break;
-        case D3D12_RESOURCE_STATE_COPY_DEST: beforeStr = L"COPY_DEST"; break;
-        case D3D12_RESOURCE_STATE_COPY_SOURCE: beforeStr = L"COPY_SOURCE"; break;
-        case D3D12_RESOURCE_STATE_GENERIC_READ: beforeStr = L"GENERIC_READ"; break;
-        }
+            // Convert states to readable strings for debugging
+            switch (stateBefore) {
+            case D3D12_RESOURCE_STATE_RENDER_TARGET: beforeStr = L"RENDER_TARGET"; break;
+            case D3D12_RESOURCE_STATE_DEPTH_WRITE: beforeStr = L"DEPTH_WRITE"; break;
+            case D3D12_RESOURCE_STATE_PRESENT: beforeStr = L"PRESENT"; break;
+            case D3D12_RESOURCE_STATE_COPY_DEST: beforeStr = L"COPY_DEST"; break;
+            case D3D12_RESOURCE_STATE_COPY_SOURCE: beforeStr = L"COPY_SOURCE"; break;
+            case D3D12_RESOURCE_STATE_GENERIC_READ: beforeStr = L"GENERIC_READ"; break;
+            }
 
-        switch (stateAfter) {
-        case D3D12_RESOURCE_STATE_RENDER_TARGET: afterStr = L"RENDER_TARGET"; break;
-        case D3D12_RESOURCE_STATE_DEPTH_WRITE: afterStr = L"DEPTH_WRITE"; break;
-        case D3D12_RESOURCE_STATE_PRESENT: afterStr = L"PRESENT"; break;
-        case D3D12_RESOURCE_STATE_COPY_DEST: afterStr = L"COPY_DEST"; break;
-        case D3D12_RESOURCE_STATE_COPY_SOURCE: afterStr = L"COPY_SOURCE"; break;
-        case D3D12_RESOURCE_STATE_GENERIC_READ: afterStr = L"GENERIC_READ"; break;
-        }
+            switch (stateAfter) {
+            case D3D12_RESOURCE_STATE_RENDER_TARGET: afterStr = L"RENDER_TARGET"; break;
+            case D3D12_RESOURCE_STATE_DEPTH_WRITE: afterStr = L"DEPTH_WRITE"; break;
+            case D3D12_RESOURCE_STATE_PRESENT: afterStr = L"PRESENT"; break;
+            case D3D12_RESOURCE_STATE_COPY_DEST: afterStr = L"COPY_DEST"; break;
+            case D3D12_RESOURCE_STATE_COPY_SOURCE: afterStr = L"COPY_SOURCE"; break;
+            case D3D12_RESOURCE_STATE_GENERIC_READ: afterStr = L"GENERIC_READ"; break;
+            }
 
-        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Resource transition: %s -> %s", beforeStr, afterStr);
-#endif
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Resource transition: %s -> %s", beforeStr, afterStr);
+        #endif
     }
     catch (const std::exception& e) {
         std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
@@ -1635,17 +1782,17 @@ void DX12Renderer::UpdateConstantBuffers() {
                 cb.projectionMatrix = myCamera.GetProjectionMatrix();               // Get current projection matrix from camera
                 cb.cameraPosition = myCamera.GetPosition();                         // Get current camera position
 
-                // Copy the data to the mapped buffer
-                memcpy(pCBData, &cb, sizeof(ConstantBuffer));
+                // asm MemoryCopy: REP MOVSQ — uploads ConstantBuffer to mapped GPU memory
+                MemoryCopy(&cb, pCBData, sizeof(ConstantBuffer));
 
                 // Unmap the buffer
                 m_constantBuffer->Unmap(0, nullptr);
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-                XMFLOAT3 camPos = myCamera.GetPosition();
-                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Camera CB updated. Position: (%.2f, %.2f, %.2f)",
-                    camPos.x, camPos.y, camPos.z);
-#endif
+                #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+                    XMFLOAT3 camPos = myCamera.GetPosition();
+                    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Camera CB updated. Position: (%.2f, %.2f, %.2f)",
+                        camPos.x, camPos.y, camPos.z);
+                #endif
             }
             else {
                 debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to map camera constant buffer.");
@@ -1667,33 +1814,36 @@ void DX12Renderer::UpdateConstantBuffers() {
                 if (glb.numLights > MAX_GLOBAL_LIGHTS)
                     glb.numLights = MAX_GLOBAL_LIGHTS;
 
-                // Copy light data to buffer
-                for (int i = 0; i < glb.numLights; ++i) {
-                    memcpy(&glb.lights[i], &globalLights[i], sizeof(LightStruct));  // Copy the light data
+                // Bulk copy all valid lights in one shot — avoids per-element loop overhead.
+                // asm MemoryCopy: REP MOVSQ bulk quad-word transfer.
+                if (glb.numLights > 0)
+                    MemoryCopy(globalLights.data(), glb.lights,
+                               sizeof(LightStruct) * static_cast<size_t>(glb.numLights));
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG_LIGHTING_)
-                    debug.logDebugMessage(LogLevel::LOG_DEBUG,
-                        L"DX12Renderer: Global Light[%d] active=%d intensity=%.2f color=(%.2f %.2f %.2f) range=%.2f type=%d position=(%.2f, %.2f, %.2f)",
-                        i, glb.lights[i].active, glb.lights[i].intensity,
-                        glb.lights[i].color.x, glb.lights[i].color.y, glb.lights[i].color.z,
-                        glb.lights[i].range, glb.lights[i].type,
-                        glb.lights[i].position.x, glb.lights[i].position.y, glb.lights[i].position.z);
-#endif
-                }
+                #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG_LIGHTING_)
+                    for (int i = 0; i < glb.numLights; ++i)
+                        debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                            L"DX12Renderer: Global Light[%d] active=%d intensity=%.2f color=(%.2f %.2f %.2f) range=%.2f type=%d position=(%.2f, %.2f, %.2f)",
+                            i, glb.lights[i].active, glb.lights[i].intensity,
+                            glb.lights[i].color.x, glb.lights[i].color.y, glb.lights[i].color.z,
+                            glb.lights[i].range, glb.lights[i].type,
+                            glb.lights[i].position.x, glb.lights[i].position.y, glb.lights[i].position.z);
+                #endif
 
                 // Zero the full allocated GPU region before copying — matches DX11's
                 // kGlobalLightCBMinBytes approach to ensure the shader never reads stale data
                 // beyond what the CPU struct covers (upload heap is 256-byte aligned).
+                // asm MemoryZero: REP STOSQ; asm MemoryCopy: REP MOVSQ.
                 static const UINT kGlobalLightCBMinBytes = 1728;
-                memset(pLightData, 0, kGlobalLightCBMinBytes);
-                memcpy(pLightData, &glb, sizeof(GlobalLightBuffer));
+                MemoryZero(pLightData, kGlobalLightCBMinBytes);
+                MemoryCopy(&glb, pLightData, sizeof(GlobalLightBuffer));
 
                 // Unmap the buffer
                 m_globalLightBuffer->Unmap(0, nullptr);
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Global light buffer updated. Light count: %d", glb.numLights);
-#endif
+                #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+                    debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Global light buffer updated. Light count: %d", glb.numLights);
+                #endif
             }
             else {
                 debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to map global light buffer.");
@@ -1728,9 +1878,9 @@ void DX12Renderer::WaitForPreviousFrame() {
             if (waitResult != WAIT_OBJECT_0)
                 debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Fence wait timed out — forcing frame advance.");
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Waited for frame %d to complete.", m_frameIndex);
-#endif
+            #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+                debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Waited for frame %d to complete.", m_frameIndex);
+            #endif
         }
     }
     catch (const std::exception& e) {
@@ -1766,9 +1916,9 @@ void DX12Renderer::MoveToNextFrame() {
         // Increment the fence value for the next frame
         m_fenceValue++;
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Moved to frame %d, fence value: %llu", m_frameIndex, m_fenceValue);
-#endif
+        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Moved to frame %d, fence value: %llu", m_frameIndex, m_fenceValue);
+        #endif
     }
     catch (const std::exception& e) {
         std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
@@ -1789,6 +1939,11 @@ void DX12Renderer::ResetCommandList() {
             return;
         }
 
+        // Reset the composite allocator — it was last used FrameCount frames ago, which the fence
+        // wait in WaitForPreviousFrame() has already confirmed is complete on the GPU.
+        if (m_frameContexts[m_frameIndex].compositeAllocator)
+            m_frameContexts[m_frameIndex].compositeAllocator->Reset();
+
         // Reset the command list with the current frame's allocator and pipeline state
         hr = m_commandList->Reset(m_frameContexts[m_frameIndex].commandAllocator.Get(), m_pipelineState.Get());
         if (FAILED(hr)) {
@@ -1796,9 +1951,9 @@ void DX12Renderer::ResetCommandList() {
             return;
         }
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Command list reset for frame %d.", m_frameIndex);
-#endif
+        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Command list reset for frame %d.", m_frameIndex);
+        #endif
     }
     catch (const std::exception& e) {
         std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
@@ -1819,9 +1974,9 @@ void DX12Renderer::CloseCommandList() {
             return;
         }
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Command list closed successfully.");
-#endif
+        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Command list closed successfully.");
+        #endif
     }
     catch (const std::exception& e) {
         std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
@@ -1839,9 +1994,9 @@ void DX12Renderer::ExecuteCommandList() {
         ID3D12CommandList* ppCommandLists[] = { m_commandList.Get() };
         m_commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Command list executed on GPU.");
-#endif
+        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Command list executed on GPU.");
+        #endif
     }
     catch (const std::exception& e) {
         std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
@@ -1856,15 +2011,20 @@ void DX12Renderer::ExecuteCommandList() {
 void DX12Renderer::PresentFrame() {
     try {
         // Present the frame to the display
-        HRESULT hr = m_swapChain->Present(config.myConfig.enableVSync ? 1 : 0, 0);
+        const bool vsyncEnabled = config.myConfig.enableVSync;
+        const UINT syncInterval = vsyncEnabled ? 1u : 0u;
+        const UINT presentFlags = (!vsyncEnabled && m_allowTearing && !m_isExclusiveFullscreen)
+            ? DXGI_PRESENT_ALLOW_TEARING
+            : 0u;
+        HRESULT hr = m_swapChain->Present(syncInterval, presentFlags);
         if (FAILED(hr)) {
             debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to present frame.");
             return;
         }
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Frame presented successfully.");
-#endif
+        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Frame presented successfully.");
+        #endif
     }
     catch (const std::exception& e) {
         std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
@@ -1959,9 +2119,9 @@ void DX12Renderer::PopulateCommandList() {
             D3D12_RESOURCE_STATE_RENDER_TARGET,
             D3D12_RESOURCE_STATE_PRESENT);
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Command list populated with rendering commands.");
-#endif
+        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Command list populated with rendering commands.");
+        #endif
     }
     catch (const std::exception& e) {
         std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
@@ -2002,9 +2162,9 @@ void DX12Renderer::WaitForGPUToFinish() {
             }
         }
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: GPU operations completed successfully.");
-#endif
+        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: GPU operations completed successfully.");
+        #endif
     }
     catch (const std::exception& e) {
         std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
@@ -2027,9 +2187,9 @@ void DX12Renderer::SetDebugMode(int mode) {
         // and update it through the command list. This is more complex than DirectX 11
         // For now, we'll log the debug mode change
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Debug mode set to: %d", mode);
-#endif
+        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Debug mode set to: %d", mode);
+        #endif
 
         // TODO: Implement actual debug buffer update for DirectX 12
         // This would require creating a separate debug constant buffer and binding it
@@ -2052,9 +2212,9 @@ void DX12Renderer::TestDrawTriangle() {
         // This function would create a simple triangle vertex buffer and render it
         // Implementation would be similar to DX11 but using DirectX 12 command lists
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Test triangle rendering requested.");
-#endif
+        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Test triangle rendering requested.");
+        #endif
 
         // TODO: Implement DirectX 12 triangle test
         // This would require creating vertex buffers, setting up input layout, and drawing
@@ -2071,9 +2231,9 @@ void DX12Renderer::TestDrawTriangle() {
 // Initialize DirectX 11 on DirectX 12 Compatibility Layer
 //-----------------------------------------
 bool DX12Renderer::InitializeDX11On12Compatibility() {
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Initializing DirectX 11 on 12 compatibility layer...");
-#endif
+    #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Initializing DirectX 11 on 12 compatibility layer...");
+    #endif
 
     try {
         // Check if DirectX 12 device is available
@@ -2086,9 +2246,9 @@ bool DX12Renderer::InitializeDX11On12Compatibility() {
 
         // Create DirectX 11 device and context
         UINT creationFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;                  // Required for Direct2D interop
-#ifdef _DEBUG
-        creationFlags |= D3D11_CREATE_DEVICE_DEBUG;                             // Enable debug layer in debug builds
-#endif
+        #ifdef _DEBUG
+            creationFlags |= D3D11_CREATE_DEVICE_DEBUG;                             // Enable debug layer in debug builds
+        #endif
 
         D3D_FEATURE_LEVEL featureLevels[] = {
             D3D_FEATURE_LEVEL_11_1,                                             // Prefer DirectX 11.1
@@ -2159,16 +2319,16 @@ bool DX12Renderer::InitializeDX11On12Compatibility() {
         }
 
         if (m_dx11Dx12Compat.dx11On12Device) {
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: DirectX 11 on 12 device created successfully.");
-#endif
+            #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: DirectX 11 on 12 device created successfully.");
+            #endif
         }
 
         // Initialize Direct2D factory
         D2D1_FACTORY_OPTIONS d2dFactoryOptions = {};
-#ifdef _DEBUG
-        d2dFactoryOptions.debugLevel = D2D1_DEBUG_LEVEL_INFORMATION;            // Enable debug information
-#endif
+        #ifdef _DEBUG
+            d2dFactoryOptions.debugLevel = D2D1_DEBUG_LEVEL_INFORMATION;            // Enable debug information
+        #endif
 
         hr = D2D1CreateFactory(
             D2D1_FACTORY_TYPE_MULTI_THREADED,                                   // Multi-threaded factory for thread safety
@@ -2240,21 +2400,21 @@ bool DX12Renderer::InitializeDX11On12Compatibility() {
         m_dx11Dx12Compat.bDX12Available = true;
         m_dx11Dx12Compat.bUsingDX11Fallback = false;
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        const wchar_t* featureLevelStr = L"Unknown";
-        switch (selectedFeatureLevel) {
-        case D3D_FEATURE_LEVEL_11_1: featureLevelStr = L"11.1"; break;
-        case D3D_FEATURE_LEVEL_11_0: featureLevelStr = L"11.0"; break;
-        case D3D_FEATURE_LEVEL_10_1: featureLevelStr = L"10.1"; break;
-        case D3D_FEATURE_LEVEL_10_0: featureLevelStr = L"10.0"; break;
-        }
+        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+            const wchar_t* featureLevelStr = L"Unknown";
+            switch (selectedFeatureLevel) {
+            case D3D_FEATURE_LEVEL_11_1: featureLevelStr = L"11.1"; break;
+            case D3D_FEATURE_LEVEL_11_0: featureLevelStr = L"11.0"; break;
+            case D3D_FEATURE_LEVEL_10_1: featureLevelStr = L"10.1"; break;
+            case D3D_FEATURE_LEVEL_10_0: featureLevelStr = L"10.0"; break;
+            }
 
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: DirectX 11-12 compatibility layer initialized successfully. Feature Level: %s", featureLevelStr);
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: DX11 Available: %s, DX12 Available: %s, DX11on12: %s",
-            m_dx11Dx12Compat.bDX11Available ? L"Yes" : L"No",
-            m_dx11Dx12Compat.bDX12Available ? L"Yes" : L"No",
-            m_dx11Dx12Compat.dx11On12Device ? L"Yes" : L"No");
-#endif
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: DirectX 11-12 compatibility layer initialized successfully. Feature Level: %s", featureLevelStr);
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: DX11 Available: %s, DX12 Available: %s, DX11on12: %s",
+                m_dx11Dx12Compat.bDX11Available ? L"Yes" : L"No",
+                m_dx11Dx12Compat.bDX12Available ? L"Yes" : L"No",
+                m_dx11Dx12Compat.dx11On12Device ? L"Yes" : L"No");
+        #endif
 
         return true;
     }
@@ -2270,9 +2430,9 @@ bool DX12Renderer::InitializeDX11On12Compatibility() {
 // Cleanup DirectX 11-12 Compatibility Layer
 //-----------------------------------------
 void DX12Renderer::CleanupDX11On12Compatibility() {
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Cleaning up DirectX 11-12 compatibility layer...");
-#endif
+    #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Cleaning up DirectX 11-12 compatibility layer...");
+    #endif
 
     try {
         // Release per-frame D2D targets and wrapped back buffers first
@@ -2280,7 +2440,14 @@ void DX12Renderer::CleanupDX11On12Compatibility() {
         {
             m_d2dRenderTargets[i].Reset();
             m_wrappedBackBuffers[i].Reset();
+            m_d2dOffscreenBitmap[i].Reset();
+            m_d2dWrappedOffscreen[i].Reset();
+            m_d2dOffscreenTex[i].Reset();
         }
+
+        // Release composite PSO resources
+        m_compositePSO.Reset();
+        m_compositeRS.Reset();
 
         // Release Direct2D resources
         if (m_d2dContext) {
@@ -2321,9 +2488,9 @@ void DX12Renderer::CleanupDX11On12Compatibility() {
         m_dx11Dx12Compat.bDX12Available = false;
         m_dx11Dx12Compat.bUsingDX11Fallback = false;
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: DirectX 11-12 compatibility layer cleaned up successfully.");
-#endif
+        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: DirectX 11-12 compatibility layer cleaned up successfully.");
+        #endif
     }
     catch (const std::exception& e) {
         std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
@@ -2405,14 +2572,291 @@ bool DX12Renderer::CreateD2DRenderTargets()
             return false;
         }
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: D2D render target created for frame %u.", i);
-#endif
+        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: D2D render target created for frame %u.", i);
+        #endif
     }
 
     debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Per-frame D2D render targets created successfully.");
     return true;
 }
+
+//-----------------------------------------
+// CreateD2DOffscreenTargets
+// Creates per-frame off-screen RGBA textures used as D2D render targets instead of the
+// swap-chain back buffer.  Eliminating PRESENT-state transitions on the back buffer
+// removes the DX11On12 acquisition overhead that was the primary source of the ~40fps cap.
+//-----------------------------------------
+bool DX12Renderer::CreateD2DOffscreenTargets()
+{
+    if (!m_dx11Dx12Compat.dx11On12Device || !m_d2dContext || !m_d3d12Device)
+        return false;
+
+    for (UINT i = 0; i < m_effectiveFrameCount; ++i) {
+        m_d2dOffscreenTex[i].Reset();
+        m_d2dWrappedOffscreen[i].Reset();
+        m_d2dOffscreenBitmap[i].Reset();
+    }
+
+    D3D12_RESOURCE_DESC texDesc = {};
+    texDesc.Dimension            = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    texDesc.Width                = static_cast<UINT64>(iOrigWidth);
+    texDesc.Height               = static_cast<UINT>(iOrigHeight);
+    texDesc.DepthOrArraySize     = 1;
+    texDesc.MipLevels            = 1;
+    texDesc.Format               = DXGI_FORMAT_R8G8B8A8_UNORM;
+    texDesc.SampleDesc.Count     = 1;
+    texDesc.Flags                = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+    D3D12_CLEAR_VALUE clearVal   = {};
+    clearVal.Format              = DXGI_FORMAT_R8G8B8A8_UNORM;
+    // clearVal.Color = {0,0,0,0} — transparent black default
+
+    D3D12_HEAP_PROPERTIES heapProps = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+
+    D2D1_BITMAP_PROPERTIES1 bmpProps = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+        D2D1::PixelFormat(DXGI_FORMAT_R8G8B8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+        96.0f, 96.0f);
+
+    for (UINT i = 0; i < m_effectiveFrameCount; ++i) {
+        HRESULT hr = m_d3d12Device->CreateCommittedResource(
+            &heapProps,
+            D3D12_HEAP_FLAG_SHARED,             // Required for 11on12 CreateWrappedResource to pass debug validation
+            &texDesc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET,
+            &clearVal,
+            IID_PPV_ARGS(&m_d2dOffscreenTex[i]));
+        if (FAILED(hr)) {
+            debug.logDebugMessage(LogLevel::LOG_ERROR,
+                L"DX12Renderer: CreateCommittedResource for D2D off-screen[%u] failed (0x%08X)", i, hr);
+            return false;
+        }
+        m_d2dOffscreenTex[i]->SetName((L"D2DOffscreenTex_" + std::to_wstring(i)).c_str());
+
+        // SRV descriptor in the reserved composite SRV slots
+        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+        srvDesc.Format                    = DXGI_FORMAT_R8G8B8A8_UNORM;
+        srvDesc.ViewDimension             = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srvDesc.Shader4ComponentMapping   = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srvDesc.Texture2D.MipLevels       = 1;
+
+        const UINT srvSlot = DX12_D2D_COMPOSITE_SRV_BASE + i;
+        D3D12_CPU_DESCRIPTOR_HANDLE cpuH = m_cbvSrvUavHeap.cpuStart;
+        cpuH.ptr += srvSlot * m_cbvSrvUavHeap.handleIncrementSize;
+        m_d3d12Device->CreateShaderResourceView(m_d2dOffscreenTex[i].Get(), &srvDesc, cpuH);
+
+        D3D12_GPU_DESCRIPTOR_HANDLE gpuH = m_cbvSrvUavHeap.gpuStart;
+        gpuH.ptr += srvSlot * m_cbvSrvUavHeap.handleIncrementSize;
+        m_d2dOffscreenSRV[i] = gpuH;
+
+        // Wrap as DX11 resource: InState=RENDER_TARGET (D2D writes here), OutState=SHADER_RESOURCE (composite reads)
+        D3D11_RESOURCE_FLAGS d3d11Flags = { D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE };
+        hr = m_dx11Dx12Compat.dx11On12Device->CreateWrappedResource(
+            m_d2dOffscreenTex[i].Get(),
+            &d3d11Flags,
+            D3D12_RESOURCE_STATE_RENDER_TARGET,   // InState
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, // OutState
+            IID_PPV_ARGS(&m_d2dWrappedOffscreen[i]));
+        if (FAILED(hr)) {
+            debug.logDebugMessage(LogLevel::LOG_ERROR,
+                L"DX12Renderer: CreateWrappedResource for D2D off-screen[%u] failed (0x%08X)", i, hr);
+            return false;
+        }
+
+        ComPtr<IDXGISurface> surface;
+        hr = m_d2dWrappedOffscreen[i].As(&surface);
+        if (FAILED(hr)) {
+            debug.logDebugMessage(LogLevel::LOG_ERROR,
+                L"DX12Renderer: IDXGISurface QI for D2D off-screen[%u] failed (0x%08X)", i, hr);
+            return false;
+        }
+
+        hr = m_d2dContext->CreateBitmapFromDxgiSurface(surface.Get(), &bmpProps, &m_d2dOffscreenBitmap[i]);
+        if (FAILED(hr)) {
+            debug.logDebugMessage(LogLevel::LOG_ERROR,
+                L"DX12Renderer: CreateBitmapFromDxgiSurface for D2D off-screen[%u] failed (0x%08X)", i, hr);
+            return false;
+        }
+    }
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: D2D off-screen targets created successfully.");
+    return true;
+}
+
+//-----------------------------------------
+// CreateD2DCompositePSO
+// Compiles a minimal full-screen quad VS + alpha-blend PS and creates the PSO used to
+// composite the D2D off-screen texture onto the back buffer.
+//-----------------------------------------
+bool DX12Renderer::CreateD2DCompositePSO()
+{
+    HRESULT hr;
+
+    // Root signature: one descriptor table (t0 SRV) + one static bilinear-clamp sampler (s0)
+    D3D12_DESCRIPTOR_RANGE srvRange         = {};
+    srvRange.RangeType                      = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    srvRange.NumDescriptors                 = 1;
+    srvRange.BaseShaderRegister             = 0;
+    srvRange.RegisterSpace                  = 0;
+    srvRange.OffsetInDescriptorsFromTableStart = 0;
+
+    D3D12_ROOT_PARAMETER rootParam          = {};
+    rootParam.ParameterType                 = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParam.DescriptorTable.NumDescriptorRanges = 1;
+    rootParam.DescriptorTable.pDescriptorRanges   = &srvRange;
+    rootParam.ShaderVisibility              = D3D12_SHADER_VISIBILITY_PIXEL;
+
+    D3D12_STATIC_SAMPLER_DESC sampler       = {};
+    sampler.Filter                          = D3D12_FILTER_MIN_MAG_LINEAR_MIP_POINT;
+    sampler.AddressU                        = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    sampler.AddressV                        = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    sampler.AddressW                        = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    sampler.ShaderRegister                  = 0;
+    sampler.RegisterSpace                   = 0;
+    sampler.ShaderVisibility                = D3D12_SHADER_VISIBILITY_PIXEL;
+    sampler.MaxLOD                          = D3D12_FLOAT32_MAX;
+    sampler.ComparisonFunc                  = D3D12_COMPARISON_FUNC_NEVER;
+
+    D3D12_ROOT_SIGNATURE_DESC rsDesc        = {};
+    rsDesc.NumParameters                    = 1;
+    rsDesc.pParameters                      = &rootParam;
+    rsDesc.NumStaticSamplers                = 1;
+    rsDesc.pStaticSamplers                  = &sampler;
+    rsDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
+                   D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
+                   D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS;
+
+    ComPtr<ID3DBlob> serialized, rsError;
+    hr = D3D12SerializeRootSignature(&rsDesc, D3D_ROOT_SIGNATURE_VERSION_1, &serialized, &rsError);
+    if (FAILED(hr)) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR,
+            L"DX12Renderer: D3D12SerializeRootSignature (composite) failed (0x%08X)", hr);
+        return false;
+    }
+
+    hr = m_d3d12Device->CreateRootSignature(0,
+        serialized->GetBufferPointer(), serialized->GetBufferSize(),
+        IID_PPV_ARGS(&m_compositeRS));
+    if (FAILED(hr)) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR,
+            L"DX12Renderer: CreateRootSignature (composite) failed (0x%08X)", hr);
+        return false;
+    }
+    m_compositeRS->SetName(L"D2DCompositeRS");
+
+    // Full-screen quad VS: struct output gives deterministic register assignment —
+    // the inline out-param pattern (void main(...,out float4 p:SV_POSITION,out float2 uv:TEXCOORD0))
+    // causes the HLSL compiler to map TEXCOORD0 to a hardware register that does not
+    // match the PS input, producing a PSO linkage E_INVALIDARG.
+    static const char vsSource[] =
+        "struct VSOut{float4 pos:SV_POSITION;float2 uv:TEXCOORD0;};"
+        "VSOut main(uint id:SV_VertexID){"
+        "VSOut o;"
+        "o.uv=float2((id&1u)?1.0f:0.0f,(id&2u)?0.0f:1.0f);"
+        "o.pos=float4(o.uv.x*2.0f-1.0f,1.0f-o.uv.y*2.0f,0.0f,1.0f);"
+        "return o;}";
+
+    // Alpha-blend PS: sample off-screen texture; premultiplied alpha blend set on PSO (ONE/INV_SRC_ALPHA).
+    // Must use the same VSOut struct as the VS so D3DCompile assigns matching interpolant registers —
+    // a standalone 'float2 uv:TEXCOORD0' parameter can land on a different hardware register.
+    static const char psSource[] =
+        "struct VSOut{float4 pos:SV_POSITION;float2 uv:TEXCOORD0;};"
+        "Texture2D<float4> t:register(t0);SamplerState s:register(s0);"
+        "float4 main(VSOut i):SV_TARGET{return t.Sample(s,i.uv);}";
+
+    ComPtr<ID3DBlob> vsBlob, psBlob, compErr;
+    hr = D3DCompile(vsSource, sizeof(vsSource) - 1, "CompositeVS", nullptr, nullptr,
+                    "main", "vs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &vsBlob, &compErr);
+    if (FAILED(hr)) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: D2D composite VS compile failed");
+        return false;
+    }
+
+    hr = D3DCompile(psSource, sizeof(psSource) - 1, "CompositePS", nullptr, nullptr,
+                    "main", "ps_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &psBlob, &compErr);
+    if (FAILED(hr)) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: D2D composite PS compile failed");
+        return false;
+    }
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+    psoDesc.pRootSignature          = m_compositeRS.Get();
+    psoDesc.VS                      = { vsBlob->GetBufferPointer(), vsBlob->GetBufferSize() };
+    psoDesc.PS                      = { psBlob->GetBufferPointer(), psBlob->GetBufferSize() };
+
+    // Premultiplied alpha blend: src=ONE, dst=INV_SRC_ALPHA
+    psoDesc.BlendState              = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    psoDesc.BlendState.RenderTarget[0].BlendEnable    = TRUE;
+    psoDesc.BlendState.RenderTarget[0].SrcBlend       = D3D12_BLEND_ONE;
+    psoDesc.BlendState.RenderTarget[0].DestBlend      = D3D12_BLEND_INV_SRC_ALPHA;
+    psoDesc.BlendState.RenderTarget[0].BlendOp        = D3D12_BLEND_OP_ADD;
+    psoDesc.BlendState.RenderTarget[0].SrcBlendAlpha  = D3D12_BLEND_ONE;
+    psoDesc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+    psoDesc.BlendState.RenderTarget[0].BlendOpAlpha   = D3D12_BLEND_OP_ADD;
+    psoDesc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
+    psoDesc.SampleMask              = UINT_MAX;
+    psoDesc.RasterizerState         = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+
+    // No depth/stencil — composite draws over 3D content
+    psoDesc.DepthStencilState       = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    psoDesc.DepthStencilState.DepthEnable    = FALSE;
+    psoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+    psoDesc.DepthStencilState.StencilEnable  = FALSE;
+
+    psoDesc.InputLayout             = {};                               // SV_VertexID — no VB
+    psoDesc.PrimitiveTopologyType   = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    psoDesc.NumRenderTargets        = 1;
+    psoDesc.RTVFormats[0]           = DXGI_FORMAT_R8G8B8A8_UNORM;
+    psoDesc.DSVFormat               = DXGI_FORMAT_UNKNOWN;
+    psoDesc.SampleDesc.Count        = 1;
+
+    hr = m_d3d12Device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_compositePSO));
+    if (FAILED(hr)) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR,
+            L"DX12Renderer: CreateGraphicsPipelineState (composite) failed (0x%08X)", hr);
+#ifdef _DEBUG
+        DrainInfoQueue();   // Log the D3D12 validation detail that explains why it failed
+#endif
+        return false;
+    }
+    m_compositePSO->SetName(L"D2DCompositePSO");
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: D2D composite PSO created successfully.");
+    return true;
+}
+
+//-----------------------------------------
+// CompositeD2DToBackBuffer
+// Records a premultiplied-alpha full-screen quad draw on the currently open command list,
+// blending the current frame's D2D off-screen texture over the back buffer.
+// Caller must: have already transitioned the back buffer to RENDER_TARGET and
+//              called OMSetRenderTargets; restore the main root-signature + heaps afterwards.
+//-----------------------------------------
+void DX12Renderer::CompositeD2DToBackBuffer(
+    D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle,
+    const D3D12_VIEWPORT&       vp,
+    const D3D12_RECT&           scissor)
+{
+    if (!m_compositePSO || !m_compositeRS || !m_d2dOffscreenTex[m_frameIndex])
+        return;
+
+    m_commandList->SetGraphicsRootSignature(m_compositeRS.Get());
+    ID3D12DescriptorHeap* heaps[] = { m_cbvSrvUavHeap.heap.Get() };
+    m_commandList->SetDescriptorHeaps(1, heaps);
+    m_commandList->RSSetViewports(1, &vp);
+    m_commandList->RSSetScissorRects(1, &scissor);
+    m_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);  // no DSV — depth disabled in PSO
+    m_commandList->SetGraphicsRootDescriptorTable(0, m_d2dOffscreenSRV[m_frameIndex]);
+    m_commandList->SetPipelineState(m_compositePSO.Get());
+    m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    m_commandList->IASetVertexBuffers(0, 0, nullptr);
+    m_commandList->IASetIndexBuffer(nullptr);
+    m_commandList->DrawInstanced(4, 1, 0, 0);
+}
+
 
 //-----------------------------------------
 // Check if DirectX 11 Compatibility is Available
@@ -2425,6 +2869,13 @@ bool DX12Renderer::IsDX11CompatibilityAvailable() const {
 #endif
 
     return isAvailable;
+}
+
+//-----------------------------------------
+// Check if Native DirectX 12 3D Path is Available
+//-----------------------------------------
+bool DX12Renderer::IsNativeDX12Supported() const {
+    return bUseNativeDX12Calls.load(std::memory_order_acquire);
 }
 
 //-----------------------------------------
@@ -2466,8 +2917,11 @@ void DX12Renderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
     try {
         // Set the Renderer Name
         RendererName(RENDERER_NAME_DX12);
-        iOrigWidth = winMetrics.clientWidth;
-        iOrigHeight = winMetrics.clientHeight;
+        // Use config as the authoritative back-buffer size — winMetrics.clientWidth/Height
+        // reflect the windowed window and would create a windowed-size swap chain even
+        // when fullscreen exclusive is requested in the config.
+        iOrigWidth  = config.myConfig.resolutionWidth;
+        iOrigHeight = config.myConfig.resolutionHeight;
         m_renderTargetWidth  = iOrigWidth;
         m_renderTargetHeight = iOrigHeight;
 
@@ -2504,7 +2958,7 @@ void DX12Renderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
             }
             m_nullTextureGPUHandle = m_cbvSrvUavHeap.gpuStart;  // slots 0-8 are the 9 null SRVs
             // Initialise allocation cursor to the first per-model texture slot so that
-            // Model::SetupModelForRendering() can allocate 6 consecutive SRV slots from here.
+            // Model::SetupModelForRendering() can allocate 9 consecutive SRV slots from here.
             m_cbvSrvUavHeap.currentOffset = DX12_MODEL_TEXTURE_HEAP_BASE;
         }
 
@@ -2517,6 +2971,11 @@ void DX12Renderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
             // Create per-frame D2D render targets (wrapped back buffers + D2D bitmaps)
             if (!CreateD2DRenderTargets())
                 debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to create per-frame D2D render targets. 2D images will not be visible.");
+
+            // DX12 follows the DX11 render order by drawing Direct2D directly onto
+            // the wrapped swap-chain back buffer.  Avoid the off-screen D2D
+            // composite path here: it costs an extra full-screen pass and resource
+            // transitions each frame for no ordering benefit in the current scene flow.
         }
 
         // Initialize our Camera to default values
@@ -2800,6 +3259,11 @@ void DX12Renderer::Cleanup() {
         }
 
         // Release synchronization objects
+        if (m_frameLatencyWaitableObject) {
+            CloseHandle(m_frameLatencyWaitableObject);
+            m_frameLatencyWaitableObject = nullptr;
+        }
+
         if (m_fenceEvent) {
             CloseHandle(m_fenceEvent);
             m_fenceEvent = nullptr;
@@ -3386,6 +3850,47 @@ void DX12Renderer::Blit2DObjectToSize(BlitObj2DIndexType iIndex, int iX, int iY,
 }
 
 //-----------------------------------------
+// Blit 2D Object To Size With Alpha
+//-----------------------------------------
+void DX12Renderer::Blit2DObjectToSizeWithAlpha(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float alpha)
+{
+    try {
+        if (int(iIndex) < 0 || int(iIndex) >= MAX_TEXTURE_BUFFERS)
+            return;
+
+        if (!IsDX11CompatibilityAvailable() || !m_d2dContext)
+            return;
+
+        if (!m_d2dTextures[int(iIndex)])
+            return;
+
+        D2D1_SIZE_F bitmapSize = m_d2dTextures[int(iIndex)]->GetSize();
+
+        D2D1_RECT_F destRect = D2D1::RectF(
+            static_cast<float>(iX),
+            static_cast<float>(iY),
+            static_cast<float>(iX + iWidth),
+            static_cast<float>(iY + iHeight)
+        );
+
+        D2D1_RECT_F srcRect = D2D1::RectF(0.0f, 0.0f, bitmapSize.width, bitmapSize.height);
+
+        float clampedAlpha = std::clamp(alpha, 0.0f, 1.0f);
+        m_d2dContext->DrawBitmap(
+            m_d2dTextures[int(iIndex)].Get(),
+            destRect,
+            clampedAlpha,
+            D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,
+            srcRect
+        );
+    }
+    catch (const std::exception& e) {
+        std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
+        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"DX12Renderer: Exception in Blit2DObjectToSizeWithAlpha: %s", errorMsg.c_str());
+    }
+}
+
+//-----------------------------------------
 // Blit 2D Object at Offset (for sprite sheets)
 //-----------------------------------------
 void DX12Renderer::Blit2DObjectAtOffset(BlitObj2DIndexType iIndex, int iBlitX, int iBlitY, int iXOffset, int iYOffset, int iTileSizeX, int iTileSizeY) {
@@ -3639,35 +4144,7 @@ void DX12Renderer::Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 co
         // Check for resize state
         if (threadManager.threadVars.bIsResizing.load()) return;
 
-        // m_pixelBrush is a member reset in Resize()/Cleanup(), so it is always bound
-        // to the current D2D device — no cross-device aliasing risk (unlike a static local).
-        if (!m_pixelBrush)
-        {
-            HRESULT hr = m_d2dContext->CreateSolidColorBrush(
-                D2D1::ColorF(color.x, color.y, color.z, color.w),               // RGBA color
-                &m_pixelBrush                                                   // Output brush
-            );
-            if (FAILED(hr)) {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to create solid color brush for pixel.");
-                return;
-            }
-        }
-        else
-        {
-            // Update existing brush color
-            m_pixelBrush->SetColor(D2D1::ColorF(color.x, color.y, color.z, color.w));
-        }
-
-        // Define pixel rectangle
-        D2D1_RECT_F pixelRect = D2D1::RectF(
-            static_cast<FLOAT>(x),                                              // Left
-            static_cast<FLOAT>(y),                                              // Top
-            static_cast<FLOAT>(x) + pixelSize,                                  // Right (left + size)
-            static_cast<FLOAT>(y) + pixelSize                                   // Bottom (top + size)
-        );
-
-        // Fill the pixel rectangle
-        m_d2dContext->FillRectangle(&pixelRect, m_pixelBrush.Get());
+        Blit2DColoredPixelFast(x, y, pixelSize, color);
 
 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
         debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Colored pixel drawn successfully.");
@@ -3677,6 +4154,40 @@ void DX12Renderer::Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 co
         std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
         debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"DX12Renderer: Exception in Blit2DColoredPixel: %s", errorMsg.c_str());
     }
+}
+
+//-----------------------------------------
+// Draw Colored Pixel Fast for DirectX 12 FX Hot Paths
+//-----------------------------------------
+void DX12Renderer::Blit2DColoredPixelFast(int x, int y, float pixelSize, const XMFLOAT4& color)
+{
+    if (!m_d2dContext || pixelSize <= 0.0f)
+        return;
+
+    // FX starfield/fireworks can issue hundreds of tiny rectangles per frame.
+    // This fast path assumes the render frame already acquired the wrapped
+    // resource and opened BeginDraw(), avoiding repeated compatibility checks
+    // and exception frames inside the inner particle loops.
+    if (!m_pixelBrush)
+    {
+        HRESULT hr = m_d2dContext->CreateSolidColorBrush(
+            D2D1::ColorF(color.x, color.y, color.z, color.w),
+            &m_pixelBrush);
+        if (FAILED(hr))
+            return;
+    }
+    else
+    {
+        m_pixelBrush->SetColor(D2D1::ColorF(color.x, color.y, color.z, color.w));
+    }
+
+    D2D1_RECT_F pixelRect = D2D1::RectF(
+        static_cast<FLOAT>(x),
+        static_cast<FLOAT>(y),
+        static_cast<FLOAT>(x) + pixelSize,
+        static_cast<FLOAT>(y) + pixelSize);
+
+    m_d2dContext->FillRectangle(&pixelRect, m_pixelBrush.Get());
 }
 
 //-----------------------------------------
@@ -4933,7 +5444,9 @@ bool DX12Renderer::Resize(uint32_t width, uint32_t height)
             width,                                                              // New width
             height,                                                             // New height
             DXGI_FORMAT_R8G8B8A8_UNORM,                                         // Format
-            DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH                              // Allow mode switching
+            DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH |
+            DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT |               // Must match creation flags
+                (m_allowTearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0)       // Preserve low-latency VSync-off support
         );
 
         if (FAILED(hr)) {
@@ -5046,6 +5559,8 @@ bool DX12Renderer::Resize(uint32_t width, uint32_t height)
         if (m_d2dContext && m_dx11Dx12Compat.dx11On12Device) {
             if (!CreateD2DRenderTargets())
                 debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to recreate D2D render targets after resize.");
+            // Direct back-buffer D2D rendering matches DX11 and avoids the per-frame
+            // off-screen composite pass, so there are no off-screen targets to recreate.
         }
 
         // Update camera with new dimensions
@@ -5158,6 +5673,7 @@ bool DX12Renderer::SetFullScreen(void)
 
         // Resize to fullscreen dimensions
         Resize(fullscreenWidth, fullscreenHeight);
+        m_isExclusiveFullscreen = true;
 
         // Clear all flags
         bFullScreenTransition.store(false);
@@ -5301,12 +5817,46 @@ bool DX12Renderer::SetFullExclusive(uint32_t width, uint32_t height)
 
         m_isExclusiveFullscreen = true;
 
+        // Sync winMetrics from the confirmed fullscreen back-buffer dimensions so every
+        // subsystem (cameras, GUI, FX, loader thread) sees a coherent coordinate space.
+        winMetrics.x               = 0;
+        winMetrics.y               = 0;
+        winMetrics.width           = iOrigWidth;
+        winMetrics.height          = iOrigHeight;
+        winMetrics.clientWidth     = iOrigWidth;
+        winMetrics.clientHeight    = iOrigHeight;
+        winMetrics.borderWidth     = 0;
+        winMetrics.titleBarHeight  = 0;
+        winMetrics.monitorFullArea = { 0, 0, iOrigWidth, iOrigHeight };
+        winMetrics.monitorWorkArea = { 0, 0, iOrigWidth, iOrigHeight };
+
         // Clear all transition flags
         bFullScreenTransition.store(false);
         threadManager.threadVars.bSettingFullScreen.store(false);
 
 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
         debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Exclusive fullscreen mode set successfully at %dx%d", closestMode.Width, closestMode.Height);
+
+        // Fullscreen presentation diagnostics: verify window, swap-chain, and internal
+        // dimensions all agree.  A mismatch here causes the "only top-left quarter visible"
+        // symptom on DPI-scaled displays.
+        {
+            UINT   dpi        = GetDpiForWindow(hwnd);
+            RECT   windowRect = {}, clientRect = {};
+            GetWindowRect(hwnd, &windowRect);
+            GetClientRect(hwnd, &clientRect);
+            debug.logDebugMessage(LogLevel::LOG_DEBUG,
+                L"DX12Renderer: Fullscreen diag: DPI=%u  WindowRect=%dx%d  ClientRect=%dx%d  "
+                L"Config=%dx%d  Internal=%dx%d  ClosestMode=%dx%d",
+                dpi,
+                windowRect.right  - windowRect.left,
+                windowRect.bottom - windowRect.top,
+                clientRect.right  - clientRect.left,
+                clientRect.bottom - clientRect.top,
+                config.myConfig.resolutionWidth, config.myConfig.resolutionHeight,
+                m_renderTargetWidth, m_renderTargetHeight,
+                closestMode.Width, closestMode.Height);
+        }
 #endif
 
         return true;
@@ -5524,7 +6074,7 @@ bool DX12Renderer::UploadTextureData(int textureIndex, const void* textureData, 
             &uploadHeapProps,                                                   // Upload heap properties
             D3D12_HEAP_FLAG_NONE,                                               // No special heap flags
             &uploadBufferDesc,                                                  // Buffer description
-            D3D12_RESOURCE_STATE_GENERIC_READ,                                  // Initial state for upload heap
+            D3D12_RESOURCE_STATE_COMMON,                                        // Upload-heap buffers are always in COMMON
             nullptr,                                                            // No optimized clear value
             IID_PPV_ARGS(&uploadBuffer)                                         // Output upload buffer
         );

@@ -28,7 +28,7 @@
 #include "Debug.h"
 #include "ExceptionHandler.h"
 #include "Configuration.h"
-#include "VULKAN_FXManager.h"
+#include "FXManager.h"
 #include "GUIManager.h"
 #include "Models.h"
 #include "Lights.h"
@@ -59,7 +59,7 @@ extern Debug                 debug;
 extern ExceptionHandler      exceptionHandler;
 extern SceneManager          scene;
 extern ThreadManager         threadManager;
-extern VKFXManager           fxManager;
+extern FXManager           fxManager;
 extern Vector2               myMouseCoords;
 extern Model                 models[MAX_MODELS];
 extern LightsManager         lightsManager;
@@ -305,10 +305,11 @@ inline void VulkanRenderer::RenderIntroMovie()
     }
 
     // Spacebar: fade to black FIRST, then stop the movie once the screen is fully black.
+    // Only active in SCENE_INTRO_MOVIE — not the splash SCENE_INTRO.
     // m_movieSkipFrames == -1 → not skipping; >= 0 → frame counter since fade started.
     // FadeToBlack(1.0, 0.04) takes ~25 frames at 60fps to reach full black.
     // We wait 50 frames before stopping to ensure the fade visually completes.
-    if ((GetAsyncKeyState(' ') & 0x8000) && m_movieSkipFrames < 0)
+    if (scene.stSceneType == SceneType::SCENE_INTRO_MOVIE && (GetAsyncKeyState(' ') & 0x8000) && m_movieSkipFrames < 0)
     {
         fxManager.FadeToBlack(1.0f, 0.04f);
         m_movieSkipFrames = 0;
@@ -393,6 +394,23 @@ void VulkanRenderer::RenderFrame()
 
             myCamera.UpdateJumpAnimation();
 
+            #if defined(_DEBUG)
+                const bool bCollectTiming = (scene.stSceneType == SceneType::SCENE_GAMETITLE) && IsTimingCaptureActive();
+                const auto timingFrameStart = std::chrono::steady_clock::now();
+                auto timingPhaseStart = timingFrameStart;
+                Renderer::RenderTimingSample timingSample = {};
+                #if defined(PLATFORM_WINDOWS)
+                    timingSample.d2dAvailable = (m_d2dRenderTarget != nullptr);
+                #else
+                    timingSample.d2dAvailable = true;
+                #endif
+                timingSample.screenRecorderActive = screenRecorder.IsRecording();
+                auto timingMs = [](const std::chrono::steady_clock::time_point& start,
+                                   const std::chrono::steady_clock::time_point& end) -> double {
+                    return std::chrono::duration<double, std::milli>(end - start).count();
+                };
+            #endif
+
             // ---- Acquire swap chain image ----
             auto& fd = m_frames[m_currentFrame];
             {
@@ -408,6 +426,15 @@ void VulkanRenderer::RenderFrame()
 #endif
                 }
             }
+
+            #if defined(_DEBUG)
+                if (bCollectTiming)
+                {
+                    const auto timingAfterWait = std::chrono::steady_clock::now();
+                    timingSample.waitPreviousMs = timingMs(timingPhaseStart, timingAfterWait);
+                    timingPhaseStart = timingAfterWait;
+                }
+            #endif
 
             // Free descriptor sets deferred from the previous use of this frame slot
             if (!fd.pendingFreeSets.empty()) {
@@ -451,6 +478,15 @@ void VulkanRenderer::RenderFrame()
 
             VkCommandBufferBeginInfo bi{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
             vkBeginCommandBuffer(cmd, &bi);
+
+            #if defined(_DEBUG)
+                if (bCollectTiming)
+                {
+                    const auto timingAfterReset = std::chrono::steady_clock::now();
+                    timingSample.resetMs = timingMs(timingPhaseStart, timingAfterReset);
+                    timingPhaseStart = timingAfterReset;
+                }
+            #endif
 
             // ---- Upload 2D overlay (Windows: D2D, Linux/Android: CPU buffer) ----
             #if defined(PLATFORM_WINDOWS)
@@ -555,6 +591,17 @@ void VulkanRenderer::RenderFrame()
                         DrawMyText(osdMsg, Vector2(10.0f, 80.0f), MyColor(255, 220, 0, 255), 14.0f);
                     } else { bDebugOSDActive = false; }
                 }
+
+                #if defined(_DEBUG)
+                    if (bTimingOSDActive) {
+                        float timingOsdElapsed = std::chrono::duration<float>(
+                            std::chrono::steady_clock::now() - timingOSDStartTime).count();
+                        if (timingOsdElapsed < 5.0f)
+                            DrawMyText(timingOSDMessage, Vector2(10.0f, 104.0f), MyColor(255, 220, 0, 255), 14.0f);
+                        else
+                            bTimingOSDActive = false;
+                    }
+                #endif
 
                 // ── Renderer info overlay (bottom-right) ─────────────────────────────
                 // Mirrors DXRenderFrame.cpp: "CPGE Windows Vulkan v0.0.XXXX"
@@ -684,8 +731,11 @@ void VulkanRenderer::RenderFrame()
                         m_drawToBackground = false;
 
                         int startX = (iOrigWidth - 536) / 2; // Centered horizontally
-                        int startY = (iOrigHeight - 466) / 2; // Centered horizontally
-                        Blit2DObjectToSize(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
+                        int startY = (iOrigHeight - 466) / 2; // Centered vertically
+                        if (fxManager.IsImageFadeStrobeActive(BlitObj2DIndexType::IMG_TSOO))
+                            fxManager.RenderImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
+                        else
+                            Blit2DObjectToSize(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
 
                         m_bgD2dRenderTarget->EndDraw();
                         m_bgOverlayDirty = true;
@@ -732,6 +782,15 @@ void VulkanRenderer::RenderFrame()
             #if defined(PLATFORM_WINDOWS)
                 UploadOverlayToVulkan(cmd);
                 UploadBgOverlayToVulkan(cmd);
+            #endif
+
+            #if defined(_DEBUG)
+                if (bCollectTiming)
+                {
+                    const auto timingAfterOverlayUpload = std::chrono::steady_clock::now();
+                    timingSample.d2dOverlayMs = timingMs(timingPhaseStart, timingAfterOverlayUpload);
+                    timingPhaseStart = timingAfterOverlayUpload;
+                }
             #endif
 
             // ---- Begin render pass ----
@@ -876,6 +935,16 @@ void VulkanRenderer::RenderFrame()
             }
 #endif
 
+            #if defined(_DEBUG)
+                if (bCollectTiming)
+                {
+                    const auto timingAfterBackgroundPass = std::chrono::steady_clock::now();
+                    timingSample.backgroundPrePassMs = timingMs(timingPhaseStart, timingAfterBackgroundPass);
+                    timingSample.backgroundPrePass = true;
+                    timingPhaseStart = timingAfterBackgroundPass;
+                }
+            #endif
+
             // ---- 3D scene rendering (RenderGamePlay) ----
             // Rendered after the background GPU-texture blit and starfield overlay but BEFORE the
             // main D2D overlay composite, so the UI overlay (GUI, console, cursor, HUD) always
@@ -886,15 +955,24 @@ void VulkanRenderer::RenderFrame()
             switch (scene.stSceneType) {
                 case SceneType::SCENE_GAMETITLE:
                     if (threadManager.threadVars.bLoaderTaskFinished.load())
-                        scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS);
+                        scene.modelAnimator.UpdateAnimations(deltaTime);
                     RenderGamePlay(deltaTime);
                     break;
                 case SceneType::SCENE_GAMEPLAY:
-                    scene.gltfAnimator.UpdateAnimations(deltaTime, scene.scene_models, MAX_MODELS);
+                    scene.modelAnimator.UpdateAnimations(deltaTime);
                     RenderGamePlay(deltaTime);
                     break;
                 default: break;
             }
+
+            #if defined(_DEBUG)
+                if (bCollectTiming)
+                {
+                    const auto timingAfter3D = std::chrono::steady_clock::now();
+                    timingSample.commandRecordMs = timingMs(timingPhaseStart, timingAfter3D);
+                    timingPhaseStart = timingAfter3D;
+                }
+            #endif
 
             // ---- 2D overlay composite — drawn AFTER 3D models so UI is always in front ----
             // The D2D overlay (transparent canvas) carries: starfield dots, tunnel dots, FPS HUD,
@@ -953,6 +1031,15 @@ void VulkanRenderer::RenderFrame()
             vkCmdEndRenderPass(cmd);
             vkEndCommandBuffer(cmd);
 
+            #if defined(_DEBUG)
+                if (bCollectTiming)
+                {
+                    const auto timingAfterCommandRecord = std::chrono::steady_clock::now();
+                    timingSample.d2dOverlayMs += timingMs(timingPhaseStart, timingAfterCommandRecord);
+                    timingPhaseStart = timingAfterCommandRecord;
+                }
+            #endif
+
             // ---- Submit ----
             VkSemaphore          waitSems[]   = { fd.imageAvailable };
             VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
@@ -977,6 +1064,15 @@ void VulkanRenderer::RenderFrame()
                 std::lock_guard<std::mutex> qlock(m_queueMutex);
                 vkQueueSubmit(m_graphicsQueue, 1, &submit, fd.inFlightFence);
             }
+
+            #if defined(_DEBUG)
+                if (bCollectTiming)
+                {
+                    const auto timingAfterSubmit = std::chrono::steady_clock::now();
+                    timingSample.execute3DMs = timingMs(timingPhaseStart, timingAfterSubmit);
+                    timingPhaseStart = timingAfterSubmit;
+                }
+            #endif
 
 #if defined(PLATFORM_WINDOWS)
             // Screen recording: capture the swap chain image before handing it to the WSI.
@@ -1004,6 +1100,10 @@ void VulkanRenderer::RenderFrame()
 #endif
 
             VkResult presentResult = VK_SUCCESS;
+            #if defined(_DEBUG)
+                if (bCollectTiming)
+                    timingPhaseStart = std::chrono::steady_clock::now();
+            #endif
             {
                 std::lock_guard<std::mutex> qlock(m_queueMutex);
                 VkPresentInfoKHR present{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
@@ -1023,8 +1123,26 @@ void VulkanRenderer::RenderFrame()
                                       static_cast<uint32_t>(m_renderTargetHeight));
             }
 
+            #if defined(_DEBUG)
+                const auto timingAfterPresent = std::chrono::steady_clock::now();
+                if (bCollectTiming)
+                {
+                    timingSample.presentMs = timingMs(timingPhaseStart, timingAfterPresent);
+                    timingPhaseStart = timingAfterPresent;
+                }
+            #endif
+
             // Advance frame index
             m_currentFrame = (m_currentFrame + 1) % VK_MAX_FRAMES_IN_FLIGHT;
+            #if defined(_DEBUG)
+                if (bCollectTiming)
+                {
+                    const auto timingFrameEnd = std::chrono::steady_clock::now();
+                    timingSample.moveNextMs = timingMs(timingPhaseStart, timingFrameEnd);
+                    timingSample.totalMs = timingMs(timingFrameStart, timingFrameEnd);
+                    RecordTimingSample(timingSample);
+                }
+            #endif
             threadManager.threadVars.bIsRendering.store(false);
 
 #ifdef RENDERER_IS_THREAD

@@ -10,7 +10,7 @@
 #elif defined(__USE_VULKAN__)
     #include "VULKAN_Renderer.h"
 #endif
-#include "GLTFAnimator.h"
+#include "ModelAnimator.h"
 #include "BlenderImports.h"
 #include "FBXImport.h"
 
@@ -91,8 +91,8 @@ public:
 	bool bAnimationsLoaded = false;                                                  // Flag indicating if animations were loaded from current scene
 	bool bLoadedFromCache  = false;                                                  // Set true when cache fast-path was used; callers must NOT clear models[]
 
-	// Global animator instance
-	GLTFAnimator gltfAnimator;
+	// Universal animator -- dispatches to GLTFAnimator or FBXAnimator based on ImportType
+	ModelAnimator modelAnimator;
 
 	// Our Models Buffer, Resources & Data that will be rendered in A GIVEN scene.
 	Model scene_models[MAX_SCENE_MODELS];
@@ -108,13 +108,15 @@ public:
 	bool LoadCache(const std::string& filepath);
 	bool IsSketchfabScene() const;
 
-	bool ParseGLTFScene(const std::wstring& gltfFile);
-	bool ParseGLBScene(const std::wstring& glbFile);                                 // Parses GLB 2.0 binary format with parent-child relationships
-	bool ParseFBXScene(const std::wstring& fbxFile);                                 // Parses FBX 7.x binary or ASCII format (no Autodesk SDK)
+	bool ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly = false);
+	bool ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly = false);        // Parses GLB 2.0 binary format with parent-child relationships
+	bool ParseFBXScene(const std::wstring& fbxFile, bool bCacheOnly = false);        // Parses FBX 7.x binary or ASCII format (no Autodesk SDK)
 
 	// Detects file format from extension and binary magic, routes to the correct parser.
 	// Accepts .glb, .gltf, and .fbx files.
-	bool ParseSceneAutoDetect(const std::wstring& sceneFile);
+	// bCacheOnly = true: load models into models[] cache only; scene_models[] is NOT populated
+	// (used for dynamic scenes that are assembled at runtime via PutModelToScene).
+	bool ParseSceneAutoDetect(const std::wstring& sceneFile, bool bCacheOnly = false);
 
 	void SetGotoScene(SceneType gotoScene);
 	void InitiateScene();
@@ -124,6 +126,7 @@ public:
 	const std::wstring& GetLastDetectedExporter() const;
 	void UpdateSceneAnimations(float deltaTime);                                    // Updates all active animations in the scene
 	int FindParentModelID(const std::wstring& modelName);                           // Retrieves Model ID (Parent) from Model Name
+	int PutModelToScene(std::wstring name, XMFLOAT3 atWorldCoords, bool bIncChildren, bool bStartAnim);  // Injects a cached model (and optional primitive siblings) into the next free scene_models[] slot(s) at the given world position. Returns new parent scene ID, or -1 on failure.
 
 	// Jump to a named FBX camera parsed from the last ParseFBXScene() call.
 	// AnimateTowards=false: instant jump (position+orientation applied immediately).
