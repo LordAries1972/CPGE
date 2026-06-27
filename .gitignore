@@ -6,6 +6,7 @@
 /.vs
 /x64/Release
 *.bak
+*.ipch
 *.exe
 *.ilk
 *.tlog
