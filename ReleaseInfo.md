@@ -55,7 +55,7 @@ lets make this Engine great!
 #### 2026
 
 - [June 2026](#june-2026---opengl-pipeline-fixes)
-  - [01](#june-01-2026) · [02](#june-02-2026) · [03](#june-03-2026) · [04](#june-04-2026) · [05](#june-05-2026) · [06](#june-06-2026) · [07](#june-07-2026) · [08](#june-08-2026) · [11](#june-11-2026) · [12](#june-12-2026) · [13](#june-13-2026) · [14](#june-14-2026) · [15](#june-15-2026) · [16](#june-16-2026) · [17](#june-17-2026) · [18](#june-18-2026) · [21](#june-21-2026) · [23](#june-23-2026) · [24](#june-24-2026) · [25](#june-25-2026)
+  - [01](#june-01-2026) · [02](#june-02-2026) · [03](#june-03-2026) · [04](#june-04-2026) · [05](#june-05-2026) · [06](#june-06-2026) · [07](#june-07-2026) · [08](#june-08-2026) · [11](#june-11-2026) · [12](#june-12-2026) · [13](#june-13-2026) · [14](#june-14-2026) · [15](#june-15-2026) · [16](#june-16-2026) · [17](#june-17-2026) · [18](#june-18-2026) · [21](#june-21-2026) · [23](#june-23-2026) · [24](#june-24-2026) · [25](#june-25-2026) · [27](#june-27-2026)
 - [May 2026](#may-2026---more-major-updates-and-fixes)
   - [02](#may-02-2026) · [03-04](#may-03-04-2026) · [06](#may-06-2026) · [08](#may-08-2026) · [10](#may-10-2026) · [11](#may-11-2026) · [14](#may-14-2026) · [15](#may-15-2026) · [16](#may-16-2026) · [17](#may-17-2026) · [18](#may-18-2026) · [19](#may-19-2026) · [20](#may-20-2026) · [21](#may-21-2026) · [22](#may-22-2026) · [23](#may-23-2026) · [24](#may-24-2026) · [28](#may-28-2026) · [29](#may-29-2026) · [30](#may-30-2026) · [31](#may-31-2026)
 - [April 2026](#april-2026---bug-fixes-and-updates)
@@ -4016,6 +4016,13 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
   Pressing ESC at the title/menu screen previously executed a direct fade-to-black → `StopMusicPlayback()` → `PostQuitMessage(0)` shutdown sequence with no opportunity to cancel. Replaced by a modal "CONFIRM EXIT" dialog (`CreateQuitConfirmDialog()`): 520×140px centred window using `IMG_WINFRAME1` background, "CONFIRM EXIT" title bar, "You are about to Quit the Game." message, and two buttons. **OK** (near-right): `FadeOutThenCallback` → `StopMusicPlayback` → `bIsShuttingDown` → `PostMessage(hwnd, WM_CLOSE)`. **CANCEL** (far-right): `RemoveWindow` only. `KBHandlersCode.cpp` ESC handler in `SCENE_GAMETITLE` now checks for an existing `QuitConfirmDialog` window (second ESC press dismisses it as a cancel), then checks for GamePlayTypes/Difficulty sub-windows (existing back-navigation behaviour), then calls `CreateQuitConfirmDialog()` as the terminal action. `QUIT_CONFIRM_WINDOW_NAME = "QuitConfirmDialog"` constant added to `GUIWindows.cpp`; `extern` declaration added to `main.cpp`.
 - *See: [`GUIManager.h`](GUIManager.h), [`GUIWindows.cpp`](GUIWindows.cpp), [`KBHandlersCode.cpp`](KBHandlersCode.cpp), [`main.cpp`](main.cpp)*
 
+#### June 27, 2026
+
+Engine merge from TSOO (engine-level changes only; PROJECT_ONLY_CODE blocks excluded):
+- **CMakeLists.txt**: Added METAL renderer support (`elseif(RENDERER STREQUAL "METAL")` block + updated renderer comment and cache string). Updated macOS/iOS platform comments to reflect METAL. Added MSVC `VS_DEBUGGER_WORKING_DIRECTORY` block so VS debugger finds Assets/Shaders at project root without manual configuration.
+- **Includes.h**: Expanded `PROJECT_ONLY_CODE` comment block to match TSOO's more detailed documentation (no code changes).
+- **KBHandlersCode.cpp**: Removed redundant renderer-conditional `#include "FXManager.h"` triple-block (all three branches were identical). Removed redundant renderer-conditional `extern FXManager fxManager;` triple-block. Updated `KEY_BACKSPACE` handler to call `guiManager.HandleBackspace()` unconditionally (removed `consoleWindow.bIsVisible` guard). Added new `KEY_DELETE` case calling `guiManager.HandleDelete()`.
+- **main.cpp**: Removed redundant renderer-conditional `FXManager fxManager;` triple-block (all three branches were identical); replaced with a single direct instantiation.
 ---
 
 ## Future Development
@@ -4072,13 +4079,6 @@ Optimization:
 Sub-Systems Extending:
 - Some System Classes need more work to suit other platforms.
 
-#### June 27, 2025
-
-Engine merge from TSOO (engine-level changes only; PROJECT_ONLY_CODE blocks excluded):
-- **CMakeLists.txt**: Added METAL renderer support (`elseif(RENDERER STREQUAL "METAL")` block + updated renderer comment and cache string). Updated macOS/iOS platform comments to reflect METAL. Added MSVC `VS_DEBUGGER_WORKING_DIRECTORY` block so VS debugger finds Assets/Shaders at project root without manual configuration.
-- **Includes.h**: Expanded `PROJECT_ONLY_CODE` comment block to match TSOO's more detailed documentation (no code changes).
-- **KBHandlersCode.cpp**: Removed redundant renderer-conditional `#include "FXManager.h"` triple-block (all three branches were identical). Removed redundant renderer-conditional `extern FXManager fxManager;` triple-block. Updated `KEY_BACKSPACE` handler to call `guiManager.HandleBackspace()` unconditionally (removed `consoleWindow.bIsVisible` guard). Added new `KEY_DELETE` case calling `guiManager.HandleDelete()`.
-- **main.cpp**: Removed redundant renderer-conditional `FXManager fxManager;` triple-block (all three branches were identical); replaced with a single direct instantiation.
 ---
 
 ## Technical Requirements
