@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.1.1894*
+*Current Build Version: v0.1.1896*
 
 ---
 
@@ -4012,6 +4012,10 @@ Vulkan model rendering confirmed; Vulkan renderer parity pass: Texture GPU uploa
   **(1) Title bar:** both the centred and left-aligned label paths now compute `captionY` from `position.y + size.y − (captionH + captionH * 0.5f)` (where `captionH = lblFontSize * 1.25f`), so captions sit at a consistent height regardless of alignment. The centred variant now measures character widths via `GetCharacterWidth()` and calls `DrawMyText` rather than `DrawMyTextCentered`, matching the left-aligned path precisely. **(2) Toggle track:** alpha changed from 228–250 to 255 (fully opaque) on both ON and OFF states to eliminate circular antialiased-cap blending bands; colours updated to `(34,172,56,255)`/`(24,138,42,255)` (ON green) and `(78,80,88,255)`/`(54,56,64,255)` (OFF grey). **(3) Toggle knob:** ON fill changed from pure white to `(202,230,206,255)` (green-tinted); dual-layer soft highlight (offset upper-left and lower-right circles) replaces the single centred arc; outer ring bevel simplified — shadow `ringSh` circle removed, single `ringHi` circle retained.
 - *See: [`GUIManager.cpp`](GUIManager.cpp)*
 
+- **GUI — ESC in SCENE_GAMETITLE now shows a quit-confirmation modal instead of immediate shutdown** (`GUIManager.h`, `GUIWindows.cpp`, `KBHandlersCode.cpp`, `main.cpp`):
+  Pressing ESC at the title/menu screen previously executed a direct fade-to-black → `StopMusicPlayback()` → `PostQuitMessage(0)` shutdown sequence with no opportunity to cancel. Replaced by a modal "CONFIRM EXIT" dialog (`CreateQuitConfirmDialog()`): 520×140px centred window using `IMG_WINFRAME1` background, "CONFIRM EXIT" title bar, "You are about to Quit the Game." message, and two buttons. **OK** (near-right): `FadeOutThenCallback` → `StopMusicPlayback` → `bIsShuttingDown` → `PostMessage(hwnd, WM_CLOSE)`. **CANCEL** (far-right): `RemoveWindow` only. `KBHandlersCode.cpp` ESC handler in `SCENE_GAMETITLE` now checks for an existing `QuitConfirmDialog` window (second ESC press dismisses it as a cancel), then checks for GamePlayTypes/Difficulty sub-windows (existing back-navigation behaviour), then calls `CreateQuitConfirmDialog()` as the terminal action. `QUIT_CONFIRM_WINDOW_NAME = "QuitConfirmDialog"` constant added to `GUIWindows.cpp`; `extern` declaration added to `main.cpp`.
+- *See: [`GUIManager.h`](GUIManager.h), [`GUIWindows.cpp`](GUIWindows.cpp), [`KBHandlersCode.cpp`](KBHandlersCode.cpp), [`main.cpp`](main.cpp)*
+
 ---
 
 ## Future Development
@@ -4067,6 +4071,14 @@ Optimization:
 
 Sub-Systems Extending:
 - Some System Classes need more work to suit other platforms.
+
+#### June 27, 2025
+
+Engine merge from TSOO (engine-level changes only; PROJECT_ONLY_CODE blocks excluded):
+- **CMakeLists.txt**: Added METAL renderer support (`elseif(RENDERER STREQUAL "METAL")` block + updated renderer comment and cache string). Updated macOS/iOS platform comments to reflect METAL. Added MSVC `VS_DEBUGGER_WORKING_DIRECTORY` block so VS debugger finds Assets/Shaders at project root without manual configuration.
+- **Includes.h**: Expanded `PROJECT_ONLY_CODE` comment block to match TSOO's more detailed documentation (no code changes).
+- **KBHandlersCode.cpp**: Removed redundant renderer-conditional `#include "FXManager.h"` triple-block (all three branches were identical). Removed redundant renderer-conditional `extern FXManager fxManager;` triple-block. Updated `KEY_BACKSPACE` handler to call `guiManager.HandleBackspace()` unconditionally (removed `consoleWindow.bIsVisible` guard). Added new `KEY_DELETE` case calling `guiManager.HandleDelete()`.
+- **main.cpp**: Removed redundant renderer-conditional `FXManager fxManager;` triple-block (all three branches were identical); replaced with a single direct instantiation.
 ---
 
 ## Technical Requirements

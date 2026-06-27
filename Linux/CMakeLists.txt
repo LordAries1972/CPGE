@@ -336,3 +336,4 @@ add_custom_command(TARGET CrossPlatformGameEngine PRE_BUILD
         -P "${SRC_DIR}/cmake/IncrementVersion.cmake"
     COMMENT "Incrementing build version"
 )
+

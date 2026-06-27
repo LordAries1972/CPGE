@@ -11,11 +11,13 @@
 #include "Includes.h"
 #include "MathPrecalculation.h"
 #include "MoviePlayer.h"
+
 #if defined(__USE_DIRECTX_11__)
     #include "DX11Renderer.h"
 #elif defined(__USE_DIRECTX_12__)
     #include "DX12Renderer.h"
 #endif
+
 #include <mfapi.h>
 #include <mfidl.h>
 #include <mfreadwrite.h>
@@ -86,9 +88,9 @@ bool MoviePlayer::IsPaused() const
 // ----------------------------------------------------------------------------------------------
 bool MoviePlayer::Initialize(std::shared_ptr<Renderer> rendererPtr, ThreadManager* threadManager, float fps, bool enableAudio)
 {
-#if defined(_DEBUG_MOVIEPLAYER_)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"Initializing MoviePlayer with ThreadManager");
-#endif
+    #if defined(_DEBUG_MOVIEPLAYER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"Initializing MoviePlayer with ThreadManager");
+    #endif
 
     m_targetFPS   = (fps > 0.0f) ? fps : 30.0f;
     m_enableAudio = enableAudio;
@@ -164,9 +166,9 @@ bool MoviePlayer::InitializeMF()
         pAttributes->Release();
     }
 
-#if defined(_DEBUG_MOVIEPLAYER_)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"Media Foundation initialized successfully");
-#endif
+    #if defined(_DEBUG_MOVIEPLAYER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"Media Foundation initialized successfully");
+    #endif
 
     return true;
 }
@@ -175,9 +177,9 @@ bool MoviePlayer::OpenMovie(const std::wstring& filePath)
 {
     if (!m_renderer || !m_isInitialized.load())
     {
-#if defined(_DEBUG_MOVIEPLAYER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Movie player not initialized properly");
-#endif
+        #if defined(_DEBUG_MOVIEPLAYER_)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Movie player not initialized properly");
+        #endif
         return false;
     }
 
@@ -216,30 +218,30 @@ bool MoviePlayer::OpenMovie(const std::wstring& filePath)
         // DX11: both UpdateVideoTexture() and Render() hold GetRenderMutex() while they
         // access m_videoTexture.  Acquire it here so we cannot free the texture while
         // either of those is mid-flight on the render thread.
-#if defined(__USE_DIRECTX_11__)
-        {
-            std::lock_guard<std::mutex> renderLock(DX11Renderer::GetRenderMutex());
+        #if defined(__USE_DIRECTX_11__)
+            {
+                std::lock_guard<std::mutex> renderLock(DX11Renderer::GetRenderMutex());
+                m_videoTextureView.Reset();
+                m_videoTexture.Reset();
+                m_videoRenderTexture.Reset();
+            }
+        #elif defined(__USE_DIRECTX_12__)
+            // DX12 Render() relies on D2D1_FACTORY_TYPE_MULTI_THREADED to serialise D2D calls;
+            // m_isPlaying = false above ensures no new blit is started after this point.
+            if (m_videoTextureIndex >= 0 && m_renderer)
+            {
+                auto dx12Renderer = std::dynamic_pointer_cast<DX12Renderer>(m_renderer);
+                if (dx12Renderer) dx12Renderer->ReleaseVideoD2DTexture(m_videoTextureIndex);
+            }
             m_videoTextureView.Reset();
             m_videoTexture.Reset();
             m_videoRenderTexture.Reset();
-        }
-#elif defined(__USE_DIRECTX_12__)
-        // DX12 Render() relies on D2D1_FACTORY_TYPE_MULTI_THREADED to serialise D2D calls;
-        // m_isPlaying = false above ensures no new blit is started after this point.
-        if (m_videoTextureIndex >= 0 && m_renderer)
-        {
-            auto dx12Renderer = std::dynamic_pointer_cast<DX12Renderer>(m_renderer);
-            if (dx12Renderer) dx12Renderer->ReleaseVideoD2DTexture(m_videoTextureIndex);
-        }
-        m_videoTextureView.Reset();
-        m_videoTexture.Reset();
-        m_videoRenderTexture.Reset();
-#else
-        // OpenGL / Vulkan: no D3D textures — CPU buffer is cleared below
-        m_videoTextureView.Reset();
-        m_videoTexture.Reset();
-        m_videoRenderTexture.Reset();
-#endif
+        #else
+            // OpenGL / Vulkan: no D3D textures — CPU buffer is cleared below
+            m_videoTextureView.Reset();
+            m_videoTexture.Reset();
+            m_videoRenderTexture.Reset();
+        #endif
         m_videoTextureIndex = -1;
 
         // Reset per-file state
@@ -261,35 +263,35 @@ bool MoviePlayer::OpenMovie(const std::wstring& filePath)
     } // teardownLock released — UpdateFrame() may now safely see all-null state
 
     // Enable D3D11 multithreaded protection
-#if defined(__USE_DIRECTX_11__)
-    {
-        auto dx11Renderer = std::dynamic_pointer_cast<DX11Renderer>(m_renderer);
-        if (dx11Renderer && dx11Renderer->m_d3dDevice)
+    #if defined(__USE_DIRECTX_11__)
         {
-            ComPtr<ID3D10Multithread> pMultithread;
-            HRESULT hr = dx11Renderer->m_d3dDevice.As(&pMultithread);
-            if (SUCCEEDED(hr) && pMultithread)
+            auto dx11Renderer = std::dynamic_pointer_cast<DX11Renderer>(m_renderer);
+            if (dx11Renderer && dx11Renderer->m_d3dDevice)
             {
-                pMultithread->SetMultithreadProtected(TRUE);
-                debug.logLevelMessage(LogLevel::LOG_INFO, L"D3D11 multithreaded protection enabled");
+                ComPtr<ID3D10Multithread> pMultithread;
+                HRESULT hr = dx11Renderer->m_d3dDevice.As(&pMultithread);
+                if (SUCCEEDED(hr) && pMultithread)
+                {
+                    pMultithread->SetMultithreadProtected(TRUE);
+                    debug.logLevelMessage(LogLevel::LOG_INFO, L"D3D11 multithreaded protection enabled");
+                }
             }
         }
-    }
-#endif
+    #endif
 
     // Detect video codec
     std::wstring codecName;
     bool isHevcContent = false;
     if (DetectVideoCodec(filePath, codecName)) {
-#if defined(_DEBUG_MOVIEPLAYER_)
-        debug.logLevelMessage(LogLevel::LOG_INFO, L"Detected video codec: " + codecName);
-#endif
+    #if defined(_DEBUG_MOVIEPLAYER_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"Detected video codec: " + codecName);
+    #endif
 
         // Check for HEVC codec and log special message
         if (codecName.find(L"HEVC") != std::wstring::npos) {
-#if defined(_DEBUG_MOVIEPLAYER_)
-            debug.logLevelMessage(LogLevel::LOG_INFO, L"HEVC (H.265) codec detected - enabling enhanced processing");
-#endif
+        #if defined(_DEBUG_MOVIEPLAYER_)
+                    debug.logLevelMessage(LogLevel::LOG_INFO, L"HEVC (H.265) codec detected - enabling enhanced processing");
+        #endif
             isHevcContent = true;
         }
     }
@@ -304,11 +306,11 @@ bool MoviePlayer::OpenMovie(const std::wstring& filePath)
         isMkvFile = (fileExt == L".mkv");
     }
 
-#if defined(_DEBUG_MOVIEPLAYER_)
-    if (isMkvFile) {
-        debug.logLevelMessage(LogLevel::LOG_INFO, L"MKV file detected, enabling enhanced decoder options");
-    }
-#endif
+    #if defined(_DEBUG_MOVIEPLAYER_)
+        if (isMkvFile) {
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"MKV file detected, enabling enhanced decoder options");
+        }
+    #endif
 
     // Ensure the path is a valid URL
     std::wstring urlPath = filePath;
@@ -375,33 +377,33 @@ bool MoviePlayer::OpenMovie(const std::wstring& filePath)
     }
 
     // Set up D3D device manager for hardware acceleration with thread safety
-#if defined(__USE_DIRECTX_11__)
-    {
-        auto dx11Renderer = std::dynamic_pointer_cast<DX11Renderer>(m_renderer);
-        if (dx11Renderer && dx11Renderer->m_d3dDevice)
+    #if defined(__USE_DIRECTX_11__)
         {
-            std::lock_guard<std::mutex> renderLock(DX11Renderer::GetRenderMutex());
-
-            IMFDXGIDeviceManager* pDeviceManager = nullptr;
-            UINT resetToken = 0;
-            hr = MFCreateDXGIDeviceManager(&resetToken, &pDeviceManager);
-            if (SUCCEEDED(hr))
+            auto dx11Renderer = std::dynamic_pointer_cast<DX11Renderer>(m_renderer);
+            if (dx11Renderer && dx11Renderer->m_d3dDevice)
             {
-                hr = pDeviceManager->ResetDevice(dx11Renderer->m_d3dDevice.Get(), resetToken);
+                std::lock_guard<std::mutex> renderLock(DX11Renderer::GetRenderMutex());
+
+                IMFDXGIDeviceManager* pDeviceManager = nullptr;
+                UINT resetToken = 0;
+                hr = MFCreateDXGIDeviceManager(&resetToken, &pDeviceManager);
                 if (SUCCEEDED(hr))
                 {
-                    hr = pAttributes->SetUnknown(MF_SOURCE_READER_D3D_MANAGER, pDeviceManager);
+                    hr = pDeviceManager->ResetDevice(dx11Renderer->m_d3dDevice.Get(), resetToken);
                     if (SUCCEEDED(hr))
                     {
-                        debug.logLevelMessage(LogLevel::LOG_INFO, L"Successfully set D3D manager for hardware decoding");
+                        hr = pAttributes->SetUnknown(MF_SOURCE_READER_D3D_MANAGER, pDeviceManager);
+                        if (SUCCEEDED(hr))
+                        {
+                            debug.logLevelMessage(LogLevel::LOG_INFO, L"Successfully set D3D manager for hardware decoding");
+                        }
                     }
-                }
 
-                pDeviceManager->Release();
+                    pDeviceManager->Release();
+                }
             }
         }
-    }
-#endif
+    #endif
 
     // Create the source reader from URL with our enhanced attributes
     hr = MFCreateSourceReaderFromURL(urlPath.c_str(), pAttributes, &m_pSourceReader);
@@ -1093,17 +1095,17 @@ bool MoviePlayer::UpdateVideoTexture()
                 // Process each pixel in the current row
                 for (UINT x = 0; x < m_videoWidth; x++)
                 {
-                    // Create a pattern that changes with time
-                    BYTE shade = static_cast<BYTE>(((x / 32 + y / 32 + frameCounter) % 4) * 64);
+                    // >>5 replaces /32 (32=2^5); <<6 replaces *64 (64=2^6); <<2 replaces *4
+                    BYTE shade = static_cast<BYTE>((((x >> 5) + (y >> 5) + frameCounter) % 4) << 6);
                     BYTE r = static_cast<BYTE>(64 + ((x * 190) / m_videoWidth));
                     BYTE g = static_cast<BYTE>(64 + ((y * 190) / m_videoHeight));
                     BYTE b = static_cast<BYTE>(64 + shade);
 
-                    // Write pixel data to destination in BGRA format
-                    pDstRow[x * 4 + 0] = b;      // Blue component
-                    pDstRow[x * 4 + 1] = g;      // Green component
-                    pDstRow[x * 4 + 2] = r;      // Red component
-                    pDstRow[x * 4 + 3] = 255;    // Alpha component (fully opaque)
+                    BYTE* pPixel = pDstRow + (x << 2);
+                    pPixel[0] = b;
+                    pPixel[1] = g;
+                    pPixel[2] = r;
+                    pPixel[3] = 255;
                 }
             }
 
@@ -1184,54 +1186,40 @@ bool MoviePlayer::UpdateVideoTexture()
                 // Likely NV12 format (1.5 bytes per pixel)
                 debug.logLevelMessage(LogLevel::LOG_INFO, L"Processing HEVC as NV12 format");
 
-                // NV12 is a planar format with a Y plane followed by interleaved U and V planes
-                UINT yPitch = m_videoWidth;                          // Y plane pitch is typically the width
-                UINT uvPitch = m_videoWidth;                         // UV plane pitch is also typically the width
-                UINT ySize = yPitch * m_videoHeight;                 // Y plane size in bytes
+                // NV12: Y plane then interleaved UV plane (4:2:0 chroma subsampling)
+                const UINT  yPitch   = m_videoWidth;
+                const UINT  ySize    = yPitch * m_videoHeight;
+                const BYTE* yPlane   = pSrcData;
+                const BYTE* uvPlane  = pSrcData + ySize;
+                const UINT  uvBufSz  = (currentLength > ySize) ? (currentLength - ySize) : 0u;
 
-                // Y plane followed by interleaved UV plane
-                BYTE* yPlane = pSrcData;
-                BYTE* uvPlane = pSrcData + ySize;
-
-                // Convert NV12 to BGRA format
                 for (UINT y = 0; y < m_videoHeight; y++)
                 {
-                    // Calculate pointer to the current row in destination texture
-                    BYTE* pDstRow = pDstData + y * mappedResource.RowPitch;
+                    BYTE*        pDstRow = pDstData + y * mappedResource.RowPitch;
+                    const BYTE*  pYRow   = yPlane  + y * yPitch;
+                    // y>>1 replaces y/2 (UV is vertically subsampled by 2)
+                    const BYTE*  pUVRow  = uvPlane + (y >> 1) * yPitch;
 
-                    // Process each pixel in the current row
                     for (UINT x = 0; x < m_videoWidth; x++)
                     {
-                        // Get Y value for this pixel
-                        UINT yIndex = y * yPitch + x;
-                        int yValue = yPlane[yIndex];
-
-                        // Get U and V values (subsampled by 2 in both dimensions)
-                        UINT uvIndex = (y / 2) * uvPitch + (x / 2) * 2;
-                        int uValue = 128;                            // Default if out of bounds
-                        int vValue = 128;                            // Default if out of bounds
-
-                        // Check bounds before accessing UV plane data
-                        if (uvIndex + 1 < (currentLength - ySize))
+                        // (x>>1)<<1 aligns to even UV interleave offset; replaces (x/2)*2
+                        const UINT uvOff = (x >> 1) << 1;
+                        uint8_t uVal = 128, vVal = 128;
+                        if (uvOff + 1 < uvBufSz)
                         {
-                            uValue = uvPlane[uvIndex];
-                            vValue = uvPlane[uvIndex + 1];
+                            uVal = pUVRow[uvOff];
+                            vVal = pUVRow[uvOff + 1];
                         }
 
-                        // Convert YUV to RGB using fast math precalculation
                         uint8_t r, g, b;
-                        FAST_MATH.FastYuvToRgb(static_cast<uint8_t>(yValue), static_cast<uint8_t>(uValue), static_cast<uint8_t>(vValue), r, g, b);
+                        FAST_MATH.FastYuvToRgb(pYRow[x], uVal, vVal, r, g, b);
 
-                        // Clamp values to 0-255 range for safety
-                        r = (r < 0) ? 0 : ((r > 255) ? 255 : r);
-                        g = (g < 0) ? 0 : ((g > 255) ? 255 : g);
-                        b = (b < 0) ? 0 : ((b > 255) ? 255 : b);
-
-                        // Write pixel data to destination in BGRA format
-                        pDstRow[x * 4 + 0] = static_cast<BYTE>(b);   // Blue component
-                        pDstRow[x * 4 + 1] = static_cast<BYTE>(g);   // Green component
-                        pDstRow[x * 4 + 2] = static_cast<BYTE>(r);   // Red component
-                        pDstRow[x * 4 + 3] = 255;                    // Alpha component (fully opaque)
+                        // x<<2 replaces x*4 (4 bytes per BGRA pixel)
+                        BYTE* pPixel    = pDstRow + (x << 2);
+                        pPixel[0] = b;
+                        pPixel[1] = g;
+                        pPixel[2] = r;
+                        pPixel[3] = 255;
                     }
                 }
             }
@@ -1264,69 +1252,37 @@ bool MoviePlayer::UpdateVideoTexture()
                 // Likely YUY2 format (2 bytes per pixel)
                 debug.logLevelMessage(LogLevel::LOG_INFO, L"Processing HEVC as YUY2 format");
 
-                // Process YUY2 format in pairs of pixels (macropixels)
+                // YUY2: packed macropixel pairs — Y0 U0 Y1 V0 per two pixels.
+                // Source row stride is m_videoWidth*2 bytes (<<1 replaces *2).
                 for (UINT y = 0; y < m_videoHeight; y++)
                 {
-                    // Calculate pointers to source and destination rows
-                    BYTE* pDstRow = pDstData + y * mappedResource.RowPitch;
-                    BYTE* pSrcRow = pSrcData + y * m_videoWidth * 2;
+                    BYTE*        pDstRow = pDstData + y * mappedResource.RowPitch;
+                    const BYTE*  pSrcRow = pSrcData + y * (m_videoWidth << 1);
 
-                    // Process pixels in pairs for YUY2 format
                     for (UINT x = 0; x < m_videoWidth; x += 2)
                     {
-                        // YUY2 format: Y0, U0, Y1, V0 for each macropixel
-                        BYTE y0 = pSrcRow[x * 2];
-                        BYTE u0 = pSrcRow[x * 2 + 1];
-                        BYTE y1 = 0;
-                        BYTE v0 = 0;
+                        // x<<1 replaces x*2 for the source macropixel offset
+                        const UINT  srcOff = x << 1;
+                        const BYTE  y0 = pSrcRow[srcOff];
+                        const BYTE  u0 = pSrcRow[srcOff + 1];
+                        const bool  hasPair = (x + 1 < m_videoWidth);
+                        const BYTE  y1 = hasPair ? pSrcRow[srcOff + 2] : y0;
+                        const BYTE  v0 = hasPair ? pSrcRow[srcOff + 3] : BYTE(128);
 
-                        // Check if we have the full YUY2 macropixel
-                        if (x + 1 < m_videoWidth)
+                        uint8_t r0, g0, b0;
+                        FAST_MATH.FastYuvToRgb(y0, u0, v0, r0, g0, b0);
+
+                        // x<<2 replaces x*4 (4 bytes per BGRA pixel)
+                        BYTE* pPix0 = pDstRow + (x << 2);
+                        pPix0[0] = b0; pPix0[1] = g0; pPix0[2] = r0; pPix0[3] = 255;
+
+                        if (hasPair)
                         {
-                            y1 = pSrcRow[x * 2 + 2];
-                            v0 = pSrcRow[x * 2 + 3];
-                        }
-                        else
-                        {
-                            // Use defaults for edge case
-                            y1 = y0;
-                            v0 = 128;
-                        }
+                            uint8_t r1, g1, b1;
+                            FAST_MATH.FastYuvToRgb(y1, u0, v0, r1, g1, b1);
 
-                        // Convert and write first pixel using YUV to RGB conversion
-                        int r0 = static_cast<int>(y0 + 1.402f * (v0 - 128));
-                        int g0 = static_cast<int>(y0 - 0.344f * (u0 - 128) - 0.714f * (v0 - 128));
-                        int b0 = static_cast<int>(y0 + 1.772f * (u0 - 128));
-
-                        // Clamp values to valid 0-255 range
-                        r0 = (r0 < 0) ? 0 : ((r0 > 255) ? 255 : r0);
-                        g0 = (g0 < 0) ? 0 : ((g0 > 255) ? 255 : g0);
-                        b0 = (b0 < 0) ? 0 : ((b0 > 255) ? 255 : b0);
-
-                        // Write first pixel to destination texture
-                        pDstRow[x * 4 + 0] = static_cast<BYTE>(b0);  // Blue component
-                        pDstRow[x * 4 + 1] = static_cast<BYTE>(g0);  // Green component
-                        pDstRow[x * 4 + 2] = static_cast<BYTE>(r0);  // Red component
-                        pDstRow[x * 4 + 3] = 255;                    // Alpha component
-
-                        // Convert and write second pixel if it exists
-                        if (x + 1 < m_videoWidth)
-                        {
-                            // Convert second pixel using same U and V values
-                            int r1 = static_cast<int>(y1 + 1.402f * (v0 - 128));
-                            int g1 = static_cast<int>(y1 - 0.344f * (u0 - 128) - 0.714f * (v0 - 128));
-                            int b1 = static_cast<int>(y1 + 1.772f * (u0 - 128));
-
-                            // Clamp values to valid 0-255 range
-                            r1 = (r1 < 0) ? 0 : ((r1 > 255) ? 255 : r1);
-                            g1 = (g1 < 0) ? 0 : ((g1 > 255) ? 255 : g1);
-                            b1 = (b1 < 0) ? 0 : ((b1 > 255) ? 255 : b1);
-
-                            // Write second pixel to destination texture
-                            pDstRow[(x + 1) * 4 + 0] = static_cast<BYTE>(b1);  // Blue component
-                            pDstRow[(x + 1) * 4 + 1] = static_cast<BYTE>(g1);  // Green component
-                            pDstRow[(x + 1) * 4 + 2] = static_cast<BYTE>(r1);  // Red component
-                            pDstRow[(x + 1) * 4 + 3] = 255;                    // Alpha component
+                            BYTE* pPix1 = pDstRow + ((x + 1) << 2);
+                            pPix1[0] = b1; pPix1[1] = g1; pPix1[2] = r1; pPix1[3] = 255;
                         }
                     }
                 }
@@ -1403,49 +1359,33 @@ bool MoviePlayer::UpdateVideoTexture()
     }
     else if (videoFormat == MFVideoFormat_NV12)
     {
-        // For NV12 format conversion to BGRA
-        // NV12 is a planar format with a Y plane followed by interleaved U and V planes
-        UINT yPitch = m_videoWidth;                              // Y plane pitch is typically the width
-        UINT uvPitch = m_videoWidth;                             // UV plane pitch is also typically the width
-        UINT ySize = yPitch * m_videoHeight;                     // Y plane size in bytes
+        // NV12: Y plane (m_videoWidth * m_videoHeight bytes) followed by
+        // interleaved UV plane (m_videoWidth * m_videoHeight/2 bytes).
+        const UINT yPitch  = m_videoWidth;
+        const UINT ySize   = yPitch * m_videoHeight;
+        const BYTE* yPlane  = pSrcData;
+        const BYTE* uvPlane = pSrcData + ySize;
 
-        // Y plane followed by interleaved UV plane
-        BYTE* yPlane = pSrcData;
-        BYTE* uvPlane = pSrcData + ySize;
-
-        // Convert NV12 to BGRA format
         for (UINT y = 0; y < m_videoHeight; y++)
         {
-            // Calculate pointer to the current row in destination texture
-            BYTE* pDstRow = pDstData + y * mappedResource.RowPitch;
+            BYTE*        pDstRow = pDstData + y * mappedResource.RowPitch;
+            const BYTE*  pYRow   = yPlane  + y * yPitch;
+            // UV row is subsampled by 2 vertically; bit-shift replaces /2
+            const BYTE*  pUVRow  = uvPlane + (y >> 1) * yPitch;
 
-            // Process each pixel in the current row
             for (UINT x = 0; x < m_videoWidth; x++)
             {
-                // Get Y value for this pixel
-                UINT yIndex = y * yPitch + x;
-                int yValue = yPlane[yIndex];
+                // Bit-shift: x>>1 replaces x/2; &~1u aligns to even for UV interleave
+                const UINT uvOff = (x >> 1) << 1;
+                uint8_t r, g, b;
+                FAST_MATH.FastYuvToRgb(pYRow[x], pUVRow[uvOff], pUVRow[uvOff + 1], r, g, b);
 
-                // Get U and V values (subsampled by 2 in both dimensions)
-                UINT uvIndex = (y / 2) * uvPitch + (x / 2) * 2;
-                int uValue = uvPlane[uvIndex];
-                int vValue = uvPlane[uvIndex + 1];
-
-                // Convert YUV to RGB using standard conversion formulas
-                int r = static_cast<int>(yValue + 1.402f * (vValue - 128));
-                int g = static_cast<int>(yValue - 0.344f * (uValue - 128) - 0.714f * (vValue - 128));
-                int b = static_cast<int>(yValue + 1.772f * (uValue - 128));
-
-                // Clamp values to 0-255 range
-                r = (r < 0) ? 0 : ((r > 255) ? 255 : r);
-                g = (g < 0) ? 0 : ((g > 255) ? 255 : g);
-                b = (b < 0) ? 0 : ((b > 255) ? 255 : b);
-
-                // Write pixel data to destination in BGRA format
-                pDstRow[x * 4] = static_cast<BYTE>(b);       // Blue component
-                pDstRow[x * 4 + 1] = static_cast<BYTE>(g);   // Green component
-                pDstRow[x * 4 + 2] = static_cast<BYTE>(r);   // Red component
-                pDstRow[x * 4 + 3] = 255;                    // Alpha component (fully opaque)
+                // Bit-shift: x<<2 replaces x*4 (4 bytes per BGRA pixel)
+                BYTE* pPixel    = pDstRow + (x << 2);
+                pPixel[0] = b;
+                pPixel[1] = g;
+                pPixel[2] = r;
+                pPixel[3] = 255;
             }
         }
     }
@@ -1595,8 +1535,9 @@ bool MoviePlayer::UpdateVideoTexture()
     // Cache the fully-decoded BGRA frame in m_cpuFrameBuffer BEFORE Unmap.
     // DrawVideoFrameFromCPU() reads from here so context->Map() is never needed
     // inside a D2D BeginDraw session (which triggers SEH exception 0x87D).
+    // <<2 replaces *4 (4 bytes per BGRA pixel).
     {
-        const size_t rowBytes = static_cast<size_t>(m_videoWidth) * 4;
+        const size_t rowBytes = static_cast<size_t>(m_videoWidth) << 2;
         m_cpuFrameBuffer.resize(static_cast<size_t>(m_videoHeight) * rowBytes);
         for (UINT row = 0; row < m_videoHeight; ++row)
             memcpy(m_cpuFrameBuffer.data() + row * rowBytes,
@@ -1752,54 +1693,54 @@ bool MoviePlayer::DetectVideoCodec(const std::wstring& filePath, std::wstring& c
 // Replace the existing Play() method in MoviePlayer.cpp
 bool MoviePlayer::Play()
 {
-#if defined(_DEBUG_MOVIEPLAYER_)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"MoviePlayer::Play() called");
-    debug.logDebugMessage(LogLevel::LOG_INFO, L"Pre-check - Duration: %.2f, Dimensions: %dx%d, HasVideo: %s",
-        ConvertMFTimeToSeconds(m_videoDuration), m_videoWidth, m_videoHeight, m_hasVideo.load() ? L"YES" : L"NO");
-#endif
+    #if defined(_DEBUG_MOVIEPLAYER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"MoviePlayer::Play() called");
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"Pre-check - Duration: %.2f, Dimensions: %dx%d, HasVideo: %s",
+            ConvertMFTimeToSeconds(m_videoDuration), m_videoWidth, m_videoHeight, m_hasVideo.load() ? L"YES" : L"NO");
+    #endif
 
     // Thread-safe checks with atomic variables
     if (!m_pSourceReader)
     {
-#if defined(_DEBUG_MOVIEPLAYER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"MoviePlayer: No source reader available");
-#endif
+        #if defined(_DEBUG_MOVIEPLAYER_)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"MoviePlayer: No source reader available");
+        #endif
         return false;
     }
 
     // Check if we have valid video streams
     if (!m_hasVideo.load())
     {
-#if defined(_DEBUG_MOVIEPLAYER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"MoviePlayer: No video stream available");
-#endif
+        #if defined(_DEBUG_MOVIEPLAYER_)
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"MoviePlayer: No video stream available");
+        #endif
         return false;
     }
 
     // Verify video dimensions
     if (m_videoWidth == 0 || m_videoHeight == 0)
     {
-#if defined(_DEBUG_MOVIEPLAYER_)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"MoviePlayer: Invalid video dimensions: %dx%d", m_videoWidth, m_videoHeight);
-#endif
+        #if defined(_DEBUG_MOVIEPLAYER_)
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"MoviePlayer: Invalid video dimensions: %dx%d", m_videoWidth, m_videoHeight);
+        #endif
         return false;
     }
 
     // TEMPORARY: Allow zero duration for testing
     if (m_videoDuration == 0)
     {
-#if defined(_DEBUG_MOVIEPLAYER_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"MoviePlayer: Video has no duration - proceeding anyway for testing");
-#endif
+        #if defined(_DEBUG_MOVIEPLAYER_)
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"MoviePlayer: Video has no duration - proceeding anyway for testing");
+        #endif
         // Don't return false here - continue with playback attempt
     }
 
     // If already playing, do nothing
     if (m_isPlaying.load() && !m_isPaused.load())
     {
-#if defined(_DEBUG_MOVIEPLAYER_)
-        debug.logLevelMessage(LogLevel::LOG_INFO, L"MoviePlayer: Already playing");
-#endif
+        #if defined(_DEBUG_MOVIEPLAYER_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"MoviePlayer: Already playing");
+        #endif
         return true;
     }
 
@@ -1829,9 +1770,9 @@ bool MoviePlayer::Play()
             m_audioStartSamples = 0;
         }
 
-#if defined(_DEBUG_MOVIEPLAYER_)
-        debug.logLevelMessage(LogLevel::LOG_INFO, L"MoviePlayer: Playback resumed");
-#endif
+        #if defined(_DEBUG_MOVIEPLAYER_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"MoviePlayer: Playback resumed");
+        #endif
         return true;
     }
 
@@ -1854,10 +1795,10 @@ bool MoviePlayer::Play()
     if (m_enableAudio && m_pSourceVoice)
         m_pSourceVoice->Start();
 
-#if defined(_DEBUG_MOVIEPLAYER_)
-    debug.logDebugMessage(LogLevel::LOG_INFO, L"MoviePlayer: Playback started - Duration: %.2f seconds, Dimensions: %dx%d, Playing: %s",
-        ConvertMFTimeToSeconds(m_videoDuration), m_videoWidth, m_videoHeight, m_isPlaying.load() ? L"TRUE" : L"FALSE");
-#endif
+    #if defined(_DEBUG_MOVIEPLAYER_)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"MoviePlayer: Playback started - Duration: %.2f seconds, Dimensions: %dx%d, Playing: %s",
+            ConvertMFTimeToSeconds(m_videoDuration), m_videoWidth, m_videoHeight, m_isPlaying.load() ? L"TRUE" : L"FALSE");
+    #endif
 
     return true;
 }
@@ -2107,125 +2048,136 @@ void MoviePlayer::GeneratePlaceholderFrame()
         return;
 
     // Cast the renderer to DX11Renderer for DirectX 11 specific operations
-#if !defined(__USE_DIRECTX_11__)
-    return;
-#else
-    auto dx11Renderer = std::dynamic_pointer_cast<DX11Renderer>(m_renderer);
-    if (!dx11Renderer)
+    #if !defined(__USE_DIRECTX_11__)
         return;
+    #else
+        auto dx11Renderer = std::dynamic_pointer_cast<DX11Renderer>(m_renderer);
+        if (!dx11Renderer)
+            return;
 
-    ComPtr<ID3D11DeviceContext> context = dx11Renderer->GetImmediateContext();
-    if (!context)
-        return;
+        ComPtr<ID3D11DeviceContext> context = dx11Renderer->GetImmediateContext();
+        if (!context)
+            return;
 
-    // Determine which texture to use (main or staging in dual-texture system)
-    ID3D11Texture2D* destTexture = m_videoTexture.Get();
+        // Determine which texture to use (main or staging in dual-texture system)
+        ID3D11Texture2D* destTexture = m_videoTexture.Get();
 
-    // Map the texture for writing placeholder data.
-    // STAGING textures require D3D11_MAP_WRITE; D3D11_MAP_WRITE_DISCARD is DYNAMIC-only.
-    D3D11_MAPPED_SUBRESOURCE mappedResource = {};
-    HRESULT hr = context->Map(destTexture, 0, D3D11_MAP_WRITE, 0, &mappedResource);
-    if (FAILED(hr) || !mappedResource.pData)
-    {
-        LogMediaError(hr, L"Failed to map texture for placeholder frame");
-        return;
-    }
-
-    // Get pointer to the destination texture data
-    BYTE* pDstData = static_cast<BYTE*>(mappedResource.pData);
-
-    // Generate a placeholder pattern that changes over time
-    static UINT frameCounter = 0;
-    frameCounter++;
-
-    // Create a gradient background that animates
-    for (UINT y = 0; y < m_videoHeight; y++)
-    {
-        // Calculate pointer to the current row
-        BYTE* pDstRow = pDstData + y * mappedResource.RowPitch;
-
-        // Generate gradient colors for each pixel in the row
-        for (UINT x = 0; x < m_videoWidth; x++)
+        // Map the texture for writing placeholder data.
+        // STAGING textures require D3D11_MAP_WRITE; D3D11_MAP_WRITE_DISCARD is DYNAMIC-only.
+        D3D11_MAPPED_SUBRESOURCE mappedResource = {};
+        HRESULT hr = context->Map(destTexture, 0, D3D11_MAP_WRITE, 0, &mappedResource);
+        if (FAILED(hr) || !mappedResource.pData)
         {
-            // Base gradient calculation with proper type casting
-            BYTE r = static_cast<BYTE>((x * 200) / m_videoWidth);
-            BYTE g = static_cast<BYTE>((y * 200) / m_videoHeight);
-            BYTE b = static_cast<BYTE>(128 + static_cast<int>(64 * sin(frameCounter * 0.05f)));
+            LogMediaError(hr, L"Failed to map texture for placeholder frame");
+            return;
+        }
 
-            // Create a moving pattern for visual interest
-            if (((x + frameCounter) / 32 + (y + frameCounter / 2) / 32) % 2) {
-                // Darken alternate squares in the pattern
-                r = static_cast<BYTE>((r * 2) / 3);
-                g = static_cast<BYTE>((g * 2) / 3);
-                b = static_cast<BYTE>((b * 2) / 3);
+        // Get pointer to the destination texture data
+        BYTE* pDstData = static_cast<BYTE*>(mappedResource.pData);
+
+        // Generate a placeholder pattern that changes over time
+        static UINT frameCounter = 0;
+        frameCounter++;
+
+        // Create a gradient background that animates
+        for (UINT y = 0; y < m_videoHeight; y++)
+        {
+            // Calculate pointer to the current row
+            BYTE* pDstRow = pDstData + y * mappedResource.RowPitch;
+
+            // Generate gradient colors for each pixel in the row
+            for (UINT x = 0; x < m_videoWidth; x++)
+            {
+                // Base gradient calculation with proper type casting
+                BYTE r = static_cast<BYTE>((x * 200) / m_videoWidth);
+                BYTE g = static_cast<BYTE>((y * 200) / m_videoHeight);
+                BYTE b = static_cast<BYTE>(128 + static_cast<int>(64 * sin(frameCounter * 0.05f)));
+
+                // >>5 replaces /32 (32=2^5); alternating 32-pixel squares
+                if ((((x + frameCounter) >> 5) + ((y + (frameCounter >> 1)) >> 5)) & 1) {
+                    r = static_cast<BYTE>((r * 2) / 3);
+                    g = static_cast<BYTE>((g * 2) / 3);
+                    b = static_cast<BYTE>((b * 2) / 3);
+                }
+
+                // <<2 replaces *4 (4 bytes per BGRA pixel)
+                BYTE* pPixel = pDstRow + (x << 2);
+                pPixel[0] = b;
+                pPixel[1] = g;
+                pPixel[2] = r;
+                pPixel[3] = 255;
+            }
+        }
+
+        // Draw informative text area in the center
+        const int textHeight = 100;
+        const int startY = static_cast<int>(m_videoHeight) / 2 - textHeight / 2;
+        const int endY = startY + textHeight;
+        const int textWidth = static_cast<int>(m_videoWidth) / 2;
+        const int startX = static_cast<int>(m_videoWidth) / 2 - textWidth / 2;
+        const int endX = startX + textWidth;
+
+        // Draw text box background
+        for (UINT y = static_cast<UINT>(std::max(0, startY)); y < static_cast<UINT>(std::min(endY, static_cast<int>(m_videoHeight))); y++)
+        {
+            // Calculate pointer to the current row
+            BYTE* pDstRow = pDstData + y * mappedResource.RowPitch;
+
+            // Draw background for the text area
+            for (UINT x = static_cast<UINT>(std::max(0, startX)); x < static_cast<UINT>(std::min(endX, static_cast<int>(m_videoWidth))); x++)
+            {
+                // Semi-transparent black background for text readability
+                pDstRow[x * 4 + 0] = 32;     // Blue
+                pDstRow[x * 4 + 1] = 32;     // Green
+                pDstRow[x * 4 + 2] = 32;     // Red
+                pDstRow[x * 4 + 3] = 255;    // Alpha
+            }
+        }
+
+        // Simple visualized text (not actual text rendering)
+        // Draw "H" pattern for HEVC indicator
+
+        // Calculate letter dimensions and position
+        int letterWidth = textWidth / 6;
+        int letterX = startX + letterWidth;
+
+        // Draw the "H" character pattern
+        for (UINT y = static_cast<UINT>(std::max(0, startY + 20)); y < static_cast<UINT>(std::min(endY - 20, static_cast<int>(m_videoHeight))); y++)
+        {
+            // Calculate pointer to the current row
+            BYTE* pDstRow = pDstData + y * mappedResource.RowPitch;
+
+            // Left vertical stroke of the "H"
+            for (UINT x = static_cast<UINT>(std::max(0, letterX)); x < static_cast<UINT>(std::min(letterX + letterWidth / 4, static_cast<int>(m_videoWidth))); x++)
+            {
+                // Draw white pixels for the left stroke
+                pDstRow[x * 4 + 0] = 200;    // Blue
+                pDstRow[x * 4 + 1] = 200;    // Green
+                pDstRow[x * 4 + 2] = 200;    // Red
+                pDstRow[x * 4 + 3] = 255;    // Alpha
             }
 
-            // Write pixel data to destination in BGRA format
-            pDstRow[x * 4 + 0] = b;      // Blue component
-            pDstRow[x * 4 + 1] = g;      // Green component
-            pDstRow[x * 4 + 2] = r;      // Red component
-            pDstRow[x * 4 + 3] = 255;    // Alpha component (fully opaque)
-        }
-    }
+            // Middle horizontal stroke of the "H"
+            int midLineStart = startY + 20 + (endY - startY - 40) / 2 - letterWidth / 4;
+            int midLineEnd = startY + 20 + (endY - startY - 40) / 2 + letterWidth / 4;
 
-    // Draw informative text area in the center
-    const int textHeight = 100;
-    const int startY = static_cast<int>(m_videoHeight) / 2 - textHeight / 2;
-    const int endY = startY + textHeight;
-    const int textWidth = static_cast<int>(m_videoWidth) / 2;
-    const int startX = static_cast<int>(m_videoWidth) / 2 - textWidth / 2;
-    const int endX = startX + textWidth;
-
-    // Draw text box background
-    for (UINT y = static_cast<UINT>(std::max(0, startY)); y < static_cast<UINT>(std::min(endY, static_cast<int>(m_videoHeight))); y++)
-    {
-        // Calculate pointer to the current row
-        BYTE* pDstRow = pDstData + y * mappedResource.RowPitch;
-
-        // Draw background for the text area
-        for (UINT x = static_cast<UINT>(std::max(0, startX)); x < static_cast<UINT>(std::min(endX, static_cast<int>(m_videoWidth))); x++)
-        {
-            // Semi-transparent black background for text readability
-            pDstRow[x * 4 + 0] = 32;     // Blue
-            pDstRow[x * 4 + 1] = 32;     // Green
-            pDstRow[x * 4 + 2] = 32;     // Red
-            pDstRow[x * 4 + 3] = 255;    // Alpha
-        }
-    }
-
-    // Simple visualized text (not actual text rendering)
-    // Draw "H" pattern for HEVC indicator
-
-    // Calculate letter dimensions and position
-    int letterWidth = textWidth / 6;
-    int letterX = startX + letterWidth;
-
-    // Draw the "H" character pattern
-    for (UINT y = static_cast<UINT>(std::max(0, startY + 20)); y < static_cast<UINT>(std::min(endY - 20, static_cast<int>(m_videoHeight))); y++)
-    {
-        // Calculate pointer to the current row
-        BYTE* pDstRow = pDstData + y * mappedResource.RowPitch;
-
-        // Left vertical stroke of the "H"
-        for (UINT x = static_cast<UINT>(std::max(0, letterX)); x < static_cast<UINT>(std::min(letterX + letterWidth / 4, static_cast<int>(m_videoWidth))); x++)
-        {
-            // Draw white pixels for the left stroke
-            pDstRow[x * 4 + 0] = 200;    // Blue
-            pDstRow[x * 4 + 1] = 200;    // Green
-            pDstRow[x * 4 + 2] = 200;    // Red
-            pDstRow[x * 4 + 3] = 255;    // Alpha
-        }
-
-        // Middle horizontal stroke of the "H"
-        int midLineStart = startY + 20 + (endY - startY - 40) / 2 - letterWidth / 4;
-        int midLineEnd = startY + 20 + (endY - startY - 40) / 2 + letterWidth / 4;
-
-        if (static_cast<int>(y) >= midLineStart && static_cast<int>(y) < midLineEnd)
-        {
-            // Draw the horizontal stroke across the width of the letter
-            for (UINT x = static_cast<UINT>(std::max(0, letterX)); x < static_cast<UINT>(std::min(letterX + letterWidth, static_cast<int>(m_videoWidth))); x++)
+            if (static_cast<int>(y) >= midLineStart && static_cast<int>(y) < midLineEnd)
             {
-                // Draw white pixels for the horizontal stroke
+                // Draw the horizontal stroke across the width of the letter
+                for (UINT x = static_cast<UINT>(std::max(0, letterX)); x < static_cast<UINT>(std::min(letterX + letterWidth, static_cast<int>(m_videoWidth))); x++)
+                {
+                    // Draw white pixels for the horizontal stroke
+                    pDstRow[x * 4 + 0] = 200;    // Blue
+                    pDstRow[x * 4 + 1] = 200;    // Green
+                    pDstRow[x * 4 + 2] = 200;    // Red
+                    pDstRow[x * 4 + 3] = 255;    // Alpha
+                }
+            }
+
+            // Right vertical stroke of the "H"
+            for (UINT x = static_cast<UINT>(std::max(0, letterX + letterWidth - letterWidth / 4)); x < static_cast<UINT>(std::min(letterX + letterWidth, static_cast<int>(m_videoWidth))); x++)
+            {
+                // Draw white pixels for the right stroke
                 pDstRow[x * 4 + 0] = 200;    // Blue
                 pDstRow[x * 4 + 1] = 200;    // Green
                 pDstRow[x * 4 + 2] = 200;    // Red
@@ -2233,117 +2185,106 @@ void MoviePlayer::GeneratePlaceholderFrame()
             }
         }
 
-        // Right vertical stroke of the "H"
-        for (UINT x = static_cast<UINT>(std::max(0, letterX + letterWidth - letterWidth / 4)); x < static_cast<UINT>(std::min(letterX + letterWidth, static_cast<int>(m_videoWidth))); x++)
+        // Draw "Video Processing" text representation
+        int line2Y = startY + textHeight - 30;
+        if (line2Y >= 0 && line2Y < static_cast<int>(m_videoHeight))
         {
-            // Draw white pixels for the right stroke
-            pDstRow[x * 4 + 0] = 200;    // Blue
-            pDstRow[x * 4 + 1] = 200;    // Green
-            pDstRow[x * 4 + 2] = 200;    // Red
-            pDstRow[x * 4 + 3] = 255;    // Alpha
-        }
-    }
+            // Calculate pointer to the text line row
+            BYTE* pDstRow = pDstData + static_cast<UINT>(line2Y) * mappedResource.RowPitch;
 
-    // Draw "Video Processing" text representation
-    int line2Y = startY + textHeight - 30;
-    if (line2Y >= 0 && line2Y < static_cast<int>(m_videoHeight))
-    {
-        // Calculate pointer to the text line row
-        BYTE* pDstRow = pDstData + static_cast<UINT>(line2Y) * mappedResource.RowPitch;
-
-        // Draw a series of dots to represent text
-        for (UINT x = static_cast<UINT>(std::max(0, startX + 20)); x < static_cast<UINT>(std::min(endX - 20, static_cast<int>(m_videoWidth))); x += 8)
-        {
-            // Draw a small group of white pixels to simulate characters
-            for (int i = 0; i < 6; i++)
+            // Draw a series of dots to represent text
+            for (UINT x = static_cast<UINT>(std::max(0, startX + 20)); x < static_cast<UINT>(std::min(endX - 20, static_cast<int>(m_videoWidth))); x += 8)
             {
-                UINT pixelX = x + static_cast<UINT>(i);
-                if (pixelX < m_videoWidth) {
-                    // Draw white pixels for simulated text
-                    pDstRow[pixelX * 4 + 0] = 180;   // Blue
-                    pDstRow[pixelX * 4 + 1] = 180;   // Green
-                    pDstRow[pixelX * 4 + 2] = 180;   // Red
-                    pDstRow[pixelX * 4 + 3] = 255;   // Alpha
+                // Draw a small group of white pixels to simulate characters
+                for (int i = 0; i < 6; i++)
+                {
+                    UINT pixelX = x + static_cast<UINT>(i);
+                    if (pixelX < m_videoWidth) {
+                        // Draw white pixels for simulated text
+                        pDstRow[pixelX * 4 + 0] = 180;   // Blue
+                        pDstRow[pixelX * 4 + 1] = 180;   // Green
+                        pDstRow[pixelX * 4 + 2] = 180;   // Red
+                        pDstRow[pixelX * 4 + 3] = 255;   // Alpha
+                    }
                 }
             }
         }
-    }
 
-    // Draw frame counter for animation effect
-    std::wstring frameCountText = std::to_wstring(frameCounter % 1000);
-    int digitX = endX - 50;
-    int digitY = endY - 20;
+        // Draw frame counter for animation effect
+        std::wstring frameCountText = std::to_wstring(frameCounter % 1000);
+        int digitX = endX - 50;
+        int digitY = endY - 20;
 
-    // Draw frame counter digits if within bounds
-    if (digitY >= 0 && digitY < static_cast<int>(m_videoHeight) && digitX >= 0 && digitX < static_cast<int>(m_videoWidth))
-    {
-        // Draw each digit in the frame counter
-        for (size_t i = 0; i < frameCountText.length(); i++)
+        // Draw frame counter digits if within bounds
+        if (digitY >= 0 && digitY < static_cast<int>(m_videoHeight) && digitX >= 0 && digitX < static_cast<int>(m_videoWidth))
         {
-            // Very simplified digit rendering based on digit value
-            int digit = frameCountText[i] - L'0';
-
-            // Draw a simple pattern for each digit
-            for (int dy = 0; dy < 10; dy++)
+            // Draw each digit in the frame counter
+            for (size_t i = 0; i < frameCountText.length(); i++)
             {
-                int pixelY = digitY + dy;
-                if (pixelY >= 0 && pixelY < static_cast<int>(m_videoHeight))
+                // Very simplified digit rendering based on digit value
+                int digit = frameCountText[i] - L'0';
+
+                // Draw a simple pattern for each digit
+                for (int dy = 0; dy < 10; dy++)
                 {
-                    // Calculate pointer to the digit row
-                    BYTE* pDstRow = pDstData + static_cast<UINT>(pixelY) * mappedResource.RowPitch;
-
-                    // Draw pixels for the current digit
-                    for (int dx = 0; dx < 6; dx++)
+                    int pixelY = digitY + dy;
+                    if (pixelY >= 0 && pixelY < static_cast<int>(m_videoHeight))
                     {
-                        int pixelX = digitX + dx + static_cast<int>(i) * 8;
+                        // Calculate pointer to the digit row
+                        BYTE* pDstRow = pDstData + static_cast<UINT>(pixelY) * mappedResource.RowPitch;
 
-                        if (pixelX >= 0 && pixelX < static_cast<int>(m_videoWidth))
+                        // Draw pixels for the current digit
+                        for (int dx = 0; dx < 6; dx++)
                         {
-                            // Simple pattern based on digit value and position
-                            if ((digit % 2 == 0 && dx % 2 == 0) ||
-                                (digit % 2 == 1 && dx % 2 == 1) ||
-                                (dy == 0 || dy == 9 || dx == 0 || dx == 5))
+                            int pixelX = digitX + dx + static_cast<int>(i) * 8;
+
+                            if (pixelX >= 0 && pixelX < static_cast<int>(m_videoWidth))
                             {
-                                // Draw white pixel for the digit pattern
-                                UINT finalPixelX = static_cast<UINT>(pixelX);
-                                pDstRow[finalPixelX * 4 + 0] = 255;  // Blue
-                                pDstRow[finalPixelX * 4 + 1] = 255;  // Green
-                                pDstRow[finalPixelX * 4 + 2] = 255;  // Red
-                                pDstRow[finalPixelX * 4 + 3] = 255;  // Alpha
+                                // Simple pattern based on digit value and position
+                                if ((digit % 2 == 0 && dx % 2 == 0) ||
+                                    (digit % 2 == 1 && dx % 2 == 1) ||
+                                    (dy == 0 || dy == 9 || dx == 0 || dx == 5))
+                                {
+                                    // Draw white pixel for the digit pattern
+                                    UINT finalPixelX = static_cast<UINT>(pixelX);
+                                    pDstRow[finalPixelX * 4 + 0] = 255;  // Blue
+                                    pDstRow[finalPixelX * 4 + 1] = 255;  // Green
+                                    pDstRow[finalPixelX * 4 + 2] = 255;  // Red
+                                    pDstRow[finalPixelX * 4 + 3] = 255;  // Alpha
+                                }
                             }
                         }
                     }
                 }
             }
         }
-    }
 
-    // Cache placeholder pixels in m_cpuFrameBuffer for DrawVideoFrameFromCPU().
-    {
-        const size_t rowBytes = static_cast<size_t>(m_videoWidth) * 4;
-        m_cpuFrameBuffer.resize(static_cast<size_t>(m_videoHeight) * rowBytes);
-        for (UINT row = 0; row < m_videoHeight; ++row)
-            memcpy(m_cpuFrameBuffer.data() + row * rowBytes,
-                   pDstData + row * mappedResource.RowPitch,
-                   rowBytes);
-        m_cpuFrameWidth  = m_videoWidth;
-        m_cpuFrameHeight = m_videoHeight;
-    }
+        // Cache placeholder pixels in m_cpuFrameBuffer for DrawVideoFrameFromCPU().
+        {
+            const size_t rowBytes = static_cast<size_t>(m_videoWidth) * 4;
+            m_cpuFrameBuffer.resize(static_cast<size_t>(m_videoHeight) * rowBytes);
+            for (UINT row = 0; row < m_videoHeight; ++row)
+                memcpy(m_cpuFrameBuffer.data() + row * rowBytes,
+                    pDstData + row * mappedResource.RowPitch,
+                    rowBytes);
+            m_cpuFrameWidth  = m_videoWidth;
+            m_cpuFrameHeight = m_videoHeight;
+        }
 
-    // Unmap BEFORE CopyResource — same rule as UpdateVideoTexture().
-    context->Unmap(destTexture, 0);
+        // Unmap BEFORE CopyResource — same rule as UpdateVideoTexture().
+        context->Unmap(destTexture, 0);
 
-    // If we have a dual-texture system for HEVC, copy from staging to render texture
-    if (m_videoRenderTexture)
-    {
-        // Copy from staging texture to render texture for final rendering
-        context->CopyResource(m_videoRenderTexture.Get(), m_videoTexture.Get());
-    }
+        // If we have a dual-texture system for HEVC, copy from staging to render texture
+        if (m_videoRenderTexture)
+        {
+            // Copy from staging texture to render texture for final rendering
+            context->CopyResource(m_videoRenderTexture.Get(), m_videoTexture.Get());
+        }
 
-#if defined(_DEBUG_MOVIEPLAYER_)
-    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Generated placeholder frame for HEVC content");
-#endif
-#endif // __USE_DIRECTX_11__
+        #if defined(_DEBUG_MOVIEPLAYER_)
+            debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Generated placeholder frame for HEVC content");
+        #endif
+    #endif // __USE_DIRECTX_11__
 }
 
 // ----------------------------------------------------------------------------------------------
@@ -2386,13 +2327,13 @@ void MoviePlayer::Cleanup()
     m_videoTexture.Reset();
     m_videoRenderTexture.Reset();
 
-#if defined(__USE_DIRECTX_12__)
-    // Release DX12 D2D video bitmap slot
-    if (m_videoTextureIndex >= 0 && m_renderer) {
-        auto dx12Renderer = std::dynamic_pointer_cast<DX12Renderer>(m_renderer);
-        if (dx12Renderer) dx12Renderer->ReleaseVideoD2DTexture(m_videoTextureIndex);
-    }
-#endif
+    #if defined(__USE_DIRECTX_12__)
+        // Release DX12 D2D video bitmap slot
+        if (m_videoTextureIndex >= 0 && m_renderer) {
+            auto dx12Renderer = std::dynamic_pointer_cast<DX12Renderer>(m_renderer);
+            if (dx12Renderer) dx12Renderer->ReleaseVideoD2DTexture(m_videoTextureIndex);
+        }
+    #endif
 
     // Reset state
     m_isPlaying = false;
@@ -2466,98 +2407,98 @@ void MoviePlayer::ProcessVideoSample(IMFSample* pSample)
         return;
     }
 
-#if !defined(__USE_DIRECTX_11__)
-    return;
-#else
-    auto dx11Renderer = std::dynamic_pointer_cast<DX11Renderer>(m_renderer);
-    if (!dx11Renderer)
+    #if !defined(__USE_DIRECTX_11__)
         return;
+    #else
+        auto dx11Renderer = std::dynamic_pointer_cast<DX11Renderer>(m_renderer);
+        if (!dx11Renderer)
+            return;
 
-    ComPtr<ID3D11DeviceContext> context = dx11Renderer->GetImmediateContext();
-    if (!context)
-        return;
+        ComPtr<ID3D11DeviceContext> context = dx11Renderer->GetImmediateContext();
+        if (!context)
+            return;
 
-    // Get the buffer from the sample
-    ComPtr<IMFMediaBuffer> buffer;
-    HRESULT hr = pSample->GetBufferByIndex(0, &buffer);
-    if (FAILED(hr))
-    {
-        LogMediaError(hr, L"Failed to get buffer from sample");
-        return;
-    }
-
-    // Try to get buffer data
-    BYTE* pSrcData = nullptr;
-    DWORD maxLength = 0;
-    DWORD currentLength = 0;
-
-    hr = buffer->Lock(&pSrcData, &maxLength, &currentLength);
-    if (FAILED(hr) || !pSrcData)
-    {
-        LogMediaError(hr, L"Failed to lock buffer");
-        return;
-    }
-
-    // Determine which texture to use
-    ID3D11Texture2D* destTexture = m_videoTexture.Get();
-
-    // Map the texture for writing.
-    // STAGING textures require D3D11_MAP_WRITE; D3D11_MAP_WRITE_DISCARD is DYNAMIC-only.
-    D3D11_MAPPED_SUBRESOURCE mappedResource = {};
-    hr = context->Map(destTexture, 0, D3D11_MAP_WRITE, 0, &mappedResource);
-    if (FAILED(hr) || !mappedResource.pData)
-    {
-        buffer->Unlock();
-        LogMediaError(hr, L"Failed to map texture");
-        return;
-    }
-
-    BYTE* pDstData = static_cast<BYTE*>(mappedResource.pData);
-
-    // Check for HEVC format
-    bool isHevcFormat = (memcmp(&m_videoSubtype, "\x48\x45\x56\x43", 4) == 0);
-
-    // Get current media type to determine format
-    GUID videoFormat = GUID_NULL;
-
-    // Use a thread-safe approach to access the source reader
-    {
-        // Create a scoped lock for critical section
-        std::lock_guard<std::recursive_mutex> criticalSectionLock(m_mutex);
-
-        if (m_pSourceReader)
+        // Get the buffer from the sample
+        ComPtr<IMFMediaBuffer> buffer;
+        HRESULT hr = pSample->GetBufferByIndex(0, &buffer);
+        if (FAILED(hr))
         {
-            ComPtr<IMFMediaType> currentType;
-            hr = m_pSourceReader->GetCurrentMediaType(
-                MF_SOURCE_READER_FIRST_VIDEO_STREAM,
-                &currentType
-            );
+            LogMediaError(hr, L"Failed to get buffer from sample");
+            return;
+        }
 
-            if (SUCCEEDED(hr) && currentType)
+        // Try to get buffer data
+        BYTE* pSrcData = nullptr;
+        DWORD maxLength = 0;
+        DWORD currentLength = 0;
+
+        hr = buffer->Lock(&pSrcData, &maxLength, &currentLength);
+        if (FAILED(hr) || !pSrcData)
+        {
+            LogMediaError(hr, L"Failed to lock buffer");
+            return;
+        }
+
+        // Determine which texture to use
+        ID3D11Texture2D* destTexture = m_videoTexture.Get();
+
+        // Map the texture for writing.
+        // STAGING textures require D3D11_MAP_WRITE; D3D11_MAP_WRITE_DISCARD is DYNAMIC-only.
+        D3D11_MAPPED_SUBRESOURCE mappedResource = {};
+        hr = context->Map(destTexture, 0, D3D11_MAP_WRITE, 0, &mappedResource);
+        if (FAILED(hr) || !mappedResource.pData)
+        {
+            buffer->Unlock();
+            LogMediaError(hr, L"Failed to map texture");
+            return;
+        }
+
+        BYTE* pDstData = static_cast<BYTE*>(mappedResource.pData);
+
+        // Check for HEVC format
+        bool isHevcFormat = (memcmp(&m_videoSubtype, "\x48\x45\x56\x43", 4) == 0);
+
+        // Get current media type to determine format
+        GUID videoFormat = GUID_NULL;
+
+        // Use a thread-safe approach to access the source reader
+        {
+            // Create a scoped lock for critical section
+            std::lock_guard<std::recursive_mutex> criticalSectionLock(m_mutex);
+
+            if (m_pSourceReader)
             {
-                currentType->GetGUID(MF_MT_SUBTYPE, &videoFormat);
+                ComPtr<IMFMediaType> currentType;
+                hr = m_pSourceReader->GetCurrentMediaType(
+                    MF_SOURCE_READER_FIRST_VIDEO_STREAM,
+                    &currentType
+                );
+
+                if (SUCCEEDED(hr) && currentType)
+                {
+                    currentType->GetGUID(MF_MT_SUBTYPE, &videoFormat);
+                }
             }
         }
-    }
 
-    // Process the buffer data based on format
-    // Note: Implementation of format-specific processing code would go here
-    // but is omitted for brevity. The original processing code would
-    // remain largely the same, just wrapped in the improved lock handling.
+        // Process the buffer data based on format
+        // Note: Implementation of format-specific processing code would go here
+        // but is omitted for brevity. The original processing code would
+        // remain largely the same, just wrapped in the improved lock handling.
 
-    // Unmap BEFORE CopyResource — same rule as UpdateVideoTexture().
-    context->Unmap(destTexture, 0);
+        // Unmap BEFORE CopyResource — same rule as UpdateVideoTexture().
+        context->Unmap(destTexture, 0);
 
-    // Unlock the buffer before the GPU copy.
-    buffer->Unlock();
+        // Unlock the buffer before the GPU copy.
+        buffer->Unlock();
 
-    // If we have a dual-texture system, copy from staging to render texture
-    if (m_videoRenderTexture)
-    {
-        // Copy from staging texture to render texture
-        context->CopyResource(m_videoRenderTexture.Get(), m_videoTexture.Get());
-    }
-#endif // __USE_DIRECTX_11__
+        // If we have a dual-texture system, copy from staging to render texture
+        if (m_videoRenderTexture)
+        {
+            // Copy from staging texture to render texture
+            context->CopyResource(m_videoRenderTexture.Get(), m_videoTexture.Get());
+        }
+    #endif // __USE_DIRECTX_11__
 }
 
 // UpdateFrame - called from the renderer each game tick.
@@ -2622,36 +2563,61 @@ bool MoviePlayer::UpdateFrame()
     // fall back to wall-clock gating against the first video frame's PTS.
     if (m_playStartMediaTime >= 0)
     {
-        const LONGLONG videoPTS  = m_llCurrentPosition.load();
-        const LONGLONG halfFrameMF = static_cast<LONGLONG>(10000000.0 * 0.5 / m_targetFPS);
+        // halfFrameMF = 0.5 frame duration in 100-ns MF units.
+        // Computed as integer shift: fullFrameMF = halfFrameMF << 1 (×2).
+        const LONGLONG halfFrameMF = static_cast<LONGLONG>(5000000.0 / m_targetFPS);
+        const LONGLONG fullFrameMF = halfFrameMF << 1;
 
+        // Compute the current audio clock position once — reused for both the
+        // frame-skip and the hold-gate below.  -1 means audio is unavailable.
+        LONGLONG audioNowPTS = -1;
         if (m_enableAudio && m_pSourceVoice &&
             m_audioFormat.nSamplesPerSec > 0 && m_firstAudioSamplePTS >= 0)
         {
             XAUDIO2_VOICE_STATE voiceState;
             m_pSourceVoice->GetState(&voiceState);
-
-            // Total samples played, spanning all voice start/stop cycles
             const UINT64 totalSamples =
                 m_samplesPlayedOffset + (voiceState.SamplesPlayed - m_audioStartSamples);
-
-            // Map sample count to file PTS (100-ns MF units)
-            const LONGLONG audioNowPTS = m_firstAudioSamplePTS +
+            audioNowPTS = m_firstAudioSamplePTS +
                 static_cast<LONGLONG>(
                     static_cast<double>(totalSamples) /
                     static_cast<double>(m_audioFormat.nSamplesPerSec) * 10000000.0);
-
-            if (videoPTS > audioNowPTS + halfFrameMF)
-                return false; // audio hasn't reached this frame yet — hold
         }
-        else
+
+        // Frame-skip: on Vulkan/OpenGL the CPU YUV decode adds per-frame latency that
+        // can cause video to fall behind audio.  When video PTS is more than 2 full
+        // frames behind the audio clock, discard the stale sample and advance until
+        // within tolerance — up to kMaxSkips frames per call to prevent stalling.
+        if (audioNowPTS >= 0 && m_pCurrentSample)
         {
-            // Wall-clock fallback: used when audio is disabled or not yet anchored
-            const double frameMediaSecs = ConvertMFTimeToSeconds(videoPTS - m_playStartMediaTime);
-            const double elapsedSecs = std::chrono::duration<double>(
-                std::chrono::steady_clock::now() - m_playStartWallTime).count();
-            if (elapsedSecs < frameMediaSecs)
-                return false;
+            static constexpr int kMaxSkips = 4;
+            int skips = 0;
+            while (skips++ < kMaxSkips &&
+                   m_llCurrentPosition.load() + (fullFrameMF << 1) < audioNowPTS)
+            {
+                m_pCurrentSample->Release();
+                m_pCurrentSample = nullptr;
+                if (!ReadNextSample()) return false;
+            }
+        }
+
+        {
+            const LONGLONG videoPTS = m_llCurrentPosition.load();
+            if (audioNowPTS >= 0)
+            {
+                // Audio-master: hold video if it's ahead of audio
+                if (videoPTS > audioNowPTS + halfFrameMF)
+                    return false;
+            }
+            else
+            {
+                // Wall-clock fallback: used when audio is disabled or not yet anchored
+                const double frameMediaSecs = ConvertMFTimeToSeconds(videoPTS - m_playStartMediaTime);
+                const double elapsedSecs = std::chrono::duration<double>(
+                    std::chrono::steady_clock::now() - m_playStartWallTime).count();
+                if (elapsedSecs < frameMediaSecs)
+                    return false;
+            }
         }
     }
 
@@ -2705,9 +2671,9 @@ bool MoviePlayer::ReadNextSample()
 
             // Using a lock_guard here with the renderer's mutex to ensure thread safety
             // when generating placeholder frames
-#if defined(__USE_DIRECTX_11__)
-            std::lock_guard<std::mutex> renderLock(DX11Renderer::GetRenderMutex());
-#endif
+            #if defined(__USE_DIRECTX_11__)
+                std::lock_guard<std::mutex> renderLock(DX11Renderer::GetRenderMutex());
+            #endif
             GeneratePlaceholderFrame();
             return true;
         }
@@ -2762,9 +2728,9 @@ bool MoviePlayer::InitializeAudio()
         return false;
     }
 
-#if defined(_DEBUG_MOVIEPLAYER_)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"XAudio2 initialized successfully");
-#endif
+    #if defined(_DEBUG_MOVIEPLAYER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"XAudio2 initialized successfully");
+    #endif
     return true;
 }
 
@@ -2817,16 +2783,16 @@ void MoviePlayer::ConfigureAudioStream()
         LogMediaError(hr, L"CreateSourceVoice failed");
         return;
     }
+    // Do NOT call Start() here — Play() is responsible for starting the voice so
+    // SamplesPlayed is 0 at the same moment m_audioStartSamples is reset to 0.
 
-    m_pSourceVoice->Start();
-
-#if defined(_DEBUG_MOVIEPLAYER_)
-    debug.logLevelMessage(LogLevel::LOG_INFO,
-        L"Audio stream configured: " +
-        std::to_wstring(m_audioFormat.nSamplesPerSec) + L" Hz, " +
-        std::to_wstring(m_audioFormat.nChannels) + L" ch, " +
-        std::to_wstring(m_audioFormat.wBitsPerSample) + L" bit");
-#endif
+    #if defined(_DEBUG_MOVIEPLAYER_)
+        debug.logLevelMessage(LogLevel::LOG_INFO,
+            L"Audio stream configured: " +
+            std::to_wstring(m_audioFormat.nSamplesPerSec) + L" Hz, " +
+            std::to_wstring(m_audioFormat.nChannels) + L" ch, " +
+            std::to_wstring(m_audioFormat.wBitsPerSample) + L" bit");
+    #endif
 }
 
 // ----------------------------------------------------------------------------------------------
@@ -2853,9 +2819,15 @@ bool MoviePlayer::ReadAudioSample()
     if (m_firstAudioSamplePTS < 0)
         m_firstAudioSamplePTS = timestamp; // may be 0 for files that start at PTS 0
 
-    // Track how far ahead in the stream we have read (used in UpdateFrame() to gate read-ahead)
-    if (timestamp > 0)
-        m_audioReadPosition = timestamp;
+    // Track read-ahead position as end of this sample (start + duration) for an accurate
+    // look-ahead cap, even when the file starts at PTS 0.
+    {
+        LONGLONG sampleDuration = 0;
+        if (SUCCEEDED(pSample->GetSampleDuration(&sampleDuration)) && sampleDuration > 0)
+            m_audioReadPosition = timestamp + sampleDuration;
+        else
+            m_audioReadPosition = timestamp;
+    }
 
     if (flags & MF_SOURCE_READERF_ENDOFSTREAM)
     {
@@ -2928,41 +2900,41 @@ void MoviePlayer::Render(const Vector2& position, const Vector2& size)
     if (!m_isPlaying.load() || m_videoTextureIndex < 0)
         return;
 
-#if defined(__USE_DIRECTX_12__)
-    // DX12: Render() is only ever called from within the render frame's pass-2
-    // BeginDraw/EndDraw context. D2D1_FACTORY_TYPE_MULTI_THREADED already serialises
-    // all factory-derived calls, so no external mutex is needed here. Acquiring
-    // GetRenderMutex() inside BeginDraw caused a deadlock: SwitchToMovieIntro()
-    // calls PauseThread (non-blocking) then immediately grabs the same mutex in
-    // OpenMovie(), leaving the render thread blocked inside an active BeginDraw session.
-    if (m_renderer && m_videoTextureIndex >= 0)
-    {
-        auto dx12 = std::dynamic_pointer_cast<DX12Renderer>(m_renderer);
-        if (dx12)
+    #if defined(__USE_DIRECTX_12__)
+        // DX12: Render() is only ever called from within the render frame's pass-2
+        // BeginDraw/EndDraw context. D2D1_FACTORY_TYPE_MULTI_THREADED already serialises
+        // all factory-derived calls, so no external mutex is needed here. Acquiring
+        // GetRenderMutex() inside BeginDraw caused a deadlock: SwitchToMovieIntro()
+        // calls PauseThread (non-blocking) then immediately grabs the same mutex in
+        // OpenMovie(), leaving the render thread blocked inside an active BeginDraw session.
+        if (m_renderer && m_videoTextureIndex >= 0)
         {
-            dx12->BlitVideoBitmap(position.x, position.y, size.x, size.y);
+            auto dx12 = std::dynamic_pointer_cast<DX12Renderer>(m_renderer);
+            if (dx12)
+            {
+                dx12->BlitVideoBitmap(position.x, position.y, size.x, size.y);
+                m_hasNewFrame.store(false);
+            }
+        }
+    #elif defined(__USE_DIRECTX_11__)
+        auto dx11Renderer = std::dynamic_pointer_cast<DX11Renderer>(m_renderer);
+        if (dx11Renderer && !m_cpuFrameBuffer.empty() && m_cpuFrameWidth > 0 && m_cpuFrameHeight > 0)
+        {
+            // DrawVideoFrameFromCPU uses the pre-decoded CPU buffer — no D3D11 context->Map() call.
+            // Safe to call inside D2D BeginDraw (avoids SEH exception 0x87D from the debug layer).
+            dx11Renderer->DrawVideoFrameFromCPU(
+                position,
+                size,
+                MyColor(1.0f, 1.0f, 1.0f, 1.0f),
+                m_cpuFrameBuffer.data(),
+                m_cpuFrameWidth,
+                m_cpuFrameHeight,
+                m_cpuFrameWidth * 4     // tight BGRA row pitch — no GPU padding in this buffer
+            );
+
             m_hasNewFrame.store(false);
         }
-    }
-#elif defined(__USE_DIRECTX_11__)
-    auto dx11Renderer = std::dynamic_pointer_cast<DX11Renderer>(m_renderer);
-    if (dx11Renderer && !m_cpuFrameBuffer.empty() && m_cpuFrameWidth > 0 && m_cpuFrameHeight > 0)
-    {
-        // DrawVideoFrameFromCPU uses the pre-decoded CPU buffer — no D3D11 context->Map() call.
-        // Safe to call inside D2D BeginDraw (avoids SEH exception 0x87D from the debug layer).
-        dx11Renderer->DrawVideoFrameFromCPU(
-            position,
-            size,
-            MyColor(1.0f, 1.0f, 1.0f, 1.0f),
-            m_cpuFrameBuffer.data(),
-            m_cpuFrameWidth,
-            m_cpuFrameHeight,
-            m_cpuFrameWidth * 4     // tight BGRA row pitch — no GPU padding in this buffer
-        );
-
-        m_hasNewFrame.store(false);
-    }
-#endif
+    #endif
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -2991,7 +2963,8 @@ bool MoviePlayer::UpdateVideoTextureCPU()
     if (FAILED(hr) || !buffer) return false;
 
     const size_t rowPixels  = static_cast<size_t>(m_videoWidth);
-    const size_t rowBytes   = rowPixels * 4;
+    // <<2 replaces *4 (4 bytes per BGRA pixel)
+    const size_t rowBytes   = rowPixels << 2;
     const size_t frameBytes = rowBytes * m_videoHeight;
     m_cpuFrameBuffer.resize(frameBytes);
 
@@ -3006,11 +2979,11 @@ bool MoviePlayer::UpdateVideoTextureCPU()
             for (UINT row = 0; row < m_videoHeight; ++row) {
                 uint8_t*       dst = m_cpuFrameBuffer.data() + row * rowBytes;
                 const uint8_t* src = reinterpret_cast<const uint8_t*>(scanline0) + row * pitch;
-#if defined(__USE_OPENGL__)
-                SwapBGRAtoRGBA(dst, src, static_cast<uint32_t>(rowPixels));
-#else
-                std::memcpy(dst, src, rowBytes);
-#endif
+                #if defined(__USE_OPENGL__)
+                    SwapBGRAtoRGBA(dst, src, static_cast<uint32_t>(rowPixels));
+                #else
+                    std::memcpy(dst, src, rowBytes);
+                #endif
             }
             buf2D->Unlock2D();
             m_cpuFrameWidth  = m_videoWidth;
@@ -3028,15 +3001,17 @@ bool MoviePlayer::UpdateVideoTextureCPU()
 
     if (curLen >= frameBytes)
     {
-        for (UINT row = 0; row < m_videoHeight; ++row) {
-            uint8_t*       dst = m_cpuFrameBuffer.data() + row * rowBytes;
-            const uint8_t* src = reinterpret_cast<const uint8_t*>(pSrc) + row * rowBytes;
-#if defined(__USE_OPENGL__)
-            SwapBGRAtoRGBA(dst, src, static_cast<uint32_t>(rowPixels));
-#else
-            std::memcpy(dst, src, rowBytes);
-#endif
-        }
+        #if defined(__USE_OPENGL__)
+            // OpenGL needs BGRA→RGBA channel swap; must be done row-by-row
+            for (UINT row = 0; row < m_videoHeight; ++row) {
+                uint8_t*       dst = m_cpuFrameBuffer.data() + row * rowBytes;
+                const uint8_t* src = reinterpret_cast<const uint8_t*>(pSrc) + row * rowBytes;
+                SwapBGRAtoRGBA(dst, src, static_cast<uint32_t>(rowPixels));
+            }
+        #else
+            // No channel swap needed; single memcpy covers the whole frame
+            std::memcpy(m_cpuFrameBuffer.data(), pSrc, frameBytes);
+        #endif
         m_cpuFrameWidth  = m_videoWidth;
         m_cpuFrameHeight = m_videoHeight;
     }

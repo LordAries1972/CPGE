@@ -925,6 +925,19 @@ float DX11Renderer::GetCharacterWidth(wchar_t character, float FontSize) {
     return textMetrics.width;
 }
 
+float DX11Renderer::GetCharacterWidth(wchar_t character, float FontSize, bool bold) {
+    if (!m_dwriteFactory) { ThrowError("DirectWrite factory is not initialized."); return 0.0f; }
+    auto weight = bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL;
+    IDWriteTextFormat* fmt = GetOrCreateTextFormat(FontName, FontSize, weight);
+    if (!fmt) { ThrowError("Failed to get text format for character width."); return 0.0f; }
+    ComPtr<IDWriteTextLayout> textLayout;
+    HRESULT hr = m_dwriteFactory->CreateTextLayout(&character, 1, fmt, 1000.0f, 1000.0f, &textLayout);
+    if (FAILED(hr)) { ThrowError("Failed to create text layout for character width."); return 0.0f; }
+    DWRITE_TEXT_METRICS textMetrics;
+    if (FAILED(textLayout->GetMetrics(&textMetrics))) { ThrowError("Failed to get text metrics."); return 0.0f; }
+    return textMetrics.width;
+}
+
 float DX11Renderer::GetCharacterWidth(wchar_t character, float FontSize, const std::wstring& fontName) {
     if (!m_dwriteFactory) { ThrowError("DirectWrite factory is not initialized."); return 0.0f; }
 

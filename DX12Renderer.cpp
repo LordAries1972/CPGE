@@ -4966,6 +4966,25 @@ float DX12Renderer::GetCharacterWidth(wchar_t character, float FontSize, const s
 }
 
 //-----------------------------------------
+// Get Character Width (bold-aware) for DirectX 12
+//-----------------------------------------
+float DX12Renderer::GetCharacterWidth(wchar_t character, float FontSize, bool bold) {
+    if (!m_dwriteFactory) return 0.0f;
+    try {
+        auto weight = bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL;
+        IDWriteTextFormat* fmt = GetOrCreateTextFormat(FontName, FontSize, weight);
+        if (!fmt) return 0.0f;
+        ComPtr<IDWriteTextLayout> textLayout;
+        HRESULT hr = m_dwriteFactory->CreateTextLayout(&character, 1, fmt, 1000.0f, 1000.0f, &textLayout);
+        if (FAILED(hr) || !textLayout) return 0.0f;
+        DWRITE_TEXT_METRICS textMetrics;
+        if (FAILED(textLayout->GetMetrics(&textMetrics))) return 0.0f;
+        return textMetrics.width;
+    }
+    catch (...) { return 0.0f; }
+}
+
+//-----------------------------------------
 // Calculate Text Width for DirectX 12
 //-----------------------------------------
 float DX12Renderer::CalculateTextWidth(const std::wstring& text, float FontSize, float containerWidth) {

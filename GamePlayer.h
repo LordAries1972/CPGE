@@ -551,3 +551,105 @@ private:
 // Global GamePlayer instance declaration
 extern GamePlayer gamePlayer;
 
+// ===========================================================================
+// Commander Profile System — TSOO Project Specific
+// 14 pre-defined commanders (7 male, 7 female) each with unique permanent
+// attribute bonuses. Stored in GamePlayers.h per the design specification.
+// The active commander is chosen in the UserProfile window and persisted
+// to GameConfig.cfg (profileID) and to a separate binary UserProfile.dat.
+// ===========================================================================
+#ifdef PROJECT_ONLY_CODE
+
+constexpr int MAX_COMMANDER_PROFILES = 14;
+
+enum class CommanderRank : uint8_t {
+    RANK_ENSIGN             = 0,
+    RANK_LIEUTENANT         = 1,
+    RANK_LIEUTENANT_COMMANDER = 2,
+    RANK_MAJOR              = 3,
+    RANK_CAPTAIN            = 4,
+    RANK_COMMANDER          = 5,
+    RANK_VICE_CAPTAIN       = 6,
+};
+
+enum class CommanderGender : uint8_t {
+    GENDER_MALE   = 0,
+    GENDER_FEMALE = 1,
+};
+
+// Permanent attribute bonus percentages (0–100) for each commander.
+// These are fixed design values — they cannot be changed by the player.
+struct CommanderStats {
+    int speed;      // How fast you move
+    int shields;    // Bonus to shield technician work
+    int hull;       // Bonus to overall HULL limits
+    int cash;       // Extra bonus to cash pickups
+    int regen;      // Regeneration bonus
+    int weapon;     // Bonus to weapon fire speed
+    int cloaking;   // Time bonus when cloaking is engaged
+};
+
+struct CommanderProfile {
+    char            name[25];           // Character name — 24 chars + null, no special characters
+    CommanderRank   rank;
+    CommanderGender gender;
+    CommanderStats  stats;
+    int             portraitTexIndex;   // Cast of BlitObj2DIndexType for the commander portrait
+};
+
+// Player-mutable profile data saved as binary (UserProfile.dat)
+// and partially mirrored to GameConfig.cfg (profileID, playerName, experience).
+// A checksum guards against manual file edits.
+struct UserProfileData {
+    char     playerName[25];    // Player-chosen callsign (24 chars + null)
+    long int current_money;
+    int      profileID;         // Index into kCommanderRoster (0..13)
+    uint64_t experience;
+    uint32_t checksum;          // FNV-1a 32-bit hash of the above four fields
+};
+
+// Helper: return a human-readable rank string.
+inline const wchar_t* CommanderRankToString(CommanderRank r)
+{
+    switch (r) {
+        case CommanderRank::RANK_ENSIGN:              return L"Ensign";
+        case CommanderRank::RANK_LIEUTENANT:          return L"Lieutenant";
+        case CommanderRank::RANK_LIEUTENANT_COMMANDER: return L"Lt. Commander";
+        case CommanderRank::RANK_MAJOR:               return L"Major";
+        case CommanderRank::RANK_CAPTAIN:             return L"Captain";
+        case CommanderRank::RANK_COMMANDER:           return L"Commander";
+        case CommanderRank::RANK_VICE_CAPTAIN:        return L"Vice Captain";
+        default:                                      return L"Unknown";
+    }
+}
+
+// Pre-defined commander roster — 7 male (indices 0-6) then 7 female (7-13).
+// portraitTexIndex matches BlitObj2DIndexType: IMG_PM1=20 .. IMG_PF7=33.
+inline const CommanderProfile kCommanderRoster[MAX_COMMANDER_PROFILES] = {
+    // ---- Male commanders ------------------------------------------------
+    { "Rex Theron",     CommanderRank::RANK_CAPTAIN,             CommanderGender::GENDER_MALE,   { 60, 40, 50, 30, 20, 70, 10 }, 20 },
+    { "Marcus Vale",    CommanderRank::RANK_COMMANDER,           CommanderGender::GENDER_MALE,   { 40, 70, 60, 20, 30, 40, 20 }, 22 },
+    { "Zane Orvis",     CommanderRank::RANK_LIEUTENANT_COMMANDER,CommanderGender::GENDER_MALE,   { 80, 20, 30, 50, 10, 50, 40 }, 24 },
+    { "Deon Sarkis",    CommanderRank::RANK_MAJOR,               CommanderGender::GENDER_MALE,   { 20, 50, 80, 40, 60, 30, 10 }, 26 },
+    { "Ivan Krauss",    CommanderRank::RANK_CAPTAIN,             CommanderGender::GENDER_MALE,   { 30, 60, 40, 70, 20, 60, 30 }, 28 },
+    { "Rylen Cross",    CommanderRank::RANK_LIEUTENANT,          CommanderGender::GENDER_MALE,   { 70, 30, 20, 60, 40, 80, 20 }, 30 },
+    { "Tobin Ward",     CommanderRank::RANK_ENSIGN,              CommanderGender::GENDER_MALE,   { 50, 80, 70, 10, 70, 20, 60 }, 32 },
+    // ---- Female commanders ----------------------------------------------
+    { "Lyra Solenne",   CommanderRank::RANK_VICE_CAPTAIN,        CommanderGender::GENDER_FEMALE, { 50, 50, 50, 50, 50, 50, 50 }, 21 },
+    { "Sera Voss",      CommanderRank::RANK_COMMANDER,           CommanderGender::GENDER_FEMALE, { 60, 30, 40, 80, 30, 50, 50 }, 23 },
+    { "Mira Ashton",    CommanderRank::RANK_LIEUTENANT,          CommanderGender::GENDER_FEMALE, { 90, 10, 20, 30, 20, 60, 70 }, 25 },
+    { "Nira Storme",    CommanderRank::RANK_CAPTAIN,             CommanderGender::GENDER_FEMALE, { 10, 80, 90, 20, 70, 20, 30 }, 27 },
+    { "Zoya Reinholt",  CommanderRank::RANK_MAJOR,               CommanderGender::GENDER_FEMALE, { 30, 60, 30, 90, 40, 70, 20 }, 29 },
+    { "Ayla Vex",       CommanderRank::RANK_ENSIGN,              CommanderGender::GENDER_FEMALE, { 40, 40, 60, 60, 80, 30, 60 }, 31 },
+    { "Davia Quinn",    CommanderRank::RANK_LIEUTENANT,          CommanderGender::GENDER_FEMALE, { 70, 20, 50, 40, 50, 80, 40 }, 33 },
+};
+
+// Binary profile persistence (UserProfile.dat)
+bool SaveUserProfile(const UserProfileData& data, const char* filepath = "UserProfile.dat");
+bool LoadUserProfile(UserProfileData& data,       const char* filepath = "UserProfile.dat");
+
+// Compute the FNV-1a 32-bit checksum for a UserProfileData (all fields except checksum).
+uint32_t ComputeProfileChecksum(const UserProfileData& data);
+
+#endif // PROJECT_ONLY_CODE
+

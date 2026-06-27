@@ -28,6 +28,47 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 // ---------------------------------------------------------------------------
 #define GAME_NAME_W L"CPGE"
 
+// ---------------------------------------------------------------------------
+// This following define (PROJECT_ONLY_CODE) is used to indicate that this code is only,
+// to be used for this project repository only and to be excluded from the CPGE
+// engine code base.
+//
+// This is used outside the CPGE Engine project to prevent it from being compiled with this code and
+// to avoid cross-contamination between any outside project and the CPGE engine
+// project itself.  This is a project specific define and should be used in all project
+// specific code files to prevent them from being compiled into the engine
+// project unless stated otherwise.
+
+// When using this directive, use this for when you have new work to be merged into the
+// CPGE Engine project, and to ensure that any new additions to the engine.  This ensures
+// that any new additions to the engine are not accidentally compiled into the engine project
+// itself, and to prevent cross-contamination between the engine and project code bases when using both
+// side-by-side for your development purposes.
+
+// It is also used to prevent the AI system when requesting to update all new additions
+// to the CPGE Engine project, and to NOT include any unnecessary project specific code
+// into the engine project itself.
+
+// So when using this conditional directive, it is used only for this project and not
+// the engine project itself (Is your game, or other system your developing).
+// Your project for such an implementation should be strictly
+// outside the CPGE engine project itself.
+
+// Be sure to use this directive in all your external project specific code files,
+// especially if your contributing to the CPGE Engine project, to prevent them from being compiled
+// into the engine project unless authorised.
+
+// This is a very important directive, so please be assured to read our documentation on how to
+// use this directive properly, and to ensure that you are using it correctly in your project code
+// files, and to prevent any cross-contamination between the CPGE Engine itself and your project code bases directly,
+// when using both side-by-side for your development purposes.
+// ---------------------------------------------------------------------------
+// Do not define this in the CPGE Engine project, only for your project code files outside
+// that work side-by-side with the CPGE Engine Repository.
+// ---------------------------------------------------------------------------
+//#define PROJECT_ONLY_CODE
+// ---------------------------------------------------------------------------
+
 #define __USE_XMPLAYER__
 //#define __USE_MP3PLAYER__
 #define __USING_JOYSTICKS__                                                             // Uncomment this line if you want to use Joysticks with this engine.
@@ -107,7 +148,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
         #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__) && \
             !defined(__USE_OPENGL__)     && !defined(__USE_VULKAN__)      && \
             !defined(__USE_RADEON__)
-//            #define __USE_DIRECTX_11__  // Change this to switch the default for IDE-only builds
+            #define __USE_DIRECTX_11__  // Change this to switch the default for IDE-only builds
         #endif
 
         #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__) && !defined(__USE_OPENGL__) && !defined(__USE_VULKAN__)

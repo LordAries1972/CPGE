@@ -164,13 +164,7 @@ SystemUtils sysUtils;
 Joystick js;
 SoundManager soundManager;
 GUIManager guiManager;
-#if defined(__USE_OPENGL__)
-    FXManager fxManager;
-#elif defined(__USE_VULKAN__)
-    FXManager fxManager;
-#else
-    FXManager fxManager;
-#endif
+FXManager fxManager;
 
 LightsManager lightsManager;
 SceneManager scene;
@@ -182,6 +176,7 @@ ScreenRecorder screenRecorder;
 extern const std::string DIFFICULTY_WINDOW_NAME;
 extern const std::string GameMenu_WindowName;
 extern const std::string GAMEPLAYTYPES_WINDOW_NAME;
+extern const std::string QUIT_CONFIRM_WINDOW_NAME;
 extern ConsoleWindow consoleWindow;
 
 #ifdef __USE_SCRIPT_MANAGER__

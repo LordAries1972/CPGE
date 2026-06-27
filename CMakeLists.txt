@@ -7,8 +7,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # ── Game identity & renderer selection ───────────────────────────────────────
 # GameName must match #define GAME_NAME in Includes.h and <GameName> in the vcxproj.
 set(GAME_NAME "CPGE" CACHE STRING "Base game name used in the output executable")
-# Renderer: DX11 | DX12 | OpenGL | Vulkan
-set(RENDERER "DX11" CACHE STRING "Active renderer (DX11, DX12, OpenGL, Vulkan)")
+# Renderer: DX11 | DX12 | OpenGL | Vulkan | METAL (Metal is macOS/iOS only; not implemented yet)
+set(RENDERER "DX11" CACHE STRING "Active renderer (DX11, DX12, OpenGL, Vulkan, METAL)")
 
 if(RENDERER STREQUAL "DX11")
     set(RENDERER_PREFIX "DX")
@@ -22,14 +22,17 @@ elseif(RENDERER STREQUAL "OpenGL")
 elseif(RENDERER STREQUAL "Vulkan")
     set(RENDERER_PREFIX "Vulkan")
     set(RENDERER_DEFINE "__USE_VULKAN__")
+elseif(RENDERER STREQUAL "METAL")
+    set(RENDERER_PREFIX "METAL")
+    set(RENDERER_DEFINE "__USE_METAL__")
 else()
     message(FATAL_ERROR "Unknown RENDERER '${RENDERER}'. Valid values: DX11, DX12, OpenGL, Vulkan")
 endif()
 
 # Platform-appropriate output name:
 #   Windows  : DX{name}.exe / OpenGL{name}.exe / Vulkan{name}.exe  (.exe added by CMake)
-#   macOS    : DX{name}.app / OpenGL{name}.app / Vulkan{name}.app   (bundle; .app added by CMake)
-#   iOS      : {name}.app bundle via Xcode signing pipeline
+#   macOS    : OpenGL{name}.app / METAL{name}.app   (bundle; .app added by CMake)
+#   iOS      : {name}.app bundle via Xcode / METAL signing pipeline
 #   Linux    : OpenGL{name} / Vulkan{name}  (no extension on ELF)
 #   Android  : library name only; packaging to .apk is handled by the Android build toolchain
 set(EXE_OUTPUT_NAME "${RENDERER_PREFIX}${GAME_NAME}")
@@ -117,6 +120,14 @@ add_executable(CrossPlatformGameEngine WIN32 ${SOURCES})
 set_target_properties(CrossPlatformGameEngine PROPERTIES
     OUTPUT_NAME "${EXE_OUTPUT_NAME}"
 )
+
+# Set VS debugger working directory to project root so Assets/Shaders are found at runtime.
+# Without this, VS defaults to the vcxproj output dir which has no Assets/ subtree.
+if(MSVC)
+    set_target_properties(CrossPlatformGameEngine PROPERTIES
+        VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+endif()
 
 # macOS / iOS: wrap as an .app bundle (Xcode/CPack turns this into .dmg/.ipa for distribution)
 if(APPLE)

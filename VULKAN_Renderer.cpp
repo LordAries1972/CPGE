@@ -2777,6 +2777,12 @@ float VulkanRenderer::GetCharacterWidth(wchar_t character, float FontSize, const
     return VKCharWidth(character, FontSize);
 }
 
+float VulkanRenderer::GetCharacterWidth(wchar_t character, float FontSize, bool bold)
+{
+    float w = VKCharWidth(character, FontSize);
+    return bold ? w * 1.1f : w;
+}
+
 float VulkanRenderer::CalculateTextWidth(const std::wstring& text, float FontSize, float /*containerWidth*/)
 {
     if (text.empty()) return 0.0f;

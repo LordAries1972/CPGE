@@ -2254,3 +2254,97 @@ void GamePlayer::LogNetworkOperation(const std::string& operation, int playerID)
 #endif
 
 #pragma warning(pop)
+
+// ===========================================================================
+// Commander Profile Binary Persistence — PROJECT_ONLY_CODE
+// UserProfile.dat is a raw binary file containing a single UserProfileData
+// struct.  A FNV-1a 32-bit checksum covers all fields except 'checksum'
+// itself; a mismatch resets to defaults and forces a re-save.
+// Future: also push to a cloud/web endpoint after every save.
+// ===========================================================================
+#ifdef PROJECT_ONLY_CODE
+
+uint32_t ComputeProfileChecksum(const UserProfileData& d)
+{
+    // FNV-1a 32-bit over: playerName, current_money, profileID, experience
+    uint32_t hash = 2166136261u;
+    auto absorb = [&](const void* p, size_t n) {
+        const uint8_t* b = static_cast<const uint8_t*>(p);
+        for (size_t i = 0; i < n; ++i) { hash ^= b[i]; hash *= 16777619u; }
+    };
+    absorb(d.playerName, sizeof(d.playerName));
+    absorb(&d.current_money, sizeof(d.current_money));
+    absorb(&d.profileID, sizeof(d.profileID));
+    absorb(&d.experience, sizeof(d.experience));
+    return hash;
+}
+
+bool SaveUserProfile(const UserProfileData& data, const char* filepath)
+{
+    UserProfileData out = data;
+    out.checksum = ComputeProfileChecksum(out);
+
+    FILE* f = nullptr;
+    if (fopen_s(&f, filepath, "wb") != 0 || !f) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Profile] Cannot open %hs for writing", filepath);
+        return false;
+    }
+    const size_t written = fwrite(&out, sizeof(UserProfileData), 1, f);
+    fclose(f);
+    if (written != 1) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Profile] Write failed: %hs", filepath);
+        return false;
+    }
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"[Profile] Saved profile '%hs' (ID=%d) to %hs",
+        out.playerName, out.profileID, filepath);
+    return true;
+}
+
+bool LoadUserProfile(UserProfileData& data, const char* filepath)
+{
+    FILE* f = nullptr;
+    if (fopen_s(&f, filepath, "rb") != 0 || !f) {
+        // First run — initialise to safe defaults
+        memset(&data, 0, sizeof(data));
+        strncpy_s(data.playerName, sizeof(data.playerName), "Commander", _TRUNCATE);
+        data.profileID    = 0;
+        data.current_money = 0;
+        data.experience   = 0;
+        data.checksum     = ComputeProfileChecksum(data);
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[Profile] %hs not found — using defaults", filepath);
+        return false;
+    }
+    UserProfileData tmp{};
+    const size_t read = fread(&tmp, sizeof(UserProfileData), 1, f);
+    fclose(f);
+
+    if (read != 1) {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[Profile] Read error: %hs", filepath);
+        return false;
+    }
+
+    const uint32_t expected = ComputeProfileChecksum(tmp);
+    if (tmp.checksum != expected) {
+        debug.logDebugMessage(LogLevel::LOG_WARNING,
+            L"[Profile] Checksum mismatch in %hs — profile reset to defaults (anti-tamper)", filepath);
+        memset(&data, 0, sizeof(data));
+        strncpy_s(data.playerName, sizeof(data.playerName), "Commander", _TRUNCATE);
+        data.profileID    = 0;
+        data.current_money = 0;
+        data.experience   = 0;
+        data.checksum     = ComputeProfileChecksum(data);
+        SaveUserProfile(data, filepath);   // Overwrite tampered file
+        return false;
+    }
+
+    // Clamp profileID to valid range
+    if (tmp.profileID < 0 || tmp.profileID >= MAX_COMMANDER_PROFILES)
+        tmp.profileID = 0;
+
+    data = tmp;
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"[Profile] Loaded profile '%hs' (ID=%d) from %hs",
+        data.playerName, data.profileID, filepath);
+    return true;
+}
+
+#endif // PROJECT_ONLY_CODE

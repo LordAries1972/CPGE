@@ -13,13 +13,7 @@
 #include "ExceptionHandler.h"
 #include "SoundManager.h"
 #include "SceneManager.h"
-#if defined(__USE_OPENGL__)
 #include "FXManager.h"
-#elif defined(__USE_VULKAN__)
-#include "FXManager.h"
-#else
-#include "FXManager.h"
-#endif
 #include "KeyboardHandler.h"
 #include "GamePlayer.h"
 #include "GamingAI.h"
@@ -44,13 +38,7 @@ class SceneManager;
 
 extern Debug debug;
 extern ExceptionHandler exceptionHandler;
-#if defined(__USE_OPENGL__)
 extern FXManager fxManager;
-#elif defined(__USE_VULKAN__)
-extern FXManager fxManager;
-#else
-extern FXManager fxManager;
-#endif
 extern GamePlayer gamePlayer;
 extern GamingAI gamingAI;
 extern SoundManager soundManager;
@@ -144,6 +132,14 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
 
                     case SceneType::SCENE_GAMETITLE:
                     {
+                        // If the quit-confirm dialog is already open, close it (ESC = cancel).
+                        auto qcWin = guiManager.GetWindow("QuitConfirmDialog");
+                        if (qcWin && !qcWin->bWindowDestroy) {
+                            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+                            guiManager.RemoveWindow("QuitConfirmDialog");
+                            break;
+                        }
+
                         // If the GamePlayTypes or Difficulty selection window is open, ESC navigates
                         // back to the Game Menu so the user can abort or correct their selection.
                         auto gptWin  = guiManager.GetWindow("GamePlayTypes");
@@ -171,20 +167,10 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
                             break;
                         }
 
-                        // No sub-window open — ESC exits the application normally
-                        fxManager.FadeToBlack(1.0f, 0.06f);
+                        // No sub-window open — show the quit-confirmation modal instead of
+                        // exiting immediately.  OK in the dialog performs the actual shutdown.
                         soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
-                        while (fxManager.IsFadeActive())
-                        {
-                            #if !defined(RENDERER_IS_THREAD)
-                                renderer->RenderFrame();
-                            #endif
-                            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-                        }
-
-                        StopMusicPlayback();
-                        threadManager.threadVars.bIsShuttingDown.store(true);
-                        PostQuitMessage(0);
+                        guiManager.CreateQuitConfirmDialog();
                         break;
                     }
                 } // End of switch (keyCode)
@@ -231,15 +217,18 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
                     break;
                 }
 
-                // Console command bar — character deletion
                 case KeyCode::KEY_BACKSPACE:
                 {
-                    if (consoleWindow.bIsVisible)
-                        guiManager.HandleBackspace();
+                    guiManager.HandleBackspace();
                     break;
                 }
 
-                // Console command bar — submit command
+                case KeyCode::KEY_DELETE:
+                {
+                    guiManager.HandleDelete();
+                    break;
+                }
+
                 case KeyCode::KEY_ENTER:
                 {
                     if (consoleWindow.bIsVisible)

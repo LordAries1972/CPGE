@@ -231,10 +231,14 @@ set "BUILD_DIR=%SCRIPT_DIR%build\%RENDERER%\%CONFIG%"
 if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
 
 echo.
-echo Building: OS=%DETECTED_OS%  Renderer=%RENDERER%  Config=%CONFIG%  Dir=%BUILD_DIR%
+:: --- Extract GAME_NAME from Includes.h ---
+set "GAME_NAME_VAL=UNKNOWN"
+for /f "usebackq delims=" %%G in (`powershell -NoProfile -Command "if ([IO.File]::ReadAllText('%SCRIPT_DIR%Includes.h') -match '#define GAME_NAME\s+\W(\w+)') { $Matches[1] }"`) do set "GAME_NAME_VAL=%%G"
+
+echo Building: OS=%DETECTED_OS%  Renderer=%RENDERER%  GameName=%GAME_NAME_VAL%  Config=%CONFIG%  Dir=%BUILD_DIR%
 echo.
 
-"%CMAKE_EXE%" -S "%SCRIPT_DIR:~0,-1%" -B "%BUILD_DIR%" -G "Visual Studio 17 2022" -A x64 -DRENDERER:STRING=%RENDERER%
+"%CMAKE_EXE%" -S "%SCRIPT_DIR:~0,-1%" -B "%BUILD_DIR%" -G "Visual Studio 17 2022" -A x64 -DRENDERER:STRING=%RENDERER% -DGAME_NAME:STRING=%GAME_NAME_VAL%
 if errorlevel 1 goto :error
 
 :: cmake-build already incremented the version; tell IncrementVersion.cmake PRE_BUILD hook to skip.

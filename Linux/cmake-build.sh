@@ -130,57 +130,6 @@ case "${ARG2,,}" in
         ;;
 esac
 
-# --- Version increment ---
-# Read Version.id, bump the build number, write back both Version.id and BuildInfo.h.
-# SKIP_VERSION_INCREMENT is set by 'cmake-build all' for all pipelines after the first,
-# so the build number advances exactly once per user-initiated build invocation.
-if [[ -z "${SKIP_VERSION_INCREMENT:-}" ]]; then
-    VERSION_ID_FILE="${PROJECT_ROOT}/Version.id"
-    BUILDINFO_FILE="${PROJECT_ROOT}/BuildInfo.h"
-    if [[ ! -f "${VERSION_ID_FILE}" ]]; then
-        echo "ERROR: Version.id not found at ${VERSION_ID_FILE}"
-        exit 1
-    fi
-    echo "Incrementing build number..."
-    if ! python3 - "${VERSION_ID_FILE}" "${BUILDINFO_FILE}" <<'PYEOF'
-import re, sys
-
-vf, bf = sys.argv[1], sys.argv[2]
-
-with open(vf, 'r') as f:
-    line = f.read().strip()
-
-m = re.search(r'v(\d+)\.(\d+)\.(\d+)', line)
-if not m:
-    print('ERROR: Could not parse Version.id', file=sys.stderr)
-    sys.exit(1)
-
-major, minor, build = int(m.group(1)), int(m.group(2)), int(m.group(3)) + 1
-
-with open(vf, 'w') as f:
-    f.write(f'Current Build Version: v{major}.{minor}.{build}')
-
-with open(bf, 'r') as f:
-    t = f.read()
-
-t = re.sub(r'(?m)^constexpr int CURRENT_BUILD_VERSION\s*=\s*\d+;',
-           f'constexpr int CURRENT_BUILD_VERSION    = {major};', t)
-t = re.sub(r'(?m)^constexpr int CURRENT_BUILD_SUBVERSION\s*=\s*\d+;',
-           f'constexpr int CURRENT_BUILD_SUBVERSION = {minor};', t)
-t = re.sub(r'(?m)^constexpr int CURRENT_BUILD\s*=\s*\d+;',
-           f'constexpr int CURRENT_BUILD            = {build};', t)
-
-with open(bf, 'w') as f:
-    f.write(t)
-
-print(f'Build number: v{major}.{minor}.{build}')
-PYEOF
-    then
-        echo "ERROR: Failed to increment build number -- build aborted."
-        exit 1
-    fi
-fi
-
 # --- Validate cmake ---
 if ! command -v "${CMAKE_EXE}" &>/dev/null; then
     echo "ERROR: cmake not found. Install it with:"
@@ -219,22 +168,28 @@ else
     echo "      The renderer define is passed via -D${RENDERER_DEFINE} by CMake."
 fi
 
+# --- Extract GAME_NAME from Includes.h ---
+GAME_NAME_VAL=$(sed -n 's/^#define GAME_NAME[[:space:]]*"\([^"]*\)".*/\1/p' "${PROJECT_ROOT}/Includes.h" | head -1)
+if [[ -z "${GAME_NAME_VAL}" ]]; then
+    echo "WARNING: Could not extract GAME_NAME from Includes.h -- defaulting to UNKNOWN"
+    GAME_NAME_VAL="UNKNOWN"
+fi
+
 # --- Build ---
 BUILD_DIR="${SCRIPT_DIR}/build/${RENDERER}/${CONFIG}"
 mkdir -p "${BUILD_DIR}"
 
 echo ""
-echo "Building: OS=Linux  Renderer=${RENDERER}  Config=${CONFIG}  Dir=${BUILD_DIR}"
+echo "Building: OS=Linux  Renderer=${RENDERER}  GameName=${GAME_NAME_VAL}  Config=${CONFIG}  Dir=${BUILD_DIR}"
 echo ""
 
 "${CMAKE_EXE}" \
     -S "${SCRIPT_DIR}" \
     -B "${BUILD_DIR}" \
     -DRENDERER:STRING="${RENDERER}" \
+    -DGAME_NAME:STRING="${GAME_NAME_VAL}" \
     -DCMAKE_BUILD_TYPE="${CONFIG}"
 
-# cmake-build.sh already incremented the version; tell IncrementVersion.cmake PRE_BUILD hook to skip.
-export SKIP_VERSION_INCREMENT=1
 "${CMAKE_EXE}" --build "${BUILD_DIR}" --parallel "$(nproc 2>/dev/null || echo 4)"
 
 echo ""

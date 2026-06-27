@@ -266,8 +266,9 @@ void MathPrecalculation::InitializeColorConversionTables()
                 int g = static_cast<int>(yFull - 0.344f * (uFull - 128) - 0.714f * (vFull - 128));
                 int b = static_cast<int>(yFull + 1.772f * (uFull - 128));
 
-                // Calculate index into the lookup table
-                int index = (y * yuvTableSize + u) * yuvTableSize + v;
+                // Index into the 64^3 lookup table. yuvTableSize=64=2^6, so
+                // *yuvTableSize is replaced by <<6 (bit-shift for power-of-2).
+                int index = (((y << 6) + u) << 6) + v;
                 int baseIndex = index * 3;
 
                 // Ensure we don't exceed array bounds
@@ -950,8 +951,9 @@ void MathPrecalculation::FastYuvToRgb(uint8_t y, uint8_t u, uint8_t v, uint8_t& 
     uIndex = std::clamp(uIndex, 0, yuvTableSize - 1);
     vIndex = std::clamp(vIndex, 0, yuvTableSize - 1);
 
-    // Calculate index into the YUV to RGB lookup table
-    size_t index = (static_cast<size_t>(yIndex) * yuvTableSize + static_cast<size_t>(uIndex)) * yuvTableSize + static_cast<size_t>(vIndex);
+    // Index into the 64^3 lookup table. yuvTableSize=64=2^6, so
+    // *yuvTableSize is replaced by <<6 (bit-shift for power-of-2).
+    size_t index = (((static_cast<size_t>(yIndex) << 6) + static_cast<size_t>(uIndex)) << 6) + static_cast<size_t>(vIndex);
     size_t baseIndex = index * 3;
 
     // Ensure index is within bounds of the lookup table

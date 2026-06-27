@@ -75,6 +75,18 @@ struct MyConfig {
     // Swap-chain buffer mode: 1 = triple buffering (default), 0 = double buffering.
     // Takes effect after a video-settings restart.
     int buffering        = 1;
+
+#ifdef PROJECT_ONLY_CODE
+    // --- Player profile fields (TSOO project specific) ---
+    // profileID   : index into kCommanderRoster (0..13)
+    // playerName  : player-chosen callsign (max 24 chars, no special characters)
+    // playerExperience : accumulated XP across all sessions
+    // These three fields are included in the checksum so manual edits
+    // trigger an automatic reset of ALL config values to defaults.
+    int         profileID        = 0;
+    std::string playerName       = "Commander";
+    uint64_t    playerExperience = 0;
+#endif
 };
 
 class Configuration {

@@ -2146,6 +2146,28 @@ float OpenGLRenderer::GetCharacterWidth(wchar_t character, float fontSize)
     return GetCharacterWidth(character, fontSize, L"Arial");
 }
 
+float OpenGLRenderer::GetCharacterWidth(wchar_t character, float fontSize, bool bold)
+{
+    #if defined(_WIN32) || defined(_WIN64)
+        HDC dc = GetDC(nullptr);
+        if (!dc) return fontSize * 0.6f;
+        int ptSize = std::max(1, static_cast<int>(fontSize * 1.333f));
+        HFONT hFont = CreateFontW(-ptSize, 0, 0, 0, bold ? FW_BOLD : FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
+        if (!hFont) { ReleaseDC(nullptr, dc); return fontSize * 0.6f; }
+        HFONT old = reinterpret_cast<HFONT>(SelectObject(dc, hFont));
+        SIZE sz = {};
+        GetTextExtentPoint32W(dc, &character, 1, &sz);
+        SelectObject(dc, old);
+        DeleteObject(hFont);
+        ReleaseDC(nullptr, dc);
+        return static_cast<float>(sz.cx);
+    #else
+        return fontSize * 0.6f;
+    #endif
+}
+
 float OpenGLRenderer::GetCharacterWidth(wchar_t character, float fontSize,
                                          const std::wstring& fontName)
 {

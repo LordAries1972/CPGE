@@ -11,14 +11,14 @@
 
        Windows:       __USE_DIRECTX_11__  __USE_DIRECTX_12__  __USE_OPENGL__  __USE_VULKAN__
        Linux/Android: __USE_OPENGL__  __USE_VULKAN__
-       iOS/macOS:     __USE_OPENGL__
+       iOS/macOS:     __USE_OPENGL__  __USE_METAL__
 
    -------------------------------------------------------------------------------
    RUNTIME SELECTION (config.myConfig.rendererType):
 
        Windows:       0=DirectX 11 (default)  1=DirectX 12  2=OpenGL  3=Vulkan
        Linux/Android: 0=OpenGL (default)       1=Vulkan
-       iOS/macOS:     0=OpenGL (only option)
+       iOS/macOS:     0=OpenGL (default)       1=Metal
 
    RendererFactory.cpp reads this value, validates it via
    Configuration::ValidateRendererForPlatform(), and instantiates the correct
@@ -33,6 +33,7 @@
            case 1: renderer = std::make_shared<DX12Renderer>();   break;  // Windows
            case 2: renderer = std::make_shared<OpenGLRenderer>(); break;  // Windows
            case 3: renderer = std::make_shared<VulkanRenderer>(); break;  // Windows
+           case 4: renderer = std::make_shared<MetalRenderer>();  break;  // iOS/macOS
        }
 
    -------------------------------------------------------------------------------
@@ -101,7 +102,7 @@
 
 // Uncomment this line if Renderer is to be a 
 // separate tasking thread
-#define RENDERER_IS_THREAD
+#define RENDERER_IS_THREAD // Threading is now the primary way, soon to be removed!
 
 const int MAX_SCREEN_MONITORS = 4;
 const bool USE_FPS_DISPLAY   = true;
@@ -131,7 +132,10 @@ struct AvailScreenModes {
     std::vector<AvailModes> modes;
 };
 
-const int MAX_2D_IMG_QUEUE_OBJS = 512;
+// Maximum number of 2D image objects that can be queued for rendering 
+// in a single frame
+const int MAX_2D_IMG_QUEUE_OBJS = 256;  
+
 const LPCWSTR FontName = L"Segoe UI";
 
 const int MAX_RENDER_OPERATIONS = 4096;
@@ -143,6 +147,7 @@ enum class RendererType
 	RT_DirectX12,
 	RT_OpenGL,
 	RT_Vulkan,
+	RT_Metal,
 };
 
 //------------------------------------------
@@ -207,7 +212,10 @@ enum class BlitObj2DIndexType : int {
     IMG_TAB_RED = 16,
     IMG_TAB_GUNMETALGRAY = 17,
     IMG_LOADING = 18,
-    IMG_TSOO = 19
+    // Game title image — always at index 19 in texFilename[] and for 
+    // demonstration purposes only, not used in the real purpose of the 
+    // engine itself. This is a TSOO project-only image and stops here!
+    IMG_TSOO = 19,   
 };
 
 struct BlitObj2DDetails
@@ -534,6 +542,7 @@ public:
 
     virtual float GetCharacterWidth(wchar_t character, float FontSize) = 0;
     virtual float GetCharacterWidth(wchar_t character, float FontSize, const std::wstring& fontName) = 0;
+    virtual float GetCharacterWidth(wchar_t character, float FontSize, bool bold) = 0;
     virtual float CalculateTextWidth(const std::wstring& text, float FontSize, float containerWidth) = 0;
     virtual float CalculateTextHeight(const std::wstring& text, float FontSize, float containerHeight) = 0;
 

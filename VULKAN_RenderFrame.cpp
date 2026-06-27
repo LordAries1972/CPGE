@@ -587,7 +587,7 @@ void VulkanRenderer::RenderFrame()
                         std::chrono::steady_clock::now() - debugOSDStartTime).count();
                     if (osdElapsed < 5.0f) {
                         std::wstring osdMsg = config.myConfig.showDebugInfo
-                            ? L"► Debug Info: ENABLED" : L"► Debug Info: DISABLED";
+                            ? L"=> Debug Info: ENABLED" : L"=> Debug Info: DISABLED";
                         DrawMyText(osdMsg, Vector2(10.0f, 80.0f), MyColor(255, 220, 0, 255), 14.0f);
                     } else { bDebugOSDActive = false; }
                 }

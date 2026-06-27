@@ -29,6 +29,7 @@ extern SoundManager soundManager;
 #endif
 
 extern ThreadManager threadManager;
+extern HWND hwnd;
 
 // Forward-declared in main.cpp (no longer static)
 #if defined(PLATFORM_WINDOWS)
@@ -507,7 +508,10 @@ void GUIManager::CreateConfigWindow()
             if (closeGuard->exchange(true)) return;   // prevent double-fire
             soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
             config.saveConfig();
-            RemoveWindow(WIN_NAME);
+            auto* self = this;
+            const auto win = WIN_NAME;
+            self->ApplyWindowFadeCallback(GUIWindowFadeType::FadeOut, 0.35f, win,
+                [self, win]() { self->RemoveWindow(win); });
         };
         configWindow->AddControl(cbBtn);
     }
@@ -928,13 +932,16 @@ void GUIManager::CreateConfigWindow()
     // ===================================================================
     const float BTM_Y = CONT_Y + CONT_H + 8.0f;
 
-    // CLOSE — discard all changes, revert live audio
+    // CLOSE — discard all changes, revert live audio, then fade out
     addButton("btn_close", WX + 10.0f, BTM_Y, 140.0f, 34.0f, L"Close", 14.0f, true,
         [this, WIN_NAME, revertCfg]() {
             soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
             config.myConfig = *revertCfg;
             config.applyLive();
-            RemoveWindow(WIN_NAME);
+            auto* self = this;
+            const auto win = WIN_NAME;
+            self->ApplyWindowFadeCallback(GUIWindowFadeType::FadeOut, 0.35f, win,
+                [self, win]() { self->RemoveWindow(win); });
         }, 102);
 
     // SAVE — write config to disk, revert live audio to reverted state only
@@ -953,7 +960,8 @@ void GUIManager::CreateConfigWindow()
             const bool  doRestart  = *needsVideoRestart;
 
             if (!doRestart) {
-                RemoveWindow(win);   // last action — safe to return immediately
+                self->ApplyWindowFadeCallback(GUIWindowFadeType::FadeOut, 0.35f, win,
+                    [self, win]() { self->RemoveWindow(win); });
                 return;
             }
 
@@ -1026,14 +1034,20 @@ void GUIManager::CreateConfigWindow()
                 c.onMouseBtnDown = [self, NOTIFY_WIN, restartDone]() {
                     if (restartDone->exchange(true)) return;
                     soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
-                    self->RemoveWindow(NOTIFY_WIN);
-                    threadManager.threadVars.bIsShuttingDown.store(true);
-                    PostQuitMessage(0);
-                    wchar_t ep[MAX_PATH]={}, ed[MAX_PATH]={};
-                    GetModuleFileNameW(NULL, ep, MAX_PATH);
-                    wcscpy_s(ed, ep);
-                    if (wchar_t* s = wcsrchr(ed, L'\\')) *s = L'\0';
-                    ShellExecuteW(NULL, L"open", ep, NULL, ed, SW_SHOWNORMAL);
+                    self->ApplyWindowFadeCallback(GUIWindowFadeType::FadeOut, 0.35f, NOTIFY_WIN,
+                        [self, NOTIFY_WIN]() {
+                            self->RemoveWindow(NOTIFY_WIN);
+                            threadManager.threadVars.bIsShuttingDown.store(true);
+                            PostMessage(hwnd, WM_CLOSE, 0, 0);
+                            std::thread([]() {
+                                std::this_thread::sleep_for(std::chrono::milliseconds(300));
+                                wchar_t ep[MAX_PATH]={}, ed[MAX_PATH]={};
+                                GetModuleFileNameW(NULL, ep, MAX_PATH);
+                                wcscpy_s(ed, ep);
+                                if (wchar_t* s = wcsrchr(ed, L'\\')) *s = L'\0';
+                                ShellExecuteW(NULL, L"open", ep, NULL, ed, SW_SHOWNORMAL);
+                            }).detach();
+                        });
                 };
                 nw->AddControl(c);
             }
@@ -1052,46 +1066,51 @@ void GUIManager::CreateConfigWindow()
                 c.onMouseBtnDown = [self, NOTIFY_WIN, restartDone]() {
                     restartDone->store(true);
                     soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
-                    self->RemoveWindow(NOTIFY_WIN);
+                    self->ApplyWindowFadeCallback(GUIWindowFadeType::FadeOut, 0.35f, NOTIFY_WIN,
+                        [self, NOTIFY_WIN]() { self->RemoveWindow(NOTIFY_WIN); });
                 };
                 nw->AddControl(c);
             }
 
-            // 3D window frame + solid gradient titlebar drawn by onCustomRender
-            // All positions are captured by value (NX/NY are fixed — Dialog windows don't drag)
-            const float kNTH = TITLEBAR_HEIGHT;   // local copy so lambda can capture it
-            nw->onCustomRender = [NX, NY, NW, NH, kNTH](Renderer* r2) {
-                // ── OUTER RAISED BEVEL BORDER (edges only — body already filled by window bg)
-                // Highlight edges (top + left = light)
+            // 3D window frame + solid gradient titlebar drawn by onCustomRender.
+            // weakNotify lets the lambda read m_fadeAlpha so the chrome fades with the window.
+            const float kNTH = TITLEBAR_HEIGHT;
+            std::weak_ptr<GUIWindow> weakNotify = nw;
+            nw->onCustomRender = [weakNotify, NX, NY, NW, NH, kNTH](Renderer* r2) {
+                auto nwin = weakNotify.lock();
+                const float fa2 = nwin ? nwin->m_fadeAlpha : 1.0f;
+                auto sc2 = [fa2](uint8_t a) -> uint8_t {
+                    return (uint8_t)((float)a * fa2);
+                };
+                // ── OUTER RAISED BEVEL BORDER ──
                 r2->DrawRectangle(Vector2(NX, NY), Vector2(NW, 1.0f),
-                    MyColor(95, 105, 145, 240), true);
+                    MyColor(95, 105, 145, sc2(240)), true);
                 r2->DrawRectangle(Vector2(NX, NY), Vector2(1.0f, NH),
-                    MyColor(88, 98, 138, 228), true);
-                // Shadow edges (bottom + right = dark)
+                    MyColor(88, 98, 138, sc2(228)), true);
                 r2->DrawRectangle(Vector2(NX, NY + NH - 1.0f), Vector2(NW, 1.0f),
-                    MyColor(4, 5, 10, 240), true);
+                    MyColor(4, 5, 10, sc2(240)), true);
                 r2->DrawRectangle(Vector2(NX + NW - 1.0f, NY), Vector2(1.0f, NH),
-                    MyColor(4, 5, 10, 240), true);
-                // Inner bevel (second depth level)
+                    MyColor(4, 5, 10, sc2(240)), true);
+                // Inner bevel
                 r2->DrawRectangle(Vector2(NX + 1.0f, NY + 1.0f), Vector2(NW - 2.0f, 1.0f),
-                    MyColor(68, 78, 112, 200), true);
+                    MyColor(68, 78, 112, sc2(200)), true);
                 r2->DrawRectangle(Vector2(NX + 1.0f, NY + 1.0f), Vector2(1.0f, NH - 2.0f),
-                    MyColor(62, 72, 105, 185), true);
+                    MyColor(62, 72, 105, sc2(185)), true);
                 r2->DrawRectangle(Vector2(NX + 1.0f, NY + NH - 2.0f), Vector2(NW - 2.0f, 1.0f),
-                    MyColor(8, 9, 16, 220), true);
+                    MyColor(8, 9, 16, sc2(220)), true);
                 r2->DrawRectangle(Vector2(NX + NW - 2.0f, NY + 1.0f), Vector2(1.0f, NH - 2.0f),
-                    MyColor(8, 9, 16, 220), true);
+                    MyColor(8, 9, 16, sc2(220)), true);
 
-                // ── SMOOTH GRADIENT TITLEBAR (per-pixel linear interpolation, 1px bands) ──
+                // ── SMOOTH GRADIENT TITLEBAR ──
                 {
                     struct GStop2 { float t, r, g, b, a; };
                     static const GStop2 kStops2[] = {
-                        {0.00f, 162.f, 205.f, 255.f, 210.f},   // top: sky sheen
-                        {0.15f, 110.f, 165.f, 248.f, 220.f},   // bright blue
-                        {0.35f,  62.f, 110.f, 218.f, 230.f},   // royal blue
-                        {0.55f,  28.f,  58.f, 148.f, 240.f},   // cobalt
-                        {0.75f,  12.f,  24.f,  72.f, 248.f},   // dark navy
-                        {1.00f,   4.f,   6.f,  22.f, 255.f},   // near-black
+                        {0.00f, 162.f, 205.f, 255.f, 210.f},
+                        {0.15f, 110.f, 165.f, 248.f, 220.f},
+                        {0.35f,  62.f, 110.f, 218.f, 230.f},
+                        {0.55f,  28.f,  58.f, 148.f, 240.f},
+                        {0.75f,  12.f,  24.f,  72.f, 248.f},
+                        {1.00f,   4.f,   6.f,  22.f, 255.f},
                     };
                     const int nS2   = (int)(sizeof(kStops2) / sizeof(kStops2[0]));
                     const float tbH = kNTH - 2.0f;
@@ -1112,25 +1131,28 @@ void GUIManager::CreateConfigWindow()
                         }
                         r2->DrawRectangle(Vector2(NX + 2.0f, NY + 2.0f + (float)row),
                             Vector2(NW - 4.0f, 1.0f),
-                            MyColor((uint8_t)cr, (uint8_t)cg, (uint8_t)cb, (uint8_t)ca), true);
+                            MyColor((uint8_t)cr, (uint8_t)cg, (uint8_t)cb, sc2((uint8_t)ca)), true);
                     }
                 }
-                // Divider between titlebar and content
+                // Divider
                 r2->DrawRectangle(Vector2(NX + 2.0f, NY + kNTH - 1.0f),
-                    Vector2(NW - 4.0f, 1.0f), MyColor(2, 3, 8, 255), true);
+                    Vector2(NW - 4.0f, 1.0f), MyColor(2, 3, 8, sc2(255)), true);
                 r2->DrawRectangle(Vector2(NX + 2.0f, NY + kNTH),
-                    Vector2(NW - 4.0f, 1.0f), MyColor(48, 55, 85, 180), true);
+                    Vector2(NW - 4.0f, 1.0f), MyColor(48, 55, 85, sc2(180)), true);
 
-                // Title text — bold, centred in titlebar
+                // Title text
                 r2->DrawMyTextCentered(L"Video Settings - Restart Required",
                     Vector2(NX + 2.0f, NY + 2.0f),
-                    MyColor(255, 82, 82, 255), 13.0f,
+                    MyColor(255, 82, 82, sc2(255)), 13.0f,
                     NW - 4.0f, kNTH - 2.0f, true);
             };
 
-            // Close config window — after this the outer closure may be freed.
-            // Everything below uses only local stack variables (self, NOTIFY_WIN, restartDone).
-            RemoveWindow(win);
+            // Fade the notify window in from transparent.
+            self->ApplyWindowFade(GUIWindowFadeType::FadeIn, 0.35f, NOTIFY_WIN);
+
+            // Fade out the config window, then close it.
+            self->ApplyWindowFadeCallback(GUIWindowFadeType::FadeOut, 0.35f, win,
+                [self, win]() { self->RemoveWindow(win); });
 
             // Countdown thread — captures self and NOTIFY_WIN by value from the stack
             std::thread([self, NOTIFY_WIN, restartDone]() {
@@ -1148,30 +1170,45 @@ void GUIManager::CreateConfigWindow()
                     std::this_thread::sleep_for(std::chrono::seconds(1));
                 }
                 if (restartDone->exchange(true)) return;
-                self->RemoveWindow(NOTIFY_WIN);
-                threadManager.threadVars.bIsShuttingDown.store(true);
-                std::this_thread::sleep_for(std::chrono::milliseconds(300));
-                wchar_t ep[MAX_PATH]={}, ed[MAX_PATH]={};
-                GetModuleFileNameW(NULL, ep, MAX_PATH);
-                wcscpy_s(ed, ep);
-                if (wchar_t* s2 = wcsrchr(ed, L'\\')) *s2 = L'\0';
-                ShellExecuteW(NULL, L"open", ep, NULL, ed, SW_SHOWNORMAL);
+                // Fade out then restart — callback fires on the render thread so no sleep.
+                self->ApplyWindowFadeCallback(GUIWindowFadeType::FadeOut, 0.35f, NOTIFY_WIN,
+                    [self, NOTIFY_WIN]() {
+                        self->RemoveWindow(NOTIFY_WIN);
+                        threadManager.threadVars.bIsShuttingDown.store(true);
+                        PostMessage(hwnd, WM_CLOSE, 0, 0);
+                        std::thread([]() {
+                            std::this_thread::sleep_for(std::chrono::milliseconds(300));
+                            wchar_t ep[MAX_PATH]={}, ed[MAX_PATH]={};
+                            GetModuleFileNameW(NULL, ep, MAX_PATH);
+                            wcscpy_s(ed, ep);
+                            if (wchar_t* s2 = wcsrchr(ed, L'\\')) *s2 = L'\0';
+                            ShellExecuteW(NULL, L"open", ep, NULL, ed, SW_SHOWNORMAL);
+                        }).detach();
+                    });
             }).detach();
         }, 102);
 
-    // RESTART GAME — saves and immediately restarts (no notification needed)
+    // RESTART GAME — saves config, fades the window out, then restarts
     addButton("btn_restart", WX + 320.0f, BTM_Y, 170.0f, 34.0f, L"Restart Game", 13.0f, true,
         [this, WIN_NAME]() {
             soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
             config.saveConfig();
-            RemoveWindow(WIN_NAME);
-            threadManager.threadVars.bIsShuttingDown.store(true);
-            PostQuitMessage(0);
-            wchar_t ep[MAX_PATH]={}, ed[MAX_PATH]={};
-            GetModuleFileNameW(NULL, ep, MAX_PATH);
-            wcscpy_s(ed, ep);
-            if (wchar_t* s = wcsrchr(ed, L'\\')) *s = L'\0';
-            ShellExecuteW(NULL, L"open", ep, NULL, ed, SW_SHOWNORMAL);
+            auto* self = this;
+            const auto win = WIN_NAME;
+            self->ApplyWindowFadeCallback(GUIWindowFadeType::FadeOut, 0.35f, win,
+                [self, win]() {
+                    self->RemoveWindow(win);
+                    threadManager.threadVars.bIsShuttingDown.store(true);
+                    PostMessage(hwnd, WM_CLOSE, 0, 0);
+                    std::thread([]() {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+                        wchar_t ep[MAX_PATH]={}, ed[MAX_PATH]={};
+                        GetModuleFileNameW(NULL, ep, MAX_PATH);
+                        wcscpy_s(ed, ep);
+                        if (wchar_t* s = wcsrchr(ed, L'\\')) *s = L'\0';
+                        ShellExecuteW(NULL, L"open", ep, NULL, ed, SW_SHOWNORMAL);
+                    }).detach();
+                });
         }, 102);
 
 #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
@@ -1215,6 +1252,18 @@ void GUIManager::CreateConfigWindow()
         // All X/Y positions are computed live inside the lambdas from weakWin->position.
         const float SCROLL_H = CONT_H - 11.0f;   // −8 baseline then −3 per spec
 
+        // onPreRender: draw the drop shadow BEFORE the window background so it
+        // appears behind the window body and all controls.
+        configWindow->onPreRender = [weakWin](Renderer* r) {
+            auto w = weakWin.lock();
+            if (!w) return;
+            const float fa = w->m_fadeAlpha;
+            r->DrawRectangle(
+                Vector2(w->position.x + 6.0f, w->position.y + 8.0f),
+                Vector2(w->size.x, w->size.y),
+                MyColor(0, 0, 0, (uint8_t)(95.0f * fa)), true);
+        };
+
         // onCustomRender: all positions derived from weakWin at render time so that
         // window dragging keeps titlebar, circle button, and scrollbar in sync.
         configWindow->onCustomRender = [weakWin, actTab, tabScrollY, tabContentH,
@@ -1229,9 +1278,12 @@ void GUIManager::CreateConfigWindow()
             const float ww  = w->size.x;
             const float wh  = w->size.y;
 
-            // ── WINDOW DROP SHADOW ────────────────────────────────────────
-            r->DrawRectangle(Vector2(wx + 6.0f, wy + 8.0f), Vector2(ww, wh),
-                MyColor(0, 0, 0, 95), true);
+            // Fade-alpha scaler — applied to every alpha value so the chrome
+            // (titlebar, close button, scrollbar) tracks the window fade.
+            const float fa = w->m_fadeAlpha;
+            auto sc = [fa](uint8_t a) -> uint8_t {
+                return (uint8_t)((float)a * fa);
+            };
 
             // ── SMOOTH GRADIENT TITLEBAR (per-pixel linear interpolation, 1px bands) ──
             {
@@ -1265,34 +1317,31 @@ void GUIManager::CreateConfigWindow()
                         }
                     }
                     r->DrawRectangle(Vector2(wx, wy + (float)row), Vector2(ww, 1.0f),
-                        MyColor((uint8_t)cr, (uint8_t)cg, (uint8_t)cb, (uint8_t)ca), true);
+                        MyColor((uint8_t)cr, (uint8_t)cg, (uint8_t)cb, sc((uint8_t)ca)), true);
                 }
             }
             // Top edge glass line
             r->DrawRectangle(Vector2(wx + 1.0f, wy + 1.0f), Vector2(ww - 2.0f, 1.0f),
-                MyColor(220, 240, 255, 120), true);
+                MyColor(220, 240, 255, sc(120)), true);
             // Bottom edge hard divider
             r->DrawRectangle(Vector2(wx, wy + kTH - 1.0f), Vector2(ww, 1.0f),
-                MyColor(2, 3, 10, 255), true);
+                MyColor(2, 3, 10, sc(255)), true);
             // Outer raised bevel on titlebar edges
             r->DrawRectangle(Vector2(wx, wy), Vector2(ww, 1.0f),
-                MyColor(110, 125, 165, 230), true);
+                MyColor(110, 125, 165, sc(230)), true);
             r->DrawRectangle(Vector2(wx, wy), Vector2(1.0f, kTH),
-                MyColor(100, 118, 158, 220), true);
+                MyColor(100, 118, 158, sc(220)), true);
             r->DrawRectangle(Vector2(wx + ww - 1.0f, wy), Vector2(1.0f, kTH),
-                MyColor(4, 5, 14, 220), true);
+                MyColor(4, 5, 14, sc(220)), true);
 
             // Title text — left-aligned, vertically centred, 16pt pseudo-bold
-            // DrawMyText has no bold param; drawing twice at +1px x gives the bold weight.
             {
                 constexpr float kTitleFS = 16.0f;
                 const float tbTextY = wy + (kTH - kTitleFS * 1.1f) * 0.5f;
-                // Back pass (1px right) at reduced alpha — widens strokes
                 r->DrawMyText(L"System Configuration",
-                    Vector2(wx + 9.0f, tbTextY), MyColor(255, 228, 90, 160), kTitleFS);
-                // Front pass — full alpha, correct position
+                    Vector2(wx + 9.0f, tbTextY), MyColor(255, 228, 90, sc(160)), kTitleFS);
                 r->DrawMyText(L"System Configuration",
-                    Vector2(wx + 8.0f, tbTextY), MyColor(255, 228, 90, 255), kTitleFS);
+                    Vector2(wx + 8.0f, tbTextY), MyColor(255, 228, 90, sc(255)), kTitleFS);
             }
 
             // ── RECTANGULAR CLOSE BUTTON ──────────────────────────────────
@@ -1303,28 +1352,28 @@ void GUIManager::CreateConfigWindow()
 
             // Button drop shadow
             r->DrawRectangle(Vector2(clBtnX + 1.5f, clBtnY + 1.5f), Vector2(clBtnW, clBtnH),
-                MyColor(0, 0, 0, 105), true);
+                MyColor(0, 0, 0, sc(105)), true);
             // Button body base (dark red)
             r->DrawRectangle(Vector2(clBtnX, clBtnY), Vector2(clBtnW, clBtnH),
-                MyColor(165, 30, 26, 255), true);
+                MyColor(165, 30, 26, sc(255)), true);
             // Upper half brighter
             r->DrawRectangle(Vector2(clBtnX, clBtnY), Vector2(clBtnW, std::floor(clBtnH * 0.50f)),
-                MyColor(210, 52, 46, 255), true);
+                MyColor(210, 52, 46, sc(255)), true);
             // Top glass line
             r->DrawRectangle(Vector2(clBtnX + 1.0f, clBtnY + 1.0f), Vector2(clBtnW - 2.0f, 1.0f),
-                MyColor(255, 165, 158, 88), true);
+                MyColor(255, 165, 158, sc(88)), true);
             // Raised outer bevel
             r->DrawRectangle(Vector2(clBtnX, clBtnY), Vector2(clBtnW, 1.0f),
-                MyColor(228, 88, 82, 220), true);
+                MyColor(228, 88, 82, sc(220)), true);
             r->DrawRectangle(Vector2(clBtnX, clBtnY), Vector2(1.0f, clBtnH),
-                MyColor(218, 78, 72, 200), true);
+                MyColor(218, 78, 72, sc(200)), true);
             r->DrawRectangle(Vector2(clBtnX, clBtnY + clBtnH - 1.0f), Vector2(clBtnW, 1.0f),
-                MyColor(78, 10, 8, 220), true);
+                MyColor(78, 10, 8, sc(220)), true);
             r->DrawRectangle(Vector2(clBtnX + clBtnW - 1.0f, clBtnY), Vector2(1.0f, clBtnH),
-                MyColor(78, 10, 8, 220), true);
+                MyColor(78, 10, 8, sc(220)), true);
             // Bold "X" symbol centred
             r->DrawMyTextCentered(L"X",
-                Vector2(clBtnX, clBtnY), MyColor(255, 228, 220, 255), 13.0f,
+                Vector2(clBtnX, clBtnY), MyColor(255, 228, 220, sc(255)), 13.0f,
                 clBtnW, clBtnH, true);
 
             // ── SCROLLBAR ─────────────────────────────────────────────────
@@ -1340,20 +1389,20 @@ void GUIManager::CreateConfigWindow()
 
             // Track outer background
             r->DrawRectangle(Vector2(scrollX, scrollY),
-                Vector2(CFG_SCROLL_W, SCROLL_H), MyColor(12, 14, 22, 245), true);
+                Vector2(CFG_SCROLL_W, SCROLL_H), MyColor(12, 14, 22, sc(245)), true);
             // Track sunken bevel (top-left dark, bottom-right light)
             r->DrawRectangle(Vector2(scrollX, scrollY),
-                Vector2(CFG_SCROLL_W, 1.0f), MyColor(4, 5, 12, 230), true);
+                Vector2(CFG_SCROLL_W, 1.0f), MyColor(4, 5, 12, sc(230)), true);
             r->DrawRectangle(Vector2(scrollX, scrollY),
-                Vector2(1.0f, SCROLL_H), MyColor(4, 5, 12, 230), true);
+                Vector2(1.0f, SCROLL_H), MyColor(4, 5, 12, sc(230)), true);
             r->DrawRectangle(Vector2(scrollX, scrollY + SCROLL_H - 1.0f),
-                Vector2(CFG_SCROLL_W, 1.0f), MyColor(62, 68, 92, 200), true);
+                Vector2(CFG_SCROLL_W, 1.0f), MyColor(62, 68, 92, sc(200)), true);
             r->DrawRectangle(Vector2(scrollX + CFG_SCROLL_W - 1.0f, scrollY),
-                Vector2(1.0f, SCROLL_H), MyColor(62, 68, 92, 200), true);
+                Vector2(1.0f, SCROLL_H), MyColor(62, 68, 92, sc(200)), true);
             // Inner trough
             r->DrawRectangle(Vector2(scrollX + 1.0f, scrollY + 1.0f),
                 Vector2(CFG_SCROLL_W - 2.0f, SCROLL_H - 2.0f),
-                MyColor(8, 10, 18, 255), true);
+                MyColor(8, 10, 18, sc(255)), true);
 
             // Scrollbar thumb
             float thumbH = hasScroll
@@ -1372,26 +1421,25 @@ void GUIManager::CreateConfigWindow()
 
             // Thumb drop shadow
             r->DrawRectangle(Vector2(tx + 1.0f, thumbY + 1.0f), Vector2(tw, thumbH),
-                MyColor(0, 0, 0, 88), true);
+                MyColor(0, 0, 0, sc(88)), true);
 
             // Thumb body — gold when scrollable, dark when at full size (no scroll needed)
-            // Flash between bright and dimmer gold when actively dragging
             float thumbHalf = std::floor(thumbH * 0.5f);
             MyColor goldTop, goldBot;
             if (hasScroll) {
                 if (scrollFlash) {
-                    goldTop = MyColor(255, 235, 80,  255);   // bright flash top
-                    goldBot = MyColor(215, 175, 28,  255);   // bright flash bottom
+                    goldTop = MyColor(255, 235, 80,  sc(255));
+                    goldBot = MyColor(215, 175, 28,  sc(255));
                 } else if (scrollActive) {
-                    goldTop = MyColor(235, 205, 50,  250);   // active top
-                    goldBot = MyColor(190, 148, 18,  250);   // active bottom
+                    goldTop = MyColor(235, 205, 50,  sc(250));
+                    goldBot = MyColor(190, 148, 18,  sc(250));
                 } else {
-                    goldTop = MyColor(210, 178, 40,  238);   // idle gold top
-                    goldBot = MyColor(165, 128, 12,  238);   // idle gold bottom
+                    goldTop = MyColor(210, 178, 40,  sc(238));
+                    goldBot = MyColor(165, 128, 12,  sc(238));
                 }
             } else {
-                goldTop = MyColor(42, 44, 60, 180);
-                goldBot = MyColor(30, 32, 44, 180);
+                goldTop = MyColor(42, 44, 60, sc(180));
+                goldBot = MyColor(30, 32, 44, sc(180));
             }
             r->DrawRectangle(Vector2(tx, thumbY), Vector2(tw, thumbHalf), goldTop, true);
             r->DrawRectangle(Vector2(tx, thumbY + thumbHalf),
@@ -1399,13 +1447,13 @@ void GUIManager::CreateConfigWindow()
 
             // Thumb raised bevel — gold highlight edges
             r->DrawRectangle(Vector2(tx, thumbY), Vector2(tw, 1.0f),
-                MyColor(255, 245, 140, hasScroll ? 210 : 100), true);
+                MyColor(255, 245, 140, sc(hasScroll ? 210 : 100)), true);
             r->DrawRectangle(Vector2(tx, thumbY), Vector2(1.0f, thumbH),
-                MyColor(245, 230, 110, hasScroll ? 195 : 90), true);
+                MyColor(245, 230, 110, sc(hasScroll ? 195 : 90)), true);
             r->DrawRectangle(Vector2(tx, thumbY + thumbH - 1.0f), Vector2(tw, 1.0f),
-                MyColor(80, 55, 5, hasScroll ? 210 : 100), true);
+                MyColor(80, 55, 5, sc(hasScroll ? 210 : 100)), true);
             r->DrawRectangle(Vector2(tx + tw - 1.0f, thumbY), Vector2(1.0f, thumbH),
-                MyColor(80, 55, 5, hasScroll ? 210 : 100), true);
+                MyColor(80, 55, 5, sc(hasScroll ? 210 : 100)), true);
 
             // Thumb grip lines (3 horizontal dashes centred in thumb)
             if (hasScroll && thumbH >= 18.0f) {
@@ -1414,9 +1462,9 @@ void GUIManager::CreateConfigWindow()
                 for (int gi = -1; gi <= 1; ++gi) {
                     float gy = gCY + gi * 3.0f;
                     r->DrawRectangle(Vector2(gCX - 4.0f, gy - 1.0f),
-                        Vector2(8.0f, 1.0f), MyColor(255, 245, 180, 55), true);
+                        Vector2(8.0f, 1.0f), MyColor(255, 245, 180, sc(55)), true);
                     r->DrawRectangle(Vector2(gCX - 4.0f, gy),
-                        Vector2(8.0f, 1.0f), MyColor(0, 0, 0, 80), true);
+                        Vector2(8.0f, 1.0f), MyColor(0, 0, 0, sc(80)), true);
                 }
             }
         };
@@ -1457,6 +1505,6 @@ void GUIManager::CreateConfigWindow()
     debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateConfigWindow - Window created (%d controls)",
         (int)configWindow->controls.size());
 
-    // All controls added — safe to make visible now
-    configWindow->isVisible = true;
+    // Fade in from transparent — isVisible and m_fadeAlpha are set by ApplyWindowFadeCallback.
+    ApplyWindowFade(GUIWindowFadeType::FadeIn, 0.35f, WIN_NAME);
 }

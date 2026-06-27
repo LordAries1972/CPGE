@@ -309,6 +309,7 @@ public:
     float GetCharacterWidth(wchar_t character, float FontSize) override;        // Get character width
     float GetCharacterWidth(wchar_t character, float FontSize,
         const std::wstring& fontName);                                          // Get character width with font
+    float GetCharacterWidth(wchar_t character, float FontSize, bool bold) override; // Get character width (bold-aware)
     float CalculateTextWidth(const std::wstring& text, float FontSize,
         float containerWidth) override;                                         // Calculate text width
     float CalculateTextHeight(const std::wstring& text, float FontSize,

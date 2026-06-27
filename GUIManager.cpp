@@ -135,18 +135,22 @@ void GUIManager::RemoveWindow(const std::string& name) {
         return;
     }
 
-    // Mark window for destruction first to prevent race conditions
+    // Mark window for destruction first. This flag is checked by the render thread
+    // and by HandleMouseClick after every callback, so they can bail out safely
+    // without touching a half-destroyed vector.
     it->second->bWindowDestroy = true;
 
-    // Store window reference to prevent premature destruction
-    std::shared_ptr<GUIWindow> windowToDestroy = it->second;
+    // Null the renderer pointer so any in-flight Render() call that slips past the
+    // bWindowDestroy check returns immediately on the !r guard.
+    it->second->myRenderer = nullptr;
 
-    // Clear all controls safely by creating a copy first to avoid iterator invalidation
-    std::vector<GUIControl> controlsCopy = windowToDestroy->controls;
-
-    // Clear all lambda function pointers to break circular references
-    for (auto& control : controlsCopy) {
-        // Safely clear all function pointers to prevent dangling references
+    // Clear all lambda callbacks on the live controls to break any circular
+    // captures (e.g. [this] lambdas that reference the GUIManager). We do NOT
+    // call controls.clear() here — doing so while the render thread or
+    // HandleMouseClick may be iterating the same vector causes an access violation.
+    // The vector is destroyed safely when the last shared_ptr to this window drops
+    // (the render-thread snapshot holds one until end of frame).
+    for (auto& control : it->second->controls) {
         control.onMouseBtnDown  = nullptr;
         control.onMouseBtnUp    = nullptr;
         control.onMouseOver     = nullptr;
@@ -155,24 +159,14 @@ void GUIManager::RemoveWindow(const std::string& name) {
         control.onSliderChanged = nullptr;
     }
 
-    // Clear the original controls vector completely
-    windowToDestroy->controls.clear();
+    it->second->contentText.clear();
 
-    // Remove the renderer reference to prevent dangling pointer
-    windowToDestroy->myRenderer = nullptr;
-
-    // Clear the content text to free memory
-    windowToDestroy->contentText.clear();
-
-    // Finally remove the window from the map using the iterator
+    // Remove from map — the shared_ptr ref-count drops but other holders
+    // (render snapshot, the caller's stack) keep the object alive until they release.
     windows.erase(it);
 
-    // Log successful removal with safe string handling
     debug.logDebugMessage(LogLevel::LOG_INFO, L"GUIManager::RemoveWindow - Window '%s' successfully removed",
         std::wstring(localWindowName.begin(), localWindowName.end()).c_str());
-
-    // Explicitly reset the shared_ptr to ensure immediate cleanup
-    windowToDestroy.reset();
 }
 
 void GUIManager::CloseAllWindows() {
@@ -475,8 +469,31 @@ void GUIManager::HandleChar(wchar_t c) {
 
 void GUIManager::HandleBackspace() {
     auto focused = GetFocusedWindow();
-    if (focused && focused->onBackspace)
+    if (!focused) return;
+    for (auto& ctrl : focused->controls) {
+        if (ctrl.type != GUIControlType::TextInput || !ctrl.isFocused) continue;
+        if (ctrl.cursorPos > 0 && !ctrl.inputText.empty()) {
+            ctrl.inputText.erase(ctrl.cursorPos - 1, 1);
+            --ctrl.cursorPos;
+            if (ctrl.onTextChanged) ctrl.onTextChanged(ctrl.inputText);
+        }
+        return;
+    }
+    if (focused->onBackspace)
         focused->onBackspace();
+}
+
+void GUIManager::HandleDelete() {
+    auto focused = GetFocusedWindow();
+    if (!focused) return;
+    for (auto& ctrl : focused->controls) {
+        if (ctrl.type != GUIControlType::TextInput || !ctrl.isFocused) continue;
+        if (ctrl.cursorPos < static_cast<int>(ctrl.inputText.size())) {
+            ctrl.inputText.erase(ctrl.cursorPos, 1);
+            if (ctrl.onTextChanged) ctrl.onTextChanged(ctrl.inputText);
+        }
+        return;
+    }
 }
 
 void GUIManager::HandleEnter() {
@@ -514,6 +531,7 @@ void GUIWindow::HandleMouseMove(const Vector2& mousePosition, const std::unorder
     if (m_fade.active) return;
 
     for (auto& control : controls) {
+        if (bWindowDestroy) break;
         bool isMouseOver =
             mousePosition.x >= control.position.x &&
             mousePosition.x <= control.position.x + control.size.x &&
@@ -521,7 +539,7 @@ void GUIWindow::HandleMouseMove(const Vector2& mousePosition, const std::unorder
             mousePosition.y <= control.position.y + control.size.y;
 
         control.isHovered = isMouseOver;
-    
+
         switch (control.type)
         {
             case GUIControlType::TitleBar:
@@ -683,6 +701,10 @@ void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick
                         clickConsumed = true;
                         if (guiMgr) guiMgr->AcquireClickLock();
                         if (control.onMouseBtnDown) control.onMouseBtnDown();
+                        // The callback may have called RemoveWindow on this window
+                        // (e.g. a close button). If so, stop iterating immediately —
+                        // continuing would access the now-destroyed controls vector.
+                        if (bWindowDestroy) return;
                     }
                 }
             }
@@ -693,6 +715,7 @@ void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick
                 control.isPressed = false;
                 clickConsumed = true;
                 if (control.onMouseBtnUp) control.onMouseBtnUp();
+                if (bWindowDestroy) return;
             }
             else if (!isLeftClick) {
                 // Released outside the control — cancel press without firing
@@ -794,7 +817,7 @@ void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick
                     float runX         = textX;
                     int   newCursor    = 0;
                     for (int ci = 0; ci < (int)control.inputText.size(); ++ci) {
-                        float cw = myRenderer ? myRenderer->GetCharacterWidth(control.inputText[ci], fs) : fs * 0.6f;
+                        float cw = myRenderer ? myRenderer->GetCharacterWidth(control.inputText[ci], fs, control.bold) : fs * 0.6f;
                         if (mousePosition.x < runX + cw * 0.5f) break;
                         runX += cw;
                         newCursor = ci + 1;
@@ -1059,6 +1082,13 @@ void GUIWindow::Render() {
         return c;
     };
 
+    // Pre-render hook — draw drop shadows or other geometry that must appear
+    // behind the window background and all controls.
+    if (onPreRender) {
+        try { onPreRender(r); }
+        catch (...) {}
+    }
+
     // Render the background texture if it exists
     if (backgroundTextureId != -1) {
         r->DrawTexture(backgroundTextureId, position, size,
@@ -1077,6 +1107,11 @@ void GUIWindow::Render() {
     // so title bar, tab buttons, and bottom buttons are never scissored.
     bool clipActive = false;
     for (auto& control : controls) {
+        // The render thread holds a snapshot shared_ptr so the window object stays
+        // alive, but RemoveWindow can set bWindowDestroy while we are mid-loop.
+        // Check each iteration so we never touch a control whose callbacks were
+        // already nulled by RemoveWindow.
+        if (bWindowDestroy) break;
         if (!control.isVisible) continue;
 
         // Push clip rect the first time we hit a clipContent control
@@ -1094,6 +1129,31 @@ void GUIWindow::Render() {
 
         switch (control.type) {
             case GUIControlType::Button: {
+                if (control.useCircleShape) {
+                    // Render button as a 3D filled circle with drop shadow
+                    float cx = control.position.x + control.size.x * 0.5f;
+                    float cy = control.position.y + control.size.y * 0.5f;
+                    float radius = std::min(control.size.x, control.size.y) * 0.5f;
+                    MyColor circleColor = control.isHovered ? control.hoverColor : control.bgColor;
+                    // Drop shadow: slightly larger, offset down-right, semi-transparent black
+                    r->DrawCircle(Vector2(cx + 2.5f, cy + 2.5f), radius + 1.0f,
+                        fc(MyColor(0, 0, 0, 120)), true);
+                    // Main circle fill
+                    r->DrawCircle(Vector2(cx, cy), radius, fc(circleColor), true);
+                    // Dark outline ring for definition
+                    r->DrawCircle(Vector2(cx, cy), radius, fc(MyColor(0, 0, 0, 160)), false);
+                    // 3D top-left shine: small bright highlight arc
+                    r->DrawCircle(Vector2(cx - radius * 0.22f, cy - radius * 0.28f),
+                        radius * 0.42f, fc(MyColor(255, 255, 255, 80)), true);
+                    if (control.useShadowedText) {
+                        r->DrawMyTextCentered(control.label,
+                            Vector2(control.position.x + 1.0f, control.position.y + 1.0f),
+                            fc(control.shadowedTxtColor), control.lblFontSize, control.size.x, control.size.y, control.bold);
+                    }
+                    r->DrawMyTextCentered(control.label, control.position,
+                        fc(control.txtColor), control.lblFontSize, control.size.x, control.size.y, control.bold);
+                    break;
+                }
                 if (control.bgTextureId != -1)
                 {
                     if (control.isHovered) {
@@ -1164,6 +1224,12 @@ void GUIWindow::Render() {
                 Vector2 resizedPos = Vector2(textX, textY);
                 resize.x -= 12.0f;
                 resize.y -= 6.0f;
+                // Optional drop-shadow (drawn 1px offset before main text)
+                if (control.useShadowedText) {
+                    r->DrawMyText(control.label,
+                        Vector2(resizedPos.x + 1.0f, resizedPos.y + 1.0f),
+                        resize, fc(control.shadowedTxtColor), control.lblFontSize);
+                }
                 // Draw the text content with the specified text color
                 r->DrawMyText(control.label, resizedPos, resize, fc(control.txtColor), control.lblFontSize);
 
@@ -1171,7 +1237,23 @@ void GUIWindow::Render() {
             }
 
             case GUIControlType::TitleBar: {
-                if (control.bgTextureId != -1)
+                if (control.useGradient) {
+                    constexpr int NUM_BANDS = 15;
+                    for (int bi = 0; bi < NUM_BANDS; ++bi) {
+                        float frac = static_cast<float>(bi) / static_cast<float>(NUM_BANDS - 1);
+                        MyColor band;
+                        band.r = static_cast<uint8_t>(control.gradientTopColor.r + (control.gradientBottomColor.r - control.gradientTopColor.r) * frac);
+                        band.g = static_cast<uint8_t>(control.gradientTopColor.g + (control.gradientBottomColor.g - control.gradientTopColor.g) * frac);
+                        band.b = static_cast<uint8_t>(control.gradientTopColor.b + (control.gradientBottomColor.b - control.gradientTopColor.b) * frac);
+                        band.a = 255;
+                        float bandH = std::ceil(control.size.y / NUM_BANDS) + 1.0f;
+                        float bandY = control.position.y + (control.size.y / NUM_BANDS) * bi;
+                        r->DrawRectangle(Vector2(control.position.x, bandY),
+                                         Vector2(control.size.x, bandH),
+                                         fc(band), true);
+                    }
+                }
+                else if (control.bgTextureId != -1)
                 {
                     if (control.isHovered) {
                         r->DrawTexture(control.bgTextureHoverId, control.position, control.size, fc(MyColor(255, 255, 255, 255)), true);
@@ -1185,14 +1267,11 @@ void GUIWindow::Render() {
                 {
                     r->DrawRectangle(control.position, control.size, fc(bgColor), true);
                 }
-                // Draw title bar label using the same caption-height based Y offset
-                // across centered and left-aligned titlebars so the caption sits
-                // consistently in the visible bar chrome.
+                // Caption vertical centring: startY = barTop + (barHeight - captionHeight) / 2
                 if (!control.label.empty())
                 {
                     const float captionH = control.lblFontSize * 1.25f;
-                    const float captionY = control.position.y +
-                        control.size.y - (captionH + (captionH * 0.5f));
+                    const float captionY = control.position.y + (control.size.y - captionH) * 0.5f;
 
                     if (control.lblCenterH)
                     {
@@ -1288,6 +1367,71 @@ void GUIWindow::Render() {
             }
 
             case GUIControlType::HSlider: {
+                if (control.drawAsPill) {
+                    // Stat-bar pill gauge — slim 3-D green horizontal pill
+                    const float trough_margin = 3.0f;
+                    const float pillH = std::floor(control.size.y * 0.54f);
+                    const float pillY = control.position.y + (control.size.y - pillH) * 0.5f;
+                    const float pillTotalW = control.size.x - trough_margin * 2.0f;
+
+                    float t = (control.sliderMax > control.sliderMin)
+                        ? std::clamp((control.sliderValue - control.sliderMin)
+                                     / (control.sliderMax - control.sliderMin), 0.0f, 1.0f)
+                        : 0.0f;
+                    float fillW = pillTotalW * t;
+
+                    // Outer dark trough
+                    r->DrawRectangle(control.position, control.size, fc(MyColor(10, 12, 10, 200)), true);
+                    // Sunken trough inner
+                    r->DrawRectangle(Vector2(control.position.x + trough_margin, pillY),
+                        Vector2(pillTotalW, pillH), fc(MyColor(6, 8, 6, 255)), true);
+                    r->DrawRectangle(Vector2(control.position.x + trough_margin, pillY),
+                        Vector2(pillTotalW, 1.0f), fc(MyColor(3, 4, 3, 255)), true);
+                    r->DrawRectangle(Vector2(control.position.x + trough_margin, pillY),
+                        Vector2(1.0f, pillH), fc(MyColor(3, 4, 3, 255)), true);
+                    r->DrawRectangle(Vector2(control.position.x + trough_margin, pillY + pillH - 1.0f),
+                        Vector2(pillTotalW, 1.0f), fc(MyColor(50, 80, 50, 160)), true);
+
+                    if (fillW > 1.5f) {
+                        // Fine multi-band gradient from bright top to dark bottom (like titlebar)
+                        constexpr int PILL_BANDS = 8;
+                        MyColor topC(
+                            static_cast<uint8_t>(std::min(255, (int)(control.pillFillColor.r * 1.55f))),
+                            static_cast<uint8_t>(std::min(255, (int)(control.pillFillColor.g * 1.55f))),
+                            static_cast<uint8_t>(std::min(255, (int)(control.pillFillColor.b * 1.55f))),
+                            control.pillFillColor.a);
+                        MyColor botC(
+                            static_cast<uint8_t>(control.pillFillColor.r * 0.22f),
+                            static_cast<uint8_t>(control.pillFillColor.g * 0.22f),
+                            static_cast<uint8_t>(control.pillFillColor.b * 0.22f),
+                            control.pillFillColor.a);
+                        for (int bi = 0; bi < PILL_BANDS; ++bi) {
+                            float frac = static_cast<float>(bi) / static_cast<float>(PILL_BANDS - 1);
+                            MyColor band(
+                                static_cast<uint8_t>(topC.r + (botC.r - topC.r) * frac),
+                                static_cast<uint8_t>(topC.g + (botC.g - topC.g) * frac),
+                                static_cast<uint8_t>(topC.b + (botC.b - topC.b) * frac),
+                                control.pillFillColor.a);
+                            float bandH = std::ceil(pillH / PILL_BANDS) + 1.0f;
+                            float bandY = pillY + (pillH / PILL_BANDS) * bi;
+                            r->DrawRectangle(
+                                Vector2(control.position.x + trough_margin, bandY),
+                                Vector2(fillW, bandH), fc(band), true);
+                        }
+                        // Top highlight streak
+                        r->DrawRectangle(
+                            Vector2(control.position.x + trough_margin, pillY),
+                            Vector2(fillW, 1.0f),
+                            fc(MyColor(210, 255, 210, 190)), true);
+                        // Bottom shadow streak
+                        r->DrawRectangle(
+                            Vector2(control.position.x + trough_margin, pillY + pillH - 1.0f),
+                            Vector2(fillW, 1.0f),
+                            fc(MyColor(0, 50, 0, 220)), true);
+                    }
+                    break;
+                }
+
                 const float knobW  = 16.0f;
                 const float trackH = 8.0f;
 
@@ -1408,6 +1552,13 @@ void GUIWindow::Render() {
                 // Main panel background
                 r->DrawRectangle(control.position, control.size, fc(control.bgColor), true);
 
+                // Texture drawn on top of flat background (e.g. portrait images)
+                if (control.bgTextureId != -1) {
+                    int texId = (control.isHovered && control.bgTextureHoverId != -1)
+                                ? control.bgTextureHoverId : control.bgTextureId;
+                    r->DrawTexture(texId, control.position, control.size, fc(MyColor(255, 255, 255, 255)), true);
+                }
+
                 // Outer bevel edges
                 // Raised: top/left bright, bottom/right dark — "sticking out of the surface"
                 // Sunken: top/left dark, bottom/right bright — "pushed into the surface"
@@ -1497,9 +1648,16 @@ void GUIWindow::Render() {
                 const float textY   = py + (ph - approxH) * 0.5f;
 
                 if (control.inputText.empty() && !control.placeholder.empty()) {
-                    // Placeholder hint in muted grey
+                    // Placeholder hint in muted grey (never bold)
                     r->DrawMyText(control.placeholder, Vector2(textX, textY),
                         fc(MyColor(80, 85, 108, 200)), fs);
+                }
+                else if (control.bold) {
+                    TextRenderStyle style;
+                    style.fontSize = fs;
+                    style.bold     = true;
+                    r->DrawMyTextStyled(control.inputText, Vector2(textX, textY),
+                        fc(control.txtColor), style);
                 }
                 else {
                     r->DrawMyText(control.inputText, Vector2(textX, textY),
@@ -1514,7 +1672,7 @@ void GUIWindow::Render() {
                         float cursorOffX = 0.0f;
                         int limit = std::min(control.cursorPos, (int)control.inputText.size());
                         for (int ci = 0; ci < limit; ++ci)
-                            cursorOffX += r->GetCharacterWidth(control.inputText[ci], fs);
+                            cursorOffX += r->GetCharacterWidth(control.inputText[ci], fs, control.bold);
                         r->DrawRectangle(
                             Vector2(textX + cursorOffX, py + 3.0f),
                             Vector2(2.0f, ph - 6.0f),
@@ -1717,6 +1875,7 @@ void GUIWindow::Render() {
 
     // --- Second pass: open ComboBox dropdowns (must paint over all other controls) ---
     for (auto& control : controls) {
+        if (bWindowDestroy) break;
         if (control.type != GUIControlType::ComboBox) continue;
         if (!control.isVisible || !control.isDropdownOpen) continue;
 

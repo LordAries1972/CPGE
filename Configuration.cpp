@@ -72,6 +72,21 @@ bool Configuration::loadConfig() {
         myConfig.refreshRate      = j.value("refreshRate",      60);
         myConfig.rendererType     = j.value("rendererType", 0);
         myConfig.buffering        = j.value("buffering", 1);
+#ifdef PROJECT_ONLY_CODE
+        myConfig.profileID        = j.value("profileID",        0);
+        myConfig.playerExperience = j.value("playerExperience", uint64_t(0));
+        {
+            std::string name      = j.value("playerName", std::string("Commander"));
+            if (name.size() > 24) name.resize(24);
+            // Strip any special characters (keep alphanumeric + space)
+            name.erase(std::remove_if(name.begin(), name.end(),
+                [](unsigned char c){ return !std::isalnum(c) && c != ' '; }), name.end());
+            myConfig.playerName = name.empty() ? "Commander" : name;
+        }
+        // Clamp profileID to valid range
+        if (myConfig.profileID < 0 || myConfig.profileID >= 14)
+            myConfig.profileID = 0;
+#endif
         myConfig.chksum = j["chksum"];
     }
     catch (const std::exception& e) {
@@ -172,6 +187,15 @@ bool Configuration::saveConfig() {
         j["refreshRate"]      = myConfig.refreshRate;
         j["rendererType"]     = myConfig.rendererType;
         j["buffering"]        = myConfig.buffering;
+#ifdef PROJECT_ONLY_CODE
+        j["profileID"]        = myConfig.profileID;
+        j["playerExperience"] = myConfig.playerExperience;
+        {
+            std::string name = myConfig.playerName;
+            if (name.size() > 24) name.resize(24);
+            j["playerName"] = name;
+        }
+#endif
         j["chksum"] = calculateChecksum(myConfig);
 
         configStream << j.dump(4);  // Pretty print the JSON with 4 spaces
@@ -303,7 +327,13 @@ long double Configuration::calculateChecksum(const MyConfig& cfg) const
         << cfg.TTSVolume
         << cfg.rendererType
         << cfg.buffering
-        << std::fixed << std::setprecision(4) << cfg.current_money;
+        << std::fixed << std::setprecision(4) << cfg.current_money
+#ifdef PROJECT_ONLY_CODE
+        << cfg.profileID
+        << cfg.playerExperience
+        << cfg.playerName
+#endif
+        ;
 
     std::string combined = ss.str();
     // FNV-1a 64-bit hash implementation

@@ -19,6 +19,8 @@ class DX12Renderer;
 class OpenGLRenderer;
 #elif defined(__USE_VULKAN__)
 class VulkanRenderer;
+#elif defined(__USE_METAL__)
+class MetalRenderer;
 #endif
 class Debug;
 
@@ -97,7 +99,13 @@ struct GUIControl {
     bool isActive    = false;                           // HSlider: active knob flag; ListBox: scrollbar drag in progress
     bool lblCenterH  = true;                            // TitleBar: true=H+V centered, false=left-aligned+V centered
     bool clipContent = false;                           // true = this control is scissored to the window's m_clipRect
-    bool bold        = false;                           // true = button label rendered bold (OpenGL-effective; other renderers accept param but keep NORMAL weight)
+    bool bold           = false;                        // true = button label rendered bold
+    bool useCircleShape = false;                        // true = Button renders as a filled circle
+    bool useGradient    = false;                        // true = TitleBar renders as a vertical top→bottom gradient
+    MyColor gradientTopColor    = MyColor(128, 128, 128, 255); // Gradient top colour (useGradient=true)
+    MyColor gradientBottomColor = MyColor(0, 0, 0, 255);       // Gradient bottom colour (useGradient=true)
+    bool    drawAsPill    = false;                      // true = HSlider renders as a filled pill gauge
+    MyColor pillFillColor = MyColor(40, 180, 40, 255); // Fill colour for pill gauge (drawAsPill=true)
     GUIControlType type = GUIControlType::None;         // New field to specify control type
 
     // -----------------------------------------------------------------------
@@ -172,6 +180,10 @@ public:
     std::wstring WrapText(const std::wstring& text, float maxWidth, float FontSize);
     void MoveWindow(const Vector2& newPosition, const std::unordered_map<std::string, std::shared_ptr<GUIWindow>>& allWindows);
 
+    // Pre-render callback — invoked BEFORE the window background so geometry drawn
+    // here (e.g. drop shadows) appears behind the window body and all controls.
+    std::function<void(Renderer*)>        onPreRender;
+
     // Custom rendering callback — invoked at the end of Render() for windows whose
     // content (e.g. scrollable text, command line) is drawn outside the GUIControl set.
     std::function<void(Renderer*)>        onCustomRender;
@@ -217,6 +229,17 @@ public:
     void CreateDifficultyWindow();
     void CreateGamePlayTypesWindow();
     void CreateConfigWindow();
+
+    // Quit-confirmation modal — shown when ESC is pressed in SCENE_GAMETITLE.
+    // Displays "You are about to Quit the Game" with OK (shutdown) and Cancel (dismiss).
+    // No PROJECT_ONLY_CODE guard: this is a CPGE engine-level dialog.
+    void CreateQuitConfirmDialog();
+
+#ifdef PROJECT_ONLY_CODE
+    // User profile window — commander selection, callsign editor, attribute display.
+    void CreateUserProfileWindow();
+#endif
+
     void CreateMyWindow(const std::string& name, GUIWindowType type,
         const Vector2& position, const Vector2& size,
         const MyColor& backgroundColor,
@@ -252,6 +275,7 @@ public:
     // (highest-zOrder visible) window that has registered the matching callback.
     void HandleChar(wchar_t c);
     void HandleBackspace();
+    void HandleDelete();
     void HandleEnter();
     void HandleMouseWheel(int delta);
 

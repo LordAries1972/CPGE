@@ -1,13 +1,6 @@
-
+﻿
 #include "Includes.h"
-
-#if defined(__USE_OPENGL__)
-    #include "FXManager.h"
-#elif defined(__USE_VULKAN__)
-    #include "FXManager.h"
-#else
-    #include "FXManager.h"
-#endif
+#include "FXManager.h"
 
 // Our required Classes to create the GUI windows
 #include "ThreadManager.h"
@@ -17,6 +10,7 @@
 #include "Debug.h"
 #include "SceneManager.h"
 #include "GamePlayer.h"
+#include "Configuration.h"
 
 extern Vector2 myMouseCoords;
 extern SoundManager soundManager;
@@ -25,18 +19,18 @@ extern PlayerInfo playerInfo[MAX_PLAYERS]; // Player Info Array
 
 extern void StopMusicPlayback();
 extern WindowMetrics winMetrics;
-#if defined(__USE_OPENGL__)
-    extern FXManager fxManager;
-#elif defined(__USE_VULKAN__)
-    extern FXManager fxManager;
-#else
-    extern FXManager fxManager;
-#endif
+extern FXManager fxManager;
 
 // Known Window Names — extern so main.cpp and other TUs can share these via extern declarations.
-extern const std::string DIFFICULTY_WINDOW_NAME = "DifficultyWindow";
-extern const std::string GameMenu_WindowName     = "GameMenuWindow";
+extern const std::string DIFFICULTY_WINDOW_NAME    = "DifficultyWindow";
+extern const std::string GameMenu_WindowName       = "GameMenuWindow";
 extern const std::string GAMEPLAYTYPES_WINDOW_NAME = "GamePlayTypes";
+extern const std::string QUIT_CONFIRM_WINDOW_NAME  = "QuitConfirmDialog";
+
+#ifdef PROJECT_ONLY_CODE
+    extern const std::string USERPROFILE_WINDOW_NAME   = "UserProfile";
+    extern const std::string USERPROFILE_SHADOW_NAME   = "UserProfileShadow";
+#endif
 
 // Forward declaration of the renderer's scene switch function, 
 // which is called by the experimental button in the game menu to 
@@ -44,6 +38,7 @@ extern const std::string GAMEPLAYTYPES_WINDOW_NAME = "GamePlayTypes";
 extern ThreadManager threadManager;
 extern SceneManager scene;
 extern Debug debug;
+extern Configuration config;
 extern std::shared_ptr<Renderer> renderer;
 
 #if defined(_WIN32) || defined(_WIN64)
@@ -394,10 +389,53 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     // Add the gameplay button control to the window
     gameMenuWindow->AddControl(gameplayButton);
 
+#ifdef PROJECT_ONLY_CODE
+    // Add Profile Button control — opens UserProfile window for commander selection.
+    GUIControl profileButton;
+    profileButton.type = GUIControlType::Button;
+    profileButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 145);
+    profileButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);
+    profileButton.bgColor = MyColor(0, 0, 0, 255);
+    profileButton.txtColor = MyColor(255, 255, 0, 255);
+    profileButton.useShadowedText = true;
+    profileButton.bgTextureId      = int(BlitObj2DIndexType::IMG_BUTTON2UP);
+    profileButton.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTON2DOWN);
+    profileButton.label = L"PROFILE";
+    #if defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
+        profileButton.lblFontSize = 13.0f;
+        profileButton.bold = true;
+    #elif defined(__USE_DIRECTX_12__)
+        profileButton.lblFontSize = 16.0f;
+        profileButton.bold = true;
+    #else
+        profileButton.lblFontSize = 16.0f;
+    #endif
+    profileButton.isVisible = true;
+
+    profileButton.onMouseOver = [weakGameMenuWindow]() {
+        if (auto window = weakGameMenuWindow.lock()) {
+            if (!window->bWindowDestroy) { }
+        }
+    };
+
+    profileButton.onMouseBtnUp = [this]() {
+        try {
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGameMenuWindow - Profile button released, opening UserProfile window");
+            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+            CreateUserProfileWindow();
+        }
+        catch (const std::exception& e) {
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"CreateGameMenuWindow - Exception in profile button handler: %hs", e.what());
+        }
+    };
+
+    gameMenuWindow->AddControl(profileButton);
+#endif // PROJECT_ONLY_CODE
+
     // Add Hi-Scores Table Button control with fixed lambda handlers
     GUIControl hiscoresButton;
     hiscoresButton.type = GUIControlType::Button;
-    hiscoresButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 145);       // Position below gameplay button
+    hiscoresButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 190);       // Position below profile button
     hiscoresButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);                                                   // Same size as other buttons
     hiscoresButton.bgColor = MyColor(0, 0, 0, 255);                                                             // Black background
     hiscoresButton.txtColor = MyColor(255, 255, 0, 255);                                                        // Yellow text color
@@ -456,7 +494,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     // Add Credits Button control with fixed lambda handlers
     GUIControl creditsButton;
     creditsButton.type = GUIControlType::Button;
-    creditsButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 190);       // Position below high scores button
+    creditsButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 235);       // Position below high scores button
     creditsButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);                                                   // Same size as other buttons
     creditsButton.bgColor = MyColor(0, 0, 0, 255);                                                             // Black background
     creditsButton.txtColor = MyColor(255, 255, 0, 255);                                                        // Yellow text color
@@ -514,7 +552,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
     // Add Quit Button control with fixed lambda handlers
     GUIControl quitButton;
     quitButton.type = GUIControlType::Button;
-    quitButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 235);       // Position below credits button
+    quitButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 280);       // Position below credits button
     quitButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);                                                   // Same size as other buttons
     quitButton.bgColor = MyColor(0, 0, 0, 255);                                                             // Black background
     quitButton.txtColor = MyColor(255, 255, 0, 255);                                                        // Yellow text color
@@ -603,7 +641,7 @@ void GUIManager::CreateGameMenuWindow(const std::wstring& message) {
         // Experimental button — DEBUG builds only; launches WarpDotTunnel demo
         GUIControl experimentalButton;
         experimentalButton.type = GUIControlType::Button;
-        experimentalButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 280);
+        experimentalButton.position = Vector2(gameMenuWindow->position.x + 25, gameMenuWindow->position.y + 325);
         experimentalButton.size = Vector2(GAMEMENU_BUTTON_WIDTH, 30);
         experimentalButton.bgColor = MyColor(0, 0, 0, 255);
         experimentalButton.txtColor = MyColor(255, 128, 0, 255);                                                       // Orange text — visually distinct from release buttons
@@ -1262,3 +1300,686 @@ void GUIManager::CreateGamePlayTypesWindow() {
     debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateGamePlayTypesWindow - Game play types window created successfully with %d controls",
         static_cast<int>(gptWindow->controls.size()));
 }
+
+//-------------------------------------------------------------------------------------------------
+// CreateQuitConfirmDialog — modal "About to Quit" confirmation window.
+// ESC in SCENE_GAMETITLE now shows this instead of shutting down immediately.
+// OK  : fade to black → stop music → signal render thread → PostMessage(WM_CLOSE)
+// CANCEL : simply close this dialog and return to the game menu.
+// This is a CPGE engine-level dialog (no PROJECT_ONLY_CODE guard).
+//-------------------------------------------------------------------------------------------------
+void GUIManager::CreateQuitConfirmDialog()
+{
+    if (!renderer) return;
+
+    // Remove a stale copy only when it exists. RemoveWindow logs missing windows as LOG_ERROR.
+    if (GetWindow(QUIT_CONFIRM_WINDOW_NAME))
+        RemoveWindow(QUIT_CONFIRM_WINDOW_NAME);
+
+    constexpr int dlgW = 520;
+    constexpr int dlgH = 150;
+    const int dlgX = (renderer->iOrigWidth  - dlgW) / 2;
+    const int dlgY = (renderer->iOrigHeight - dlgH) / 2;
+
+    CreateMyWindow(
+        QUIT_CONFIRM_WINDOW_NAME,
+        GUIWindowType::Dialog,
+        Vector2(static_cast<float>(dlgX), static_cast<float>(dlgY)),
+        Vector2(static_cast<float>(dlgW), static_cast<float>(dlgH)),
+        MyColor(0, 0, 0, 230), // Transparency on background.
+        int(BlitObj2DIndexType::NONE)
+    );
+
+    auto dlgWin = GetWindow(QUIT_CONFIRM_WINDOW_NAME);
+    if (!dlgWin) return;
+
+    dlgWin->isModal   = true;
+    dlgWin->isVisible = false;
+
+    // ---- Title bar ----
+    GUIControl titleBar;
+    titleBar.type                = GUIControlType::TitleBar;
+    titleBar.position            = Vector2(static_cast<float>(dlgX), static_cast<float>(dlgY));
+    titleBar.size                = Vector2(static_cast<float>(dlgW), TITLEBAR_HEIGHT);
+    titleBar.bgColor             = MyColor(0, 0, 0, 255);
+    titleBar.txtColor            = MyColor(255, 220, 0, 255);
+    titleBar.bgTextureId         = -1;
+    titleBar.bgTextureHoverId    = -1;
+    titleBar.useGradient         = true;
+    titleBar.gradientTopColor    = MyColor(220, 30, 200, 255);
+    titleBar.gradientBottomColor = MyColor(25, 0, 50, 255);
+    titleBar.label               = L"CONFIRM EXIT";
+    titleBar.lblFontSize         = 14.0f;
+    titleBar.lblCenterH          = false;
+    titleBar.isVisible           = true;
+    dlgWin->AddControl(titleBar);
+
+    // ---- Message text area ----
+    GUIControl msgText;
+    msgText.type             = GUIControlType::TextArea;
+    msgText.position         = Vector2(static_cast<float>(dlgX + 14),
+                                       static_cast<float>(dlgY) + TITLEBAR_HEIGHT + 10.0f);
+    msgText.size             = Vector2(static_cast<float>(dlgW - 28), 38.0f);
+    msgText.label            = L"You are about to Quit the Game.";
+    msgText.lblFontSize      = 14.0f;
+    msgText.txtColor         = MyColor(255, 255, 255, 255);
+    msgText.bgColor          = MyColor(0, 0, 0, 0);
+    msgText.bgTextureId      = -1;
+    msgText.bgTextureHoverId = -1;
+    msgText.hoverColor       = MyColor(0, 0, 0, 0);
+    msgText.isVisible        = true;
+    dlgWin->AddControl(msgText);
+
+    // ---- OK button — near right → full shutdown ----
+    GUIControl okBtn;
+    okBtn.type             = GUIControlType::Button;
+    okBtn.position         = Vector2(static_cast<float>(dlgX + dlgW - 236),
+                                     static_cast<float>(dlgY + dlgH - 46));
+    okBtn.size             = Vector2(108.0f, 30.0f);
+    okBtn.bgColor          = MyColor(0, 0, 0, 128);
+    okBtn.txtColor         = MyColor(255, 255, 0, 255);
+    okBtn.useShadowedText  = true;
+    okBtn.bgTextureId      = int(BlitObj2DIndexType::IMG_BUTTONUP1);
+    okBtn.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTONUP1);
+    okBtn.label            = L"OK";
+    okBtn.lblFontSize      = 14.0f;
+    okBtn.bold             = true;
+    okBtn.isVisible        = true;
+
+    okBtn.onMouseBtnDown = [this, windowName = std::string(QUIT_CONFIRM_WINDOW_NAME)]() {
+        try {
+            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+            RemoveWindow(windowName);
+            fxManager.FadeOutThenCallback(
+                { 0.0f, 0.0f, 0.0f, 1.0f }, 0.8f, 0.06f,
+                []() {
+                    StopMusicPlayback();
+                    threadManager.threadVars.bIsShuttingDown.store(true);
+                    #if defined(_WIN32) || defined(_WIN64)
+                        std::thread([]() {
+                            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                            PostMessage(hwnd, WM_CLOSE, 0, 0);
+                        }).detach();
+                    #else
+                        PostQuitMessage(0);
+                    #endif
+                });
+        }
+        catch (...) {}
+    };
+    dlgWin->AddControl(okBtn);
+
+    // ---- Cancel button — near right side → close dialog ----
+    GUIControl cancelBtn;
+    cancelBtn.type             = GUIControlType::Button;
+    cancelBtn.position         = Vector2(static_cast<float>(dlgX + dlgW - 120),
+                                         static_cast<float>(dlgY + dlgH - 46));
+    cancelBtn.size             = Vector2(108.0f, 30.0f);
+    cancelBtn.bgColor          = MyColor(0, 0, 0, 128);
+    cancelBtn.txtColor         = MyColor(255, 255, 0, 255);
+    cancelBtn.useShadowedText  = true;
+    cancelBtn.bgTextureId      = int(BlitObj2DIndexType::IMG_BUTTONUP1);
+    cancelBtn.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTONUP1);
+    cancelBtn.label            = L"CANCEL";
+    cancelBtn.lblFontSize      = 14.0f;
+    cancelBtn.bold             = true;
+    cancelBtn.isVisible        = true;
+
+    cancelBtn.onMouseBtnDown = [this, windowName = std::string(QUIT_CONFIRM_WINDOW_NAME)]() {
+        try {
+            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+            RemoveWindow(windowName);
+        }
+        catch (...) {}
+    };
+    dlgWin->AddControl(cancelBtn);
+
+    // Safe to show now
+    dlgWin->isVisible = true;
+}
+
+//-------------------------------------------------------------------------------------------------
+// CreateUserProfileWindow — centered modal window for commander & callsign selection.
+//
+// Layout (600 × 520 px, centered):
+//   • 3D drop-shadow effect via dark border window + inner gradient panels
+//   • White→black gradient approximated with 5 stacked Panel controls
+//   • Title bar "USER PROFILE" + circle-style 'X' close button (top-right)
+//   • Single 96×96 portrait image in the top-left of the content area
+//   • Horizontal selector scrollbar directly beneath the portrait (96 px wide)
+//     spanning commander indices 0–13; snaps to the nearest integer on release
+//   • Commander name + rank displayed to the right of the portrait
+//   • Callsign TextInput (20 chars, alphanumeric only — SQL-safe)
+//   • 7 read-only HSlider attribute bars: Speed, Shields, HULL, CASH, REGEN, WEAPON, CLOAKING
+//   • SAVE and CLOSE buttons at bottom-right
+//
+// On SAVE: writes to UserProfile.dat (binary) and mirrors profileID / playerName /
+//          playerExperience into config (saved to GameConfig.cfg with checksum).
+//-------------------------------------------------------------------------------------------------
+#ifdef PROJECT_ONLY_CODE
+void GUIManager::CreateUserProfileWindow()
+{
+    if (!renderer) return;
+
+    // Remove stale copies only when they exist. RemoveWindow logs missing windows as LOG_ERROR.
+    if (GetWindow(USERPROFILE_SHADOW_NAME))
+        RemoveWindow(USERPROFILE_SHADOW_NAME);
+    if (GetWindow(USERPROFILE_WINDOW_NAME))
+        RemoveWindow(USERPROFILE_WINDOW_NAME);
+
+    constexpr int winW = 600;
+    constexpr int winH = 535;
+    const int winX = (renderer->iOrigWidth  - winW) / 2;
+    const int winY = (renderer->iOrigHeight - winH) / 2;
+
+    // ----------------------------------------------------------------
+    // Shadow backing window (dark offset rectangle, lower z-order)
+    // ----------------------------------------------------------------
+    CreateMyWindow(
+        USERPROFILE_SHADOW_NAME,
+        GUIWindowType::Dialog,
+        Vector2(static_cast<float>(winX + 8), static_cast<float>(winY + 8)),
+        Vector2(static_cast<float>(winW),      static_cast<float>(winH)),
+        MyColor(10, 10, 10, 180),
+        int(BlitObj2DIndexType::NONE)
+    );
+    {
+        auto shadow = GetWindow(USERPROFILE_SHADOW_NAME);
+        if (shadow) { shadow->isModal = false; }   // visibility set by fade-in below
+    }
+
+    // ----------------------------------------------------------------
+    // Main UserProfile window (very dark border = drop shadow illusion)
+    // ----------------------------------------------------------------
+    CreateMyWindow(
+        USERPROFILE_WINDOW_NAME,
+        GUIWindowType::Dialog,
+        Vector2(static_cast<float>(winX), static_cast<float>(winY)),
+        Vector2(static_cast<float>(winW), static_cast<float>(winH)),
+        MyColor(15, 15, 15, 252),
+        int(BlitObj2DIndexType::NONE)
+    );
+
+    auto win = GetWindow(USERPROFILE_WINDOW_NAME);
+    if (!win) { RemoveWindow(USERPROFILE_SHADOW_NAME); return; }
+
+    win->isModal   = true;
+    win->isVisible = false;
+
+    // ----------------------------------------------------------------
+    // Main body background — 80% opaque black panel (inset 5px)
+    // ----------------------------------------------------------------
+    {
+        GUIControl bodyBg;
+        bodyBg.type             = GUIControlType::Panel;
+        bodyBg.position         = Vector2(static_cast<float>(winX + 5), static_cast<float>(winY + 5));
+        bodyBg.size             = Vector2(static_cast<float>(winW - 10), static_cast<float>(winH - 10));
+        bodyBg.bgColor          = MyColor(0, 0, 0, 204);   // 80 % opaque black
+        bodyBg.bgTextureId      = -1;
+        bodyBg.bgTextureHoverId = -1;
+        bodyBg.sliderValue      = 0.0f;   // flat — no bevel effect
+        bodyBg.isVisible        = true;
+        win->AddControl(bodyBg);
+    }
+
+    // ----------------------------------------------------------------
+    // Title bar "USER PROFILE" — mid-grey → black gradient, no hover tint
+    // ----------------------------------------------------------------
+    constexpr float CLOSE_BTN_SIZE = 20.0f;
+    GUIControl titleBar;
+    titleBar.type             = GUIControlType::TitleBar;
+    titleBar.position         = Vector2(static_cast<float>(winX + 5), static_cast<float>(winY + 2));
+    titleBar.size             = Vector2(static_cast<float>(winW - 10), TITLEBAR_HEIGHT);
+    titleBar.bgColor          = MyColor(0, 0, 0, 255);
+    titleBar.txtColor         = MyColor(220, 220, 220, 255);
+    titleBar.bgTextureId      = -1;
+    titleBar.bgTextureHoverId = -1;
+    titleBar.useGradient      = true;
+    titleBar.gradientTopColor    = MyColor(110, 110, 110, 255);   // above-mid-grey
+    titleBar.gradientBottomColor = MyColor(0, 0, 0, 255);         // black
+    titleBar.label            = L"USER PROFILE";
+    titleBar.lblFontSize      = 14.0f;
+    titleBar.bold             = true;
+    titleBar.lblCenterH       = false;
+    titleBar.isVisible        = true;
+    win->AddControl(titleBar);
+
+    // ---- Red square close button ('X') — top-right, vertically centred in title bar ----
+    GUIControl closeBtn;
+    closeBtn.type             = GUIControlType::Button;
+    closeBtn.position         = Vector2(
+        static_cast<float>(winX + winW - 10) - CLOSE_BTN_SIZE,
+        static_cast<float>(winY + 2) + (TITLEBAR_HEIGHT - (CLOSE_BTN_SIZE+2)) * 0.5f);
+    closeBtn.size             = Vector2(CLOSE_BTN_SIZE, CLOSE_BTN_SIZE);
+    closeBtn.bgColor          = MyColor(0, 0, 0, 0);
+    closeBtn.hoverColor       = MyColor(180, 0, 0, 160);
+    closeBtn.txtColor         = MyColor(255, 200, 200, 230);
+    closeBtn.bgTextureId      = -1;
+    closeBtn.bgTextureHoverId = -1;
+    closeBtn.useCircleShape   = false;
+    closeBtn.label            = L"X";
+    closeBtn.lblFontSize      = 11.0f;
+    closeBtn.bold             = true;
+    closeBtn.isVisible        = true;
+
+    closeBtn.onMouseBtnDown = [this]() {
+        soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+        ApplyWindowFade(GUIWindowFadeType::FadeOut, 0.35f, USERPROFILE_SHADOW_NAME);
+        ApplyWindowFadeCallback(GUIWindowFadeType::FadeOut, 0.35f, USERPROFILE_WINDOW_NAME,
+            [this]() {
+                RemoveWindow(USERPROFILE_WINDOW_NAME);
+                RemoveWindow(USERPROFILE_SHADOW_NAME);
+            });
+    };
+    win->AddControl(closeBtn);
+
+    // ----------------------------------------------------------------
+    // Portrait image — 96×96, top-left of content area
+    // ----------------------------------------------------------------
+    const int portX = winX + 10;
+    const int portY = winY + 40;
+    constexpr int portW = 128, portH = 128;
+
+    const int initProfileID = std::clamp(config.myConfig.profileID, 0, MAX_COMMANDER_PROFILES - 1);
+
+    GUIControl portrait;
+    portrait.type             = GUIControlType::Panel;
+    portrait.id               = "profile_portrait";
+    portrait.position         = Vector2(static_cast<float>(portX), static_cast<float>(portY));
+    portrait.size             = Vector2(static_cast<float>(portW), static_cast<float>(portH));
+    portrait.bgColor          = MyColor(40, 40, 40, 200);
+    portrait.bgTextureId      = kCommanderRoster[initProfileID].portraitTexIndex;
+    portrait.bgTextureHoverId = kCommanderRoster[initProfileID].portraitTexIndex;
+    portrait.sliderValue      = 0.7f;
+    portrait.isVisible        = true;
+    win->AddControl(portrait);
+
+    // ----------------------------------------------------------------
+    // Profile selector HSlider — 96 px wide, directly under the portrait
+    // Spans 0.0 (profile 0) to 13.0 (profile 13).
+    // ----------------------------------------------------------------
+    const int sliderY = portY + portH + 4;
+
+    GUIControl profSlider;
+    profSlider.type             = GUIControlType::HSlider;
+    profSlider.id               = "profile_selector";
+    profSlider.position         = Vector2(static_cast<float>(portX), static_cast<float>(sliderY));
+    profSlider.size             = Vector2(static_cast<float>(portW), 22.0f);
+    profSlider.bgColor          = MyColor(50, 50, 50, 220);
+    profSlider.hoverColor       = MyColor(70, 70, 70, 220);
+    profSlider.sliderMin        = 0.0f;
+    profSlider.sliderMax        = static_cast<float>(MAX_COMMANDER_PROFILES - 1);
+    profSlider.sliderValue      = static_cast<float>(initProfileID);
+    profSlider.isClickHandled   = true;
+    profSlider.bgTextureId      = int(BlitObj2DIndexType::IMG_BEVEL1);
+    profSlider.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BEVEL1);
+    profSlider.isVisible        = true;
+
+    // When dragged, snap to integer profile index and update all dependent controls.
+    profSlider.onSliderChanged = [this](float val) {
+        const int profileIdx = std::clamp(static_cast<int>(std::round(val)), 0, MAX_COMMANDER_PROFILES - 1);
+        auto profileWin = GetWindow(USERPROFILE_WINDOW_NAME);
+        if (!profileWin || profileWin->bWindowDestroy) return;
+
+        const CommanderProfile& cmd = kCommanderRoster[profileIdx];
+        const int texID = cmd.portraitTexIndex;
+
+        for (auto& c : profileWin->controls) {
+            if (c.id == "profile_portrait") {
+                c.bgTextureId = texID;
+                c.bgTextureHoverId = texID;
+            }
+            else if (c.id == "cmd_name") {
+                c.label = std::wstring(cmd.name, cmd.name + strnlen_s(cmd.name, 24));
+            }
+            else if (c.id == "cmd_rank") {
+                c.label = CommanderRankToString(cmd.rank);
+            }
+            else if (c.id == "attr_speed")       { c.sliderValue = cmd.stats.speed    / 100.0f; }
+            else if (c.id == "attr_shields")      { c.sliderValue = cmd.stats.shields  / 100.0f; }
+            else if (c.id == "attr_hull")         { c.sliderValue = cmd.stats.hull     / 100.0f; }
+            else if (c.id == "attr_cash")         { c.sliderValue = cmd.stats.cash     / 100.0f; }
+            else if (c.id == "attr_regen")        { c.sliderValue = cmd.stats.regen    / 100.0f; }
+            else if (c.id == "attr_weapon")       { c.sliderValue = cmd.stats.weapon   / 100.0f; }
+            else if (c.id == "attr_cloaking")     { c.sliderValue = cmd.stats.cloaking / 100.0f; }
+            else if (c.id == "attr_speed_val")    { c.label = std::to_wstring(cmd.stats.speed)    + L"%"; }
+            else if (c.id == "attr_shields_val")  { c.label = std::to_wstring(cmd.stats.shields)  + L"%"; }
+            else if (c.id == "attr_hull_val")     { c.label = std::to_wstring(cmd.stats.hull)     + L"%"; }
+            else if (c.id == "attr_cash_val")     { c.label = std::to_wstring(cmd.stats.cash)     + L"%"; }
+            else if (c.id == "attr_regen_val")    { c.label = std::to_wstring(cmd.stats.regen)    + L"%"; }
+            else if (c.id == "attr_weapon_val")   { c.label = std::to_wstring(cmd.stats.weapon)   + L"%"; }
+            else if (c.id == "attr_cloaking_val") { c.label = std::to_wstring(cmd.stats.cloaking) + L"%"; }
+        }
+    };
+    win->AddControl(profSlider);
+
+    // ----------------------------------------------------------------
+    // Commander name + rank — right of portrait
+    // ----------------------------------------------------------------
+    const int infoX = portX + portW + 14;
+    const int infoY = portY;
+
+    GUIControl cmdNameCtrl;
+    cmdNameCtrl.type             = GUIControlType::TextArea;
+    cmdNameCtrl.id               = "cmd_name";
+    cmdNameCtrl.position         = Vector2(static_cast<float>(infoX), static_cast<float>(infoY));
+    cmdNameCtrl.size             = Vector2(static_cast<float>(winX + winW - infoX - 10), 34.0f);
+    {
+        const CommanderProfile& initCmd = kCommanderRoster[initProfileID];
+        cmdNameCtrl.label = std::wstring(initCmd.name, initCmd.name + strnlen_s(initCmd.name, 24));
+    }
+    cmdNameCtrl.lblFontSize      = 22.0f;
+    cmdNameCtrl.bold             = true;
+    cmdNameCtrl.txtColor         = MyColor(255, 255, 255, 255);
+    cmdNameCtrl.shadowedTxtColor = MyColor(50, 50, 50, 200);
+    cmdNameCtrl.useShadowedText  = true;
+    cmdNameCtrl.bgColor          = MyColor(0, 0, 0, 0);
+    cmdNameCtrl.bgTextureId      = -1;
+    cmdNameCtrl.bgTextureHoverId = -1;
+    cmdNameCtrl.hoverColor       = MyColor(0, 0, 0, 0);
+    cmdNameCtrl.isVisible        = true;
+    win->AddControl(cmdNameCtrl);
+
+    GUIControl cmdRankCtrl;
+    cmdRankCtrl.type             = GUIControlType::TextArea;
+    cmdRankCtrl.id               = "cmd_rank";
+    cmdRankCtrl.position         = Vector2(static_cast<float>(infoX), static_cast<float>(infoY + 38));
+    cmdRankCtrl.size             = Vector2(static_cast<float>(winX + winW - infoX - 10), 26.0f);
+    cmdRankCtrl.label            = CommanderRankToString(kCommanderRoster[initProfileID].rank);
+    cmdRankCtrl.lblFontSize      = 16.0f;
+    cmdRankCtrl.txtColor         = MyColor(255, 255, 255, 255);
+    cmdRankCtrl.shadowedTxtColor = MyColor(50, 50, 50, 200);
+    cmdRankCtrl.useShadowedText  = true;
+    cmdRankCtrl.bgColor          = MyColor(0, 0, 0, 0);
+    cmdRankCtrl.bgTextureId      = -1;
+    cmdRankCtrl.bgTextureHoverId = -1;
+    cmdRankCtrl.hoverColor       = MyColor(0, 0, 0, 0);
+    cmdRankCtrl.isVisible        = true;
+    win->AddControl(cmdRankCtrl);
+
+    // ----------------------------------------------------------------
+    // Callsign editor
+    // ----------------------------------------------------------------
+    const int callsignY = sliderY + 28;   // gap below profile selector slider
+
+    GUIControl callsignLabel;
+    callsignLabel.type        = GUIControlType::TextArea;
+    callsignLabel.position    = Vector2(static_cast<float>(winX + 10), static_cast<float>(callsignY));
+    callsignLabel.size        = Vector2(118.0f, 26.0f);
+    callsignLabel.label       = L"YOUR CALLSIGN:";
+    callsignLabel.lblFontSize      = 11.0f;
+    callsignLabel.txtColor         = MyColor(255, 255, 255, 255);
+    callsignLabel.shadowedTxtColor = MyColor(50, 50, 50, 200);
+    callsignLabel.useShadowedText  = true;
+    callsignLabel.bgColor          = MyColor(0, 0, 0, 0);
+    callsignLabel.bgTextureId      = -1;
+    callsignLabel.bgTextureHoverId = -1;
+    callsignLabel.hoverColor       = MyColor(0, 0, 0, 0);
+    callsignLabel.isVisible        = true;
+    win->AddControl(callsignLabel);
+
+    GUIControl callsignInput;
+    callsignInput.type             = GUIControlType::TextInput;
+    callsignInput.id               = "callsign_input";
+    callsignInput.position         = Vector2(static_cast<float>(winX + 132),
+                                             static_cast<float>(callsignY - 1));
+    callsignInput.size             = Vector2(static_cast<float>(winW - 142), 26.0f);
+    callsignInput.bgColor          = MyColor(230, 230, 230, 255);
+    callsignInput.txtColor         = MyColor(255, 215, 0, 255);   // bold gold yellow
+    callsignInput.bold             = true;
+    callsignInput.bgTextureId      = int(BlitObj2DIndexType::IMG_BEVEL1);
+    callsignInput.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BEVEL1);
+    callsignInput.maxInputLength   = 20;
+    callsignInput.placeholder      = L"Enter callsign (max 20 chars, A-Z 0-9)";
+    {
+        const std::string& saved = config.myConfig.playerName;
+        callsignInput.inputText = std::wstring(saved.begin(), saved.end());
+        callsignInput.cursorPos = static_cast<int>(callsignInput.inputText.size());
+    }
+    callsignInput.lblFontSize = 12.0f;
+    callsignInput.isVisible   = true;
+    win->AddControl(callsignInput);
+
+    // Filtered keyboard routing: alphanumeric only, no spaces or SQL-unsafe chars, max 20.
+    auto weakWin = std::weak_ptr<GUIWindow>(win);
+    win->onCharInput = [weakWin](wchar_t ch) {
+        auto w = weakWin.lock();
+        if (!w) return;
+        for (auto& ctrl : w->controls) {
+            if (ctrl.type != GUIControlType::TextInput || !ctrl.isFocused) continue;
+            if (static_cast<int>(ctrl.inputText.size()) >= ctrl.maxInputLength) return;
+            auto uc = static_cast<unsigned char>(ch & 0xFF);
+            if (!std::isalnum(uc)) return;   // reject spaces, quotes, SQL chars
+            ctrl.inputText.insert(ctrl.inputText.begin() + ctrl.cursorPos,
+                                  static_cast<wchar_t>(ch));
+            ++ctrl.cursorPos;
+            if (ctrl.onTextChanged) ctrl.onTextChanged(ctrl.inputText);
+            return;
+        }
+    };
+    win->onBackspace = [weakWin]() {
+        auto w = weakWin.lock();
+        if (!w) return;
+        for (auto& ctrl : w->controls) {
+            if (ctrl.type != GUIControlType::TextInput || !ctrl.isFocused) continue;
+            if (ctrl.cursorPos > 0 && !ctrl.inputText.empty()) {
+                ctrl.inputText.erase(ctrl.cursorPos - 1, 1);
+                --ctrl.cursorPos;
+                if (ctrl.onTextChanged) ctrl.onTextChanged(ctrl.inputText);
+            }
+            return;
+        }
+    };
+
+    // ----------------------------------------------------------------
+    // Attribute bars
+    // ----------------------------------------------------------------
+    const int attrTitleY = callsignY + 46;
+
+    GUIControl attrTitle;
+    attrTitle.type        = GUIControlType::TextArea;
+    attrTitle.position    = Vector2(static_cast<float>(winX + 10), static_cast<float>(attrTitleY));
+    attrTitle.size        = Vector2(static_cast<float>(winW - 20), 28.0f);
+    attrTitle.label       = L"COMMANDER ATTRIBUTES:";
+    attrTitle.lblFontSize      = 15.0f;
+    attrTitle.bold             = true;
+    attrTitle.txtColor         = MyColor(255, 255, 255, 255);
+    attrTitle.shadowedTxtColor = MyColor(50, 50, 50, 200);
+    attrTitle.useShadowedText  = true;
+    attrTitle.bgColor          = MyColor(0, 0, 0, 0);
+    attrTitle.bgTextureId      = -1;
+    attrTitle.bgTextureHoverId = -1;
+    attrTitle.hoverColor       = MyColor(0, 0, 0, 0);
+    attrTitle.isVisible        = true;
+    win->AddControl(attrTitle);
+
+    struct AttrRow { const wchar_t* lbl; const char* sliderID; const char* valID; int initVal; };
+    const CommanderStats& s0 = kCommanderRoster[initProfileID].stats;
+    const AttrRow attrRows[] = {
+        { L"SPEED",    "attr_speed",    "attr_speed_val",    s0.speed    },
+        { L"SHIELDS",  "attr_shields",  "attr_shields_val",  s0.shields  },
+        { L"HULL",     "attr_hull",     "attr_hull_val",     s0.hull     },
+        { L"CASH",     "attr_cash",     "attr_cash_val",     s0.cash     },
+        { L"REGEN",    "attr_regen",    "attr_regen_val",    s0.regen    },
+        { L"WEAPON",   "attr_weapon",   "attr_weapon_val",   s0.weapon   },
+        { L"CLOAKING", "attr_cloaking", "attr_cloaking_val", s0.cloaking },
+    };
+    constexpr int ATTR_ROWS = 7;
+    const float attrStartY = static_cast<float>(attrTitleY + 24);
+    const float attrRowH   = 32.0f;
+    // Attribute bar layout — use available window width
+    const float attrLblX   = static_cast<float>(winX + 10);
+    const float attrBarX   = static_cast<float>(winX + 100);
+    const float attrBarW   = static_cast<float>(winW - 170);  // leaves 60px for value label
+    const float attrValX   = attrBarX + attrBarW + 6.0f;
+
+    for (int ai = 0; ai < ATTR_ROWS; ++ai) {
+        const float rowY = attrStartY + ai * attrRowH;
+
+        GUIControl lbl;
+        lbl.type             = GUIControlType::TextArea;
+        lbl.position         = Vector2(attrLblX, rowY);
+        lbl.size             = Vector2(88.0f, 26.0f);
+        lbl.label            = attrRows[ai].lbl;
+        lbl.lblFontSize      = 12.0f;
+        lbl.txtColor         = MyColor(255, 255, 255, 255);
+        lbl.shadowedTxtColor = MyColor(50, 50, 50, 200);
+        lbl.useShadowedText  = true;
+        lbl.bgColor          = MyColor(0, 0, 0, 0);
+        lbl.hoverColor       = MyColor(0, 0, 0, 0);
+        lbl.bgTextureId      = -1;
+        lbl.bgTextureHoverId = -1;
+        lbl.isVisible        = true;
+        win->AddControl(lbl);
+
+        GUIControl slider;
+        slider.type             = GUIControlType::HSlider;
+        slider.id               = attrRows[ai].sliderID;
+        slider.position         = Vector2(attrBarX, rowY + 2.0f);
+        slider.size             = Vector2(attrBarW, 20.0f);
+        slider.bgColor          = MyColor(20, 20, 20, 200);
+        slider.hoverColor       = MyColor(20, 20, 20, 200);
+        slider.sliderMin        = 0.0f;
+        slider.sliderMax        = 1.0f;
+        slider.sliderValue      = attrRows[ai].initVal / 100.0f;
+        slider.isClickHandled   = false;   // display-only
+        slider.bgTextureId      = -1;
+        slider.bgTextureHoverId = -1;
+        slider.drawAsPill       = true;
+        slider.pillFillColor    = MyColor(40, 180, 40, 255);
+        slider.isVisible        = true;
+        win->AddControl(slider);
+
+        GUIControl valLbl;
+        valLbl.type             = GUIControlType::TextArea;
+        valLbl.id               = attrRows[ai].valID;
+        valLbl.position         = Vector2(attrValX, rowY);
+        valLbl.size             = Vector2(50.0f, 26.0f);
+        valLbl.label            = std::to_wstring(attrRows[ai].initVal) + L"%";
+        valLbl.lblFontSize      = 11.0f;
+        valLbl.txtColor         = MyColor(255, 255, 255, 255);
+        valLbl.shadowedTxtColor = MyColor(50, 50, 50, 200);
+        valLbl.useShadowedText  = true;
+        valLbl.bgColor          = MyColor(0, 0, 0, 0);
+        valLbl.hoverColor       = MyColor(0, 0, 0, 0);
+        valLbl.bgTextureId      = -1;
+        valLbl.bgTextureHoverId = -1;
+        valLbl.isVisible        = true;
+        win->AddControl(valLbl);
+    }
+
+    // ----------------------------------------------------------------
+    // SAVE button
+    // ----------------------------------------------------------------
+    const int btnY = winY + winH - 44;
+
+    GUIControl saveBtn;
+    saveBtn.type             = GUIControlType::Button;
+    saveBtn.position         = Vector2(static_cast<float>(winX + winW - 236), static_cast<float>(btnY));
+    saveBtn.size             = Vector2(108.0f, 34.0f);
+    saveBtn.bgColor          = MyColor(20, 20, 35, 128);   // 50% opaque when idle
+    saveBtn.hoverColor       = MyColor(60, 60, 90, 255);
+    saveBtn.txtColor         = MyColor(210, 210, 210, 255);
+    saveBtn.bgTextureId      = int(BlitObj2DIndexType::IMG_BUTTONUP1);
+    saveBtn.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTONUP1);
+    saveBtn.label            = L"SAVE";
+    saveBtn.lblFontSize      = 14.0f;
+    saveBtn.isVisible        = true;
+
+    saveBtn.onMouseBtnDown = [this]() {
+        try {
+            soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+
+            auto profileWin = GetWindow(USERPROFILE_WINDOW_NAME);
+            if (!profileWin || profileWin->bWindowDestroy) return;
+
+            int          newProfileID = config.myConfig.profileID;
+            std::wstring newCallsignW;
+
+            for (auto& c : profileWin->controls) {
+                if (c.id == "profile_selector")
+                    newProfileID = std::clamp(static_cast<int>(std::round(c.sliderValue)),
+                                              0, MAX_COMMANDER_PROFILES - 1);
+                if (c.id == "callsign_input")
+                    newCallsignW = c.inputText;
+            }
+
+            // Sanitise callsign — alphanumeric only (no spaces/SQL-unsafe chars), max 20 chars
+            std::string newCallsign;
+            newCallsign.reserve(20);
+            for (wchar_t wc : newCallsignW) {
+                if (newCallsign.size() >= 20) break;
+                auto uc = static_cast<unsigned char>(wc & 0xFF);
+                if (std::isalnum(uc))
+                    newCallsign += static_cast<char>(uc);
+            }
+            if (newCallsign.empty()) newCallsign = "Commander";
+
+            // Persist to binary profile file
+            UserProfileData pdata{};
+            strncpy_s(pdata.playerName, sizeof(pdata.playerName), newCallsign.c_str(), _TRUNCATE);
+            pdata.current_money = config.myConfig.current_money;
+            pdata.profileID     = newProfileID;
+            pdata.experience    = config.myConfig.playerExperience;
+            pdata.checksum      = ComputeProfileChecksum(pdata);
+            SaveUserProfile(pdata);
+
+            // Mirror into config + re-save with checksum
+            config.myConfig.profileID        = newProfileID;
+            config.myConfig.playerName       = newCallsign;
+            config.myConfig.playerExperience = pdata.experience;
+            config.saveConfig();
+
+            debug.logDebugMessage(LogLevel::LOG_INFO,
+                L"[UserProfile] Saved: callsign='%hs', profileID=%d, xp=%llu",
+                newCallsign.c_str(), newProfileID, pdata.experience);
+
+            // Fade out both windows then remove them
+            ApplyWindowFade(GUIWindowFadeType::FadeOut, 0.4f, USERPROFILE_SHADOW_NAME);
+            ApplyWindowFadeCallback(GUIWindowFadeType::FadeOut, 0.4f, USERPROFILE_WINDOW_NAME,
+                [this]() {
+                    RemoveWindow(USERPROFILE_WINDOW_NAME);
+                    RemoveWindow(USERPROFILE_SHADOW_NAME);
+                });
+        }
+        catch (const std::exception& e) {
+            debug.logDebugMessage(LogLevel::LOG_ERROR,
+                L"[UserProfile] Exception in save handler: %hs", e.what());
+        }
+    };
+    win->AddControl(saveBtn);
+
+    // ---- CLOSE button ----
+    GUIControl closeWinBtn;
+    closeWinBtn.type             = GUIControlType::Button;
+    closeWinBtn.position         = Vector2(static_cast<float>(winX + winW - 120),
+                                           static_cast<float>(btnY));
+    closeWinBtn.size             = Vector2(108.0f, 34.0f);
+    closeWinBtn.bgColor          = MyColor(20, 20, 35, 128);   // 50% opaque when idle
+    closeWinBtn.hoverColor       = MyColor(60, 60, 90, 255);
+    closeWinBtn.txtColor         = MyColor(210, 210, 210, 255);
+    closeWinBtn.bgTextureId      = int(BlitObj2DIndexType::IMG_BUTTONUP1);
+    closeWinBtn.bgTextureHoverId = int(BlitObj2DIndexType::IMG_BUTTONUP1);
+    closeWinBtn.label            = L"CLOSE";
+    closeWinBtn.lblFontSize      = 14.0f;
+    closeWinBtn.isVisible        = true;
+
+    closeWinBtn.onMouseBtnDown = [this]() {
+        soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
+        ApplyWindowFade(GUIWindowFadeType::FadeOut, 0.35f, USERPROFILE_SHADOW_NAME);
+        ApplyWindowFadeCallback(GUIWindowFadeType::FadeOut, 0.35f, USERPROFILE_WINDOW_NAME,
+            [this]() {
+                RemoveWindow(USERPROFILE_WINDOW_NAME);
+                RemoveWindow(USERPROFILE_SHADOW_NAME);
+            });
+    };
+    win->AddControl(closeWinBtn);
+
+    // Fade both windows in from transparent so the window appears to materialise.
+    ApplyWindowFade(GUIWindowFadeType::FadeIn, 0.35f, USERPROFILE_SHADOW_NAME);
+    ApplyWindowFade(GUIWindowFadeType::FadeIn, 0.35f, USERPROFILE_WINDOW_NAME);
+
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"CreateUserProfileWindow - created with %d controls",
+        static_cast<int>(win->controls.size()));
+}
+#endif // PROJECT_ONLY_CODE
