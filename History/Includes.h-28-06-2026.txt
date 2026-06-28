@@ -791,6 +791,13 @@ inline const std::wstring texFilename[] = {
     L"titlebar2.png", L"winbody2.png", L"button2up.png", L"button2down.png", L"logo.png",
     L"tab2red.png", L"tab1gmg.png", L"loading.png", L"tsoo.png"
 
+    // For TSOO Project Only (not used in the main CPGE engine)
+    #if defined(PROJECT_ONLY_CODE)
+        , L"pm1.png", L"pf1.png", L"pm2.png", L"pf2.png",
+        L"pm3.png", L"pf3.png", L"pm4.png", L"pf4.png",
+        L"pm5.png", L"pf5.png", L"pm6.png", L"pf6.png",
+        L"pm7.png", L"pf7.png"
+    #endif
 };
 
 // 3D Textures

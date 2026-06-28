@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.1.1896*
+*Current Build Version: v0.1.1897*
 
 ---
 
@@ -55,7 +55,7 @@ lets make this Engine great!
 #### 2026
 
 - [June 2026](#june-2026---opengl-pipeline-fixes)
-  - [01](#june-01-2026) · [02](#june-02-2026) · [03](#june-03-2026) · [04](#june-04-2026) · [05](#june-05-2026) · [06](#june-06-2026) · [07](#june-07-2026) · [08](#june-08-2026) · [11](#june-11-2026) · [12](#june-12-2026) · [13](#june-13-2026) · [14](#june-14-2026) · [15](#june-15-2026) · [16](#june-16-2026) · [17](#june-17-2026) · [18](#june-18-2026) · [21](#june-21-2026) · [23](#june-23-2026) · [24](#june-24-2026) · [25](#june-25-2026) · [27](#june-27-2026)
+  - [01](#june-01-2026) · [02](#june-02-2026) · [03](#june-03-2026) · [04](#june-04-2026) · [05](#june-05-2026) · [06](#june-06-2026) · [07](#june-07-2026) · [08](#june-08-2026) · [11](#june-11-2026) · [12](#june-12-2026) · [13](#june-13-2026) · [14](#june-14-2026) · [15](#june-15-2026) · [16](#june-16-2026) · [17](#june-17-2026) · [18](#june-18-2026) · [21](#june-21-2026) · [23](#june-23-2026) · [24](#june-24-2026) · [25](#june-25-2026) · [27](#june-27-2026) · [28](#june-28-2026)
 - [May 2026](#may-2026---more-major-updates-and-fixes)
   - [02](#may-02-2026) · [03-04](#may-03-04-2026) · [06](#may-06-2026) · [08](#may-08-2026) · [10](#may-10-2026) · [11](#may-11-2026) · [14](#may-14-2026) · [15](#may-15-2026) · [16](#may-16-2026) · [17](#may-17-2026) · [18](#may-18-2026) · [19](#may-19-2026) · [20](#may-20-2026) · [21](#may-21-2026) · [22](#may-22-2026) · [23](#may-23-2026) · [24](#may-24-2026) · [28](#may-28-2026) · [29](#may-29-2026) · [30](#may-30-2026) · [31](#may-31-2026)
 - [April 2026](#april-2026---bug-fixes-and-updates)
@@ -118,7 +118,7 @@ The **Cross Platform Gaming Engine (CPGE)** is designed for cross-platform funct
 
 ## Release Status
 
-Once the base DirectX 11 implementation is complete, the project will be released to the open community for contribution, growth, and public use.
+First Release is available (But recommended to wait for Second Release), Second Release will be coming real soon as more of the old issues are been resolved before moving onto Game Mechanic development.
 
 ---
 
@@ -4023,6 +4023,34 @@ Engine merge from TSOO (engine-level changes only; PROJECT_ONLY_CODE blocks excl
 - **Includes.h**: Expanded `PROJECT_ONLY_CODE` comment block to match TSOO's more detailed documentation (no code changes).
 - **KBHandlersCode.cpp**: Removed redundant renderer-conditional `#include "FXManager.h"` triple-block (all three branches were identical). Removed redundant renderer-conditional `extern FXManager fxManager;` triple-block. Updated `KEY_BACKSPACE` handler to call `guiManager.HandleBackspace()` unconditionally (removed `consoleWindow.bIsVisible` guard). Added new `KEY_DELETE` case calling `guiManager.HandleDelete()`.
 - **main.cpp**: Removed redundant renderer-conditional `FXManager fxManager;` triple-block (all three branches were identical); replaced with a single direct instantiation.
+
+#### June 28, 2026
+
+Engine merge from TSOO (engine-level changes only; PROJECT_ONLY_CODE blocks excluded):
+- **Includes.h**: Removed `DEFAULT_WINDOW_WIDTH`, `DEFAULT_WINDOW_HEIGHT`, `fDEFAULT_WINDOW_WIDTH`, `fDEFAULT_WINDOW_HEIGHT` constants (callers now read resolution from `config.myConfig`). `PROJECT_ONLY_CODE` define commented out as required for CPGE.
+- **Renderer.h**: Added `#include "Configuration.h"`. Added `DisplayMode` enum (`Windowed=0`, `BorderlessFullscreen=1`, `ExclusiveFullscreen=2`). Removed outdated 32-bit deprecation comment block. Changed `iOrigWidth`/`iOrigHeight` defaults from `DEFAULT_WINDOW_WIDTH/HEIGHT` to `config.myConfig.resolutionWidth/Height`. Added pure-virtual `SetDisplayMode(DisplayMode, int, int, int)` and `SetDisplayMode()` overloads.
+- **Configuration.h**: Changed default volumes (`musicVolume` 64→10, `ambientVolume` 64→48, `dialogVolume` 64→51, `microphoneVolume` 2.5→15.0). Updated resolution comment.
+- **Configuration.cpp**: Indented `#if defined(...)` fall-through block in `ValidateRendererForPlatform`.
+- **DX11Renderer.h**: Added `SetDisplayMode(DisplayMode, int, int, int)` and `SetDisplayMode()` overrides.
+- **DX11Renderer.cpp**: Added `DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH` to swap chain flags. `SetFullScreen()` now uses `MonitorFromWindow`+`WS_POPUP`+`SetWindowPos` (borderless-fullscreen, recommended Windows 10/11 approach) instead of `SetFullscreenState(TRUE)`. `SetWindowedScreen()` now also updates `m_renderTargetWidth/Height`, `winMetrics`, calls `SetupPipelineStates()` and updates camera/aspect-ratio. Added `SetDisplayMode()` unified entry point (no-arg reads from config; explicit overload dispatches Windowed/Borderless/ExclusiveFullscreen). `ExclusiveFullscreen` path in `SetDisplayMode` follows Microsoft DXGI 4-step sequence with `FindClosestMatchingMode` → `ResizeTarget` → `SetFullscreenState(TRUE)`.
+- **DX12Renderer.h**: Changed `iOrigWidth`/`iOrigHeight` defaults to `config.myConfig.resolutionWidth/Height`. Added `SetDisplayMode` override declarations. Updated `SetFullScreen` comment.
+- **DX12Renderer.cpp**: `SetFullScreen()` refactored to borderless-fullscreen using `MonitorFromWindow`+`SetWindowPos`; full resource release/recreate sequence (back buffers, D2D render targets, depth-stencil). `SetFullExclusive()` now runs `ChangeDisplaySettingsEx` outside the mutex before acquiring `s_renderMutex` to avoid cross-lock deadlock with DXGI. Added `SetDisplayMode()` overloads.
+- **DXRenderFrame.cpp**: Debug FPS text offset changed from `Vector2(0, 0)` to `Vector2(5.0f, 5.0f)`.
+- **DX12RenderFrame.cpp**: Debug FPS text offset changed from `Vector2(0, 0)` to `Vector2(5.0f, 5.0f)`.
+- **OpenGLRenderer.h**: Added `SetDisplayMode` override declarations and helpers.
+- **OpenGLRenderer.cpp**: `Cleanup()` now uses `ChangeDisplaySettingsExW` with the per-monitor device name (stored in `m_exclusiveMonitorDevice`) instead of `ChangeDisplaySettingsW`. Added `EnforceFullscreenWindowPlacement()` helper. Added `OnBeforeResizeOrModeChange()` and `OnAfterResizeOrModeChange()` helpers. `SetFullScreen()` saves prior window state and uses `MonitorFromWindow` for correct multi-monitor handling; sets `m_pendingContextRebind` flag. Added `SetDisplayMode()` overloads.
+- **OpenGLRenderFrame.cpp**: Added WGL context rebind block (`m_pendingContextRebind.exchange(false)`) on Windows so the render thread picks up new drawable dimensions after a mode change. Debug text offset changed to `Vector2(5.0f, 5.0f)`.
+- **VULKAN_Renderer.h**: Added `SetDisplayMode` override declarations.
+- **VULKAN_Renderer.cpp**: Added `SetDisplayMode()` overloads.
+- **VULKAN_RenderFrame.cpp**: Debug text offset changed to `Vector2(5.0f, 5.0f)`.
+- **FXManager.h**: `TextScrollData::regionWidth/Height` defaults changed from `fDEFAULT_WINDOW_WIDTH/HEIGHT` to `config.myConfig.resolutionWidth/Height`.
+- **FXManager.cpp**: Added `#include "Configuration.h"` and `extern Configuration config`. `ShowLoadingText()` fallback height now uses `config.myConfig.resolutionHeight` instead of `fDEFAULT_WINDOW_HEIGHT`.
+- **IOLoaderThread.cpp**: Consolidated redundant per-renderer `#include "FXManager.h"` / `extern FXManager fxManager` blocks into a single unconditional include/extern. Fixed `camH` assignment (was copying `resolutionWidth` instead of `resolutionHeight`). Aligned extern declarations.
+- **GUIConfigWindow.cpp**: Adjusted `System Configuration` title text vertical positions (`tbTextY-3` / `tbTextY-4`) to fix alignment.
+- **main.cpp**: Removed UTF-8 BOM. Added `DisableProcessWindowsGhosting()` call before `ConfigureProcessDpiAwareness()`. Replaced display-mode `switch` block with `renderer->SetDisplayMode()` call. Fixed mouse-clamp in `WindowProc`: removed incorrect `SetCursorPos(clientSpaceCoords)` calls that were passing client-space coordinates to a screen-space API.
+
+All Renderers (DirectX11, DirectX12, Vulkan and OpenGL) support Full Exclusive Mode and Borderless modes (Tested and verified working!).
+
 ---
 
 ## Future Development
