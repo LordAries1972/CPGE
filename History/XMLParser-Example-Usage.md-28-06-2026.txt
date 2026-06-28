@@ -1,0 +1,29 @@
+XMLParser-Example-Usage.md - 28-06-2026
+
+INITIAL CREATION
+
+New documentation file: Docs/XMLParser-Example-Usage.md
+
+Sections documented:
+    1.  System Setup and Headers
+    2.  Parsing XML from a File (DOM mode, wide-string paths, error result details)
+    3.  Parsing XML from a String (inline XML, raw byte buffers)
+    4.  DOM Tree Navigation (element navigation, recursive search, node type checking, depth/index)
+    5.  Attribute Access (reading, type conversion, setting, removing, iterating)
+    6.  Text Content and CDATA (GetTextContent, GetDirectText, SetTextContent, CDATA)
+    7.  Comments and Processing Instructions
+    8.  XPath Query Engine (absolute/relative, all axes, predicates, node-type tests, union operator)
+    9.  Namespace Support (parsing, NS-aware attribute access, namespace lookup)
+    10. Building XML Documents Programmatically (factory methods, CDATA, PIs, NS creation, Clone, ImportNode)
+    11. Serializing and Saving XML (ToString, SaveToFile, SerializeNode)
+    12. SAX Event-Driven Parsing (all callbacks, state-machine example)
+    13. DOCTYPE and Entity Declarations (parsing, pre-registering, accessing DOCTYPE node)
+    14. Character Encoding (BOM detection table, encoding declaration)
+    15. Whitespace Handling (PRESERVE/NORMALIZE/TRIM modes, ApplyWhitespace static)
+    16. Parser Configuration Options (all SetXxx methods with defaults)
+    17. Error Handling (XMLParseError code table, comprehensive switch example)
+    18. XMLSerializer Options (all Options fields with defaults)
+    19. Entity Encoding and Decoding Utilities (EncodeEntities, DecodeEntities, IsValidXMLName)
+    20. Advanced DOM Manipulation (InsertBefore/After, Remove/Replace, PrependChild, GetElementById)
+    21. Complete Game Configuration Example (SaveGameConfig + LoadGameConfig end-to-end)
+    22. API Reference (tables for XMLParser, XMLDocument, XMLNode, XMLSerializer::Options)

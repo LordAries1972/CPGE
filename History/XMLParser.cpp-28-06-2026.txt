@@ -1,0 +1,16 @@
+XMLParser.cpp - 28-06-2026
+
+INITIAL CREATION + COMPILE FIX (same day)
+
+Written by Daniel J. Hobson of Australia, 2026
+
+New file: Full implementation of the XMLParser class system.
+(See initial creation notes in the first version of this file.)
+
+Compile fix applied (same day):
+- XMLNode::ToString (const method) called shared_from_this() which returns
+  shared_ptr<const XMLNode> on a const object. SerializeNode takes
+  const shared_ptr<XMLNode>& (non-const). Fixed by using
+  std::const_pointer_cast<XMLNode>(shared_from_this()) to strip const.
+
+Synced fixes to TSOO project.

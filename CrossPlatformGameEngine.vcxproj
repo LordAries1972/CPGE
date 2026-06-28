@@ -152,6 +152,7 @@
     <ClCompile Include="DXRenderFrame.cpp" />
     <ClCompile Include="ExceptionHandler.cpp" />
     <ClCompile Include="FileIO.cpp" />
+    <ClCompile Include="XMLParser.cpp" />
     <ClCompile Include="GamePlayer.cpp" />
     <ClCompile Include="GamingAI.cpp" />
     <ClCompile Include="FBXAnimator.cpp" />
@@ -211,6 +212,7 @@
     <ClInclude Include="DXCamera.h" />
     <ClInclude Include="ExceptionHandler.h" />
     <ClInclude Include="FileIO.h" />
+    <ClInclude Include="XMLParser.h" />
     <ClInclude Include="GamePlayer.h" />
     <ClInclude Include="GamingAI.h" />
     <ClInclude Include="FBXAnimator.h" />

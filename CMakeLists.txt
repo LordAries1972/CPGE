@@ -64,6 +64,7 @@ set(SOURCES
     DX12Models.cpp
     ExceptionHandler.cpp
     FileIO.cpp
+    XMLParser.cpp
     GamePlayer.cpp
     GamingAI.cpp
     FBXAnimator.cpp

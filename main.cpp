@@ -1,4 +1,4 @@
-/* ------------------------------------------------------------------------------ */
+﻿/* ------------------------------------------------------------------------------ */
 // Main.cpp, the starting code to everything.
 //
 /* ------------------------------------------------------------------------------ */
@@ -113,20 +113,14 @@
 // --------------------------------------------
 // Include these after the Renderer's includes
 // --------------------------------------------
-#if defined(__USE_OPENGL__)
-    #include "FXManager.h"
-#elif defined(__USE_VULKAN__)
-    #include "FXManager.h"
-#else
-    #include "FXManager.h"
-#endif
-
+#include "FXManager.h"
 #include "SceneManager.h"
 #include "ShaderManager.h"
 #include "Models.h"
 #include "Lights.h"
 #include "MoviePlayer.h"
 #include "ScreenRecorder.h"
+#include "XMLParser.h"
 #include "ConsoleWindow.h"
 
 #ifdef __USE_SCRIPT_MANAGER__
@@ -170,6 +164,14 @@ SceneManager scene;
 ShaderManager shaderManager;
 MoviePlayer moviePlayer;
 ScreenRecorder screenRecorder;
+// Global XMLParser instance (can also be created locally per operation)
+XMLParser xmlParser;
+XMLDocument xmlDoc;
+PUNPack punPack;
+GamePlayer gamePlayer;
+PlayerInfo playerInfo[MAX_PLAYERS]; // Player Info Array
+GamingAI gamingAI;
+MyRandomizer myRandomizer;
 
 // Our externals we require
 extern const std::string DIFFICULTY_WINDOW_NAME;
@@ -181,12 +183,6 @@ extern ConsoleWindow consoleWindow;
 #ifdef __USE_SCRIPT_MANAGER__
     ScriptManager scriptManager;
 #endif
-
-PUNPack punPack;
-GamePlayer gamePlayer;
-PlayerInfo playerInfo[MAX_PLAYERS]; // Player Info Array
-GamingAI gamingAI;
-MyRandomizer myRandomizer;
 
 // Are we using Networking features?
 #if defined(__USE_NETWORKING__)

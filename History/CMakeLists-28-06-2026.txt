@@ -1,0 +1,3 @@
+CMakeLists.txt - 28-06-2026
+
+Added XMLParser.cpp to the source file list (after ExceptionHandler.cpp and FileIO.cpp).

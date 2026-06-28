@@ -1,0 +1,4 @@
+CrossPlatformGameEngine.vcxproj - 28-06-2026
+
+Added to ClCompile section: XMLParser.cpp
+Added to ClInclude section: XMLParser.h

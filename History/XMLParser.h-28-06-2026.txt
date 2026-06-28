@@ -1,0 +1,43 @@
+XMLParser.h - 28-06-2026
+
+INITIAL CREATION + COMPILE FIX (same day)
+
+Written by Daniel J. Hobson of Australia, 2026
+
+New file: Standards-Compliant XML 1.0/1.1 Parser Header
+- Full XML 1.0 Specification compliance (W3C REC-xml-20081126)
+- XML Namespaces 1.0 (xmlns prefix declarations and URI resolution)
+- XPath 1.0 query engine (all axes, predicates, wildcards, union operator)
+- SAX2-style event callbacks with namespace awareness
+- DOM Level 2 Core API (createElement, appendChild, insertBefore, replaceChild, etc.)
+- UTF-8 primary encoding; UTF-16 LE/BE BOM detection and conversion
+- ISO-8859-1 Latin-1 support
+- Configurable whitespace handling (PRESERVE / NORMALIZE / TRIM)
+- Entity expansion limits for XXE attack prevention (default: 10,000)
+- Serialization with optional pretty-printing, sort-attributes, custom indent
+- Zero external dependencies - pure C++17
+
+Classes Declared:
+    XMLNodeType     - Enum: DOCUMENT, ELEMENT, ATTRIBUTE, TEXT, CDATA_SECTION,
+                             ENTITY_REFERENCE, PROCESSING_INSTRUCTION, COMMENT, DOCUMENT_TYPE
+    XMLParseError   - Enum: 22 error codes covering all XML failure modes
+    XMLEncoding     - Enum: UTF_8, UTF_16_LE, UTF_16_BE, ISO_8859_1, US_ASCII
+    XMLXPathAxis    - Enum: 10 XPath axes (child, descendant, parent, ancestor, etc.)
+    XMLWhitespace   - Enum: PRESERVE, NORMALIZE, TRIM
+    XMLParseResult  - Struct: error, line, column, description, success()
+    XMLAttribute    - Struct: name, value, prefix, localName, namespaceURI
+    XMLNode         - DOM node class with full DOM Level 2 Core methods
+    XMLDocument     - Root document container with XPath engine, factory methods, serialization
+    XMLSAXCallbacks - SAX2 event callback struct with all standard events
+    XMLParser       - Core parser class (DOM + SAX modes)
+    XMLSerializer   - Configurable XML serializer with Options struct
+
+Compile fixes applied (same day):
+- CollectElements / CollectElementsByLocal moved out of private section
+  (called by XMLDocument which is not a friend class)
+- Added bool inDTD = false to ParseState struct
+  (was referenced in ParseDocType but not declared in the struct)
+- Added #undef guards for GetFirstChild, GetLastChild, GetNextSibling, GetPreviousSibling
+  after the includes block: <windowsx.h> (pulled in transitively via Includes.h)
+  defines these as function-like macros (GetWindow wrappers) which corrupt the
+  XMLNode method declarations

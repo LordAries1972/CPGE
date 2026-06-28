@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.1.1897*
+*Current Build Version: v0.1.1901*
 
 ---
 
@@ -4050,6 +4050,32 @@ Engine merge from TSOO (engine-level changes only; PROJECT_ONLY_CODE blocks excl
 - **main.cpp**: Removed UTF-8 BOM. Added `DisableProcessWindowsGhosting()` call before `ConfigureProcessDpiAwareness()`. Replaced display-mode `switch` block with `renderer->SetDisplayMode()` call. Fixed mouse-clamp in `WindowProc`: removed incorrect `SetCursorPos(clientSpaceCoords)` calls that were passing client-space coordinates to a screen-space API.
 
 All Renderers (DirectX11, DirectX12, Vulkan and OpenGL) support Full Exclusive Mode and Borderless modes (Tested and verified working!).
+
+New **XMLParser** class system added (XMLParser.h / XMLParser.cpp) — zero-dependency pure C++17 XML 1.0/1.1 implementation:
+
+- **DOM parsing** — `ParseFile`, `ParseString`, `ParseBytes` (std::string and std::wstring paths); builds full `XMLDocument` / `XMLNode` tree
+- **SAX2 streaming parse** — `ParseFileSAX`, `ParseStringSAX` with `XMLSAXCallbacks` (all 12 callback events including namespace prefix mapping)
+- **DOM Level 2 Core** — `CreateElement`, `CreateElementNS`, `CreateTextNode`, `CreateCDATASection`, `CreateComment`, `CreateProcessingInstruction`, `AppendChild`, `PrependChild`, `InsertBefore`, `InsertAfter`, `RemoveChild`, `ReplaceChild`, `RemoveAllChildren`, `Clone`
+- **XPath 1.0 engine** — All 10 axes (child, descendant, parent, ancestor, self, attribute, following-sibling, preceding-sibling, descendant-or-self, ancestor-or-self), wildcard `*`, `text()`, `comment()`, `node()`, `processing-instruction()`, positional predicates `[n]` / `[last()]`, attribute predicates `[@name]` / `[@name='value']`, text/element predicates, union operator `|`
+- **XML Namespaces 1.0** — `xmlns:prefix` declarations collected per element, namespace scope stack during parse, `LookupNamespaceURI`, `LookupPrefix`, namespace-aware attribute access
+- **DOCTYPE** — internal subset parsing: `ENTITY`, `ATTLIST`, `ELEMENT`, `NOTATION` declarations; entity map populated on `XMLDocument`
+- **Entity resolution** — 5 built-in (`&amp;` `&lt;` `&gt;` `&apos;` `&quot;`), decimal/hex character references, user-defined entities, `AddCustomEntity` for pre-registration
+- **Encoding** — UTF-8 (primary), UTF-16 LE/BE BOM detection, ISO-8859-1 conversion, line ending normalisation
+- **Serialization** — `XMLSerializer` with `Options` (pretty/compact, indent width/char, sort attributes, line ending, omit xmlns); `SaveToFile` for std::string and std::wstring paths; `XMLDocument::ToString` / `SaveToFile` convenience wrappers
+- **XXE protection** — configurable entity expansion limit (default 10,000)
+- **Whitespace modes** — `PRESERVE` / `NORMALIZE` / `TRIM`; `ApplyWhitespace` static utility
+- **Static utilities** — `EncodeEntities`, `DecodeEntities`, `IsValidXMLName`, `DetectEncoding`, `ConvertToUTF8`, `NormalizeLineEndings`
+- Added to CPGE2026 `CMakeLists.txt` and `CrossPlatformGameEngine.vcxproj`
+- Copied to TSOO project and added to TSOO `CMakeLists.txt` and `CrossPlatformGameEngine.vcxproj`
+- Documentation: `Docs/XMLParser-Example-Usage.md` created (22 sections, full API reference tables)
+
+XMLParser compile fixes:
+
+- `CollectElements` / `CollectElementsByLocal` moved out of `private` section — called by `XMLDocument` methods which are not a declared friend
+- `bool inDTD = false` added to `ParseState` struct — was referenced in `ParseDocType` but missing from the struct declaration
+- `XMLNode::ToString` (const method) fixed `shared_from_this()` call: used `std::const_pointer_cast<XMLNode>` since `shared_from_this()` on a const object returns `shared_ptr<const XMLNode>`, which cannot bind to `SerializeNode`'s `const shared_ptr<XMLNode>&` parameter
+- `#undef` guards added for `GetFirstChild`, `GetLastChild`, `GetNextSibling`, `GetPreviousSibling` — `<windowsx.h>` (pulled in transitively via `Includes.h`) defines these as Windows API `GetWindow` macros, which corrupt `XMLNode` method declarations when compiled after any Windows header
+- Fixes synced to TSOO project
 
 ---
 
