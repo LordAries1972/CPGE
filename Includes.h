@@ -21,12 +21,12 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 // NOTE: Also update <GameName> in CrossPlatformGameEngine.vcxproj and the
 //       GAME_NAME cmake cache variable in CMakeLists.txt to match.
 // ---------------------------------------------------------------------------
-#define GAME_NAME "TSOO"
+#define GAME_NAME "CPGE"
 // ---------------------------------------------------------------------------
 // Compile-time identity strings — used in version overlays and log output.
 // Overlay format: "<BuildType> <RENDERER_NAME_W> <GAME_NAME_W> v<build> <dd-MM-YYYY>"
 // ---------------------------------------------------------------------------
-#define GAME_NAME_W L"TSOO"
+#define GAME_NAME_W L"CPGE"
 
 // ---------------------------------------------------------------------------
 // This following define (PROJECT_ONLY_CODE) is used to indicate that this code is only, 

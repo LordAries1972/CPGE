@@ -1,0 +1,80 @@
+History for: Docs/About-CPGE.md
+Date: 28-06-2026
+Author: Daniel J. Hobson
+
+Changes:
+- Inserted new section 1.5 "Display Mode Initialization — Window Creation, DPI, and Screen Modes"
+  between existing sections 1.4 and 1.5.
+  Section contains 10 sub-sections (1.5.1 through 1.5.10):
+    1.5.1  The Three Display Modes (Windowed / Borderless / Exclusive — table)
+    1.5.2  Step 1 — DPI Awareness Must Be Set Before Any Window Is Created
+           (ConfigureProcessDpiAwareness, DisableProcessWindowsGhosting, why must be first)
+    1.5.3  Step 2 — The Window Is Always Created as Windowed First
+           (WS_WINDOWED_FIXED, AdjustWindowRect, DX11/DX12/OpenGL/Vulkan requirements)
+    1.5.4  Step 3 — winMetrics Override for Exclusive Fullscreen Before Renderer Initialisation
+    1.5.5  Step 4 — Renderer Initialisation, Then Display Mode, Then Threads
+           (Initialize / SetDisplayMode / StartRendererThreads strict ordering)
+    1.5.6  Step 5 — Cursor Policy by Mode
+           (DisableMouseCursor before SetDisplayMode for exclusive; WM_SETCURSOR for windowed/borderless)
+    1.5.7  The Exclusive Fullscreen Sequence — 9 internal steps inside SetDisplayMode
+           (capture desktop mode, GetContainingOutput, FindClosestMatchingMode, release resources,
+            ResizeTarget x2, SetFullscreenState(TRUE), ResizeBuffers, recreate resources,
+            bFullScreenTransition / bSettingFullScreen atomic guard flags)
+    1.5.8  The Borderless Fullscreen Sequence
+           (WS_POPUP + SetWindowPos, swap chain stays windowed, Win10/11 fullscreen optimisations,
+            Alt+Tab responsiveness, multi-monitor behaviour, trade-off vs exclusive)
+    1.5.9  Per-Renderer Considerations
+           (DX11: ALLOW_MODE_SWITCH flag; DX12: fence drain before ResizeBuffers;
+            OpenGL: ChangeDisplaySettings, WGL context survives resize;
+            Vulkan: VK_EXT_full_screen_exclusive, current Win32 borderless approach)
+    1.5.10 Why This Code Must Be Changed With Extreme Caution
+           (table of 10 specific changes and their failure modes)
+
+- Renumbered old section 1.5 "How 2D and 3D Content Coexist" to 1.6
+- Renumbered old section 1.6 "Current Development Status" to 1.7
+
+- Renumbered all existing sections 12-39 to 14-41 (body headings + TOC) to make room for two
+  new sections after section 11 (GLTF Animation System).
+- Fixed all internal cross-references affected by the renumbering:
+    - TOC anchor for Licensing: #37 -> #39
+    - Body cross-ref to Console Window: Section 30 -> Section 32
+    - Body cross-ref to Licensing: Section 37 -> Section 39
+    - Subsection anchors: ### 21.1/21.2 -> ### 23.1/23.2
+
+- Inserted new section 12 "FBX Importer" with 10 sub-sections:
+    12.1  Design Goals (no Autodesk SDK, binary+ASCII, engine-compatible output)
+    12.2  Format Detection and File Loading (23-byte binary magic, version>=7500 64-bit offsets)
+    12.3  Core Data Structures (FBXNode/Property, FBXScene table, ID->index lookup maps,
+          GlobalSettings metadata)
+    12.4  Binary Parser (ParseBinaryNode record layout, safety size check, built-in DEFLATE
+          decoder for all three RFC 1951 block types)
+    12.5  ASCII Parser (recursive descent: SkipWhitespace, ReadIdentifier, ReadString,
+          ParseValue, ParseNode)
+    12.6  Object Extraction and Connection Resolution (7-extractor table, Properties70 P-record
+          helpers, ProcessConnections OO/OP record types and all 7 resolved link kinds)
+    12.7  Coordinate System Conversion (ApplyCoordFlip, ApplyRotationFlip M·R·M, Z-up swap,
+          full FBX transform matrix order, six Euler orderings)
+    12.8  Triangulation and Geometry Processing (polygon soup ~index encoding, fan triangulation,
+          ByPolygonVertex/ByVertex mapping modes, flat-normal fallback, ComputeTangents)
+    12.9  Material Building (Lambert/Phong/PBR shading model routing, UV transform transfer)
+    12.10 Animation Export and Integration with SceneManager (ConvertAnimations bridge to
+          GLTFAnimation, ParseSceneAutoDetect routing, fbxIDToModelSlot, link to section 13)
+
+- Inserted new section 13 "FBX Animation System" with 9 sub-sections:
+    13.1  Why a Native FBX Animator (pre-rotation, rotation order, constant interpolation —
+          all lost in GLTF conversion)
+    13.2  Core Data Structures (FBXAnimChannel field table, FBXAnimationClip, shared
+          AnimationInstance with GLTFAnimator)
+    13.3  Parse Phase (ParseAnimationsFromFBX 5-step sequence: lookup maps, stack->duration,
+          layer->curveNode dispatch, deep-copy curves, duration fallback from last key)
+    13.4  The FBX Time System (1s = 46,186,158,000 units, seconds<->FBX units conversion
+          boundary, int64 key comparison)
+    13.5  Per-Frame Update (UpdateAnimations 5-step: reset base pose, advance time, bounds
+          handling for FORWARD/REVERSE/BOUNCE with loop/clamp, apply channels, recompose world)
+    13.6  Channel Evaluation and Coordinate Conversion (ApplyChannelToSlot: translation negate-Z,
+          rotation preRot+EulerToMatrix+ApplyRotationFlip+MatrixToQuaternion, scale passthrough)
+    13.7  Curve Interpolation (EvaluateCurve: seconds->FBX time, clamp, scan, keyAttrFlags RLE
+          0x2=Constant 0x4/0x8=Linear, cubic approximated as linear)
+    13.8  Playback API (full method table mirroring GLTFAnimator)
+    13.9  Cross-Backend Support (CPGE_MATH_STUBS_DEFINED guard, XM math stubs in FBXAnimator.cpp,
+          same memory layout as DX Math types)

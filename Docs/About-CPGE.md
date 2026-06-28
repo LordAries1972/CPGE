@@ -1,9 +1,9 @@
 # About CPGE — Cross Platform Gaming Engine
 
 **Author:** Daniel J. Hobson — Melbourne, Australia  
-**Current Build:** v0.0.1682  
+**Current Build:** v0.1.1897  
 **Language:** C++17  
-**License:** Free-to-Use (Attribution Required) — See [Licensing](#37-licensing)
+**License:** Free-to-Use (Attribution Required) — See [Licensing](#39-licensing)
 
 ---
 
@@ -49,36 +49,38 @@
 9. [Scene Management System](#9-scene-management-system)
 10. [3D Model System](#10-3d-model-system)
 11. [GLTF Animation System](#11-gltf-animation-system)
-12. [Lighting System](#12-lighting-system)
-13. [Material & Texture System (PBR)](#13-material--texture-system-pbr)
-14. [Visual FX Manager](#14-visual-fx-manager)
-15. [Threading System](#15-threading-system)
-16. [IO Loader Thread](#16-io-loader-thread)
-17. [Sound Effects Manager (SoundManager)](#17-sound-effects-manager-soundmanager)
-18. [Music Playback — XMMODPlayer](#18-music-playback--xmmodplayer)
-19. [Media Player — WinMediaPlayer](#19-media-player--winmediaplayer)
-20. [Text-to-Speech Manager (TTSManager)](#20-text-to-speech-manager-ttsmanager)
-21. [Input Systems](#21-input-systems)
-    - [21.1 Keyboard Handler](#211-keyboard-handler)
-    - [21.2 Joystick & GamePad System](#212-joystick--gamepad-system)
-22. [Physics Engine](#22-physics-engine)
-23. [Mathematics Precalculation System](#23-mathematics-precalculation-system)
-24. [Networking Manager](#24-networking-manager)
-25. [Gaming AI System](#25-gaming-ai-system)
-26. [Script Manager](#26-script-manager)
-27. [File I/O System (FileIO)](#27-file-io-system-fileio)
-28. [Configuration System (GameConfig.cfg)](#28-configuration-system-gameconfigcfg)
-29. [Exception Handler & Debug System](#29-exception-handler--debug-system)
-30. [Console Window](#30-console-window)
-31. [GUI System (GUIManager)](#31-gui-system-guimanager)
-32. [Screen Recorder](#32-screen-recorder)
-33. [Compression System (PUNPack)](#33-compression-system-punpack)
-34. [Randomiser Utility (MyRandomizer)](#34-randomiser-utility-myrandomizer)
-35. [Blender Add-Ons](#35-blender-add-ons)
-36. [Steam Integration (Future)](#36-steam-integration-future)
-37. [Licensing](#37-licensing)
-38. [Contact & Contributions](#38-contact--contributions)
-39. [Donations and Support](#39-donations-and-support)
+12. [FBX Importer](#12-fbx-importer)
+13. [FBX Animation System](#13-fbx-animation-system)
+14. [Lighting System](#14-lighting-system)
+15. [Material & Texture System (PBR)](#15-material--texture-system-pbr)
+16. [Visual FX Manager](#16-visual-fx-manager)
+17. [Threading System](#17-threading-system)
+18. [IO Loader Thread](#18-io-loader-thread)
+19. [Sound Effects Manager (SoundManager)](#19-sound-effects-manager-soundmanager)
+20. [Music Playback — XMMODPlayer](#20-music-playback--xmmodplayer)
+21. [Media Player — WinMediaPlayer](#21-media-player--winmediaplayer)
+22. [Text-to-Speech Manager (TTSManager)](#22-text-to-speech-manager-ttsmanager)
+23. [Input Systems](#23-input-systems)
+    - [23.1 Keyboard Handler](#231-keyboard-handler)
+    - [23.2 Joystick & GamePad System](#232-joystick--gamepad-system)
+24. [Physics Engine](#24-physics-engine)
+25. [Mathematics Precalculation System](#25-mathematics-precalculation-system)
+26. [Networking Manager](#26-networking-manager)
+27. [Gaming AI System](#27-gaming-ai-system)
+28. [Script Manager](#28-script-manager)
+29. [File I/O System (FileIO)](#29-file-io-system-fileio)
+30. [Configuration System (GameConfig.cfg)](#30-configuration-system-gameconfigcfg)
+31. [Exception Handler & Debug System](#31-exception-handler--debug-system)
+32. [Console Window](#32-console-window)
+33. [GUI System (GUIManager)](#33-gui-system-guimanager)
+34. [Screen Recorder](#34-screen-recorder)
+35. [Compression System (PUNPack)](#35-compression-system-punpack)
+36. [Randomiser Utility (MyRandomizer)](#36-randomiser-utility-myrandomizer)
+37. [Blender Add-Ons](#37-blender-add-ons)
+38. [Steam Integration (Future)](#38-steam-integration-future)
+39. [Licensing](#39-licensing)
+40. [Contact & Contributions](#40-contact--contributions)
+41. [Donations and Support](#41-donations-and-support)
 
 ---
 
@@ -209,7 +211,228 @@ When the executable launches, the following sequence occurs:
 
 ---
 
-### 1.5 How 2D and 3D Content Coexist
+### 1.5 Display Mode Initialization — Window Creation, DPI, and Screen Modes
+
+The way `main.cpp` sets up the window, configures the display mode, and starts the renderer threads follows a precise, non-negotiable sequence. Every step exists because at least one thing breaks if it is moved, skipped, or reordered. This section explains what happens, why it is ordered the way it is, and what will fail if any part of it is changed carelessly.
+
+---
+
+#### 1.5.1 The Three Display Modes
+
+The engine supports three display modes, selected via `config.myConfig.displayMode`:
+
+| Value | Mode | Description |
+| --- | --- | --- |
+| `0` | **Windowed** | Standard decorated window at the configured resolution. Resize border and maximise button are suppressed — window dimensions are fixed at the configured client resolution. |
+| `1` | **Borderless Fullscreen** | The window's decorations are stripped (`WS_POPUP`), then `SetWindowPos` expands it to cover the entire monitor. The DXGI swap chain remains in windowed mode internally. This is Microsoft's recommended default for Windows 10 and 11. |
+| `2` | **Exclusive Fullscreen** | DXGI takes direct, exclusive ownership of the display output via `SetFullscreenState(TRUE)`. The display hardware is reprogrammed to the exact resolution and refresh rate specified in the config. No other application can render to the screen while exclusive ownership is held. |
+
+All three modes are applied by a single call — `renderer->SetDisplayMode()` — which reads the three config values and routes to the correct internal path. The rest of `main.cpp` does not branch on the display mode after this call; the renderer owns the mode state completely.
+
+---
+
+#### 1.5.2 Step 1 — DPI Awareness Must Be Set Before Any Window Is Created
+
+The very first platform-specific action in `WinMain` (after reading the configuration file) is calling `ConfigureProcessDpiAwareness()`. This is not optional and cannot be moved later.
+
+```cpp
+DisableProcessWindowsGhosting();
+ConfigureProcessDpiAwareness();
+```
+
+`ConfigureProcessDpiAwareness()` attempts `DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2` (Windows 10 1703+), falls back to `DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE` (Windows 10 RTM), and finally falls back to the legacy `SetProcessDPIAware()` for older builds. Once set, this flag is process-wide and permanent — it cannot be changed after the first window is created.
+
+**Why it must come first:** On monitors scaled at 150% or 200% (common on high-DPI laptops and 4K monitors), Windows reports window and monitor dimensions in one of two coordinate spaces: *logical pixels* (scaled down by the DPI factor) or *physical pixels* (the actual hardware pixel count). Without DPI awareness set:
+
+- `CreateWindowEx` creates the window using logical coordinates.
+- DXGI, WGL, and the Vulkan surface allocator all work in physical coordinates.
+- The result is a window that occupies only the top-left quarter (or smaller fraction) of the screen, because the swap chain fills the full physical resolution while the window occupies only the logical-pixel area.
+
+With `PER_MONITOR_AWARE_V2` active, every Win32 API — `GetClientRect`, `AdjustWindowRect`, `SetWindowPos`, `GetSystemMetrics` — returns physical pixels, matching the frame sizes that DXGI, WGL, and Vulkan expect.
+
+`DisableProcessWindowsGhosting()` is called immediately before to suppress Windows' "ghosting" behaviour — the OS normally draws a semi-transparent frozen copy of the window if the message loop stops responding for more than a few seconds. During exclusive fullscreen transitions, the renderer's message loop can pause briefly while DXGI reprograms the display hardware. Without ghosting disabled, Windows overlays a frozen ghost image on top of the transition, which is visually incorrect.
+
+---
+
+#### 1.5.3 Step 2 — The Window Is Always Created as Windowed First
+
+Regardless of the configured display mode, the window is always created with `WS_WINDOWED_FIXED` — a fixed-size windowed style with no resize border and no maximise button:
+
+```cpp
+static constexpr DWORD WS_WINDOWED_FIXED = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+
+hwnd = CreateWindowEx(0, lpDEFAULT_NAME, MY_WINDOW_TITLE, WS_WINDOWED_FIXED,
+    CW_USEDEFAULT, CW_USEDEFAULT, wndOuterW, wndOuterH,
+    nullptr, nullptr, hInstance, nullptr);
+```
+
+The outer dimensions are computed so the **client area** exactly matches the configured resolution. `AdjustWindowRect` is called with `WS_WINDOWED_FIXED` (not `WS_OVERLAPPEDWINDOW`) so the title bar and border thickness used in the calculation matches the actual style — a mismatch here causes a one-pixel or several-pixel discrepancy between the client area and the swap chain back buffer.
+
+**Why always create windowed first, even for exclusive fullscreen?** All four rendering backends have a hard requirement:
+
+- **DirectX 11 / DirectX 12:** DXGI's `CreateSwapChain` / `CreateSwapChainForHwnd` requires a valid `HWND`. The swap chain must be created in windowed mode; it cannot be created directly in exclusive fullscreen mode. Microsoft explicitly documents this: *"Do not use the swap chain to create a full screen window. Always use `SetFullscreenState` to transition to full screen mode after creating the swap chain in windowed mode."*
+- **OpenGL:** WGL context creation (`wglCreateContextAttribsARB`) requires a window that has a valid Win32 device context (DC). The DC is obtained from the `HWND`. Additionally, `CS_OWNDC` must be set on the window class for OpenGL so the DC is persistent. None of this is possible without a live windowed `HWND`.
+- **Vulkan:** `vkCreateWin32SurfaceKHR` requires a valid `HINSTANCE` and `HWND`. The surface is created against the window; the swap chain is then created against the surface. Again, this must be a real, visible window before the Vulkan surface can be allocated.
+
+In all four cases, attempting to operate on the display directly without first creating a windowed `HWND` is either unsupported by the API or produces undefined behaviour. The window must exist and be visible before the renderer's `Initialize()` is called.
+
+---
+
+#### 1.5.4 Step 3 — winMetrics Override for Exclusive Fullscreen Before Renderer Initialisation
+
+For exclusive fullscreen (mode `2`), a critical correction is applied to `winMetrics` immediately after calling `sysUtils.GetWindowMetrics()`:
+
+```cpp
+// GetWindowMetrics reads the just-created windowed window, so in fullscreen exclusive
+// mode it returns the windowed size (e.g. 800x600) rather than the target resolution.
+// Override the client dimensions from config immediately so every subsystem initialised
+// before SetFullExclusive() — including renderer->Initialize() — sees the correct target.
+if (config.myConfig.displayMode == 2)
+{
+    winMetrics.width         = config.myConfig.resolutionWidth;
+    winMetrics.height        = config.myConfig.resolutionHeight;
+    winMetrics.clientWidth   = config.myConfig.resolutionWidth;
+    winMetrics.clientHeight  = config.myConfig.resolutionHeight;
+    winMetrics.borderWidth   = 0;
+    winMetrics.titleBarHeight = 0;
+}
+```
+
+**Why this is necessary:** `GetWindowMetrics()` reads the actual OS dimensions of the window just created — which is the windowed size (configured client resolution with title bar and borders added). In exclusive fullscreen, the target back-buffer will be at the configured `resolutionWidth × resolutionHeight`, not the windowed size. Every subsystem that `renderer->Initialize()` creates — the camera's projection matrix, the viewport, the depth-stencil buffer dimensions, the GUI layout coordinates, the FX layer resolution — reads from `winMetrics`. If `winMetrics` still reflects the windowed dimensions at this point, all of those subsystems initialise with the wrong coordinate space and then immediately have it changed out from under them when `SetDisplayMode()` applies exclusive fullscreen. The override prevents this double-init and ensures every subsystem sees the correct final resolution from the moment it is first configured.
+
+`SetFullExclusive()` will later re-confirm these values from the actual confirmed back-buffer dimensions and write them again, but the initial override means the intermediate state is never incorrect.
+
+---
+
+#### 1.5.5 Step 4 — Renderer Initialisation, Then Display Mode, Then Threads
+
+The three calls that set up the renderer and its display mode appear in this strict order:
+
+```cpp
+renderer->Initialize(hwnd, hInstance);     // 1. Create device, swap chain, all GPU resources
+// ...
+renderer->SetDisplayMode();                // 2. Transition to the configured screen mode
+// ...
+renderer->StartRendererThreads();          // 3. Start render/loader threads
+```
+
+**Why `Initialize` before `SetDisplayMode`:** `SetDisplayMode()` calls `SetFullscreenState` (exclusive) or `SetFullScreen()` (borderless), both of which operate on the swap chain and its resources. The swap chain does not exist until `Initialize()` creates it. Calling `SetDisplayMode()` before `Initialize()` would crash immediately — there is no device, no swap chain, no render target view, and no D2D context to transition.
+
+**Why `SetDisplayMode` before `StartRendererThreads`:** The renderer threads (`THREAD_RENDERER` and `THREAD_LOADER`) begin calling `RenderFrame()` the moment they start. For exclusive fullscreen, the display mode transition acquires the render mutex, releases all swap-chain-dependent resources (render target views, depth-stencil views, D2D render targets), re-creates them at the new resolution, and re-establishes the viewport. If the renderer thread is alive and calling `RenderFrame()` concurrently with this tear-down-and-rebuild sequence, it will attempt to use resources that have been `Reset()` mid-frame, causing a null-pointer dereference or a D3D device-removed error. The mode is therefore applied while the renderer is still fully single-threaded.
+
+**Why `StartRendererThreads` before `SetWindowPos` for borderless:** For borderless fullscreen, `SetWindowPos` with new dimensions fires `WM_SIZE` synchronously. `WM_SIZE` triggers `Resize()` on the renderer, which calls `Clean2DTextures()` and resets the D2D render target. If the loader thread has not started yet, it cannot reload the D2D textures after the resize. Starting threads first ensures that the resize path completes correctly — by the time `SetWindowPos` fires `WM_SIZE`, the loader thread is alive and can service the texture reload.
+
+---
+
+#### 1.5.6 Step 5 — Cursor Policy by Mode
+
+Cursor handling differs between modes and must be set before `SetDisplayMode()`:
+
+```cpp
+if (config.myConfig.displayMode == 2)
+    sysUtils.DisableMouseCursor();   // Suppresses the OS cursor globally
+renderer->SetDisplayMode();
+```
+
+- **Windowed / Borderless:** The OS cursor is visible on the title bar, the taskbar, and outside the client area. Inside the client area, it is hidden by a `WM_SETCURSOR` handler in `WindowProc` that intercepts `HTCLIENT` hits and calls `SetCursor(nullptr)`. This means the OS cursor vanishes inside the game area but is still available for the user to interact with OS chrome outside it.
+- **Exclusive Fullscreen:** `sysUtils.DisableMouseCursor()` calls `ShowCursor(FALSE)` globally. In exclusive mode there is no OS chrome visible — the game owns the entire display — so the engine renders its own cursor sprite if needed. The OS cursor must be fully suppressed before the mode transition so it cannot appear during the brief moment when DXGI is reprogramming the display hardware.
+
+Reversing this order (disabling the cursor after `SetDisplayMode`) would allow the OS cursor to be briefly visible during the transition, which is a visible artefact.
+
+---
+
+#### 1.5.7 The Exclusive Fullscreen Sequence — What Actually Happens Inside SetDisplayMode
+
+For exclusive fullscreen, the DXGI mode transition inside `DX11Renderer::SetDisplayMode()` follows the exact sequence mandated by Microsoft's DXGI best-practice guidelines:
+
+**Step 1 — Capture the current desktop mode for restoration on shutdown.**
+`EnumDisplaySettings(nullptr, ENUM_CURRENT_SETTINGS, &m_originalDesktopMode)` stores the monitor's current refresh rate, resolution, and colour depth. This is used at shutdown to restore the desktop to its original state when `SetWindowedScreen()` is called.
+
+**Step 2 — Obtain the DXGI output (monitor) containing the window.**
+`m_swapChain->GetContainingOutput(&output)` identifies which physical monitor the game window currently sits on. This is not necessarily `output[0]` on multi-monitor systems. The engine falls back to the adapter's first output if `GetContainingOutput` fails (possible early in startup before the swap chain has been associated with an output).
+
+**Step 3 — Find the closest supported display mode.**
+`output->FindClosestMatchingMode()` takes the requested resolution and refresh rate and returns the closest mode the monitor actually supports. This prevents a black-screen or mode-switch failure if the user configures a resolution the hardware does not natively expose — DXGI will round to the nearest supported mode. The returned `closestMode` is used for all subsequent steps, not the originally requested dimensions.
+
+**Step 4 — Release all swap-chain-dependent resources.**
+Before any mode change, the D2D render target, D2D context, DXGI surface, brush resources, video bitmaps, the 3D render target view, depth-stencil view, and depth-stencil buffer are all released. The D3D immediate context is flushed and `WaitForGPUToFinish()` is called to ensure the GPU command queue is drained. This is mandatory — DXGI will refuse to resize or change the fullscreen state if any COM reference to a swap-chain buffer is still held.
+
+**Step 5 — ResizeTarget with the closest mode (first call).**
+`m_swapChain->ResizeTarget(&closestMode)` tells DXGI the intended output resolution before exclusive ownership is acquired. This prevents a black-screen flash that can occur when `SetFullscreenState` internally selects a mode that differs from the swap chain's current size.
+
+**Step 6 — SetFullscreenState(TRUE).**
+This is the call that physically programs the display hardware and takes exclusive ownership. After this returns, no other application can write to the monitor. If this call fails, the engine rolls back all flags and returns `false` — it does not retry, because a failed exclusive mode transition leaves the display in an unpredictable state and must be diagnosed rather than silently ignored.
+
+**Step 7 — ResizeTarget again with the refresh rate zeroed.**
+Per Microsoft's DXGI programming guide, calling `ResizeTarget` a second time with `RefreshRate.Numerator = 0` suppresses the extra unsolicited `WM_SIZE` and mode-switch that DXGI would otherwise trigger automatically after `SetFullscreenState`. Without this step, some GPU drivers fire an additional display mode change immediately after exclusive fullscreen is entered, causing a second black-screen flash.
+
+**Step 8 — ResizeBuffers to the confirmed exclusive resolution.**
+`m_swapChain->ResizeBuffers()` resizes the back buffers to exactly the dimensions confirmed by `FindClosestMatchingMode`. Using `closestMode.Width` and `closestMode.Height` (not the user-requested values) ensures the buffers match the actual hardware mode.
+
+**Step 9 — Recreate all dependent resources.**
+The render target view, depth-stencil buffer, viewport, pipeline states, and the complete D2D/DirectWrite layer are recreated at the new dimensions. `winMetrics` is written with the confirmed final dimensions, and the camera's projection matrix is updated via `myCamera.UpdateResolution()`.
+
+The two atomic flags `bFullScreenTransition` and `threadManager.threadVars.bSettingFullScreen` are set to `true` at the start of this sequence and cleared at the end. `WM_SIZE` in `WindowProc` checks `bSettingFullScreen` and returns immediately if it is set, preventing the resize handler from racing with the mode transition sequence.
+
+---
+
+#### 1.5.8 The Borderless Fullscreen Sequence
+
+Borderless fullscreen is mechanically simpler and is the recommended approach for games targeting Windows 10 and 11. `SetDisplayMode` with mode `1` calls `SetFullScreen()` (the internal borderless method), which:
+
+1. Changes the window style to `WS_POPUP` (no title bar, no border, no resize chrome).
+2. Calls `SetWindowPos(hwnd, HWND_TOP, 0, 0, monitorWidth, monitorHeight, SWP_FRAMECHANGED)` to expand the window to the full monitor extents.
+3. Leaves the DXGI swap chain entirely in windowed mode.
+
+The swap chain never calls `SetFullscreenState` — it remains a windowed swap chain whose client area happens to fill the entire screen. This is advantageous because:
+
+- **Alt+Tab is instant.** Since the display hardware is not reprogrammed, switching away from and back to the application takes milliseconds rather than the 0.5–2 seconds typical of exclusive mode.
+- **Multi-monitor setups work correctly.** The window sits on one monitor without affecting the display mode of adjacent monitors.
+- **Windows 10/11 automatically enable "fullscreen optimisations"** for borderless windows that fill a monitor, which gives performance characteristics nearly identical to exclusive mode in most scenarios.
+
+The trade-off is that exclusive fullscreen gives the game direct control over the display's refresh rate and colour depth, which can be important for VSync tear-free performance at non-standard refresh rates (e.g. 144 Hz or 240 Hz where Windows' compositing may not honour the rate). For standard 60 Hz operation the difference is negligible.
+
+---
+
+#### 1.5.9 Per-Renderer Considerations
+
+While `SetDisplayMode()` is exposed through the same `renderer->SetDisplayMode()` interface on all four backends, each renderer has backend-specific requirements that the common startup sequence must satisfy:
+
+**DirectX 11:** The DX11 renderer uses the `DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH` flag on the swap chain, which is required for `SetFullscreenState` to be permitted. Without this flag, any attempt to enter exclusive fullscreen returns `DXGI_ERROR_INVALID_CALL`. The flag is set at swap chain creation time inside `Initialize()` — another reason `SetDisplayMode()` must follow `Initialize()`.
+
+**DirectX 12:** DX12's approach uses an `IDXGISwapChain3` with explicit fence-based frame synchronisation. Before any mode change, all outstanding frame fences must be waited on — the GPU must have consumed every queued command before the back buffers can be resized. The `WaitForGPUToFinish()` call inside the DX12 renderer's mode-transition path ensures this. Missing this wait causes a `DXGI_ERROR_WAS_STILL_DRAWING` error when `ResizeBuffers` is called with in-flight frames.
+
+**OpenGL:** OpenGL has no concept of DXGI swap chains or `SetFullscreenState`. Borderless fullscreen is handled identically to the DX path (Win32 window geometry). True exclusive fullscreen with a mode switch uses `ChangeDisplaySettings` / `ChangeDisplaySettingsEx` to reprogram the display hardware directly, then resizes the OpenGL window to cover the new resolution. The WGL rendering context is not destroyed and recreated during this transition — it survives across resolution changes as long as the HWND remains the same.
+
+**Vulkan:** The Vulkan surface (`VkSurfaceKHR`) is created against the `HWND` during `Initialize()`. For borderless, the Win32 window geometry changes identically to the other backends, and the Vulkan swap chain is recreated (`vkCreateSwapchainKHR`) with the new extents. For exclusive fullscreen, Vulkan on Windows can use the `VK_EXT_full_screen_exclusive` extension to take direct display ownership, which bypasses the DXGI layer entirely. The engine's Vulkan path currently uses the same Win32 borderless approach as the other backends for consistency and robustness across driver generations.
+
+---
+
+#### 1.5.10 Why This Code Must Be Changed With Extreme Caution
+
+The startup sequence in `main.cpp` between `ConfigureProcessDpiAwareness()` and `renderer->StartRendererThreads()` is one of the most fragile sections of the entire engine. Every statement is there for a specific reason, proven by past breakage. The following changes will each produce a distinct and often hard-to-diagnose failure:
+
+| Change | Failure |
+| --- | --- |
+| Move `ConfigureProcessDpiAwareness()` after window creation | Win32 APIs report logical pixels; swap chain / OpenGL / Vulkan surface are at physical pixels. On a 200%-scaled display: window occupies only the top-left quarter of the screen. |
+| Remove `DisableProcessWindowsGhosting()` | During exclusive fullscreen transitions, Windows draws a frozen ghost of the windowed window on top of the mode change, producing a visible artefact lasting up to 5 seconds. |
+| Create the window with `WS_POPUP` or `WS_OVERLAPPEDWINDOW` instead of `WS_WINDOWED_FIXED` | `AdjustWindowRect` will compute wrong outer dimensions; the client area will not match the configured resolution. On OpenGL, `CS_OWNDC` will not be set correctly and WGL context creation will fail or the DC will not persist. |
+| Skip the exclusive fullscreen `winMetrics` override (Step 4 above) | Camera projection matrices, GUI coordinate system, FX layer, and viewport are all initialised at the windowed resolution. `SetDisplayMode` then immediately invalidates them. Subsystems that cache their resolution at init time (GUI layout, some FX effects) will produce incorrect output for the rest of the session. |
+| Call `renderer->SetDisplayMode()` before `renderer->Initialize()` | There is no device, no swap chain, and no DXGI output. `SetFullscreenState` and `SetWindowPos` will crash with null pointer dereferences or return `DXGI_ERROR_INVALID_CALL`. |
+| Call `renderer->StartRendererThreads()` before `renderer->SetDisplayMode()` | The renderer thread begins calling `RenderFrame()`. When `SetDisplayMode` tears down the render target view and D2D context to recreate them at the fullscreen resolution, the render thread is concurrently using those resources. Result: random device-removed errors, access violations, or visual corruption depending on the timing. |
+| Call `renderer->StartRendererThreads()` after `SetWindowPos` for borderless | `SetWindowPos` fires `WM_SIZE` synchronously. `WM_SIZE` calls `Resize()` which calls `Clean2DTextures()`. The loader thread has not started yet and cannot reload the D2D textures. The textures are destroyed and never reloaded, leaving the GUI and 2D overlay permanently blank. |
+| Skip `sysUtils.DisableMouseCursor()` for exclusive fullscreen | The OS cursor is visible during the exclusive mode transition. On most systems it remains visible for the entire session because there is no subsequent `ShowCursor(FALSE)` call. |
+| Skip the first `ResizeTarget` call inside `SetFullscreenState` | On many AMD and some NVIDIA drivers, `SetFullscreenState(TRUE)` internally selects a mode based on the swap chain's current size rather than the intended exclusive resolution. If these differ, the result is a persistent black screen or a mismatched resolution. |
+| Skip the second `ResizeTarget` call (zeroed refresh) | DXGI fires an extra `WM_SIZE` and an additional unsolicited mode switch after `SetFullscreenState` returns. On affected driver/hardware combinations this produces a second black-screen flash and can destabilise the `bIsResizing` flag state. |
+| Call `ResizeBuffers` before `WaitForGPUToFinish` (DX12 path) | The GPU may still be reading from back buffers being resized. Result: `DXGI_ERROR_WAS_STILL_DRAWING` or GPU memory corruption with delayed crash. |
+
+The rule for any change to this section of `main.cpp` is: **identify the specific bug or requirement that demands the change, trace every downstream dependency of the statement being moved or modified, and test all three display modes on at least two different GPU vendors (NVIDIA and AMD) before considering the change safe.** Empirically, changes to this sequence that seem harmless in testing on one machine frequently break on another GPU driver or DPI scaling configuration.
+
+[Back to Table of Contents](#table-of-contents)
+
+---
+
+### 1.6 How 2D and 3D Content Coexist
 
 CPGE renders 2D and 3D content in distinct layers each frame, composited together without any render-to-texture round-trip:
 
@@ -223,7 +446,7 @@ This layered approach means a developer can mix rich 3D environments, full-scree
 
 ---
 
-### 1.6 Current Development Status
+### 1.7 Current Development Status
 
 > **Build v0.0.1682 — June 2026**
 
@@ -564,7 +787,7 @@ The `Debug` class provides a structured message logging interface used by every 
 
 All messages are written simultaneously to:
 
-- The **in-game developer console** (see [Section 30](#30-console-window)), appearing in real time as the game runs.
+- The **in-game developer console** (see [Section 32](#32-console-window)), appearing in real time as the game runs.
 - A **log file** on disk, persisting through crashes and across sessions.
 - **Visual Studio's Output window** via `OutputDebugStringW` in `_DEBUG` builds, so log messages appear inline with the debugger.
 
@@ -646,7 +869,7 @@ C++20 introduces modules, coroutines, concepts, and ranges — features that are
 
 ### 3.7 Free and Open Source
 
-CPGE is released as **free-to-use** for both personal and commercial purposes under a single, lightweight attribution requirement. The full licence terms are in [Section 37](#37-licensing).
+CPGE is released as **free-to-use** for both personal and commercial purposes under a single, lightweight attribution requirement. The full licence terms are in [Section 39](#39-licensing).
 
 #### What Free-to-Use Means in Practice
 
@@ -2639,7 +2862,372 @@ The GLTF exporter in Blender outputs ship (and other directional) models facing 
 
 ---
 
-## 12. Lighting System
+## 12. FBX Importer
+
+**Source files:** `FBXImport.cpp/.h`
+
+The `FBXImporter` class is a ground-up, Autodesk-SDK-free parser for FBX 7.x scene files in both binary and ASCII encoding. It extracts geometry, materials, textures, lights, cameras, parent-child node hierarchies, and animation data into an in-memory `FBXScene` representation, ready for upload to any of the four rendering backends.
+
+---
+
+### 12.1 Design Goals
+
+The Autodesk FBX SDK is a proprietary, heavyweight library that imposes strict licensing terms, ships as a large pre-built binary, and introduces a dependency the engine cannot control. The CPGE FBX importer was written entirely from scratch to:
+
+- Eliminate any dependency on or requirement for the Autodesk SDK.
+- Support the binary FBX 7.4 and 7.5 formats produced by Blender, Maya, and 3ds Max — the formats most commonly encountered in real production pipelines.
+- Support ASCII FBX 7.x as a human-readable fallback.
+- Produce output that is directly compatible with the existing engine model and animation data structures (`Model`, `ModelInfo`, `GLTFAnimation`), so FBX assets flow through the same GPU upload path as GLTF assets without any additional back-end code.
+
+---
+
+### 12.2 Format Detection and File Loading
+
+`FBXImporter::LoadFile(filepath)` reads the entire file into memory in one call, then determines the format by inspecting the first 23 bytes:
+
+```cpp
+static const uint8_t kBinaryMagic[23] = {
+    'K','a','y','d','a','r','a',' ','F','B','X',' ',
+    'B','i','n','a','r','y',' ',' ','\x00','\x1a','\x00'
+};
+m_isBinary = (memcmp(data.data(), kBinaryMagic, 23) == 0);
+```
+
+If the magic matches, the binary parser runs. Otherwise, the file is treated as UTF-8 text and the ASCII parser runs. The FBX version number is read from bytes 23–26 of the binary header; version ≥ 7500 uses 64-bit node offsets instead of 32-bit, which the parser selects automatically via an `is64bit` flag.
+
+---
+
+### 12.3 Core Data Structures
+
+The importer builds a tree of `FBXNode` objects during parsing, then extracts typed scene objects from that tree into an `FBXScene`.
+
+**`FBXNode`** — A single node in the parsed document tree. Every node has a name, a list of typed `FBXProperty` values (its positional arguments), and a list of nested child `FBXNode` objects. Helper methods `FindChild` and `FindChildren` allow the extraction phase to navigate the tree without manually scanning the child vector.
+
+**`FBXProperty`** — A single typed value within a node's property list. The FBX binary format uses 13 single-byte type codes: scalar types (`Y`=int16, `C`=bool, `I`=int32, `F`=float, `D`=double, `L`=int64) and array/blob types (`f`=float[], `d`=double[], `l`=int64[], `i`=int32[], `b`=bool[], `S`=string, `R`=raw bytes). Array types carry a 12-byte header specifying count, encoding, and compressed length; an encoding value of 1 means the payload is zlib-DEFLATE compressed. The importer decompresses these inline using its own hand-rolled DEFLATE decoder (no zlib dependency).
+
+**`FBXScene`** — The assembled output. Contains:
+
+| Collection | Type | Description |
+| --- | --- | --- |
+| `models` | `FBXModel[]` | Scene nodes — Mesh, Camera, Light, or Null group. |
+| `geometries` | `FBXGeometry[]` | Raw polygon soups before triangulation. |
+| `materials` | `FBXMaterial[]` | Lambert / Phong / PBR-like surface descriptions. |
+| `textures` | `FBXTexture[]` | File paths, UV transforms, and wrap modes. |
+| `cameras` | `FBXCamera[]` | FoV, near/far planes, aspect ratio, interest position. |
+| `lights` | `FBXLight[]` | Point / Directional / Spot / Area with intensity and shadow flags. |
+| `animStacks` | `FBXAnimStack[]` | Named animation clips with start/stop timing. |
+| `animLayers` | `FBXAnimLayer[]` | Layers within each stack. |
+| `animCurveNodes` | `FBXAnimCurveNode[]` | Animated properties (Lcl Translation / Rotation / Scaling). |
+| `animCurves` | `FBXAnimCurve[]` | Per-axis keyframe time/value/flag arrays. |
+
+Each collection is accompanied by an `unordered_map<int64_t, int>` lookup table (e.g. `modelByID`, `geometryByID`) mapping FBX object IDs to vector indices. These tables make O(1) connection resolution possible when the `Connections` section is processed.
+
+The `FBXScene` also stores the global coordinate system metadata extracted from the `GlobalSettings` node: `upAxis` (0=X, 1=Y, 2=Z), `upAxisSign`, `frontAxis`, `coordAxis`, `unitScaleFactor`, and the animation time span.
+
+---
+
+### 12.4 Binary Parser
+
+`ParseBinary` reads the root node list starting at byte offset 27, calling `ParseBinaryNode` recursively for each child until the null sentinel (13 or 25 zero bytes at file end) is encountered. Each node record contains:
+
+- A 4- or 8-byte `endOffset` (the byte position of the record's end — used to skip unrecognised content safely).
+- A 4- or 8-byte property count (`numProps`) and property list byte length (`propListLen`).
+- A 1-byte name length followed by the name string.
+- The property list, decoded property-by-property via `ParseBinaryProperty`.
+- Nested child nodes, parsed recursively until the sentinel-guarded `childrenEnd` offset is reached.
+
+A critical safety check validates `endOffset` and `numProps` against the actual file size before any allocation. A corrupt FBX can carry a fabricated `numProps` value large enough to cause `vector::reserve` to request gigabytes of memory, triggering abort via the custom new-handler. The importer rejects any record whose claimed extents exceed the file size.
+
+The built-in DEFLATE decoder handles the three block types defined in RFC 1951 — stored (type 00), fixed Huffman (type 01), and dynamic Huffman (type 10) — sufficient to decompress any FBX array block produced by Blender, Maya, or 3ds Max.
+
+---
+
+### 12.5 ASCII Parser
+
+`ParseASCII` tokenises the file text using a recursive descent approach:
+
+- `SkipASCIIWhitespace` advances past spaces, tabs, newlines, and semicolon-prefixed comments.
+- `ReadASCIIIdentifier` consumes an alphanumeric-plus-underscore token as a node name.
+- `ReadASCIIString` handles quoted strings with backslash escaping.
+- `ParseASCIIValue` reads a single property value (numeric literal, string, or array `*N { a: ... }`).
+- `ParseASCIINode` reads one complete node: name, `:`, properties, and (optionally) a `{...}` child block.
+
+The ASCII parser produces the same `FBXNode` tree as the binary parser. All subsequent extraction and connection-resolution code is shared between both paths.
+
+---
+
+### 12.6 Object Extraction and Connection Resolution
+
+After parsing, `ExtractObjects` walks the `Objects` top-level node and dispatches each child to a type-specific extractor:
+
+| Extractor | Reads | Populates |
+| --- | --- | --- |
+| `ExtractGeometry` | `Geometry` nodes | `m_scene.geometries`, vertex/normal/UV/tangent/material arrays |
+| `ExtractModel` | `Model` nodes | `m_scene.models`, transform + shadow + visibility flags |
+| `ExtractMaterial` | `Material` nodes | `m_scene.materials`, diffuse/spec/emissive/PBR fields |
+| `ExtractTexture` | `Texture` nodes | `m_scene.textures`, filename + UV transform + wrap mode |
+| `ExtractNodeAttribute` | `NodeAttribute` nodes | Camera and light attributes, linked by ID to their parent Model |
+| `ExtractAnimStack/Layer/CurveNode/Curve` | Animation hierarchy | All four animation collections |
+| `ExtractGlobalSettings` | `GlobalSettings` node | `upAxis`, `frontAxis`, `unitScaleFactor`, time span |
+
+Properties70 sub-nodes (the `P` records in FBX) carry named properties for each object. The helpers `ReadP70Vec3`, `ReadP70Float`, `ReadP70Bool`, `ReadP70Int`, and `ReadP70String` scan these records by key name and return typed values, making the extraction code independent of FBX property ordering.
+
+`ProcessConnections` then walks the `Connections` top-level node. Each `C` record describes one directed connection (`OO` = object-to-object, `OP` = object-to-property). The processor resolves:
+
+- Parent-child node hierarchy (`FBXModel::parentID`).
+- Geometry-to-Model links (`FBXModel::geometryID`).
+- Material-to-Model links (`FBXModel::materialIDs`).
+- Texture-to-Material links (filling `FBXMaterial::diffuseTexID` etc.).
+- AnimCurve-to-AnimCurveNode axis links (`curveXID`, `curveYID`, `curveZID`).
+- AnimCurveNode-to-Model links (`FBXAnimCurveNode::targetModelID`).
+- AnimLayer-to-AnimStack membership and CurveNode-to-AnimLayer membership.
+
+All lookup tables (`modelByID`, `geometryByID`, etc.) are populated during extraction so that every connection lookup in `ProcessConnections` is O(1).
+
+---
+
+### 12.7 Coordinate System Conversion
+
+FBX files exported from Blender and Maya are typically right-handed Y-up. The engine uses left-handed Y-up (DirectX / GLTF convention). The conversion requires:
+
+**Positions and translations:** Negate Z (`ApplyCoordFlip`):
+
+```cpp
+XMFLOAT3 ApplyCoordFlip(const XMFLOAT3& v) const { return { v.x, v.y, -v.z }; }
+```
+
+**Normals:** Same sign flip applied via `ApplyNormalFlip` (identical to coord flip for Y-up).
+
+**Rotation matrices:** A similarity transform `M · R · M` where `M = diag(1, 1, -1)` (`ApplyRotationFlip`). This converts the rotation matrix from right-handed to left-handed space without changing the handedness of the basis vectors themselves.
+
+For Z-up scenes (detected via `upAxis == 2`), the transform additionally swaps the Y and Z axes: `M · R · Mᵀ` where M maps Y→Z, Z→Y.
+
+**Full FBX local transform matrix order** (from the `FBXTransform` struct, applied in `BuildTransformMatrix`):
+
+```text
+World = Parent × T(Lcl) × T(RotOffset) × T(RotPivot)
+      × R(PreRot) × R(LclRot) × R(PostRot)⁻¹ × T(-RotPivot)
+      × T(ScaOffset) × T(ScaPivot) × S(LclScale) × T(-ScaPivot)
+```
+
+For Blender exports, all pivots and offsets are typically zero, reducing this to the familiar `TRS` order.
+
+Rotation channels support six Euler orderings (XYZ, XZY, YXZ, YZX, ZXY, ZYX), plus SphericXYZ for legacy files. The `EulerToMatrix` helper constructs the rotation matrix from the correct ordered product of `XMMatrixRotationX/Y/Z` based on the `rotationOrder` field.
+
+---
+
+### 12.8 Triangulation and Geometry Processing
+
+FBX geometry is stored as a *polygon soup*: an arbitrary mix of triangles, quads, and n-gons. The index array uses a sign-encoding convention where the last vertex index of each polygon is stored as `~index` (bitwise NOT), making it negative. `TriangulateGeometry` fans each polygon into triangles using this convention:
+
+1. Walk the `polygonVertexIndex` array; collect polygon vertices until a negative index is found.
+2. Fan-triangulate each polygon: `(v0, v1, v2), (v0, v2, v3), ...` for n-gon → n-2 triangles.
+3. Map normals, UVs, and tangents from FBX's reference modes to per-output-vertex data:
+   - `ByPolygonVertex / Direct`: data is indexed in lock-step with the polygon vertex list.
+   - `ByPolygonVertex / IndexToDirect`: data is indirected through a separate index array.
+   - `ByVertex / Direct` and `ByVertex / IndexToDirect`: data is indexed by position vertex index.
+4. Coordinate-flip positions and normals.
+5. If FBX normals are absent, `ComputeFlatNormals` generates flat (face) normals from the cross-product of triangle edges.
+6. If FBX tangents are absent, `ComputeTangents` generates tangent and handedness vectors from the UV gradient (required for normal mapping).
+
+The output is a `std::vector<Vertex>` and `std::vector<uint32_t>` index array ready to pass directly to any of the four renderer upload paths.
+
+---
+
+### 12.9 Material Building
+
+`BuildMaterial(fbxMat, baseDir, outMat)` converts an `FBXMaterial` struct to the engine's `Material` struct:
+
+- Diffuse, ambient, specular, emissive, shininess, opacity, reflectivity, metalness, and roughness are copied directly from the parsed FBX values.
+- Texture file paths are resolved relative to `baseDir` (the directory containing the FBX file). Absolute paths stored in the FBX are converted to relative paths where possible.
+- UV transform values (`uvTranslationU/V`, `uvScalingU/V`, `uvRotation`, `wrapU/V`) are transferred from the `FBXTexture` struct to the output material for use by the renderer's sampler / UV transform logic.
+
+The shading model field (`"lambert"`, `"phong"`, `"pbr"`) controls which material properties are forwarded: Lambert materials have no specular; PBR-like materials use the `metalness` and `roughness` fields instead of `shininess`.
+
+---
+
+### 12.10 Animation Export and Integration with SceneManager
+
+`ConvertAnimations(fbxIDToModelSlot, outAnimations)` bridges FBX animation data to the `GLTFAnimation` format used by `GLTFAnimator`. This allows FBX animations to be played back through the GLTF animation system without a separate playback path. Each FBX `AnimStack` becomes one `GLTFAnimation`; each `AnimCurveNode` on a mesh model becomes one `GLTFAnimationChannel` targeting the corresponding `scene_models[]` slot. Time values are converted from FBX time units (1 second = 46,186,158,000 units) to seconds.
+
+`SceneManager::ParseSceneAutoDetect` detects FBX files by the `.fbx` extension and routes loading through `FBXImporter::LoadFile`. The resulting `FBXScene` is consumed by the scene manager, which calls `TriangulateGeometry`, `BuildMaterial`, and uploads geometry and material data to the GPU through the standard model upload path. The `fbxIDToModelSlot` map built during loading is passed to both `ConvertAnimations` (for GLTF-format playback) and to `FBXAnimator::ParseAnimationsFromFBX` (for native per-axis FBX curve playback).
+
+For native per-axis FBX curve fidelity — including pre-rotation, rotation order, and constant/linear interpolation modes — the `FBXAnimator` provides a dedicated playback path that evaluates the raw FBX curves directly (see [Section 13](#13-fbx-animation-system)).
+
+[Back to Table of Contents](#table-of-contents)
+
+---
+
+## 13. FBX Animation System
+
+**Source files:** `FBXAnimator.cpp/.h`
+
+The `FBXAnimator` class provides native, per-axis FBX animation curve evaluation. It is a direct parallel to `GLTFAnimator` — same public interface, same `AnimationInstance` tracking, same scene-model write path — but evaluates FBX `AnimCurve` data directly rather than operating on pre-converted GLTF keyframe arrays.
+
+---
+
+### 13.1 Why a Native FBX Animator
+
+The `FBXImporter::ConvertAnimations()` bridge to `GLTFAnimation` format is adequate for simple translation and scale animations. However, FBX rotation data carries extra context that is lost in conversion:
+
+- **Pre-rotation** — a static offset added to every animated Euler frame in FBX right-handed space, before the handedness conversion. This accounts for the difference between an object's rest orientation in the DCC tool and the engine's coordinate convention.
+- **Rotation order** — FBX supports six Euler orderings (XYZ, XZY, YXZ, YZX, ZXY, ZYX). Blindly assuming XYZ produces visually incorrect output for assets exported with a different order.
+- **Constant (step) interpolation** — FBX encodes interpolation mode per-key-segment using run-length-encoded flags (`keyAttrFlags` / `keyAttrRefCount`). The GLTF format uses per-sampler interpolation mode; fine per-segment variation is lost on conversion.
+
+`FBXAnimator` preserves all three of these by operating directly on the raw `FBXAnimCurve` data.
+
+---
+
+### 13.2 Core Data Structures
+
+**`FBXAnimChannel`** — One animated property on one FBX model node. Contains:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `targetModelSlot` | `int` | Direct `scene_models[]` index, resolved at parse time — no per-frame lookup. |
+| `path` | `AnimationTargetPath` | TRANSLATION, ROTATION, or SCALE. |
+| `curveX`, `curveY`, `curveZ` | `FBXAnimCurve` | Deep-copied at parse time; clip is self-contained. |
+| `defaultX/Y/Z` | `float` | Static value used when a curve is absent for an axis. |
+| `preRotation` | `XMFLOAT3` | Degrees — added in RH space before coordinate conversion. |
+| `rotationOrder` | `int` | 0=XYZ ... 5=ZYX — controls `EulerToMatrix` axis product order. |
+
+**`FBXAnimationClip`** — One FBX `AnimStack` expressed in engine-friendly form. Stores the stack name, `startTime` and `duration` in seconds, and the list of `FBXAnimChannel` objects. The clip is entirely self-contained after parse — no further references to the `FBXScene` are needed at runtime.
+
+`AnimationInstance` (shared with `GLTFAnimator`) tracks per-clip playback state: `parentModelID`, `animationIndex`, `currentTime`, `playbackSpeed`, `isPlaying`, `isLooping`, `direction`, and `bounceGoingForward`.
+
+---
+
+### 13.3 Parse Phase — Building Clips from FBXScene
+
+`ParseAnimationsFromFBX(fbxScene, fbxIDToModelSlot)` converts the assembled `FBXScene` animation data into `FBXAnimationClip` objects:
+
+1. Build fast O(1) lookup maps for layers (`layerByID`), curve nodes (`cNodeByID`), and curves (`curveByID`).
+2. For each `FBXAnimStack`, create a clip and compute `startTime` / `duration` from `localStart` / `localStop` converted from FBX time units to seconds.
+3. Walk each layer → each `FBXAnimCurveNode` in that layer:
+   - Skip nodes whose `targetModelID` has no entry in `fbxIDToModelSlot` (camera nodes, light nodes, and any node not mapped to a `scene_models[]` slot are ignored).
+   - Map the `propertyName` string (`"Lcl Translation"`, `"Lcl Rotation"`, `"Lcl Scaling"`) to `AnimationTargetPath`.
+   - Copy `preRotation` and `rotationOrder` from the corresponding `FBXModel` node.
+   - Deep-copy all three resolved `FBXAnimCurve` objects (`curveX`, `curveY`, `curveZ`) so the clip holds its data independently.
+4. If the stack's `localStart/localStop` is zero (some exporters omit this), compute `duration` from the last key time across all curves in the clip.
+5. Push the clip only if it has at least one channel and a non-zero duration.
+
+All curve data is deep-copied during the parse phase. After `ParseAnimationsFromFBX` returns, the `FBXScene` is no longer needed for animation playback.
+
+---
+
+### 13.4 The FBX Time System
+
+FBX uses a fixed integer time base: **1 second = 46,186,158,000 FBX time units** (`FBX_TIME_UNIT`). All `keyTimes` values in `FBXAnimCurve` are stored in these units. The animator converts between seconds and FBX time units at the evaluation boundary:
+
+- Stack timing: `localStart` and `localStop` (in FBX units) → divided by `FBX_TIME_UNIT` → seconds.
+- Curve evaluation: `timeSeconds` → multiplied by `FBX_TIME_UNIT` → `timeFBX` (int64_t) → compared directly against `keyTimes` entries, avoiding floating-point precision loss in the key lookup.
+
+---
+
+### 13.5 Per-Frame Update — UpdateAnimations
+
+`UpdateAnimations(deltaTime, sceneModels, maxModels)` is called once per frame for every active animation instance:
+
+1. **Reset base pose** — `ResetLocalTRSToBase` walks the entire sub-hierarchy rooted at `inst.parentModelID` and resets each model's `animLocalTranslation`, `animLocalRotationQuat`, and `animLocalScale` back to the static base values from `ModelInfo`.
+2. **Advance time** — `effectiveDelta` is computed from `deltaTime × |playbackSpeed|`, then signed by the direction (`FORWARD`, `REVERSE`, or `BOUNCE`). The signed delta is applied to `inst.currentTime`.
+3. **Bounds handling:**
+   - `FORWARD / isLooping`: overflow wraps around by subtracting the clip duration, preserving the overshoot fraction so looping is not frame-rate-dependent.
+   - `FORWARD / !isLooping`: clamps to `animEnd` and sets `isPlaying = false`.
+   - `REVERSE`: mirrors the forward logic at the start boundary.
+   - `BOUNCE`: reverses `bounceGoingForward` at each boundary; stops if `!isLooping` after the first reversal.
+4. **Apply channels** — `ApplyChannelToSlot` is called for every `FBXAnimChannel` in the clip (see [Section 13.6](#136-channel-evaluation-and-coordinate-conversion) below).
+5. **Recompose world matrices** — `RecomposeWorldFromLocalTRS` walks the animated hierarchy and computes each model's world matrix from its updated `animLocalTranslation`, `animLocalRotationQuat`, and `animLocalScale`, composited through the parent chain.
+
+---
+
+### 13.6 Channel Evaluation and Coordinate Conversion
+
+`ApplyChannelToSlot` evaluates the three FBX curves for one channel and writes the result into the target `ModelInfo`:
+
+**Translation:**
+
+```cpp
+XMFLOAT3 flipped = ApplyCoordFlip({ vx, vy, vz });
+info.animLocalTranslation = flipped;
+```
+
+`ApplyCoordFlip` negates Z to convert from FBX right-handed Y-up to engine left-handed Y-up.
+
+**Rotation:**
+
+```cpp
+XMFLOAT3 totalEuler = { preRotation.x + vx, preRotation.y + vy, preRotation.z + vz };
+XMMATRIX rotM       = EulerToMatrix(totalEuler, ch.rotationOrder);
+XMMATRIX rotFlipped = ApplyRotationFlip(rotM);
+XMFLOAT4 quat       = MatrixToQuaternion(rotFlipped);
+quat = XMQuaternionNormalize(quat);
+info.animLocalRotationQuat = quat;
+```
+
+Pre-rotation is added in FBX right-handed space (before the coordinate flip), so the DCC tool's rest-orientation offset is correctly folded in. `EulerToMatrix` builds the ordered rotation product for the node's specific `rotationOrder`. `ApplyRotationFlip` applies the similarity transform `M·R·M` (M = diag(1,1,-1)) to convert the rotation matrix to left-handed space. The result is converted to a normalised quaternion for storage.
+
+**Scale:** No coordinate flip is needed — scale is axis-aligned and handedness-invariant.
+
+---
+
+### 13.7 Curve Interpolation — EvaluateCurve
+
+`EvaluateCurve(curve, timeSeconds)` evaluates one FBX axis curve at a given time:
+
+1. Convert `timeSeconds` to `timeFBX` (int64_t) by multiplying by `FBX_TIME_UNIT`.
+2. Clamp to the first/last key value if outside the curve's range.
+3. Find the segment containing `timeFBX` via a linear scan (curves are typically short; binary search is not needed for the key counts found in game assets).
+4. Determine the interpolation type for that key segment via `GetInterpolationTypeForKey`:
+   - FBX stores interpolation mode per-key-group using a run-length encoding: `keyAttrRefCount[i]` keys share `keyAttrFlags[i]`.
+   - Flag bit `0x00000002` (Constant) → step interpolation: return `keyValues[i]`.
+   - Flag bits `0x00000004` (Linear) or `0x00000008` (Cubic) → linear interpolation between keys.
+   - Cubic is approximated as linear. True FBX cubic Hermite tangents are stored in the file but require the tangent handles stored separately in the attribute block; for the animation fidelity needed in games, linear approximation is sufficient and avoids the complexity of resolving the tangent references.
+
+---
+
+### 13.8 Playback API
+
+`FBXAnimator` exposes the same playback interface as `GLTFAnimator`, allowing `ModelAnimator` to dispatch to either system transparently:
+
+| Method | Description |
+| --- | --- |
+| `ParseAnimationsFromFBX` | Build all clips from an already-loaded `FBXScene`. |
+| `CreateAnimationInstance` | Allocate an `AnimationInstance` for a root model. |
+| `StartAnimation(parentModelID, clipIndex)` | Begin playback; creates instance if none exists. |
+| `StopAnimation(parentModelID)` | Stop and reset time to start. |
+| `PauseAnimation / ResumeAnimation` | Toggle `isPlaying` without resetting time. |
+| `ForceAnimationReset` | Restart from `startTime` without stopping playback. |
+| `SetAnimationSpeed(parentModelID, speed)` | Playback speed multiplier (negative values reversed). |
+| `SetAnimationLooping(parentModelID, looping)` | Enable/disable loop-at-end behaviour. |
+| `SetAnimationTime(parentModelID, time)` | Seek to an arbitrary time within the clip. |
+| `SetAnimationDirection(parentModelID, dir)` | FORWARD / REVERSE / BOUNCE. |
+| `AtAnimationEndFrame(parentModelID, frameIndex)` | Returns true when the clip is at its last frame. |
+| `HoldAnimationAtFrame(parentModelID, frameIndex)` | Freeze playback at a specific frame index. |
+| `GetAnimationCount / GetClip / GetAnimationDuration` | Queries on clip metadata. |
+| `IsAnimationPlaying / GetAnimationTime` | Per-instance playback state queries. |
+| `ClearAllAnimations / RemoveAnimationInstance` | Cleanup. |
+
+---
+
+### 13.9 Cross-Backend Support
+
+`FBXAnimator.cpp` uses DirectX Math (`XMMATRIX`, `XMFLOAT3`, `XMMatrixRotation*`) throughout its rotation conversion code. On non-DX builds (OpenGL, Vulkan), these types are not available from system headers. The file defines its own equivalent stubs when the `CPGE_MATH_STUBS_DEFINED` guard is not already set:
+
+```cpp
+#define CPGE_MATH_STUBS_DEFINED
+// Provides: XMMatrixRotationX/Y/Z, XMMatrixScaling, XMMatrixTranslation,
+//           XMQuaternionNormalize, XMQuaternionSlerp, XMMatrixIdentity,
+//           XMQuaternionRotationMatrix (Shepperd method),
+//           operator*(Matrix4x4, Matrix4x4)
+```
+
+This ensures the animation code compiles and runs unchanged on all four backends without preprocessor branching in the hot path. The stubs use the same memory layout as the DirectX Math types so that no data marshalling is required at the boundary between the stub math and the engine's stored quaternion/matrix fields.
+
+[Back to Table of Contents](#table-of-contents)
+
+---
+
+## 14. Lighting System
 
 **Source files:** `Lights.cpp/.h`  
 **Documentation:** [Light-Example-Usage.md](Light-Example-Usage.md)
@@ -2688,7 +3276,7 @@ Lights defined in GLTF files via the `KHR_lights_punctual` extension are automat
 
 ---
 
-## 13. Material & Texture System (PBR)
+## 15. Material & Texture System (PBR)
 
 The engine implements a **Physically Based Rendering (PBR)** material model following the **metallic-roughness workflow** defined in the GLTF 2.0 specification.
 
@@ -2717,7 +3305,7 @@ Each model instance exposes `uvWrapU` and `uvWrapV` fields (values: `WRAP`, `MIR
 
 ---
 
-## 14. Visual FX Manager
+## 16. Visual FX Manager
 
 **Source files:** `DX_FXManager.cpp/.h`, `DX12FXManager.cpp/.h`, `VULKAN_FXManager.cpp/.h`, `OpenGLFXManager.cpp/.h`  
 **Documentation:** [FXManager-Example-Usage.md](FXManager-Example-Usage.md)
@@ -2773,7 +3361,7 @@ All trigonometric operations used by the warp tunnel and particle effects are ro
 
 ---
 
-## 15. Threading System
+## 17. Threading System
 
 **Source files:** `ThreadManager.cpp/.h`, `ThreadLockHelper.h`  
 **Documentation:** [ThreadManager-Example-Usage.md](ThreadManager-Example-Usage.md)
@@ -2823,7 +3411,7 @@ During application exit, `ThreadManager` sends a stop signal to all registered t
 
 ---
 
-## 16. IO Loader Thread
+## 18. IO Loader Thread
 
 **Source files:** `IOLoaderThread.cpp/.h`
 
@@ -2850,7 +3438,7 @@ The `IOLoaderThread` uses `ThreadManager`-managed locks and is registered as `TH
 
 ---
 
-## 17. Sound Effects Manager (SoundManager)
+## 19. Sound Effects Manager (SoundManager)
 
 **Source files:** `SoundManager.cpp/.h`  
 **Documentation:** [SoundManager-Example-Usage.md](SoundManager-Example-Usage.md)
@@ -2889,7 +3477,7 @@ All DirectSound buffer operations (create, fill, play, stop, release) run on the
 
 ---
 
-## 18. Music Playback — XMMODPlayer
+## 20. Music Playback — XMMODPlayer
 
 **Source files:** `XMMODPlayer.cpp/.h`  
 **Documentation:** [XMMODPlayer-Example-Usage.md](XMMODPlayer-Example-Usage.md)
@@ -2940,7 +3528,7 @@ The global volume cap is also defined there: `const int MAX_GLOBAL_VOLUME = 64`.
 
 ---
 
-## 19. Media Player — WinMediaPlayer
+## 21. Media Player — WinMediaPlayer
 
 **Source files:** `WinMediaPlayer.cpp/.h`, `MoviePlayer.cpp/.h`
 
@@ -2964,7 +3552,7 @@ Per-frame COM allocations that were previously performed inside `DrawVideoFrame`
 
 ---
 
-## 20. Text-to-Speech Manager (TTSManager)
+## 22. Text-to-Speech Manager (TTSManager)
 
 **Source files:** `TTSManager.cpp/.h`  
 **Documentation:** [TTSManager-Example-Usage.md](TTSManager-Example-Usage.md)
@@ -2988,9 +3576,9 @@ The `UseTTS` flag in `GameConfig.cfg` allows TTS to be globally enabled or disab
 
 ---
 
-## 21. Input Systems
+## 23. Input Systems
 
-### 21.1 Keyboard Handler
+### 23.1 Keyboard Handler
 
 **Source files:** `KeyboardHandler.cpp/.h`, `KBHandlersCode.cpp`  
 **Documentation:** [KeyboardHandler-Example-Usage.md](KeyboardHandler-Example-Usage.md)
@@ -3013,7 +3601,7 @@ Reading keyboard input in a game requires more than just checking `GetAsyncKeySt
 
 `KBHandlersCode.cpp` contains the engine's own default keyboard handling logic — the standard response functions for keys like `Escape`, `F1`–`F12`, `Home` (screen recorder toggle), and debug overlays. Game-specific keys are registered on top of these defaults.
 
-### 21.2 Joystick & GamePad System
+### 23.2 Joystick & GamePad System
 
 **Source files:** `Joystick.cpp/.h`  
 **Documentation:** [Joystick-Example-Usage.md](Joystick-Example-Usage.md)
@@ -3038,7 +3626,7 @@ Both 2D (menu navigation, scrolling shooters) and 3D (flight sims, adventure gam
 
 ---
 
-## 22. Physics Engine
+## 24. Physics Engine
 
 **Source files:** `Physics.cpp/.h`  
 **Documentation:** [Physics-Example-Usage.md](Physics-Example-Usage.md)
@@ -3088,7 +3676,7 @@ All trigonometric operations inside the physics update loops (`sin`, `cos`, `ata
 
 ---
 
-## 23. Mathematics Precalculation System
+## 25. Mathematics Precalculation System
 
 **Source files:** `MathPrecalculation.cpp/.h`  
 **Documentation:** [MathPrecalculation-Example-Usage.md](MathPrecalculation-Example-Usage.md)
@@ -3140,7 +3728,7 @@ The `MathPrecalculation` class also provides helper functions for building commo
 
 ---
 
-## 24. Networking Manager
+## 26. Networking Manager
 
 **Source files:** `NetworkManager.cpp/.h`  
 **Documentation:** [NetworkManager-Example-Usage.md](NetworkManager-Example-Usage.md)
@@ -3191,7 +3779,7 @@ The `NetworkManager` tracks per-session statistics: packets sent/received, bytes
 
 ---
 
-## 25. Gaming AI System
+## 27. Gaming AI System
 
 **Source files:** `GamingAI.cpp/.h`  
 **Documentation:** [GamingAI-Example-Usage.md](GamingAI-Example-Usage.md)
@@ -3240,7 +3828,7 @@ Key configuration parameters include:
 
 ---
 
-## 26. Script Manager
+## 28. Script Manager
 
 **Source files:** `ScriptManager.cpp/.h`  
 **Documentation:** [Scripting-Example-Usage.md](Scripting-Example-Usage.md)
@@ -3297,7 +3885,7 @@ The `Execute` command calls named C++ functions registered with the ScriptManage
 
 ---
 
-## 27. File I/O System (FileIO)
+## 29. File I/O System (FileIO)
 
 **Source files:** `FileIO.cpp/.h`  
 **Documentation:** [FileIO-Example-Usage.md](FileIO-Example-Usage.md)
@@ -3324,7 +3912,7 @@ The task queue is a `std::priority_queue` of `FileIOTask` records. Each task spe
 
 ---
 
-## 28. Configuration System (GameConfig.cfg)
+## 30. Configuration System (GameConfig.cfg)
 
 **Source files:** `Configuration.cpp/.h`
 
@@ -3386,7 +3974,7 @@ All configuration fields are nested inside a `MyConfig myConfig` member of the `
 
 ---
 
-## 29. Exception Handler & Debug System
+## 31. Exception Handler & Debug System
 
 **Source files:** `ExceptionHandler.cpp/.h`, `Debug.cpp/.h`  
 **Documentation:** [ExceptionHandler-Example-Usage.md](ExceptionHandler-Example-Usage.md)
@@ -3433,7 +4021,7 @@ Shader fallback diagnostics colour-code the failing object differently on screen
 
 ---
 
-## 30. Console Window
+## 32. Console Window
 
 **Source files:** `ConsoleWindow.cpp/.h`
 
@@ -3455,7 +4043,7 @@ During development, being able to execute commands, read log output, and inspect
 
 ---
 
-## 31. GUI System (GUIManager)
+## 33. GUI System (GUIManager)
 
 **Source files:** `GUIManager.cpp/.h`, `GUIWindows.cpp/.h`, `GUIConfigWindow.cpp/.h`
 
@@ -3494,7 +4082,7 @@ CPGE's GUI is referred to internally as the **Intuition System** — a reference
 
 ---
 
-## 32. Screen Recorder
+## 34. Screen Recorder
 
 **Source files:** `ScreenRecorder.cpp/.h`  
 **Documentation:** [ScreenRecorder-Example-Usage.md](ScreenRecorder-Example-Usage.md)
@@ -3541,7 +4129,7 @@ The audio capture runs on a dedicated thread separate from both the render threa
 
 ---
 
-## 33. Compression System (PUNPack)
+## 35. Compression System (PUNPack)
 
 **Source files:** `PUNPack.cpp/.h`  
 **Documentation:** [PUNPack-Example-Usage.md](PUNPack-Example-Usage.md)
@@ -3564,7 +4152,7 @@ Shipping game assets uncompressed wastes disk space and increases load times. PU
 
 ---
 
-## 34. Randomiser Utility (MyRandomizer)
+## 36. Randomiser Utility (MyRandomizer)
 
 **Source files:** `MyRandomizer.cpp/.h`  
 **Documentation:** [MyRandomizer-Example-Usage.md](MyRandomizer-Example-Usage.md)
@@ -3588,7 +4176,7 @@ C++'s standard `rand()` is non-reentrant, poorly seeded, and biased on many plat
 
 ---
 
-## 35. Blender Add-Ons
+## 37. Blender Add-Ons
 
 **Source files / Docs:** `Docs/Blender-AddOns/UIBuilder-Example-Usage.md`, `BlenderImports.cpp/.h`
 
@@ -3614,7 +4202,7 @@ On the engine side, `BlenderImports.cpp/.h` contains the specific import adaptat
 
 ---
 
-## 36. Steam Integration (Future)
+## 38. Steam Integration (Future)
 
 **Source files:** `MySteam.cpp/.h` (excluded from current build)
 
@@ -3632,7 +4220,7 @@ All Steam headers live in the `steam/` directory and are already present in the 
 
 ---
 
-## 37. Licensing
+## 39. Licensing
 
 CPGE is released as **free-to-use** for personal study, non-commercial, and commercial purposes under the following terms:
 
@@ -3653,7 +4241,7 @@ The `nlohmann/json` library included in CPGE is independently licensed under the
 
 ---
 
-## 38. Contact & Contributions
+## 40. Contact & Contributions
 
 | Channel | Link |
 | --- | --- |
@@ -3666,7 +4254,7 @@ Contributions are welcome via Pull Request on GitHub (subject to management appr
 
 > **Note:** The project website blocks VPN and proxy connections. Please access it from a direct internet connection.
 
-## 39. Donations and Support
+## 41. Donations and Support
 
 All donations received for this project, will help assist in further development and enhancements to computer hardware so that the final goals can be achieved which utilises all latest technology at our descretion.  
 
@@ -3677,7 +4265,7 @@ A Special Thank You goes to all our Supporters and donators.  A page on my websi
 ---
 
 *Document authored: 14 June 2026*  
-*Engine version at authoring: v0.0.1682*  
+*Engine version at authoring: v0.1.1897*  
 *Author: Daniel J. Hobson — Melbourne, Australia*
 
 [Back to Table of Contents](#table-of-contents)
