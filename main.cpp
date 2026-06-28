@@ -134,6 +134,10 @@
     #include "WinMediaPlayer.h"
 #elif defined(__USE_XMPLAYER__)
     #include "XMMODPlayer.h"
+#elif defined(__USE_S3MPLAYER__)
+    #include "S3MPlayer.h"
+#elif defined(__USE_MPTMPLAYER__)
+    #include "MPTMPlayer.h"
 #endif
 
 //------------------------------------------
@@ -194,12 +198,18 @@ extern ConsoleWindow consoleWindow;
     TTSManager ttsManager;
 #endif
 
+// Determine our Music Playback system we are using.
 #if defined(__USE_MP3PLAYER__)
     MediaPlayer player;
 #elif defined(__USE_XMPLAYER__)
-    XMMODPlayer xmPlayer;
-    static std::wstring g_currentMusicFile;  // last-loaded module path; used for pattern-0 restart
+    XMMODPlayer modPlayer;
+#elif defined(__USE_S3MPLAYER__)
+    S3MPlayer modPlayer;
+#elif defined(__USE_MPTMPLAYER__)
+    MPTMPlayer modPlayer;
 #endif
+
+static std::wstring g_currentMusicFile;  // last-loaded module path; used for pattern-0 restart
 
 // Our Base Models Buffer, Resources & Data (Storage Only / Read Only!).
 Model models[MAX_MODELS];
@@ -834,26 +844,27 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             #if defined(PLATFORM_WINDOWS)
                 ApplySystemMasterVolume(cfg.masterVolume);
             #endif
-            #if defined(__USE_XMPLAYER__)
+            #if defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__)
                 if (cfg.playMusic) {
-                    if (xmPlayer.IsPaused()) {
+                    if (modPlayer.IsPaused()) {
                         // Restart from pattern 0 with correct volume.
                         // Stop()+Play() is blocking so run it off the main thread.
                         uint8_t vol = static_cast<uint8_t>(std::clamp(cfg.musicVolume, 0, MAX_GLOBAL_VOLUME));
                         std::wstring musicFile = g_currentMusicFile;
                         std::thread([vol, musicFile]() {
-                            xmPlayer.Stop();
-                            if (!musicFile.empty() && xmPlayer.Play(musicFile))
-                                xmPlayer.SetVolume(vol);
+                            modPlayer.Stop();
+                            if (!musicFile.empty() && modPlayer.Play(musicFile))
+                                modPlayer.SetVolume(vol);
                         }).detach();
-                    } else if (xmPlayer.IsPlaying()) {
-                        xmPlayer.SetVolume(static_cast<uint8_t>(std::clamp(cfg.musicVolume, 0, MAX_GLOBAL_VOLUME)));
+                    } else if (modPlayer.IsPlaying()) {
+                        modPlayer.SetVolume(static_cast<uint8_t>(std::clamp(cfg.musicVolume, 0, MAX_GLOBAL_VOLUME)));
                     }
                 } else {
-                    if (xmPlayer.IsPlaying() && !xmPlayer.IsPaused())
-                        xmPlayer.Pause();
+                    if (modPlayer.IsPlaying() && !modPlayer.IsPaused())
+                        modPlayer.Pause();
                 }
             #endif
+
             screenRecorder.SetMicMonitorGain(static_cast<float>(cfg.microphoneVolume));
             screenRecorder.SetMicRecordGain (static_cast<float>(cfg.microphoneVolume));
             #if defined(_WIN64) || defined(_WIN32)
@@ -1270,7 +1281,11 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                         config.myConfig.musicVolume = vol;
 
                         #if defined(__USE_XMPLAYER__)
-                            xmPlayer.SetVolume(static_cast<uint8_t>(vol));
+                            modPlayer.SetVolume(static_cast<uint8_t>(vol));
+                        #elif defined(__USE_S3MPLAYER__)
+                            modPlayer.SetVolume(static_cast<uint8_t>(vol));
+                        #elif defined(__USE_MPTMPLAYER__)
+                            modPlayer.SetVolume(static_cast<uint8_t>(vol));
                         #elif defined(__USE_MP3PLAYER__)
                             player.setVolume(static_cast<float>(vol) / 64.0f);
                         #endif
@@ -1662,8 +1677,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     // Stop Music Playback.
     #if defined(__USE_MP3PLAYER__)
         player.stop();
-    #elif defined(__USE_XMPLAYER__)
-        xmPlayer.Shutdown();
+    #elif defined(__USE_XMPLAYER__) || defined(__USE_S3MPlayer__) || defined(__USE_MPTMPlayer__)
+        modPlayer.Shutdown();
     #endif
 
     // -------------------------------
@@ -2021,9 +2036,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 }
                 #if defined(__USE_MP3PLAYER__)
                     player.pause();
-                #elif defined(__USE_XMPLAYER__)
+                #elif defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__)
                     // Uncomment if needed: 
-                    // if (!xmPlayer.IsPaused()) xmPlayer.Pause();
+                    // if (!modPlayer.IsPaused()) modPlayer.Pause();
                 #endif
             }
 
@@ -2034,9 +2049,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             else if (wParam == WA_ACTIVE && !bResizeInProgress.load()) {
                 #if defined(__USE_MP3PLAYER__)
                     player.resume();
-                #elif defined(__USE_XMPLAYER__)
+                #elif defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__)
                     // Uncomment if needed: 
-                    // xmPlayer.HardResume();
+                    // modPlayer.HardResume();
                 #endif
             }
 
@@ -2225,12 +2240,12 @@ void StopMusicPlayback()
         // Stop the MP3 player
         if (player.isPlaying())
             player.stop();
-    #elif defined(__USE_XMPLAYER__)
+    #elif defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__)
         // Stop the XM player
-        if (xmPlayer.IsPlaying())
-            xmPlayer.Stop();
+        if (modPlayer.IsPlaying())
+            modPlayer.Stop();
 
-        xmPlayer.Shutdown();
+        modPlayer.Shutdown();
     #endif
 }
 
@@ -2249,7 +2264,7 @@ bool Load_Music()
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[LOADER]: Failed to load Music File.");
             return false;
         }
-    #elif defined(__USE_XMPLAYER__)
+    #elif defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__)
         // Attempt to load in our XM Music Module for playback.
         switch (scene.stSceneType)
         {
@@ -2258,9 +2273,9 @@ bool Load_Music()
 
             case SceneType::SCENE_GAMETITLE:
             {
-                std::wstring XMFilename = L"electro3.xm";
+                std::wstring XMFilename = L"test3.mptm";
                 auto fileName = AssetsDir / XMFilename;
-                if (!xmPlayer.Play(fileName))
+                if (!modPlayer.Play(fileName))
                 {
                     threadManager.threadVars.bLoaderTaskFinished.store(true);
                     debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[LOADER]: Failed to Play the requested Module file.");
@@ -2268,15 +2283,15 @@ bool Load_Music()
                 }
                 g_currentMusicFile = fileName.wstring();
                 if (!config.myConfig.playMusic)
-                    xmPlayer.Pause();
+                    modPlayer.Pause();
                 break;
             }
 
             case SceneType::SCENE_GAMEPLAY:
             {
-                std::wstring XMFilename = L"thevoid.xm";
+                std::wstring XMFilename = L"test2.mptm";
                 auto fileName = AssetsDir / XMFilename;
-                if (!xmPlayer.Play(fileName))
+                if (!modPlayer.Play(fileName))
                 {
                     threadManager.threadVars.bLoaderTaskFinished.store(true);
                     debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[LOADER]: Failed to Play the requested Module file.");
@@ -2284,7 +2299,7 @@ bool Load_Music()
                 }
                 g_currentMusicFile = fileName.wstring();
                 if (!config.myConfig.playMusic)
-                    xmPlayer.Pause();
+                    modPlayer.Pause();
                 break;
             }
             default:

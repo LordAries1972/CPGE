@@ -1,0 +1,31 @@
+PUNPack.cpp - 28 June 2026
+==========================
+
+Added Blowfish encryption / decryption and bcrypt password hashing implementations.
+
+New static file-scope constants (before Statistics section):
+  BF_P_INIT[18]       - Blowfish P-array (18 subkeys from pi hex digits)
+  BF_S_INIT[4][256]   - Four Blowfish S-boxes (1024 entries from pi hex digits)
+  BF_CIPHERTEXT[24]   - bcrypt magic text "OrpheanBeholderScryDoubt"
+  BF_BASE64_CHARS[]   - bcrypt modified base64 alphabet: ./A-Za-z0-9
+
+New internal helper implementations:
+  BlowfishInitState()       - copies pi-derived constants into state
+  BlowfishF()               - Feistel F-function (add/XOR/add over 4 S-boxes)
+  BlowfishEncipher()        - 16-round forward Feistel pass
+  BlowfishDecipher()        - 16-round reverse Feistel pass
+  BlowfishExpandKey()       - standard key schedule (P XOR key, encrypt zeroes)
+  EksBlowfishSetup()        - bcrypt expensive key setup (2^cost rounds)
+  BcryptBase64Encode()      - little-endian 6-bit encoding with bcrypt alphabet
+  BcryptBase64Decode()      - reverse-lookup decode of bcrypt base64
+  GenerateSaltBytes()       - thread-safe random salt generation via mt19937_64
+
+New public method implementations:
+  BlowfishEncrypt()         - CBC + random IV (prepended) + PKCS7 padding
+  BlowfishDecrypt()         - CBC decrypt, strip IV, verify & strip PKCS7
+  BlowfishEncryptString()   - delegates to BlowfishEncrypt after string->bytes
+  BlowfishDecryptString()   - delegates to BlowfishDecrypt, converts back to string
+  HashPassword()            - EksBlowfishSetup + 64x encipher of magic text,
+                              output: $2b$<cost>$<22-char salt><31-char hash>
+  VerifyPassword()          - re-derives hash from stored salt, constant-time compare
+                              accepts $2a$, $2b$, $2y$ prefix variants

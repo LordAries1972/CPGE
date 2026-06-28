@@ -3,14 +3,7 @@
 #include <shellapi.h>
 #include <thread>
 
-#if defined(__USE_OPENGL__)
-    #include "FXManager.h"
-#elif defined(__USE_VULKAN__)
-    #include "FXManager.h"
-#else
-    #include "FXManager.h"
-#endif
-
+#include "FXManager.h"
 #include "ThreadManager.h"
 #include "SoundManager.h"
 #include "GUIManager.h"
@@ -20,14 +13,7 @@
 
 extern std::shared_ptr<Renderer> renderer;
 extern SoundManager soundManager;
-#if defined(__USE_OPENGL__)
-    extern FXManager fxManager;
-#elif defined(__USE_VULKAN__)
-    extern FXManager fxManager;
-#else
-    extern FXManager fxManager;
-#endif
-
+extern FXManager fxManager;
 extern ThreadManager threadManager;
 extern HWND hwnd;
 

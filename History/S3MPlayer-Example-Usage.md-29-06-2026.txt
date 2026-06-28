@@ -1,0 +1,403 @@
+# S3MPlayer Class - Usage Guide
+
+## Overview
+
+`S3MPlayer` plays Scream Tracker 3 `.s3m` modules through a DirectSound-backed playback pipeline.
+
+S3M is a channel-based tracker format created by Future Crew for Scream Tracker 3. Each module contains an order list of patterns, up to 255 PCM or AdLib (OPL2 FM) instruments, and up to 32 channels of simultaneous audio. The player decodes the packed S3M pattern data, renders all active voices into a stereo 16-bit PCM stream, and feeds that stream into a DirectSound ring buffer at 44,100 Hz.
+
+AdLib (OPL2) instruments are synthesised in software using a two-operator FM model with full ADSR envelopes, waveform selection, self-feedback, and additive/FM connection modes, so S3M files that rely heavily on AdLib channels play correctly without any hardware OPL chip.
+
+---
+
+## Basic Usage
+
+```cpp
+#include "S3MPlayer.h"
+
+void PlayS3MExample() {
+    S3MPlayer player;
+
+    if (player.Play(L"Assets\\music.s3m")) {
+        player.SetVolume(48);
+        player.SetGlobalVolume(64);
+
+        while (player.IsPlaying()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    }
+}
+```
+
+`Play()` initialises DirectSound, loads and decodes the S3M file, and launches the background playback thread in a single call. When the order list reaches its end the player loops back to the restart position embedded in the module.
+
+---
+
+## API Reference
+
+### Play
+
+```cpp
+bool Play(const std::wstring& path);
+bool Play(const std::string& path);
+```
+
+Initialises the audio device (once per instance), loads the named `.s3m` file, and begins playback. Returns `false` if the device cannot be created or the file fails to load. If the player is already playing, the call is ignored and returns `false`.
+
+```cpp
+S3MPlayer player;
+bool ok = player.Play(L"Assets\\track.s3m");
+```
+
+---
+
+### Stop
+
+```cpp
+void Stop();
+```
+
+Stops playback immediately and joins the background thread. The DirectSound buffer is halted but not released. After `Stop()` you can call `Play()` again with a different file.
+
+```cpp
+player.Stop();
+```
+
+---
+
+### Shutdown
+
+```cpp
+void Shutdown();
+```
+
+Stops playback and fully releases the DirectSound device, all sample data, and all pattern data. Call this when you are done with the player entirely or when the application exits.
+
+```cpp
+player.Shutdown();
+```
+
+---
+
+### Pause / Resume
+
+```cpp
+void Pause();
+void Resume();
+```
+
+`Pause()` mutes the audio output (via `Mute()`) and then sets the paused flag. The playback thread continues to run so there is no thread teardown overhead on resume. `Resume()` clears both the muted and paused flags and restores the previously configured volume.
+
+```cpp
+player.Pause();
+// ... user switches away ...
+player.Resume();
+```
+
+---
+
+### HardPause / HardResume
+
+```cpp
+void HardPause();
+void HardResume();
+```
+
+`HardPause()` acquires the playback mutex, deactivates all voices, silences the DirectSound ring buffer, and sets the volume to zero. Use this when you need an immediate, click-free stop with all voice state cleared (for example, during a scene transition). `HardResume()` resets all channel voices to their default state, silences any stale audio left in the buffer, and restores the volume.
+
+```cpp
+player.HardPause();   // scene change, cutscene starts
+// ... perform work ...
+player.HardResume();  // resume music from current position
+```
+
+---
+
+### Terminate
+
+```cpp
+void Terminate();
+```
+
+Sets the terminating flag and calls `Stop()`. Equivalent to `Stop()` but signals intent more clearly; useful for shutdown paths where the object will be destroyed immediately afterward.
+
+```cpp
+player.Terminate();
+```
+
+---
+
+### Mute
+
+```cpp
+void Mute();
+```
+
+Silences the DirectSound ring buffer and sets the muted flag without pausing the tracker engine. The sequence position, row, and all voice states continue to advance. Calling `Resume()` or `SetVolume()` will unmute.
+
+```cpp
+player.Mute();
+```
+
+---
+
+### IsPlaying / IsPaused
+
+```cpp
+bool IsPlaying() const;
+bool IsPaused()  const;
+```
+
+`IsPlaying()` returns `true` only when the player is active, not paused, and not in the process of terminating. `IsPaused()` returns `true` when `Pause()` or `HardPause()` has been called but `Resume()` / `HardResume()` has not.
+
+```cpp
+if (player.IsPlaying()) {
+    // Tracker is running and producing audio.
+}
+if (player.IsPaused()) {
+    // Tracker is suspended.
+}
+```
+
+---
+
+### SetVolume
+
+```cpp
+void SetVolume(uint8_t volume);
+```
+
+Sets the immediate playback volume and the target volume used by the fade system. The valid range is `0` (silent) to `64` (full volume). Values above 64 are clamped. This does not affect the per-module global volume stored in the S3M header.
+
+```cpp
+player.SetVolume(48);   // 75% volume
+player.SetVolume(0);    // silence
+player.SetVolume(64);   // full
+```
+
+---
+
+### SetGlobalVolume
+
+```cpp
+void SetGlobalVolume(uint8_t volume);
+```
+
+Sets an additional global volume multiplier layered on top of `SetVolume()`. The range is `0`-`64`. Both volume levels are multiplied together during mixing, so setting either to `0` silences the output.
+
+```cpp
+player.SetGlobalVolume(32);   // halve global level
+player.SetGlobalVolume(64);   // full global level (default)
+```
+
+---
+
+### SetFadeIn / SetFadeOut
+
+```cpp
+void SetFadeIn(uint32_t durationMs);
+void SetFadeOut(uint32_t durationMs);
+```
+
+Initiates a linear volume fade over the given duration in milliseconds. The fade is driven by the playback thread clock so it runs automatically without any caller involvement.
+
+`SetFadeIn()` ramps the volume from `0` to `64` over `durationMs`.
+`SetFadeOut()` ramps the volume from the current level down to `0` over `durationMs`.
+
+The two fades are mutually exclusive - starting one cancels the other.
+
+```cpp
+// Fade music in over 2 seconds when a level loads.
+player.Play(L"Assets\\level1.s3m");
+player.SetFadeIn(2000);
+
+// Fade music out over 1.5 seconds before stopping.
+player.SetFadeOut(1500);
+```
+
+---
+
+### GotoSequenceID
+
+```cpp
+void GotoSequenceID(uint16_t patternSeqID);
+```
+
+Jumps to the given position in the module's order list (sequence table index, not pattern index). The function performs a 1-second fade-out, seeks to the new position, and then performs a 1-second fade-in - all on the calling thread, so it blocks for approximately 2 seconds.
+
+`patternSeqID` must be less than the number of entries in the order list; invalid indices are rejected with a warning log message.
+
+```cpp
+// Jump to the second section of the module (order slot 4).
+player.GotoSequenceID(4);
+```
+
+---
+
+## Volume Hierarchy
+
+The final output amplitude for each sample is:
+
+```
+finalLevel = (voice.volume / 64) * (channelVolume / 64)
+           * (moduleGlobalVolume / 64)
+           * (globalVolume / 64)
+           * (currentVolume / 64)
+```
+
+| Factor | Controlled by |
+|---|---|
+| `voice.volume` | Note velocity / `Dxx` volume slide in the module |
+| `channelVolume` | `Mxx` / `Nxy` tracker effects |
+| `moduleGlobalVolume` | `Vxx` tracker effect, S3M header |
+| `globalVolume` | `SetGlobalVolume()` |
+| `currentVolume` | `SetVolume()` and the fade system |
+
+---
+
+## Implemented Tracker Effects
+
+All standard S3M effects are implemented. The letter column is the effect as it appears in tracker software.
+
+| Letter | Code | Description |
+|---|---|---|
+| `Axx` | `0x01` | Set speed (ticks per row) |
+| `Bxx` | `0x02` | Position jump - jump to order `xx` |
+| `Cxx` | `0x03` | Pattern break - break to row `xx` (BCD) in next pattern |
+| `Dxy` | `0x04` | Volume slide - `x` up, `y` down; `xF`=fine down, `Fy`=fine up |
+| `Exx` | `0x05` | Portamento down; `Ex`=fine, `Fx`=extra-fine |
+| `Fxx` | `0x06` | Portamento up; `Ex`=fine, `Fx`=extra-fine |
+| `Gxx` | `0x07` | Tone portamento to note |
+| `Hxy` | `0x08` | Vibrato - `x` speed, `y` depth |
+| `Ixy` | `0x09` | Tremor - `x` on-ticks, `y` off-ticks |
+| `Jxy` | `0x0A` | Arpeggio - cycle root / +`x` / +`y` semitones per tick |
+| `Kxy` | `0x0B` | Vibrato + volume slide |
+| `Lxy` | `0x0C` | Tone portamento + volume slide |
+| `Mxx` | `0x0D` | Set channel volume (`0`-`64`) |
+| `Nxy` | `0x0E` | Channel volume slide - `x` up, `y` down |
+| `Oxx` | `0x0F` | Sample offset - start at byte `xx * 256` into the sample |
+| `Pxy` | `0x10` | Panning slide - `x` right, `y` left |
+| `Qxy` | `0x11` | Retrigger note every `y` ticks, apply volume command `x` |
+| `Rxy` | `0x12` | Tremolo - `x` speed, `y` depth |
+| `S3x` | `0x13` | Set vibrato waveform (0=sine, 1=square, 2=sawtooth, 3=random) |
+| `S4x` | `0x13` | Set tremolo waveform |
+| `S5x` | `0x13` | Set panbrello waveform |
+| `S8x` | `0x13` | Set channel panning (`0`=left, `F`=right) |
+| `SBx` | `0x13` | Pattern loop - `SB0` sets loop start, `SBx` loops `x` times |
+| `SC0` | `0x13` | Note cut immediately |
+| `SCx` | `0x13` | Note cut after `x` ticks |
+| `SDx` | `0x13` | Note delay - trigger note after `x` ticks |
+| `SEx` | `0x13` | Pattern delay - extend row by `x` extra row durations |
+| `Txx` | `0x14` | Set tempo (BPM, minimum 32) |
+| `Uxy` | `0x15` | Fine vibrato (lower depth than `Hxy`) |
+| `Vxx` | `0x16` | Set module global volume (`0`-`64`) |
+| `Wxy` | `0x17` | Global volume slide - `x` up, `y` down |
+| `Xxx` | `0x18` | Set panning (`0`=left, `80h`=right) |
+| `Yxy` | `0x19` | Panbrello - `x` speed, `y` depth |
+| `Zxx` | `0x1A` | MIDI macro - consumed and ignored (no MIDI target) |
+
+---
+
+## AdLib (OPL2) FM Instrument Support
+
+S3M supports two instrument types: PCM samples (type `0x01`) and AdLib/OPL2 FM instruments (types `0x02`-`0x07`, marked `SCRI` in tracker software). Both are fully supported.
+
+AdLib instruments are synthesised in software using the 12-byte operator register block stored in the S3M instrument header. The synthesis model implements:
+
+- Two-operator FM with carrier and modulator
+- Additive (sum) and FM (phase modulation) connection modes
+- Full ADSR envelope per operator (attack, decay, sustain-hold, release)
+- Eight OPL2 waveforms per operator (sine, half-sine, absolute sine, pulse, square, derived, sawtooth, square)
+- OPL2 self-feedback on the modulator
+- Per-operator total level (TL) attenuation at 0.75 dB/step
+- Frequency multipliers per operator
+- EGT (sustain-hold mode) flag per operator
+
+This means AdLib-heavy S3M files that would produce silence on a PCM-only renderer play with their intended timbre.
+
+---
+
+## Waveforms
+
+Vibrato, tremolo, and panbrello effects use a tracker waveform table selectable via `S3x`, `S4x`, and `S5x`:
+
+| Value | Waveform |
+|---|---|
+| `0` | Sine (default) |
+| `1` | Square |
+| `2` | Descending sawtooth |
+| `3` | Random |
+
+---
+
+## Retrigger Volume Commands (`Qxy`)
+
+The `x` nibble of `Qxy` selects a volume transformation applied each time the note retriggers:
+
+| `x` | Action |
+|---|---|
+| `0` | No volume change |
+| `1`-`5` | Subtract 1, 2, 4, 8, or 16 |
+| `6` | Multiply by 2/3 |
+| `7` | Divide by 2 |
+| `9`-`D` | Add 1, 2, 4, 8, or 16 |
+| `E` | Multiply by 3/2 |
+| `F` | Multiply by 2 |
+
+---
+
+## Playback Architecture
+
+- The player runs a dedicated background thread (`PlaybackLoop`) that fires tracker ticks at the correct BPM using `std::chrono::high_resolution_clock`.
+- On Windows, `timeBeginPeriod(1)` is called for the duration of playback so that `sleep_for(1ms)` sleeps for approximately 1 ms rather than the default ~15.6 ms OS quantum. This prevents audible tempo drift.
+- Tick scheduling uses a fixed-period accumulator: if the thread wakes slightly late, the next wakeup is still calculated from the correct absolute time rather than the actual wake time. This prevents jitter from accumulating into long-term tempo drift.
+- Audio is mixed into a `std::vector<int16_t>` scratch buffer and then copied into the DirectSound ring buffer in whatever chunk the write cursor allows. Linear interpolation is used between adjacent PCM samples.
+- The playback mutex guards all per-voice state between the tick functions and `HardPause`/`HardResume`.
+- All control flags (`isPlaying`, `isPaused`, `isMuted`, `isTerminating`, volume levels) are `std::atomic` so they can be written from the calling thread and read from the playback thread without locks.
+
+---
+
+## Typical Integration Pattern
+
+```cpp
+class GameScene {
+    S3MPlayer music;
+
+public:
+    void OnLoad() {
+        music.Play(L"Assets\\music\\theme.s3m");
+        music.SetVolume(48);
+        music.SetFadeIn(2000);
+    }
+
+    void OnPause() {
+        music.Pause();
+    }
+
+    void OnResume() {
+        music.Resume();
+    }
+
+    void OnSectionChange(uint16_t orderSlot) {
+        // Fades out, seeks, then fades in automatically.
+        music.GotoSequenceID(orderSlot);
+    }
+
+    void OnUnload() {
+        music.SetFadeOut(1000);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+        music.Shutdown();
+    }
+};
+```
+
+---
+
+## Notes
+
+- The `.s3m` file signature is validated on load (`0x1A` byte at offset 28, type `0x10`, and the four-byte magic `SCRM`). Files that fail this check are rejected.
+- Order list entries `0xFE` (skip) are skipped automatically; entry `0xFF` signals the end of the order list, after which the player loops back to `restartSequencePosition`.
+- Packed / ADPCM-compressed PCM samples (header packing field non-zero) are skipped with a warning log message. Standard unsigned and signed 8-bit and 16-bit samples are all supported.
+- Stereo source samples are downmixed to mono during load; the stereo field in the output comes from the per-channel panning position.
+- Channel panning defaults are derived from the S3M header `channelSettings` array (channels 0-7 = left, 8-15 = right, etc.). If the `defaultPanFlag` field is `0xFC`, the per-channel pan table stored after the header is used instead.
+- Volume range for all API calls is `0`-`64`, matching the S3M internal range. Values above `64` are silently clamped.

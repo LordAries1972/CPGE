@@ -1,137 +1,75 @@
 ===========================================================
   EXCEPTION CALL-STACK LOG
-  Generated  : 2026-06-25 05:30:09
+  Generated  : 2026-06-28 19:07:42
 ===========================================================
-  Exception  : Access Violation - Invalid memory access
-  Code       : 0xC0000005
-  Address    : 0x00007FF6E53C9AC4
-  Thread ID  : 17404
-  Process ID : 18396
+  Exception  : CRITICAL: Failed to create swap chain
+  Address    : 0x0000000000000000
+  Thread ID  : 9508
+  Process ID : 7668
   Platform   : Windows x64  [DEBUG BUILD]
 ===============================================================
-  CALL STACK TRACE (25 of 25 frames captured, showing up to 100)
+  CALL STACK TRACE (13 of 13 frames captured, showing up to 100)
 ===============================================================
-  #00  Address  : 0x00007FF6E53C9AC4
-       Function : std::exchange<std::_Iterator_base12 *,std::nullptr_t>  +0x14
+  #00  Address  : 0x00007FF7F9759DD1
+       Function : ExceptionHandler::GetCurrentStackTrace  +0xA1
        Module   : DXCPGE.exe
-       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\utility  Line 762
+       Source   : F:\Projects\C++\CPGE2026\ExceptionHandler.cpp  Line 492
        --------
-  #01  Address  : 0x00007FF6E53E5BA9
-       Function : std::_Container_base12::_Orphan_all_unlocked_v3  +0x39
+  #01  Address  : 0x00007FF7F9759569
+       Function : ExceptionHandler::LogException  +0x179
        Module   : DXCPGE.exe
-       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\xmemory  Line 1375
+       Source   : F:\Projects\C++\CPGE2026\ExceptionHandler.cpp  Line 384
        --------
-  #02  Address  : 0x00007FF6E53E5B19
-       Function : std::_Container_base12::_Orphan_all_locked_v3  +0x49
+  #02  Address  : 0x00007FF7F9B29351
+       Function : WinMain$catch$93  +0x2D
        Module   : DXCPGE.exe
-       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\xmemory  Line 1232
+       Source   : F:\Projects\C++\CPGE2026\main.cpp  Line 1626
        --------
-  #03  Address  : 0x00007FF6E53E5AC4
-       Function : std::_Container_base12::_Orphan_all  +0x14
+  #03  Address  : 0x00007FF8DFFE67A0
+       Function : _CxxFrameHandler4  +0x300
+       Module   : VCRUNTIME140_1D.dll
+       --------
+  #04  Address  : 0x00007FF8DFFE389E
+       Function : 0x7FF8DFFE389E
+       Module   : VCRUNTIME140_1D.dll
+       --------
+  #05  Address  : 0x00007FF8F50356F6
+       Function : RtlCaptureContext2  +0x4A6
+       Module   : ntdll.dll
+       --------
+  #06  Address  : 0x00007FF7F98EA759
+       Function : WinMain  +0x9A9
        Module   : DXCPGE.exe
-       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\xmemory  Line 1391
+       Source   : F:\Projects\C++\CPGE2026\main.cpp  Line 679
        --------
-  #04  Address  : 0x00007FF6E54450A7
-       Function : std::vector<float,std::allocator<float> >::_Tidy  +0x57
+  #07  Address  : 0x00007FF7F9AD4422
+       Function : invoke_main  +0x32
        Module   : DXCPGE.exe
-       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\vector  Line 2052
+       Source   : D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_common.inl  Line 107
        --------
-  #05  Address  : 0x00007FF6E5432019
-       Function : std::vector<float,std::allocator<float> >::~vector<float,std::allocator<float> >  +0x39
+  #08  Address  : 0x00007FF7F9AD42CE
+       Function : __scrt_common_main_seh  +0x12E
        Module   : DXCPGE.exe
-       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\vector  Line 767
+       Source   : D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_common.inl  Line 288
        --------
-  #06  Address  : 0x00007FF6E5519480
-       Function : TextScrollData::~TextScrollData  +0x30
+  #09  Address  : 0x00007FF7F9AD418E
+       Function : __scrt_common_main  +0xE
        Module   : DXCPGE.exe
+       Source   : D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_common.inl  Line 331
        --------
-  #07  Address  : 0x00007FF6E5519346
-       Function : FXItem::~FXItem  +0x56
+  #10  Address  : 0x00007FF7F9AD44BE
+       Function : WinMainCRTStartup  +0xE
        Module   : DXCPGE.exe
+       Source   : D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_winmain.cpp  Line 17
        --------
-  #08  Address  : 0x00007FF6E551C988
-       Function : FXItem::`scalar deleting destructor'  +0x18
-       Module   : DXCPGE.exe
-       --------
-  #09  Address  : 0x00007FF6E550F8EB
-       Function : std::_Default_allocator_traits<std::allocator<FXItem> >::destroy<FXItem>  +0x1B
-       Module   : DXCPGE.exe
-       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\xmemory  Line 734
-       --------
-  #10  Address  : 0x00007FF6E5504F69
-       Function : std::_Destroy_range<std::allocator<FXItem> >  +0x49
-       Module   : DXCPGE.exe
-       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\xmemory  Line 1092
-       --------
-  #11  Address  : 0x00007FF6E5524A3C
-       Function : std::vector<FXItem,std::allocator<FXItem> >::erase  +0x1BC
-       Module   : DXCPGE.exe
-       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\vector  Line 1763
-       --------
-  #12  Address  : 0x00007FF6E54F9400
-       Function : FXManager::RemoveCompletedEffects  +0x2D0
-       Module   : DXCPGE.exe
-       Source   : F:\Projects\C++\CPGE2026\FXManager.cpp  Line 993
-       --------
-  #13  Address  : 0x00007FF6E54EAC61
-       Function : FXManager::Render  +0xB11
-       Module   : DXCPGE.exe
-       Source   : F:\Projects\C++\CPGE2026\FXManager.cpp  Line 1127
-       --------
-  #14  Address  : 0x00007FF6E54E4D4A
-       Function : DX11Renderer::RenderFrame  +0x2DCA
-       Module   : DXCPGE.exe
-       Source   : F:\Projects\C++\CPGE2026\DXRenderFrame.cpp  Line 739
-       --------
-  #15  Address  : 0x00007FF6E54B7A10
-       Function : <lambda_640707ae9f696f799d8b9ed7e3c04ac4>::operator()  +0x20
-       Module   : DXCPGE.exe
-       Source   : F:\Projects\C++\CPGE2026\DX11Renderer.cpp  Line 218
-       --------
-  #16  Address  : 0x00007FF6E54C0E94
-       Function : std::invoke<<lambda_640707ae9f696f799d8b9ed7e3c04ac4> &>  +0x14
-       Module   : DXCPGE.exe
-       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\type_traits  Line 1732
-       --------
-  #17  Address  : 0x00007FF6E54B7CEB
-       Function : std::_Func_impl_no_alloc<<lambda_640707ae9f696f799d8b9ed7e3c04ac4>,void>::_Do_call  +0x1B
-       Module   : DXCPGE.exe
-       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\functional  Line 812
-       --------
-  #18  Address  : 0x00007FF6E551C6EF
-       Function : std::_Func_class<void>::operator()  +0x3F
-       Module   : DXCPGE.exe
-       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\functional  Line 855
-       --------
-  #19  Address  : 0x00007FF6E57DF33F
-       Function : <lambda_09ed75fcb6ba5bc82509ff0db1d03d89>::operator()  +0x32F
-       Module   : DXCPGE.exe
-       Source   : F:\Projects\C++\CPGE2026\ThreadManager.cpp  Line 442
-       --------
-  #20  Address  : 0x00007FF6E57E4A54
-       Function : std::invoke<<lambda_09ed75fcb6ba5bc82509ff0db1d03d89> >  +0x14
-       Module   : DXCPGE.exe
-       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\type_traits  Line 1732
-       --------
-  #21  Address  : 0x00007FF6E57E2DF6
-       Function : std::thread::_Invoke<std::tuple<<lambda_09ed75fcb6ba5bc82509ff0db1d03d89> >,0>  +0x76
-       Module   : DXCPGE.exe
-       Source   : D:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.38.33130\include\thread  Line 61
-       --------
-  #22  Address  : 0x00007FF833AE2EC5
-       Function : register_onexit_function  +0xF5
-       Module   : ucrtbased.dll
-       --------
-  #23  Address  : 0x00007FF8CB79259D
+  #11  Address  : 0x00007FF8F3F4259D
        Function : BaseThreadInitThunk  +0x1D
        Module   : KERNEL32.DLL
        --------
-  #24  Address  : 0x00007FF8CCA0AF78
+  #12  Address  : 0x00007FF8F4FEAF78
        Function : RtlUserThreadStart  +0x28
        Module   : ntdll.dll
 ========================================================
   BREADCRUMB TRAIL  (last RECORD_FUNCTION_CALL() entries
 ========================================================
-  23.  WinMain
-  24.  LoaderTaskThread
-  25.  RenderFrame
+  25.  WinMain

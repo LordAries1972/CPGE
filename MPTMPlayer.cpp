@@ -1,0 +1,2179 @@
+#include "Includes.h"
+#include "MPTMPlayer.h"
+#include "Debug.h"
+#include "Configuration.h"
+
+#include <filesystem>
+#include <limits>
+
+extern Debug debug;
+extern Configuration config;
+
+#if defined(PLATFORM_WINDOWS)
+    extern HWND hwnd;
+    #pragma comment(lib, "dsound.lib")
+    #pragma comment(lib, "dxguid.lib")
+    #pragma comment(lib, "winmm.lib")
+    #pragma comment(lib, "mfplat.lib")
+    #pragma comment(lib, "mfreadwrite.lib")
+    #pragma comment(lib, "mfuuid.lib")
+#endif
+
+namespace {
+    constexpr uint32_t MPTM_SAMPLE_RATE = 44100;
+    constexpr uint8_t MPTM_MAX_CHANNELS = 64;
+    constexpr uint8_t MPTM_NOTE_CUT = 254;
+    constexpr uint8_t MPTM_NOTE_OFF = 255;
+    constexpr uint8_t MPTM_NOTE_FADE = 253;
+
+    uint16_t ReadLE16(const uint8_t* data) {
+        return static_cast<uint16_t>(data[0]) |
+            (static_cast<uint16_t>(data[1]) << 8);
+    }
+
+    uint32_t ReadLE32(const uint8_t* data) {
+        return static_cast<uint32_t>(data[0]) |
+            (static_cast<uint32_t>(data[1]) << 8) |
+            (static_cast<uint32_t>(data[2]) << 16) |
+            (static_cast<uint32_t>(data[3]) << 24);
+    }
+
+    int16_t ReadLE16Signed(const uint8_t* data) {
+        return static_cast<int16_t>(ReadLE16(data));
+    }
+
+    uint8_t ClampVolume(int value) {
+        return static_cast<uint8_t>(std::clamp(value, 0, 64));
+    }
+
+    // IT volume-column commands. The single byte encodes a command and parameter by range.
+    enum VolColumnCmd : uint8_t {
+        VOLCMD_NONE = 0,
+        VOLCMD_VOLUME,        // 0..64   set volume
+        VOLCMD_FINEVOLUP,     // 65..74  fine volume slide up   (once, on tick 0)
+        VOLCMD_FINEVOLDOWN,   // 75..84  fine volume slide down (once, on tick 0)
+        VOLCMD_VOLSLIDEUP,    // 85..94  volume slide up   (per tick)
+        VOLCMD_VOLSLIDEDOWN,  // 95..104 volume slide down (per tick)
+        VOLCMD_PITCHDOWN,     // 105..114 portamento down (per tick)
+        VOLCMD_PITCHUP,       // 115..124 portamento up   (per tick)
+        VOLCMD_PANNING,       // 128..192 set panning (0..64)
+        VOLCMD_TONEPORTA,     // 193..202 tone portamento (per tick, speed from table)
+        VOLCMD_VIBRATO,       // 203..212 vibrato depth   (per tick)
+    };
+
+    void DecodeVolumeColumn(uint8_t v, uint8_t& cmd, uint8_t& param) {
+        if (v <= 64)              { cmd = VOLCMD_VOLUME;       param = v; }
+        else if (v <= 74)         { cmd = VOLCMD_FINEVOLUP;    param = static_cast<uint8_t>(v - 65); }
+        else if (v <= 84)         { cmd = VOLCMD_FINEVOLDOWN;  param = static_cast<uint8_t>(v - 75); }
+        else if (v <= 94)         { cmd = VOLCMD_VOLSLIDEUP;   param = static_cast<uint8_t>(v - 85); }
+        else if (v <= 104)        { cmd = VOLCMD_VOLSLIDEDOWN; param = static_cast<uint8_t>(v - 95); }
+        else if (v <= 114)        { cmd = VOLCMD_PITCHDOWN;    param = static_cast<uint8_t>(v - 105); }
+        else if (v <= 124)        { cmd = VOLCMD_PITCHUP;      param = static_cast<uint8_t>(v - 115); }
+        else if (v >= 128 && v <= 192) { cmd = VOLCMD_PANNING;   param = static_cast<uint8_t>(v - 128); }
+        else if (v >= 193 && v <= 202) { cmd = VOLCMD_TONEPORTA; param = static_cast<uint8_t>(v - 193); }
+        else if (v >= 203 && v <= 212) { cmd = VOLCMD_VIBRATO;   param = static_cast<uint8_t>(v - 203); }
+        else                      { cmd = VOLCMD_NONE; param = 0; }
+    }
+
+    // IT maps the volume-column tone-portamento parameter (0..9) onto these Gxx speeds.
+    constexpr uint8_t VolColumnPortaSpeed[10] = { 0, 1, 4, 8, 16, 32, 64, 96, 128, 255 };
+
+    uint8_t ITNoteToLinear(uint8_t note) {
+        // IT/MPTM pattern notes are already 0-based: 0 == C-0, 60 == C-5 (middle).
+        // This player treats a stored value of 0 as "empty cell", and 253..255 as the
+        // note-fade/cut/off sentinels, so only real notes are clamped into 0..119.
+        // (Do NOT subtract 1 here -- doing so detunes every note by a semitone and, when
+        // combined with the instrument note map, double-subtracts.)
+        if (note == 0 || note >= MPTM_NOTE_FADE) {
+            return note;
+        }
+
+        return static_cast<uint8_t>(std::min<int>(note, 119));
+    }
+
+    // Internal OpenMPT / IT effect byte values. These are enum indices, NOT ASCII display chars.
+    enum MptmInternalCmd : uint8_t {
+        CMD_MIDI          = 0x1A,   // Zxx: dual-purpose MIDI macro / native resonant filter
+        CMD_SMOOTHMIDI    = 0x1B,   // \xx: smooth MIDI macro slide (VST automation only)
+        CMD_DELAYCUT      = 0x1C,   // Xxx: note delay+cut (param < 0x80 native) / plugin extension (param >= 0x80)
+        CMD_EXTMIDI       = 0x1D,   // #xx: plugin parameter extension byte (OpenMPT VST path only)
+        CMD_FINETUNE      = 0x1E,   // qxx: fractional pitch finetune upward (native)
+        CMD_FINETUNE_BKWD = 0x1F,   // txx: fractional pitch finetune downward (native)
+    };
+
+    bool IsUnsupportedMPTMCommand(uint8_t effect, uint8_t param) {
+        // Pure VST automation commands with no native audio equivalent in this engine.
+        if (effect == CMD_SMOOTHMIDI || effect == CMD_EXTMIDI) {
+            return true;
+        }
+
+        // Zxx (CMD_MIDI): dual-purpose resonant filter / VST macro. This engine has no
+        // native filter path, so all Zxx variants are treated as no-ops until filters
+        // are implemented.
+        if (effect == CMD_MIDI) {
+            return true;
+        }
+
+        // Xxx (CMD_DELAYCUT): param 0x00-0x7F is native note delay+cut; param 0x80-0xFF
+        // is an OpenMPT-only plugin parameter extension with no native meaning.
+        if (effect == CMD_DELAYCUT && param >= 0x80) {
+            return true;
+        }
+
+        // CMD_FINETUNE (qxx) and CMD_FINETUNE_BKWD (txx) are native fractional pitch
+        // adjustment commands -- never drop them.
+        return false;
+    }
+    bool LooksLikeExternalSampleReference(const std::vector<uint8_t>& data) {
+        if (data.empty()) {
+            return false;
+        }
+
+        const size_t pathLength = data[0];
+        if (pathLength == 0 || pathLength + 1 > data.size()) {
+            return false;
+        }
+
+        bool hasPathSeparator = false;
+        bool hasExtensionDot = false;
+        for (size_t i = 1; i <= pathLength; ++i) {
+            const uint8_t ch = data[i];
+            if (ch < 0x20 || ch > 0x7E) {
+                return false;
+            }
+
+            hasPathSeparator = hasPathSeparator || ch == '\\' || ch == '/' || ch == ':';
+            hasExtensionDot = hasExtensionDot || ch == '.';
+        }
+
+        return hasPathSeparator && hasExtensionDot;
+    }
+    std::wstring DecodeExternalSampleReference(const std::vector<uint8_t>& data) {
+        if (!LooksLikeExternalSampleReference(data)) {
+            return std::wstring();
+        }
+
+        const size_t pathLength = data[0];
+        std::wstring result;
+        result.reserve(pathLength);
+        for (size_t i = 1; i <= pathLength; ++i) {
+            result.push_back(static_cast<wchar_t>(data[i]));
+        }
+        return result;
+    }
+
+    std::wstring ResolveExternalSamplePath(const std::wstring& modulePath, const std::wstring& referencePath) {
+        namespace fs = std::filesystem;
+
+        if (referencePath.empty()) {
+            return std::wstring();
+        }
+
+        const fs::path reference(referencePath);
+        if (reference.is_absolute() && fs::exists(reference)) {
+            return reference.wstring();
+        }
+
+        const fs::path moduleDirectory = fs::path(modulePath).parent_path();
+        const fs::path relativeToModule = moduleDirectory / reference;
+        if (fs::exists(relativeToModule)) {
+            return relativeToModule.wstring();
+        }
+
+        const fs::path sampleFolderFallback = moduleDirectory / L"Samples" / reference.filename();
+        if (fs::exists(sampleFolderFallback)) {
+            return sampleFolderFallback.wstring();
+        }
+
+        return std::wstring();
+    }
+}
+
+bool MPTMPlayer::Initialize(const std::wstring& filename) {
+#if defined(_DEBUG_MPTMPlayer_)
+    debug.DebugLog("MPTMPlayer initialization started...\n");
+#endif
+    if (!bIsInitialized) {
+        if (!CreateAudioDevice()) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"MPTMPlayer: Failed to initialize audio device.");
+            return false;
+        }
+
+        bIsInitialized = true;
+    }
+
+    if (!LoadMPTMFile(filename)) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"MPTMPlayer: LoadMPTMFile failed.");
+        return false;
+    }
+
+    sequencePosition = 0;
+    restartSequencePosition.store(0);
+    currentPatternIndex = 0;
+    currentRow = 0;
+    nextRowOverride = 0;
+    tick = 0;
+    rowBreakPending = false;
+    orderJumpPending = false;
+    patternDelayTicks = 0;
+    fineDelayTicks = 0;
+    inPatternDelay = false;
+    patternLoopPending = false;
+    patternLoopRow = 0;
+    patternLoopCount = 0;
+
+    speed = header.initialSpeed > 0 ? header.initialSpeed : 6;
+    tempo = header.initialTempo >= 32 ? header.initialTempo : 125;
+
+    voices.clear();
+    voices.resize(MPTM_MAX_CHANNELS);
+    for (size_t channel = 0; channel < voices.size(); ++channel) {
+        voices[channel].panning = DefaultPanningForChannel(channel);
+    }
+
+    globalVolume = static_cast<uint8_t>(std::min<uint16_t>(header.globalVolume, 128) / 2);
+    currentVolume = config.myConfig.musicVolume;
+    targetVolume = config.myConfig.musicVolume;
+    fadeInActive = false;
+    fadeOutActive = false;
+    isMuted = false;
+
+    #if defined(_DEBUG_MPTMPlayer_)
+        debug.DebugLog("MPTMPlayer initialization successful.\n");
+    #endif
+    return true;
+}
+
+bool MPTMPlayer::LoadMPTMFile(const std::wstring& filename) {
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"Loading MPTM file: " + filename);
+
+    modulePath = filename;
+
+    std::ifstream file(filename, std::ios::binary);
+    if (!file.is_open()) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"MPTMPlayer: Failed to open MPTM file.");
+        return false;
+    }
+
+    file.read(reinterpret_cast<char*>(&header), sizeof(header));
+    if (file.gcount() != sizeof(header)) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"MPTMPlayer: Failed to read MPTM/IT header.");
+        return false;
+    }
+
+    if (std::strncmp(header.magic, "IMPM", 4) != 0) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"MPTMPlayer: Invalid signature. MPTM is an OpenMPT IT-family file and must start with IMPM.");
+        return false;
+    }
+
+    if (header.orderCount == 0 || header.orderCount > 256 ||
+        header.instrumentCount > 4096 || header.sampleCount > 4096 ||
+        header.patternCount > 4096) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"MPTMPlayer: Header counts are out of supported range.");
+        return false;
+    }
+
+    orders.resize(header.orderCount);
+    file.read(reinterpret_cast<char*>(orders.data()), orders.size());
+    if (file.gcount() != static_cast<std::streamsize>(orders.size())) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"MPTMPlayer: Failed to read order table.");
+        return false;
+    }
+
+    std::vector<uint32_t> instrumentPointers(header.instrumentCount);
+    std::vector<uint32_t> samplePointers(header.sampleCount);
+    std::vector<uint32_t> patternPointers(header.patternCount);
+
+    file.read(reinterpret_cast<char*>(instrumentPointers.data()), instrumentPointers.size() * sizeof(uint32_t));
+    if (file.gcount() != static_cast<std::streamsize>(instrumentPointers.size() * sizeof(uint32_t))) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"MPTMPlayer: Failed to read instrument pointer table.");
+        return false;
+    }
+
+    file.read(reinterpret_cast<char*>(samplePointers.data()), samplePointers.size() * sizeof(uint32_t));
+    if (file.gcount() != static_cast<std::streamsize>(samplePointers.size() * sizeof(uint32_t))) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"MPTMPlayer: Failed to read sample pointer table.");
+        return false;
+    }
+
+    file.read(reinterpret_cast<char*>(patternPointers.data()), patternPointers.size() * sizeof(uint32_t));
+    if (file.gcount() != static_cast<std::streamsize>(patternPointers.size() * sizeof(uint32_t))) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"MPTMPlayer: Failed to read pattern pointer table.");
+        return false;
+    }
+
+    defaultPanning.resize(MPTM_MAX_CHANNELS);
+    for (size_t channel = 0; channel < MPTM_MAX_CHANNELS; ++channel) {
+        defaultPanning[channel] = DefaultPanningForChannel(channel);
+    }
+
+    if (!LoadInstruments(file, instrumentPointers)) {
+        return false;
+    }
+
+    if (!LoadSamples(file, samplePointers)) {
+        return false;
+    }
+
+    if (!LoadPatterns(file, patternPointers)) {
+        return false;
+    }
+
+    UnpackPatterns();
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"MPTM file loaded successfully.");
+    return true;
+}
+
+bool MPTMPlayer::LoadInstruments(std::ifstream& file, const std::vector<uint32_t>& instrumentPointers) {
+    instruments.clear();
+    instruments.resize(instrumentPointers.size());
+
+    for (size_t i = 0; i < instrumentPointers.size(); ++i) {
+        if (instrumentPointers[i] == 0) {
+            continue;
+        }
+
+        file.seekg(static_cast<std::streamoff>(instrumentPointers[i]), std::ios::beg);
+        std::array<uint8_t, 554> data{};
+        file.read(reinterpret_cast<char*>(data.data()), data.size());
+        if (file.gcount() < 32) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"MPTMPlayer: Failed to read instrument " + std::to_wstring(i));
+            return false;
+        }
+
+        if (std::memcmp(data.data(), "IMPI", 4) != 0) {
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"MPTMPlayer: Ignoring non-IT instrument header " + std::to_wstring(i));
+            continue;
+        }
+
+        MPTMInstrument& instrument = instruments[i];
+        std::memcpy(instrument.name, &data[32], sizeof(instrument.name));
+        instrument.fadeOut = ReadLE16(&data[20]);
+        instrument.globalVolume = std::min<uint8_t>(data[24], 64);
+        instrument.volumeEnvelopeFlags = data[304];
+        instrument.volumeEnvelopePointCount = std::min<uint8_t>(data[305], 25);
+        instrument.volumeEnvelopeLoopStart = data[306];
+        instrument.volumeEnvelopeLoopEnd = data[307];
+        instrument.volumeEnvelopeSustainStart = data[308];
+        instrument.volumeEnvelopeSustainEnd = data[309];
+        for (size_t point = 0; point < instrument.volumeEnvelopePointCount; ++point) {
+            const size_t pointOffset = 310 + point * 3;
+            instrument.volumeEnvelopeValues[point] = std::min<uint8_t>(data[pointOffset], 64);
+            instrument.volumeEnvelopeTicks[point] = ReadLE16(&data[pointOffset + 1]);
+        }
+
+        // IT 2.x / MPTM instruments store 120 note/sample pairs in the keyboard
+        // table at byte 64. Reading from the envelope area maps notes to garbage
+        // sample ids and makes playback collapse onto the wrong sample.
+        const size_t tableOffset = data.size() >= 304 ? 64 : 0;
+        for (size_t note = 0; note < instrument.noteMap.size(); ++note) {
+            instrument.noteMap[note] = static_cast<uint8_t>(note + 1);
+            instrument.sampleMap[note] = static_cast<uint8_t>(std::min<size_t>(i + 1, 255));
+            if (tableOffset > 0) {
+                instrument.noteMap[note] = data[tableOffset + note * 2];
+                instrument.sampleMap[note] = data[tableOffset + note * 2 + 1];
+            }
+        }
+    }
+
+    return true;
+}
+
+
+bool MPTMPlayer::LoadExternalSample(const std::wstring& path, MPTMSample& sample) {
+#if defined(PLATFORM_WINDOWS)
+    HRESULT hr = MFStartup(MF_VERSION);
+    if (FAILED(hr)) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"MPTMPlayer: Media Foundation startup failed for external sample.");
+        return false;
+    }
+
+    IMFSourceReader* reader = nullptr;
+    hr = MFCreateSourceReaderFromURL(path.c_str(), nullptr, &reader);
+    if (FAILED(hr) || reader == nullptr) {
+        MFShutdown();
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"MPTMPlayer: Failed to open external sample: " + path);
+        return false;
+    }
+
+    IMFMediaType* pcmType = nullptr;
+    hr = MFCreateMediaType(&pcmType);
+    if (SUCCEEDED(hr)) hr = pcmType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio);
+    if (SUCCEEDED(hr)) hr = pcmType->SetGUID(MF_MT_SUBTYPE, MFAudioFormat_PCM);
+    if (SUCCEEDED(hr)) hr = pcmType->SetUINT32(MF_MT_AUDIO_BITS_PER_SAMPLE, 16);
+    if (SUCCEEDED(hr)) hr = reader->SetCurrentMediaType(MF_SOURCE_READER_FIRST_AUDIO_STREAM, nullptr, pcmType);
+    if (pcmType) {
+        pcmType->Release();
+    }
+
+    if (FAILED(hr)) {
+        reader->Release();
+        MFShutdown();
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"MPTMPlayer: Failed to request PCM decode for external sample: " + path);
+        return false;
+    }
+
+    IMFMediaType* outputType = nullptr;
+    hr = reader->GetCurrentMediaType(MF_SOURCE_READER_FIRST_AUDIO_STREAM, &outputType);
+    if (FAILED(hr) || outputType == nullptr) {
+        reader->Release();
+        MFShutdown();
+        return false;
+    }
+
+    WAVEFORMATEX* waveFormat = nullptr;
+    UINT32 waveFormatSize = 0;
+    hr = MFCreateWaveFormatExFromMFMediaType(outputType, &waveFormat, &waveFormatSize);
+    outputType->Release();
+    if (FAILED(hr) || waveFormat == nullptr) {
+        reader->Release();
+        MFShutdown();
+        return false;
+    }
+
+    const uint16_t channels = std::max<uint16_t>(waveFormat->nChannels, 1);
+    const uint16_t bitsPerSample = waveFormat->wBitsPerSample;
+    CoTaskMemFree(waveFormat);
+
+    if (bitsPerSample != 16) {
+        reader->Release();
+        MFShutdown();
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"MPTMPlayer: External sample did not decode to 16-bit PCM: " + path);
+        return false;
+    }
+
+    std::vector<int16_t> decoded;
+    while (true) {
+        DWORD streamIndex = 0;
+        DWORD flags = 0;
+        LONGLONG timestamp = 0;
+        IMFSample* mediaSample = nullptr;
+        hr = reader->ReadSample(MF_SOURCE_READER_FIRST_AUDIO_STREAM, 0, &streamIndex, &flags, &timestamp, &mediaSample);
+        if (FAILED(hr)) {
+            if (mediaSample) mediaSample->Release();
+            break;
+        }
+        if ((flags & MF_SOURCE_READERF_ENDOFSTREAM) != 0) {
+            if (mediaSample) mediaSample->Release();
+            break;
+        }
+        if (mediaSample == nullptr) {
+            continue;
+        }
+
+        IMFMediaBuffer* buffer = nullptr;
+        hr = mediaSample->ConvertToContiguousBuffer(&buffer);
+        mediaSample->Release();
+        if (FAILED(hr) || buffer == nullptr) {
+            continue;
+        }
+
+        BYTE* data = nullptr;
+        DWORD maxLength = 0;
+        DWORD currentLength = 0;
+        hr = buffer->Lock(&data, &maxLength, &currentLength);
+        if (SUCCEEDED(hr) && data != nullptr) {
+            const size_t frameCount = currentLength / (sizeof(int16_t) * channels);
+            decoded.reserve(decoded.size() + frameCount);
+            const int16_t* pcm = reinterpret_cast<const int16_t*>(data);
+            for (size_t frame = 0; frame < frameCount; ++frame) {
+                int mixed = 0;
+                for (uint16_t channel = 0; channel < channels; ++channel) {
+                    mixed += pcm[frame * channels + channel];
+                }
+                decoded.push_back(static_cast<int16_t>(mixed / static_cast<int>(channels)));
+            }
+            buffer->Unlock();
+        }
+        buffer->Release();
+    }
+
+    reader->Release();
+    MFShutdown();
+
+    if (decoded.empty()) {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"MPTMPlayer: External sample decoded no PCM data: " + path);
+        return false;
+    }
+
+    sample.pcm = std::move(decoded);
+    sample.length = static_cast<uint32_t>(std::min<size_t>(sample.pcm.size(), std::numeric_limits<uint32_t>::max()));
+    sample.loopStart = std::min(sample.loopStart, sample.length);
+    sample.loopEnd = std::min(sample.loopEnd, sample.length);
+    return true;
+#else
+    (void)path;
+    (void)sample;
+    return false;
+#endif
+}
+
+bool MPTMPlayer::LoadSamples(std::ifstream& file, const std::vector<uint32_t>& samplePointers) {
+    samples.clear();
+    samples.resize(samplePointers.size());
+
+    const std::streampos restorePosition = file.tellg();
+    file.seekg(0, std::ios::end);
+    const std::streamoff fileSize = file.tellg();
+    file.seekg(restorePosition, std::ios::beg);
+    if (fileSize <= 0) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"MPTMPlayer: Failed to determine MPTM file size.");
+        return false;
+    }
+
+    for (size_t i = 0; i < samplePointers.size(); ++i) {
+        if (samplePointers[i] == 0) {
+            continue;
+        }
+
+        file.seekg(static_cast<std::streamoff>(samplePointers[i]), std::ios::beg);
+        MPTMSampleHeader sampleHeader{};
+        file.read(reinterpret_cast<char*>(&sampleHeader), sizeof(sampleHeader));
+        if (file.gcount() != sizeof(sampleHeader)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"MPTMPlayer: Failed to read sample header " + std::to_wstring(i));
+            return false;
+        }
+
+        if (std::strncmp(sampleHeader.magic, "IMPS", 4) != 0) {
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"MPTMPlayer: Ignoring non-IT sample header " + std::to_wstring(i));
+            continue;
+        }
+
+        MPTMSample& sample = samples[i];
+        sample.length = sampleHeader.length;
+        sample.loopStart = sampleHeader.loopStart;
+        sample.loopEnd = sampleHeader.loopEnd;
+        sample.sustainLoopStart = sampleHeader.sustainLoopStart;
+        sample.sustainLoopEnd = sampleHeader.sustainLoopEnd;
+        sample.c5Speed = sampleHeader.c5Speed > 0 ? sampleHeader.c5Speed : 8363;
+        sample.globalVolume = std::min<uint8_t>(sampleHeader.globalVolume, 64);
+        sample.defaultVolume = std::min<uint8_t>(sampleHeader.defaultVolume, 64);
+        sample.flags = sampleHeader.flags;
+        sample.convert = sampleHeader.convert;
+        sample.defaultPanning = (sampleHeader.defaultPanning & 0x80) != 0
+            ? static_cast<uint8_t>((static_cast<uint16_t>(sampleHeader.defaultPanning & 0x7F) * 255U) / 64U)
+            : 128;
+        std::memcpy(sample.name, sampleHeader.sampleName, sizeof(sample.name));
+
+        if ((sample.flags & 0x01) == 0 || sample.length == 0 || sampleHeader.samplePointer == 0) {
+            continue;
+        }
+
+        const bool is16Bit = sample.Is16Bit();
+        const bool isStereo = sample.IsStereo();
+        const uint64_t sourceChannels = isStereo ? 2ULL : 1ULL;
+        const uint64_t bytesPerSample = is16Bit ? 2ULL : 1ULL;
+        const uint64_t byteCount64 = static_cast<uint64_t>(sample.length) * sourceChannels * bytesPerSample;
+        if (byteCount64 == 0) {
+            continue;
+        }
+        if (byteCount64 > static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"MPTMPlayer: Sample data is too large to allocate " + std::to_wstring(i));
+            return false;
+        }
+
+        if ((sample.flags & 0x08) != 0) {
+            std::vector<uint8_t> probe(260);
+            file.seekg(static_cast<std::streamoff>(sampleHeader.samplePointer), std::ios::beg);
+            file.read(reinterpret_cast<char*>(probe.data()), probe.size());
+            probe.resize(static_cast<size_t>(std::max<std::streamsize>(file.gcount(), 0)));
+
+            const std::wstring externalReference = DecodeExternalSampleReference(probe);
+            if (!externalReference.empty()) {
+                const std::wstring externalPath = ResolveExternalSamplePath(modulePath, externalReference);
+                if (!externalPath.empty() && LoadExternalSample(externalPath, sample)) {
+                    continue;
+                }
+
+                sample.pcm.clear();
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"MPTMPlayer: External sample file could not be loaded; skipping sample " + std::to_wstring(i));
+                continue;
+            }
+
+            sample.pcm.clear();
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"MPTMPlayer: Compressed IT sample data is not supported; skipping sample " + std::to_wstring(i));
+            continue;
+        }
+
+        const uint64_t sampleOffset = sampleHeader.samplePointer;
+        const uint64_t fileSize64 = static_cast<uint64_t>(fileSize);
+        const bool sampleDataFits = sampleOffset <= fileSize64 && byteCount64 <= fileSize64 - sampleOffset;
+        if (!sampleDataFits) {
+            std::vector<uint8_t> probe(260);
+            file.seekg(static_cast<std::streamoff>(sampleHeader.samplePointer), std::ios::beg);
+            file.read(reinterpret_cast<char*>(probe.data()), probe.size());
+            probe.resize(static_cast<size_t>(std::max<std::streamsize>(file.gcount(), 0)));
+
+            // MPTM/OpenMPT files may store only a length-prefixed external sample path
+            // at samplePointer. Resolve it beside the module before treating the data as bad.
+            const std::wstring externalReference = DecodeExternalSampleReference(probe);
+            if (!externalReference.empty()) {
+                const std::wstring externalPath = ResolveExternalSamplePath(modulePath, externalReference);
+                if (!externalPath.empty() && LoadExternalSample(externalPath, sample)) {
+                    continue;
+                }
+
+                sample.pcm.clear();
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"MPTMPlayer: External sample file could not be loaded; skipping sample " + std::to_wstring(i));
+                continue;
+            }
+
+
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"MPTMPlayer: Sample data extends past end of file " + std::to_wstring(i));
+            return false;
+        }
+
+        const size_t byteCount = static_cast<size_t>(byteCount64);
+        std::vector<uint8_t> raw(byteCount);
+        file.seekg(static_cast<std::streamoff>(sampleHeader.samplePointer), std::ios::beg);
+        file.read(reinterpret_cast<char*>(raw.data()), raw.size());
+        if (file.gcount() != static_cast<std::streamsize>(raw.size())) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"MPTMPlayer: Failed to read sample data " + std::to_wstring(i));
+            return false;
+        }
+
+        const bool unsignedSamples = (sample.convert & 0x01) == 0;
+        const bool deltaEncoded = (sample.convert & 0x04) != 0;
+        sample.pcm.resize(sample.length);
+
+        if (is16Bit) {
+            std::vector<int32_t> last(sourceChannels, 0);
+            for (uint32_t s = 0; s < sample.length; ++s) {
+                int32_t mixed = 0;
+                for (uint32_t sourceChannel = 0; sourceChannel < sourceChannels; ++sourceChannel) {
+                    const size_t rawOffset = (static_cast<size_t>(s) * sourceChannels + sourceChannel) * 2U;
+                    int32_t value = unsignedSamples
+                        ? static_cast<int32_t>(ReadLE16(&raw[rawOffset])) - 32768
+                        : static_cast<int32_t>(ReadLE16Signed(&raw[rawOffset]));
+                    if (deltaEncoded) {
+                        last[sourceChannel] += value;
+                        value = last[sourceChannel];
+                    }
+                    mixed += value;
+                }
+                mixed /= static_cast<int32_t>(sourceChannels);
+                sample.pcm[s] = static_cast<int16_t>(std::clamp(mixed, -32768, 32767));
+            }
+        }
+        else {
+            std::vector<int32_t> last(sourceChannels, 0);
+            for (uint32_t s = 0; s < sample.length; ++s) {
+                int32_t mixed = 0;
+                for (uint32_t sourceChannel = 0; sourceChannel < sourceChannels; ++sourceChannel) {
+                    const size_t rawOffset = static_cast<size_t>(s) * sourceChannels + sourceChannel;
+                    int32_t value = unsignedSamples
+                        ? static_cast<int32_t>(raw[rawOffset]) - 128
+                        : static_cast<int8_t>(raw[rawOffset]);
+                    if (deltaEncoded) {
+                        last[sourceChannel] += value;
+                        value = last[sourceChannel];
+                    }
+                    mixed += value;
+                }
+                mixed /= static_cast<int32_t>(sourceChannels);
+                sample.pcm[s] = static_cast<int16_t>(std::clamp(mixed << 8, -32768, 32767));
+            }
+        }
+    }
+
+    return true;
+}
+
+bool MPTMPlayer::LoadPatterns(std::ifstream& file, const std::vector<uint32_t>& patternPointers) {
+    patterns.clear();
+    patterns.resize(patternPointers.size());
+
+    for (size_t i = 0; i < patternPointers.size(); ++i) {
+        if (patternPointers[i] == 0) {
+            patterns[i].rows = 64;
+            continue;
+        }
+
+        file.seekg(static_cast<std::streamoff>(patternPointers[i]), std::ios::beg);
+        uint8_t headerBytes[8] = {};
+        file.read(reinterpret_cast<char*>(headerBytes), sizeof(headerBytes));
+        if (file.gcount() != sizeof(headerBytes)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"MPTMPlayer: Failed to read pattern header " + std::to_wstring(i));
+            return false;
+        }
+
+        patterns[i].packedLength = ReadLE16(headerBytes);
+        patterns[i].rows = std::max<uint16_t>(ReadLE16(headerBytes + 2), 1);
+        patterns[i].data.resize(patterns[i].packedLength);
+        if (patterns[i].packedLength > 0) {
+            file.read(reinterpret_cast<char*>(patterns[i].data.data()), patterns[i].data.size());
+            if (file.gcount() != static_cast<std::streamsize>(patterns[i].data.size())) {
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"MPTMPlayer: Failed to read packed pattern " + std::to_wstring(i));
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+void MPTMPlayer::UnpackPatterns() {
+    unpackedPatterns.clear();
+    unpackedPatterns.resize(patterns.size());
+
+    for (size_t patternIndex = 0; patternIndex < patterns.size(); ++patternIndex) {
+        const uint16_t rows = std::max<uint16_t>(patterns[patternIndex].rows, 1);
+        unpackedPatterns[patternIndex].assign(rows, std::vector<MPTMEvent>(MPTM_MAX_CHANNELS));
+
+        std::array<uint8_t, MPTM_MAX_CHANNELS> lastMask{};
+        std::array<MPTMEvent, MPTM_MAX_CHANNELS> lastEvent{};
+        const std::vector<uint8_t>& data = patterns[patternIndex].data;
+        size_t offset = 0;
+        uint16_t row = 0;
+
+        while (row < rows && offset < data.size()) {
+            const uint8_t channelByte = data[offset++];
+            if (channelByte == 0) {
+                ++row;
+                continue;
+            }
+
+            const size_t channel = (channelByte - 1U) & 0x3F;
+            uint8_t mask = lastMask[channel];
+            if ((channelByte & 0x80) != 0) {
+                if (offset >= data.size()) {
+                    break;
+                }
+                mask = data[offset++];
+                lastMask[channel] = mask;
+            }
+
+            MPTMEvent event = unpackedPatterns[patternIndex][row][channel];
+            if ((mask & 0x01) != 0 && offset < data.size()) {
+                event.note = data[offset++];
+                lastEvent[channel].note = event.note;
+            }
+            if ((mask & 0x02) != 0 && offset < data.size()) {
+                event.instrument = data[offset++];
+                lastEvent[channel].instrument = event.instrument;
+            }
+            if ((mask & 0x04) != 0 && offset < data.size()) {
+                event.volume = data[offset++];
+                lastEvent[channel].volume = event.volume;
+            }
+            if ((mask & 0x08) != 0 && offset + 1 < data.size()) {
+                event.effect = data[offset++];
+                event.effectData = data[offset++];
+                lastEvent[channel].effect = event.effect;
+                lastEvent[channel].effectData = event.effectData;
+            }
+            if ((mask & 0x10) != 0) {
+                event.note = lastEvent[channel].note;
+            }
+            if ((mask & 0x20) != 0) {
+                event.instrument = lastEvent[channel].instrument;
+            }
+            if ((mask & 0x40) != 0) {
+                event.volume = lastEvent[channel].volume;
+            }
+            if ((mask & 0x80) != 0) {
+                event.effect = lastEvent[channel].effect;
+                event.effectData = lastEvent[channel].effectData;
+            }
+
+            unpackedPatterns[patternIndex][row][channel] = event;
+        }
+    }
+}
+
+bool MPTMPlayer::Play(const std::wstring& filename) {
+    if (isPlaying) {
+        return false;
+    }
+
+    if (!Initialize(filename)) {
+        return false;
+    }
+
+    #if defined(PLATFORM_WINDOWS)
+        HRESULT hr = secondaryBuffer->Play(0, 0, DSBPLAY_LOOPING);
+        if (FAILED(hr)) {
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"MPTMPlayer: Failed to start DirectSound buffer playback.");
+            return false;
+        }
+    #endif
+
+    isPlaying = true;
+    isPaused = false;
+    isTerminating = false;
+    playbackThread = std::thread(&MPTMPlayer::PlaybackLoop, this);
+    return true;
+}
+
+bool MPTMPlayer::Play(const std::string& path) {
+    return Play(std::wstring(path.begin(), path.end()));
+}
+
+void MPTMPlayer::Shutdown() {
+    isPlaying = false;
+    isTerminating = true;
+    if (playbackThread.joinable()) {
+        playbackThread.join();
+    }
+
+#if defined(PLATFORM_WINDOWS)
+    if (secondaryBuffer) {
+        secondaryBuffer->Stop();
+        secondaryBuffer->Release();
+        secondaryBuffer = nullptr;
+    }
+    if (primaryBuffer) {
+        primaryBuffer->Release();
+        primaryBuffer = nullptr;
+    }
+    if (directSound) {
+        directSound->Release();
+        directSound = nullptr;
+    }
+#else
+    secondaryBuffer = nullptr;
+    primaryBuffer = nullptr;
+    directSound = nullptr;
+#endif
+
+    orders.clear();
+    instruments.clear();
+    samples.clear();
+    patterns.clear();
+    unpackedPatterns.clear();
+    voices.clear();
+    defaultPanning.clear();
+    mixScratch.clear();
+    bIsInitialized = false;
+    isPaused = false;
+    isMuted = false;
+    isTerminating = false;
+}
+
+void MPTMPlayer::Terminate() {
+    isTerminating = true;
+    Stop();
+}
+
+void MPTMPlayer::Stop() {
+    if (!isPlaying) {
+        return;
+    }
+
+    isPlaying = false;
+    isTerminating = true;
+    if (playbackThread.joinable()) {
+        playbackThread.join();
+    }
+
+#if defined(PLATFORM_WINDOWS)
+    if (secondaryBuffer) {
+        secondaryBuffer->Stop();
+    }
+#endif
+
+    isTerminating = false;
+}
+
+void MPTMPlayer::Pause() {
+    Mute();
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    isPaused = true;
+}
+
+void MPTMPlayer::Resume() {
+    isPaused = false;
+    isMuted = false;
+    SetVolume(targetVolume.load());
+}
+
+void MPTMPlayer::HardPause() {
+    std::lock_guard<std::mutex> lock(playbackMutex);
+    isPaused = true;
+    isMuted = true;
+
+    for (MPTMChannelVoice& voice : voices) {
+        voice.active = false;
+        voice.volume = 0;
+        voice.position = 0.0;
+    }
+
+    SilenceBuffer();
+    SetVolume(0);
+}
+
+void MPTMPlayer::HardResume() {
+    std::lock_guard<std::mutex> lock(playbackMutex);
+
+    tick = 0;
+    currentRow = 0;
+    rowBreakPending = false;
+    orderJumpPending = false;
+    patternDelayTicks = 0;
+    fineDelayTicks = 0;
+    inPatternDelay = false;
+    patternLoopPending = false;
+
+    for (size_t channel = 0; channel < voices.size(); ++channel) {
+        MPTMChannelVoice& voice = voices[channel];
+        voice = MPTMChannelVoice{};
+        voice.panning = DefaultPanningForChannel(channel);
+    }
+
+    SilenceBuffer();
+    isPaused = false;
+    isMuted = false;
+    currentVolume = targetVolume.load();
+    globalVolume = static_cast<uint8_t>(std::min<uint16_t>(header.globalVolume, 128) / 2);
+}
+
+void MPTMPlayer::Mute() {
+    // MixAudio already emits silence while isMuted is set, so there is no need to destroy the
+    // per-voice volumes here. Zeroing them left sustained notes silent after Resume() because
+    // nothing restored them; relying on the flag keeps a soft mute fully reversible.
+    isMuted = true;
+    SilenceBuffer();
+}
+
+bool MPTMPlayer::IsPaused() const {
+    return isPaused;
+}
+
+bool MPTMPlayer::IsPlaying() const {
+    return isPlaying && !isPaused && !isTerminating;
+}
+
+void MPTMPlayer::SetVolume(uint8_t volume) {
+    const uint8_t clamped = std::min<uint8_t>(volume, 64);
+    currentVolume = clamped;
+    targetVolume = clamped;
+}
+
+void MPTMPlayer::SetGlobalVolume(uint8_t volume) {
+    globalVolume = std::min<uint8_t>(volume, 64);
+}
+
+void MPTMPlayer::SetFadeIn(uint32_t durationMs) {
+    fadeDurationMs = durationMs;
+    fadeElapsedMs = 0;
+    fadeInActive = true;
+    fadeOutActive = false;
+    currentVolume = 0;
+    targetVolume = 64;
+}
+
+void MPTMPlayer::SetFadeOut(uint32_t durationMs) {
+    fadeDurationMs = durationMs;
+    fadeElapsedMs = 0;
+    fadeInActive = false;
+    fadeOutActive = true;
+    targetVolume = 0;
+}
+
+bool MPTMPlayer::CreateAudioDevice() {
+#if defined(PLATFORM_WINDOWS)
+    HRESULT hr = DirectSoundCreate8(NULL, &directSound, NULL);
+    if (FAILED(hr)) {
+        return false;
+    }
+
+    hr = directSound->SetCooperativeLevel(hwnd, DSSCL_PRIORITY);
+    if (FAILED(hr)) {
+        return false;
+    }
+
+    DSBUFFERDESC primaryDesc = {};
+    primaryDesc.dwSize = sizeof(primaryDesc);
+    primaryDesc.dwFlags = DSBCAPS_PRIMARYBUFFER;
+
+    hr = directSound->CreateSoundBuffer(&primaryDesc, &primaryBuffer, NULL);
+    if (FAILED(hr)) {
+        return false;
+    }
+
+    WAVEFORMATEX waveFormat = {};
+    waveFormat.wFormatTag = WAVE_FORMAT_PCM;
+    waveFormat.nChannels = 2;
+    waveFormat.nSamplesPerSec = MPTM_SAMPLE_RATE;
+    waveFormat.wBitsPerSample = 16;
+    waveFormat.nBlockAlign = waveFormat.nChannels * waveFormat.wBitsPerSample / 8;
+    waveFormat.nAvgBytesPerSec = waveFormat.nSamplesPerSec * waveFormat.nBlockAlign;
+
+    primaryBuffer->SetFormat(&waveFormat);
+
+    DSBUFFERDESC secondaryDesc = {};
+    secondaryDesc.dwSize = sizeof(secondaryDesc);
+    secondaryDesc.dwBufferBytes = MPTM_BUFFER_SIZE;
+    secondaryDesc.lpwfxFormat = &waveFormat;
+    secondaryDesc.dwFlags = DSBCAPS_GLOBALFOCUS | DSBCAPS_GETCURRENTPOSITION2;
+
+    hr = directSound->CreateSoundBuffer(&secondaryDesc, &secondaryBuffer, NULL);
+    if (FAILED(hr)) {
+        return false;
+    }
+
+    bufferSize = secondaryDesc.dwBufferBytes;
+    writeCursor = 0;
+    return true;
+#else
+    return true;
+#endif
+}
+
+void MPTMPlayer::FillAudioBuffer() {
+#if defined(PLATFORM_WINDOWS)
+    if (!secondaryBuffer) {
+        return;
+    }
+
+    DWORD playCursor = 0;
+    DWORD writeCursorDS = 0;
+    HRESULT hr = secondaryBuffer->GetCurrentPosition(&playCursor, &writeCursorDS);
+    if (FAILED(hr)) {
+        return;
+    }
+
+    constexpr DWORD frameBytes = sizeof(int16_t) * 2;
+    // Keep roughly a quarter second of audio queued ahead of the play cursor. The old code held
+    // only a ~2 KB margin (~11 ms), so any scheduling hiccup produced underruns that sounded
+    // like stuttering/stuck playback. A frame-aligned lead removes that while staying short
+    // enough that pause/fade respond quickly and startup latency stays low.
+    const DWORD targetLead = (bufferSize / 4) & ~(frameBytes - 1);
+    const DWORD lead = (writeCursor - playCursor + bufferSize) % bufferSize;
+    if (lead >= targetLead) {
+        return;
+    }
+
+    DWORD bytesToWrite = targetLead - lead;
+    bytesToWrite -= bytesToWrite % frameBytes;
+    if (bytesToWrite == 0) {
+        return;
+    }
+
+    const DWORD samplesToWrite = bytesToWrite / frameBytes;
+    const size_t stereoSampleCount = static_cast<size_t>(samplesToWrite) * 2;
+    if (mixScratch.size() < stereoSampleCount) {
+        mixScratch.resize(stereoSampleCount);
+    }
+    MixAudio(mixScratch.data(), samplesToWrite);
+
+    void* p1 = nullptr;
+    void* p2 = nullptr;
+    DWORD b1 = 0;
+    DWORD b2 = 0;
+
+    hr = secondaryBuffer->Lock(writeCursor, bytesToWrite, &p1, &b1, &p2, &b2, 0);
+    if (SUCCEEDED(hr)) {
+        if (p1 && b1 > 0) {
+            std::memcpy(p1, mixScratch.data(), b1);
+        }
+        if (p2 && b2 > 0) {
+            std::memcpy(p2, reinterpret_cast<uint8_t*>(mixScratch.data()) + b1, b2);
+        }
+
+        secondaryBuffer->Unlock(p1, b1, p2, b2);
+        writeCursor = (writeCursor + bytesToWrite) % bufferSize;
+    }
+#endif
+}
+
+void MPTMPlayer::MixAudio(int16_t* buffer, size_t samplesToMix) {
+    std::fill(buffer, buffer + samplesToMix * 2, 0);
+
+    if (isMuted) {
+        return;
+    }
+
+    const float globalVolFactor = static_cast<float>(globalVolume.load()) / 64.0f;
+    const float fadeVolFactor = static_cast<float>(currentVolume.load()) / 64.0f;
+
+    for (MPTMChannelVoice& voice : voices) {
+        if (!voice.active || !voice.sample || voice.sample->pcm.empty()) {
+            continue;
+        }
+
+        const MPTMSample* sample = voice.sample;
+        const size_t dataSize = sample->pcm.size();
+        double samplePos = voice.position;
+        const double stepValue = std::max(voice.step, 0.0);
+        const float pan = static_cast<float>(voice.panning) / 255.0f;
+        const float instrumentVol = voice.instrumentDef ? static_cast<float>(voice.instrumentDef->globalVolume) / 64.0f : 1.0f;
+        const float volume = (static_cast<float>(voice.volume) / 64.0f) *
+            (static_cast<float>(sample->globalVolume) / 64.0f) * instrumentVol *
+            voice.envelopeVolume * (static_cast<float>(voice.fadeOutVolume) / 65536.0f);
+        // Collapse pan, master/fade volume and per-voice volume into one scalar per side so the
+        // inner loop is a single multiply + accumulate per channel instead of three multiplies.
+        const float finalLeft = (1.0f - pan) * globalVolFactor * fadeVolFactor * volume;
+        const float finalRight = pan * globalVolFactor * fadeVolFactor * volume;
+
+        const bool looped = sample->IsLooped();
+        const double loopEnd = static_cast<double>(sample->loopEnd);
+        const double loopLength = static_cast<double>(sample->loopEnd - sample->loopStart);
+
+        for (size_t frame = 0; frame < samplesToMix; ++frame) {
+            const size_t index = static_cast<size_t>(samplePos);
+            if (index >= dataSize) {
+                voice.active = false;
+                break;
+            }
+
+            const float value = static_cast<float>(sample->pcm[index]);
+            int16_t* out = &buffer[frame * 2];
+            out[0] = static_cast<int16_t>(std::clamp<int32_t>(static_cast<int32_t>(out[0]) + static_cast<int32_t>(value * finalLeft), -32768, 32767));
+            out[1] = static_cast<int16_t>(std::clamp<int32_t>(static_cast<int32_t>(out[1]) + static_cast<int32_t>(value * finalRight), -32768, 32767));
+
+            samplePos += stepValue;
+            if (looped && loopLength > 1.0) {
+                while (samplePos >= loopEnd) {
+                    samplePos -= loopLength;
+                }
+            }
+            else if (samplePos >= static_cast<double>(dataSize)) {
+                voice.active = false;
+                break;
+            }
+        }
+
+        voice.position = samplePos;
+    }
+}
+
+void MPTMPlayer::SilenceBuffer() {
+#if defined(PLATFORM_WINDOWS)
+    if (!secondaryBuffer || bufferSize == 0) {
+        return;
+    }
+
+    void* p1 = nullptr;
+    void* p2 = nullptr;
+    DWORD b1 = 0;
+    DWORD b2 = 0;
+
+    HRESULT hr = secondaryBuffer->Lock(0, bufferSize, &p1, &b1, &p2, &b2, DSBLOCK_ENTIREBUFFER);
+    if (SUCCEEDED(hr)) {
+        if (p1 && b1 > 0) {
+            std::memset(p1, 0, b1);
+        }
+        if (p2 && b2 > 0) {
+            std::memset(p2, 0, b2);
+        }
+        secondaryBuffer->Unlock(p1, b1, p2, b2);
+    }
+#endif
+}
+
+void MPTMPlayer::TickRow() {
+    std::lock_guard<std::mutex> lock(playbackMutex);
+
+    while (sequencePosition < orders.size() && orders[sequencePosition] == 254) {
+        ++sequencePosition;
+    }
+
+    if (sequencePosition >= orders.size() || orders[sequencePosition] == 255) {
+        sequencePosition = restartSequencePosition.load();
+    }
+
+    if (sequencePosition >= orders.size()) {
+        sequencePosition = 0;
+    }
+
+    const uint8_t patternIndex = orders[sequencePosition];
+    if (patternIndex >= unpackedPatterns.size()) {
+        AdvanceRow();
+        tick = 0;
+        return;
+    }
+
+    currentPatternIndex = patternIndex;
+    if (currentRow >= unpackedPatterns[patternIndex].size()) {
+        currentRow = 0;
+    }
+
+    // While a row is held open by a pattern delay (SEx) we must NOT re-read it -- doing so
+    // retriggers every note and makes sustained samples restart audibly. Just count the delay
+    // down and keep the row's notes sounding; the per-tick effects continue to run on the
+    // in-between ticks via ApplyTickEffects, matching how OpenMPT / ModPlug Tracker hold a row.
+    if (inPatternDelay) {
+        if (patternDelayTicks > 0) {
+            --patternDelayTicks;
+        }
+        if (patternDelayTicks == 0) {
+            inPatternDelay = false;
+            AdvanceRow();
+        }
+        tick = 0;
+        return;
+    }
+
+    const std::vector<MPTMEvent>& row = unpackedPatterns[patternIndex][currentRow];
+    rowBreakPending = false;
+    orderJumpPending = false;
+    fineDelayTicks = 0;   // S6x is per-row; clear it before this row's effects can set it.
+    nextRowOverride = currentRow + 1;
+
+    // First (and only) read of this row: trigger its notes and effects exactly once.
+    for (size_t channel = 0; channel < row.size(); ++channel) {
+        const MPTMEvent& event = row[channel];
+        TriggerEvent(channel, event, false);
+    }
+
+    // If SEx armed a pattern delay on this row, hold here without advancing or decrementing
+    // (this first play already counts); subsequent hold ticks above do the countdown.
+    if (!inPatternDelay) {
+        AdvanceRow();
+    }
+    tick = 0;
+}
+
+void MPTMPlayer::TriggerEvent(size_t channel, const MPTMEvent& event, bool fromDelay) {
+    MPTMChannelVoice& voice = voices[channel];
+    const uint8_t effect = event.effect;
+    uint8_t data = event.effectData;
+
+    // SDx: note delay. Only defer when the tick count is non-zero -- SD0 means "no delay", and
+    // deferring it to tick 0 would lose the note entirely (tick 0 runs TickRow, not ApplyTickEffects).
+    if (effect == 0x13 && (data >> 4) == 0x0D && (data & 0x0F) > 0 && !fromDelay) {
+        voice.delayedNotePending = true;
+        voice.delayTicks = data & 0x0F;
+        voice.delayedEvent = event;
+        voice.delayedEvent.effect = 0;
+        voice.delayedEvent.effectData = 0;
+        return;
+    }
+
+    // CMD_DELAYCUT (Xxx) with a non-zero delay nibble: defer the note trigger exactly
+    // like SDx does. The cut tick is registered immediately so it fires on the correct
+    // tick even though the note itself starts later.
+    if (effect == CMD_DELAYCUT && (data >> 4) > 0 && !fromDelay) {
+        voice.delayedNotePending      = true;
+        voice.delayTicks              = data >> 4;
+        voice.delayedEvent            = event;
+        voice.delayedEvent.effect     = 0;
+        voice.delayedEvent.effectData = 0;
+        if ((data & 0x0F) > 0) {
+            voice.noteCutTick = data & 0x0F;
+        }
+        return;
+    }
+
+    if (event.instrument > 0) {
+        voice.instrument = event.instrument;
+    }
+
+    // Decode the volume column up front: a 'g' (tone portamento) there must suppress the note
+    // retrigger just like a Gxx in the effect column does.
+    uint8_t volCommand = VOLCMD_NONE;
+    uint8_t volParam = 0;
+    if (event.volume <= 212) {
+        DecodeVolumeColumn(event.volume, volCommand, volParam);
+    }
+    const bool volTonePorta = (volCommand == VOLCMD_TONEPORTA);
+
+    uint8_t mappedNote = event.note;
+    const MPTMSample* mappedSample = ResolveSample(voice.instrument, event.note, mappedNote);
+    const bool hasPlayableNote = mappedNote > 0 && mappedNote < MPTM_NOTE_FADE;
+    const bool tonePortamentoNote = (effect == 0x07 || effect == 0x0C || volTonePorta) && hasPlayableNote && voice.sample;
+
+    if (event.note == MPTM_NOTE_CUT) {
+        voice.active = false;
+    }
+    else if (event.note == MPTM_NOTE_OFF || event.note == MPTM_NOTE_FADE) {
+        voice.noteReleased = true;
+        if (!voice.instrumentDef || (!voice.instrumentDef->HasVolumeEnvelope() && voice.instrumentDef->fadeOut == 0)) {
+            voice.active = false;
+        }
+    }
+    else if (hasPlayableNote && mappedSample && !mappedSample->pcm.empty()) {
+        const double noteStep = NoteToFrequency(ITNoteToLinear(mappedNote), mappedSample->c5Speed) /
+            static_cast<double>(MPTM_SAMPLE_RATE);
+        voice.note = mappedNote;
+        voice.targetStep = noteStep;
+
+        if (!tonePortamentoNote) {
+            voice.sample = mappedSample;
+            voice.instrumentDef = voice.instrument > 0 && voice.instrument <= instruments.size() ? &instruments[voice.instrument - 1] : nullptr;
+            voice.position = 0.0;
+            voice.envelopeTick = 0;
+            voice.envelopeVolume = voice.instrumentDef && voice.instrumentDef->HasVolumeEnvelope()
+                ? EvaluateVolumeEnvelope(*voice.instrumentDef, 0)
+                : 1.0f;
+            voice.fadeOutVolume = 65536;
+            voice.noteReleased = false;
+            voice.volume = mappedSample->defaultVolume;
+            voice.baseVolume = mappedSample->defaultVolume;
+            voice.panning = mappedSample->defaultPanning;
+            voice.step = noteStep;
+            voice.baseStep = voice.step;
+            // A fresh note retriggers the oscillator phases (old-effects flag is off in MPTM/IT)
+            // and clears any pending note-cut left over from a previous row.
+            voice.vibratoPos = 0;
+            voice.tremoloPos = 0;
+            voice.panbrelloPos = 0;
+            voice.noteCutTick = 255;
+            voice.active = true;
+        }
+    }
+
+    // Volume column. Store the decoded command/parameter for the per-tick phase, then apply the
+    // commands that take effect immediately on tick 0 (set volume/panning, fine slides).
+    voice.volCommand = volCommand;
+    voice.volParam = volParam;
+    switch (volCommand) {
+    case VOLCMD_VOLUME:
+        voice.volume = volParam;
+        voice.baseVolume = volParam;
+        break;
+    case VOLCMD_FINEVOLUP:
+        voice.volume = ClampVolume(static_cast<int>(voice.volume) + static_cast<int>(volParam));
+        voice.baseVolume = voice.volume;
+        break;
+    case VOLCMD_FINEVOLDOWN:
+        voice.volume = ClampVolume(static_cast<int>(voice.volume) - static_cast<int>(volParam));
+        voice.baseVolume = voice.volume;
+        break;
+    case VOLCMD_PANNING:
+        voice.panning = static_cast<uint8_t>((static_cast<uint16_t>(volParam) * 255U) / 64U);
+        break;
+    default:
+        // Slides / pitch / tone-portamento / vibrato are continuous: applied per tick below.
+        break;
+    }
+
+    if (IsUnsupportedMPTMCommand(effect, data)) {
+#if defined(_DEBUG_MPTMPlayer_)
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"MPTMPlayer: OpenMPT plugin/MIDI/sample-cue effect ignored.");
+#endif
+    }
+
+    switch (effect) {
+    case 0x01: // Axx: set speed
+        if (data > 0) {
+            speed = data;
+        }
+        break;
+
+    case 0x02: // Bxx: position jump
+        sequencePosition = data < orders.size() ? data : 0;
+        currentRow = 0;
+        orderJumpPending = true;
+        break;
+
+    case 0x03: { // Cxx: pattern break, BCD row
+        const uint8_t row = static_cast<uint8_t>(((data >> 4) * 10) + (data & 0x0F));
+        const uint16_t maxRow = unpackedPatterns[currentPatternIndex].empty()
+            ? 0
+            : static_cast<uint16_t>(unpackedPatterns[currentPatternIndex].size() - 1);
+        nextRowOverride = std::min<uint16_t>(row, maxRow);
+        ++sequencePosition;
+        rowBreakPending = true;
+        break;
+    }
+
+    case 0x04: // Dxy: volume slide
+        if (data != 0) {
+            voice.lastVolumeSlide = data;
+        }
+        break;
+
+    case 0x05: // Exx: pitch slide down
+    case 0x06: // Fxx: pitch slide up
+    case 0x07: // Gxx: tone portamento
+        if (data != 0) {
+            voice.lastPortamento = data;
+        }
+        if (effect == 0x07 && hasPlayableNote && voice.sample) {
+            voice.targetStep = NoteToFrequency(ITNoteToLinear(mappedNote), voice.sample->c5Speed) /
+                static_cast<double>(MPTM_SAMPLE_RATE);
+        }
+        break;
+
+    case 0x08: // Hxy: vibrato
+    case 0x0B: // Kxy: vibrato + volume slide
+    case 0x15: // Uxy: fine vibrato
+        if (data != 0) {
+            voice.lastVibrato = data;
+        }
+        break;
+
+    case 0x09: // Ixy: tremor
+        voice.tremorOnTicks = (data >> 4) + 1;
+        voice.tremorOffTicks = (data & 0x0F) + 1;
+        voice.tremorCounter = 0;
+        break;
+
+    case 0x0C: // Lxy: tone portamento + volume slide
+        if (data != 0) {
+            voice.lastVolumeSlide = data;
+            voice.lastPortamento = data;
+        }
+        if (hasPlayableNote && voice.sample) {
+            voice.targetStep = NoteToFrequency(ITNoteToLinear(mappedNote), voice.sample->c5Speed) /
+                static_cast<double>(MPTM_SAMPLE_RATE);
+        }
+        break;
+
+    case 0x0D: { // Mxx: channel volume, approximated onto voice volume.
+        voice.volume = ClampVolume(data);
+        voice.baseVolume = voice.volume;
+        break;
+    }
+
+    case 0x0E: // Nxy: channel volume slide, approximated onto voice volume.
+        if (data != 0) {
+            voice.lastVolumeSlide = data;
+        }
+        break;
+
+    case 0x0F: // Oxx: sample offset. O00 repeats the last offset. The high byte comes from
+               // SAy (NOT S9x). IT only applies the offset when a note is present on the row.
+        if (data != 0) {
+            voice.lastSampleOffset = data;
+        }
+        if (voice.sample && hasPlayableNote && !tonePortamentoNote) {
+            const uint32_t offset = (static_cast<uint32_t>(voice.lastSampleOffsetHigh) << 16) |
+                (static_cast<uint32_t>(voice.lastSampleOffset) << 8);
+            voice.position = static_cast<double>(std::min<uint32_t>(offset, voice.sample->length));
+        }
+        break;
+
+    case 0x10: // Pxy: panning slide
+        break;
+
+    case 0x11: // Qxy: retrigger note with volume change
+        if (data != 0) {
+            voice.lastRetrig = data;
+        }
+        break;
+
+    case 0x12: // Rxy: tremolo
+        if (data != 0) {
+            voice.lastTremolo = data;
+        }
+        break;
+
+    case 0x13: // Sxy: extended effects
+        ApplySpecialCommand(voice, data, true);
+        break;
+
+    case 0x14: // Txx: tempo
+        if (data >= 32) {
+            tempo = data;
+        }
+        else if (data > 0) {
+            tempo = static_cast<uint16_t>(std::max<int>(32, static_cast<int>(tempo) + (data & 0x0F) - (data >> 4)));
+        }
+        break;
+
+    case 0x16: // Vxx: global volume
+        globalVolume = static_cast<uint8_t>(std::min<uint16_t>(data, 128) / 2);
+        break;
+
+    case 0x17: // Wxy: global volume slide
+        if (data != 0) {
+            voice.lastVolumeSlide = data;
+        }
+        break;
+
+    case 0x18: // Xxx: set panning. IT stores the full 0x00 (left) .. 0xFF (right) range with
+               // 0x80 as centre, so the byte maps straight onto the 0..255 voice panning.
+        voice.panning = data;
+        break;
+
+    case 0x19: // Yxy: panbrello
+        if (data != 0) {
+            voice.effectData = data;
+        }
+        break;
+
+    case 0x1C: { // Xxx (CMD_DELAYCUT): cut-only variant -- delay nibble is 0, so the note
+                 // already triggered above. We only need to arm the note cut tick here.
+        const uint8_t cutTick = data & 0x0F;
+        if (cutTick > 0) {
+            voice.noteCutTick = cutTick;
+        }
+        break;
+    }
+
+    case 0x1E: // qxx (CMD_FINETUNE): fractional pitch finetune up -- 64 steps per semitone
+        if (voice.active && data > 0) {
+            voice.step     *= std::pow(2.0, static_cast<double>(data) / 768.0);
+            voice.baseStep  = voice.step;
+        }
+        break;
+
+    case 0x1F: // txx (CMD_FINETUNE_BKWD): fractional pitch finetune down -- 64 steps per semitone
+        if (voice.active && data > 0) {
+            voice.step     /= std::pow(2.0, static_cast<double>(data) / 768.0);
+            voice.baseStep  = voice.step;
+        }
+        break;
+
+    default:
+        break;
+    }
+
+    voice.effect = effect;
+    voice.effectData = data;
+}
+
+void MPTMPlayer::ApplyTickEffects() {
+    std::lock_guard<std::mutex> lock(playbackMutex);
+
+    for (size_t channel = 0; channel < voices.size(); ++channel) {
+        MPTMChannelVoice& voice = voices[channel];
+
+        AdvanceVoiceEnvelope(voice);
+
+        if (voice.delayedNotePending && tick == voice.delayTicks) {
+            voice.delayedNotePending = false;
+            TriggerEvent(channel, voice.delayedEvent, true);
+        }
+
+        if (voice.noteCutTick != 255 && tick == voice.noteCutTick) {
+            voice.active = false;
+            voice.noteCutTick = 255;
+        }
+
+        if (!voice.sample || !voice.active) {
+            continue;
+        }
+
+        switch (voice.effect) {
+        case 0x04: // Dxy
+            ApplyVolumeSlide(voice);
+            break;
+
+        case 0x05: { // Exx: portamento DOWN -- lowers the pitch, so the playback step decreases.
+            const uint8_t amount = voice.lastPortamento;
+            if ((amount & 0xF0) == 0xF0) {
+                if (tick == 1) {
+                    voice.step /= std::pow(2.0, static_cast<double>(amount & 0x0F) / 768.0);
+                }
+            }
+            else if ((amount & 0xF0) == 0xE0) {
+                if (tick == 1) {
+                    voice.step /= std::pow(2.0, static_cast<double>(amount & 0x0F) / 3072.0);
+                }
+            }
+            else {
+                voice.step /= std::pow(2.0, static_cast<double>(amount) / 768.0);
+            }
+            voice.baseStep = voice.step;
+            break;
+        }
+
+        case 0x06: { // Fxx: portamento UP -- raises the pitch, so the playback step increases.
+            const uint8_t amount = voice.lastPortamento;
+            if ((amount & 0xF0) == 0xF0) {
+                if (tick == 1) {
+                    voice.step *= std::pow(2.0, static_cast<double>(amount & 0x0F) / 768.0);
+                }
+            }
+            else if ((amount & 0xF0) == 0xE0) {
+                if (tick == 1) {
+                    voice.step *= std::pow(2.0, static_cast<double>(amount & 0x0F) / 3072.0);
+                }
+            }
+            else {
+                voice.step *= std::pow(2.0, static_cast<double>(amount) / 768.0);
+            }
+            voice.baseStep = voice.step;
+            break;
+        }
+
+        case 0x07:
+            ApplyPortamento(voice);
+            break;
+
+        case 0x08:
+            ApplyVibrato(voice, false);
+            break;
+
+        case 0x09: {
+            const uint8_t cycle = voice.tremorOnTicks + voice.tremorOffTicks;
+            if (cycle > 0) {
+                voice.volume = (voice.tremorCounter % cycle) < voice.tremorOnTicks ? voice.baseVolume : 0;
+                ++voice.tremorCounter;
+            }
+            break;
+        }
+
+        case 0x0A: { // Jxy: arpeggio
+            const uint8_t offsetA = voice.effectData >> 4;
+            const uint8_t offsetB = voice.effectData & 0x0F;
+            const uint8_t semitoneOffset = (tick % 3 == 1) ? offsetA : ((tick % 3 == 2) ? offsetB : 0);
+            const int transposed = std::clamp(static_cast<int>(ITNoteToLinear(voice.note)) + static_cast<int>(semitoneOffset), 0, 119);
+            voice.step = NoteToFrequency(static_cast<uint8_t>(transposed), voice.sample->c5Speed) /
+                static_cast<double>(MPTM_SAMPLE_RATE);
+            break;
+        }
+
+        case 0x0B:
+            ApplyVibrato(voice, false);
+            ApplyVolumeSlide(voice);
+            break;
+
+        case 0x0C:
+            ApplyPortamento(voice);
+            ApplyVolumeSlide(voice);
+            break;
+
+        case 0x0E: // Nxy
+            ApplyVolumeSlide(voice);
+            break;
+
+        case 0x10: { // Pxy: panning slide
+            const uint8_t up = voice.effectData >> 4;
+            const uint8_t down = voice.effectData & 0x0F;
+            int pan = voice.panning;
+            if (up != 0 && down == 0) {
+                pan += up * 4;
+            }
+            else if (down != 0 && up == 0) {
+                pan -= down * 4;
+            }
+            voice.panning = static_cast<uint8_t>(std::clamp(pan, 0, 255));
+            break;
+        }
+
+        case 0x11:
+            ApplyRetrig(voice);
+            break;
+
+        case 0x12:
+            ApplyTremolo(voice);
+            break;
+
+        case 0x13:
+            ApplySpecialCommand(voice, voice.effectData, false);
+            break;
+
+        case 0x15:
+            ApplyVibrato(voice, true);
+            break;
+
+        case 0x17:
+            ApplyGlobalVolumeSlide(voice);
+            break;
+
+        case 0x19:
+            ApplyPanbrello(voice);
+            break;
+
+        default:
+            break;
+        }
+
+        // The volume column runs in parallel with the effect column, so apply its continuous
+        // commands (slides, pitch slides, tone portamento, vibrato) every tick as well.
+        ApplyVolumeColumnTick(voice);
+    }
+}
+
+void MPTMPlayer::ApplyVolumeColumnTick(MPTMChannelVoice& voice) {
+    switch (voice.volCommand) {
+    case VOLCMD_VOLSLIDEUP:
+        voice.volume = ClampVolume(static_cast<int>(voice.volume) + static_cast<int>(voice.volParam));
+        voice.baseVolume = voice.volume;
+        break;
+
+    case VOLCMD_VOLSLIDEDOWN:
+        voice.volume = ClampVolume(static_cast<int>(voice.volume) - static_cast<int>(voice.volParam));
+        voice.baseVolume = voice.volume;
+        break;
+
+    case VOLCMD_PITCHDOWN: // 'e' -- per-tick pitch slide down (IT scales the parameter by 4)
+        voice.step /= std::pow(2.0, (static_cast<double>(voice.volParam) * 4.0) / 768.0);
+        voice.baseStep = voice.step;
+        break;
+
+    case VOLCMD_PITCHUP: // 'f' -- per-tick pitch slide up
+        voice.step *= std::pow(2.0, (static_cast<double>(voice.volParam) * 4.0) / 768.0);
+        voice.baseStep = voice.step;
+        break;
+
+    case VOLCMD_TONEPORTA: { // 'g' -- glide toward the target note at the table speed
+        if (voice.targetStep > 0.0) {
+            const double amount = static_cast<double>(VolColumnPortaSpeed[std::min<uint8_t>(voice.volParam, 9)]) / 4096.0;
+            if (voice.step < voice.targetStep) {
+                voice.step = std::min(voice.step + amount, voice.targetStep);
+            }
+            else if (voice.step > voice.targetStep) {
+                voice.step = std::max(voice.step - amount, voice.targetStep);
+            }
+            voice.baseStep = voice.step;
+        }
+        break;
+    }
+
+    case VOLCMD_VIBRATO: { // 'h' -- depth from the volume column, speed from vibrato memory
+        const uint8_t speedValue = voice.lastVibrato >> 4;
+        const double delta = Waveform(voice.vibratoPos, voice.vibratoWaveform) * static_cast<double>(voice.volParam) / 2048.0;
+        voice.step = std::max(0.0, voice.baseStep + delta);
+        voice.vibratoPos = static_cast<uint8_t>(voice.vibratoPos + speedValue);
+        break;
+    }
+
+    default:
+        break;
+    }
+}
+
+void MPTMPlayer::ApplyVolumeSlide(MPTMChannelVoice& voice) {
+    const uint8_t data = voice.lastVolumeSlide != 0 ? voice.lastVolumeSlide : voice.effectData;
+    const uint8_t up = data >> 4;
+    const uint8_t down = data & 0x0F;
+    int volume = voice.volume;
+
+    if (up == 0x0F && down != 0) {
+        if (tick == 1) {
+            volume -= down;
+        }
+    }
+    else if (down == 0x0F && up != 0) {
+        if (tick == 1) {
+            volume += up;
+        }
+    }
+    else if (up != 0 && down == 0) {
+        volume += up;
+    }
+    else if (down != 0 && up == 0) {
+        volume -= down;
+    }
+
+    voice.volume = ClampVolume(volume);
+    voice.baseVolume = voice.volume;
+}
+
+void MPTMPlayer::ApplyGlobalVolumeSlide(MPTMChannelVoice& voice) {
+    const uint8_t data = voice.effectData != 0 ? voice.effectData : voice.lastVolumeSlide;
+    const uint8_t up = data >> 4;
+    const uint8_t down = data & 0x0F;
+    int volume = globalVolume.load();
+    if (up != 0 && down == 0) {
+        volume += up;
+    }
+    else if (down != 0 && up == 0) {
+        volume -= down;
+    }
+    globalVolume = ClampVolume(volume);
+}
+
+void MPTMPlayer::ApplyPortamento(MPTMChannelVoice& voice) {
+    if (voice.targetStep <= 0.0) {
+        return;
+    }
+
+    const double amount = static_cast<double>(voice.lastPortamento != 0 ? voice.lastPortamento : voice.effectData) / 4096.0;
+    if (voice.step < voice.targetStep) {
+        voice.step = std::min(voice.step + amount, voice.targetStep);
+    }
+    else if (voice.step > voice.targetStep) {
+        voice.step = std::max(voice.step - amount, voice.targetStep);
+    }
+    voice.baseStep = voice.step;
+}
+
+void MPTMPlayer::ApplyVibrato(MPTMChannelVoice& voice, bool fine) {
+    const uint8_t data = voice.lastVibrato != 0 ? voice.lastVibrato : voice.effectData;
+    const uint8_t speedValue = data >> 4;
+    const uint8_t depth = data & 0x0F;
+    const double divisor = fine ? 8192.0 : 2048.0;
+    const double delta = Waveform(voice.vibratoPos, voice.vibratoWaveform) * static_cast<double>(depth) / divisor;
+    voice.step = std::max(0.0, voice.baseStep + delta);
+    voice.vibratoPos = static_cast<uint8_t>(voice.vibratoPos + speedValue);
+}
+
+void MPTMPlayer::ApplyTremolo(MPTMChannelVoice& voice) {
+    const uint8_t data = voice.lastTremolo != 0 ? voice.lastTremolo : voice.effectData;
+    const uint8_t speedValue = data >> 4;
+    const uint8_t depth = data & 0x0F;
+    const int delta = static_cast<int>(Waveform(voice.tremoloPos, voice.tremoloWaveform) * static_cast<double>(depth));
+    voice.volume = ClampVolume(static_cast<int>(voice.baseVolume) + delta);
+    voice.tremoloPos = static_cast<uint8_t>(voice.tremoloPos + speedValue);
+}
+
+void MPTMPlayer::ApplyPanbrello(MPTMChannelVoice& voice) {
+    const uint8_t speedValue = voice.effectData >> 4;
+    const uint8_t depth = voice.effectData & 0x0F;
+    const int delta = static_cast<int>(Waveform(voice.panbrelloPos, voice.panbrelloWaveform) * static_cast<double>(depth) * 4.0);
+    voice.panning = static_cast<uint8_t>(std::clamp(static_cast<int>(voice.panning) + delta, 0, 255));
+    voice.panbrelloPos = static_cast<uint8_t>(voice.panbrelloPos + speedValue);
+}
+
+void MPTMPlayer::ApplyRetrig(MPTMChannelVoice& voice) {
+    const uint8_t data = voice.lastRetrig != 0 ? voice.lastRetrig : voice.effectData;
+    const uint8_t interval = data & 0x0F;
+    const uint8_t volumeCommand = data >> 4;
+
+    if (interval == 0 || (tick % interval) != 0) {
+        return;
+    }
+
+    voice.position = 0.0;
+    int volume = voice.volume;
+    switch (volumeCommand) {
+    case 0x1: volume -= 1; break;
+    case 0x2: volume -= 2; break;
+    case 0x3: volume -= 4; break;
+    case 0x4: volume -= 8; break;
+    case 0x5: volume -= 16; break;
+    case 0x6: volume = (volume * 2) / 3; break;
+    case 0x7: volume /= 2; break;
+    case 0x9: volume += 1; break;
+    case 0xA: volume += 2; break;
+    case 0xB: volume += 4; break;
+    case 0xC: volume += 8; break;
+    case 0xD: volume += 16; break;
+    case 0xE: volume = (volume * 3) / 2; break;
+    case 0xF: volume *= 2; break;
+    default: break;
+    }
+
+    voice.volume = ClampVolume(volume);
+    voice.baseVolume = voice.volume;
+}
+
+float MPTMPlayer::EvaluateVolumeEnvelope(const MPTMInstrument& instrument, uint16_t envelopeTick) const {
+    const uint8_t pointCount = instrument.volumeEnvelopePointCount;
+    if (!instrument.HasVolumeEnvelope()) {
+        return 1.0f;
+    }
+
+    if (envelopeTick <= instrument.volumeEnvelopeTicks[0]) {
+        return static_cast<float>(instrument.volumeEnvelopeValues[0]) / 64.0f;
+    }
+
+    for (uint8_t point = 1; point < pointCount; ++point) {
+        const uint16_t leftTick = instrument.volumeEnvelopeTicks[point - 1];
+        const uint16_t rightTick = instrument.volumeEnvelopeTicks[point];
+        if (envelopeTick <= rightTick) {
+            const float leftValue = static_cast<float>(instrument.volumeEnvelopeValues[point - 1]);
+            const float rightValue = static_cast<float>(instrument.volumeEnvelopeValues[point]);
+            const uint16_t tickSpan = rightTick > leftTick ? static_cast<uint16_t>(rightTick - leftTick) : 1;
+            const float t = static_cast<float>(envelopeTick - leftTick) / static_cast<float>(tickSpan);
+            return (leftValue + (rightValue - leftValue) * t) / 64.0f;
+        }
+    }
+
+    return static_cast<float>(instrument.volumeEnvelopeValues[pointCount - 1]) / 64.0f;
+}
+
+void MPTMPlayer::AdvanceVoiceEnvelope(MPTMChannelVoice& voice) {
+    const MPTMInstrument* instrument = voice.instrumentDef;
+    if (!voice.active || !instrument) {
+        return;
+    }
+
+    if (instrument->HasVolumeEnvelope()) {
+        voice.envelopeVolume = EvaluateVolumeEnvelope(*instrument, voice.envelopeTick);
+
+        const uint8_t lastPoint = static_cast<uint8_t>(instrument->volumeEnvelopePointCount - 1);
+        const uint16_t lastTick = instrument->volumeEnvelopeTicks[lastPoint];
+        const bool sustainEnabled = (instrument->volumeEnvelopeFlags & 0x04) != 0 && !voice.noteReleased;
+        const bool loopEnabled = (instrument->volumeEnvelopeFlags & 0x02) != 0;
+
+        if (sustainEnabled && instrument->volumeEnvelopeSustainStart <= instrument->volumeEnvelopeSustainEnd &&
+            instrument->volumeEnvelopeSustainEnd <= lastPoint &&
+            voice.envelopeTick >= instrument->volumeEnvelopeTicks[instrument->volumeEnvelopeSustainEnd]) {
+            voice.envelopeTick = instrument->volumeEnvelopeTicks[instrument->volumeEnvelopeSustainStart];
+        }
+        else if (loopEnabled && instrument->volumeEnvelopeLoopStart <= instrument->volumeEnvelopeLoopEnd &&
+            instrument->volumeEnvelopeLoopEnd <= lastPoint &&
+            voice.envelopeTick >= instrument->volumeEnvelopeTicks[instrument->volumeEnvelopeLoopEnd]) {
+            voice.envelopeTick = instrument->volumeEnvelopeTicks[instrument->volumeEnvelopeLoopStart];
+        }
+        else if (voice.envelopeTick < lastTick) {
+            ++voice.envelopeTick;
+        }
+        else if (instrument->volumeEnvelopeValues[lastPoint] == 0) {
+            voice.active = false;
+        }
+    }
+
+    if (voice.noteReleased && instrument->fadeOut > 0) {
+        const uint32_t fadeStep = std::max<uint32_t>(1, instrument->fadeOut);
+        voice.fadeOutVolume = fadeStep >= voice.fadeOutVolume ? 0 : voice.fadeOutVolume - fadeStep;
+        if (voice.fadeOutVolume == 0) {
+            voice.active = false;
+        }
+    }
+}
+
+void MPTMPlayer::ApplySpecialCommand(MPTMChannelVoice& voice, uint8_t data, bool rowTick) {
+    const uint8_t sub = data >> 4;
+    const uint8_t value = data & 0x0F;
+
+    if (rowTick) {
+        switch (sub) {
+        case 0x3: // S3x: set vibrato waveform (0 sine, 1 ramp down, 2 square, 3 random)
+            voice.vibratoWaveform = value & 0x03;
+            break;
+
+        case 0x4: // S4x: set tremolo waveform
+            voice.tremoloWaveform = value & 0x03;
+            break;
+
+        case 0x5: // S5x: set panbrello waveform
+            voice.panbrelloWaveform = value & 0x03;
+            break;
+
+        case 0x6: // S6x: fine pattern delay -- add x extra ticks to THIS row only.
+                  // (This is NOT a pattern loop; SBx is the loop command.)
+            fineDelayTicks = value;
+            break;
+
+        case 0x8: // S8x: set coarse panning (0..15 -> 0..255)
+            voice.panning = static_cast<uint8_t>((static_cast<uint16_t>(value) * 255U) / 15U);
+            break;
+
+        case 0xA: // SAy: set the high byte of the sample offset (final offset += y * 0x10000).
+                  // This -- not S9x -- is the IT high-offset command consumed by Oxx.
+            voice.lastSampleOffsetHigh = value;
+            break;
+
+        case 0xB: // SBx: pattern loop. SB0 marks the loopback row; SBx replays the block x times.
+            if (value == 0) {
+                patternLoopRow = static_cast<uint8_t>(currentRow);
+            }
+            else if (patternLoopCount == 0) {
+                patternLoopCount = value;
+                patternLoopPending = true;
+            }
+            else if (--patternLoopCount > 0) {
+                patternLoopPending = true;
+            }
+            break;
+
+        case 0xC: // SCx: note cut after x ticks (SC0 cuts immediately)
+            voice.noteCutTick = value;
+            if (value == 0) {
+                voice.active = false;
+            }
+            break;
+
+        case 0xE: // SEx: pattern delay for x rows. Arm it only once: the row keeps being
+                  // re-processed while held, and re-setting the counter here would make it
+                  // never reach zero (an infinite hang on the row).
+            if (!inPatternDelay) {
+                patternDelayTicks = value;
+                inPatternDelay = true;
+            }
+            break;
+
+        // S0x filter, S1x glissando, S2x finetune, S7x NNA/envelope control, S9x sound
+        // control (surround/reverb/reverse), SDx note delay (handled at trigger time) and
+        // SFx MIDI macro have no native audio path here and are intentionally ignored
+        // rather than misinterpreted as offset/loop commands.
+        default:
+            break;
+        }
+        return;
+    }
+
+    // Per-tick phase: SCx is the only sub-command that must fire on a later tick.
+    if (sub == 0xC && tick == value) {
+        voice.active = false;
+        voice.noteCutTick = 255;
+    }
+}
+
+void MPTMPlayer::AdvanceRow() {
+    if (orderJumpPending) {
+        return;
+    }
+
+    if (rowBreakPending) {
+        currentRow = nextRowOverride;
+        if (sequencePosition >= orders.size()) {
+            sequencePosition = restartSequencePosition.load();
+        }
+        return;
+    }
+
+    // SBx pattern loop: jump straight back to the loopback row in the same pattern,
+    // without the +1 a normal advance would add (which would skip the loop's first row).
+    if (patternLoopPending) {
+        patternLoopPending = false;
+        currentRow = patternLoopRow;
+        return;
+    }
+
+    ++currentRow;
+    const uint16_t rows = currentPatternIndex < unpackedPatterns.size()
+        ? static_cast<uint16_t>(unpackedPatterns[currentPatternIndex].size())
+        : 64;
+    if (currentRow >= rows) {
+        currentRow = 0;
+        ++sequencePosition;
+        if (sequencePosition >= orders.size()) {
+            sequencePosition = restartSequencePosition.load();
+        }
+    }
+}
+
+const MPTMSample* MPTMPlayer::ResolveSample(uint8_t instrument, uint8_t note, uint8_t& mappedNote) const {
+    if (instrument == 0) {
+        return nullptr;
+    }
+
+    if (!instruments.empty() && instrument <= instruments.size() && note > 0 && note < MPTM_NOTE_FADE) {
+        const MPTMInstrument& inst = instruments[instrument - 1];
+        const size_t noteIndex = static_cast<size_t>(std::min<uint8_t>(ITNoteToLinear(note), 119));
+        const uint8_t sampleIndex = inst.sampleMap[noteIndex];
+        mappedNote = inst.noteMap[noteIndex] != 0 ? inst.noteMap[noteIndex] : note;
+        if (sampleIndex > 0 && sampleIndex <= samples.size()) {
+            return &samples[sampleIndex - 1];
+        }
+    }
+
+    if (instrument <= samples.size()) {
+        return &samples[instrument - 1];
+    }
+
+    return nullptr;
+}
+
+double MPTMPlayer::NoteToFrequency(uint8_t note, uint32_t c5Speed) const {
+    const int noteIndex = std::clamp<int>(note, 0, 119);
+    const int c5Index = 5 * 12;
+    return static_cast<double>(c5Speed) * std::pow(2.0, static_cast<double>(noteIndex - c5Index) / 12.0);
+}
+
+double MPTMPlayer::Waveform(uint8_t pos, uint8_t type) const {
+    const uint8_t phase = pos & 0x3F;
+    switch (type & 0x03) {
+    case 1: // ramp down (sawtooth): +1 -> -1 across the cycle
+        return 1.0 - (static_cast<double>(phase) / 32.0);
+    case 2: // square
+        return phase < 32 ? 1.0 : -1.0;
+    case 3: { // random
+        static thread_local std::mt19937 rng{ std::random_device{}() };
+        static thread_local std::uniform_real_distribution<double> dist(-1.0, 1.0);
+        return dist(rng);
+    }
+    default: // sine
+        return std::sin(static_cast<double>(phase) * (3.14159265358979323846 * 2.0 / 64.0));
+    }
+}
+
+uint8_t MPTMPlayer::DefaultPanningForChannel(size_t channel) const {
+    if (channel < MPTM_MAX_CHANNELS) {
+        const uint8_t pan = header.channelPan[channel];
+        if ((pan & 0x80) != 0) {
+            return 128;
+        }
+        return static_cast<uint8_t>((static_cast<uint16_t>(std::min<uint8_t>(pan, 64)) * 255U) / 64U);
+    }
+
+    return (channel & 1) == 0 ? 48 : 208;
+}
+
+void MPTMPlayer::GotoSequenceID(uint16_t patternSeqID) {
+    if (!isPlaying) {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"MPTMPlayer: GotoSequenceID called while player is not active.");
+        return;
+    }
+
+    if (patternSeqID >= orders.size()) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"MPTMPlayer: Invalid PatternSeqID " + std::to_wstring(patternSeqID));
+        return;
+    }
+
+    SetFadeOut(1000);
+    auto fadeStartTime = std::chrono::high_resolution_clock::now();
+    while (fadeOutActive) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        fadeElapsedMs = static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::high_resolution_clock::now() - fadeStartTime).count());
+
+        if (fadeElapsedMs >= fadeDurationMs) {
+            fadeOutActive = false;
+            currentVolume = 0;
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(playbackMutex);
+        sequencePosition = patternSeqID;
+        restartSequencePosition = patternSeqID;
+        currentRow = 0;
+        tick = 0;
+        rowBreakPending = false;
+        orderJumpPending = false;
+        patternDelayTicks = 0;
+        fineDelayTicks = 0;
+        inPatternDelay = false;
+        patternLoopPending = false;
+    }
+
+    SetFadeIn(1000);
+}
+
+void MPTMPlayer::PlaybackLoop() {
+    using namespace std::chrono;
+
+    auto tickStart = high_resolution_clock::now();
+    auto fadeClock = high_resolution_clock::now();
+    while (isPlaying && !isTerminating) {
+        if (!isPaused) {
+            FillAudioBuffer();
+
+            const auto now = high_resolution_clock::now();
+            const auto elapsedTime = duration_cast<microseconds>(now - tickStart).count();
+            const double tickDurationUs = (2500.0 / static_cast<double>(std::max<uint16_t>(tempo, 32))) * 1000.0;
+
+            if (elapsedTime >= tickDurationUs) {
+                tickStart = now;
+
+                if (tick == 0) {
+                    TickRow();
+                }
+                else {
+                    ApplyTickEffects();
+                }
+
+                // S6x fine pattern delay lengthens only the current row by fineDelayTicks ticks.
+                const uint16_t ticksThisRow = std::max<uint16_t>(static_cast<uint16_t>(speed + fineDelayTicks), 1);
+                tick = static_cast<uint16_t>((tick + 1) % ticksThisRow);
+            }
+
+            if (fadeInActive || fadeOutActive) {
+                const auto fadeNow = high_resolution_clock::now();
+                const uint32_t elapsedMs = static_cast<uint32_t>(duration_cast<milliseconds>(fadeNow - fadeClock).count());
+                fadeClock = fadeNow;
+
+                const uint32_t duration = fadeDurationMs.load();
+                if (duration > 0) {
+                    fadeElapsedMs = std::min<uint32_t>(duration, fadeElapsedMs.load() + elapsedMs);
+                    const float amount = static_cast<float>(fadeElapsedMs.load()) / static_cast<float>(duration);
+                    if (fadeInActive) {
+                        currentVolume = static_cast<uint8_t>(std::clamp<int>(static_cast<int>(64.0f * amount), 0, 64));
+                        if (fadeElapsedMs >= duration) {
+                            fadeInActive = false;
+                        }
+                    }
+                    else {
+                        currentVolume = static_cast<uint8_t>(std::clamp<int>(static_cast<int>(64.0f * (1.0f - amount)), 0, 64));
+                        if (fadeElapsedMs >= duration) {
+                            fadeOutActive = false;
+                        }
+                    }
+                }
+            }
+            else {
+                fadeClock = high_resolution_clock::now();
+            }
+
+            std::this_thread::sleep_for(milliseconds(1));
+        }
+        else {
+            FillAudioBuffer();
+            std::this_thread::sleep_for(milliseconds(1));
+        }
+    }
+
+    isTerminating = false;
+}

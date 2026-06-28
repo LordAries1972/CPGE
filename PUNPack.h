@@ -35,6 +35,12 @@ const size_t PUNPACK_MIN_COMPRESS_SIZE = 64;                       // Minimum si
 const size_t PUNPACK_MAX_BUFFER_SIZE = 0x7FFFFFFF;                 // Maximum 2GB buffer size
 const uint32_t PUNPACK_CHECKSUM_POLYNOMIAL = 0xEDB88320;           // CRC32 polynomial
 const size_t PUNPACK_DECIPHER_KEY_SIZE = 32;                       // 256-bit decipher key
+const int PUNPACK_BCRYPT_DEFAULT_COST = 12;                        // Default bcrypt cost (matches PHP default)
+const int PUNPACK_BCRYPT_MIN_COST = 4;                             // Minimum allowed bcrypt cost factor
+const int PUNPACK_BCRYPT_MAX_COST = 31;                            // Maximum allowed bcrypt cost factor
+const size_t PUNPACK_BCRYPT_SALT_BYTES = 16;                       // bcrypt salt size (16 bytes = 128 bits)
+const size_t PUNPACK_BLOWFISH_BLOCK_SIZE = 8;                      // Blowfish block size (64-bit blocks)
+const size_t PUNPACK_BLOWFISH_MAX_KEY = 56;                        // Maximum Blowfish key size in bytes
 
 //==============================================================================
 // Compression Types and Algorithms
@@ -208,6 +214,32 @@ public:
     void DecryptData(std::vector<uint8_t>& data, const std::vector<uint8_t>& key) const;
 
     //==========================================================================
+    // Blowfish Encryption / Decryption Methods (symmetric, fully reversible)
+    //==========================================================================
+    // Encrypt a raw byte buffer using Blowfish CBC with PKCS7 padding
+    std::vector<uint8_t> BlowfishEncrypt(const std::vector<uint8_t>& data, const std::string& key);
+
+    // Decrypt a raw byte buffer encrypted with BlowfishEncrypt
+    std::vector<uint8_t> BlowfishDecrypt(const std::vector<uint8_t>& data, const std::string& key);
+
+    // Convenience: encrypt a std::string and return ciphertext bytes
+    std::vector<uint8_t> BlowfishEncryptString(const std::string& plaintext, const std::string& key);
+
+    // Convenience: decrypt ciphertext bytes back to a std::string
+    std::string BlowfishDecryptString(const std::vector<uint8_t>& ciphertext, const std::string& key);
+
+    //==========================================================================
+    // Password Hashing Methods (bcrypt - PHP password_hash() compatible)
+    //==========================================================================
+    // Hash a password using bcrypt (one-way, like PHP password_hash())
+    // Returns a $2b$<cost>$<salt><hash> string (60 chars), or "" on failure
+    std::string HashPassword(const std::string& password, int cost = PUNPACK_BCRYPT_DEFAULT_COST);
+
+    // Verify a plain-text password against a bcrypt hash string
+    // Compatible with PHP password_verify() - returns true if password matches
+    bool VerifyPassword(const std::string& password, const std::string& hashString);
+
+    //==========================================================================
     // Statistics and Utility Methods
     //==========================================================================
     // Get compression statistics
@@ -261,6 +293,42 @@ private:
     // Fast CRC32 calculation using lookup table
     void InitializeCRC32Table();
     uint32_t CalculateCRC32Fast(const void* data, size_t size) const;
+
+    //==========================================================================
+    // Internal Blowfish / bcrypt Helper Methods
+    //==========================================================================
+    // Blowfish cipher state (P-array + four 256-entry S-boxes)
+    struct BlowfishState {
+        uint32_t P[18];                                              // 18 subkeys
+        uint32_t S[4][256];                                         // Four S-box lookup tables
+    };
+
+    // Initialise state to the standard pi-derived constants
+    void BlowfishInitState(BlowfishState& state) const;
+
+    // Mix key material into the current Blowfish state (standard key schedule)
+    void BlowfishExpandKey(BlowfishState& state, const uint8_t* key, size_t keyLen,
+                           const uint8_t* data, size_t dataLen) const;
+
+    // Blowfish F-function: combines all four S-boxes
+    uint32_t BlowfishF(const BlowfishState& state, uint32_t x) const;
+
+    // Encipher one 64-bit block (in-place, uses P[0..17] forward)
+    void BlowfishEncipher(const BlowfishState& state, uint32_t& xL, uint32_t& xR) const;
+
+    // Decipher one 64-bit block (in-place, uses P[17..0] reverse)
+    void BlowfishDecipher(const BlowfishState& state, uint32_t& xL, uint32_t& xR) const;
+
+    // bcrypt expensive key setup (salt + cost rounds)
+    void EksBlowfishSetup(BlowfishState& state, const uint8_t* password, size_t passLen,
+                          const uint8_t* salt, int cost) const;
+
+    // bcrypt-specific base64 encode/decode (modified alphabet: ./A-Za-z0-9)
+    std::string BcryptBase64Encode(const uint8_t* data, size_t len) const;
+    bool        BcryptBase64Decode(const std::string& encoded, uint8_t* data, size_t len) const;
+
+    // Generate cryptographically random salt bytes
+    std::vector<uint8_t> GenerateSaltBytes(size_t saltSize = PUNPACK_BCRYPT_SALT_BYTES);
 
 private:
     // Initialization state

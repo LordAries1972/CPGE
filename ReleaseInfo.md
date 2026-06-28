@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.1.1901*
+*Current Build Version: v0.1.1922*
 
 ---
 
@@ -55,7 +55,7 @@ lets make this Engine great!
 #### 2026
 
 - [June 2026](#june-2026---opengl-pipeline-fixes)
-  - [01](#june-01-2026) · [02](#june-02-2026) · [03](#june-03-2026) · [04](#june-04-2026) · [05](#june-05-2026) · [06](#june-06-2026) · [07](#june-07-2026) · [08](#june-08-2026) · [11](#june-11-2026) · [12](#june-12-2026) · [13](#june-13-2026) · [14](#june-14-2026) · [15](#june-15-2026) · [16](#june-16-2026) · [17](#june-17-2026) · [18](#june-18-2026) · [21](#june-21-2026) · [23](#june-23-2026) · [24](#june-24-2026) · [25](#june-25-2026) · [27](#june-27-2026) · [28](#june-28-2026)
+  - [01](#june-01-2026) · [02](#june-02-2026) · [03](#june-03-2026) · [04](#june-04-2026) · [05](#june-05-2026) · [06](#june-06-2026) · [07](#june-07-2026) · [08](#june-08-2026) · [11](#june-11-2026) · [12](#june-12-2026) · [13](#june-13-2026) · [14](#june-14-2026) · [15](#june-15-2026) · [16](#june-16-2026) · [17](#june-17-2026) · [18](#june-18-2026) · [21](#june-21-2026) · [23](#june-23-2026) · [24](#june-24-2026) · [25](#june-25-2026) · [27](#june-27-2026) · [28](#june-28-2026) · [29](#june-29-2026)
 - [May 2026](#may-2026---more-major-updates-and-fixes)
   - [02](#may-02-2026) · [03-04](#may-03-04-2026) · [06](#may-06-2026) · [08](#may-08-2026) · [10](#may-10-2026) · [11](#may-11-2026) · [14](#may-14-2026) · [15](#may-15-2026) · [16](#may-16-2026) · [17](#may-17-2026) · [18](#may-18-2026) · [19](#may-19-2026) · [20](#may-20-2026) · [21](#may-21-2026) · [22](#may-22-2026) · [23](#may-23-2026) · [24](#may-24-2026) · [28](#may-28-2026) · [29](#may-29-2026) · [30](#may-30-2026) · [31](#may-31-2026)
 - [April 2026](#april-2026---bug-fixes-and-updates)
@@ -4024,6 +4024,35 @@ Engine merge from TSOO (engine-level changes only; PROJECT_ONLY_CODE blocks excl
 - **KBHandlersCode.cpp**: Removed redundant renderer-conditional `#include "FXManager.h"` triple-block (all three branches were identical). Removed redundant renderer-conditional `extern FXManager fxManager;` triple-block. Updated `KEY_BACKSPACE` handler to call `guiManager.HandleBackspace()` unconditionally (removed `consoleWindow.bIsVisible` guard). Added new `KEY_DELETE` case calling `guiManager.HandleDelete()`.
 - **main.cpp**: Removed redundant renderer-conditional `FXManager fxManager;` triple-block (all three branches were identical); replaced with a single direct instantiation.
 
+#### June 29, 2026
+
+**Docs/S3MPlayer-Example-Usage.md** — New documentation written covering the full `S3MPlayer` class:
+
+- Overview of the S3M format, PCM and AdLib (OPL2 FM) instrument support, and the DirectSound ring-buffer playback pipeline.
+- Full API reference: `Play`, `Stop`, `Shutdown`, `Pause`, `Resume`, `HardPause`, `HardResume`, `Terminate`, `Mute`, `IsPlaying`, `IsPaused`, `SetVolume`, `SetGlobalVolume`, `SetFadeIn`, `SetFadeOut`, `GotoSequenceID`.
+- Volume hierarchy table showing how the five gain factors (`voice.volume`, `channelVolume`, `moduleGlobalVolume`, `globalVolume`, `currentVolume`) multiply together in the mixer.
+- Full implemented effects table covering all 26 S3M effect letters (Axx–Zxx) with hex codes and descriptions.
+- AdLib OPL2 synthesis section: two-operator FM, ADSR per operator, EGT sustain-hold flag, 8 OPL2 waveforms, self-feedback, additive/FM connection, TL attenuation, and frequency multipliers.
+- Waveform table for vibrato/tremolo/panbrello (`S3x`, `S4x`, `S5x`).
+- Retrigger volume command table (`Qxy` x-nibble actions).
+- Playback architecture notes: tick scheduling, `timeBeginPeriod(1)`, jitter accumulator, linear interpolation, mutex/atomic threading model.
+- Typical game integration pattern showing load, pause/resume, section jump, and fade-out/shutdown lifecycle.
+- Notes on file validation, order-list skip/end markers, stereo downmix, channel panning defaults, and volume clamping.
+
+**MPTMPlayer.cpp / MPTMPlayer.h** — Critical playback optimisation and correctness pass (validated against `Assets/test1.mptm`, Purple Motion's *Shooting Star*, which uses 31 external FLAC samples):
+
+- **Fixed stuck playback (root cause #1):** `S6x` was decoded as a *pattern loop* but in IT it is a *fine pattern delay* (extra ticks). The module's eleven `S66` commands were triggering spurious 6× row loops. `S6x` now adds ticks to the current row only; pattern loop moved to its correct command, `SBx`.
+- **Fixed silent/stuck samples (root cause #2):** `S9x` was decoded as the sample high-offset byte, corrupting the heavily-used `Oxx` sample offset so notes started past the sample end. `S9x` is now correctly treated as sound-control (no-op); the high-offset byte comes from `SAy` as per the IT spec.
+- **Fixed `SEx` pattern delay (hang + audible note resets):** the held row was being re-read on every hold tick, which both re-armed the delay (so delays >= 2 hung forever) and retriggered every note (sustained pad/loop samples restarted audibly, e.g. at `SEE`/`SE7`). The row is now read exactly once; while held it only counts the delay down, so notes sustain and loop smoothly across the delay as in OpenMPT / ModPlug Tracker. `S6x` fine pattern delay likewise extends the row's tick count without re-reading it.
+- **Fixed note tuning:** IT/MPTM pattern notes are 0-based (C-5 = 60); `ITNoteToLinear` subtracted 1, detuning every note a semitone and double-subtracting through the instrument note map. Removed the off-by-one.
+- **Fixed `Xxx` panning:** the old `min(data,0x80)*255/128` collapsed every pan value >= 0x80 to hard-right; now maps the full 0x00-0xFF range directly (0x80 = centre).
+- **Fixed pattern-loop off-by-one:** `SBx` now replays the loopback row without the `+1` that `AdvanceRow` would otherwise add.
+- **Vibrato/tremolo/panbrello waveforms:** `S3x`/`S4x`/`S5x` now select the oscillator waveform (sine/ramp/square/random), the `Waveform()` ramp-vs-square cases were swapped and are corrected, and oscillator phases retrigger on a fresh note (old-effects flag off).
+- **`Oxx`** now applies the offset only on note rows, per IT behaviour.
+- **Audio output optimisation:** `FillAudioBuffer` replaced its ~2 KB (~11 ms) lead -- which underran and stuttered -- with a frame-aligned quarter-second lead. `MixAudio` folds pan/master/voice gain into a single scalar per side (one multiply-add per channel in the inner loop) and replaces the per-sample `std::fmod` loop wrap with a bounded subtract.
+
+---
+
 #### June 28, 2026
 
 Engine merge from TSOO (engine-level changes only; PROJECT_ONLY_CODE blocks excluded):
@@ -4052,7 +4081,6 @@ Engine merge from TSOO (engine-level changes only; PROJECT_ONLY_CODE blocks excl
 All Renderers (DirectX11, DirectX12, Vulkan and OpenGL) support Full Exclusive Mode and Borderless modes (Tested and verified working!).
 
 New **XMLParser** class system added (XMLParser.h / XMLParser.cpp) — zero-dependency pure C++17 XML 1.0/1.1 implementation:
-
 - **DOM parsing** — `ParseFile`, `ParseString`, `ParseBytes` (std::string and std::wstring paths); builds full `XMLDocument` / `XMLNode` tree
 - **SAX2 streaming parse** — `ParseFileSAX`, `ParseStringSAX` with `XMLSAXCallbacks` (all 12 callback events including namespace prefix mapping)
 - **DOM Level 2 Core** — `CreateElement`, `CreateElementNS`, `CreateTextNode`, `CreateCDATASection`, `CreateComment`, `CreateProcessingInstruction`, `AppendChild`, `PrependChild`, `InsertBefore`, `InsertAfter`, `RemoveChild`, `ReplaceChild`, `RemoveAllChildren`, `Clone`
@@ -4076,6 +4104,83 @@ XMLParser compile fixes:
 - `XMLNode::ToString` (const method) fixed `shared_from_this()` call: used `std::const_pointer_cast<XMLNode>` since `shared_from_this()` on a const object returns `shared_ptr<const XMLNode>`, which cannot bind to `SerializeNode`'s `const shared_ptr<XMLNode>&` parameter
 - `#undef` guards added for `GetFirstChild`, `GetLastChild`, `GetNextSibling`, `GetPreviousSibling` — `<windowsx.h>` (pulled in transitively via `Includes.h`) defines these as Windows API `GetWindow` macros, which corrupt `XMLNode` method declarations when compiled after any Windows header
 - Fixes synced to TSOO project
+
+New **S3MPlayer** class system added (S3MPlayer.h / S3MPlayer.cpp) — support for Scream Tracker 3 Module Music Playback (works just like the XMMODPlayer):
+New **MPTMPlayer** class system added (MPTMPlayer.h / MPTMPlayer.cpp) — support for ModPlug Tracker Module Music Playback (works just like the XMMODPlayer):
+
+New Documents have been written up for these Two new music players as well can can be found in the "./Docs" folder.  Document for the XMLParser has also been written up as well.
+
+**S3MPlayer** FM AdLib emulation overhaul (S3MPlayer.h / S3MPlayer.cpp):
+
+- **Separate modulator and carrier envelopes**: Previously a single shared envelope was used for both FM operators. The modulator and carrier now each run their own independent ADSR state machine (stages: attack → decay → sustain-hold → release → done), which is required for accurate OPL2 FM timbres.
+- **Correct OPL2 envelope timing**: Replaced the arbitrary quadratic `DecodeOplRate` with `OplAttackRate` / `OplDecayRate` functions calibrated to real OPL2 hardware timing (AR=1 ≈ 7373 ms, halving each step; decay ~2× slower than attack). Sustain level now uses 3 dB per nibble steps (`OplSustainLevel`) matching the YM3812 datasheet.
+- **Correct TL attenuation**: `DecodeOplTotalLevel` now uses 0.75 dB per step (OPL2 spec) instead of the previous arbitrary 0.5 dB/step value.
+- **Modulator `r[6]` register now used**: The modulator sustain and release nibbles (register byte 6) were never decoded; the carrier SR values from `r[7]` were used for both. Fixed — each operator reads from its own SR byte.
+- **EGT (sustain-mode) flag decoded per operator**: Bit 5 of the AM/VIB/EGT/KSR/MULT byte (`r[0]` and `r[1]`) is now read for each operator. EGT=1 → hold at sustain level until key-off; EGT=0 → decay continues directly into release (percussive mode).
+- **OPL2 self-feedback corrected**: Feedback previously recomputed the waveform from scratch each sample (not state-preserving). Now uses `adLibLastMod` — the previous sample's envelope-weighted modulator output — fed back into the modulator's own phase input. Feedback amount uses the correct OPL2 formula: deviation = `(1 << fbLevel) / 512` normalized cycles (fb=7 → 0.25-cycle max, fb=0 → no feedback).
+- **Modulation depth corrected**: The arbitrary 0.22 phase scale factor replaced with 1.0 (one full cycle maximum phase deviation at full modulation depth), matching typical OPL2 FM behaviour.
+- **Key-off releases both operators**: `S3M_KEY_OFF` now sets `adLibModEnvelopeStage = 3` in addition to `adLibEnvelopeStage = 3`, so the modulator also enters release phase on key-off.
+- **New voice state fields** added to `S3MChannelVoice`: `adLibModEnvelopeStage`, `adLibModEnvelope`, `adLibLastMod`; all reset to zero on each new note trigger.
+
+**S3MPlayer** compliance fixes and strict optimisation (S3MPlayer.cpp):
+
+- **Global volume / config binding**: `globalVolume`, `currentVolume`, and `targetVolume` are now all initialised from `config.myConfig.musicVolume` in `Initialize()`, matching the XMPlayer pattern exactly. Previously only `currentVolume` was set from config while `globalVolume` always started at 64, ignoring the configuration system.
+- **Tempo drift fixed**: `PlaybackLoop()` now advances `tickStart` by exactly one tick period (`tickStart += microseconds(tickDurationUs)`) rather than resetting it to `now`. The old `tickStart = now` caused OS scheduling jitter to accumulate into audible tempo drift. A single-period catch-up guard prevents burst ticks after a CPU spike.
+- **Windows timer resolution**: `timeBeginPeriod(1)` / `timeEndPeriod(1)` bracketed around the playback thread so `sleep_for(1ms)` actually sleeps ~1 ms. Without this, Windows' default 15.6 ms timer granularity caused ticks to fire every ~30 ms instead of every 20 ms (at BPM 125), playing the module at ~67% of correct speed.
+- **Portamento direction inverted (Exx / Fxx)**: Effect 0x05 (Exx, pitch slide down) was multiplying `step` (raising pitch) and effect 0x06 (Fxx, pitch slide up) was dividing `step` (lowering pitch) — both backwards. Fixed: Exx now divides `step`, Fxx multiplies `step`, matching S3M specification.
+- **Fine portamento (E0x / F0x)**: Added `(amount & 0xF0) == 0xE0` case for fine portamento slides (values 0xE0–0xEF); these are now applied once on the first tick with a 1/4-unit scale, matching S3M fine-portamento behaviour. Previously 0xE0–0xEF were treated as normal slides applied every tick.
+
+**PUNPack.h / PUNPack.cpp** — Added Blowfish encryption/decryption and bcrypt password hashing:
+
+New constants:
+
+- `PUNPACK_BCRYPT_DEFAULT_COST` (12), `PUNPACK_BCRYPT_MIN_COST` (4), `PUNPACK_BCRYPT_MAX_COST` (31)
+- `PUNPACK_BCRYPT_SALT_BYTES` (16), `PUNPACK_BLOWFISH_BLOCK_SIZE` (8), `PUNPACK_BLOWFISH_MAX_KEY` (56)
+
+New public Blowfish methods (symmetric reversible cipher, CBC mode):
+
+- `BlowfishEncrypt(data, key)` — encrypts raw bytes; prepends random 8-byte IV; PKCS7 padding; keys up to 56 bytes
+- `BlowfishDecrypt(data, key)` — CBC decrypt, strips IV and PKCS7 padding
+- `BlowfishEncryptString(plaintext, key)` — convenience wrapper for `std::string` input
+- `BlowfishDecryptString(ciphertext, key)` — convenience wrapper returning `std::string`
+
+New public bcrypt methods (one-way password hashing, PHP-compatible):
+
+- `HashPassword(password, cost=12)` — EksBlowfishSetup + 64x Feistel enciphering of magic text; outputs `$2b$<cost>$<22-char salt><31-char hash>` (60 chars total)
+- `VerifyPassword(password, hash)` — re-derives hash from stored salt; constant-time XOR comparison; accepts `$2a$`, `$2b$`, `$2y$` prefix variants (PHP `password_hash()` / `password_verify()` compatible)
+
+New private helpers: `BlowfishInitState`, `BlowfishF`, `BlowfishEncipher`, `BlowfishDecipher`, `BlowfishExpandKey`, `EksBlowfishSetup`, `BcryptBase64Encode`, `BcryptBase64Decode`, `GenerateSaltBytes`
+
+**Docs/PUNPack-Example-Usage.md** — Completely rewritten with 14 sections covering all PUNPack features:
+
+- New sections: XOR Encryption/Decryption, Blowfish Encryption/Decryption, Password Hashing (bcrypt), PHP Interoperability
+- PHP interoperability guide: C++ generates hash verified by PHP `password_verify()`; PHP-generated `$2y$` hashes verified by C++ `VerifyPassword()`; full PHP-compatible auth class example
+- Updated Best Practices: encryption-selection table, Blowfish key guidelines, bcrypt cost benchmark, security memory-clearing guidance
+- Updated Summary table covering all methods
+
+**main.cpp** — S3MPlayer and MPTMPlayer config-system integration:
+
+- `config.setOnApplyCallback`: Added `#elif defined(__USE_S3MPLAYER__)` and `#elif defined(__USE_MPTMPLAYER__)` branches mirroring the existing XMPlayer pattern. Music Volume slider now calls `modPlayer.SetVolume()` live; Play Music toggle OFF calls `modPlayer.Pause()`; Play Music toggle ON while paused triggers a detached-thread `Stop()` + `Play(g_currentMusicFile)` restart with the correct volume — identical behaviour to the XMPlayer.
+- Music volume OSD hotkey (ALT+NUMPAD): Added `#elif defined(__USE_S3MPLAYER__)` and `#elif defined(__USE_MPTMPLAYER__)` cases calling `modPlayer.SetVolume()`, so the keyboard shortcut now updates all three mod-player types rather than only the XMPlayer.
+
+**MPTMPlayer.cpp** — `IsUnsupportedMPTMCommand` correctness and native effect coverage:
+
+- Added `MptmInternalCmd` enum (`CMD_MIDI=0x1A`, `CMD_SMOOTHMIDI=0x1B`, `CMD_DELAYCUT=0x1C`, `CMD_EXTMIDI=0x1D`, `CMD_FINETUNE=0x1E`, `CMD_FINETUNE_BKWD=0x1F`) to document the actual OpenMPT internal effect byte values, which do not correspond to their ASCII display characters.
+- `IsUnsupportedMPTMCommand` signature changed to `(uint8_t effect, uint8_t param)` — param is required to distinguish native vs plugin sub-ranges within dual-purpose commands.
+- `CMD_SMOOTHMIDI` (`\xx`) and `CMD_EXTMIDI` (`#xx`) remain unconditionally dropped — pure VST automation with no native equivalent.
+- `CMD_MIDI` (`Zxx`) remains dropped — dual-purpose resonant filter / VST macro; engine has no native filter path yet.
+- `CMD_DELAYCUT` (`Xxx`): only dropped when `param >= 0x80` (OpenMPT plugin parameter extension). `param 0x00–0x7F` is native note delay + cut and now reaches the effect handlers.
+- `CMD_FINETUNE` (`qxx`) and `CMD_FINETUNE_BKWD` (`txx`) are native fractional pitch commands — no longer falsely filtered.
+- Added `CMD_DELAYCUT` pre-note early-exit in `TriggerEvent` (mirroring the existing `SDx` pattern): when the delay nibble is non-zero the note is deferred and `noteCutTick` is armed immediately so the cut fires at the correct tick after the note triggers.
+- Added `case 0x1C` to the `TriggerEvent` switch for the delay=0 cut-only variant of `CMD_DELAYCUT`.
+- Added `case 0x1E` / `case 0x1F` to `TriggerEvent` switch: apply fractional pitch finetune as a one-shot `pow(2, param/768.0)` step multiplier (64 steps per semitone) on `voice.step` / `voice.baseStep`.
+- Call site updated: `IsUnsupportedMPTMCommand(effect)` → `IsUnsupportedMPTMCommand(effect, data)`.
+
+**MPTMPlayer.h** — Fixed `MPTMSampleHeader` struct missing reserved byte:
+
+- Added `uint8_t reserved` at file offset `0x10` (between `dosName[12]` and `globalVolume`), bringing the struct from 79 to the correct 80 bytes per the IT/MPTM specification. The missing byte caused all fields from `globalVolume` onward to be read one byte early, producing garbage `samplePointer` values and a `"Failed to read sample data N"` fatal error at load time.
+- Added offset comments to every `MPTMSampleHeader` field (`0x00`–`0x4F`) so future edits can be verified against the IT spec at a glance.
+- Added `static_assert(sizeof(MPTMHeader) == 192)` and `static_assert(sizeof(MPTMSampleHeader) == 80)` to catch any future struct drift at compile time.
 
 ---
 

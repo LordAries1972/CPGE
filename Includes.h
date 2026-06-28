@@ -69,8 +69,16 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 // #define PROJECT_ONLY_CODE
 // ---------------------------------------------------------------------------
 
-#define __USE_XMPLAYER__
+// ---------------------------------------------------------------------------
+// Music Play back system we are wanting use.
+// ENSURE YOU DEFINE ONE OF THEM ONLY!
+// ---------------------------------------------------------------------------
+//#define __USE_XMPLAYER__
+//#define __USE_S3MPLAYER__
+#define __USE_MPTMPLAYER__
 //#define __USE_MP3PLAYER__
+// ---------------------------------------------------------------------------
+
 #define __USING_JOYSTICKS__                                                             // Uncomment this line if you want to use Joysticks with this engine.
 #define __USE_NETWORKING__                                                              // Uncomment this line if you want to use Networking TCP/UDP Protocols with this engine.
 #define __USE_GAMINGAI__                                                                // Uncomment this line if you want to use Gaming AI with this engine.

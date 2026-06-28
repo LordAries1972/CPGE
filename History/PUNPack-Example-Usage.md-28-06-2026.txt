@@ -1,0 +1,27 @@
+Docs/PUNPack-Example-Usage.md - 28 June 2026
+============================================
+
+Completely rewritten to cover all PUNPack features including the new additions.
+
+New sections added:
+  - XOR Encryption / Decryption  (GenerateDecipherKey, EncryptData, DecryptData)
+  - Blowfish Encryption / Decryption
+      BlowfishEncrypt / BlowfishDecrypt (raw buffer, CBC+PKCS7)
+      BlowfishEncryptString / BlowfishDecryptString (convenience)
+      Combining Blowfish with compression (compress first, then encrypt)
+      Network packet security example
+  - Password Hashing (bcrypt)
+      HashPassword - produces $2b$12$... hash string
+      VerifyPassword - constant-time comparison
+      Cost factor selection guide with benchmark loop
+  - PHP Interoperability
+      C++ generates hash, PHP verifies (password_verify)
+      PHP generates hash, C++ verifies (VerifyPassword accepts $2y$)
+      Complete PHP-compatible user authentication flow class
+
+Updated sections:
+  - Overview updated to mention Blowfish, bcrypt, and PHP compatibility
+  - Table of Contents expanded to 14 entries
+  - Best Practices extended: encryption selection table, Blowfish key guidelines,
+    bcrypt cost guidelines, security memory-clearing guidance
+  - Summary table updated to include all new methods

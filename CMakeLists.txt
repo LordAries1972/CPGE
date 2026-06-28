@@ -102,6 +102,8 @@ set(SOURCES
     ShaderLoaders.cpp
     ShaderManager.cpp
     SoundManager.cpp
+    S3MPlayer.cpp
+    MPTMPlayer.cpp
     ThreadManager.cpp
     TTSManager.cpp
     WinMediaPlayer.cpp

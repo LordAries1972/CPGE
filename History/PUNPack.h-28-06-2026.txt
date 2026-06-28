@@ -1,0 +1,36 @@
+PUNPack.h - 28 June 2026
+========================
+
+Added Blowfish encryption / decryption and bcrypt password hashing support.
+
+New constants:
+  PUNPACK_BCRYPT_DEFAULT_COST  = 12
+  PUNPACK_BCRYPT_MIN_COST      = 4
+  PUNPACK_BCRYPT_MAX_COST      = 31
+  PUNPACK_BCRYPT_SALT_BYTES    = 16
+  PUNPACK_BLOWFISH_BLOCK_SIZE  = 8
+  PUNPACK_BLOWFISH_MAX_KEY     = 56
+
+New public methods (Blowfish - symmetric, reversible):
+  BlowfishEncrypt(data, key)       - CBC mode with random IV + PKCS7 padding
+  BlowfishDecrypt(data, key)       - CBC mode decrypt + strip padding + strip IV
+  BlowfishEncryptString(str, key)  - convenience overload for std::string input
+  BlowfishDecryptString(data, key) - convenience overload returning std::string
+
+New public methods (bcrypt - one-way password hashing):
+  HashPassword(password, cost)     - produces $2b$<cost>$<salt><hash> (60 chars)
+  VerifyPassword(password, hash)   - constant-time comparison, PHP-compatible
+
+New private struct:
+  BlowfishState { P[18], S[4][256] }  - holds cipher subkeys and S-boxes
+
+New private methods:
+  BlowfishInitState(state)
+  BlowfishExpandKey(state, key, keyLen, data, dataLen)
+  BlowfishF(state, x)
+  BlowfishEncipher(state, xL, xR)
+  BlowfishDecipher(state, xL, xR)
+  EksBlowfishSetup(state, password, passLen, salt, cost)
+  BcryptBase64Encode(data, len)
+  BcryptBase64Decode(encoded, data, len)
+  GenerateSaltBytes(saltSize)
