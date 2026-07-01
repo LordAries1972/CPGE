@@ -36,7 +36,7 @@ extern ThreadManager      threadManager;
 extern SceneManager       scene;
 extern Configuration      config;
 extern GUIManager         guiManager;
-extern FXManager        fxManager;
+extern FXManager          fxManager;
 extern WindowMetrics      winMetrics;
 extern LightsManager      lightsManager;
 extern Model              models[MAX_MODELS];

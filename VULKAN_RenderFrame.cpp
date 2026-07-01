@@ -837,7 +837,9 @@ void VulkanRenderer::RenderFrame()
 
                 // Skip GPU blit when zoom is active — the D2D bg-overlay path handles it instead
                 bool bBgZoomActive = (bgIdx >= 0 && fxManager.IsImageZoomActive(bgIdx));
-                if (bgIdx >= 0 && bgIdx < MAX_TEXTURE_BUFFERS && m_textures2D[bgIdx].isValid && !bBgZoomActive)
+                if (bgIdx >= 0 && bgIdx < MAX_TEXTURE_BUFFERS && m_textures2D[bgIdx].isValid &&
+                    m_textures2D[bgIdx].view    != VK_NULL_HANDLE &&
+                    m_textures2D[bgIdx].sampler != VK_NULL_HANDLE && !bBgZoomActive)
                 {
                     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_2dPipeline);
 
@@ -888,6 +890,8 @@ void VulkanRenderer::RenderFrame()
             // matching the DX11 draw order where D2D writes to the backbuffer before 3D renders over it.
 #if defined(PLATFORM_WINDOWS)
             if (m_2dPipeline != VK_NULL_HANDLE && m_bgOverlayTexture.isValid &&
+                m_bgOverlayTexture.view    != VK_NULL_HANDLE &&
+                m_bgOverlayTexture.sampler != VK_NULL_HANDLE &&
                 scene.stSceneType == SceneType::SCENE_GAMETITLE &&
                 threadManager.threadVars.bLoaderTaskFinished.load())
             {
@@ -980,7 +984,9 @@ void VulkanRenderer::RenderFrame()
             // Compositing AFTER RenderGamePlay guarantees all UI elements appear on top of 3D
             // geometry.  The background image (IMG_GAMEINTRO1) is handled separately above via a
             // dedicated GPU-texture blit that executes before 3D.
-            if (m_2dPipeline != VK_NULL_HANDLE && m_overlayTexture.isValid) {
+            if (m_2dPipeline != VK_NULL_HANDLE && m_overlayTexture.isValid &&
+                m_overlayTexture.view    != VK_NULL_HANDLE &&
+                m_overlayTexture.sampler != VK_NULL_HANDLE) {
                 vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_2dPipeline);
 
                 VkDescriptorSetAllocateInfo dsai{};

@@ -1,0 +1,100 @@
+ITPlayer.cpp / ITPlayer.h — IT-spec correctness pass and crackling fix — 29 June 2026
+======================================================================================
+
+CRACKLING FIXES
+---------------
+
+1. Loop-boundary interpolation (MixAudio — line ~1131)
+   BEFORE: nextIndex wrapped to loopStart only when nextIndex >= dataSize. When samplePos
+           approached loopEnd, nextIndex read pcm[loopEnd] — a sample outside the loop that
+           will never be played — producing a waveform discontinuity click on every loop cycle.
+   AFTER:  Added a prior check: if looped && nextIndex >= loopEnd, wrap to loopStart first.
+           The interpolated output is now continuous at the loop boundary.
+
+2. Tone portamento pitch arithmetic (ApplyPortamento + ApplyVolumeColumnTick VOLCMD_TONEPORTA)
+   BEFORE: step += amount (linear in Hz space). Pitch-change rate varied drastically with
+           current frequency (too fast at low pitches, imperceptibly slow at high pitches).
+   AFTER:  step *= 2^(param/768) per tick (multiplicative, constant semitones per tick).
+           This matches IT's linear-frequency slide mode. Same fix applied to the
+           volume-column 'g' (VOLCMD_TONEPORTA) path, which used the same additive formula.
+
+IT-SPEC COMPLIANCE FIXES
+------------------------
+
+3. Fine volume slide timing — Dxx (TriggerEvent case 0x04 + ApplyVolumeSlide)
+   BEFORE: DFy (fine slide down) and DxF (fine slide up) fired at tick==1 inside
+           ApplyVolumeSlide. Per IT spec they must fire exactly once on tick 0.
+           At speed=1 they never fired at all (ApplyVolumeSlide never runs at tick 0).
+   AFTER:  Fine slides applied in TriggerEvent (tick 0). ApplyVolumeSlide now skips those
+           branches with a "already applied on tick 0" comment.
+
+4. Fine channel-volume slide — Nxx (TriggerEvent case 0x0E + ApplyChannelVolumeSlide)
+   Same tick-0 fix as item 3.
+
+5. Fine global-volume slide — Wxx (TriggerEvent case 0x17 + ApplyGlobalVolumeSlide)
+   Same tick-0 fix as item 3.
+
+6. Fine / extra-fine portamento timing — Exx / Fxx (TriggerEvent + ApplyTickEffects)
+   BEFORE: EFy/EEy (portamento down fine/extra-fine) and FFy/FEy fired at tick==1 in
+           ApplyTickEffects. IT spec: these variants fire once on the row trigger (tick 0).
+   AFTER:  Fine/extra-fine variants computed and applied in TriggerEvent cases 0x05/0x06.
+           ApplyTickEffects cases 0x05/0x06 now skip (param & 0xF0) == 0xF0 and == 0xE0.
+
+7. Tremor counter reset — Ixx (TriggerEvent case 0x09)
+   BEFORE: tremorCounter = 0 set unconditionally every row the Ixx effect appeared, even
+           when no new note was triggered. Caused a rhythmic click at every row boundary
+           during sustained tremor as the on/off cycle restarted from scratch.
+   AFTER:  Removed the tremorCounter = 0 assignment. New voices are zero-initialised by
+           AllocateVoice so the counter correctly resets only on a fresh note.
+
+8. Vibrato/tremolo/panbrello waveform bit masking — S3x/S4x/S5x
+   BEFORE: value & 0x03 discarded bit 2, which is the IT "no-retrig" flag (controls
+           whether the oscillator phase resets on a new note).
+   AFTER:  Changed to value & 0x07 for all three oscillators.
+
+9. Oscillator no-retrig phase carry — TriggerEvent new-voice allocation
+   BEFORE: vibratoPos/tremoloPos/panbrelloPos always initialised to 0 for new voices.
+   AFTER:  When the corresponding waveform's bit 2 is set, the position is copied from
+           host.vibratoPos/tremoloPos/panbrelloPos instead of being reset.
+   HOST SYNC: ApplyTickEffects now writes back voice.vibratoPos -> host.vibratoPos after
+           cases 0x08 (Hxx), 0x0B (Kxx), 0x15 (Uxx), 0x19 (Yxx), and VOLCMD_VIBRATO ('h')
+           so the phase carry is always up-to-date for the next note trigger.
+
+10. Missing mix volume prescaler — MixAudio (line ~1091)
+    BEFORE: header.mixVolume (IT header byte 49; value 0-128, default 48) was stored in
+            the struct but never applied in MixAudio. With all channels at full volume and
+            4 simultaneous voices, the mix accumulator reached ~65534 per channel — well over
+            int16_t range — causing the soft-clipper to distort the waveform audibly as
+            scratchiness on patterns 1 & 2 of test2.it.
+    AFTER:  Added mixVolFactor = max(header.mixVolume, 1) / 128.0f. This factor is collapsed
+            into finalLeft/finalRight alongside globalVolFactor, moduleGlobalVolFactor and
+            fadeVolFactor. With mixVolume=48 (the value in test2.it), the peak per channel
+            drops from ~65534 to ~24575 — within clean int16_t range.
+            Zero-guard: header.mixVolume == 0 uses the IT default of 48.
+
+11. IT note encoding is 1-based — ITNoteToLinear fix (line ~92)
+    BEFORE: ITNoteToLinear() passed the raw note byte through unchanged, with a comment
+            stating "IT pattern notes are already 0-based: 0=C-0, 60=C-5".  In reality
+            IT uses 1-based encoding: byte 1=C-0, byte 61=C-5 (middle C), byte 120=B-9.
+            A hex dump of test2.it confirmed raw byte 0x3D (=61) for a cell OpenMPT labels
+            as "C-5". NoteToFrequency(61, c5Speed) returned c5Speed*2^(1/12) = C#5 instead
+            of C-5 — every note was one semitone too high in sample-only mode.
+            In instrument mode the 1-based value was also used as a 0-based noteMap index,
+            accessing noteMap[61] instead of noteMap[60] — two semitones off the target.
+    AFTER:  ITNoteToLinear subtracts 1 from the raw byte to produce 0-based values
+            (0=C-0, 60=C-5) before any NoteToFrequency call or noteMap lookup.
+            Sentinels (byte 0 = empty, 253-255 = fade/cut/off) are passed through unchanged.
+            All 5 call sites (lines 1462, 1624, 1666, 1897, 2484) are covered by the single
+            function change with no further edits required.
+
+12. Kxx and Lxx effect-parameter memory bugs — TriggerEvent effect-memory block (line ~1646)
+    BEFORE: Kxx (= H00 + Dxx) was grouped inside case 0x08/0x15 (Hxx/Uxx) so its xx
+            parameter was stored into lastVibrato instead of lastVolumeSlide, corrupting
+            both the volume-slide depth and the vibrato depth for subsequent Hxx effects.
+            Lxx (= G00 + Dxx) stored its xx parameter into BOTH lastVolumeSlide AND
+            lastPortamento, overwriting the portamento speed that Gxx had previously set.
+    AFTER:  Case 0x0B (Kxx) is now a separate branch: xx -> lastVolumeSlide only; vibrato
+            depth comes from host.lastVibrato (Hxx memory), which Kxx must not touch.
+            Case 0x0C (Lxx) is also a separate branch: xx -> lastVolumeSlide only; the
+            host.lastPortamento = data line is removed so Gxx's portamento speed is
+            preserved unchanged and used for the continuing slide.

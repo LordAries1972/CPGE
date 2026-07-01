@@ -18,6 +18,7 @@ if ($vc -notmatch "v(\d+)\.(\d+)\.(\d+)") {
     Write-Error "Could not parse version from Version.id"
     exit 1
 }
+
 $major = $Matches[1]
 $minor = $Matches[2]
 $build = $Matches[3]
@@ -27,7 +28,7 @@ $ver   = "v$major.$minor.$build"
 $crlf = "`r`n"
 $h  = "#pragma once$crlf"
 $h += "$crlf"
-$h += "// Authoritative build identity — update these on every release.$crlf"
+$h += "// Authoritative build identity - update Version.id before release builds.$crlf"
 $h += "// Format: v<BUILD_VERSION>.<BUILD_SUBVERSION>.<BUILD_NUMBER>$crlf"
 $h += "constexpr int CURRENT_BUILD_VERSION    = $major;$crlf"
 $h += "constexpr int CURRENT_BUILD_SUBVERSION = $minor;$crlf"

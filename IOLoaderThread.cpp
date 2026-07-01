@@ -294,7 +294,7 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
                                         camH = static_cast<float>(winMetrics.monitorFullArea.bottom - winMetrics.monitorFullArea.top);
                                     #else
                                         camW = static_cast<float>(config.myConfig.resolutionWidth);
-                                        camH = static_cast<float>(config.myConfig.resolutionWidth);
+                                        camH = static_cast<float>(config.myConfig.resolutionHeight);
                                     #endif
                                     break;
 
@@ -309,7 +309,7 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
                                         camH = static_cast<float>(winMetrics.clientHeight);
                                     #else
                                         camW = static_cast<float>(config.myConfig.resolutionWidth);
-                                        camH = static_cast<float>(config.myConfig.resolutionWidth);
+                                        camH = static_cast<float>(config.myConfig.resolutionHeight);
                                     #endif
                                     break;
                             }

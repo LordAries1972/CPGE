@@ -223,8 +223,9 @@ private:
     IAudioRenderClient*     m_pMonitorRenderClient;
     WAVEFORMATEX*           m_pMonitorFormat;
     UINT32                  m_monitorBufferFrames;
+    bool                    m_monitorOnLoopbackDevice; // true when monitor and eConsole loopback share the same physical endpoint
     std::atomic<float>      m_micMonitorGain;     // monitor output volume
-    std::atomic<float>      m_micRecordGain;      // recording blend volume (no-monitor path only)
+    std::atomic<float>      m_micRecordGain;      // blend volume applied only when m_monitorOnLoopbackDevice == false
 
     // ---- state ----
     std::atomic<bool>       m_isRecording;

@@ -28,9 +28,14 @@ MyConfig Configuration::GetConfig() const {
 bool Configuration::loadConfig() {
     std::ifstream configStream(configFile);
     if (!configStream.is_open()) {
-        std::wstring msg = L"Error opening config file: " + configFile;
-        debug.logLevelMessage(LogLevel::LOG_ERROR, msg);
-        return false;
+        debug.logLevelMessage(LogLevel::LOG_WARNING,
+            L"[Configuration] GameConfig.cfg not found - saving and using default configuration.");
+        myConfig = MyConfig();
+        if (!saveConfig()) {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL,
+                L"[Configuration] Failed to save default GameConfig.cfg!");
+        }
+        return true;
     }
 
     // Deserialize the configuration from JSON

@@ -30,7 +30,13 @@
     <ClCompile Include="S3MPlayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="MODPlayer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="MPTMPlayer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ITPlayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="SceneManager.cpp">
@@ -224,7 +230,13 @@
     <ClInclude Include="S3MPlayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="MODPlayer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="MPTMPlayer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ITPlayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Configuration.h">

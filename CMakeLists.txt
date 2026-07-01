@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ── Game identity & renderer selection ───────────────────────────────────────
 # GameName must match #define GAME_NAME in Includes.h and <GameName> in the vcxproj.
-set(GAME_NAME "CPGE" CACHE STRING "Base game name used in the output executable")
+set(GAME_NAME "TSOO" CACHE STRING "Base game name used in the output executable")
 # Renderer: DX11 | DX12 | OpenGL | Vulkan | METAL (Metal is macOS/iOS only; not implemented yet)
 set(RENDERER "DX11" CACHE STRING "Active renderer (DX11, DX12, OpenGL, Vulkan, METAL)")
 
@@ -64,7 +64,6 @@ set(SOURCES
     DX12Models.cpp
     ExceptionHandler.cpp
     FileIO.cpp
-    XMLParser.cpp
     GamePlayer.cpp
     GamingAI.cpp
     FBXAnimator.cpp
@@ -94,20 +93,23 @@ set(SOURCES
     VULKAN_Renderer.cpp
     VULKAN_RenderFrame.cpp
     Physics.cpp
+    ITPlayer.cpp
+    MODPlayer.cpp
+    MPTMPlayer.cpp
     PUNPack.cpp
     RendererFactory.cpp
+    S3MPlayer.cpp
     SceneManager.cpp
     ScriptManager.cpp
     ScreenRecorder.cpp
     ShaderLoaders.cpp
     ShaderManager.cpp
     SoundManager.cpp
-    S3MPlayer.cpp
-    MPTMPlayer.cpp
     ThreadManager.cpp
     TTSManager.cpp
     WinMediaPlayer.cpp
     WinSystem.cpp
+    XMLParser.cpp
     XMMODPlayer.cpp
     CrossPlatformGameEngine.rc
 )
@@ -118,6 +120,15 @@ if(MSVC AND WIN32)
 endif()
 
 add_executable(CrossPlatformGameEngine WIN32 ${SOURCES})
+
+# ── Version auto-increment: preserve Version.id major/minor, bump build ──────
+set(VERSION_FILE "${CMAKE_CURRENT_SOURCE_DIR}/Version.id")
+add_custom_command(TARGET CrossPlatformGameEngine PRE_BUILD
+    COMMAND ${CMAKE_COMMAND}
+        -DVERSION_FILE=${VERSION_FILE}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/IncrementVersion.cmake"
+    COMMENT "Incrementing build version"
+)
 
 # ── Output file name ──────────────────────────────────────────────────────────
 set_target_properties(CrossPlatformGameEngine PROPERTIES
@@ -573,11 +584,3 @@ if(WIN32)
     endif()
 endif()
 
-# ── Version auto-increment (mirrors UpdateVersionFile MSBuild target) ─────────
-set(VERSION_FILE "${CMAKE_CURRENT_SOURCE_DIR}/Version.id")
-add_custom_command(TARGET CrossPlatformGameEngine PRE_BUILD
-    COMMAND ${CMAKE_COMMAND}
-        -DVERSION_FILE=${VERSION_FILE}
-        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/IncrementVersion.cmake"
-    COMMENT "Incrementing build version"
-)

@@ -194,18 +194,17 @@ if /i "%ARG2%"=="release" set CONFIG=Release
 if /i "%ARG2%"=="debug"   set CONFIG=Debug
 
 :: --- Version increment ---
-:: Read Version.id, bump the build number, write back both Version.id and BuildInfo.h.
-:: SKIP_VERSION_INCREMENT is set by 'cmake-build all' for all pipelines after the first,
-:: so the build number advances exactly once per user-initiated build invocation.
+:: First build step: bump Version.id build number by 1 and mirror it into BuildInfo.h.
 if not defined SKIP_VERSION_INCREMENT (
-    echo Incrementing build number...
-    powershell -NoProfile -Command "& { $vf='%SCRIPT_DIR%Version.id'; $bf='%SCRIPT_DIR%BuildInfo.h'; $rf='%SCRIPT_DIR%ReleaseInfo.md'; $line=(Get-Content $vf -Raw).Trim(); if ($line -match 'v(\d+)\.(\d+)\.(\d+)') { $maj=[int]$Matches[1]; $min=[int]$Matches[2]; $bld=[int]$Matches[3]+1; [IO.File]::WriteAllText($vf,'Current Build Version: v'+$maj+'.'+$min+'.'+$bld); $t=[IO.File]::ReadAllText($bf); $t=$t -replace '(?m)^constexpr int CURRENT_BUILD_VERSION\s*=\s*\d+;',('constexpr int CURRENT_BUILD_VERSION    = '+$maj+';'); $t=$t -replace '(?m)^constexpr int CURRENT_BUILD_SUBVERSION\s*=\s*\d+;',('constexpr int CURRENT_BUILD_SUBVERSION = '+$min+';'); $t=$t -replace '(?m)^constexpr int CURRENT_BUILD\s*=\s*\d+;',('constexpr int CURRENT_BUILD            = '+$bld+';'); [IO.File]::WriteAllText($bf,$t); $r=[IO.File]::ReadAllText($rf); $r=$r -replace '(?m)^\*Current Build Version: v\d+\.\d+\.\d+\*',('*Current Build Version: v'+$maj+'.'+$min+'.'+$bld+'*'); [IO.File]::WriteAllText($rf,$r); Write-Host ('Build number: v'+$maj+'.'+$min+'.'+$bld) } else { Write-Error 'ERROR: Could not parse Version.id'; exit 1 } }"
+    echo Incrementing build version...
+    "%CMAKE_EXE%" -DVERSION_FILE="%SCRIPT_DIR%Version.id" -P "%SCRIPT_DIR%cmake\IncrementVersion.cmake"
     if errorlevel 1 (
-        echo ERROR: Failed to increment build number -- build aborted.
+        echo ERROR: Failed to increment build version -- build aborted.
         exit /b 1
     )
+) else (
+    echo Version increment skipped for this pipeline; already handled by the first build.
 )
-
 :: --- Patch Includes.h ---
 :: Use PowerShell to comment out ALL Windows renderer #define lines, then
 :: uncomment only the one matching the requested renderer.
@@ -241,7 +240,7 @@ echo.
 "%CMAKE_EXE%" -S "%SCRIPT_DIR:~0,-1%" -B "%BUILD_DIR%" -G "Visual Studio 17 2022" -A x64 -DRENDERER:STRING=%RENDERER% -DGAME_NAME:STRING=%GAME_NAME_VAL%
 if errorlevel 1 goto :error
 
-:: cmake-build already incremented the version; tell IncrementVersion.cmake PRE_BUILD hook to skip.
+:: cmake-build already handled the version; tell the CMake PRE_BUILD hook to skip.
 set SKIP_VERSION_INCREMENT=1
 "%CMAKE_EXE%" --build "%BUILD_DIR%" --config %CONFIG% --parallel
 if errorlevel 1 goto :error

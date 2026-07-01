@@ -19,10 +19,7 @@
 //                  XXE protection via entity expansion limit
 // -------------------------------------------------------------------------------------------------------------
 #include "XMLParser.h"
-
-#ifdef _DEBUG
-    #define _DEBUG_XMLPARSER_
-#endif
+#include "Debug.h"
 
 // ==============================================================================================
 // Built-in XML entities (XML 1.0 spec, section 4.6)
@@ -100,6 +97,11 @@ static std::string TrimString(const std::string& s)
     if (start == std::string::npos) return "";
     size_t end = s.find_last_not_of(" \t\r\n\f\v");
     return s.substr(start, end - start + 1);
+}
+
+static std::wstring WidenForXMLLog(const std::string& s)
+{
+    return std::wstring(s.begin(), s.end());
 }
 
 // ==============================================================================================
@@ -1459,7 +1461,10 @@ XMLParseResult XMLParser::ParseFile(const std::string& filepath, XMLDocument& ou
         XMLParseResult r;
         r.error = XMLParseError::FILE_NOT_FOUND;
         r.description = "Cannot open file: " + filepath;
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"XMLParser: Cannot open file");
+        #ifdef _DEBUG_XMLPARSER_
+        debug.logLevelMessage(LogLevel::LOG_WARNING,
+            L"XMLParser: " + WidenForXMLLog(r.description));
+        #endif
         return r;
     }
     std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(file)), {});
@@ -1474,7 +1479,10 @@ XMLParseResult XMLParser::ParseFile(const std::wstring& filepath, XMLDocument& o
         XMLParseResult r;
         r.error = XMLParseError::FILE_NOT_FOUND;
         r.description = "Cannot open file";
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"XMLParser: Cannot open wide-path file");
+        #ifdef _DEBUG_XMLPARSER_
+        debug.logLevelMessage(LogLevel::LOG_WARNING,
+            L"XMLParser: Cannot open wide-path file: " + filepath);
+        #endif
         return r;
     }
     std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(file)), {});
@@ -1503,6 +1511,10 @@ XMLParseResult XMLParser::ParseFileSAX(const std::string& filepath, const XMLSAX
         XMLParseResult r;
         r.error = XMLParseError::FILE_NOT_FOUND;
         r.description = "Cannot open file: " + filepath;
+        #ifdef _DEBUG_XMLPARSER_
+        debug.logLevelMessage(LogLevel::LOG_WARNING,
+            L"XMLParser SAX: " + WidenForXMLLog(r.description));
+        #endif
         return r;
     }
     std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(file)), {});
@@ -1517,6 +1529,10 @@ XMLParseResult XMLParser::ParseFileSAX(const std::wstring& filepath, const XMLSA
         XMLParseResult r;
         r.error = XMLParseError::FILE_NOT_FOUND;
         r.description = "Cannot open file";
+        #ifdef _DEBUG_XMLPARSER_
+        debug.logLevelMessage(LogLevel::LOG_WARNING,
+            L"XMLParser SAX: Cannot open wide-path file: " + filepath);
+        #endif
         return r;
     }
     std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(file)), {});
@@ -1838,7 +1854,9 @@ bool XMLParser::SetError(ParseState& state, XMLParseError code, const std::strin
             state.callbacks->onError(code, state.line, state.col, desc);
 
         #ifdef _DEBUG_XMLPARSER_
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"XMLParser: Parse error");
+        debug.logDebugMessage(LogLevel::LOG_WARNING,
+            L"XMLParser: Parse error %d at line %d, column %d: %hs",
+            static_cast<int>(code), state.line, state.col, desc.c_str());
         #endif
     }
     return false;
@@ -2764,7 +2782,10 @@ bool XMLSerializer::WriteToFile(const XMLDocument& doc, const std::string& filep
     std::ofstream file(filepath, std::ios::binary);
     if (!file.is_open())
     {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"XMLSerializer: Cannot write to file");
+        #ifdef _DEBUG_XMLPARSER_
+        debug.logLevelMessage(LogLevel::LOG_WARNING,
+            L"XMLSerializer: Cannot write to file: " + WidenForXMLLog(filepath));
+        #endif
         return false;
     }
     file.write(xml.c_str(), static_cast<std::streamsize>(xml.size()));
@@ -2777,7 +2798,10 @@ bool XMLSerializer::WriteToFile(const XMLDocument& doc, const std::wstring& file
     std::ofstream file(filepath, std::ios::binary);
     if (!file.is_open())
     {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"XMLSerializer: Cannot write to wide-path file");
+        #ifdef _DEBUG_XMLPARSER_
+        debug.logLevelMessage(LogLevel::LOG_WARNING,
+            L"XMLSerializer: Cannot write to wide-path file: " + filepath);
+        #endif
         return false;
     }
     file.write(xml.c_str(), static_cast<std::streamsize>(xml.size()));

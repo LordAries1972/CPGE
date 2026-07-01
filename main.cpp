@@ -37,7 +37,7 @@
    - Avoid using .get() unless absolutely necessary, and only on smart pointers.
 
    PLATFORM SAFETY:
-   - DX11Renderer & DX12Renderer is Windows-only. Do NOT include DX11 or DX12 
+   - DX11Renderer & DX12Renderer is Windows-only. Do NOT include DX11 or DX12
      specific headers or calls in shared, platform-independent logic.
 
    See Renderer.h for a full architectural diagram.
@@ -87,7 +87,7 @@
         #include "DX11Renderer.h"
     #elif defined(__USE_DIRECTX_12__)
         #include "DX12Renderer.h"
-    #elif defined(__USE_OPENGL__)    
+    #elif defined(__USE_OPENGL__)
         #include "OpenGLRenderer.h"
     #elif defined(__USE_VULKAN__)
         #include "VULKAN_Renderer.h"
@@ -120,16 +120,8 @@
 #include "Lights.h"
 #include "MoviePlayer.h"
 #include "ScreenRecorder.h"
-#include "XMLParser.h"
 #include "ConsoleWindow.h"
 
-#ifdef __USE_SCRIPT_MANAGER__
-    #include "ScriptManager.h"
-#endif
-
-//------------------------------------------
-// Platform Configuration Macros
-//------------------------------------------
 #if defined(__USE_MP3PLAYER__)
     #include "WinMediaPlayer.h"
 #elif defined(__USE_XMPLAYER__)
@@ -138,6 +130,14 @@
     #include "S3MPlayer.h"
 #elif defined(__USE_MPTMPLAYER__)
     #include "MPTMPlayer.h"
+#elif defined(__USE_ITPLAYER__)
+    #include "ITPlayer.h"
+#elif defined(__USE_MODPLAYER__)
+    #include "MODPlayer.h"
+#endif
+
+#ifdef __USE_SCRIPT_MANAGER__
+    #include "ScriptManager.h"
 #endif
 
 //------------------------------------------
@@ -151,7 +151,7 @@ const LPCWSTR lpDEFAULT_NAME = L"CPGE_";
 // Required Class Instantiations / Declarations
 //
 // Some classes will reference each other, so we need to
-// declare them here to avoid circular dependencies. 
+// declare them here to avoid circular dependencies.
 //--------------------------------------------------------
 ExceptionHandler exceptionHandler;
 Configuration config;
@@ -168,9 +168,6 @@ SceneManager scene;
 ShaderManager shaderManager;
 MoviePlayer moviePlayer;
 ScreenRecorder screenRecorder;
-// Global XMLParser instance (can also be created locally per operation)
-XMLParser xmlParser;
-XMLDocument xmlDoc;
 PUNPack punPack;
 GamePlayer gamePlayer;
 PlayerInfo playerInfo[MAX_PLAYERS]; // Player Info Array
@@ -207,6 +204,10 @@ extern ConsoleWindow consoleWindow;
     S3MPlayer modPlayer;
 #elif defined(__USE_MPTMPLAYER__)
     MPTMPlayer modPlayer;
+#elif defined(__USE_ITPLAYER__)
+    ITPlayer modPlayer;
+#elif defined(__USE_MODPLAYER__)
+    MODPlayer modPlayer;
 #endif
 
 static std::wstring g_currentMusicFile;  // last-loaded module path; used for pattern-0 restart
@@ -452,7 +453,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
     // Create appropriate Renderer Interface
     if (CreateRendererInstance() != EXIT_SUCCESS)
+    {
+        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[SYSTEM]: Failed to Renderer Instance.\n");
         return EXIT_FAILURE;
+    }
 
     // Set up our Primary Window Class
     WNDCLASSEX wc = {};
@@ -474,7 +478,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     // Did Primary Window Registration fail?
     if (!RegisterClassEx(&wc)) {
         // Yes! Report to User and Exit!
-        debug.LogError("[SYSTEM]: Failed to register window class.\n");
+        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[SYSTEM]: Failed to register window class.\n");
         return EXIT_FAILURE;
     }
 
@@ -502,7 +506,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     // Did we fail to create our primary window?
     if (!hwnd) {
         // Yes! Report to User and Exit!
-        debug.LogError("[SYSTEM]: Failed to create window.\n");
+        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[SYSTEM]: Failed to create window.\n");
         return EXIT_FAILURE;
     }
 
@@ -521,13 +525,15 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     try
     {
         if (FAILED(CoInitializeEx(nullptr, COINIT_MULTITHREADED))) {
-            debug.LogError("[SYSTEM]: Failed to initialize COM.");
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[SYSTEM]: Failed to initialize COM.");
             UnregisterClass(lpDEFAULT_NAME, hInstance);
             return EXIT_FAILURE;
         }
 
         if (FAILED(MFStartup(MF_VERSION))) {
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[SYSTEM]: Media Foundation startup failed – screen recording unavailable.");
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[SYSTEM]: Media Foundation startup failed - screen recording unavailable.");
+            UnregisterClass(lpDEFAULT_NAME, hInstance);
+            return EXIT_FAILURE;
         }
 
         // Detect and log every active audio endpoint so it is immediately clear which
@@ -586,10 +592,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
         if (!FAST_MATH.Initialize())
         {
-            #if defined(_DEBUG_MATHPRECALC_)
-                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize MATHPrecalc!");
-            #endif
-
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize MATHPrecalc!");
             UnregisterClass(lpDEFAULT_NAME, hInstance);
             return EXIT_FAILURE;
         }
@@ -597,10 +600,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         // Initialize our Packer / UNPacker class
         if (!punPack.Initialize())
         {
-            #if defined(_DEBUG_PUNPACK_)
-                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize PUNPack!");
-            #endif
-
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize PUNPack!");
             UnregisterClass(lpDEFAULT_NAME, hInstance);
             return EXIT_FAILURE;
         }
@@ -609,10 +609,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         #if defined(__USE_GAMINGAI__)
             if (!gamingAI.Initialize())
             {
-                #if defined(_DEBUG_GAMINGAI_)
-                    debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize GamingAI Management System!");
-                #endif
-
+                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize GamingAI Management System!");
                 UnregisterClass(lpDEFAULT_NAME, hInstance);
                 return EXIT_FAILURE;
             }
@@ -655,9 +652,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
         // Initialize the keyboard handler with the gaming configuration
         if (!keyboard.Initialize(gamingConfig)) {
-            #if defined(_DEBUG_KEYBOARDHANDLER_)
-                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize Keyboard Management System!");
-            #endif
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize Keyboard Management System!");
+            UnregisterClass(lpDEFAULT_NAME, hInstance);
+            return EXIT_FAILURE;
         }
 
         // Setup the Keyboard Handlers
@@ -678,10 +675,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         // Now Initialise our Shader Manager
         if (!shaderManager.Initialize(renderer))
         {
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize Shader Management System!");
-            #endif
-
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize Shader Management System!");
             UnregisterClass(lpDEFAULT_NAME, hInstance);
             return EXIT_FAILURE;
         }
@@ -745,7 +739,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                 debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Network system initialization failed.");
                 return EXIT_FAILURE;
             }
-        #endif            
+        #endif
 
         // Initialise our SceneManager
         scene.Initialize(renderer);
@@ -766,8 +760,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             scriptManager.ExecuteScriptAsync();
         #endif
 
-        // Force a Scene Jump Switch to the GAMEPLAY scene when in debug mode, 
-        // so we can get on with the game testing scene without having to wait 
+        // Force a Scene Jump Switch to the GAMEPLAY scene when in debug mode,
+        // so we can get on with the game testing scene without having to wait
         // for all the other scenes to load & play through.
 //        #if defined(_DEBUG)
 //            scene.stSceneType = SceneType::SCENE_GAMEPLAY;
@@ -822,10 +816,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 //        fxManager.StartScrollEffect(BlitObj2DIndexType::IMG_SCROLLBG1, FXSubType::ScrollRight, 2, 800, 600, 0.016f);
 //        fxManager.StartScrollEffect(BlitObj2DIndexType::IMG_SCROLLBG2, FXSubType::ScrollRight, 4, 800, 600, 0.016f);
 //        fxManager.StartScrollEffect(BlitObj2DIndexType::IMG_SCROLLBG3, FXSubType::ScrollRight, 8, 800, 600, 0.016f);
-        
+
         // Start Sound Manager Thread.
         soundManager.StartPlaybackThread();
-        
+
         // Initialise our MoviePlayer
         moviePlayer.Initialize(renderer, &threadManager);
 
@@ -844,7 +838,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             #if defined(PLATFORM_WINDOWS)
                 ApplySystemMasterVolume(cfg.masterVolume);
             #endif
-            #if defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__)
+            #if defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
                 if (cfg.playMusic) {
                     if (modPlayer.IsPaused()) {
                         // Restart from pattern 0 with correct volume.
@@ -891,12 +885,12 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         OpenStartMovieAndPlay();                                // Start the opening movie
         while (msg.message != WM_QUIT)
         {
-            if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) 
+            if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
             {
                 TranslateMessage(&msg);
                 DispatchMessage(&msg);
             }
-            else 
+            else
             //  --------------------------------------------------------------------------
             //  Your Main Loop code goes here!!!!!
             //  --------------------------------------------------------------------------
@@ -926,10 +920,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                             // Check if splash screen duration has elapsed and we haven't started scene switching yet
                             if ((sysUtils.CheckElapsedTime(11)) && (!scene.bSceneSwitching))
                             {
-                                // The CPGE intro movie is 10 seconds long, so we give it a generous 
-                                // 11-second window before forcing the transition to the next scene. 
-                                // This ensures that even if there are minor hiccups in loading or playback, 
-                                // we won't cut off the intro prematurely. The extra second acts as a buffer to 
+                                // The CPGE intro movie is 10 seconds long, so we give it a generous
+                                // 11-second window before forcing the transition to the next scene.
+                                // This ensures that even if there are minor hiccups in loading or playback,
+                                // we won't cut off the intro prematurely. The extra second acts as a buffer to
                                 // accommodate any unexpected delays while still providing a smooth user experience.
                                 // OpenMovieAndPlay() now performs a fast per-file resource
                                 // release internally, so no Stop()/Reset() is needed here.
@@ -941,7 +935,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                                 OpenMovieAndPlay();
                                 fxManager.FadeToImage(0.5f, 0.06f);
                                 renderer->ResumeLoader();
-                                
+
                                 #if defined(_DEBUG_SCENE_TRANSITION_)
                                     debug.logLevelMessage(LogLevel::LOG_INFO, L"[SCENE] Starting fade out from splash screen");
                                 #endif
@@ -1162,7 +1156,14 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                             }
                         }
 
-                        std::wstring outPath = L"Assets\\recording.mp4";
+                        // Generate a unique timestamped filename so successive recordings
+                        // never collide with an existing file held open by another process.
+                        SYSTEMTIME st = {};
+                        GetLocalTime(&st);
+                        wchar_t recFile[64] = {};
+                        swprintf_s(recFile, L"Assets\\recording_%04u%02u%02u_%02u%02u%02u.mp4",
+                                   st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+                        std::wstring outPath = recFile;
                         if (screenRecorder.StartRecording(recWidth, recHeight, RecordFPS::FPS_60, outPath, MicMode::Mixed))
                         {
                             soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
@@ -1280,11 +1281,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                         vol = vol < 0 ? 0 : (vol > MAX_GLOBAL_VOLUME ? MAX_GLOBAL_VOLUME : vol);
                         config.myConfig.musicVolume = vol;
 
-                        #if defined(__USE_XMPLAYER__)
-                            modPlayer.SetVolume(static_cast<uint8_t>(vol));
-                        #elif defined(__USE_S3MPLAYER__)
-                            modPlayer.SetVolume(static_cast<uint8_t>(vol));
-                        #elif defined(__USE_MPTMPLAYER__)
+                        #if defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
                             modPlayer.SetVolume(static_cast<uint8_t>(vol));
                         #elif defined(__USE_MP3PLAYER__)
                             player.setVolume(static_cast<float>(vol) / 64.0f);
@@ -1579,7 +1576,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                     renderer->RenderFrame();
                 #endif
             }
-        } // End of while (msg.message != WM_QUIT) 
+        } // End of while (msg.message != WM_QUIT)
     }
     catch (const std::exception& e)
     {
@@ -1592,7 +1589,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
     if (moviePlayer.IsPlaying())
        moviePlayer.Stop();
-    
+
 //    fxManager.StopScrollEffect(BlitObj2DIndexType::IMG_SCROLLBG1);
 
 
@@ -1677,7 +1674,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     // Stop Music Playback.
     #if defined(__USE_MP3PLAYER__)
         player.stop();
-    #elif defined(__USE_XMPLAYER__) || defined(__USE_S3MPlayer__) || defined(__USE_MPTMPlayer__)
+    #elif defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
         modPlayer.Shutdown();
     #endif
 
@@ -1729,7 +1726,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     // Cleanup our MyRandomizer class instance.
     myRandomizer.Cleanup();
 
-    // IMPORTANT: DO THIS LAST!!! 
+    // IMPORTANT: DO THIS LAST!!!
     // Now clean up the Thread Manager.
     threadManager.Cleanup();
 
@@ -2000,7 +1997,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 case SceneType::SCENE_GAMEPLAY:
                 {
                     // Safe camera zoom with proper validation
-                    if (renderer && renderer->bIsInitialized.load() && 
+                    if (renderer && renderer->bIsInitialized.load() &&
                         !threadManager.threadVars.bIsResizing.load())
                     {
                         short delta = GET_WHEEL_DELTA_WPARAM(wParam);    // Get wheel delta
@@ -2036,8 +2033,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 }
                 #if defined(__USE_MP3PLAYER__)
                     player.pause();
-                #elif defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__)
-                    // Uncomment if needed: 
+                #elif defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
+                    // Uncomment if needed:
                     // if (!modPlayer.IsPaused()) modPlayer.Pause();
                 #endif
             }
@@ -2049,8 +2046,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             else if (wParam == WA_ACTIVE && !bResizeInProgress.load()) {
                 #if defined(__USE_MP3PLAYER__)
                     player.resume();
-                #elif defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__)
-                    // Uncomment if needed: 
+                #elif defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
+                    // Uncomment if needed:
                     // modPlayer.HardResume();
                 #endif
             }
@@ -2240,7 +2237,7 @@ void StopMusicPlayback()
         // Stop the MP3 player
         if (player.isPlaying())
             player.stop();
-    #elif defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__)
+    #elif defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
         // Stop the XM player
         if (modPlayer.IsPlaying())
             modPlayer.Stop();
@@ -2264,7 +2261,7 @@ bool Load_Music()
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[LOADER]: Failed to load Music File.");
             return false;
         }
-    #elif defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__)
+    #elif defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
         // Attempt to load in our XM Music Module for playback.
         switch (scene.stSceneType)
         {
@@ -2273,7 +2270,7 @@ bool Load_Music()
 
             case SceneType::SCENE_GAMETITLE:
             {
-                std::wstring XMFilename = L"test3.mptm";
+                std::wstring XMFilename = L"test1.mod";
                 auto fileName = AssetsDir / XMFilename;
                 if (!modPlayer.Play(fileName))
                 {

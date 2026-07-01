@@ -1,56 +1,43 @@
-# When invoked via cmake-build[.bat|.sh] the shell script handles version
-# increment before cmake runs, then sets SKIP_VERSION_INCREMENT=1 so this
-# PRE_BUILD hook does nothing and avoids a double-increment.
-# When cmake is invoked directly (not via the shell wrappers) this hook runs
-# normally and is the sole incrementer.
 if("$ENV{SKIP_VERSION_INCREMENT}" STREQUAL "1")
-    message(STATUS "Version increment skipped -- cmake-build wrapper already incremented.")
+    message(STATUS "Version increment skipped -- already handled by the build wrapper.")
     return()
 endif()
 
-# Defaults used only when Version.id is absent or unparseable.
-set(MASTER_VER 0)
-set(SUB_VER 0)
-set(DEFAULT_BUILD 695)
-
-if(EXISTS "${VERSION_FILE}")
-    file(READ "${VERSION_FILE}" VER_CONTENT)
-    # Parse all three components so major and subversion are preserved as-is.
-    string(REGEX MATCH "v([0-9]+)\\.([0-9]+)\\.([0-9]+)" _ "${VER_CONTENT}")
-    if(NOT "${CMAKE_MATCH_1}" STREQUAL "")
-        set(MASTER_VER "${CMAKE_MATCH_1}")
-    endif()
-    if(NOT "${CMAKE_MATCH_2}" STREQUAL "")
-        set(SUB_VER "${CMAKE_MATCH_2}")
-    endif()
-    set(CUR_BUILD "${CMAKE_MATCH_3}")
+if(NOT DEFINED VERSION_FILE OR VERSION_FILE STREQUAL "")
+    message(FATAL_ERROR "VERSION_FILE was not provided")
 endif()
 
-if(NOT CUR_BUILD OR CUR_BUILD STREQUAL "")
-    set(CUR_BUILD ${DEFAULT_BUILD})
+if(NOT EXISTS "${VERSION_FILE}")
+    message(FATAL_ERROR "Version.id not found at: ${VERSION_FILE}")
 endif()
 
+file(READ "${VERSION_FILE}" VER_CONTENT)
+string(REGEX MATCH "v([0-9]+)\\.([0-9]+)\\.([0-9]+)" _ "${VER_CONTENT}")
+
+if(NOT CMAKE_MATCH_0)
+    message(FATAL_ERROR "Could not parse version from Version.id")
+endif()
+
+set(MASTER_VER "${CMAKE_MATCH_1}")
+set(SUB_VER "${CMAKE_MATCH_2}")
+set(CUR_BUILD "${CMAKE_MATCH_3}")
 math(EXPR NEW_BUILD "${CUR_BUILD} + 1")
 set(NEW_VER "v${MASTER_VER}.${SUB_VER}.${NEW_BUILD}")
 
-# Derive project root from the version file path
 get_filename_component(SRC_DIR "${VERSION_FILE}" DIRECTORY)
 
-# Update Version.id
 file(WRITE "${VERSION_FILE}" "Current Build Version: ${NEW_VER}")
 
-# Update BuildInfo.h
 file(WRITE "${SRC_DIR}/BuildInfo.h"
     "#pragma once\n"
     "\n"
-    "// Authoritative build identity — update these on every release.\n"
+    "// Authoritative build identity - update Version.id before release builds.\n"
     "// Format: v<BUILD_VERSION>.<BUILD_SUBVERSION>.<BUILD_NUMBER>\n"
     "constexpr int CURRENT_BUILD_VERSION    = ${MASTER_VER};\n"
     "constexpr int CURRENT_BUILD_SUBVERSION = ${SUB_VER};\n"
     "constexpr int CURRENT_BUILD            = ${NEW_BUILD};\n"
 )
 
-# Update ReleaseInfo.md — replace the italicised version badge line
 set(RELEASE_MD "${SRC_DIR}/ReleaseInfo.md")
 if(EXISTS "${RELEASE_MD}")
     file(READ "${RELEASE_MD}" MD_CONTENT)
@@ -67,5 +54,5 @@ message(STATUS "VERSION UPDATE: ${NEW_VER}")
 message(STATUS "Previous: v${MASTER_VER}.${SUB_VER}.${CUR_BUILD}")
 message(STATUS "Current:  ${NEW_VER}")
 message(STATUS "  BuildInfo.h:    CURRENT_BUILD = ${NEW_BUILD}")
-message(STATUS "  ReleaseInfo.md: updated")
+message(STATUS "  ReleaseInfo.md: synced when present")
 message(STATUS "----------------------------------------")

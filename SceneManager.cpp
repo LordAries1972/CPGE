@@ -14,13 +14,8 @@
 #elif defined(__USE_VULKAN__)
     #include "VULKAN_Renderer.h"
 #endif
-#if defined(__USE_OPENGL__)
-    #include "FXManager.h"
-#elif defined(__USE_VULKAN__)
-    #include "FXManager.h"
-#else
-    #include "FXManager.h"
-#endif
+
+#include "FXManager.h"
 #include "Debug.h"
 #include "Lights.h"
 
@@ -38,14 +33,8 @@ extern Model models[MAX_MODELS];                                                
 extern Debug debug;
 extern LightsManager lightsManager;
 extern ThreadManager threadManager;
-extern SystemUtils sysUtils;
-#if defined(__USE_VULKAN__)
-extern FXManager  fxManager;
-#elif defined(__USE_OPENGL__)
-extern FXManager  fxManager;
-#else
-extern FXManager    fxManager;
-#endif
+extern SystemUtils   sysUtils;
+extern FXManager     fxManager;
 
 // Abstract Renderer Pointer
 extern std::shared_ptr<Renderer> renderer;
@@ -112,7 +101,7 @@ void SceneManager::CleanUp()
     // ALSO: Release Texture shared_ptrs from models[] cache NOW, while the renderer (and
     // therefore the VkDevice) is still alive.  scene_models[i].DestroyModel() above already
     // reduced the Texture ref-count by 1, but models[] is a program-lifetime global whose
-    // destructor fires AFTER main() returns — at that point the VkDevice is gone, so
+    // destructor fires AFTER main() returns - at that point the VkDevice is gone, so
     // Texture::~Texture() cannot call vkFreeMemory/vkDestroyImage, producing the 720+
     // VkDeviceMemory leaks reported by the validation layer.  Clearing here drops the final
     // reference while the device is valid and lets the Texture destructors clean up correctly.
@@ -146,7 +135,7 @@ void SceneManager::CleanUp()
                 L"[SceneManager] scene_models[%d-%d] released (%d total). CleanUp() complete.",
                 _firstDestroyed, _lastDestroyed, _destroyCount);
         else
-            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[SceneManager] CleanUp() called — no loaded models to release.");
+            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[SceneManager] CleanUp() called - no loaded models to release.");
     #endif
 }
 
@@ -157,9 +146,7 @@ bool SceneManager::Initialize(std::shared_ptr<Renderer> renderer)
         auto dx11 = std::dynamic_pointer_cast<DX11Renderer>(renderer);
         if (!dx11)
         {
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] DX11Renderer cast failed.");
-            #endif
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] DX11Renderer cast failed.");
             return false;
         }
         myRenderer = dx11.get();
@@ -169,9 +156,7 @@ bool SceneManager::Initialize(std::shared_ptr<Renderer> renderer)
         auto dx12 = std::dynamic_pointer_cast<DX12Renderer>(renderer);
         if (!dx12)
         {
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] DX12Renderer cast failed.");
-            #endif
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] DX12Renderer cast failed.");
             return false;
         }
         myRenderer = dx12.get();
@@ -181,9 +166,7 @@ bool SceneManager::Initialize(std::shared_ptr<Renderer> renderer)
         auto gl = std::dynamic_pointer_cast<OpenGLRenderer>(renderer);
         if (!gl)
         {
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] OpenGLRenderer cast failed.");
-            #endif
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] OpenGLRenderer cast failed.");
             return false;
         }
         myRenderer = gl.get();
@@ -193,9 +176,7 @@ bool SceneManager::Initialize(std::shared_ptr<Renderer> renderer)
         auto vk = std::dynamic_pointer_cast<VulkanRenderer>(renderer);
         if (!vk)
         {
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] VulkanRenderer cast failed.");
-            #endif
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] VulkanRenderer cast failed.");
             return false;
         }
         myRenderer = vk.get();
@@ -245,7 +226,7 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
 {
     #if defined(_DEBUG_SCENEMANAGER_)
         const auto _sceneLoadBegin = std::chrono::high_resolution_clock::now();
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] ParseGLBScene() LOAD BEGIN — %ls", glbFile.c_str());
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] ParseGLBScene() LOAD BEGIN - %ls", glbFile.c_str());
     #endif
 
     bLoadedFromCache = false;
@@ -324,7 +305,7 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
                             catch (const std::exception&)
                             {
                                 debug.logLevelMessage(LogLevel::LOG_ERROR,
-                                    L"[SceneManager] CACHE-RESTORE: GLB JSON parse failed — falling through to full parse");
+                                    L"[SceneManager] CACHE-RESTORE: GLB JSON parse failed - falling through to full parse");
                             }
                         }
                     }
@@ -336,7 +317,7 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
             {
                 #if defined(_DEBUG_SCENEMANAGER_)
                     debug.logDebugMessage(LogLevel::LOG_WARNING,
-                        L"[SceneManager] ParseGLBScene() mini-parse failed — falling through to full parse");
+                        L"[SceneManager] ParseGLBScene() mini-parse failed - falling through to full parse");
                 #endif
             }
             else
@@ -401,7 +382,7 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
                         }
 
                         // --- GPU rebuild check: all renderers ---
-                        // Vulkan: check actual handle validity — do NOT rely on bGpuReady.
+                        // Vulkan: check actual handle validity - do NOT rely on bGpuReady.
                         // bGpuReady can be true on a models[] entry whose handles were freed
                         // by a prior CleanUp() (stale-after-free crash on next scene visit).
                         bool gpuRebuildNeeded = false;
@@ -458,7 +439,7 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
                             models[m].m_modelInfo.bGpuReady = true;
                             #if defined(_DEBUG_SCENEMANAGER_)
                                 debug.logDebugMessage(LogLevel::LOG_INFO,
-                                    L"[SceneManager] CACHE-RESTORE '%ls' — GPU rebuild triggered (missing core buffers)",
+                                    L"[SceneManager] CACHE-RESTORE '%ls' - GPU rebuild triggered (missing core buffers)",
                                     cache.name.c_str());
                             #endif
                         }
@@ -471,13 +452,13 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
                             scene_models[idx].m_modelInfo.materials = models[m].m_modelInfo.materials;
                     }
 
-                    // Common fields — set for both geometry and transform-only nodes
+                    // Common fields - set for both geometry and transform-only nodes
                     scene_models[idx].m_modelInfo.ID                    = idx;
                     scene_models[idx].m_modelInfo.name                  = cache.name;
                     scene_models[idx].m_modelInfo.worldMatrix            = cache.worldMatrix;
                     scene_models[idx].m_modelInfo.iParentModelID         = cache.iParentModelID;
                     scene_models[idx].m_modelInfo.gltfNodeIndex          = cache.gltfNodeIndex;
-                    // Always reset animLocal to base (rest pose) on cache restore — ensures
+                    // Always reset animLocal to base (rest pose) on cache restore - ensures
                     // clean animation state regardless of what was cached after the last session.
                     scene_models[idx].m_modelInfo.baseLocalTranslation   = cache.baseLocalTranslation;
                     scene_models[idx].m_modelInfo.baseLocalRotationQuat  = cache.baseLocalRotationQuat;
@@ -509,7 +490,7 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
                     instanceIndex = std::max(instanceIndex, idx + 1);
                 }
 
-                // --- Step 4: Rebind textures and materials — ALL renderers ---
+                // --- Step 4: Rebind textures and materials - ALL renderers ---
                 // Always clear stale GPU handles and rebind from the fresh GLB document.
                 // This fixes scene-switch SRV staleness, wrong-scene descriptor sets,
                 // and unbound PBR material data on every renderer.
@@ -546,10 +527,10 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
                                 scene_models[ti].m_modelInfo.emissiveTexID  = 0;
                             #elif defined(__USE_VULKAN__)
                                 // Clear the textures vector so BindGLTFMaterialTexturesToModel
-                                // starts fresh — without this, textures accumulate on every
+                                // starts fresh - without this, textures accumulate on every
                                 // scene revisit (same bug as the DX11 path would have without
                                 // textureSRVs.clear()).
-                                // NOTE: Do NOT null descriptorSet here — BindGLTFMaterialTexturesToModel
+                                // NOTE: Do NOT null descriptorSet here - BindGLTFMaterialTexturesToModel
                                 // only rebuilds textureDescriptorSet (set=1); descriptorSet (set=0)
                                 // holds the UBO bindings allocated in SetupModelForRendering and must
                                 // remain valid, otherwise the draw guard in VULKAN_RenderFrame always
@@ -562,14 +543,14 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
                                 // DX12: the rebind above only refreshes the DX11-on-12 SRVs.
                                 // SetupModelForRendering already ran in Step 3 (before this
                                 // rebind), so the native DX12 side still holds the pre-rebind
-                                // state — NULL resources on a cache.dat restore.  Re-upload
+                                // state - NULL resources on a cache.dat restore.  Re-upload
                                 // the new Texture objects and force the descriptor heap slots
                                 // to be rewritten on the next draw, otherwise the model
                                 // renders untextured/invisible while all texture-load logs
                                 // report success.
                                 scene_models[ti].RefreshDX12Textures();
                             #elif defined(__USE_OPENGL__)
-                                // OpenGL: same hole as DX12 — the rebind above only creates
+                                // OpenGL: same hole as DX12 - the rebind above only creates
                                 // Texture objects and Material entries; the GL handles in
                                 // ModelInfo (textureIDs / normalMapIDs / PBR IDs) were
                                 // cleared before the rebind and stay empty unless rebuilt
@@ -616,7 +597,7 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
                                     #endif
                                     #if defined(_DEBUG_SCENEMANAGER_)
                                         debug.logDebugMessage(LogLevel::LOG_INFO,
-                                            L"[SceneManager] TEXTURE-RELOAD '%ls' — written back to models[%d]",
+                                            L"[SceneManager] TEXTURE-RELOAD '%ls' - written back to models[%d]",
                                             scene_models[ti].m_modelInfo.name.c_str(), m2);
                                     #endif
                                     break;
@@ -664,7 +645,7 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
                         auto _e  = std::chrono::high_resolution_clock::now();
                         auto _ms = std::chrono::duration_cast<std::chrono::milliseconds>(_e - _sceneLoadBegin).count();
                         debug.logDebugMessage(LogLevel::LOG_INFO,
-                            L"[SceneManager] ParseGLBScene() CACHE HIT — ENGINE LOAD TIME: %lld ms — %d instances restored from %d cache entries",
+                            L"[SceneManager] ParseGLBScene() CACHE HIT - ENGINE LOAD TIME: %lld ms - %d instances restored from %d cache entries",
                             _ms, instanceIndex, cacheCount);
                     }
                     #endif
@@ -674,7 +655,7 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
 
                 #if defined(_DEBUG_SCENEMANAGER_)
                     debug.logDebugMessage(LogLevel::LOG_WARNING,
-                        L"[SceneManager] ParseGLBScene() cache had %d entries but rebuild yielded 0 — falling through to full parse",
+                        L"[SceneManager] ParseGLBScene() cache had %d entries but rebuild yielded 0 - falling through to full parse",
                         cacheCount);
                 #endif
             }
@@ -750,7 +731,7 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
     // Handle Blender GLB export bug where header.length is incorrect
     if (header.length != static_cast<uint32_t>(actualFileSize)) {
         #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] GLB header length mismatch (header=%d actual=%d) — Blender export bug, using actual size.",
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] GLB header length mismatch (header=%d actual=%d) - Blender export bug, using actual size.",
                 header.length, static_cast<uint32_t>(actualFileSize));
         #endif
     }
@@ -1071,7 +1052,7 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
         auto _sceneLoadEnd = std::chrono::high_resolution_clock::now();
         auto _sceneLoadMs  = std::chrono::duration_cast<std::chrono::milliseconds>(_sceneLoadEnd - _sceneLoadBegin).count();
         debug.logDebugMessage(LogLevel::LOG_INFO,
-            L"[SceneManager] ParseGLBScene() LOAD END — ENGINE LOAD TIME: %lld ms — Instances: %d — Exporter: %ls",
+            L"[SceneManager] ParseGLBScene() LOAD END - ENGINE LOAD TIME: %lld ms - Instances: %d - Exporter: %ls",
             _sceneLoadMs, instanceIndex, m_lastDetectedExporter.c_str());
     }
     #endif
@@ -1254,7 +1235,7 @@ void SceneManager::ParseGLBNodeRecursive(const json& node, int nodeIndex, const 
             // but Texture objects and Material structs cannot be serialised to disk.  On
             // the first full parse after startup the slot is FOUND by name above, so the
             // creation branch (which binds materials/textures inside
-            // LoadGLTFMeshPrimitives) never runs — the model would render with no
+            // LoadGLTFMeshPrimitives) never runs - the model would render with no
             // materials and no textures until a later cache-restore rebind.  Bind the
             // primitive's material now, exactly as the creation branch would have.
             if (models[modelSlot].m_materials.empty() &&
@@ -1343,7 +1324,7 @@ void SceneManager::ParseGLBNodeRecursive(const json& node, int nodeIndex, const 
 
             // --- Write-back: full GPU-ready copy into models[] for fast-path reloads ---
             // CopyFrom captures vertex/index buffers, SRVs, shaders, and textures via ComPtr/shared_ptr
-            // AddRef — the GPU resources stay alive in both models[] and scene_models[].
+            // AddRef - the GPU resources stay alive in both models[] and scene_models[].
             models[modelSlot].CopyFrom(scene_models[instanceIndex]);
             models[modelSlot].m_isLoaded                         = true;
             models[modelSlot].m_modelInfo.ID                     = modelSlot;   // restore slot ID (CopyFrom brings in instanceIndex)
@@ -1489,7 +1470,7 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
 {
     #if defined(_DEBUG_SCENEMANAGER_)
         const auto _sceneLoadBegin = std::chrono::high_resolution_clock::now();
-        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] ParseGLTFScene() LOAD BEGIN — %ls", gltfFile.c_str());
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] ParseGLTFScene() LOAD BEGIN - %ls", gltfFile.c_str());
     #endif
 
     bLoadedFromCache = false;
@@ -1541,7 +1522,7 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
                     catch (const std::exception&)
                     {
                         debug.logLevelMessage(LogLevel::LOG_ERROR,
-                            L"[SceneManager] CACHE-RESTORE: GLTF JSON parse failed — falling through to full parse");
+                            L"[SceneManager] CACHE-RESTORE: GLTF JSON parse failed - falling through to full parse");
                     }
                     miniF.close();
                 }
@@ -1551,7 +1532,7 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
             {
                 #if defined(_DEBUG_SCENEMANAGER_)
                     debug.logDebugMessage(LogLevel::LOG_WARNING,
-                        L"[SceneManager] ParseGLTFScene() mini-parse failed — falling through to full parse");
+                        L"[SceneManager] ParseGLTFScene() mini-parse failed - falling through to full parse");
                 #endif
             }
             else
@@ -1571,7 +1552,7 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
                 EnsureDefaultSunLight();
                 ParseMaterialsFromGLTF(miniDoc);
                 modelAnimator.gltfAnimator.ClearAllAnimations();
-                // Reload external .bin file before animation parsing — the cache path only
+                // Reload external .bin file before animation parsing - the cache path only
                 // reads the JSON above; without this, gltfBinaryData is empty/stale and
                 // ParseAnimationsFromGLTF cannot read keyframe data.
                 if (miniDoc.contains("buffers") && miniDoc["buffers"].is_array() && !miniDoc["buffers"].empty())
@@ -1597,7 +1578,7 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
                         {
                             gltfBinaryData.clear();
                             debug.logLevelMessage(LogLevel::LOG_WARNING,
-                                L"[SceneManager] CACHE-RESTORE GLTF: could not open .bin file — animation keyframes will be missing");
+                                L"[SceneManager] CACHE-RESTORE GLTF: could not open .bin file - animation keyframes will be missing");
                         }
                     }
                 }
@@ -1646,7 +1627,7 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
                         }
 
                         // --- GPU rebuild check: all renderers ---
-                        // Vulkan: check actual handle validity — do NOT rely on bGpuReady.
+                        // Vulkan: check actual handle validity - do NOT rely on bGpuReady.
                         // bGpuReady can be true on a models[] entry whose handles were freed
                         // by a prior CleanUp() (stale-after-free crash on next scene visit).
                         bool gpuRebuildNeeded = false;
@@ -1703,7 +1684,7 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
                             models[m].m_modelInfo.bGpuReady = true;
                             #if defined(_DEBUG_SCENEMANAGER_)
                                 debug.logDebugMessage(LogLevel::LOG_INFO,
-                                    L"[SceneManager] CACHE-RESTORE '%ls' — GPU rebuild triggered (missing core buffers)",
+                                    L"[SceneManager] CACHE-RESTORE '%ls' - GPU rebuild triggered (missing core buffers)",
                                     cache.name.c_str());
                             #endif
                         }
@@ -1716,13 +1697,13 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
                             scene_models[idx].m_modelInfo.materials = models[m].m_modelInfo.materials;
                     }
 
-                    // Common fields — set for both geometry and transform-only nodes
+                    // Common fields - set for both geometry and transform-only nodes
                     scene_models[idx].m_modelInfo.ID                    = idx;
                     scene_models[idx].m_modelInfo.name                  = cache.name;
                     scene_models[idx].m_modelInfo.worldMatrix            = cache.worldMatrix;
                     scene_models[idx].m_modelInfo.iParentModelID         = cache.iParentModelID;
                     scene_models[idx].m_modelInfo.gltfNodeIndex          = cache.gltfNodeIndex;
-                    // Always reset animLocal to base (rest pose) on cache restore — ensures
+                    // Always reset animLocal to base (rest pose) on cache restore - ensures
                     // clean animation state regardless of what was cached after the last session.
                     scene_models[idx].m_modelInfo.baseLocalTranslation   = cache.baseLocalTranslation;
                     scene_models[idx].m_modelInfo.baseLocalRotationQuat  = cache.baseLocalRotationQuat;
@@ -1754,7 +1735,7 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
                     instanceIndex = std::max(instanceIndex, idx + 1);
                 }
 
-                // --- Step 4: Rebind textures and materials — ALL renderers ---
+                // --- Step 4: Rebind textures and materials - ALL renderers ---
                 if (instanceIndex > 0 && miniDoc.contains("materials"))
                 {
                     const auto& matsArr = miniDoc["materials"];
@@ -1787,7 +1768,7 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
                             scene_models[ti].m_modelInfo.emissiveTexID  = 0;
 #elif defined(__USE_VULKAN__)
                             scene_models[ti].m_modelInfo.textures.clear();
-                            // NOTE: Do NOT null descriptorSet here — same reason as GLB cache-restore
+                            // NOTE: Do NOT null descriptorSet here - same reason as GLB cache-restore
                             // Step 4: BindGLTFMaterialTexturesToModel only rebuilds textureDescriptorSet
                             // (set=1); nulling descriptorSet (set=0) permanently breaks the draw guard.
 #endif
@@ -1795,12 +1776,12 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
 
 #if defined(__USE_DIRECTX_12__)
                             // DX12: re-upload the rebound textures to the native D3D12
-                            // heap and force descriptor rewrite — the rebind above only
+                            // heap and force descriptor rewrite - the rebind above only
                             // fixes the DX11-on-12 SRVs (see GLB cache-restore Step 4).
                             scene_models[ti].RefreshDX12Textures();
 #elif defined(__USE_OPENGL__)
                             // OpenGL: rebuild the GL texture handles from the freshly
-                            // rebound materials — the rebind above does not write into
+                            // rebound materials - the rebind above does not write into
                             // textureIDs/normalMapIDs (see GLB cache-restore Step 4).
                             scene_models[ti].RefreshOpenGLTextures();
 #endif
@@ -1838,7 +1819,7 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
 #endif
                                     #if defined(_DEBUG_SCENEMANAGER_)
                                         debug.logDebugMessage(LogLevel::LOG_INFO,
-                                            L"[SceneManager] TEXTURE-RELOAD '%ls' — written back to models[%d]",
+                                            L"[SceneManager] TEXTURE-RELOAD '%ls' - written back to models[%d]",
                                             scene_models[ti].m_modelInfo.name.c_str(), m2);
                                     #endif
                                     break;
@@ -1886,7 +1867,7 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
                         auto _e  = std::chrono::high_resolution_clock::now();
                         auto _ms = std::chrono::duration_cast<std::chrono::milliseconds>(_e - _sceneLoadBegin).count();
                         debug.logDebugMessage(LogLevel::LOG_INFO,
-                            L"[SceneManager] ParseGLTFScene() CACHE HIT — ENGINE LOAD TIME: %lld ms — %d instances restored from %d cache entries",
+                            L"[SceneManager] ParseGLTFScene() CACHE HIT - ENGINE LOAD TIME: %lld ms - %d instances restored from %d cache entries",
                             _ms, instanceIndex, cacheCount);
                     }
                     #endif
@@ -1896,7 +1877,7 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
 
                 #if defined(_DEBUG_SCENEMANAGER_)
                     debug.logDebugMessage(LogLevel::LOG_WARNING,
-                        L"[SceneManager] ParseGLTFScene() cache had %d entries but rebuild yielded 0 — falling through to full parse",
+                        L"[SceneManager] ParseGLTFScene() cache had %d entries but rebuild yielded 0 - falling through to full parse",
                         cacheCount);
                 #endif
             }
@@ -2090,7 +2071,7 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
         auto _sceneLoadEnd = std::chrono::high_resolution_clock::now();
         auto _sceneLoadMs  = std::chrono::duration_cast<std::chrono::milliseconds>(_sceneLoadEnd - _sceneLoadBegin).count();
         debug.logDebugMessage(LogLevel::LOG_INFO,
-            L"[SceneManager] ParseGLTFScene() LOAD END — ENGINE LOAD TIME: %lld ms — Instances: %d — Exporter: %ls",
+            L"[SceneManager] ParseGLTFScene() LOAD END - ENGINE LOAD TIME: %lld ms - Instances: %d - Exporter: %ls",
             _sceneLoadMs, instanceIndex, m_lastDetectedExporter.c_str());
     }
     #endif
@@ -2297,7 +2278,7 @@ void SceneManager::ParseGLTFNodeRecursive(const json& node, int nodeIndex, const
             // but Texture objects and Material structs cannot be serialised to disk.  On
             // the first full parse after startup the slot is FOUND by name above, so the
             // creation branch (which binds materials/textures inside
-            // LoadGLTFMeshPrimitives) never runs — the model would render with no
+            // LoadGLTFMeshPrimitives) never runs - the model would render with no
             // materials and no textures until a later cache-restore rebind.  Bind the
             // primitive's material now, exactly as the creation branch would have.
             if (models[modelSlot].m_materials.empty() &&
@@ -2386,7 +2367,7 @@ void SceneManager::ParseGLTFNodeRecursive(const json& node, int nodeIndex, const
 
             // --- Write-back: full GPU-ready copy into models[] for fast-path reloads ---
             // CopyFrom captures vertex/index buffers, SRVs, shaders, and textures via ComPtr/shared_ptr
-            // AddRef — the GPU resources stay alive in both models[] and scene_models[].
+            // AddRef - the GPU resources stay alive in both models[] and scene_models[].
             models[modelSlot].CopyFrom(scene_models[instanceIndex]);
             models[modelSlot].m_isLoaded                         = true;
             models[modelSlot].m_modelInfo.ID                     = modelSlot;   // restore slot ID (CopyFrom brings in instanceIndex)
@@ -3231,7 +3212,7 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
         {
             size_t operator()(const VertexKey& key) const noexcept
             {
-                // FNV-1a over raw struct bytes — dramatically fewer collisions than XOR chaining.
+                // FNV-1a over raw struct bytes - dramatically fewer collisions than XOR chaining.
                 const uint8_t* p   = reinterpret_cast<const uint8_t*>(&key);
                 const uint8_t* end = p + sizeof(VertexKey);
                 size_t hash = 14695981039346656037ULL;
@@ -3365,7 +3346,7 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
                     tan = XMVector3Normalize(tan);
                     XMStoreFloat3(reinterpret_cast<XMFLOAT3*>(model.m_modelInfo.vertices[i].tangent), tan);
                     // tangent[3] is the handedness sign used by the GLSL shader to compute bitangent.
-                    // B = cross(N, T) * tangent.w — must be non-zero or bitangent is always zero.
+                    // B = cross(N, T) * tangent.w - must be non-zero or bitangent is always zero.
                     model.m_modelInfo.vertices[i].tangent[3] = 1.0f;
                 #endif
             }
@@ -3417,7 +3398,7 @@ XMMATRIX SceneManager::GetNodeWorldMatrix(const json& node,
         }
     }
 
-    // === Rotation — convert quaternion for GLTF→DX handedness
+    // === Rotation - convert quaternion for GLTF→DX handedness
     if (node.contains("rotation") && node["rotation"].is_array()) {
         const auto& r = node["rotation"];
         if (r.size() == 4 && r[0].is_number() && r[1].is_number() && r[2].is_number() && r[3].is_number()) {
@@ -3430,7 +3411,7 @@ XMMATRIX SceneManager::GetNodeWorldMatrix(const json& node,
         }
     }
 
-    // === Translation — negate Z (or other flagged axes) for GLTF→DX
+    // === Translation - negate Z (or other flagged axes) for GLTF→DX
     if (node.contains("translation") && node["translation"].is_array()) {
         const auto& t = node["translation"];
         if (t.size() == 3 && t[0].is_number() && t[1].is_number() && t[2].is_number()) {
@@ -3602,7 +3583,7 @@ std::shared_ptr<Texture> SceneManager::LoadGLTFImage(const json& imageEntry, con
 // --------------------------------------------------------------------------------------------------
 void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo& info, Model& model, const json& doc)
 {
-    // "materials" is required; "textures" and "images" are optional — materials may use
+    // "materials" is required; "textures" and "images" are optional - materials may use
     // only baseColorFactor with no image textures, in which case the solid-colour fallback
     // at the end of this function still needs to run.
     if (!doc.contains("materials"))
@@ -3844,7 +3825,7 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
         #if defined(_DEBUG_SCENEMANAGER_)
             if (!solidOk)
             {
-                // CreateSolidColorTexture failed — the D3D device is probably not yet available.
+                // CreateSolidColorTexture failed - the D3D device is probably not yet available.
                 // textureSRVs[0] will be null; SetupModelForRendering will call LoadFallbackTexture.
                 debug.logDebugMessage(LogLevel::LOG_ERROR,
                     L"[SceneManager] Model[%d] material[%d] -> CreateSolidColorTexture FAILED "
@@ -3949,7 +3930,7 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
     // GLTF 2.0 spec: emissiveTexture is a top-level material key (not inside pbrMetallicRoughness).
     // The emissive colour output is: emissiveTexture.rgb * emissiveFactor * emissiveStrength.
     // When no texture is present the shader falls back to vec3(1,1,1), making emissiveFactor
-    // the sole colour — so a white [1,1,1] factor with no texture produces solid white emission.
+    // the sole colour - so a white [1,1,1] factor with no texture produces solid white emission.
     if (mat.contains("emissiveTexture"))
     {
         int texIndex = mat["emissiveTexture"].value("index", -1);
@@ -4074,10 +4055,10 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
             {
                 VkDevice  device  = vkrPtr->GetVkDevice();
                 // UV settings: honour the importer's wrap modes (GLTF sampler
-                // wrapS/wrapT) — falls back to the default REPEAT sampler.
+                // wrapS/wrapT) - falls back to the default REPEAT sampler.
                 VkSampler sampler = vkrPtr->GetSamplerForWrap(info.uvWrapU, info.uvWrapV);
 
-                // Resolve views for each slot — fall back to renderer defaults when absent.
+                // Resolve views for each slot - fall back to renderer defaults when absent.
                 VkImageView diffuseView = newMat.diffuseTexture && newMat.diffuseTexture->GetImageView() != VK_NULL_HANDLE
                                         ? newMat.diffuseTexture->GetImageView()
                                         : vkrPtr->GetDefaultDiffuseView();
@@ -4181,7 +4162,7 @@ void SceneManager::UploadFBXMaterialToVulkanModel(const Material& mat, ModelInfo
             {
                 VkDevice  device  = vkrPtr->GetVkDevice();
                 // UV settings: honour the importer's wrap modes (FBX WrapModeU/V)
-                // — falls back to the default REPEAT sampler.
+                // - falls back to the default REPEAT sampler.
                 VkSampler sampler = vkrPtr->GetSamplerForWrap(info.uvWrapU, info.uvWrapV);
 
                 // Resolve views for each slot -- fall back to renderer defaults when absent.
@@ -4238,7 +4219,7 @@ void SceneManager::UploadFBXMaterialToVulkanModel(const Material& mat, ModelInfo
 //   BuildTransformMatrix() returns the full TRS in FBX RH space; we extract
 //   the translation column and apply the same coord flip used for model nodes.
 // Camera target:    interestPos stored in the FBXCamera struct (already in FBX
-//   object space — apply the same flip).
+//   object space - apply the same flip).
 // FOV / near / far: used directly from FBXCamera.fovY / nearPlane / farPlane.
 // ============================================================================
 void SceneManager::ParseFBXCameras(const FBXScene& fbx)
@@ -4368,7 +4349,7 @@ void SceneManager::ParseFBXCameras(const FBXScene& fbx)
             cam.forward = glm::normalize(cam.target - cam.position);
 
             // Flag so the loader thread does not override with SetupDefaultCamera / SetPosition.
-            // Mirrors the DX11/DX12 branch above — must be set for all renderer paths.
+            // Mirrors the DX11/DX12 branch above - must be set for all renderer paths.
             cam.bCameraJumped = true;
         #endif
 
@@ -4701,7 +4682,7 @@ void SceneManager::ParseGLTFCamera(const nlohmann::json& gltf, Camera& camera, f
 
         // Signal the loader thread that a scene camera is active so it does not
         // override position/projection with the hard-coded default (0,6,-80).
-        // Required for all renderer paths — mirrors the FBX camera path.
+        // Required for all renderer paths - mirrors the FBX camera path.
         camera.bCameraJumped = true;
     }
     catch (const std::exception& ex)
@@ -4947,7 +4928,7 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile, bool bCacheOnly)
     #endif
 
     bLoadedFromCache = false;
-    m_fbxCameras.clear();   // always start fresh — stale cameras from a prior scene must not persist
+    m_fbxCameras.clear();   // always start fresh - stale cameras from a prior scene must not persist
     lightsManager.ClearLights(); // clear lights from any prior scene before parsing new ones
 
     // Loading-text progress helper -- same pattern as showStage in IOLoaderThread.
@@ -5279,7 +5260,7 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile, bool bCacheOnly)
 
                     #if defined(__USE_DIRECTX_12__)
                         // DX12: re-upload the rebound textures to the native D3D12 heap and
-                        // force descriptor rewrite — the SRV rebind above only fixes the
+                        // force descriptor rewrite - the SRV rebind above only fixes the
                         // DX11-on-12 side (see GLB cache-restore Step 4 for details).
                         scene_models[ti].RefreshDX12Textures();
                     #endif
@@ -6390,7 +6371,7 @@ bool SceneManager::LoadSceneState(const std::wstring& path)
 
         if (modelSlot == -1)
         {
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] Skipping model \"%ls\" — not found in base models[]", modelName.c_str());
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] Skipping model \"%ls\" - not found in base models[]", modelName.c_str());
             continue;
         }
 
@@ -6439,7 +6420,7 @@ void SceneManager::UpdateSceneAnimations(float deltaTime)
 // --------------------------------------------------------------------------------------------------
 // SceneManager::FindParentModelIDForAnimation()
 // Primary: matches the animation's name (set in Blender) against root model names via
-// FindParentModelID — the user names the animation to match its owning model or armature.
+// FindParentModelID - the user names the animation to match its owning model or armature.
 // Fallback: for armature animations whose channels target bone child-nodes rather than the
 // armature root, scans channel targetNodeIndex against each model's gltfNodeIndex and walks
 // up the parent chain to reach the root. Returns root model array index, or -1 if not found.
@@ -6458,7 +6439,7 @@ int SceneManager::FindParentModelIDForAnimation(int animationIndex)
             return parentID;
     }
 
-    // Fallback: armature animations target bone nodes — scan channel node indices and walk
+    // Fallback: armature animations target bone nodes - scan channel node indices and walk
     // up the parent chain to the root (armature or mesh root)
     for (const auto& channel : anim->channels)
     {
@@ -6507,7 +6488,7 @@ int SceneManager::FindParentModelID(const std::wstring& modelName)
         }
     }
 
-    // Model not found in scene_models array — log once per unique name to avoid per-frame spam
+    // Model not found in scene_models array - log once per unique name to avoid per-frame spam
     #if defined(_DEBUG_SCENEMANAGER_)
         static std::unordered_set<std::wstring> s_notFoundLogged;
         if (s_notFoundLogged.find(modelName) == s_notFoundLogged.end())
@@ -6525,7 +6506,7 @@ int SceneManager::FindParentModelID(const std::wstring& modelName)
 // SceneManager::PutModelToScene()
 // Retrieves a named model from the global models[] cache and injects it into scene_models[].
 // Validation: model must be GPU-ready (bGpuReady), loaded (m_isLoaded), initialized
-// (bInitialized), and not destroyed (bIsDestroyed == false) — equivalent to IsActive() + bGpuReady.
+// (bInitialized), and not destroyed (bIsDestroyed == false) - equivalent to IsActive() + bGpuReady.
 // If bIncChildren is true, all primitive siblings (iParentModelID == root's cachedInstanceIndex)
 // are also copied alongside the root, with their parent ID re-pointed to the new scene slot.
 // The entire group is positioned at atWorldCoords by overriding the world matrix translation.
@@ -6748,7 +6729,7 @@ void SceneManager::DiagnoseGLBParsing(const std::wstring& glbFile)
 }
 
 // --------------------------------------------------------------------------------------------------
-// Binary I/O helpers — internal to this translation unit.
+// Binary I/O helpers - internal to this translation unit.
 // --------------------------------------------------------------------------------------------------
 namespace {
     // Write a wstring as (uint32_t charCount, wchar_t[charCount]).
@@ -6802,18 +6783,18 @@ bool SceneManager::SaveCache(const std::string& filepath)
     {
         #if defined(_DEBUG_SCENEMANAGER_) && defined(_DEBUG)
             debug.logLevelMessage(LogLevel::LOG_INFO,
-                L"[SceneManager] SaveCache: no loaded models to cache — file not written.");
+                L"[SceneManager] SaveCache: no loaded models to cache - file not written.");
         #endif
         return true;
     }
 
-    // Do not overwrite an existing cache file — if one is already on disk it was
+    // Do not overwrite an existing cache file - if one is already on disk it was
     // written by a previous session and remains valid; let it stand.
     if (std::filesystem::exists(filepath))
     {
         #if defined(_DEBUG_SCENEMANAGER_) && defined(_DEBUG)
             debug.logLevelMessage(LogLevel::LOG_INFO,
-                L"[SceneManager] SaveCache: cache file already exists — skipping write.");
+                L"[SceneManager] SaveCache: cache file already exists - skipping write.");
         #endif
         return true;
     }
@@ -6905,7 +6886,7 @@ bool SceneManager::SaveCache(const std::string& filepath)
         f.write(reinterpret_cast<const char*>(&info.animLocalRotationQuat),  sizeof(XMFLOAT4));
         f.write(reinterpret_cast<const char*>(&info.animLocalScale),         sizeof(XMFLOAT3));
 
-        // PBR floats — envTint accessed component-by-component for cross-platform safety.
+        // PBR floats - envTint accessed component-by-component for cross-platform safety.
         float envTintArr[3] = { info.envTint.x, info.envTint.y, info.envTint.z };
         f.write(reinterpret_cast<const char*>(&info.metallic),           sizeof(float));
         f.write(reinterpret_cast<const char*>(&info.roughness),          sizeof(float));
@@ -6978,7 +6959,7 @@ bool SceneManager::LoadCache(const std::string& filepath)
             debug.logLevelMessage(LogLevel::LOG_WARNING,
                 L"[SceneManager] Models cache '" +
                 std::wstring(filepath.begin(), filepath.end()) +
-                L"' not found — a full model reload is required.");
+                L"' not found - a full model reload is required.");
         #endif
         return false;
     }
@@ -7011,7 +6992,7 @@ bool SceneManager::LoadCache(const std::string& filepath)
     if (magic != CACHE_MAGIC || version != CACHE_VERSION || vertSz != sizeof(Vertex))
     {
         debug.logLevelMessage(LogLevel::LOG_ERROR,
-            L"[SceneManager] LoadCache: cache header mismatch (stale or corrupt) — ignoring file.");
+            L"[SceneManager] LoadCache: cache header mismatch (stale or corrupt) - ignoring file.");
         return false;
     }
 
@@ -7031,7 +7012,7 @@ bool SceneManager::LoadCache(const std::string& filepath)
         if (static_cast<int>(slotIdx) >= MAX_MODELS)
         {
             debug.logLevelMessage(LogLevel::LOG_ERROR,
-                L"[SceneManager] LoadCache: slot index out of range — cache is corrupt, aborting.");
+                L"[SceneManager] LoadCache: slot index out of range - cache is corrupt, aborting.");
             return false;
         }
 

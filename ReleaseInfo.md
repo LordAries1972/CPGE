@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.1.1922*
+*Current Build Version: v0.1.1944*
 
 ---
 
@@ -4024,35 +4024,6 @@ Engine merge from TSOO (engine-level changes only; PROJECT_ONLY_CODE blocks excl
 - **KBHandlersCode.cpp**: Removed redundant renderer-conditional `#include "FXManager.h"` triple-block (all three branches were identical). Removed redundant renderer-conditional `extern FXManager fxManager;` triple-block. Updated `KEY_BACKSPACE` handler to call `guiManager.HandleBackspace()` unconditionally (removed `consoleWindow.bIsVisible` guard). Added new `KEY_DELETE` case calling `guiManager.HandleDelete()`.
 - **main.cpp**: Removed redundant renderer-conditional `FXManager fxManager;` triple-block (all three branches were identical); replaced with a single direct instantiation.
 
-#### June 29, 2026
-
-**Docs/S3MPlayer-Example-Usage.md** — New documentation written covering the full `S3MPlayer` class:
-
-- Overview of the S3M format, PCM and AdLib (OPL2 FM) instrument support, and the DirectSound ring-buffer playback pipeline.
-- Full API reference: `Play`, `Stop`, `Shutdown`, `Pause`, `Resume`, `HardPause`, `HardResume`, `Terminate`, `Mute`, `IsPlaying`, `IsPaused`, `SetVolume`, `SetGlobalVolume`, `SetFadeIn`, `SetFadeOut`, `GotoSequenceID`.
-- Volume hierarchy table showing how the five gain factors (`voice.volume`, `channelVolume`, `moduleGlobalVolume`, `globalVolume`, `currentVolume`) multiply together in the mixer.
-- Full implemented effects table covering all 26 S3M effect letters (Axx–Zxx) with hex codes and descriptions.
-- AdLib OPL2 synthesis section: two-operator FM, ADSR per operator, EGT sustain-hold flag, 8 OPL2 waveforms, self-feedback, additive/FM connection, TL attenuation, and frequency multipliers.
-- Waveform table for vibrato/tremolo/panbrello (`S3x`, `S4x`, `S5x`).
-- Retrigger volume command table (`Qxy` x-nibble actions).
-- Playback architecture notes: tick scheduling, `timeBeginPeriod(1)`, jitter accumulator, linear interpolation, mutex/atomic threading model.
-- Typical game integration pattern showing load, pause/resume, section jump, and fade-out/shutdown lifecycle.
-- Notes on file validation, order-list skip/end markers, stereo downmix, channel panning defaults, and volume clamping.
-
-**MPTMPlayer.cpp / MPTMPlayer.h** — Critical playback optimisation and correctness pass (validated against `Assets/test1.mptm`, Purple Motion's *Shooting Star*, which uses 31 external FLAC samples):
-
-- **Fixed stuck playback (root cause #1):** `S6x` was decoded as a *pattern loop* but in IT it is a *fine pattern delay* (extra ticks). The module's eleven `S66` commands were triggering spurious 6× row loops. `S6x` now adds ticks to the current row only; pattern loop moved to its correct command, `SBx`.
-- **Fixed silent/stuck samples (root cause #2):** `S9x` was decoded as the sample high-offset byte, corrupting the heavily-used `Oxx` sample offset so notes started past the sample end. `S9x` is now correctly treated as sound-control (no-op); the high-offset byte comes from `SAy` as per the IT spec.
-- **Fixed `SEx` pattern delay (hang + audible note resets):** the held row was being re-read on every hold tick, which both re-armed the delay (so delays >= 2 hung forever) and retriggered every note (sustained pad/loop samples restarted audibly, e.g. at `SEE`/`SE7`). The row is now read exactly once; while held it only counts the delay down, so notes sustain and loop smoothly across the delay as in OpenMPT / ModPlug Tracker. `S6x` fine pattern delay likewise extends the row's tick count without re-reading it.
-- **Fixed note tuning:** IT/MPTM pattern notes are 0-based (C-5 = 60); `ITNoteToLinear` subtracted 1, detuning every note a semitone and double-subtracting through the instrument note map. Removed the off-by-one.
-- **Fixed `Xxx` panning:** the old `min(data,0x80)*255/128` collapsed every pan value >= 0x80 to hard-right; now maps the full 0x00-0xFF range directly (0x80 = centre).
-- **Fixed pattern-loop off-by-one:** `SBx` now replays the loopback row without the `+1` that `AdvanceRow` would otherwise add.
-- **Vibrato/tremolo/panbrello waveforms:** `S3x`/`S4x`/`S5x` now select the oscillator waveform (sine/ramp/square/random), the `Waveform()` ramp-vs-square cases were swapped and are corrected, and oscillator phases retrigger on a fresh note (old-effects flag off).
-- **`Oxx`** now applies the offset only on note rows, per IT behaviour.
-- **Audio output optimisation:** `FillAudioBuffer` replaced its ~2 KB (~11 ms) lead -- which underran and stuttered -- with a frame-aligned quarter-second lead. `MixAudio` folds pan/master/voice gain into a single scalar per side (one multiply-add per channel in the inner loop) and replaces the per-sample `std::fmod` loop wrap with a bounded subtract.
-
----
-
 #### June 28, 2026
 
 Engine merge from TSOO (engine-level changes only; PROJECT_ONLY_CODE blocks excluded):
@@ -4182,12 +4153,111 @@ New private helpers: `BlowfishInitState`, `BlowfishF`, `BlowfishEncipher`, `Blow
 - Added offset comments to every `MPTMSampleHeader` field (`0x00`–`0x4F`) so future edits can be verified against the IT spec at a glance.
 - Added `static_assert(sizeof(MPTMHeader) == 192)` and `static_assert(sizeof(MPTMSampleHeader) == 80)` to catch any future struct drift at compile time.
 
+#### June 29, 2026
+
+**ITPlayer.cpp** — Fixed scratchy playback on multi-voice patterns (test2.it patterns 1 & 2):
+
+- `header.mixVolume` (IT header byte 49; range 0-128, default 48) was stored in the struct but never applied as a scaling factor in `MixAudio`. With all channels at full volume and 4 simultaneous voices center-panned, the mix accumulator peaked at ~65534 per channel — double the int16_t limit — causing the soft-clipper to introduce heavy harmonic distortion audible as scratchiness. Fixed by computing `mixVolFactor = max(header.mixVolume, 1) / 128.0f` and folding it into the `finalLeft`/`finalRight` scalars. With the file's `mixVolume=48` the peak drops to ~24575 — clean. Zero-guard uses IT's standard default of 48 when the field is 0.
+
+**ITPlayer.cpp** — Fixed all notes playing one semitone too high (ITNoteToLinear, sample-only and instrument modes):
+
+- IT pattern data encodes notes as 1-based values: byte 1 = C-0, byte 61 = C-5, byte 120 = B-9. The previous `ITNoteToLinear()` had an incorrect comment claiming 0-based encoding and passed raw bytes through unchanged. A hex dump of `test2.it` confirmed byte `0x3D` (61) for a cell OpenMPT labels "C-5". Without the correction, `NoteToFrequency(61, c5Speed)` returned `c5Speed × 2^(1/12)` (C#5) instead of C-5 — every note was one semitone sharp. In instrument mode the raw byte was also used as a 0-based `noteMap[]` index, selecting the wrong slot and adding a second semitone of error. Fixed by subtracting 1 in `ITNoteToLinear` to produce 0-based values (0 = C-0, 60 = C-5) before any `NoteToFrequency` call or noteMap lookup. Sentinel bytes (0 = empty cell, 253–255 = fade/cut/off) are passed through unchanged. All 5 call sites are covered by the single function change.
+
+**ITPlayer.cpp** — Fixed `Kxx` and `Lxx` effect-parameter memory corruption:
+
+- `Kxx` (= H00 + Dxx per IT spec) was grouped with the `Hxx`/`Uxx` case so its `xx` parameter was stored into `lastVibrato` instead of `lastVolumeSlide`, corrupting both the volume-slide depth on `K` rows and the vibrato depth that subsequent `Hxx` effects would recall from memory.
+- `Lxx` (= G00 + Dxx per IT spec) stored its `xx` parameter into both `lastVolumeSlide` AND `lastPortamento`, overwriting the portamento speed set by the preceding `Gxx`, causing slides to stall or jump.
+- Both are now separate `case` branches: `Kxx` stores `xx` → `lastVolumeSlide` only and inherits `lastVibrato` from `Hxx` memory; `Lxx` stores `xx` → `lastVolumeSlide` only and inherits `lastPortamento` from `Gxx` memory unchanged.
+
+New **ITPlayer** class system added (ITPlayer.h / ITPlayer.cpp) — support for Impulse Tracker Module Music Playback (works just like the XMMODPlayer):
+New **MODPlayer** class system added (MODPlayer.h / MODPlayer.cpp) — support for ProTracker2 Module Music Playback (works just like the XMMODPlayer):
+
+New Documents have been written up for these Two new music players as well can can be found in the "./Docs" folder.
+
+**Docs/S3MPlayer-Example-Usage.md** — New documentation written covering the full `S3MPlayer` class:
+
+- Overview of the S3M format, PCM and AdLib (OPL2 FM) instrument support, and the DirectSound ring-buffer playback pipeline.
+- Full API reference: `Play`, `Stop`, `Shutdown`, `Pause`, `Resume`, `HardPause`, `HardResume`, `Terminate`, `Mute`, `IsPlaying`, `IsPaused`, `SetVolume`, `SetGlobalVolume`, `SetFadeIn`, `SetFadeOut`, `GotoSequenceID`.
+- Volume hierarchy table showing how the five gain factors (`voice.volume`, `channelVolume`, `moduleGlobalVolume`, `globalVolume`, `currentVolume`) multiply together in the mixer.
+- Full implemented effects table covering all 26 S3M effect letters (Axx–Zxx) with hex codes and descriptions.
+- AdLib OPL2 synthesis section: two-operator FM, ADSR per operator, EGT sustain-hold flag, 8 OPL2 waveforms, self-feedback, additive/FM connection, TL attenuation, and frequency multipliers.
+- Waveform table for vibrato/tremolo/panbrello (`S3x`, `S4x`, `S5x`).
+- Retrigger volume command table (`Qxy` x-nibble actions).
+- Playback architecture notes: tick scheduling, `timeBeginPeriod(1)`, jitter accumulator, linear interpolation, mutex/atomic threading model.
+- Typical game integration pattern showing load, pause/resume, section jump, and fade-out/shutdown lifecycle.
+- Notes on file validation, order-list skip/end markers, stereo downmix, channel panning defaults, and volume clamping.
+
+**MPTMPlayer.cpp / MPTMPlayer.h** — Critical playback optimisation and correctness pass (validated against `Assets/test1.mptm`, Purple Motion's *Shooting Star*, which uses 31 external FLAC samples):
+
+- **Fixed stuck playback (root cause #1):** `S6x` was decoded as a *pattern loop* but in IT it is a *fine pattern delay* (extra ticks). The module's eleven `S66` commands were triggering spurious 6× row loops. `S6x` now adds ticks to the current row only; pattern loop moved to its correct command, `SBx`.
+- **Fixed silent/stuck samples (root cause #2):** `S9x` was decoded as the sample high-offset byte, corrupting the heavily-used `Oxx` sample offset so notes started past the sample end. `S9x` is now correctly treated as sound-control (no-op); the high-offset byte comes from `SAy` as per the IT spec.
+- **Fixed `SEx` pattern delay (hang + audible note resets):** the held row was being re-read on every hold tick, which both re-armed the delay (so delays >= 2 hung forever) and retriggered every note (sustained pad/loop samples restarted audibly, e.g. at `SEE`/`SE7`). The row is now read exactly once; while held it only counts the delay down, so notes sustain and loop smoothly across the delay as in OpenMPT / ModPlug Tracker. `S6x` fine pattern delay likewise extends the row's tick count without re-reading it.
+- **Fixed note tuning:** IT/MPTM pattern notes are 0-based (C-5 = 60); `ITNoteToLinear` subtracted 1, detuning every note a semitone and double-subtracting through the instrument note map. Removed the off-by-one.
+- **Fixed `Xxx` panning:** the old `min(data,0x80)*255/128` collapsed every pan value >= 0x80 to hard-right; now maps the full 0x00-0xFF range directly (0x80 = centre).
+- **Fixed pattern-loop off-by-one:** `SBx` now replays the loopback row without the `+1` that `AdvanceRow` would otherwise add.
+- **Vibrato/tremolo/panbrello waveforms:** `S3x`/`S4x`/`S5x` now select the oscillator waveform (sine/ramp/square/random), the `Waveform()` ramp-vs-square cases were swapped and are corrected, and oscillator phases retrigger on a fresh note (old-effects flag off).
+- **`Oxx`** now applies the offset only on note rows, per IT behaviour.
+- **Audio output optimisation:** `FillAudioBuffer` replaced its ~2 KB (~11 ms) lead -- which underran and stuttered -- with a frame-aligned quarter-second lead. `MixAudio` folds pan/master/voice gain into a single scalar per side (one multiply-add per channel in the inner loop) and replaces the per-sample `std::fmod` loop wrap with a bounded subtract.
+
+**MPTMPlayer.cpp \ MPTMPlayer.h** — Major correctness pass fixing 18 spec gaps identified by gap analysis against MPTM/IT specification (prompted by "horrible" playback of test3.xptm):
+
+- **Sustain loop implemented:** `MPTMSample` gains `IsSustainLooped()` (flag `0x20`) and `IsPingPongLoop()` (flag `0x40`) helpers. `MixAudio` now selects the sustain loop region while the note is held and switches to the forward loop (or ends) on note-off, matching OpenMPT/IT sustain-loop semantics.
+- **Ping-pong (bidirectional) loop implemented:** `MixAudio` detects the ping-pong flag and reverses the playback direction at each boundary instead of wrapping forward; `reversePlayback` on the voice tracks the current direction.
+- **Linear interpolation in `MixAudio`:** The inner loop now linearly interpolates between `pcm[index]` and `pcm[index+1]` using the fractional part of `samplePos`, eliminating the high-frequency aliasing (harsh buzzing) produced by nearest-neighbour truncation especially at pitches above the sample's natural rate.
+- **Panning envelope:** `MPTMInstrument` gains `panningEnvelopeFlags/PointCount/LoopStart/LoopEnd/SustainStart/SustainEnd`, `panningEnvelopeValues[25]` (`int8_t`, −32..+32), and `panningEnvelopeTicks[25]`. `LoadInstruments` reads these from IT offset 384..463. `EvaluatePanningEnvelope()` interpolates between points and returns −1..+1. `AdvanceVoiceEnvelope` ticks `panEnvelopeTick` with sustain/loop logic. `MixAudio` applies `envelopePanning` offset to the voice panning before the pan split.
+- **Instrument default panning:** `MPTMInstrument` gains `defaultPanning` and `hasPanningOverride`. `LoadInstruments` reads byte 51 of the IMPI block; bit 7 flags override; bits 0..6 store 0..64 panning scaled to 0..255. `TriggerEvent` applies instrument panning over the sample default on note trigger.
+- **`nna` field loaded:** `MPTMInstrument::nna` (new note action) is now read from IMPI byte 16 bit-masked `& 0x03`. (Full NNA voice-pool routing is a future task; the field is stored for completeness.)
+- **`Txx` tempo slide formula fixed:** The old formula `tempo += (data & 0xF) - (data >> 4)` combined both nibbles simultaneously, giving wrong results for any `T1x` slide-down row. Corrected to: `data < 0x10` → slide up by `data`; `data >= 0x10` → slide down by `data & 0xF`.
+- **`Pxy` panning slide memory:** `MPTMChannelVoice` gains `lastPanningSlide`. `TriggerEvent` saves the non-zero parameter there. `ApplyPanningSlide()` (new function) reads it with `P00` recall. The old inline implementation in `ApplyTickEffects` read `voice.effectData` (shared with all effects) — now replaced.
+- **`Wxy` global volume slide memory:** Previously stored in `lastVolumeSlide` (shared with `Dxy`). `MPTMChannelVoice` gains `lastGlobalVolumeSlide`; `TriggerEvent` and `ApplyGlobalVolumeSlide` updated. `ApplyGlobalVolumeSlide` also gains fine-slide support (`WxF`/`W0y` fire once on tick 1, matching the `Dxy` pattern).
+- **`Nxy` channel volume slide memory:** Separated into `lastChannelVolumeSlide`. `ApplyChannelVolumeSlide()` (new function) applies the slide to `voice.channelVolume` (a new per-voice multiplier separate from `voice.volume`), which is included in the `MixAudio` volume chain.
+- **`Lxy` memory fixed:** Tone-portamento+volume-slide used to write `data` into both `lastVolumeSlide` and `lastPortamento`, corrupting both when only one nibble was non-zero. Now each nibble is only written to its slot when it is non-zero.
+- **`Yxy` panbrello memory:** `MPTMChannelVoice` gains `lastPanbrello`. `TriggerEvent` saves there; `ApplyPanbrello` reads `lastPanbrello` with `Y00` recall. Previously used `voice.effectData` which was overwritten by the final assignment at the end of `TriggerEvent`.
+- **`S1x` glissando:** `MPTMChannelVoice` gains `glissandoControl`. `ApplySpecialCommand` sets/clears it on `S10`/`S11`. `ApplyPortamento` snaps the current pitch to the nearest semitone after each glide step when glissando is active.
+- **`S9x` sound control — reverse playback:** `ApplySpecialCommand` handles `S9E` (forward) and `S9F` (reverse). `MixAudio` honours `voice.reversePlayback` and subtracts `stepValue` instead of adding it. When reversing a sample from position 0 the start position is set to the loop/sample end so the reverse plays immediately.
+- **Order count limit raised:** The header validation allowed a maximum of 256 orders (the IT format limit). MPTM extends this to 8192; the check is updated accordingly.
+- **Channel volume multiplier in mixer:** `MPTMChannelVoice::channelVolume` (initialised to 64, the `Mxx` target) is now included in the `MixAudio` volume chain as `channelVolFactor`. Previously `Mxx` wrote directly to `voice.volume`, destroying the note's own volume memory.
+
+**ITPlayer.cpp \ ITPlayer.h** — Full IT-spec correctness pass and crackling fix:
+
+- **Fixed loop-boundary crackle (root cause):** `MixAudio` was computing the linear-interpolation look-ahead sample by reading `pcm[loopEnd]` — a sample past the loop point that is never played. Every loop cycle produced a discontinuity click. `nextIndex` now wraps to `loopStart` whenever it would reach or exceed `loopEnd`.
+- **Fixed tone portamento (Gxx) pitch arithmetic:** `ApplyPortamento` was using additive step arithmetic (`step += delta`), which is linear in Hz space and causes wildly inconsistent pitch-change rates across the frequency range (too fast for low notes, imperceptibly slow for high notes). Changed to multiplicative: `step *= 2^(param/768)` per tick, matching IT's linear semitone-slide mode. Same fix applied to volume-column `g` (VOLCMD_TONEPORTA).
+- **Fixed fine volume slide timing (Dxx):** Fine slides `DFy` (slide down) and `DxF` (slide up) must fire exactly once on tick 0. They were incorrectly applied at tick 1 inside `ApplyVolumeSlide`. Moved to `TriggerEvent`; `ApplyVolumeSlide` now skips the fine-slide branches entirely.
+- **Fixed fine channel-volume slide (Nxx) and fine global-volume slide (Wxx):** Same tick-0 fix applied to `ApplyChannelVolumeSlide` / `ApplyGlobalVolumeSlide` and their `TriggerEvent` cases.
+- **Fixed fine portamento timing (Exx/Fxx):** Fine (`EFy`/`FFy`) and extra-fine (`EEy`/`FEy`) variants now fire on tick 0 in `TriggerEvent`. `ApplyTickEffects` cases `0x05`/`0x06` skip these variants rather than re-applying them at tick 1.
+- **Fixed tremor counter reset (Ixx):** The tremor counter was set to 0 in `TriggerEvent` case `0x09` on every row that carried the Ixx effect, causing a rhythmic click each row boundary on sustained tremor. The counter now resets only when a new voice is allocated (zero-initialised by default); continuing rows leave it unchanged.
+- **Fixed vibrato/tremolo/panbrello waveform bit masking:** `S3x`/`S4x`/`S5x` were masking the stored waveform byte with `& 0x03`, discarding bit 2 — the IT "no-retrig" flag that controls whether the oscillator phase resets on a new note. Changed to `& 0x07` throughout.
+- **Implemented oscillator no-retrig phase carry:** When bit 2 of the waveform byte is set, the new voice's `vibratoPos`/`tremoloPos`/`panbrelloPos` are now copied from the host channel instead of resetting to 0. Host channel positions are kept in sync after each `ApplyVibrato`/`ApplyTremolo`/`ApplyPanbrello`/`ApplyVolumeColumnTick` call in `ApplyTickEffects`.
+
+**VULKAN_RenderFrame.cpp** — Fixed fatal Access Violation crash in `nvoglv64.dll` during `VulkanRenderer::RenderFrame`:
+
+- Root cause: a null `VkImageView` or `VkSampler` handle was being passed to `vkUpdateDescriptorSets` in the blit composite passes. The NVIDIA Vulkan ICD attempted to resolve the null handle to an internal object, read a null pointer at offset `0xF0` inside that object, and crashed on the subsequent virtual dispatch — visible in the SEH dump as `mov rax,[rcx]` AV in `nvoglv64.dll` Frame 0.
+- Primary crash site was the **bg overlay / starfield composite** blit: this path only becomes active the first frame `bLoaderTaskFinished` is true, matching the crash timing (3 seconds after `CreateGameMenuWindow` completes).
+- Added `.view != VK_NULL_HANDLE && .sampler != VK_NULL_HANDLE` guards to all three `vkUpdateDescriptorSets` call sites: background image blit, bg overlay/starfield composite blit, and main overlay blit.
+
+**VULKAN_Renderer.cpp** — Hardened both overlay upload functions against null staging handles:
+
+- `UploadOverlayToVulkan`: added early-return guard `m_overlayStagingMemory != VK_NULL_HANDLE` so the function cannot proceed to map/copy if the staging buffer failed allocation.
+- `UploadBgOverlayToVulkan`: added early-return guards `m_bgOverlayTexture.image != VK_NULL_HANDLE` and `m_bgStagingMemory != VK_NULL_HANDLE` for the same reason.
+
+**ScreenRecorder** — Fixed file sharing violation (0x80070020) blocking all recording and microphone capture (`main.cpp`, `ScreenRecorder.cpp`, `ScreenRecorder.h`):
+
+- **Root cause — recording failure:** `MFCreateSinkWriterFromURL` was called with the hardcoded path `Assets\recording.mp4`. On any subsequent run while another process (Explorer thumbnail, media player, antivirus) held the file open, HRESULT `0x80070020` (ERROR_SHARING_VIOLATION) caused `StartRecording` to abort at line 1 of setup — before `InitAudioCapture` or `InitMicCapture` were ever reached. This was the sole reason microphone capture had stopped working; there was no independent mic bug.
+- **Fix — timestamped output filename** (`main.cpp`): `Assets\recording.mp4` replaced with `Assets\recording_YYYYMMDD_HHMMSS.mp4` generated via `GetLocalTime` + `swprintf_s` at the moment the record key is pressed. Each session writes a unique file; collisions are structurally impossible.
+- **Fix — mic/loopback double-blend logic** (`ScreenRecorder.cpp`, `ScreenRecorder.h`): `InitMonitor` previously fell back to the eConsole render endpoint when eCommunications was unavailable, but `MixMicInline` always blended the mic directly into the loopback audio regardless — doubling the mic level on single-output systems. Fixed by adding `m_monitorOnLoopbackDevice` (bool, initialised false): `InitMonitor` now retrieves both endpoint IDs and compares them with `GetId` + `wcscmp`; if they map to the same physical device the flag is set true. The monitor log now reports which mode is active at startup.
+
+- **Corrected — `m_monitorOnLoopbackDevice` direct-blend guard reverted** (`ScreenRecorder.cpp`): The earlier `if (!m_monitorOnLoopbackDevice)` guard in `MixMicInline` that skipped the direct blend when the monitor and eConsole loopback shared the same device was found to be incorrect. WASAPI loopback captures the endpoint buffer for a given poll cycle before `WriteMonitorSamples` can push mic audio into it — so on any single-output system (the common case), the mic was silently dropped from the recording. Reverted to always direct-blend the mic into the game audio buffer regardless of `m_monitorOnLoopbackDevice`. The flag and endpoint-comparison logic in `InitMonitor` are retained for diagnostic logging only.
+
+- **Fixed — mic completely absent when game audio is silent** (`ScreenRecorder.cpp`, `AudioCaptureThread`): `MixMicInline` is only called inside the WASAPI loopback-packet loop. When game audio is silent WASAPI returns 0 packets, the inner loop never executes, and the mic is never written to the recording regardless of the blend code. Added a `!hadLoopbackData` idle path: drains the WASAPI mic buffer into `m_micAccum`, then writes silence+mic packets in 10ms chunks until the accumulator is exhausted. `m_audioTimestamp` advances correctly through idle writes so timestamps are consistent when game audio resumes. Mic is now captured continuously at all times.
+
+*See: [`main.cpp`](main.cpp), [`ScreenRecorder.cpp`](ScreenRecorder.cpp), [`ScreenRecorder.h`](ScreenRecorder.h)*
+
 ---
 
 ## Future Development
 
 ### **PRODUCTION READINESS APPROACHING**
-The DirectX 11, DirectX 12, OpenGL & Vulkan Render Pipelines are nearing **GAMING PRODUCTION READINESS** for Windows 10 SP1+ 64-bit systems.
+The DirectX 11, DirectX 12, OpenGL & Vulkan Render Pipelines are nearing **GAMING PRODUCTION READINESS** for Windows 10 SP1+ & 11 64-bit systems.
 
 ### **Project Mission Statement**
 
@@ -4199,6 +4269,7 @@ The DirectX 11, DirectX 12, OpenGL & Vulkan Render Pipelines are nearing **GAMIN
 ### **Developer Guidelines**
 
 - **Testing Protocol**: Always test the complete GitHub base with full clone/pull before starting projects
+- **Tracker Modules**: All Music tracker module files (.xm, .mod, .it, .s3m or .mptm) should NOT ever be used for your gaming production work as these tracker modules files are provided for you to test the related playback system only, so you can see it working for yourself.  These modules are generally copyrighted by the author of the song, which means you MUST ask for permission first before ever using for commercial works.  I am sure if you are at the point knowning you can use one of these playback systems for your game, then I am very sure you can write your own music modules for that playback system.
 - **Issue Reporting**: Email `https://ultimanium.com/index.php?action=contact-development` with subject "CPGE Problem - [Brief Description]"
 - **Debug Information**: Include compile/runtime logs from DEBUG builds
 - **License**: Perpetual MIT License with lifetime updates

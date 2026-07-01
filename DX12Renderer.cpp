@@ -21,12 +21,6 @@
     #include "SceneManager.h"
     #include "MoviePlayer.h"
 
-    #if defined(__USE_MP3PLAYER__)
-        #include "WinMediaPlayer.h"
-    #elif defined(__USE_XMPLAYER__)
-        #include "XMMODPlayer.h"
-    #endif
-
     #include <d3dcompiler.h>
     #include "d3dx12.h"
 
@@ -76,12 +70,6 @@
     extern bool bResizing;
     extern std::atomic<bool> bResizeInProgress;                    // Prevents multiple resize operations
     extern std::atomic<bool> bFullScreenTransition;                // Prevents handling during fullscreen transitions
-
-#if defined(__USE_MP3PLAYER__)
-    extern MediaPlayer player;
-#elif defined(__USE_XMPLAYER__)
-    extern XMMODPlayer xmPlayer;
-#endif
 
 // Constructor/Destructor
 DX12Renderer::DX12Renderer() : m_frameIndex(0), m_fenceValue(0), m_fenceEvent(nullptr)

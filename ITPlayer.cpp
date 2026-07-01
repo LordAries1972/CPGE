@@ -3,7 +3,7 @@
 #include "Debug.h"
 #include "Configuration.h"
 
-#include <filesystem>
+#include <cmath>
 #include <limits>
 
 extern Debug debug;
@@ -14,14 +14,12 @@ extern Configuration config;
     #pragma comment(lib, "dsound.lib")
     #pragma comment(lib, "dxguid.lib")
     #pragma comment(lib, "winmm.lib")
-    #pragma comment(lib, "mfplat.lib")
-    #pragma comment(lib, "mfreadwrite.lib")
-    #pragma comment(lib, "mfuuid.lib")
 #endif
 
 namespace {
     constexpr uint32_t IT_SAMPLE_RATE = 44100;
     constexpr uint8_t IT_MAX_CHANNELS = 64;
+    constexpr uint16_t IT_MAX_VIRTUAL_VOICES = 256;
     constexpr uint8_t IT_NOTE_CUT = 254;
     constexpr uint8_t IT_NOTE_OFF = 255;
     constexpr uint8_t IT_NOTE_FADE = 253;
@@ -44,6 +42,19 @@ namespace {
 
     uint8_t ClampVolume(int value) {
         return static_cast<uint8_t>(std::clamp(value, 0, 64));
+    }
+
+    int16_t FinalizeMixSample(int32_t value) {
+        if (value >= -32768 && value <= 32767) {
+            return static_cast<int16_t>(value);
+        }
+
+        // Accumulate voices at full precision, then soften only true overflow. This avoids
+        // per-voice hard clipping, which is a common source of crackle in dense tracker rows.
+        const float normalized = static_cast<float>(value) / 32768.0f;
+        const float shaped = normalized / (1.0f + std::fabs(normalized));
+        const int32_t scaled = static_cast<int32_t>(std::lround(shaped * 32767.0f));
+        return static_cast<int16_t>(std::clamp<int32_t>(scaled, -32768, 32767));
     }
 
     // IT volume-column commands. The single byte encodes a command and parameter by range.
@@ -79,16 +90,16 @@ namespace {
     constexpr uint8_t VolColumnPortaSpeed[10] = { 0, 1, 4, 8, 16, 32, 64, 96, 128, 255 };
 
     uint8_t ITNoteToLinear(uint8_t note) {
-        // IT/IT pattern notes are already 0-based: 0 == C-0, 60 == C-5 (middle).
-        // This player treats a stored value of 0 as "empty cell", and 253..255 as the
-        // note-fade/cut/off sentinels, so only real notes are clamped into 0..119.
-        // (Do NOT subtract 1 here -- doing so detunes every note by a semitone and, when
-        // combined with the instrument note map, double-subtracts.)
+        // IT pattern notes are 1-based: 1=C-0, 61=C-5 (middle), 120=B-9.
+        // Byte 0 = empty cell; 253..255 = note-fade/cut/off sentinels (passed through).
+        // Subtract 1 to convert to 0-based (0=C-0, 60=C-5) before passing to
+        // NoteToFrequency or using as a noteMap index.  Both the raw note byte and any
+        // value returned by the instrument noteMap need this conversion.
         if (note == 0 || note >= IT_NOTE_FADE) {
             return note;
         }
 
-        return static_cast<uint8_t>(std::min<int>(note, 119));
+        return static_cast<uint8_t>(std::min<int>(static_cast<int>(note) - 1, 119));
     }
 
     // Internal OpenMPT / IT effect byte values. These are enum indices, NOT ASCII display chars.
@@ -107,13 +118,6 @@ namespace {
             return true;
         }
 
-        // Zxx (CMD_MIDI): dual-purpose resonant filter / VST macro. This engine has no
-        // native filter path, so all Zxx variants are treated as no-ops until filters
-        // are implemented.
-        if (effect == CMD_MIDI) {
-            return true;
-        }
-
         // Xxx (CMD_DELAYCUT): param 0x00-0x7F is native note delay+cut; param 0x80-0xFF
         // is an OpenMPT-only plugin parameter extension with no native meaning.
         if (effect == CMD_DELAYCUT && param >= 0x80) {
@@ -124,68 +128,169 @@ namespace {
         // adjustment commands -- never drop them.
         return false;
     }
-    bool LooksLikeExternalSampleReference(const std::vector<uint8_t>& data) {
-        if (data.empty()) {
-            return false;
+    int32_t SignExtend(uint32_t value, uint8_t bits) {
+        const uint32_t mask = 1U << (bits - 1);
+        return static_cast<int32_t>((value ^ mask) - mask);
+    }
+
+    int32_t WrapSigned(int32_t value, bool is16Bit) {
+        if (is16Bit) {
+            return static_cast<int16_t>(value);
         }
 
-        const size_t pathLength = data[0];
-        if (pathLength == 0 || pathLength + 1 > data.size()) {
-            return false;
+        return static_cast<int8_t>(value);
+    }
+
+    class ITBitReader {
+    public:
+        ITBitReader(const std::vector<uint8_t>& source, size_t begin, size_t end)
+            : data(source), byteOffset(begin), blockEnd(end) {
         }
 
-        bool hasPathSeparator = false;
-        bool hasExtensionDot = false;
-        for (size_t i = 1; i <= pathLength; ++i) {
-            const uint8_t ch = data[i];
-            if (ch < 0x20 || ch > 0x7E) {
+        bool ReadBits(uint8_t bitCount, uint32_t& value) {
+            value = 0;
+            uint8_t written = 0;
+            while (written < bitCount) {
+                if (byteOffset >= blockEnd) {
+                    return false;
+                }
+
+                const uint8_t available = static_cast<uint8_t>(8 - bitOffset);
+                const uint8_t wanted = static_cast<uint8_t>(bitCount - written);
+                const uint8_t take = std::min<uint8_t>(available, wanted);
+                const uint8_t mask = static_cast<uint8_t>((1U << take) - 1U);
+                value |= static_cast<uint32_t>((data[byteOffset] >> bitOffset) & mask) << written;
+
+                bitOffset = static_cast<uint8_t>(bitOffset + take);
+                written = static_cast<uint8_t>(written + take);
+                if (bitOffset == 8) {
+                    bitOffset = 0;
+                    ++byteOffset;
+                }
+            }
+
+            return true;
+        }
+
+    private:
+        const std::vector<uint8_t>& data;
+        size_t byteOffset = 0;
+        size_t blockEnd = 0;
+        uint8_t bitOffset = 0;
+    };
+
+    bool DecodeITCompressedChannel(const std::vector<uint8_t>& raw, size_t& offset, bool is16Bit,
+        bool it215Compression, uint32_t sampleCount, std::vector<int32_t>& decoded) {
+        constexpr uint32_t Block8BitSamples = 0x8000;
+        constexpr uint32_t Block16BitSamples = 0x4000;
+
+        decoded.assign(sampleCount, 0);
+        const uint8_t maxWidth = is16Bit ? 17 : 9;
+        const uint8_t lowWidthBits = is16Bit ? 4 : 3;
+        const uint32_t blockSamples = is16Bit ? Block16BitSamples : Block8BitSamples;
+        const uint32_t largeWidthBorderBase = is16Bit ? 0xFFFFU : 0xFFU;
+        const uint32_t largeWidthRange = is16Bit ? 16U : 8U;
+        int32_t d1 = 0;
+        int32_t d2 = 0;
+        uint32_t written = 0;
+
+        while (written < sampleCount) {
+            if (offset + sizeof(uint16_t) > raw.size()) {
                 return false;
             }
 
-            hasPathSeparator = hasPathSeparator || ch == '\\' || ch == '/' || ch == ':';
-            hasExtensionDot = hasExtensionDot || ch == '.';
+            const uint16_t compressedBlockBytes = ReadLE16(&raw[offset]);
+            offset += sizeof(uint16_t);
+            if (compressedBlockBytes == 0 || offset + compressedBlockBytes > raw.size()) {
+                return false;
+            }
+
+            const size_t blockEnd = offset + compressedBlockBytes;
+            ITBitReader reader(raw, offset, blockEnd);
+            uint8_t width = maxWidth;
+            const uint32_t thisBlockSamples = std::min<uint32_t>(blockSamples, sampleCount - written);
+
+            for (uint32_t blockSample = 0; blockSample < thisBlockSamples; ) {
+                uint32_t value = 0;
+                if (!reader.ReadBits(width, value)) {
+                    return false;
+                }
+
+                if (width < 7) {
+                    const uint32_t marker = 1U << (width - 1);
+                    if (value == marker) {
+                        uint32_t newWidth = 0;
+                        if (!reader.ReadBits(lowWidthBits, newWidth)) {
+                            return false;
+                        }
+
+                        // Method-1 width changes encode every legal width except the current
+                        // one. Values at or above the current width are shifted up by one; using
+                        // newWidth + 1 directly can leave the width unchanged and desync the rest
+                        // of the compressed block.
+                        ++newWidth;
+                        width = static_cast<uint8_t>(std::clamp<uint32_t>(newWidth < width ? newWidth : newWidth + 1U, 1U, maxWidth));
+                        continue;
+                    }
+                }
+                else if (width < maxWidth) {
+                    const uint32_t border = (largeWidthBorderBase >> (maxWidth - width)) - (largeWidthRange / 2U);
+                    if (value > border && value <= border + largeWidthRange) {
+                        value -= border;
+                        width = static_cast<uint8_t>(std::clamp<uint32_t>(value < width ? value : value + 1U, 1U, maxWidth));
+                        continue;
+                    }
+                }
+                else if ((value & (1U << (maxWidth - 1))) != 0) {
+                    width = static_cast<uint8_t>(std::clamp<uint32_t>((value + 1U) & 0xFFU, 1U, maxWidth));
+                    continue;
+                }
+
+                const int32_t delta = width == maxWidth
+                    ? (is16Bit ? static_cast<int32_t>(static_cast<int16_t>(value)) : static_cast<int32_t>(static_cast<int8_t>(value)))
+                    : SignExtend(value, width);
+                d1 = WrapSigned(d1 + delta, is16Bit);
+                d2 = WrapSigned(d2 + d1, is16Bit);
+                decoded[written++] = it215Compression ? d2 : d1;
+                ++blockSample;
+            }
+
+            // Each compressed block is self-contained; skip trailing padding bits and resume at
+            // the next byte block header to avoid accidental reads across block boundaries.
+            offset = blockEnd;
         }
 
-        return hasPathSeparator && hasExtensionDot;
+        return true;
     }
-    std::wstring DecodeExternalSampleReference(const std::vector<uint8_t>& data) {
-        if (!LooksLikeExternalSampleReference(data)) {
-            return std::wstring();
+
+    bool DecodeITCompressedSample(const std::vector<uint8_t>& raw, bool is16Bit, uint32_t sourceChannels,
+        bool it215Compression, uint32_t sampleCount, std::vector<int16_t>& pcm) {
+        pcm.assign(sampleCount, 0);
+        if (sampleCount == 0 || sourceChannels == 0) {
+            return true;
         }
 
-        const size_t pathLength = data[0];
-        std::wstring result;
-        result.reserve(pathLength);
-        for (size_t i = 1; i <= pathLength; ++i) {
-            result.push_back(static_cast<wchar_t>(data[i]));
-        }
-        return result;
-    }
+        size_t offset = 0;
+        std::vector<int32_t> channelSamples;
+        std::vector<int32_t> mixed(sampleCount, 0);
+        for (uint32_t sourceChannel = 0; sourceChannel < sourceChannels; ++sourceChannel) {
+            if (!DecodeITCompressedChannel(raw, offset, is16Bit, it215Compression, sampleCount, channelSamples)) {
+                return false;
+            }
 
-    std::wstring ResolveExternalSamplePath(const std::wstring& modulePath, const std::wstring& referencePath) {
-        namespace fs = std::filesystem;
-
-        if (referencePath.empty()) {
-            return std::wstring();
+            for (uint32_t sampleIndex = 0; sampleIndex < sampleCount; ++sampleIndex) {
+                mixed[sampleIndex] += is16Bit ? channelSamples[sampleIndex] : (channelSamples[sampleIndex] << 8);
+            }
         }
 
-        const fs::path reference(referencePath);
-        if (reference.is_absolute() && fs::exists(reference)) {
-            return reference.wstring();
+        for (uint32_t sampleIndex = 0; sampleIndex < sampleCount; ++sampleIndex) {
+            pcm[sampleIndex] = static_cast<int16_t>(std::clamp<int32_t>(
+                mixed[sampleIndex] / static_cast<int32_t>(sourceChannels),
+                -32768,
+                32767));
         }
 
-        const fs::path moduleDirectory = fs::path(modulePath).parent_path();
-        const fs::path relativeToModule = moduleDirectory / reference;
-        if (fs::exists(relativeToModule)) {
-            return relativeToModule.wstring();
-        }
-
-        const fs::path sampleFolderFallback = moduleDirectory / L"Samples" / reference.filename();
-        if (fs::exists(sampleFolderFallback)) {
-            return sampleFolderFallback.wstring();
-        }
-
-        return std::wstring();
+        return true;
     }
 }
 
@@ -225,13 +330,17 @@ bool ITPlayer::Initialize(const std::wstring& filename) {
     speed = header.initialSpeed > 0 ? header.initialSpeed : 6;
     tempo = header.initialTempo >= 32 ? header.initialTempo : 125;
 
+    hostChannels.clear();
+    hostChannels.resize(IT_MAX_CHANNELS);
     voices.clear();
-    voices.resize(IT_MAX_CHANNELS);
-    for (size_t channel = 0; channel < voices.size(); ++channel) {
-        voices[channel].panning = DefaultPanningForChannel(channel);
+    voices.resize(IT_MAX_VIRTUAL_VOICES);
+    for (size_t channel = 0; channel < hostChannels.size(); ++channel) {
+        hostChannels[channel].panning = DefaultPanningForChannel(channel);
+        hostChannels[channel].channelVolume = std::min<uint8_t>(header.channelVolume[channel], 64);
+        hostChannels[channel].hostChannel = static_cast<uint8_t>(channel);
     }
 
-    globalVolume = static_cast<uint8_t>(std::min<uint16_t>(header.globalVolume, 128) / 2);
+    moduleGlobalVolume = static_cast<uint8_t>(std::min<uint16_t>(header.globalVolume, 128));
     currentVolume = config.myConfig.musicVolume;
     targetVolume = config.myConfig.musicVolume;
     fadeInActive = false;
@@ -262,7 +371,7 @@ bool ITPlayer::LoadITFile(const std::wstring& filename) {
     }
 
     if (std::strncmp(header.magic, "IMPM", 4) != 0) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"ITPlayer: Invalid signature. IT is an OpenMPT IT-family file and must start with IMPM.");
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"ITPlayer: Invalid signature. IT files must start with IMPM.");
         return false;
     }
 
@@ -349,8 +458,14 @@ bool ITPlayer::LoadInstruments(std::ifstream& file, const std::vector<uint32_t>&
 
         ITInstrument& instrument = instruments[i];
         std::memcpy(instrument.name, &data[32], sizeof(instrument.name));
+        instrument.nna = data[16] & 0x03;
+        instrument.duplicateCheckType = data[17] & 0x03;
+        instrument.duplicateCheckAction = data[18] & 0x03;
         instrument.fadeOut = ReadLE16(&data[20]);
         instrument.globalVolume = std::min<uint8_t>(data[24], 64);
+        instrument.defaultPanning = (data[25] & 0x80) != 0
+            ? static_cast<uint8_t>((static_cast<uint16_t>(data[25] & 0x7F) * 255U) / 64U)
+            : 128;
         instrument.volumeEnvelopeFlags = data[304];
         instrument.volumeEnvelopePointCount = std::min<uint8_t>(data[305], 25);
         instrument.volumeEnvelopeLoopStart = data[306];
@@ -361,6 +476,18 @@ bool ITPlayer::LoadInstruments(std::ifstream& file, const std::vector<uint32_t>&
             const size_t pointOffset = 310 + point * 3;
             instrument.volumeEnvelopeValues[point] = std::min<uint8_t>(data[pointOffset], 64);
             instrument.volumeEnvelopeTicks[point] = ReadLE16(&data[pointOffset + 1]);
+        }
+
+        instrument.panningEnvelopeFlags = data[381];
+        instrument.panningEnvelopePointCount = std::min<uint8_t>(data[382], 25);
+        instrument.panningEnvelopeLoopStart = data[383];
+        instrument.panningEnvelopeLoopEnd = data[384];
+        instrument.panningEnvelopeSustainStart = data[385];
+        instrument.panningEnvelopeSustainEnd = data[386];
+        for (size_t point = 0; point < instrument.panningEnvelopePointCount; ++point) {
+            const size_t pointOffset = 387 + point * 3;
+            instrument.panningEnvelopeValues[point] = static_cast<int8_t>(std::clamp<int>(static_cast<int>(data[pointOffset]) - 32, -32, 32));
+            instrument.panningEnvelopeTicks[point] = ReadLE16(&data[pointOffset + 1]);
         }
 
         // IT 2.x / IT instruments store 120 note/sample pairs in the keyboard
@@ -380,134 +507,6 @@ bool ITPlayer::LoadInstruments(std::ifstream& file, const std::vector<uint32_t>&
     return true;
 }
 
-
-bool ITPlayer::LoadExternalSample(const std::wstring& path, ITSample& sample) {
-#if defined(PLATFORM_WINDOWS)
-    HRESULT hr = MFStartup(MF_VERSION);
-    if (FAILED(hr)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"ITPlayer: Media Foundation startup failed for external sample.");
-        return false;
-    }
-
-    IMFSourceReader* reader = nullptr;
-    hr = MFCreateSourceReaderFromURL(path.c_str(), nullptr, &reader);
-    if (FAILED(hr) || reader == nullptr) {
-        MFShutdown();
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"ITPlayer: Failed to open external sample: " + path);
-        return false;
-    }
-
-    IMFMediaType* pcmType = nullptr;
-    hr = MFCreateMediaType(&pcmType);
-    if (SUCCEEDED(hr)) hr = pcmType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio);
-    if (SUCCEEDED(hr)) hr = pcmType->SetGUID(MF_MT_SUBTYPE, MFAudioFormat_PCM);
-    if (SUCCEEDED(hr)) hr = pcmType->SetUINT32(MF_MT_AUDIO_BITS_PER_SAMPLE, 16);
-    if (SUCCEEDED(hr)) hr = reader->SetCurrentMediaType(MF_SOURCE_READER_FIRST_AUDIO_STREAM, nullptr, pcmType);
-    if (pcmType) {
-        pcmType->Release();
-    }
-
-    if (FAILED(hr)) {
-        reader->Release();
-        MFShutdown();
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"ITPlayer: Failed to request PCM decode for external sample: " + path);
-        return false;
-    }
-
-    IMFMediaType* outputType = nullptr;
-    hr = reader->GetCurrentMediaType(MF_SOURCE_READER_FIRST_AUDIO_STREAM, &outputType);
-    if (FAILED(hr) || outputType == nullptr) {
-        reader->Release();
-        MFShutdown();
-        return false;
-    }
-
-    WAVEFORMATEX* waveFormat = nullptr;
-    UINT32 waveFormatSize = 0;
-    hr = MFCreateWaveFormatExFromMFMediaType(outputType, &waveFormat, &waveFormatSize);
-    outputType->Release();
-    if (FAILED(hr) || waveFormat == nullptr) {
-        reader->Release();
-        MFShutdown();
-        return false;
-    }
-
-    const uint16_t channels = std::max<uint16_t>(waveFormat->nChannels, 1);
-    const uint16_t bitsPerSample = waveFormat->wBitsPerSample;
-    CoTaskMemFree(waveFormat);
-
-    if (bitsPerSample != 16) {
-        reader->Release();
-        MFShutdown();
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"ITPlayer: External sample did not decode to 16-bit PCM: " + path);
-        return false;
-    }
-
-    std::vector<int16_t> decoded;
-    while (true) {
-        DWORD streamIndex = 0;
-        DWORD flags = 0;
-        LONGLONG timestamp = 0;
-        IMFSample* mediaSample = nullptr;
-        hr = reader->ReadSample(MF_SOURCE_READER_FIRST_AUDIO_STREAM, 0, &streamIndex, &flags, &timestamp, &mediaSample);
-        if (FAILED(hr)) {
-            if (mediaSample) mediaSample->Release();
-            break;
-        }
-        if ((flags & MF_SOURCE_READERF_ENDOFSTREAM) != 0) {
-            if (mediaSample) mediaSample->Release();
-            break;
-        }
-        if (mediaSample == nullptr) {
-            continue;
-        }
-
-        IMFMediaBuffer* buffer = nullptr;
-        hr = mediaSample->ConvertToContiguousBuffer(&buffer);
-        mediaSample->Release();
-        if (FAILED(hr) || buffer == nullptr) {
-            continue;
-        }
-
-        BYTE* data = nullptr;
-        DWORD maxLength = 0;
-        DWORD currentLength = 0;
-        hr = buffer->Lock(&data, &maxLength, &currentLength);
-        if (SUCCEEDED(hr) && data != nullptr) {
-            const size_t frameCount = currentLength / (sizeof(int16_t) * channels);
-            decoded.reserve(decoded.size() + frameCount);
-            const int16_t* pcm = reinterpret_cast<const int16_t*>(data);
-            for (size_t frame = 0; frame < frameCount; ++frame) {
-                int mixed = 0;
-                for (uint16_t channel = 0; channel < channels; ++channel) {
-                    mixed += pcm[frame * channels + channel];
-                }
-                decoded.push_back(static_cast<int16_t>(mixed / static_cast<int>(channels)));
-            }
-            buffer->Unlock();
-        }
-        buffer->Release();
-    }
-
-    reader->Release();
-    MFShutdown();
-
-    if (decoded.empty()) {
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"ITPlayer: External sample decoded no PCM data: " + path);
-        return false;
-    }
-
-    sample.pcm = std::move(decoded);
-    sample.length = static_cast<uint32_t>(std::min<size_t>(sample.pcm.size(), std::numeric_limits<uint32_t>::max()));
-    sample.loopStart = std::min(sample.loopStart, sample.length);
-    sample.loopEnd = std::min(sample.loopEnd, sample.length);
-    return true;
-#else
-    (void)path;
-    (void)sample;
-    return false;
-#endif
-}
 
 bool ITPlayer::LoadSamples(std::ifstream& file, const std::vector<uint32_t>& samplePointers) {
     samples.clear();
@@ -574,25 +573,32 @@ bool ITPlayer::LoadSamples(std::ifstream& file, const std::vector<uint32_t>& sam
         }
 
         if ((sample.flags & 0x08) != 0) {
-            std::vector<uint8_t> probe(260);
-            file.seekg(static_cast<std::streamoff>(sampleHeader.samplePointer), std::ios::beg);
-            file.read(reinterpret_cast<char*>(probe.data()), probe.size());
-            probe.resize(static_cast<size_t>(std::max<std::streamsize>(file.gcount(), 0)));
-
-            const std::wstring externalReference = DecodeExternalSampleReference(probe);
-            if (!externalReference.empty()) {
-                const std::wstring externalPath = ResolveExternalSamplePath(modulePath, externalReference);
-                if (!externalPath.empty() && LoadExternalSample(externalPath, sample)) {
-                    continue;
-                }
-
-                sample.pcm.clear();
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"ITPlayer: External sample file could not be loaded; skipping sample " + std::to_wstring(i));
-                continue;
+            const uint64_t sampleOffset = sampleHeader.samplePointer;
+            const uint64_t fileSize64 = static_cast<uint64_t>(fileSize);
+            if (sampleOffset >= fileSize64) {
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"ITPlayer: Compressed sample offset is outside the file " + std::to_wstring(i));
+                return false;
             }
 
-            sample.pcm.clear();
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"ITPlayer: Compressed IT sample data is not supported; skipping sample " + std::to_wstring(i));
+            // IT compressed samples are stored as a sequence of independently sized blocks.
+            // Their packed size is not in the sample header, so read the remaining file tail and
+            // let the block decoder stop after the expected sample frames have been produced.
+            const size_t availableBytes = static_cast<size_t>(fileSize64 - sampleOffset);
+            std::vector<uint8_t> raw(availableBytes);
+            file.seekg(static_cast<std::streamoff>(sampleHeader.samplePointer), std::ios::beg);
+            file.read(reinterpret_cast<char*>(raw.data()), raw.size());
+            if (file.gcount() != static_cast<std::streamsize>(raw.size())) {
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"ITPlayer: Failed to read compressed sample data " + std::to_wstring(i));
+                return false;
+            }
+
+            const bool it215Compression = (sample.convert & 0x04) != 0;
+            if (!DecodeITCompressedSample(raw, is16Bit, static_cast<uint32_t>(sourceChannels), it215Compression, sample.length, sample.pcm)) {
+                sample.pcm.clear();
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"ITPlayer: Failed to decode compressed IT sample " + std::to_wstring(i));
+                return false;
+            }
+
             continue;
         }
 
@@ -600,26 +606,6 @@ bool ITPlayer::LoadSamples(std::ifstream& file, const std::vector<uint32_t>& sam
         const uint64_t fileSize64 = static_cast<uint64_t>(fileSize);
         const bool sampleDataFits = sampleOffset <= fileSize64 && byteCount64 <= fileSize64 - sampleOffset;
         if (!sampleDataFits) {
-            std::vector<uint8_t> probe(260);
-            file.seekg(static_cast<std::streamoff>(sampleHeader.samplePointer), std::ios::beg);
-            file.read(reinterpret_cast<char*>(probe.data()), probe.size());
-            probe.resize(static_cast<size_t>(std::max<std::streamsize>(file.gcount(), 0)));
-
-            // IT/OpenMPT files may store only a length-prefixed external sample path
-            // at samplePointer. Resolve it beside the module before treating the data as bad.
-            const std::wstring externalReference = DecodeExternalSampleReference(probe);
-            if (!externalReference.empty()) {
-                const std::wstring externalPath = ResolveExternalSamplePath(modulePath, externalReference);
-                if (!externalPath.empty() && LoadExternalSample(externalPath, sample)) {
-                    continue;
-                }
-
-                sample.pcm.clear();
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"ITPlayer: External sample file could not be loaded; skipping sample " + std::to_wstring(i));
-                continue;
-            }
-
-
             debug.logLevelMessage(LogLevel::LOG_ERROR, L"ITPlayer: Sample data extends past end of file " + std::to_wstring(i));
             return false;
         }
@@ -842,9 +828,11 @@ void ITPlayer::Shutdown() {
     samples.clear();
     patterns.clear();
     unpackedPatterns.clear();
+    hostChannels.clear();
     voices.clear();
     defaultPanning.clear();
     mixScratch.clear();
+    mixAccumulator.clear();
     bIsInitialized = false;
     isPaused = false;
     isMuted = false;
@@ -893,6 +881,10 @@ void ITPlayer::HardPause() {
     isPaused = true;
     isMuted = true;
 
+    for (ITChannelVoice& host : hostChannels) {
+        host.activeVoiceIndex = -1;
+    }
+
     for (ITChannelVoice& voice : voices) {
         voice.active = false;
         voice.volume = 0;
@@ -915,17 +907,22 @@ void ITPlayer::HardResume() {
     inPatternDelay = false;
     patternLoopPending = false;
 
-    for (size_t channel = 0; channel < voices.size(); ++channel) {
-        ITChannelVoice& voice = voices[channel];
+    for (size_t channel = 0; channel < hostChannels.size(); ++channel) {
+        ITChannelVoice& host = hostChannels[channel];
+        host = ITChannelVoice{};
+        host.hostChannel = static_cast<uint8_t>(channel);
+        host.channelVolume = std::min<uint8_t>(header.channelVolume[channel], 64);
+        host.panning = DefaultPanningForChannel(channel);
+    }
+    for (ITChannelVoice& voice : voices) {
         voice = ITChannelVoice{};
-        voice.panning = DefaultPanningForChannel(channel);
     }
 
     SilenceBuffer();
     isPaused = false;
     isMuted = false;
     currentVolume = targetVolume.load();
-    globalVolume = static_cast<uint8_t>(std::min<uint16_t>(header.globalVolume, 128) / 2);
+    moduleGlobalVolume = static_cast<uint8_t>(std::min<uint16_t>(header.globalVolume, 128));
 }
 
 void ITPlayer::Mute() {
@@ -1079,13 +1076,24 @@ void ITPlayer::FillAudioBuffer() {
 }
 
 void ITPlayer::MixAudio(int16_t* buffer, size_t samplesToMix) {
-    std::fill(buffer, buffer + samplesToMix * 2, 0);
+    const size_t stereoSampleCount = samplesToMix * 2;
+    std::fill(buffer, buffer + stereoSampleCount, 0);
 
-    if (isMuted) {
+    if (isMuted || samplesToMix == 0) {
         return;
     }
 
+    if (mixAccumulator.size() < stereoSampleCount) {
+        mixAccumulator.resize(stereoSampleCount);
+    }
+    std::fill(mixAccumulator.begin(), mixAccumulator.begin() + stereoSampleCount, 0);
+
     const float globalVolFactor = static_cast<float>(globalVolume.load()) / 64.0f;
+    const float moduleGlobalVolFactor = static_cast<float>(moduleGlobalVolume.load()) / 128.0f;
+    // IT header.mixVolume (0-128, default 48) prescales the mix output so simultaneous voices
+    // don't clip. It is independent of globalVolume. Guard against zero (means "use default 48").
+    const uint8_t rawMixVol = header.mixVolume > 0 ? header.mixVolume : 48;
+    const float mixVolFactor = static_cast<float>(rawMixVol) / 128.0f;
     const float fadeVolFactor = static_cast<float>(currentVolume.load()) / 64.0f;
 
     for (ITChannelVoice& voice : voices) {
@@ -1097,19 +1105,25 @@ void ITPlayer::MixAudio(int16_t* buffer, size_t samplesToMix) {
         const size_t dataSize = sample->pcm.size();
         double samplePos = voice.position;
         const double stepValue = std::max(voice.step, 0.0);
-        const float pan = static_cast<float>(voice.panning) / 255.0f;
+        const double stepDirection = voice.reversePlayback ? -stepValue : stepValue;
+        const float pan = static_cast<float>(std::clamp<int>(static_cast<int>(voice.panning) + static_cast<int>(voice.envelopePanning * 128.0f), 0, 255)) / 255.0f;
         const float instrumentVol = voice.instrumentDef ? static_cast<float>(voice.instrumentDef->globalVolume) / 64.0f : 1.0f;
         const float volume = (static_cast<float>(voice.volume) / 64.0f) *
+            (static_cast<float>(voice.channelVolume) / 64.0f) *
             (static_cast<float>(sample->globalVolume) / 64.0f) * instrumentVol *
             voice.envelopeVolume * (static_cast<float>(voice.fadeOutVolume) / 65536.0f);
-        // Collapse pan, master/fade volume and per-voice volume into one scalar per side so the
-        // inner loop is a single multiply + accumulate per channel instead of three multiplies.
-        const float finalLeft = (1.0f - pan) * globalVolFactor * fadeVolFactor * volume;
-        const float finalRight = pan * globalVolFactor * fadeVolFactor * volume;
+        // Collapse pan, master/fade/mix volume and per-voice volume into one scalar per side so the
+        // inner loop is a single multiply + accumulate per channel instead of four multiplies.
+        const float finalLeft  = (1.0f - pan) * globalVolFactor * moduleGlobalVolFactor * mixVolFactor * fadeVolFactor * volume;
+        const float finalRight = pan            * globalVolFactor * moduleGlobalVolFactor * mixVolFactor * fadeVolFactor * volume;
 
-        const bool looped = sample->IsLooped();
-        const double loopEnd = static_cast<double>(sample->loopEnd);
-        const double loopLength = static_cast<double>(sample->loopEnd - sample->loopStart);
+        const bool sustainLooped = sample->IsSustainLooped() && !voice.noteReleased;
+        const bool looped = sustainLooped || sample->IsLooped();
+        const uint32_t loopStartSample = sustainLooped ? sample->sustainLoopStart : sample->loopStart;
+        const uint32_t loopEndSample = sustainLooped ? sample->sustainLoopEnd : sample->loopEnd;
+        const double loopStart = static_cast<double>(std::min<uint32_t>(loopStartSample, static_cast<uint32_t>(dataSize)));
+        const double loopEnd = static_cast<double>(std::min<uint32_t>(loopEndSample, static_cast<uint32_t>(dataSize)));
+        const double loopLength = loopEnd - loopStart;
 
         for (size_t frame = 0; frame < samplesToMix; ++frame) {
             const size_t index = static_cast<size_t>(samplePos);
@@ -1118,18 +1132,50 @@ void ITPlayer::MixAudio(int16_t* buffer, size_t samplesToMix) {
                 break;
             }
 
-            const float value = static_cast<float>(sample->pcm[index]);
-            int16_t* out = &buffer[frame * 2];
-            out[0] = static_cast<int16_t>(std::clamp<int32_t>(static_cast<int32_t>(out[0]) + static_cast<int32_t>(value * finalLeft), -32768, 32767));
-            out[1] = static_cast<int16_t>(std::clamp<int32_t>(static_cast<int32_t>(out[1]) + static_cast<int32_t>(value * finalRight), -32768, 32767));
+            size_t nextIndex = index + 1;
+            // When approaching the loop end, wrap the interpolation look-ahead to loopStart so
+            // the interpolated output is continuous at the loop boundary. Without this, nextIndex
+            // reads the sample PAST loopEnd which will never be played, producing a click on every
+            // loop cycle.
+            if (looped && loopLength > 1.0 && static_cast<double>(nextIndex) >= loopEnd) {
+                nextIndex = static_cast<size_t>(loopStart);
+            }
+            else if (nextIndex >= dataSize) {
+                nextIndex = (looped && loopLength > 1.0) ? static_cast<size_t>(loopStart) : index;
+            }
 
-            samplePos += stepValue;
+            const float fraction = static_cast<float>(samplePos - std::floor(samplePos));
+            const float currentSample = static_cast<float>(sample->pcm[index]);
+            const float nextSample = static_cast<float>(sample->pcm[nextIndex]);
+            float value = currentSample + ((nextSample - currentSample) * fraction);
+            if (voice.filterEnabled) {
+                const float cutoff = std::clamp(voice.filterCutoff * (1.0f - (voice.filterResonance * 0.35f)), 0.01f, 1.0f);
+                voice.filterState += (value - voice.filterState) * cutoff;
+                value = voice.filterState;
+            }
+
+            int32_t* out = &mixAccumulator[frame * 2];
+            out[0] += static_cast<int32_t>(value * finalLeft);
+            out[1] += static_cast<int32_t>(value * (voice.surround ? -finalRight : finalRight));
+
+            samplePos += stepDirection;
             if (looped && loopLength > 1.0) {
-                while (samplePos >= loopEnd) {
-                    samplePos -= loopLength;
+                if (voice.reversePlayback) {
+                    while (samplePos < loopStart) {
+                        samplePos += loopLength;
+                    }
+                }
+                else {
+                    while (samplePos >= loopEnd) {
+                        samplePos -= loopLength;
+                        if (samplePos < loopStart) {
+                            samplePos = loopStart;
+                        }
+                    }
                 }
             }
-            else if (samplePos >= static_cast<double>(dataSize)) {
+            else if ((!voice.reversePlayback && samplePos >= static_cast<double>(dataSize)) ||
+                (voice.reversePlayback && samplePos < 0.0)) {
                 voice.active = false;
                 break;
             }
@@ -1137,8 +1183,11 @@ void ITPlayer::MixAudio(int16_t* buffer, size_t samplesToMix) {
 
         voice.position = samplePos;
     }
-}
 
+    for (size_t i = 0; i < stereoSampleCount; ++i) {
+        buffer[i] = FinalizeMixSample(mixAccumulator[i]);
+    }
+}
 void ITPlayer::SilenceBuffer() {
 #if defined(PLATFORM_WINDOWS)
     if (!secondaryBuffer || bufferSize == 0) {
@@ -1226,43 +1275,159 @@ void ITPlayer::TickRow() {
     tick = 0;
 }
 
-void ITPlayer::TriggerEvent(size_t channel, const ITEvent& event, bool fromDelay) {
-    ITChannelVoice& voice = voices[channel];
-    const uint8_t effect = event.effect;
-    uint8_t data = event.effectData;
+ITChannelVoice* ITPlayer::ActiveVoiceForHost(size_t channel) {
+    if (channel >= hostChannels.size()) {
+        return nullptr;
+    }
 
-    // SDx: note delay. Only defer when the tick count is non-zero -- SD0 means "no delay", and
-    // deferring it to tick 0 would lose the note entirely (tick 0 runs TickRow, not ApplyTickEffects).
-    if (effect == 0x13 && (data >> 4) == 0x0D && (data & 0x0F) > 0 && !fromDelay) {
-        voice.delayedNotePending = true;
-        voice.delayTicks = data & 0x0F;
-        voice.delayedEvent = event;
-        voice.delayedEvent.effect = 0;
-        voice.delayedEvent.effectData = 0;
+    const int16_t voiceIndex = hostChannels[channel].activeVoiceIndex;
+    if (voiceIndex < 0 || static_cast<size_t>(voiceIndex) >= voices.size()) {
+        return nullptr;
+    }
+
+    ITChannelVoice& voice = voices[static_cast<size_t>(voiceIndex)];
+    return voice.active ? &voice : nullptr;
+}
+
+void ITPlayer::ApplyNewNoteAction(ITChannelVoice& voice, uint8_t nna) {
+    switch (nna & 0x03) {
+    case 0: // Cut
+        voice.active = false;
+        break;
+    case 1: // Continue
+        voice.background = true;
+        break;
+    case 2: // Note off
+        voice.noteReleased = true;
+        voice.background = true;
+        if (!voice.instrumentDef || (!voice.instrumentDef->HasVolumeEnvelope() && voice.instrumentDef->fadeOut == 0)) {
+            voice.active = false;
+        }
+        break;
+    case 3: // Fade
+        voice.noteReleased = true;
+        voice.background = true;
+        if (!voice.instrumentDef || voice.instrumentDef->fadeOut == 0) {
+            voice.active = false;
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+void ITPlayer::ApplyDuplicateCheck(const ITInstrument& instrument, uint8_t note, size_t sampleIndex) {
+    if (instrument.duplicateCheckType == 0 || instrument.duplicateCheckAction == 0) {
         return;
     }
 
-    // CMD_DELAYCUT (Xxx) with a non-zero delay nibble: defer the note trigger exactly
-    // like SDx does. The cut tick is registered immediately so it fires on the correct
-    // tick even though the note itself starts later.
+    for (ITChannelVoice& voice : voices) {
+        if (!voice.active || voice.instrumentDef != &instrument) {
+            continue;
+        }
+
+        bool duplicate = false;
+        switch (instrument.duplicateCheckType) {
+        case 1: // Note
+            duplicate = voice.note == note;
+            break;
+        case 2: // Sample
+            duplicate = voice.sample && sampleIndex > 0 && sampleIndex <= samples.size() && voice.sample == &samples[sampleIndex - 1];
+            break;
+        case 3: // Instrument
+            duplicate = true;
+            break;
+        default:
+            break;
+        }
+
+        if (!duplicate) {
+            continue;
+        }
+
+        switch (instrument.duplicateCheckAction) {
+        case 1: // Cut
+            voice.active = false;
+            break;
+        case 2: // Note off
+            voice.noteReleased = true;
+            voice.background = true;
+            break;
+        case 3: // Fade
+            voice.noteReleased = true;
+            voice.background = true;
+            voice.fadeOutVolume = std::min<uint32_t>(voice.fadeOutVolume, 32768);
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+ITChannelVoice& ITPlayer::AllocateVoice(size_t channel) {
+    ITChannelVoice* reusable = nullptr;
+    for (ITChannelVoice& voice : voices) {
+        if (!voice.active) {
+            reusable = &voice;
+            break;
+        }
+    }
+
+    if (reusable == nullptr) {
+        reusable = &voices[0];
+        for (ITChannelVoice& voice : voices) {
+            if (voice.background && voice.fadeOutVolume < reusable->fadeOutVolume) {
+                reusable = &voice;
+            }
+        }
+    }
+
+    const size_t voiceIndex = static_cast<size_t>(reusable - voices.data());
+    *reusable = ITChannelVoice{};
+    reusable->hostChannel = static_cast<uint8_t>(std::min<size_t>(channel, IT_MAX_CHANNELS - 1));
+    reusable->panning = DefaultPanningForChannel(channel);
+    if (channel < hostChannels.size()) {
+        hostChannels[channel].activeVoiceIndex = static_cast<int16_t>(voiceIndex);
+    }
+
+    return *reusable;
+}
+void ITPlayer::TriggerEvent(size_t channel, const ITEvent& event, bool fromDelay) {
+    if (channel >= hostChannels.size()) {
+        return;
+    }
+
+    ITChannelVoice& host = hostChannels[channel];
+    ITChannelVoice* activeVoice = ActiveVoiceForHost(channel);
+    ITChannelVoice* effectVoice = activeVoice != nullptr ? activeVoice : &host;
+    const uint8_t effect = event.effect;
+    uint8_t data = event.effectData;
+
+    if (effect == 0x13 && (data >> 4) == 0x0D && (data & 0x0F) > 0 && !fromDelay) {
+        host.delayedNotePending = true;
+        host.delayTicks = data & 0x0F;
+        host.delayedEvent = event;
+        host.delayedEvent.effect = 0;
+        host.delayedEvent.effectData = 0;
+        return;
+    }
+
     if (effect == CMD_DELAYCUT && (data >> 4) > 0 && !fromDelay) {
-        voice.delayedNotePending      = true;
-        voice.delayTicks              = data >> 4;
-        voice.delayedEvent            = event;
-        voice.delayedEvent.effect     = 0;
-        voice.delayedEvent.effectData = 0;
-        if ((data & 0x0F) > 0) {
-            voice.noteCutTick = data & 0x0F;
+        host.delayedNotePending      = true;
+        host.delayTicks              = data >> 4;
+        host.delayedEvent            = event;
+        host.delayedEvent.effect     = 0;
+        host.delayedEvent.effectData = 0;
+        if ((data & 0x0F) > 0 && activeVoice) {
+            activeVoice->noteCutTick = data & 0x0F;
         }
         return;
     }
 
     if (event.instrument > 0) {
-        voice.instrument = event.instrument;
+        host.instrument = event.instrument;
     }
 
-    // Decode the volume column up front: a 'g' (tone portamento) there must suppress the note
-    // retrigger just like a Gxx in the effect column does.
     uint8_t volCommand = VOLCMD_NONE;
     uint8_t volParam = 0;
     if (event.volume <= 212) {
@@ -1271,95 +1436,158 @@ void ITPlayer::TriggerEvent(size_t channel, const ITEvent& event, bool fromDelay
     const bool volTonePorta = (volCommand == VOLCMD_TONEPORTA);
 
     uint8_t mappedNote = event.note;
-    const ITSample* mappedSample = ResolveSample(voice.instrument, event.note, mappedNote);
+    const ITSample* mappedSample = ResolveSample(host.instrument, event.note, mappedNote);
     const bool hasPlayableNote = mappedNote > 0 && mappedNote < IT_NOTE_FADE;
-    const bool tonePortamentoNote = (effect == 0x07 || effect == 0x0C || volTonePorta) && hasPlayableNote && voice.sample;
+    const bool tonePortamentoNote = (effect == 0x07 || effect == 0x0C || volTonePorta) && hasPlayableNote && activeVoice && activeVoice->sample;
 
     if (event.note == IT_NOTE_CUT) {
-        voice.active = false;
+        if (activeVoice) {
+            activeVoice->active = false;
+        }
+        host.activeVoiceIndex = -1;
     }
     else if (event.note == IT_NOTE_OFF || event.note == IT_NOTE_FADE) {
-        voice.noteReleased = true;
-        if (!voice.instrumentDef || (!voice.instrumentDef->HasVolumeEnvelope() && voice.instrumentDef->fadeOut == 0)) {
-            voice.active = false;
+        if (activeVoice) {
+            activeVoice->noteReleased = true;
+            if (event.note == IT_NOTE_FADE) {
+                activeVoice->fadeOutVolume = std::min<uint32_t>(activeVoice->fadeOutVolume, 32768);
+            }
+            if (!activeVoice->instrumentDef || (!activeVoice->instrumentDef->HasVolumeEnvelope() && activeVoice->instrumentDef->fadeOut == 0)) {
+                activeVoice->active = false;
+                host.activeVoiceIndex = -1;
+            }
         }
     }
     else if (hasPlayableNote && mappedSample && !mappedSample->pcm.empty()) {
         const double noteStep = NoteToFrequency(ITNoteToLinear(mappedNote), mappedSample->c5Speed) /
             static_cast<double>(IT_SAMPLE_RATE);
-        voice.note = mappedNote;
-        voice.targetStep = noteStep;
 
-        if (!tonePortamentoNote) {
-            voice.sample = mappedSample;
-            voice.instrumentDef = voice.instrument > 0 && voice.instrument <= instruments.size() ? &instruments[voice.instrument - 1] : nullptr;
-            voice.position = 0.0;
-            voice.envelopeTick = 0;
-            voice.envelopeVolume = voice.instrumentDef && voice.instrumentDef->HasVolumeEnvelope()
-                ? EvaluateVolumeEnvelope(*voice.instrumentDef, 0)
+        if (tonePortamentoNote) {
+            activeVoice->targetStep = noteStep;
+            activeVoice->note = mappedNote;
+            effectVoice = activeVoice;
+        }
+        else {
+            const ITInstrument* instrumentDef = host.instrument > 0 && host.instrument <= instruments.size()
+                ? &instruments[host.instrument - 1]
+                : nullptr;
+            const size_t sampleIndex = mappedSample >= samples.data() && mappedSample < samples.data() + samples.size()
+                ? static_cast<size_t>((mappedSample - samples.data()) + 1)
+                : 0;
+
+            if (instrumentDef) {
+                ApplyDuplicateCheck(*instrumentDef, mappedNote, sampleIndex);
+            }
+            if (activeVoice) {
+                ApplyNewNoteAction(*activeVoice, instrumentDef ? instrumentDef->nna : 0);
+            }
+
+            ITChannelVoice& newVoice = AllocateVoice(channel);
+            newVoice.sample = mappedSample;
+            newVoice.instrumentDef = instrumentDef;
+            newVoice.position = 0.0;
+            newVoice.envelopeTick = 0;
+            newVoice.panEnvelopeTick = 0;
+            newVoice.envelopeVolume = instrumentDef && instrumentDef->HasVolumeEnvelope()
+                ? EvaluateVolumeEnvelope(*instrumentDef, 0)
                 : 1.0f;
-            voice.fadeOutVolume = 65536;
-            voice.noteReleased = false;
-            voice.volume = mappedSample->defaultVolume;
-            voice.baseVolume = mappedSample->defaultVolume;
-            voice.panning = mappedSample->defaultPanning;
-            voice.step = noteStep;
-            voice.baseStep = voice.step;
-            // A fresh note retriggers the oscillator phases (old-effects flag is off in IT/IT)
-            // and clears any pending note-cut left over from a previous row.
-            voice.vibratoPos = 0;
-            voice.tremoloPos = 0;
-            voice.panbrelloPos = 0;
-            voice.noteCutTick = 255;
-            voice.active = true;
+            newVoice.envelopePanning = instrumentDef && instrumentDef->HasPanningEnvelope()
+                ? EvaluatePanningEnvelope(*instrumentDef, 0)
+                : 0.0f;
+            newVoice.fadeOutVolume = 65536;
+            newVoice.noteReleased = false;
+            newVoice.volume = mappedSample->defaultVolume;
+            newVoice.baseVolume = mappedSample->defaultVolume;
+            newVoice.channelVolume = host.channelVolume;
+            newVoice.panning = mappedSample->defaultPanning != 128
+                ? mappedSample->defaultPanning
+                : (instrumentDef ? instrumentDef->defaultPanning : DefaultPanningForChannel(channel));
+            newVoice.step = noteStep;
+            newVoice.baseStep = newVoice.step;
+            newVoice.targetStep = noteStep;
+            newVoice.note = mappedNote;
+            newVoice.instrument = host.instrument;
+            newVoice.lastVolumeSlide = host.lastVolumeSlide;
+            newVoice.lastPortamento = host.lastPortamento;
+            newVoice.lastVibrato = host.lastVibrato;
+            newVoice.lastTremolo = host.lastTremolo;
+            newVoice.lastSampleOffsetHigh = host.lastSampleOffsetHigh;
+            newVoice.lastSampleOffset = host.lastSampleOffset;
+            newVoice.lastRetrig = host.lastRetrig;
+            newVoice.lastPanningSlide = host.lastPanningSlide;
+            newVoice.lastChannelVolumeSlide = host.lastChannelVolumeSlide;
+            newVoice.lastGlobalVolumeSlide = host.lastGlobalVolumeSlide;
+            newVoice.glissandoControl  = host.glissandoControl;
+            newVoice.vibratoWaveform   = host.vibratoWaveform;
+            newVoice.tremoloWaveform   = host.tremoloWaveform;
+            newVoice.panbrelloWaveform = host.panbrelloWaveform;
+            // Bit 2 of each waveform byte is the IT "no-retrig" flag: when set, the oscillator
+            // phase must continue from where the previous note left off rather than resetting.
+            newVoice.vibratoPos   = (host.vibratoWaveform   & 0x04) ? host.vibratoPos   : 0;
+            newVoice.tremoloPos   = (host.tremoloWaveform   & 0x04) ? host.tremoloPos   : 0;
+            newVoice.panbrelloPos = (host.panbrelloWaveform & 0x04) ? host.panbrelloPos : 0;
+            newVoice.filterEnabled = host.filterEnabled;
+            newVoice.filterCutoff = host.filterCutoff;
+            newVoice.filterResonance = host.filterResonance;
+            newVoice.filterState = 0.0f;
+            newVoice.surround = host.surround;
+            newVoice.reversePlayback = host.reversePlayback;
+            newVoice.noteCutTick = 255;
+            newVoice.active = true;
+            effectVoice = &newVoice;
         }
     }
 
-    // Volume column. Store the decoded command/parameter for the per-tick phase, then apply the
-    // commands that take effect immediately on tick 0 (set volume/panning, fine slides).
-    voice.volCommand = volCommand;
-    voice.volParam = volParam;
-    switch (volCommand) {
-    case VOLCMD_VOLUME:
-        voice.volume = volParam;
-        voice.baseVolume = volParam;
-        break;
-    case VOLCMD_FINEVOLUP:
-        voice.volume = ClampVolume(static_cast<int>(voice.volume) + static_cast<int>(volParam));
-        voice.baseVolume = voice.volume;
-        break;
-    case VOLCMD_FINEVOLDOWN:
-        voice.volume = ClampVolume(static_cast<int>(voice.volume) - static_cast<int>(volParam));
-        voice.baseVolume = voice.volume;
-        break;
-    case VOLCMD_PANNING:
-        voice.panning = static_cast<uint8_t>((static_cast<uint16_t>(volParam) * 255U) / 64U);
-        break;
-    default:
-        // Slides / pitch / tone-portamento / vibrato are continuous: applied per tick below.
-        break;
+    host.volCommand = volCommand;
+    host.volParam = volParam;
+    if (effectVoice) {
+        effectVoice->volCommand = volCommand;
+        effectVoice->volParam = volParam;
+    }
+
+    auto applyVolumeColumnImmediate = [&](ITChannelVoice& voice) {
+        switch (volCommand) {
+        case VOLCMD_VOLUME:
+            voice.volume = volParam;
+            voice.baseVolume = volParam;
+            break;
+        case VOLCMD_FINEVOLUP:
+            voice.volume = ClampVolume(static_cast<int>(voice.volume) + static_cast<int>(volParam));
+            voice.baseVolume = voice.volume;
+            break;
+        case VOLCMD_FINEVOLDOWN:
+            voice.volume = ClampVolume(static_cast<int>(voice.volume) - static_cast<int>(volParam));
+            voice.baseVolume = voice.volume;
+            break;
+        case VOLCMD_PANNING:
+            voice.panning = static_cast<uint8_t>((static_cast<uint16_t>(volParam) * 255U) / 64U);
+            break;
+        default:
+            break;
+        }
+    };
+    applyVolumeColumnImmediate(host);
+    if (effectVoice && effectVoice != &host) {
+        applyVolumeColumnImmediate(*effectVoice);
     }
 
     if (IsUnsupportedITCommand(effect, data)) {
 #if defined(_DEBUG_ITPlayer_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"ITPlayer: OpenMPT plugin/MIDI/sample-cue effect ignored.");
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"ITPlayer: MIDI/filter/plugin effect ignored.");
 #endif
     }
 
+    ITChannelVoice& voice = effectVoice ? *effectVoice : host;
     switch (effect) {
-    case 0x01: // Axx: set speed
-        if (data > 0) {
-            speed = data;
-        }
+    case 0x01:
+        if (data > 0) speed = data;
         break;
-
-    case 0x02: // Bxx: position jump
+    case 0x02:
         sequencePosition = data < orders.size() ? data : 0;
         currentRow = 0;
         orderJumpPending = true;
         break;
-
-    case 0x03: { // Cxx: pattern break, BCD row
+    case 0x03: {
         const uint8_t row = static_cast<uint8_t>(((data >> 4) * 10) + (data & 0x0F));
         const uint16_t maxRow = unpackedPatterns[currentPatternIndex].empty()
             ? 0
@@ -1369,216 +1597,282 @@ void ITPlayer::TriggerEvent(size_t channel, const ITEvent& event, bool fromDelay
         rowBreakPending = true;
         break;
     }
-
-    case 0x04: // Dxy: volume slide
-        if (data != 0) {
-            voice.lastVolumeSlide = data;
+    case 0x04:
+        if (data != 0) host.lastVolumeSlide = data;
+        voice.lastVolumeSlide = host.lastVolumeSlide;
+        // Fine volume slides (DFy = slide down, DxF = slide up) fire once on tick 0.
+        // Regular slides are handled per-tick in ApplyVolumeSlide.
+        {
+            const uint8_t slideUp   = host.lastVolumeSlide >> 4;
+            const uint8_t slideDown = host.lastVolumeSlide & 0x0F;
+            if (slideUp == 0x0F && slideDown != 0) {
+                voice.volume    = ClampVolume(static_cast<int>(voice.volume) - static_cast<int>(slideDown));
+                voice.baseVolume = voice.volume;
+            }
+            else if (slideDown == 0x0F && slideUp != 0) {
+                voice.volume    = ClampVolume(static_cast<int>(voice.volume) + static_cast<int>(slideUp));
+                voice.baseVolume = voice.volume;
+            }
         }
         break;
-
-    case 0x05: // Exx: pitch slide down
-    case 0x06: // Fxx: pitch slide up
-    case 0x07: // Gxx: tone portamento
-        if (data != 0) {
-            voice.lastPortamento = data;
-        }
+    case 0x05:
+    case 0x06:
+    case 0x07:
+        if (data != 0) host.lastPortamento = data;
+        voice.lastPortamento = host.lastPortamento;
         if (effect == 0x07 && hasPlayableNote && voice.sample) {
             voice.targetStep = NoteToFrequency(ITNoteToLinear(mappedNote), voice.sample->c5Speed) /
                 static_cast<double>(IT_SAMPLE_RATE);
         }
-        break;
-
-    case 0x08: // Hxy: vibrato
-    case 0x0B: // Kxy: vibrato + volume slide
-    case 0x15: // Uxy: fine vibrato
-        if (data != 0) {
-            voice.lastVibrato = data;
+        // Fine (EFy/FFy) and extra-fine (EEy/FEy) portamento fire once on tick 0.
+        // Regular slides run per-tick inside ApplyTickEffects.
+        if ((effect == 0x05 || effect == 0x06) && voice.active) {
+            const uint8_t param = voice.lastPortamento;
+            double fineFactor = 0.0;
+            if ((param & 0xF0) == 0xF0 && (param & 0x0F) != 0) {
+                // Fine portamento: EFy / FFy
+                fineFactor = std::pow(2.0, static_cast<double>(param & 0x0F) / 768.0);
+            }
+            else if ((param & 0xF0) == 0xE0 && (param & 0x0F) != 0) {
+                // Extra-fine portamento: EEy / FEy
+                fineFactor = std::pow(2.0, static_cast<double>(param & 0x0F) / 3072.0);
+            }
+            if (fineFactor != 0.0) {
+                voice.step     = (effect == 0x05) ? voice.step / fineFactor : voice.step * fineFactor;
+                voice.baseStep = voice.step;
+            }
         }
         break;
-
-    case 0x09: // Ixy: tremor
-        voice.tremorOnTicks = (data >> 4) + 1;
+    case 0x08:
+    case 0x15:
+        // Hxx (vibrato) and Uxx (fine vibrato): parameter = speed/depth, stored in lastVibrato.
+        if (data != 0) host.lastVibrato = data;
+        voice.lastVibrato = host.lastVibrato;
+        break;
+    case 0x0B:
+        // Kxx = H00 + Dxx: vibrato continues from last Hxx memory; xx param is the volume slide.
+        if (data != 0) host.lastVolumeSlide = data;
+        voice.lastVolumeSlide = host.lastVolumeSlide;
+        voice.lastVibrato = host.lastVibrato;
+        break;
+    case 0x09:
+        voice.tremorOnTicks  = (data >> 4) + 1;
         voice.tremorOffTicks = (data & 0x0F) + 1;
-        voice.tremorCounter = 0;
+        // Per IT spec, the tremor counter persists across rows on the same channel; reset only
+        // when a new voice is allocated (which zero-initialises all fields naturally).
         break;
-
-    case 0x0C: // Lxy: tone portamento + volume slide
-        if (data != 0) {
-            voice.lastVolumeSlide = data;
-            voice.lastPortamento = data;
-        }
+    case 0x0C:
+        // Lxx = G00 + Dxx: portamento continues from last Gxx memory; xx param is the volume slide.
+        if (data != 0) host.lastVolumeSlide = data;
+        voice.lastVolumeSlide = host.lastVolumeSlide;
+        voice.lastPortamento = host.lastPortamento;
         if (hasPlayableNote && voice.sample) {
             voice.targetStep = NoteToFrequency(ITNoteToLinear(mappedNote), voice.sample->c5Speed) /
                 static_cast<double>(IT_SAMPLE_RATE);
         }
         break;
-
-    case 0x0D: { // Mxx: channel volume, approximated onto voice volume.
-        voice.volume = ClampVolume(data);
-        voice.baseVolume = voice.volume;
+    case 0x0D:
+        host.channelVolume = ClampVolume(data);
+        voice.channelVolume = host.channelVolume;
         break;
-    }
-
-    case 0x0E: // Nxy: channel volume slide, approximated onto voice volume.
-        if (data != 0) {
-            voice.lastVolumeSlide = data;
+    case 0x0E:
+        if (data != 0) host.lastChannelVolumeSlide = data;
+        voice.lastChannelVolumeSlide = host.lastChannelVolumeSlide;
+        // Fine channel-volume slides (NFy / NxF) fire once on tick 0.
+        {
+            const uint8_t cvUp   = host.lastChannelVolumeSlide >> 4;
+            const uint8_t cvDown = host.lastChannelVolumeSlide & 0x0F;
+            if (cvUp == 0x0F && cvDown != 0) {
+                const uint8_t cv = ClampVolume(static_cast<int>(voice.channelVolume) - static_cast<int>(cvDown));
+                voice.channelVolume = cv;
+                host.channelVolume  = cv;
+            }
+            else if (cvDown == 0x0F && cvUp != 0) {
+                const uint8_t cv = ClampVolume(static_cast<int>(voice.channelVolume) + static_cast<int>(cvUp));
+                voice.channelVolume = cv;
+                host.channelVolume  = cv;
+            }
         }
         break;
-
-    case 0x0F: // Oxx: sample offset. O00 repeats the last offset. The high byte comes from
-               // SAy (NOT S9x). IT only applies the offset when a note is present on the row.
-        if (data != 0) {
-            voice.lastSampleOffset = data;
-        }
+    case 0x0F:
+        if (data != 0) host.lastSampleOffset = data;
+        voice.lastSampleOffset = host.lastSampleOffset;
+        voice.lastSampleOffsetHigh = host.lastSampleOffsetHigh;
         if (voice.sample && hasPlayableNote && !tonePortamentoNote) {
             const uint32_t offset = (static_cast<uint32_t>(voice.lastSampleOffsetHigh) << 16) |
                 (static_cast<uint32_t>(voice.lastSampleOffset) << 8);
             voice.position = static_cast<double>(std::min<uint32_t>(offset, voice.sample->length));
         }
         break;
-
-    case 0x10: // Pxy: panning slide
+    case 0x11:
+        if (data != 0) host.lastRetrig = data;
+        voice.lastRetrig = host.lastRetrig;
         break;
-
-    case 0x11: // Qxy: retrigger note with volume change
-        if (data != 0) {
-            voice.lastRetrig = data;
-        }
+    case 0x12:
+        if (data != 0) host.lastTremolo = data;
+        voice.lastTremolo = host.lastTremolo;
         break;
-
-    case 0x12: // Rxy: tremolo
-        if (data != 0) {
-            voice.lastTremolo = data;
-        }
+    case 0x10:
+        if (data != 0) host.lastPanningSlide = data;
+        voice.lastPanningSlide = host.lastPanningSlide;
         break;
-
-    case 0x13: // Sxy: extended effects
+    case 0x13:
         ApplySpecialCommand(voice, data, true);
+        host.lastSampleOffsetHigh = voice.lastSampleOffsetHigh;
+        host.filterEnabled = voice.filterEnabled;
+        host.filterCutoff = voice.filterCutoff;
+        host.filterResonance = voice.filterResonance;
+        host.surround = voice.surround;
+        host.reversePlayback = voice.reversePlayback;
+        host.panning = voice.panning;
         break;
-
-    case 0x14: // Txx: tempo
+    case 0x14:
         if (data >= 32) {
             tempo = data;
         }
-        else if (data > 0) {
-            tempo = static_cast<uint16_t>(std::max<int>(32, static_cast<int>(tempo) + (data & 0x0F) - (data >> 4)));
+        else if ((data >> 4) == 0x0 && (data & 0x0F) != 0) {
+            tempo = static_cast<uint16_t>(std::max<int>(32, static_cast<int>(tempo) - static_cast<int>(data & 0x0F)));
+        }
+        else if ((data >> 4) == 0x1 && (data & 0x0F) != 0) {
+            tempo = static_cast<uint16_t>(std::min<int>(255, static_cast<int>(tempo) + static_cast<int>(data & 0x0F)));
         }
         break;
-
-    case 0x16: // Vxx: global volume
-        globalVolume = static_cast<uint8_t>(std::min<uint16_t>(data, 128) / 2);
+    case 0x16:
+        moduleGlobalVolume = static_cast<uint8_t>(std::min<uint16_t>(data, 128));
         break;
-
-    case 0x17: // Wxy: global volume slide
-        if (data != 0) {
-            voice.lastVolumeSlide = data;
+    case 0x17:
+        if (data != 0) host.lastGlobalVolumeSlide = data;
+        voice.lastGlobalVolumeSlide = host.lastGlobalVolumeSlide;
+        // Fine global-volume slides (WFy / WxF) fire once on tick 0.
+        {
+            const uint8_t gvUp   = host.lastGlobalVolumeSlide >> 4;
+            const uint8_t gvDown = host.lastGlobalVolumeSlide & 0x0F;
+            int gvol = moduleGlobalVolume.load();
+            if (gvUp == 0x0F && gvDown != 0) {
+                moduleGlobalVolume = static_cast<uint8_t>(std::clamp(gvol - static_cast<int>(gvDown), 0, 128));
+            }
+            else if (gvDown == 0x0F && gvUp != 0) {
+                moduleGlobalVolume = static_cast<uint8_t>(std::clamp(gvol + static_cast<int>(gvUp), 0, 128));
+            }
         }
         break;
-
-    case 0x18: // Xxx: set panning. IT stores the full 0x00 (left) .. 0xFF (right) range with
-               // 0x80 as centre, so the byte maps straight onto the 0..255 voice panning.
+    case 0x18:
         voice.panning = data;
+        host.panning = data;
         break;
-
-    case 0x19: // Yxy: panbrello
-        if (data != 0) {
-            voice.effectData = data;
+    case 0x19:
+        if (data != 0) voice.effectData = data;
+        break;
+    case 0x1A:
+        if (data == 0) {
+            voice.filterEnabled = false;
         }
+        else {
+            // Zxx maps the active MIDI macro byte onto this native one-pole low-pass path.
+            // It is intentionally cheap enough for tracker polyphony while still honoring
+            // filter-heavy IT files that use Zxx without VST automation.
+            voice.filterEnabled = true;
+            voice.filterCutoff = std::clamp((static_cast<float>(data) + 1.0f) / 256.0f, 0.02f, 1.0f);
+            voice.filterResonance = static_cast<float>(data >> 4) / 15.0f;
+        }
+        host.filterEnabled = voice.filterEnabled;
+        host.filterCutoff = voice.filterCutoff;
+        host.filterResonance = voice.filterResonance;
         break;
-
-    case 0x1C: { // Xxx (CMD_DELAYCUT): cut-only variant -- delay nibble is 0, so the note
-                 // already triggered above. We only need to arm the note cut tick here.
+    case 0x1C: {
         const uint8_t cutTick = data & 0x0F;
-        if (cutTick > 0) {
-            voice.noteCutTick = cutTick;
-        }
+        if (cutTick > 0) voice.noteCutTick = cutTick;
         break;
     }
-
-    case 0x1E: // qxx (CMD_FINETUNE): fractional pitch finetune up -- 64 steps per semitone
+    case 0x1E:
         if (voice.active && data > 0) {
-            voice.step     *= std::pow(2.0, static_cast<double>(data) / 768.0);
-            voice.baseStep  = voice.step;
+            voice.step *= std::pow(2.0, static_cast<double>(data) / 768.0);
+            voice.baseStep = voice.step;
         }
         break;
-
-    case 0x1F: // txx (CMD_FINETUNE_BKWD): fractional pitch finetune down -- 64 steps per semitone
+    case 0x1F:
         if (voice.active && data > 0) {
-            voice.step     /= std::pow(2.0, static_cast<double>(data) / 768.0);
-            voice.baseStep  = voice.step;
+            voice.step /= std::pow(2.0, static_cast<double>(data) / 768.0);
+            voice.baseStep = voice.step;
         }
         break;
-
     default:
         break;
     }
 
-    voice.effect = effect;
-    voice.effectData = data;
+    host.effect = effect;
+    host.effectData = data;
+    if (effectVoice) {
+        effectVoice->effect = effect;
+        effectVoice->effectData = data;
+    }
 }
-
 void ITPlayer::ApplyTickEffects() {
     std::lock_guard<std::mutex> lock(playbackMutex);
 
-    for (size_t channel = 0; channel < voices.size(); ++channel) {
-        ITChannelVoice& voice = voices[channel];
-
+    for (ITChannelVoice& voice : voices) {
         AdvanceVoiceEnvelope(voice);
+    }
 
-        if (voice.delayedNotePending && tick == voice.delayTicks) {
-            voice.delayedNotePending = false;
-            TriggerEvent(channel, voice.delayedEvent, true);
+    for (size_t channel = 0; channel < hostChannels.size(); ++channel) {
+        ITChannelVoice& host = hostChannels[channel];
+
+        if (host.delayedNotePending && tick == host.delayTicks) {
+            host.delayedNotePending = false;
+            TriggerEvent(channel, host.delayedEvent, true);
         }
 
+        ITChannelVoice* activeVoice = ActiveVoiceForHost(channel);
+        if (!activeVoice || !activeVoice->sample || !activeVoice->active) {
+            switch (host.effect) {
+            case 0x0E:
+                ApplyChannelVolumeSlide(host);
+                break;
+            case 0x10:
+                ApplyPanningSlide(host);
+                break;
+            case 0x13:
+                ApplySpecialCommand(host, host.effectData, false);
+                break;
+            case 0x17:
+                ApplyGlobalVolumeSlide(host);
+                break;
+            default:
+                break;
+            }
+            continue;
+        }
+
+        ITChannelVoice& voice = *activeVoice;
         if (voice.noteCutTick != 255 && tick == voice.noteCutTick) {
             voice.active = false;
             voice.noteCutTick = 255;
-        }
-
-        if (!voice.sample || !voice.active) {
+            host.activeVoiceIndex = -1;
             continue;
         }
 
         switch (voice.effect) {
-        case 0x04: // Dxy
+        case 0x04:
             ApplyVolumeSlide(voice);
             break;
 
-        case 0x05: { // Exx: portamento DOWN -- lowers the pitch, so the playback step decreases.
+        case 0x05: {
             const uint8_t amount = voice.lastPortamento;
-            if ((amount & 0xF0) == 0xF0) {
-                if (tick == 1) {
-                    voice.step /= std::pow(2.0, static_cast<double>(amount & 0x0F) / 768.0);
-                }
-            }
-            else if ((amount & 0xF0) == 0xE0) {
-                if (tick == 1) {
-                    voice.step /= std::pow(2.0, static_cast<double>(amount & 0x0F) / 3072.0);
-                }
-            }
-            else {
+            // Fine (EFy) and extra-fine (EEy) already fired on tick 0 in TriggerEvent; skip here.
+            if ((amount & 0xF0) != 0xF0 && (amount & 0xF0) != 0xE0) {
                 voice.step /= std::pow(2.0, static_cast<double>(amount) / 768.0);
+                voice.baseStep = voice.step;
             }
-            voice.baseStep = voice.step;
             break;
         }
 
-        case 0x06: { // Fxx: portamento UP -- raises the pitch, so the playback step increases.
+        case 0x06: {
             const uint8_t amount = voice.lastPortamento;
-            if ((amount & 0xF0) == 0xF0) {
-                if (tick == 1) {
-                    voice.step *= std::pow(2.0, static_cast<double>(amount & 0x0F) / 768.0);
-                }
-            }
-            else if ((amount & 0xF0) == 0xE0) {
-                if (tick == 1) {
-                    voice.step *= std::pow(2.0, static_cast<double>(amount & 0x0F) / 3072.0);
-                }
-            }
-            else {
+            // Fine (FFy) and extra-fine (FEy) already fired on tick 0 in TriggerEvent; skip here.
+            if ((amount & 0xF0) != 0xF0 && (amount & 0xF0) != 0xE0) {
                 voice.step *= std::pow(2.0, static_cast<double>(amount) / 768.0);
+                voice.baseStep = voice.step;
             }
-            voice.baseStep = voice.step;
             break;
         }
 
@@ -1588,6 +1882,7 @@ void ITPlayer::ApplyTickEffects() {
 
         case 0x08:
             ApplyVibrato(voice, false);
+            host.vibratoPos = voice.vibratoPos;
             break;
 
         case 0x09: {
@@ -1599,7 +1894,7 @@ void ITPlayer::ApplyTickEffects() {
             break;
         }
 
-        case 0x0A: { // Jxy: arpeggio
+        case 0x0A: {
             const uint8_t offsetA = voice.effectData >> 4;
             const uint8_t offsetB = voice.effectData & 0x0F;
             const uint8_t semitoneOffset = (tick % 3 == 1) ? offsetA : ((tick % 3 == 2) ? offsetB : 0);
@@ -1611,6 +1906,7 @@ void ITPlayer::ApplyTickEffects() {
 
         case 0x0B:
             ApplyVibrato(voice, false);
+            host.vibratoPos = voice.vibratoPos;
             ApplyVolumeSlide(voice);
             break;
 
@@ -1619,23 +1915,15 @@ void ITPlayer::ApplyTickEffects() {
             ApplyVolumeSlide(voice);
             break;
 
-        case 0x0E: // Nxy
-            ApplyVolumeSlide(voice);
+        case 0x0E:
+            ApplyChannelVolumeSlide(voice);
+            host.channelVolume = voice.channelVolume;
             break;
 
-        case 0x10: { // Pxy: panning slide
-            const uint8_t up = voice.effectData >> 4;
-            const uint8_t down = voice.effectData & 0x0F;
-            int pan = voice.panning;
-            if (up != 0 && down == 0) {
-                pan += up * 4;
-            }
-            else if (down != 0 && up == 0) {
-                pan -= down * 4;
-            }
-            voice.panning = static_cast<uint8_t>(std::clamp(pan, 0, 255));
+        case 0x10:
+            ApplyPanningSlide(voice);
+            host.panning = voice.panning;
             break;
-        }
 
         case 0x11:
             ApplyRetrig(voice);
@@ -1643,6 +1931,7 @@ void ITPlayer::ApplyTickEffects() {
 
         case 0x12:
             ApplyTremolo(voice);
+            host.tremoloPos = voice.tremoloPos;
             break;
 
         case 0x13:
@@ -1651,6 +1940,7 @@ void ITPlayer::ApplyTickEffects() {
 
         case 0x15:
             ApplyVibrato(voice, true);
+            host.vibratoPos = voice.vibratoPos;
             break;
 
         case 0x17:
@@ -1659,18 +1949,21 @@ void ITPlayer::ApplyTickEffects() {
 
         case 0x19:
             ApplyPanbrello(voice);
+            host.panbrelloPos = voice.panbrelloPos;
             break;
 
         default:
             break;
         }
 
-        // The volume column runs in parallel with the effect column, so apply its continuous
-        // commands (slides, pitch slides, tone portamento, vibrato) every tick as well.
         ApplyVolumeColumnTick(voice);
+        // Sync the volume-column vibrato oscillator position back to host so the no-retrig
+        // phase carry works on the next note trigger.
+        if (voice.volCommand == VOLCMD_VIBRATO) {
+            host.vibratoPos = voice.vibratoPos;
+        }
     }
 }
-
 void ITPlayer::ApplyVolumeColumnTick(ITChannelVoice& voice) {
     switch (voice.volCommand) {
     case VOLCMD_VOLSLIDEUP:
@@ -1695,12 +1988,15 @@ void ITPlayer::ApplyVolumeColumnTick(ITChannelVoice& voice) {
 
     case VOLCMD_TONEPORTA: { // 'g' -- glide toward the target note at the table speed
         if (voice.targetStep > 0.0) {
-            const double amount = static_cast<double>(VolColumnPortaSpeed[std::min<uint8_t>(voice.volParam, 9)]) / 4096.0;
+            // Same multiplicative semitone-space arithmetic as Gxx; the VolColumnPortaSpeed table
+            // provides the raw param value, which is 1/64-semitone units per tick.
+            const uint8_t rawSpeed = VolColumnPortaSpeed[std::min<uint8_t>(voice.volParam, 9)];
+            const double factor = std::pow(2.0, static_cast<double>(rawSpeed) / 768.0);
             if (voice.step < voice.targetStep) {
-                voice.step = std::min(voice.step + amount, voice.targetStep);
+                voice.step = std::min(voice.step * factor, voice.targetStep);
             }
             else if (voice.step > voice.targetStep) {
-                voice.step = std::max(voice.step - amount, voice.targetStep);
+                voice.step = std::max(voice.step / factor, voice.targetStep);
             }
             voice.baseStep = voice.step;
         }
@@ -1712,6 +2008,7 @@ void ITPlayer::ApplyVolumeColumnTick(ITChannelVoice& voice) {
         const double delta = Waveform(voice.vibratoPos, voice.vibratoWaveform) * static_cast<double>(voice.volParam) / 2048.0;
         voice.step = std::max(0.0, voice.baseStep + delta);
         voice.vibratoPos = static_cast<uint8_t>(voice.vibratoPos + speedValue);
+        // Caller (ApplyTickEffects) syncs vibratoPos back to the host channel after this call.
         break;
     }
 
@@ -1727,14 +2024,10 @@ void ITPlayer::ApplyVolumeSlide(ITChannelVoice& voice) {
     int volume = voice.volume;
 
     if (up == 0x0F && down != 0) {
-        if (tick == 1) {
-            volume -= down;
-        }
+        // Fine slide down (DFy) -- already applied on tick 0 in TriggerEvent; no per-tick action.
     }
     else if (down == 0x0F && up != 0) {
-        if (tick == 1) {
-            volume += up;
-        }
+        // Fine slide up (DxF) -- already applied on tick 0 in TriggerEvent; no per-tick action.
     }
     else if (up != 0 && down == 0) {
         volume += up;
@@ -1747,18 +2040,73 @@ void ITPlayer::ApplyVolumeSlide(ITChannelVoice& voice) {
     voice.baseVolume = voice.volume;
 }
 
-void ITPlayer::ApplyGlobalVolumeSlide(ITChannelVoice& voice) {
-    const uint8_t data = voice.effectData != 0 ? voice.effectData : voice.lastVolumeSlide;
+void ITPlayer::ApplyChannelVolumeSlide(ITChannelVoice& voice) {
+    const uint8_t data = voice.lastChannelVolumeSlide != 0 ? voice.lastChannelVolumeSlide : voice.effectData;
     const uint8_t up = data >> 4;
     const uint8_t down = data & 0x0F;
-    int volume = globalVolume.load();
-    if (up != 0 && down == 0) {
+    int volume = voice.channelVolume;
+
+    if (up == 0x0F && down != 0) {
+        // Fine slide down (NFy) -- already applied on tick 0 in TriggerEvent; no per-tick action.
+    }
+    else if (down == 0x0F && up != 0) {
+        // Fine slide up (NxF) -- already applied on tick 0 in TriggerEvent; no per-tick action.
+    }
+    else if (up != 0 && down == 0) {
         volume += up;
     }
     else if (down != 0 && up == 0) {
         volume -= down;
     }
-    globalVolume = ClampVolume(volume);
+
+    voice.channelVolume = ClampVolume(volume);
+}
+
+void ITPlayer::ApplyPanningSlide(ITChannelVoice& voice) {
+    const uint8_t data = voice.lastPanningSlide != 0 ? voice.lastPanningSlide : voice.effectData;
+    const uint8_t right = data >> 4;
+    const uint8_t left = data & 0x0F;
+    int pan = voice.panning;
+
+    if (right == 0x0F && left != 0) {
+        if (tick == 1) {
+            pan -= left;
+        }
+    }
+    else if (left == 0x0F && right != 0) {
+        if (tick == 1) {
+            pan += right;
+        }
+    }
+    else if (right != 0 && left == 0) {
+        pan += right * 4;
+    }
+    else if (left != 0 && right == 0) {
+        pan -= left * 4;
+    }
+
+    voice.panning = static_cast<uint8_t>(std::clamp(pan, 0, 255));
+}
+void ITPlayer::ApplyGlobalVolumeSlide(ITChannelVoice& voice) {
+    const uint8_t data = voice.lastGlobalVolumeSlide != 0 ? voice.lastGlobalVolumeSlide : voice.effectData;
+    const uint8_t up = data >> 4;
+    const uint8_t down = data & 0x0F;
+    int volume = moduleGlobalVolume.load();
+
+    if (up == 0x0F && down != 0) {
+        // Fine slide down (WFy) -- already applied on tick 0 in TriggerEvent; no per-tick action.
+    }
+    else if (down == 0x0F && up != 0) {
+        // Fine slide up (WxF) -- already applied on tick 0 in TriggerEvent; no per-tick action.
+    }
+    else if (up != 0 && down == 0) {
+        volume += up;
+    }
+    else if (down != 0 && up == 0) {
+        volume -= down;
+    }
+
+    moduleGlobalVolume = static_cast<uint8_t>(std::clamp(volume, 0, 128));
 }
 
 void ITPlayer::ApplyPortamento(ITChannelVoice& voice) {
@@ -1766,12 +2114,22 @@ void ITPlayer::ApplyPortamento(ITChannelVoice& voice) {
         return;
     }
 
-    const double amount = static_cast<double>(voice.lastPortamento != 0 ? voice.lastPortamento : voice.effectData) / 4096.0;
+    // IT linear-frequency slide: each unit = 1/64 of a semitone, so the per-tick factor is
+    // 2^(param/768). Additive step arithmetic is wrong here -- it produces pitch changes that
+    // vary with frequency (fast at low notes, imperceptibly slow at high notes).
+    const uint8_t param = voice.lastPortamento != 0 ? voice.lastPortamento : voice.effectData;
+    const double factor = std::pow(2.0, static_cast<double>(param) / 768.0);
     if (voice.step < voice.targetStep) {
-        voice.step = std::min(voice.step + amount, voice.targetStep);
+        voice.step = std::min(voice.step * factor, voice.targetStep);
     }
     else if (voice.step > voice.targetStep) {
-        voice.step = std::max(voice.step - amount, voice.targetStep);
+        voice.step = std::max(voice.step / factor, voice.targetStep);
+    }
+    if (voice.glissandoControl && voice.sample) {
+        const double frequency = voice.step * static_cast<double>(IT_SAMPLE_RATE);
+        const double note = 60.0 + 12.0 * std::log2(frequency / static_cast<double>(voice.sample->c5Speed));
+        const uint8_t rounded = static_cast<uint8_t>(std::clamp<int>(static_cast<int>(std::round(note)), 0, 119));
+        voice.step = NoteToFrequency(rounded, voice.sample->c5Speed) / static_cast<double>(IT_SAMPLE_RATE);
     }
     voice.baseStep = voice.step;
 }
@@ -1861,6 +2219,31 @@ float ITPlayer::EvaluateVolumeEnvelope(const ITInstrument& instrument, uint16_t 
     return static_cast<float>(instrument.volumeEnvelopeValues[pointCount - 1]) / 64.0f;
 }
 
+float ITPlayer::EvaluatePanningEnvelope(const ITInstrument& instrument, uint16_t envelopeTick) const {
+    const uint8_t pointCount = instrument.panningEnvelopePointCount;
+    if (!instrument.HasPanningEnvelope()) {
+        return 0.0f;
+    }
+
+    if (envelopeTick <= instrument.panningEnvelopeTicks[0]) {
+        return static_cast<float>(instrument.panningEnvelopeValues[0]) / 32.0f;
+    }
+
+    for (uint8_t point = 1; point < pointCount; ++point) {
+        const uint16_t leftTick = instrument.panningEnvelopeTicks[point - 1];
+        const uint16_t rightTick = instrument.panningEnvelopeTicks[point];
+        if (envelopeTick <= rightTick) {
+            const float leftValue = static_cast<float>(instrument.panningEnvelopeValues[point - 1]);
+            const float rightValue = static_cast<float>(instrument.panningEnvelopeValues[point]);
+            const uint16_t tickSpan = rightTick > leftTick ? static_cast<uint16_t>(rightTick - leftTick) : 1;
+            const float t = static_cast<float>(envelopeTick - leftTick) / static_cast<float>(tickSpan);
+            return (leftValue + (rightValue - leftValue) * t) / 32.0f;
+        }
+    }
+
+    return static_cast<float>(instrument.panningEnvelopeValues[pointCount - 1]) / 32.0f;
+}
+
 void ITPlayer::AdvanceVoiceEnvelope(ITChannelVoice& voice) {
     const ITInstrument* instrument = voice.instrumentDef;
     if (!voice.active || !instrument) {
@@ -1893,6 +2276,29 @@ void ITPlayer::AdvanceVoiceEnvelope(ITChannelVoice& voice) {
         }
     }
 
+    if (instrument->HasPanningEnvelope()) {
+        voice.envelopePanning = EvaluatePanningEnvelope(*instrument, voice.panEnvelopeTick);
+
+        const uint8_t lastPoint = static_cast<uint8_t>(instrument->panningEnvelopePointCount - 1);
+        const uint16_t lastTick = instrument->panningEnvelopeTicks[lastPoint];
+        const bool sustainEnabled = (instrument->panningEnvelopeFlags & 0x04) != 0 && !voice.noteReleased;
+        const bool loopEnabled = (instrument->panningEnvelopeFlags & 0x02) != 0;
+
+        if (sustainEnabled && instrument->panningEnvelopeSustainStart <= instrument->panningEnvelopeSustainEnd &&
+            instrument->panningEnvelopeSustainEnd <= lastPoint &&
+            voice.panEnvelopeTick >= instrument->panningEnvelopeTicks[instrument->panningEnvelopeSustainEnd]) {
+            voice.panEnvelopeTick = instrument->panningEnvelopeTicks[instrument->panningEnvelopeSustainStart];
+        }
+        else if (loopEnabled && instrument->panningEnvelopeLoopStart <= instrument->panningEnvelopeLoopEnd &&
+            instrument->panningEnvelopeLoopEnd <= lastPoint &&
+            voice.panEnvelopeTick >= instrument->panningEnvelopeTicks[instrument->panningEnvelopeLoopEnd]) {
+            voice.panEnvelopeTick = instrument->panningEnvelopeTicks[instrument->panningEnvelopeLoopStart];
+        }
+        else if (voice.panEnvelopeTick < lastTick) {
+            ++voice.panEnvelopeTick;
+        }
+    }
+
     if (voice.noteReleased && instrument->fadeOut > 0) {
         const uint32_t fadeStep = std::max<uint32_t>(1, instrument->fadeOut);
         voice.fadeOutVolume = fadeStep >= voice.fadeOutVolume ? 0 : voice.fadeOutVolume - fadeStep;
@@ -1901,40 +2307,102 @@ void ITPlayer::AdvanceVoiceEnvelope(ITChannelVoice& voice) {
         }
     }
 }
-
 void ITPlayer::ApplySpecialCommand(ITChannelVoice& voice, uint8_t data, bool rowTick) {
     const uint8_t sub = data >> 4;
     const uint8_t value = data & 0x0F;
 
     if (rowTick) {
         switch (sub) {
-        case 0x3: // S3x: set vibrato waveform (0 sine, 1 ramp down, 2 square, 3 random)
-            voice.vibratoWaveform = value & 0x03;
+        case 0x0: // S0x: native cutoff control for IT filter macros.
+            voice.filterEnabled = value != 0;
+            voice.filterCutoff = std::clamp((static_cast<float>(value) + 1.0f) / 16.0f, 0.02f, 1.0f);
             break;
 
-        case 0x4: // S4x: set tremolo waveform
-            voice.tremoloWaveform = value & 0x03;
+        case 0x1: // S1x: glissando control for tone portamento.
+            voice.glissandoControl = value != 0;
             break;
 
-        case 0x5: // S5x: set panbrello waveform
-            voice.panbrelloWaveform = value & 0x03;
+        case 0x2: // S2x: finetune. Approximate IT's table as eighth-semitone offsets.
+            if (voice.active) {
+                const int offset = static_cast<int>(value) - 8;
+                voice.step *= std::pow(2.0, static_cast<double>(offset) / 96.0);
+                voice.baseStep = voice.step;
+            }
             break;
 
-        case 0x6: // S6x: fine pattern delay -- add x extra ticks to THIS row only.
-                  // (This is NOT a pattern loop; SBx is the loop command.)
+        case 0x3: // S3x: set vibrato waveform; bits 0-1 = shape, bit 2 = no-retrig on new note
+            voice.vibratoWaveform = value & 0x07;
+            break;
+
+        case 0x4: // S4x: set tremolo waveform; bits 0-1 = shape, bit 2 = no-retrig
+            voice.tremoloWaveform = value & 0x07;
+            break;
+
+        case 0x5: // S5x: set panbrello waveform; bits 0-1 = shape, bit 2 = no-retrig
+            voice.panbrelloWaveform = value & 0x07;
+            break;
+
+        case 0x6: // S6x: fine pattern delay -- add x extra ticks to this row only.
             fineDelayTicks = value;
+            break;
+
+        case 0x7: // S7x: IT NNA / envelope controls.
+            switch (value) {
+            case 0x0: case 0x1: case 0x2: case 0x3:
+                ApplyNewNoteAction(voice, value);
+                break;
+            case 0x4:
+                voice.envelopeTick = 0;
+                voice.panEnvelopeTick = 0;
+                voice.noteReleased = false;
+                break;
+            case 0x5:
+                voice.noteReleased = true;
+                break;
+            case 0x6:
+                voice.noteReleased = true;
+                voice.fadeOutVolume = std::min<uint32_t>(voice.fadeOutVolume, 32768);
+                break;
+            default:
+                break;
+            }
             break;
 
         case 0x8: // S8x: set coarse panning (0..15 -> 0..255)
             voice.panning = static_cast<uint8_t>((static_cast<uint16_t>(value) * 255U) / 15U);
             break;
 
-        case 0xA: // SAy: set the high byte of the sample offset (final offset += y * 0x10000).
-                  // This -- not S9x -- is the IT high-offset command consumed by Oxx.
+        case 0x9: // S9x: sound control. Implement the native surround/reverse subset.
+            switch (value) {
+            case 0x0:
+                voice.surround = false;
+                voice.reversePlayback = false;
+                break;
+            case 0x1:
+                voice.surround = true;
+                break;
+            case 0x8:
+                voice.surround = false;
+                break;
+            case 0xB:
+                voice.reversePlayback = true;
+                if (voice.sample && voice.position <= 0.0 && !voice.sample->pcm.empty()) {
+                    voice.position = static_cast<double>(voice.sample->pcm.size() - 1);
+                }
+                break;
+            case 0xC:
+                voice.reversePlayback = false;
+                break;
+            default:
+                break;
+            }
+            break;
+
+        case 0xA: // SAy: high byte of Oxx sample offset.
             voice.lastSampleOffsetHigh = value;
             break;
 
-        case 0xB: // SBx: pattern loop. SB0 marks the loopback row; SBx replays the block x times.
+        case 0xB: // SBx: pattern loop.
             if (value == 0) {
                 patternLoopRow = static_cast<uint8_t>(currentRow);
             }
@@ -1947,39 +2415,35 @@ void ITPlayer::ApplySpecialCommand(ITChannelVoice& voice, uint8_t data, bool row
             }
             break;
 
-        case 0xC: // SCx: note cut after x ticks (SC0 cuts immediately)
+        case 0xC: // SCx: note cut after x ticks.
             voice.noteCutTick = value;
             if (value == 0) {
                 voice.active = false;
             }
             break;
 
-        case 0xE: // SEx: pattern delay for x rows. Arm it only once: the row keeps being
-                  // re-processed while held, and re-setting the counter here would make it
-                  // never reach zero (an infinite hang on the row).
+        case 0xE: // SEx: pattern delay for x rows.
             if (!inPatternDelay) {
                 patternDelayTicks = value;
                 inPatternDelay = true;
             }
             break;
 
-        // S0x filter, S1x glissando, S2x finetune, S7x NNA/envelope control, S9x sound
-        // control (surround/reverb/reverse), SDx note delay (handled at trigger time) and
-        // SFx MIDI macro have no native audio path here and are intentionally ignored
-        // rather than misinterpreted as offset/loop commands.
+        case 0xF: // SFx: select macro slot; native playback has no external plugin macro table.
+            break;
+
+        // SDx note delay is handled before the row event is triggered.
         default:
             break;
         }
         return;
     }
 
-    // Per-tick phase: SCx is the only sub-command that must fire on a later tick.
     if (sub == 0xC && tick == value) {
         voice.active = false;
         voice.noteCutTick = 255;
     }
 }
-
 void ITPlayer::AdvanceRow() {
     if (orderJumpPending) {
         return;

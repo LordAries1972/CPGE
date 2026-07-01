@@ -91,14 +91,23 @@ struct MPTMSample {
     uint8_t globalVolume = 64;
     uint8_t defaultVolume = 64;
     uint8_t defaultPanning = 128;
+    bool    hasPanningOverride = false;  // true only when sample header bit 7 is set
     uint8_t flags = 0;
     uint8_t convert = 0;
+    // IT sample auto-vibrato parameters (from header bytes 0x4C-0x4F)
+    uint8_t autoVibratoSpeed = 0;
+    uint8_t autoVibratoDepth = 0;
+    uint8_t autoVibratoRate  = 0;  // sweep: ticks to reach full depth (0 = instant)
+    uint8_t autoVibratoType  = 0;  // 0=sine, 1=ramp-down, 2=square, 3=random
     char name[26] = {};
     std::vector<int16_t> pcm;
 
-    bool IsLooped() const { return (flags & 0x10) != 0 && loopEnd > loopStart + 1; }
-    bool Is16Bit() const { return (flags & 0x02) != 0; }
-    bool IsStereo() const { return (flags & 0x04) != 0; }
+    bool IsLooped()              const { return (flags & 0x10) != 0 && loopEnd        > loopStart        + 1; }
+    bool IsSustainLooped()       const { return ((flags & 0x20) != 0 || (flags & 0x80) != 0) && sustainLoopEnd > sustainLoopStart + 1; }
+    bool IsPingPongLoop()        const { return (flags & 0x40) != 0 && loopEnd        > loopStart        + 1; }
+    bool IsPingPongSustainLoop() const { return (flags & 0x80) != 0 && sustainLoopEnd > sustainLoopStart + 1; }
+    bool Is16Bit()         const { return (flags & 0x02) != 0; }
+    bool IsStereo()        const { return (flags & 0x04) != 0; }
 };
 
 struct MPTMInstrument {
@@ -106,17 +115,33 @@ struct MPTMInstrument {
     std::array<uint8_t, 120> noteMap{};
     std::array<uint8_t, 120> sampleMap{};
     uint16_t fadeOut = 0;
+    uint8_t nna = 0;                          // new note action: 0=cut, 1=continue, 2=note-off, 3=fade
     uint8_t globalVolume = 64;
+    uint8_t defaultPanning = 128;             // 0..255, 128 = centre; bit 7 set means "use channel panning"
+    bool    hasPanningOverride = false;       // true when instrument overrides channel panning
+
+    // Volume envelope
     uint8_t volumeEnvelopeFlags = 0;
     uint8_t volumeEnvelopePointCount = 0;
     uint8_t volumeEnvelopeLoopStart = 0;
     uint8_t volumeEnvelopeLoopEnd = 0;
     uint8_t volumeEnvelopeSustainStart = 0;
     uint8_t volumeEnvelopeSustainEnd = 0;
-    std::array<uint8_t, 25> volumeEnvelopeValues{};
+    std::array<uint8_t, 25>  volumeEnvelopeValues{};
     std::array<uint16_t, 25> volumeEnvelopeTicks{};
 
-    bool HasVolumeEnvelope() const { return (volumeEnvelopeFlags & 0x01) != 0 && volumeEnvelopePointCount > 0; }
+    // Panning envelope
+    uint8_t panningEnvelopeFlags = 0;
+    uint8_t panningEnvelopePointCount = 0;
+    uint8_t panningEnvelopeLoopStart = 0;
+    uint8_t panningEnvelopeLoopEnd = 0;
+    uint8_t panningEnvelopeSustainStart = 0;
+    uint8_t panningEnvelopeSustainEnd = 0;
+    std::array<int8_t,   25> panningEnvelopeValues{};
+    std::array<uint16_t, 25> panningEnvelopeTicks{};
+
+    bool HasVolumeEnvelope()  const { return (volumeEnvelopeFlags  & 0x01) != 0 && volumeEnvelopePointCount  > 0; }
+    bool HasPanningEnvelope() const { return (panningEnvelopeFlags & 0x01) != 0 && panningEnvelopePointCount > 0; }
 };
 
 struct MPTMEvent {
@@ -134,45 +159,64 @@ struct MPTMPattern {
 };
 
 struct MPTMChannelVoice {
-    const MPTMSample* sample = nullptr;
-    const MPTMInstrument* instrumentDef = nullptr;
-    double position = 0.0;
-    double step = 0.0;
-    double baseStep = 0.0;
-    double targetStep = 0.0;
-    float envelopeVolume = 1.0f;
-    uint32_t fadeOutVolume = 65536;
-    uint16_t envelopeTick = 0;
-    uint8_t volume = 64;
-    uint8_t baseVolume = 64;
-    uint8_t panning = 128;
-    uint8_t note = 0;
-    uint8_t instrument = 0;
-    uint8_t effect = 0;
-    uint8_t effectData = 0;
-    uint8_t lastVolumeSlide = 0;
-    uint8_t lastPortamento = 0;
-    uint8_t lastVibrato = 0;
-    uint8_t lastTremolo = 0;
-    uint8_t lastSampleOffsetHigh = 0;
-    uint16_t lastSampleOffset = 0;
-    uint8_t lastRetrig = 0;
-    uint8_t vibratoPos = 0;
-    uint8_t tremoloPos = 0;
-    uint8_t panbrelloPos = 0;
-    uint8_t vibratoWaveform = 0;   // S3x: 0 sine, 1 ramp-down, 2 square, 3 random
-    uint8_t tremoloWaveform = 0;   // S4x
-    uint8_t panbrelloWaveform = 0; // S5x
-    uint8_t volCommand = 0;        // decoded IT volume-column command (see VolColumnCmd)
-    uint8_t volParam = 0;          // parameter for the volume-column command
-    uint8_t tremorCounter = 0;
-    uint8_t tremorOnTicks = 0;
-    uint8_t tremorOffTicks = 0;
-    uint8_t noteCutTick = 255;
-    bool active = false;
-    bool noteReleased = false;
-    bool delayedNotePending = false;
-    uint8_t delayTicks = 0;
+    const MPTMSample*      sample        = nullptr;
+    const MPTMInstrument*  instrumentDef = nullptr;
+    double   position       = 0.0;
+    double   step           = 0.0;
+    double   baseStep       = 0.0;
+    double   targetStep     = 0.0;
+    bool     reversePlayback  = false;   // S9F explicit reverse (separate from ping-pong)
+    bool     pingPongReverse  = false;   // ping-pong loop direction (do NOT conflate with reversePlayback)
+    float    envelopeVolume  = 1.0f;
+    float    envelopePanning = 0.0f;     // panning envelope output: -1.0 (left) .. +1.0 (right)
+    uint32_t fadeOutVolume   = 65536;
+    uint16_t envelopeTick    = 0;
+    uint16_t panEnvelopeTick = 0;
+    uint8_t  volume          = 64;
+    uint8_t  baseVolume      = 64;
+    uint8_t  channelVolume   = 64;       // Mxx: channel volume multiplier (separate from voice volume)
+    uint8_t  panning         = 128;
+    uint8_t  basePanning     = 128;  // stored base for panbrello; updated by all explicit pan sets
+    uint8_t  note            = 0;
+    uint8_t  instrument      = 0;
+    uint8_t  effect          = 0;
+    uint8_t  effectData      = 0;
+    uint8_t  lastVolumeSlide        = 0; // Dxy memory
+    uint8_t  lastChannelVolumeSlide = 0; // Nxy memory (separate from Dxy)
+    uint8_t  lastGlobalVolumeSlide  = 0; // Wxy memory (separate from Dxy)
+    uint8_t  lastPortamento  = 0;   // Gxx / Lxy tone portamento memory
+    uint8_t  lastPitchSlide  = 0;   // Exx / Fxx pitch slide memory (separate from Gxx)
+    uint8_t  lastVibrato     = 0;
+    uint8_t  lastTremolo     = 0;
+    uint8_t  lastPanbrello   = 0;        // Yxy memory (separate from effectData)
+    uint8_t  lastPanningSlide = 0;       // Pxy memory
+    uint8_t  lastSampleOffsetHigh = 0;
+    uint16_t lastSampleOffset     = 0;
+    uint8_t  lastRetrig      = 0;
+    uint8_t  vibratoPos      = 0;
+    uint8_t  tremoloPos      = 0;
+    uint8_t  panbrelloPos    = 0;
+    uint8_t  vibratoWaveform  = 0;  // S3x: 0 sine, 1 ramp-down, 2 square, 3 random
+    uint8_t  tremoloWaveform  = 0;  // S4x
+    uint8_t  panbrelloWaveform = 0; // S5x
+    bool     glissandoControl = false;   // S1x: snap tone-portamento to nearest semitone
+    uint8_t  volCommand  = 0;       // decoded IT volume-column command (see VolColumnCmd)
+    uint8_t  volParam    = 0;       // parameter for the volume-column command
+    uint8_t  tremorCounter  = 0;
+    uint8_t  tremorOnTicks  = 0;
+    uint8_t  tremorOffTicks = 0;
+    uint8_t  noteCutTick    = 255;
+    uint8_t  autoVibratoPos   = 0;    // waveform position (0..255 cyclic, advances per tick)
+    uint16_t autoVibratoDepth = 0;    // current ramped depth (0 → sample.autoVibratoDepth*256)
+    int8_t   nnaOverride      = -1;   // -1 = use instrumentDef->nna; S70..S73 set 0..3
+    int8_t   volEnvOverride   = -1;   // -1 = inherit from instrument; 0 = off; 1 = on
+    int8_t   panEnvOverride   = -1;   // -1 = inherit from instrument; 0 = off; 1 = on
+    float    smoothGain          = 0.0f;   // smoothed output gain for anti-click ramp
+    bool     deactivatePending   = false;  // true while smoothGain is ramping to 0 on a cut
+    bool     active              = false;
+    bool     noteReleased        = false;
+    bool     delayedNotePending  = false;
+    uint8_t  delayTicks          = 0;
     MPTMEvent delayedEvent{};
 };
 
@@ -230,12 +274,15 @@ private:
     std::vector<MPTMPattern> patterns;
     std::vector<std::vector<std::vector<MPTMEvent>>> unpackedPatterns;
     std::vector<MPTMChannelVoice> voices;
+    std::vector<MPTMChannelVoice> backgroundVoices; // NNA virtual channel pool
     std::vector<uint8_t> defaultPanning;
-    std::vector<int16_t> mixScratch;
+    std::vector<int16_t>  mixScratch;
+    std::vector<int32_t>  mixAccumulator; // 32-bit stereo accumulator (IT-style, headroom for 128 channels)
     std::wstring modulePath;
 
     std::atomic<uint8_t> currentVolume{ 64 };
     std::atomic<uint8_t> targetVolume{ 64 };
+    uint8_t moduleGlobalVolume = 128; // IT header Gxx field (0..128); Vxx/Wxy operate on this
     std::atomic<uint32_t> fadeDurationMs{ 0 };
     std::atomic<uint32_t> fadeElapsedMs{ 0 };
     std::atomic<uint8_t> globalVolume{ 64 };
@@ -260,7 +307,8 @@ private:
     void* secondaryBuffer = nullptr;
 #endif
     uint32_t writeCursor = 0;
-    uint32_t bufferSize = 0;
+    uint32_t bufferSize  = 0;
+    uint32_t samplesUntilNextTick = 0; // sample-accurate tick clock inside MixAudio
 
     bool CreateAudioDevice();
     void FillAudioBuffer();
@@ -272,6 +320,8 @@ private:
     void TriggerEvent(size_t channel, const MPTMEvent& event, bool fromDelay);
     void ApplyTickEffects();
     void ApplyVolumeSlide(MPTMChannelVoice& voice);
+    void ApplyChannelVolumeSlide(MPTMChannelVoice& voice);
+    void ApplyPanningSlide(MPTMChannelVoice& voice);
     void ApplyVolumeColumnTick(MPTMChannelVoice& voice);
     void ApplyGlobalVolumeSlide(MPTMChannelVoice& voice);
     void ApplyPortamento(MPTMChannelVoice& voice);
@@ -281,6 +331,7 @@ private:
     void ApplyRetrig(MPTMChannelVoice& voice);
     void ApplySpecialCommand(MPTMChannelVoice& voice, uint8_t data, bool rowTick);
     float EvaluateVolumeEnvelope(const MPTMInstrument& instrument, uint16_t envelopeTick) const;
+    float EvaluatePanningEnvelope(const MPTMInstrument& instrument, uint16_t envelopeTick) const;
     void AdvanceVoiceEnvelope(MPTMChannelVoice& voice);
     void AdvanceRow();
     const MPTMSample* ResolveSample(uint8_t instrument, uint8_t note, uint8_t& mappedNote) const;

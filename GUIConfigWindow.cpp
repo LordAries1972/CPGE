@@ -1325,7 +1325,7 @@ void GUIManager::CreateConfigWindow()
                 constexpr float kTitleFS = 16.0f;
                 const float tbTextY = wy + (kTH - kTitleFS * 1.1f) * 0.5f;
                 r->DrawMyText(L"System Configuration",
-                    Vector2(wx + 9.0f, tbTextY-3), MyColor(255, 228, 90, sc(160)), kTitleFS);
+                    Vector2(wx + 9.0f, tbTextY-3), MyColor(22, 22, 22, sc(160)), kTitleFS);
                 r->DrawMyText(L"System Configuration",
                     Vector2(wx + 8.0f, tbTextY-4), MyColor(255, 228, 90, sc(255)), kTitleFS);
             }

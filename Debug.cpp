@@ -58,15 +58,8 @@ Debug::Debug()
 // -----------------------------------------
 void Debug::DebugLog(const std::string& message)
 {
-    std::ostringstream oss;
-    oss << "[INFO]: " << message << "\n";
-    OutputDebugStringA(oss.str().c_str());
-#ifdef _DEBUG
-    {
-        std::wstring w(message.begin(), message.end());
-        consoleWindow.AddLine(L"[INFO]: " + w, ConsoleLineColor::Normal);
-    }
-#endif
+    std::wstring w(message.begin(), message.end());
+    logLevelMessage(LogLevel::LOG_DEBUG, w);
 }
 
 void Debug::Insert_Into_Log_File(const std::wstring& filename, const std::wstring& lineMsg)
@@ -201,16 +194,11 @@ void Debug::logLevelMessage(LogLevel level, const std::wstring& message)
             level == LogLevel::LOG_CRITICAL ||
             level == LogLevel::LOG_TERMINATION)
         {
-            // Post a quit message so the main message loop exits with a failure code.
-            // Works in ALL build types (the old code was gated behind !_DEBUG).
-            PostQuitMessage(EXIT_FAILURE);
-
 #if defined(PLATFORM_WINDOWS)
             if (level == LogLevel::LOG_TERMINATION)
             {
-                // TERMINATION is unrecoverable — show a dialog so the user sees
-                // the reason, then force-exit.  ExitProcess is intentional here:
-                // the program state is corrupt, we must not continue.
+                // TERMINATION is unrecoverable — show a dialog then force-exit.
+                // ExitProcess is intentional: program state is corrupt.
                 MessageBoxW(nullptr,
                     (std::wstring(L"A fatal error has occurred and the program must close.\n\n")
                         + message).c_str(),
@@ -218,7 +206,25 @@ void Debug::logLevelMessage(LogLevel level, const std::wstring& message)
                     MB_OK | MB_ICONERROR | MB_TOPMOST);
                 ExitProcess(EXIT_FAILURE);
             }
+            else if (level == LogLevel::LOG_CRITICAL)
+            {
+                MessageBoxW(nullptr,
+                    (std::wstring(L"A critical error has occurred:\n\n") + message +
+                        L"\n\nThe application will now close.").c_str(),
+                    L"Critical Error",
+                    MB_OK | MB_ICONERROR | MB_TOPMOST);
+            }
+            else if (level == LogLevel::LOG_ERROR)
+            {
+                MessageBoxW(nullptr,
+                    (std::wstring(L"An error has occurred:\n\n") + message +
+                        L"\n\nThe application will now close.").c_str(),
+                    L"Error",
+                    MB_OK | MB_ICONERROR | MB_TOPMOST);
+            }
 #endif
+            // Post quit AFTER the dialog is dismissed so the user has seen the message.
+            PostQuitMessage(EXIT_FAILURE);
         }
     }
 }
@@ -242,47 +248,27 @@ bool Debug::LOG_IF_FAILED(HRESULT hr, const LPCWSTR msg)
 
 void Debug::Log(const std::string& message)
 {
-    #ifdef _DEBUG
-        OutputDebugStringA(("[INFO]: " + message).c_str());
-        {
-            std::wstring w(message.begin(), message.end());
-            consoleWindow.AddLine(L"[INFO]: " + w, ConsoleLineColor::Normal);
-        }
-    #endif
+    std::wstring w(message.begin(), message.end());
+    logLevelMessage(LogLevel::LOG_INFO, w);
 }
 
 void Debug::LogWarning(const std::string& message)
 {
-    #ifdef _DEBUG
-        OutputDebugStringA(("[WARNING]: " + message + "\n").c_str());
-        {
-            std::wstring w(message.begin(), message.end());
-            consoleWindow.AddLine(L"[WARNING]: " + w, ConsoleLineColor::Warning);
-        }
-    #endif
+    std::wstring w(message.begin(), message.end());
+    logLevelMessage(LogLevel::LOG_WARNING, w);
 }
 
 void Debug::LogError(const std::string& message)
 {
-    #ifdef _DEBUG
-        OutputDebugStringA(("[ERROR]: " + message + "\n").c_str());
-        {
-            std::wstring w(message.begin(), message.end());
-            consoleWindow.AddLine(L"[ERROR]: " + w, ConsoleLineColor::Error);
-        }
-    #endif
+    std::wstring w(message.begin(), message.end());
+    logLevelMessage(LogLevel::LOG_ERROR, w);
 }
 
 void Debug::LogFunction(const std::string& functionName, const std::string& message)
 {
-    std::string fullMessage = "[Function: " + functionName + "] " + message;
-    #ifdef _DEBUG
-        OutputDebugStringA(fullMessage.c_str());
-        {
-            std::wstring w(fullMessage.begin(), fullMessage.end());
-            consoleWindow.AddLine(w, ConsoleLineColor::Normal);
-        }
-    #endif
+    std::wstring w;
+    for (char c : ("[Function: " + functionName + "] " + message)) w += (wchar_t)c;
+    logLevelMessage(LogLevel::LOG_INFO, w);
 }
 
 void Debug::DebugBreak() {

@@ -97,6 +97,7 @@ struct ITSample {
     std::vector<int16_t> pcm;
 
     bool IsLooped() const { return (flags & 0x10) != 0 && loopEnd > loopStart + 1; }
+    bool IsSustainLooped() const { return (flags & 0x20) != 0 && sustainLoopEnd > sustainLoopStart + 1; }
     bool Is16Bit() const { return (flags & 0x02) != 0; }
     bool IsStereo() const { return (flags & 0x04) != 0; }
 };
@@ -106,17 +107,30 @@ struct ITInstrument {
     std::array<uint8_t, 120> noteMap{};
     std::array<uint8_t, 120> sampleMap{};
     uint16_t fadeOut = 0;
+    uint8_t nna = 0;
+    uint8_t duplicateCheckType = 0;
+    uint8_t duplicateCheckAction = 0;
     uint8_t globalVolume = 64;
+    uint8_t defaultPanning = 128;
     uint8_t volumeEnvelopeFlags = 0;
     uint8_t volumeEnvelopePointCount = 0;
     uint8_t volumeEnvelopeLoopStart = 0;
     uint8_t volumeEnvelopeLoopEnd = 0;
     uint8_t volumeEnvelopeSustainStart = 0;
     uint8_t volumeEnvelopeSustainEnd = 0;
+    uint8_t panningEnvelopeFlags = 0;
+    uint8_t panningEnvelopePointCount = 0;
+    uint8_t panningEnvelopeLoopStart = 0;
+    uint8_t panningEnvelopeLoopEnd = 0;
+    uint8_t panningEnvelopeSustainStart = 0;
+    uint8_t panningEnvelopeSustainEnd = 0;
     std::array<uint8_t, 25> volumeEnvelopeValues{};
     std::array<uint16_t, 25> volumeEnvelopeTicks{};
+    std::array<int8_t, 25> panningEnvelopeValues{};
+    std::array<uint16_t, 25> panningEnvelopeTicks{};
 
     bool HasVolumeEnvelope() const { return (volumeEnvelopeFlags & 0x01) != 0 && volumeEnvelopePointCount > 0; }
+    bool HasPanningEnvelope() const { return (panningEnvelopeFlags & 0x01) != 0 && panningEnvelopePointCount > 0; }
 };
 
 struct ITEvent {
@@ -141,10 +155,16 @@ struct ITChannelVoice {
     double baseStep = 0.0;
     double targetStep = 0.0;
     float envelopeVolume = 1.0f;
+    float envelopePanning = 0.0f;
     uint32_t fadeOutVolume = 65536;
     uint16_t envelopeTick = 0;
+    uint16_t panEnvelopeTick = 0;
+    int16_t activeVoiceIndex = -1;
+    uint8_t hostChannel = 0;
+    bool background = false;
     uint8_t volume = 64;
     uint8_t baseVolume = 64;
+    uint8_t channelVolume = 64;
     uint8_t panning = 128;
     uint8_t note = 0;
     uint8_t instrument = 0;
@@ -157,6 +177,10 @@ struct ITChannelVoice {
     uint8_t lastSampleOffsetHigh = 0;
     uint16_t lastSampleOffset = 0;
     uint8_t lastRetrig = 0;
+    uint8_t lastPanningSlide = 0;
+    uint8_t lastChannelVolumeSlide = 0;
+    uint8_t lastGlobalVolumeSlide = 0;
+    bool glissandoControl = false;
     uint8_t vibratoPos = 0;
     uint8_t tremoloPos = 0;
     uint8_t panbrelloPos = 0;
@@ -165,10 +189,16 @@ struct ITChannelVoice {
     uint8_t panbrelloWaveform = 0; // S5x
     uint8_t volCommand = 0;        // decoded IT volume-column command (see VolColumnCmd)
     uint8_t volParam = 0;          // parameter for the volume-column command
+    bool filterEnabled = false;
+    float filterCutoff = 1.0f;
+    float filterResonance = 0.0f;
+    float filterState = 0.0f;
     uint8_t tremorCounter = 0;
     uint8_t tremorOnTicks = 0;
     uint8_t tremorOffTicks = 0;
     uint8_t noteCutTick = 255;
+    bool surround = false;
+    bool reversePlayback = false;
     bool active = false;
     bool noteReleased = false;
     bool delayedNotePending = false;
@@ -229,9 +259,11 @@ private:
     std::vector<ITSample> samples;
     std::vector<ITPattern> patterns;
     std::vector<std::vector<std::vector<ITEvent>>> unpackedPatterns;
+    std::vector<ITChannelVoice> hostChannels;
     std::vector<ITChannelVoice> voices;
     std::vector<uint8_t> defaultPanning;
     std::vector<int16_t> mixScratch;
+    std::vector<int32_t> mixAccumulator;
     std::wstring modulePath;
 
     std::atomic<uint8_t> currentVolume{ 64 };
@@ -239,6 +271,7 @@ private:
     std::atomic<uint32_t> fadeDurationMs{ 0 };
     std::atomic<uint32_t> fadeElapsedMs{ 0 };
     std::atomic<uint8_t> globalVolume{ 64 };
+    std::atomic<uint8_t> moduleGlobalVolume{ 128 };
     std::atomic<uint16_t> restartSequencePosition{ 0 };
     std::atomic<bool> fadeInActive{ false };
     std::atomic<bool> fadeOutActive{ false };
@@ -266,12 +299,13 @@ private:
     void FillAudioBuffer();
     void MixAudio(int16_t* buffer, size_t samplesToMix);
     void SilenceBuffer();
-    bool LoadExternalSample(const std::wstring& path, ITSample& sample);
     void UnpackPatterns();
     void TickRow();
     void TriggerEvent(size_t channel, const ITEvent& event, bool fromDelay);
     void ApplyTickEffects();
     void ApplyVolumeSlide(ITChannelVoice& voice);
+    void ApplyChannelVolumeSlide(ITChannelVoice& voice);
+    void ApplyPanningSlide(ITChannelVoice& voice);
     void ApplyVolumeColumnTick(ITChannelVoice& voice);
     void ApplyGlobalVolumeSlide(ITChannelVoice& voice);
     void ApplyPortamento(ITChannelVoice& voice);
@@ -281,7 +315,12 @@ private:
     void ApplyRetrig(ITChannelVoice& voice);
     void ApplySpecialCommand(ITChannelVoice& voice, uint8_t data, bool rowTick);
     float EvaluateVolumeEnvelope(const ITInstrument& instrument, uint16_t envelopeTick) const;
+    float EvaluatePanningEnvelope(const ITInstrument& instrument, uint16_t envelopeTick) const;
     void AdvanceVoiceEnvelope(ITChannelVoice& voice);
+    ITChannelVoice* ActiveVoiceForHost(size_t channel);
+    ITChannelVoice& AllocateVoice(size_t channel);
+    void ApplyNewNoteAction(ITChannelVoice& voice, uint8_t nna);
+    void ApplyDuplicateCheck(const ITInstrument& instrument, uint8_t note, size_t sampleIndex);
     void AdvanceRow();
     const ITSample* ResolveSample(uint8_t instrument, uint8_t note, uint8_t& mappedNote) const;
     double NoteToFrequency(uint8_t note, uint32_t c5Speed) const;

@@ -1,7 +1,7 @@
 #pragma once
 
-// Authoritative build identity — update these on every release.
+// Authoritative build identity - update Version.id before release builds.
 // Format: v<BUILD_VERSION>.<BUILD_SUBVERSION>.<BUILD_NUMBER>
 constexpr int CURRENT_BUILD_VERSION    = 0;
 constexpr int CURRENT_BUILD_SUBVERSION = 1;
-constexpr int CURRENT_BUILD            = 1922;
+constexpr int CURRENT_BUILD            = 1944;

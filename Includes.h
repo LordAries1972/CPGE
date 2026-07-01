@@ -70,12 +70,14 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Music Play back system we are wanting use.
+// Music Play back system we are wanting to use.
 // ENSURE YOU DEFINE ONE OF THEM ONLY!
 // ---------------------------------------------------------------------------
 //#define __USE_XMPLAYER__
 //#define __USE_S3MPLAYER__
-#define __USE_MPTMPLAYER__
+//#define __USE_ITPLAYER__
+#define __USE_MODPLAYER__
+//#define __USE_MPTMPLAYER__
 //#define __USE_MP3PLAYER__
 // ---------------------------------------------------------------------------
 
@@ -156,7 +158,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
         #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__) && \
             !defined(__USE_OPENGL__)     && !defined(__USE_VULKAN__)      && \
             !defined(__USE_RADEON__)
-            #define __USE_DIRECTX_11__  // Change this to switch the default for IDE-only builds
+//            #define __USE_DIRECTX_11__  // Change this to switch the default for IDE-only builds
         #endif
 
         #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__) && !defined(__USE_OPENGL__) && !defined(__USE_VULKAN__)

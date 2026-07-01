@@ -33,12 +33,6 @@
 #include "SceneManager.h"
 #include "MoviePlayer.h"
 
-#if defined(__USE_MP3PLAYER__)
-#include "WinMediaPlayer.h"
-#elif defined(__USE_XMPLAYER__)
-#include "XMMODPlayer.h"
-#endif
-
 // Platform-specific linking directives
 #if defined(_WIN32) || defined(_WIN64)
 #pragma comment(lib, "opengl32.lib")                                            // Link Windows OpenGL library
@@ -74,12 +68,6 @@ extern WindowMetrics winMetrics;                                                
 extern bool bResizing;                                                          // Window resize state flag
 extern std::atomic<bool> bResizeInProgress;                                     // Prevents multiple resize operations
 extern std::atomic<bool> bFullScreenTransition;                                // Prevents handling during fullscreen transitions
-
-#if defined(__USE_MP3PLAYER__)
-extern MediaPlayer player;                                                      // Media player for MP3 audio
-#elif defined(__USE_XMPLAYER__)
-extern XMMODPlayer xmPlayer;                                                    // XM/MOD music player
-#endif
 
 // Constructor/Destructor
 OpenGLRenderer::OpenGLRenderer()
@@ -134,17 +122,17 @@ void OpenGLRenderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
     iOrigWidth  = config.myConfig.resolutionWidth;
     iOrigHeight = config.myConfig.resolutionHeight;
 
-#if defined(_WIN32) || defined(_WIN64)
-    // GDI+ must be started before any LoadTexture call (Gdiplus::Bitmap requires it)
-    if (!m_gdiplusToken) {
-        Gdiplus::GdiplusStartupInput gdiplusInput;
-        Gdiplus::GdiplusStartup(&m_gdiplusToken, &gdiplusInput, nullptr);
-    }
-#endif
+    #if defined(_WIN32) || defined(_WIN64)
+        // GDI+ must be started before any LoadTexture call (Gdiplus::Bitmap requires it)
+        if (!m_gdiplusToken) {
+            Gdiplus::GdiplusStartupInput gdiplusInput;
+            Gdiplus::GdiplusStartup(&m_gdiplusToken, &gdiplusInput, nullptr);
+        }
+    #endif
 
-#if defined(_DEBUG_OPENGLRENDERER_) && defined(_DEBUG)
-    debug.logDebugMessage(LogLevel::LOG_INFO, L"OpenGLRenderer: Initializing with dimensions %dx%d", iOrigWidth, iOrigHeight); // Log initialization parameters
-#endif
+    #if defined(_DEBUG_OPENGLRENDERER_) && defined(_DEBUG)
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"OpenGLRenderer: Initializing with dimensions %dx%d", iOrigWidth, iOrigHeight); // Log initialization parameters
+    #endif
 
     // Seed render-target dimensions before SetupViewport is called
     m_renderTargetWidth  = iOrigWidth;
@@ -164,25 +152,25 @@ void OpenGLRenderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
         std::wstring vendorName = L"Unknown";
         if (glVendor)   { std::string s((const char*)glVendor);   vendorName = std::wstring(s.begin(), s.end()); }
 
-#if defined(_WIN32) || defined(_WIN64)
-        // Enumerate the default adapter via DXGI to get VRAM figures.
-        IDXGIFactory* dxgiFactory = nullptr;
-        if (SUCCEEDED(CreateDXGIFactory(__uuidof(IDXGIFactory), (void**)&dxgiFactory)))
-        {
-            IDXGIAdapter* adapter = nullptr;
-            if (SUCCEEDED(dxgiFactory->EnumAdapters(0, &adapter)))
+        #if defined(_WIN32) || defined(_WIN64)
+            // Enumerate the default adapter via DXGI to get VRAM figures.
+            IDXGIFactory* dxgiFactory = nullptr;
+            if (SUCCEEDED(CreateDXGIFactory(__uuidof(IDXGIFactory), (void**)&dxgiFactory)))
             {
-                DXGI_ADAPTER_DESC desc{};
-                if (SUCCEEDED(adapter->GetDesc(&desc)))
+                IDXGIAdapter* adapter = nullptr;
+                if (SUCCEEDED(dxgiFactory->EnumAdapters(0, &adapter)))
                 {
-                    m_dedicatedVRAMMB   = static_cast<UINT64>(desc.DedicatedVideoMemory / (1024 * 1024));
-                    m_sharedSystemMemMB = static_cast<UINT64>(desc.SharedSystemMemory   / (1024 * 1024));
+                    DXGI_ADAPTER_DESC desc{};
+                    if (SUCCEEDED(adapter->GetDesc(&desc)))
+                    {
+                        m_dedicatedVRAMMB   = static_cast<UINT64>(desc.DedicatedVideoMemory / (1024 * 1024));
+                        m_sharedSystemMemMB = static_cast<UINT64>(desc.SharedSystemMemory   / (1024 * 1024));
+                    }
+                    adapter->Release();
                 }
-                adapter->Release();
+                dxgiFactory->Release();
             }
-            dxgiFactory->Release();
-        }
-#endif
+        #endif
         m_isUMA       = (m_dedicatedVRAMMB == 0);
         m_isLowEndGPU = (m_dedicatedVRAMMB < 2048 || m_isUMA);
 

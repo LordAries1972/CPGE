@@ -56,6 +56,7 @@ ScreenRecorder::ScreenRecorder()
     , m_micStreamIndex(0), m_micAudioTimestamp(0)
     , m_pMonitorAudioClient(nullptr), m_pMonitorRenderClient(nullptr)
     , m_pMonitorFormat(nullptr), m_monitorBufferFrames(0)
+    , m_monitorOnLoopbackDevice(false)
     , m_micMonitorGain(2.5f), m_micRecordGain(2.5f)
     , m_isRecording(false)
 {
@@ -808,11 +809,15 @@ static void WriteAudioSilence(IMFSinkWriter* pSW, DWORD idx,
 // MixMicInline
 // Called from AudioCaptureThread only — no mutex needed.
 //
-// Sync note: when the monitor render client is active, mic audio is already
-// flowing into the loopback capture (the render endpoint mixes monitor audio
-// in, and the loopback captures it). Blending mic here a second time would
-// double it in the recording and corrupt the encoder's timing. Skip the blend
-// when monitoring is active — the loopback path handles it naturally.
+// Monitor path: mic is always pushed to the render client so the user hears
+// themselves in real-time regardless of which mode is active.
+//
+// Recording blend: mic is ALWAYS blended directly into the game audio buffer.
+// The loopback "picking up" monitor audio is timing-dependent and unreliable —
+// by the time WriteMonitorSamples pushes mic audio to the render client, the
+// WASAPI capture buffer for this poll cycle is already closed. Direct blend is
+// the only guaranteed path. If m_monitorOnLoopbackDevice is true, the mic may
+// also appear faintly via the loopback; m_micRecordGain can compensate.
 // ---------------------------------------------------------------------------
 void ScreenRecorder::MixMicInline(BYTE* pDst, UINT32 gameFrames)
 {
@@ -864,11 +869,7 @@ void ScreenRecorder::MixMicInline(BYTE* pDst, UINT32 gameFrames)
     // Always push to monitor so the user hears themselves
     WriteMonitorSamples(pMicBase, mixFrames);
 
-    // Always blend mic directly into the game audio buffer for recording.
-    // The monitor uses the communications endpoint (headset) so it does not
-    // contaminate the eConsole loopback; if both endpoints map to the same
-    // device the mic will be slightly elevated in the recording, which
-    // m_micRecordGain can compensate for.
+    // Direct blend — always applied; loopback timing makes it unreliable otherwise.
     {
         const float recGain = m_micRecordGain.load();
 
@@ -981,8 +982,12 @@ void ScreenRecorder::AudioCaptureThread()
         UINT32 packetFrames = 0;
         if (FAILED(m_pCaptureClient->GetNextPacketSize(&packetFrames))) break;
 
+        bool hadLoopbackData = false;
+
         while (packetFrames > 0)
         {
+            hadLoopbackData = true;
+
             BYTE* pData = nullptr; UINT32 numFrames = 0; DWORD flags = 0;
             if (FAILED(m_pCaptureClient->GetBuffer(&pData, &numFrames, &flags, nullptr, nullptr))) break;
 
@@ -1059,6 +1064,72 @@ void ScreenRecorder::AudioCaptureThread()
 
             if (FAILED(m_pCaptureClient->GetNextPacketSize(&packetFrames))) break;
         }
+
+        // Idle path: when the loopback has no game audio, WASAPI returns 0 packets
+        // and MixMicInline never runs. Drain the mic WASAPI buffer manually and write
+        // silence+mic packets so voice is captured even during silent game periods.
+        if (!hadLoopbackData && m_micMode == MicMode::Mixed &&
+            m_pMicCaptureClient && m_pWaveFormat && m_pMicWaveFormat)
+        {
+            // Step 1: drain WASAPI mic buffer into the accumulator
+            UINT32 micPkt = 0;
+            if (SUCCEEDED(m_pMicCaptureClient->GetNextPacketSize(&micPkt)))
+            {
+                while (micPkt > 0)
+                {
+                    BYTE* pMicRaw = nullptr; UINT32 micFrames = 0; DWORD micFlags = 0;
+                    if (FAILED(m_pMicCaptureClient->GetBuffer(&pMicRaw, &micFrames, &micFlags, nullptr, nullptr))) break;
+                    const DWORD  micBytes = micFrames * m_pMicWaveFormat->nBlockAlign;
+                    const size_t old      = m_micAccum.size();
+                    m_micAccum.resize(old + micBytes);
+                    if (micFlags & AUDCLNT_BUFFERFLAGS_SILENT)
+                        memset(m_micAccum.data() + old, 0, micBytes);
+                    else
+                        memcpy(m_micAccum.data() + old, pMicRaw, micBytes);
+                    m_pMicCaptureClient->ReleaseBuffer(micFrames);
+                    if (FAILED(m_pMicCaptureClient->GetNextPacketSize(&micPkt))) break;
+                }
+            }
+
+            // Step 2: write silence+mic chunks while the accumulator has >= 10ms of data
+            // MixMicInline reads from the accumulator (WASAPI already drained above)
+            const UINT32 chunkFrames = m_pWaveFormat->nSamplesPerSec / 100; // 10ms
+            for (;;)
+            {
+                const size_t  avail      = m_micAccum.size() - m_micAccumRead;
+                const UINT32  availFrms  = static_cast<UINT32>(avail / m_pMicWaveFormat->nBlockAlign);
+                if (availFrms < chunkFrames) break;
+
+                const DWORD    bytes   = chunkFrames * m_pWaveFormat->nBlockAlign;
+                const LONGLONG dur     = static_cast<LONGLONG>(chunkFrames) * 10'000'000LL / m_pWaveFormat->nSamplesPerSec;
+                const LONGLONG audioTS = m_audioTimestamp;
+                m_audioTimestamp      += dur;
+
+                IMFMediaBuffer* pBuf = nullptr;
+                if (SUCCEEDED(MFCreateMemoryBuffer(bytes, &pBuf)))
+                {
+                    BYTE* pDst = nullptr;
+                    if (SUCCEEDED(pBuf->Lock(&pDst, nullptr, nullptr)))
+                    {
+                        memset(pDst, 0, bytes);             // silence base
+                        MixMicInline(pDst, chunkFrames);    // blend mic on top
+                        pBuf->Unlock();
+                        pBuf->SetCurrentLength(bytes);
+                    }
+                    IMFSample* pS = nullptr;
+                    if (SUCCEEDED(MFCreateSample(&pS)))
+                    {
+                        pS->AddBuffer(pBuf);
+                        pS->SetSampleTime(audioTS);
+                        pS->SetSampleDuration(dur);
+                        std::lock_guard<std::mutex> lk(m_mutex);
+                        m_pSinkWriter->WriteSample(m_audioStreamIndex, pS);
+                        pS->Release();
+                    }
+                    pBuf->Release();
+                }
+            }
+        }
     }
 
     if (m_pAudioClient) m_pAudioClient->Stop();
@@ -1075,16 +1146,51 @@ bool ScreenRecorder::InitMonitor()
     HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&pEnum));
     if (FAILED(hr)) return false;
 
-    // Prefer the communications render endpoint (typically a headset).
-    // This keeps monitor audio off the eConsole loopback capture path,
-    // preventing the mic from being double-mixed into the recording.
-    // Falls back to eConsole if no separate communications device exists.
-    IMMDevice* pDevice = nullptr;
-    hr = pEnum->GetDefaultAudioEndpoint(eRender, eCommunications, &pDevice);
-    if (FAILED(hr))
-        hr = pEnum->GetDefaultAudioEndpoint(eRender, eConsole, &pDevice);
+    // Query both the communications and console render endpoints so we can
+    // compare their IDs. If they share the same physical device the monitor
+    // output flows straight back into the eConsole loopback capture, and
+    // MixMicInline must skip its direct blend to avoid doubling the mic level.
+    // When they differ (separate headset vs speakers) the communications
+    // endpoint is preferred and the direct blend is still applied.
+    IMMDevice* pCommsDevice   = nullptr;
+    IMMDevice* pConsoleDevice = nullptr;
+    pEnum->GetDefaultAudioEndpoint(eRender, eCommunications, &pCommsDevice);
+    pEnum->GetDefaultAudioEndpoint(eRender, eConsole,        &pConsoleDevice);
     pEnum->Release();
-    if (FAILED(hr)) return false;
+
+    IMMDevice* pDevice        = nullptr;
+    m_monitorOnLoopbackDevice = true;   // conservative default until proven otherwise
+
+    if (pCommsDevice && pConsoleDevice)
+    {
+        // Compare endpoint IDs to detect whether both roles resolve to the same device
+        LPWSTR commsId   = nullptr;
+        LPWSTR consoleId = nullptr;
+        pCommsDevice->GetId(&commsId);
+        pConsoleDevice->GetId(&consoleId);
+
+        if (commsId && consoleId && wcscmp(commsId, consoleId) != 0)
+        {
+            // Physically separate endpoints — monitor will NOT contaminate the loopback
+            pDevice = pCommsDevice;
+            pCommsDevice = nullptr;   // ownership transferred
+            m_monitorOnLoopbackDevice = false;
+        }
+        if (commsId)   CoTaskMemFree(commsId);
+        if (consoleId) CoTaskMemFree(consoleId);
+    }
+
+    // Fall back to eConsole if eCommunications was unavailable or mapped to the same device
+    if (!pDevice)
+    {
+        pDevice = pConsoleDevice;
+        pConsoleDevice = nullptr;
+        m_monitorOnLoopbackDevice = true;
+    }
+
+    if (pCommsDevice)  { pCommsDevice->Release();  pCommsDevice  = nullptr; }
+    if (pConsoleDevice){ pConsoleDevice->Release(); pConsoleDevice = nullptr; }
+    if (!pDevice) return false;
 
     hr = pDevice->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
                            reinterpret_cast<void**>(&m_pMonitorAudioClient));
@@ -1114,7 +1220,9 @@ bool ScreenRecorder::InitMonitor()
 
     m_pMonitorAudioClient->Start();
     debug.logLevelMessage(LogLevel::LOG_INFO,
-        L"ScreenRecorder Monitor: Mic monitoring active -> " +
+        std::wstring(m_monitorOnLoopbackDevice
+            ? L"ScreenRecorder Monitor: shared eConsole endpoint (loopback captures mic; direct blend skipped) -> "
+            : L"ScreenRecorder Monitor: separate eCommunications endpoint (direct blend active) -> ") +
         std::to_wstring(m_pMonitorFormat->nSamplesPerSec) + L"Hz " +
         std::to_wstring(m_pMonitorFormat->nChannels) + L"ch");
     return true;

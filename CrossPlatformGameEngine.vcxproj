@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|x64">
@@ -193,7 +193,9 @@
     <ClCompile Include="ShaderManager.cpp" />
     <ClCompile Include="SoundManager.cpp" />
     <ClCompile Include="S3MPlayer.cpp" />
+    <ClCompile Include="MODPlayer.cpp" />
     <ClCompile Include="MPTMPlayer.cpp" />
+    <ClCompile Include="ITPlayer.cpp" />
     <ClCompile Include="ThreadManager.cpp" />
     <ClCompile Include="TTSManager.cpp" />
     <ClCompile Include="WinMediaPlayer.cpp" />
@@ -247,7 +249,9 @@
     <ClInclude Include="ShaderManager.h" />
     <ClInclude Include="SoundManager.h" />
     <ClInclude Include="S3MPlayer.h" />
+    <ClInclude Include="MODPlayer.h" />
     <ClInclude Include="MPTMPlayer.h" />
+    <ClInclude Include="ITPlayer.h" />
     <ClInclude Include="ThreadLockHelper.h" />
     <ClInclude Include="ThreadManager.h" />
     <ClInclude Include="TTSManager.h" />
@@ -259,7 +263,7 @@
     <ClInclude Include="WinSystem.h" />
     <ClInclude Include="XMMODPlayer.h" />
   </ItemGroup>
-  <!-- x86/64 assembly optimisation routines -- assembled by ml64.exe (MASM) -->
+  <!-- x86/64 assembly optimisation routines, assembled by ml64.exe (MASM) -->
   <ItemGroup>
     <MASM Include="assembly.asm" />
   </ItemGroup>
@@ -359,50 +363,31 @@
   </Target>
   <Target Name="UpdateVersionFile" BeforeTargets="ClCompile">
     <PropertyGroup>
-      <!-- Define your Master and SubRelease versions -->
-      <MasterVersion>0</MasterVersion>
-      <SubReleaseVersion>0</SubReleaseVersion>
       <VersionFilePath>$(ProjectDir)Version.id</VersionFilePath>
-      <DefaultBuildNumber>695</DefaultBuildNumber>
     </PropertyGroup>
-    <!-- Read existing version file if it exists -->
-    <ReadLinesFromFile File="$(VersionFilePath)" Condition="Exists('$(VersionFilePath)')">
+    <ReadLinesFromFile File="$(VersionFilePath)">
       <Output TaskParameter="Lines" ItemName="ExistingVersionLines" />
     </ReadLinesFromFile>
-    <!-- Extract current build number from existing file -->
     <PropertyGroup>
       <ExistingVersionLine>@(ExistingVersionLines)</ExistingVersionLine>
-      <!-- Extract number after 'v' and last dot -->
-      <CurrentBuildStr>$([System.Text.RegularExpressions.Regex]::Match('$(ExistingVersionLine)', 'v\d+\.\d+\.(\d+)').Groups[1].Value)</CurrentBuildStr>
-      <CurrentBuild Condition="'$(CurrentBuildStr)' != ''">$(CurrentBuildStr)</CurrentBuild>
-      <CurrentBuild Condition="'$(CurrentBuildStr)' == ''">$(DefaultBuildNumber)</CurrentBuild>
-      <!-- Increment build number -->
+      <MasterVersion>$([System.Text.RegularExpressions.Regex]::Match('$(ExistingVersionLine)', 'v(\d+)\.(\d+)\.(\d+)').Groups[1].Value)</MasterVersion>
+      <SubReleaseVersion>$([System.Text.RegularExpressions.Regex]::Match('$(ExistingVersionLine)', 'v(\d+)\.(\d+)\.(\d+)').Groups[2].Value)</SubReleaseVersion>
+      <CurrentBuild>$([System.Text.RegularExpressions.Regex]::Match('$(ExistingVersionLine)', 'v(\d+)\.(\d+)\.(\d+)').Groups[3].Value)</CurrentBuild>
       <NewBuildNumber>$([MSBuild]::Add($(CurrentBuild), 1))</NewBuildNumber>
-      <!-- Create new version string -->
       <NewVersionString>v$(MasterVersion).$(SubReleaseVersion).$(NewBuildNumber)</NewVersionString>
-      <VersionFileContent>Current Build Version: $(NewVersionString)</VersionFileContent>
     </PropertyGroup>
-    <!-- Write updated version to file -->
-    <WriteLinesToFile File="$(VersionFilePath)" Lines="$(VersionFileContent)" Overwrite="true" Encoding="UTF-8" />
-    <!-- Update BuildInfo.h with new version numbers (pure MSBuild, no external process) -->
+    <Error Text="Could not parse Version.id. Expected: Current Build Version: vMAJOR.MINOR.BUILD" Condition="'$(MasterVersion)' == '' Or '$(SubReleaseVersion)' == '' Or '$(CurrentBuild)' == ''" />
+    <WriteLinesToFile File="$(VersionFilePath)" Lines="Current Build Version: $(NewVersionString)" Overwrite="true" Encoding="UTF-8" />
     <ItemGroup>
       <_BuildInfoLines Include="#pragma once" />
-      <_BuildInfoLines Include="// Authoritative build identity - update these on every release." />
+      <_BuildInfoLines Include="" />
+      <_BuildInfoLines Include="// Authoritative build identity - update Version.id before release builds." />
+      <_BuildInfoLines Include="// Format: v&lt;BUILD_VERSION&gt;.&lt;BUILD_SUBVERSION&gt;.&lt;BUILD_NUMBER&gt;" />
       <_BuildInfoLines Include="constexpr int CURRENT_BUILD_VERSION    = $(MasterVersion)%3B" />
       <_BuildInfoLines Include="constexpr int CURRENT_BUILD_SUBVERSION = $(SubReleaseVersion)%3B" />
       <_BuildInfoLines Include="constexpr int CURRENT_BUILD            = $(NewBuildNumber)%3B" />
     </ItemGroup>
     <WriteLinesToFile File="$(ProjectDir)BuildInfo.h" Lines="@(_BuildInfoLines)" Overwrite="true" Encoding="UTF-8" />
-    <!-- Update version badge in ReleaseInfo.md via inline PowerShell -->
-    <PropertyGroup>
-      <_ProjDirClean>$(ProjectDir.TrimEnd('\'))</_ProjDirClean>
-    </PropertyGroup>
-    <Exec Command="powershell -NoProfile -Command &quot;$f='$(_ProjDirClean)\ReleaseInfo.md'; $c=[IO.File]::ReadAllText($f); [IO.File]::WriteAllText($f, ($c -replace '\*Current Build Version: v[\d.]+\*', '*Current Build Version: $(NewVersionString)*'))&quot;" />
-    <!-- Display message in build output -->
-    <Message Text="════════════════════════════════════════" Importance="high" />
     <Message Text="VERSION UPDATE: $(NewVersionString)" Importance="high" />
-    <Message Text="Previous: v$(MasterVersion).$(SubReleaseVersion).$(CurrentBuild)" Importance="high" />
-    <Message Text="Current:  $(NewVersionString)" Importance="high" />
-    <Message Text="════════════════════════════════════════" Importance="high" />
   </Target>
 </Project>
