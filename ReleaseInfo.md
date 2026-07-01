@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.1.1944*
+*Current Build Version: v0.1.1945*
 
 ---
 
@@ -54,6 +54,8 @@ lets make this Engine great!
 
 #### 2026
 
+- [July 2026](#july-2026)
+  - [02](#july-02-2026)
 - [June 2026](#june-2026---opengl-pipeline-fixes)
   - [01](#june-01-2026) · [02](#june-02-2026) · [03](#june-03-2026) · [04](#june-04-2026) · [05](#june-05-2026) · [06](#june-06-2026) · [07](#june-07-2026) · [08](#june-08-2026) · [11](#june-11-2026) · [12](#june-12-2026) · [13](#june-13-2026) · [14](#june-14-2026) · [15](#june-15-2026) · [16](#june-16-2026) · [17](#june-17-2026) · [18](#june-18-2026) · [21](#june-21-2026) · [23](#june-23-2026) · [24](#june-24-2026) · [25](#june-25-2026) · [27](#june-27-2026) · [28](#june-28-2026) · [29](#june-29-2026)
 - [May 2026](#may-2026---more-major-updates-and-fixes)
@@ -4252,6 +4254,16 @@ New Documents have been written up for these Two new music players as well can c
 
 *See: [`main.cpp`](main.cpp), [`ScreenRecorder.cpp`](ScreenRecorder.cpp), [`ScreenRecorder.h`](ScreenRecorder.h)*
 
+#### July 02, 2026
+
+1. Renderer plumbing — added Blit2DAtlasTile(atlasIndex, tileIndex, tileW, tileH, destX, destY) to Renderer.h and implemented it in all four backends (DX11/DX12 via Direct2D sub-rect DrawBitmap, OpenGL via the existing Render2DQuad sub-rect support, Vulkan by delegating to the existing Blit2DObjectAtOffset). Registered a new IMG_TILESET1 atlas slot. DX11 build (the only one I compiled, before being told to stop) succeeded with no errors; the other three were verified by direct comparison against their already-compiling sibling functions rather than by building.
+
+2. 2D Tile Map Scroller — StartTileMapScroller/StopTileMapScroller/ScrollTileMapBy/SetTileMapPosition/GetTileMapCell, with LOWORD/HIWORD tile-cell encoding, edge-clamped scrolling (no rendering past the map, no corrupt tiles), simple 4-frame tile animation, and optional file loading via the engine's FileIO.
+
+3. 3-Layer 2D Starfield — StartStarfield2D/Set2DStarfieldDirection/StopStarfield2D with the 8-direction Star2DDirection enum, per-layer speed/star-cap, and edge-wrap respawn for continuous scrolling.
+
+Both are wired into Render2D(), ActiveFXState, and the resize/scene-save lifecycle, and documented in FXManager-Example-Usage.md with usage examples and stop instructions.
+
 ---
 
 ## Future Development
@@ -4302,7 +4314,7 @@ Platform integrations:
 #### May 25, 2025
 
 Optimization:
-- Code optimizations and refactoring
+- Code optimizations and refactoring (On going always!)
 
 #### June 7, 2025
 

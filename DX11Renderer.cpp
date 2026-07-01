@@ -542,6 +542,38 @@ void DX11Renderer::Blit2DWrappedObjectAtOffset(
     }
 }
 
+// Blits one tile out of a tileset atlas image, selected by tileIndex (0-based, row-major).
+// Tiles-per-row is derived from the atlas bitmap width / iTileSizeX.
+void DX11Renderer::Blit2DAtlasTile(BlitObj2DIndexType iIndex, int iTileIndex, int iTileSizeX, int iTileSizeY, int iDestX, int iDestY)
+{
+    if (int(iIndex) < 0 || int(iIndex) >= MAX_TEXTURE_BUFFERS) return;
+    if (iTileIndex < 0 || iTileSizeX <= 0 || iTileSizeY <= 0) return;
+
+    ComPtr<ID2D1Bitmap>       bitmap = m_d2dTextures[int(iIndex)];
+    ComPtr<ID2D1RenderTarget> rt     = m_d2dRenderTarget;
+    if (!bitmap || !rt) return;
+
+    D2D1_SIZE_F bmpSize = bitmap->GetSize();
+    int bmpW = static_cast<int>(bmpSize.width);
+    int bmpH = static_cast<int>(bmpSize.height);
+    if (bmpW <= 0 || bmpH <= 0) return;
+
+    int tilesPerRow = bmpW / iTileSizeX;
+    int tilesPerCol = bmpH / iTileSizeY;
+    if (tilesPerRow <= 0 || tilesPerCol <= 0) return;
+
+    int tileCol = iTileIndex % tilesPerRow;
+    int tileRow = iTileIndex / tilesPerRow;
+    if (tileRow >= tilesPerCol) return;                                        // Out-of-range index — guard against corrupt map data
+
+    int srcX = tileCol * iTileSizeX;
+    int srcY = tileRow * iTileSizeY;
+
+    D2D1_RECT_F src  = D2D1::RectF((float)srcX, (float)srcY, (float)(srcX + iTileSizeX), (float)(srcY + iTileSizeY));
+    D2D1_RECT_F dest = D2D1::RectF((float)iDestX, (float)iDestY, (float)(iDestX + iTileSizeX), (float)(iDestY + iTileSizeY));
+    rt->DrawBitmap(bitmap.Get(), dest, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, src);
+}
+
 void DX11Renderer::Cleanup() {
     // Prevent double-cleanup which can cause use-after-free on COM resources.
     if (bHasCleanedUp) {

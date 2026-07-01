@@ -3347,6 +3347,33 @@ void VulkanRenderer::Blit2DWrappedObjectAtOffset(BlitObj2DIndexType iIndex, int 
     (void)iIndex; (void)iBlitX; (void)iBlitY; (void)iXOffset; (void)iYOffset; (void)iTileSizeX; (void)iTileSizeY;
 }
 
+// Blits one tile out of a tileset atlas image, selected by tileIndex (0-based, row-major).
+// Tiles-per-row is derived from the atlas bitmap width / iTileSizeX, then delegates to the
+// existing Blit2DObjectAtOffset (which already blits an explicit source sub-rect).
+void VulkanRenderer::Blit2DAtlasTile(BlitObj2DIndexType iIndex, int iTileIndex, int iTileSizeX, int iTileSizeY, int iDestX, int iDestY)
+{
+    int idx = static_cast<int>(iIndex);
+    if (idx < 0 || idx >= MAX_TEXTURE_BUFFERS) return;
+    if (iTileIndex < 0 || iTileSizeX <= 0 || iTileSizeY <= 0) return;
+    ComPtr<ID2D1Bitmap> bitmap = m_d2dTextures[idx];
+    if (!bitmap) return;
+
+    D2D1_SIZE_F bmpSize = bitmap->GetSize();
+    int bmpW = static_cast<int>(bmpSize.width);
+    int bmpH = static_cast<int>(bmpSize.height);
+    if (bmpW <= 0 || bmpH <= 0) return;
+
+    int tilesPerRow = bmpW / iTileSizeX;
+    int tilesPerCol = bmpH / iTileSizeY;
+    if (tilesPerRow <= 0 || tilesPerCol <= 0) return;
+
+    int tileCol = iTileIndex % tilesPerRow;
+    int tileRow = iTileIndex / tilesPerRow;
+    if (tileRow >= tilesPerCol) return;                                        // Out-of-range index — guard against corrupt map data
+
+    Blit2DObjectAtOffset(iIndex, iDestX, iDestY, tileCol * iTileSizeX, tileRow * iTileSizeY, iTileSizeX, iTileSizeY);
+}
+
 void VulkanRenderer::Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, int iDestY, int iDestW, int iDestH, float zoomFactor)
 {
     int idx = static_cast<int>(iIndex);

@@ -13,6 +13,8 @@
     #include "OpenGLRenderer.h"
 #elif defined(__USE_VULKAN__)
     #include "VULKAN_Renderer.h"
+#elif defined(__USE_METAL__)
+    #include "METALRenderer.h"
 #endif
 
 #include "FXManager.h"

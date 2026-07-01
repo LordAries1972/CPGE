@@ -16,12 +16,14 @@
 12. [ZoomInOut Effects](#zoominout-effects)
 13. [Fireworks Effects](#fireworks-effects)
 14. [ImageFadeStrobe Effects](#imagefadestrobe-effects)
-15. [Advanced Features](#advanced-features)
-16. [Window Resize Handling](#window-resize-handling)
-17. [Thread Safety](#thread-safety)
-18. [Performance Considerations](#performance-considerations)
-19. [Troubleshooting](#troubleshooting)
-20. [Code Examples](#code-examples)
+15. [2D Tile Map Scroller](#2d-tile-map-scroller)
+16. [3-Layer 2D Starfield](#3-layer-2d-starfield)
+17. [Advanced Features](#advanced-features)
+18. [Window Resize Handling](#window-resize-handling)
+19. [Thread Safety](#thread-safety)
+20. [Performance Considerations](#performance-considerations)
+21. [Troubleshooting](#troubleshooting)
+22. [Code Examples](#code-examples)
 
 ---
 
@@ -1458,6 +1460,170 @@ fxManager.FadeOutThenCallback(
 | DX12 (`FXManager`) | `ID2D1DeviceContext::DrawBitmap` opacity parameter | `_WIN64` / `_WIN32` |
 | OpenGL (`GLFXManager`) | `Render2DQuad` with `MyColor(255, 255, 255, alpha×255)` | No guard — cross-platform |
 | Vulkan (`VKFXManager`) | `ID2D1RenderTarget::DrawBitmap` (Windows); falls back to opaque `Blit2DObjectToSize` on Linux/Android | `PLATFORM_WINDOWS` |
+
+---
+
+## 2D Tile Map Scroller
+
+A classic tile-engine renderer: blits the tiles currently visible on screen out of a shared tileset
+atlas image, using a 2D map-data buffer to look up which tile goes where. Scrolling is clamped to
+the map edges — you never see beyond the map, and no corrupt/out-of-bounds tile is ever blitted.
+
+### Step 1 — Register the tileset atlas image
+
+The tileset is a single image containing a grid of same-sized tiles. Register it like any other
+2D image:
+
+1. Add an entry to `BlitObj2DIndexType` in `Renderer.h` (e.g. `IMG_TILESET1`, already reserved at
+   index 20 in this engine — add further tilesets after it).
+2. Add the filename to `texFilename[]` in `Includes.h`.
+3. Drop the PNG/JPG into `AssetsDir` — the existing texture loader picks it up automatically.
+
+### Tile cell format
+
+Each map cell is a `uint32_t`:
+
+| Bits | Meaning |
+| --- | --- |
+| `LOWORD` (bits 0-15) | Tile index into the atlas (0-based, row-major; tiles-per-row is derived from atlas width / tile width) |
+| `HIWORD` bit 0 | `TileMapFlags::IsCollidable` |
+| `HIWORD` bit 1 | `TileMapFlags::DoesAnimate` — animated tiles cycle through 4 consecutive atlas indices (`tileIndex + 0..3`) at a fixed rate |
+| `HIWORD` bits 2-15 | Reserved for future flags |
+
+Helper accessors: `GetTileIndex(cell)`, `GetTileFlags(cell)`, `IsTileCollidable(cell)`, `TileAnimates(cell)`.
+
+### Map data file format (optional — for loading from disk)
+
+```
+int32   mapWidth
+int32   mapHeight
+uint32  cells[mapWidth * mapHeight]   // row-major, little-endian
+```
+
+### Signature
+
+```cpp
+int  StartTileMapScroller(BlitObj2DIndexType atlasIndex, int tileWidth, int tileHeight,
+                           int mapWidth, int mapHeight,
+                           const uint32_t* mapData,          // nullptr if loading from file
+                           const std::wstring& filename = L""); // empty if mapData supplied
+void StopTileMapScroller(int effectID);
+void ScrollTileMapBy(int effectID, int dx, int dy);            // relative move, clamped to map edges
+void SetTileMapPosition(int effectID, int worldX, int worldY); // absolute set, clamped to map edges
+uint32_t GetTileMapCell(int effectID, int tileX, int tileY) const; // for collision/game-logic queries
+```
+
+Exactly one of `mapData` / `filename` must be provided. `StartTileMapScroller` returns the new
+effect's `fxID` (or `-1` on failure — invalid dimensions, or a file load/format error).
+
+### Basic Usage
+
+```cpp
+// Option A: supply the map buffer directly (e.g. built at runtime, or embedded)
+uint32_t levelMap[20 * 15] = { /* ... LOWORD = tile index, HIWORD = flags ... */ };
+int mapID = fxManager.StartTileMapScroller(BlitObj2DIndexType::IMG_TILESET1, 64, 64,
+                                            20, 15, levelMap);
+
+// Option B: load from a map-data file on disk
+int mapID = fxManager.StartTileMapScroller(BlitObj2DIndexType::IMG_TILESET1, 64, 64,
+                                            20, 15, nullptr, L"level1.map");
+
+// Called from player-movement / input code each frame:
+fxManager.ScrollTileMapBy(mapID, playerDX, playerDY);   // clamps automatically at map edges
+
+// Collision query:
+uint32_t cell = fxManager.GetTileMapCell(mapID, tileX, tileY);
+if (IsTileCollidable(cell)) { /* block movement */ }
+
+// Stop the scroller when the level ends:
+fxManager.StopTileMapScroller(mapID);
+```
+
+### How It Works
+
+1. `scrollX`/`scrollY` track the top-left world pixel currently displayed, clamped every time they
+   change to `[0, mapWidth*tileWidth - screenWidth]` (and the Y equivalent) — this is what prevents
+   scrolling past the map edge.
+2. Each frame, the renderer walks the grid of tiles covering the screen at the current scroll
+   position (with a sub-tile pixel offset for smooth scrolling) and calls `Blit2DAtlasTile` for
+   each visible cell.
+3. Any cell whose map coordinate falls outside `[0, mapWidth)` / `[0, mapHeight)` is skipped
+   entirely rather than blitted — this is what guarantees no corrupt/garbage tile ever appears at
+   the edges of a map smaller than the screen.
+
+### Tile Map Scroller Renderer Notes
+
+`Blit2DAtlasTile` (the sub-rect atlas blit primitive backing this effect) is implemented via
+Direct2D `DrawBitmap` with an explicit source rect on DX11/DX12/Vulkan, and via `Render2DQuad`'s
+existing source-rect parameters on OpenGL — no new shaders or GPU resources are required on any
+pipeline.
+
+---
+
+## 3-Layer 2D Starfield
+
+A flat, screen-space parallax starfield — distinct from the 3D depth-based Starfield above. Stars
+scroll continuously in one of 8 compass directions and wrap back onto the origin edge when they
+leave the screen. Three independent layers (each with its own speed and star cap) create a
+3D-depth illusion: layer 0 is slowest/dimmest/smallest, layer 2 is fastest/brightest/largest.
+
+### `Star2DDirection` Enum
+
+| Value | Direction |
+| --- | --- |
+| `EastToWest` | Right edge → left edge |
+| `NorthEastToSouthWest` | Diagonal, down-left |
+| `NorthToSouth` | Top edge → bottom edge |
+| `NorthWestToSouthEast` | Diagonal, down-right |
+| `WestToEast` | Left edge → right edge |
+| `SouthWestToNorthEast` | Diagonal, up-right |
+| `SouthToNorth` | Bottom edge → top edge |
+| `SouthEastToNorthWest` | Diagonal, up-left |
+
+### Signature
+
+```cpp
+int  StartStarfield2D(int layer1Count, int layer2Count, int layer3Count,
+                       float layer1Speed, float layer2Speed, float layer3Speed,
+                       Star2DDirection direction);
+void Set2DStarfieldDirection(int effectID, Star2DDirection direction);
+void StopStarfield2D(int effectID);
+```
+
+| Parameter | Description |
+| --- | --- |
+| `layer1Count/2/3` | Maximum number of stars on each layer (layer 1 slowest .. layer 3 fastest) |
+| `layer1Speed/2/3` | Pixels/second scroll speed per layer |
+| `direction` | One of the 8 `Star2DDirection` values above |
+
+`StartStarfield2D` spawns exactly `layerNCount` stars per layer, scattered randomly across the
+whole screen so the field looks populated immediately, and returns the new effect's `fxID`.
+
+### Basic Usage
+
+```cpp
+int starsID = fxManager.StartStarfield2D(
+    /*layer1Count*/ 40, /*layer2Count*/ 30, /*layer3Count*/ 20,
+    /*layer1Speed*/ 20.0f, /*layer2Speed*/ 45.0f, /*layer3Speed*/ 90.0f,
+    Star2DDirection::WestToEast);
+
+// Change direction at runtime — existing star positions are kept, only velocity changes,
+// so the transition looks continuous rather than resetting the field:
+fxManager.Set2DStarfieldDirection(starsID, Star2DDirection::NorthWestToSouthEast);
+
+// Stop the effect:
+fxManager.StopStarfield2D(starsID);
+```
+
+### How It Works
+
+- Each of the 8 directions maps to a fixed unit velocity; every star moves at
+  `velocity * layerSpeed[layer] * deltaTime`.
+- When a star exits the screen on the direction-of-travel side, it's respawned along the edge(s)
+  the direction originates from (for diagonals, randomly along either of the two source edges) —
+  this produces a continuous scroll rather than a one-shot burst.
+- Rendered via the existing portable `Blit2DColoredPixel` path (the same helper used by particle
+  explosions and fireworks) — no new renderer plumbing was needed for this effect.
 
 ---
 

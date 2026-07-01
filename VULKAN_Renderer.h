@@ -272,6 +272,7 @@ public:
     void Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, int iDestY, int iDestW, int iDestH, float zoomFactor) override;
     void Blit2DObjectToSizeWithAlpha(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float alpha) override;
     void Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 color) override;
+    void Blit2DAtlasTile(BlitObj2DIndexType iIndex, int iTileIndex, int iTileSizeX, int iTileSizeY, int iDestX, int iDestY) override;
 #endif
 
     // ------------------------------------------

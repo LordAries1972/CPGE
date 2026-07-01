@@ -16,6 +16,7 @@
 #include "MathPrecalculation.h"
 #include "ThreadManager.h"
 #include "ThreadLockHelper.h"
+#include "FileIO.h"
 
 #if defined(__USE_DIRECTX_11__)
     #include "DX11Renderer.h"
@@ -31,11 +32,14 @@
     #else
         #define HAS_SHADERC 0
     #endif
+#elif defined(__USE_METAL__)
+    #include "METALRenderer.h"
 #endif
 
 extern Configuration config;
 extern Debug         debug;
 extern ThreadManager threadManager;
+extern FileIO        fileIO;
 
 #pragma warning(push)
 #pragma warning(disable: 4101 4267)
@@ -699,6 +703,11 @@ void FXManager::StopAllFXForResize()
             savedFXState.fireworksID     = fireworksID;
             StopFireworks();
         }
+        if (zoomID > 0) {
+            savedFXState.zoomActive = true;
+            savedFXState.zoomID     = zoomID;
+            StopZooming();
+        }
 
         std::vector<int> activeTextIDs;
         for (const auto& fx : effects)
@@ -711,11 +720,45 @@ void FXManager::StopAllFXForResize()
         if (!savedFXState.textScrollerIDs.empty())
             savedFXState.textScrollerActive = true;
 
+        std::vector<BlitObj2DIndexType> activeStrobeTypes;
+        for (const auto& fx : effects)
+            if (fx.type == FXType::ImageFadeStrobe && fx.progress < 1.0f)
+                activeStrobeTypes.push_back(fx.imageFadeStrobeData.imageType);
+        for (BlitObj2DIndexType type : activeStrobeTypes) {
+            StopImageFadeStrobe(type);
+            savedFXState.activeStrobeImages.push_back(type);
+        }
+        if (!savedFXState.activeStrobeImages.empty())
+            savedFXState.imageFadeStrobeActive = true;
+
+        std::vector<int> activeTileMapIDs;
+        for (const auto& fx : effects)
+            if (fx.type == FXType::TileMapScroller)
+                activeTileMapIDs.push_back(fx.fxID);
+        for (int id : activeTileMapIDs) {
+            StopTileMapScroller(id);
+            savedFXState.tileMapIDs.push_back(id);
+        }
+        if (!savedFXState.tileMapIDs.empty())
+            savedFXState.tileMapActive = true;
+
+        std::vector<int> activeStarfield2DIDs;
+        for (const auto& fx : effects)
+            if (fx.type == FXType::Starfield2D)
+                activeStarfield2DIDs.push_back(fx.fxID);
+        for (int id : activeStarfield2DIDs) {
+            StopStarfield2D(id);
+            savedFXState.starfield2DIDs.push_back(id);
+        }
+        if (!savedFXState.starfield2DIDs.empty())
+            savedFXState.starfield2DActive = true;
+
         for (const auto& fx : effects)
             if (fx.type == FXType::ColorFader && fx.progress < 1.0f)
                 { savedFXState.fadeEffectActive = true; break; }
 
         std::vector<FXItem> tmp; tmp.swap(effects);                             // Safe swap-and-destroy pattern
+        zoomID = -1;
     }
     catch (const std::exception& e) {
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Exception in StopAllFXForResize: " +
@@ -1207,6 +1250,17 @@ void FXManager::Render2D()
             UpdateImageFadeStrobe(fx, fxDt);
             break;
         }
+        case FXType::TileMapScroller:
+            RenderTileMapScroller(fx);                                          // Updates its own lastUpdate internally (animation timing)
+            break;
+        case FXType::Starfield2D: {
+            auto fxNow = std::chrono::steady_clock::now();
+            float fxDt = std::chrono::duration<float>(fxNow - fx.lastUpdate).count();
+            fx.lastUpdate = fxNow;
+            UpdateStarfield2D(fx, fxDt);
+            RenderStarfield2D(fx);
+            break;
+        }
         default:
             break;
         }
@@ -1579,6 +1633,194 @@ void FXManager::StartScrollEffect(BlitObj2DIndexType textureIndex, FXSubType dir
 }
 
 // ===============================================================================================
+// 2D Tile Map Scroller
+// ===============================================================================================
+
+// Loads a tile map from disk into outMapData. File format: int32 mapWidth, int32 mapHeight header
+// followed by mapWidth*mapHeight little-endian uint32 cells (LOWORD = tile index, HIWORD = flags).
+// Loaded synchronously via FileIO — tile maps are loaded once at scene-init time, not per-frame.
+bool FXManager::LoadTileMapFromFile(const std::wstring& filename, int mapWidth, int mapHeight, std::vector<uint32_t>& outMapData)
+{
+    std::string narrowFilename(filename.begin(), filename.end());
+    std::vector<uint8_t> readBuffer;
+    int taskID = 0;
+
+    if (!fileIO.StreamReadFile(narrowFilename, readBuffer, false, FileIOPriority::PRIORITY_HIGH, taskID)) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] LoadTileMapFromFile: failed to enqueue read for " + filename);
+        return false;
+    }
+
+    bool taskSuccess = false, isReady = false;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (fileIO.IsFileIOTaskCompleted(taskID, taskSuccess, isReady) && isReady) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    if (!isReady || !taskSuccess) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] LoadTileMapFromFile: timed out or failed reading " + filename);
+        return false;
+    }
+
+    const size_t headerSize = sizeof(int32_t) * 2;
+    const size_t expectedCells = static_cast<size_t>(mapWidth) * static_cast<size_t>(mapHeight);
+    const size_t expectedSize  = headerSize + expectedCells * sizeof(uint32_t);
+    if (readBuffer.size() < expectedSize) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] LoadTileMapFromFile: file size mismatch for " + filename +
+            L" (expected " + std::to_wstring(expectedSize) + L" bytes, got " + std::to_wstring(readBuffer.size()) + L")");
+        return false;
+    }
+
+    int32_t fileWidth = 0, fileHeight = 0;
+    std::memcpy(&fileWidth,  readBuffer.data(),                    sizeof(int32_t));
+    std::memcpy(&fileHeight, readBuffer.data() + sizeof(int32_t),  sizeof(int32_t));
+    if (fileWidth != mapWidth || fileHeight != mapHeight) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] LoadTileMapFromFile: header size (" +
+            std::to_wstring(fileWidth) + L"x" + std::to_wstring(fileHeight) + L") does not match requested (" +
+            std::to_wstring(mapWidth) + L"x" + std::to_wstring(mapHeight) + L") for " + filename);
+        return false;
+    }
+
+    outMapData.resize(expectedCells);
+    std::memcpy(outMapData.data(), readBuffer.data() + headerSize, expectedCells * sizeof(uint32_t));
+    return true;
+}
+
+int FXManager::StartTileMapScroller(BlitObj2DIndexType atlasIndex, int tileWidth, int tileHeight,
+    int mapWidth, int mapHeight, const uint32_t* mapData, const std::wstring& filename)
+{
+    if (bHasCleanedUp) return -1;
+    if (tileWidth <= 0 || tileHeight <= 0 || mapWidth <= 0 || mapHeight <= 0) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] StartTileMapScroller: invalid dimensions");
+        return -1;
+    }
+    if (!mapData && filename.empty()) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] StartTileMapScroller: mapData and filename both empty");
+        return -1;
+    }
+
+    FXItem fx{};
+    fx.type = FXType::TileMapScroller;
+    fx.duration = FLT_MAX; fx.timeout = FLT_MAX; fx.progress = 0.0f;
+    fx.startTime = std::chrono::steady_clock::now(); fx.lastUpdate = fx.startTime;
+
+    TileMapData& tm = fx.tileMapData;
+    tm.atlasIndex = atlasIndex;
+    tm.tileWidth  = tileWidth;  tm.tileHeight = tileHeight;
+    tm.mapWidth   = mapWidth;   tm.mapHeight  = mapHeight;
+
+    if (mapData) {
+        tm.mapData.assign(mapData, mapData + (static_cast<size_t>(mapWidth) * mapHeight));
+    } else if (!LoadTileMapFromFile(filename, mapWidth, mapHeight, tm.mapData)) {
+        return -1;
+    }
+
+    FX_LOCK();
+    static int nextID = 6000;
+    fx.fxID = nextID++;
+    AddEffect(fx);
+    return fx.fxID;
+}
+
+void FXManager::StopTileMapScroller(int effectID)
+{
+    FX_LOCK();
+    effects.erase(std::remove_if(effects.begin(), effects.end(), [effectID](const FXItem& fx) {
+        return fx.type == FXType::TileMapScroller && fx.fxID == effectID;
+    }), effects.end());
+}
+
+void FXManager::ScrollTileMapBy(int effectID, int dx, int dy)
+{
+    FX_LOCK();
+    for (auto& fx : effects) {
+        if (fx.type != FXType::TileMapScroller || fx.fxID != effectID) continue;
+        SetTileMapPosition(effectID, fx.tileMapData.scrollX + dx, fx.tileMapData.scrollY + dy);
+        return;
+    }
+}
+
+void FXManager::SetTileMapPosition(int effectID, int worldX, int worldY)
+{
+    FX_LOCK();
+    for (auto& fx : effects) {
+        if (fx.type != FXType::TileMapScroller || fx.fxID != effectID) continue;
+        TileMapData& tm = fx.tileMapData;
+
+        const int screenW = renderer ? renderer->iOrigWidth  : config.myConfig.resolutionWidth;
+        const int screenH = renderer ? renderer->iOrigHeight : config.myConfig.resolutionHeight;
+        const int maxScrollX = std::max(0, tm.mapWidth  * tm.tileWidth  - screenW);
+        const int maxScrollY = std::max(0, tm.mapHeight * tm.tileHeight - screenH);
+
+        tm.scrollX = std::clamp(worldX, 0, maxScrollX);
+        tm.scrollY = std::clamp(worldY, 0, maxScrollY);
+        return;
+    }
+}
+
+uint32_t FXManager::GetTileMapCell(int effectID, int tileX, int tileY) const
+{
+    FX_LOCK();
+    for (const auto& fx : effects) {
+        if (fx.type != FXType::TileMapScroller || fx.fxID != effectID) continue;
+        const TileMapData& tm = fx.tileMapData;
+        if (tileX < 0 || tileX >= tm.mapWidth || tileY < 0 || tileY >= tm.mapHeight) return 0;
+        return tm.mapData[static_cast<size_t>(tileY) * tm.mapWidth + tileX];
+    }
+    return 0;
+}
+
+// Renders the visible window of the tile map: iterates the tiles covering the screen at the
+// current scroll position and skips any cell outside the map bounds entirely — this is what
+// prevents scrolling past the map edge and guarantees no corrupt/out-of-bounds tile is ever blitted.
+void FXManager::RenderTileMapScroller(FXItem& fx)
+{
+    if (!renderer) return;
+    TileMapData& tm = fx.tileMapData;
+    if (tm.tileWidth <= 0 || tm.tileHeight <= 0 || tm.mapData.empty()) return;
+
+    // Simple animation: advance animFrame at a fixed rate; animated tiles use consecutive
+    // atlas indices (tileIndex + animFrame) as documented in the usage guide.
+    auto now = std::chrono::steady_clock::now();
+    float dt = std::chrono::duration<float>(now - fx.lastUpdate).count();
+    fx.lastUpdate = now;
+    tm.animTimer += dt;
+    const float kAnimFrameDuration = 0.2f;
+    const int   kAnimFrameCount    = 4;
+    if (tm.animTimer >= kAnimFrameDuration) {
+        tm.animTimer -= kAnimFrameDuration;
+        tm.animFrame = (tm.animFrame + 1) % kAnimFrameCount;
+    }
+
+    const int screenW = renderer->iOrigWidth;
+    const int screenH = renderer->iOrigHeight;
+
+    const int startTileX = tm.scrollX / tm.tileWidth;
+    const int startTileY = tm.scrollY / tm.tileHeight;
+    const int pixelOffsetX = tm.scrollX % tm.tileWidth;
+    const int pixelOffsetY = tm.scrollY % tm.tileHeight;
+
+    const int numTilesX = screenW / tm.tileWidth  + 2;
+    const int numTilesY = screenH / tm.tileHeight + 2;
+
+    for (int row = 0; row < numTilesY; ++row) {
+        int mapY = startTileY + row;
+        if (mapY < 0 || mapY >= tm.mapHeight) continue;
+        for (int col = 0; col < numTilesX; ++col) {
+            int mapX = startTileX + col;
+            if (mapX < 0 || mapX >= tm.mapWidth) continue;
+
+            uint32_t cell = tm.mapData[static_cast<size_t>(mapY) * tm.mapWidth + mapX];
+            int tileIndex = GetTileIndex(cell);
+            if (TileAnimates(cell)) tileIndex += tm.animFrame;
+
+            const int destX = col * tm.tileWidth  - pixelOffsetX;
+            const int destY = row * tm.tileHeight - pixelOffsetY;
+            renderer->Blit2DAtlasTile(tm.atlasIndex, tileIndex, tm.tileWidth, tm.tileHeight, destX, destY);
+        }
+    }
+}
+
+// ===============================================================================================
 // CancelEffect / RestartEffect / ChainEffect
 // ===============================================================================================
 
@@ -1616,8 +1858,9 @@ void FXManager::StopAllFX()
     if (starfieldID  > 0) StopStarfield();
     if (tunnelID     > 0) StopWarpDotTunnel();
     if (fireworksID  > 0) StopFireworks();
+    if (zoomID       > 0) StopZooming();
     SafelyClearAllEffects();
-    starfieldID = 0; tunnelID = 0; fireworksID = 0;
+    starfieldID = 0; tunnelID = 0; fireworksID = 0; zoomID = -1;
 }
 
 void FXManager::SaveAndSuspendFXForScene()
@@ -1630,8 +1873,10 @@ void FXManager::SaveAndSuspendFXForScene()
     m_sceneSavedEffects     = effects;
     m_sceneSavedStarfieldID = starfieldID;
     m_sceneSavedTunnelID    = tunnelID;
+    m_sceneSavedFireworksID = fireworksID;
+    m_sceneSavedZoomID      = zoomID;
     SafelyClearAllEffects();
-    starfieldID = 0; tunnelID = 0;
+    starfieldID = 0; tunnelID = 0; fireworksID = 0; zoomID = -1;
 }
 
 void FXManager::RestoreFXAfterScene()
@@ -1646,8 +1891,11 @@ void FXManager::RestoreFXAfterScene()
     effects     = std::move(m_sceneSavedEffects);
     starfieldID = m_sceneSavedStarfieldID;
     tunnelID    = m_sceneSavedTunnelID;
+    fireworksID = m_sceneSavedFireworksID;
+    zoomID      = m_sceneSavedZoomID;
     m_sceneSavedEffects.clear();
     m_sceneSavedStarfieldID = 0; m_sceneSavedTunnelID = 0;
+    m_sceneSavedFireworksID = 0; m_sceneSavedZoomID = -1;
 }
 
 void FXManager::DiscardSavedFXState()
@@ -1655,6 +1903,7 @@ void FXManager::DiscardSavedFXState()
     FX_LOCK();
     m_sceneSavedEffects.clear();
     m_sceneSavedStarfieldID = 0; m_sceneSavedTunnelID = 0;
+    m_sceneSavedFireworksID = 0; m_sceneSavedZoomID = -1;
 }
 
 // ===============================================================================================
@@ -1850,6 +2099,152 @@ void FXManager::StopStarfield() {
     starfieldID = 0;
 }
 
+// ===============================================================================================
+// 3-Layer 2D Starfield (flat, screen-space; distinct from the 3D depth Starfield above)
+// ===============================================================================================
+
+// Direction -> unit velocity mapping, mirroring the existing Scroll* switch style at ApplyScroller.
+static void GetStar2DVelocity(Star2DDirection dir, float& vx, float& vy)
+{
+    switch (dir) {
+    case Star2DDirection::EastToWest:            vx = -1.0f; vy =  0.0f; break;
+    case Star2DDirection::WestToEast:            vx =  1.0f; vy =  0.0f; break;
+    case Star2DDirection::NorthToSouth:          vx =  0.0f; vy =  1.0f; break;
+    case Star2DDirection::SouthToNorth:          vx =  0.0f; vy = -1.0f; break;
+    case Star2DDirection::NorthEastToSouthWest:  vx = -1.0f; vy =  1.0f; break;
+    case Star2DDirection::NorthWestToSouthEast:  vx =  1.0f; vy =  1.0f; break;
+    case Star2DDirection::SouthWestToNorthEast:  vx =  1.0f; vy = -1.0f; break;
+    case Star2DDirection::SouthEastToNorthWest:  vx = -1.0f; vy = -1.0f; break;
+    default:                                     vx =  0.0f; vy =  0.0f; break;
+    }
+}
+
+// Places a star either scattered randomly across the whole screen (initialSpawn == true, used when
+// the field first starts so it looks populated immediately) or along the edge(s) the direction of
+// travel originates from (respawn case, so the field scrolls continuously off the opposite side).
+void FXManager::RespawnStarfield2DStar(Star2D& star, Star2DDirection direction, int screenW, int screenH, bool initialSpawn)
+{
+    auto randf = [](float lo, float hi) { return lo + (hi - lo) * (static_cast<float>(rand()) / RAND_MAX); };
+
+    if (initialSpawn) {
+        star.x = randf(0.0f, static_cast<float>(screenW));
+        star.y = randf(0.0f, static_cast<float>(screenH));
+        return;
+    }
+
+    switch (direction) {
+    case Star2DDirection::EastToWest:           star.x = static_cast<float>(screenW); star.y = randf(0.0f, (float)screenH); break;
+    case Star2DDirection::WestToEast:           star.x = 0.0f;                        star.y = randf(0.0f, (float)screenH); break;
+    case Star2DDirection::NorthToSouth:         star.y = 0.0f;                        star.x = randf(0.0f, (float)screenW); break;
+    case Star2DDirection::SouthToNorth:         star.y = static_cast<float>(screenH); star.x = randf(0.0f, (float)screenW); break;
+    case Star2DDirection::NorthEastToSouthWest: // Originates top+right edge
+        if (rand() % 2 == 0) { star.x = randf(0.0f, (float)screenW); star.y = 0.0f; }
+        else                 { star.x = static_cast<float>(screenW); star.y = randf(0.0f, (float)screenH); }
+        break;
+    case Star2DDirection::NorthWestToSouthEast: // Originates top+left edge
+        if (rand() % 2 == 0) { star.x = randf(0.0f, (float)screenW); star.y = 0.0f; }
+        else                 { star.x = 0.0f;                        star.y = randf(0.0f, (float)screenH); }
+        break;
+    case Star2DDirection::SouthWestToNorthEast: // Originates bottom+left edge
+        if (rand() % 2 == 0) { star.x = randf(0.0f, (float)screenW); star.y = static_cast<float>(screenH); }
+        else                 { star.x = 0.0f;                        star.y = randf(0.0f, (float)screenH); }
+        break;
+    case Star2DDirection::SouthEastToNorthWest: // Originates bottom+right edge
+        if (rand() % 2 == 0) { star.x = randf(0.0f, (float)screenW); star.y = static_cast<float>(screenH); }
+        else                 { star.x = static_cast<float>(screenW); star.y = randf(0.0f, (float)screenH); }
+        break;
+    default: star.x = randf(0.0f, (float)screenW); star.y = randf(0.0f, (float)screenH); break;
+    }
+}
+
+int FXManager::StartStarfield2D(int layer1Count, int layer2Count, int layer3Count,
+    float layer1Speed, float layer2Speed, float layer3Speed, Star2DDirection direction)
+{
+    if (bHasCleanedUp || !renderer) return -1;
+
+    FXItem fx{};
+    fx.type = FXType::Starfield2D;
+    fx.duration = FLT_MAX; fx.timeout = FLT_MAX; fx.progress = 0.0f;
+    fx.startTime = std::chrono::steady_clock::now(); fx.lastUpdate = fx.startTime;
+
+    Starfield2DData& sf = fx.starfield2DData;
+    sf.direction = direction;
+    sf.layerSpeed[0] = layer1Speed; sf.layerSpeed[1] = layer2Speed; sf.layerSpeed[2] = layer3Speed;
+    sf.layerMaxStars[0] = layer1Count; sf.layerMaxStars[1] = layer2Count; sf.layerMaxStars[2] = layer3Count;
+
+    const int screenW = renderer->iOrigWidth  > 0 ? renderer->iOrigWidth  : config.myConfig.resolutionWidth;
+    const int screenH = renderer->iOrigHeight > 0 ? renderer->iOrigHeight : config.myConfig.resolutionHeight;
+
+    for (int layer = 0; layer < 3; ++layer) {
+        // Layer 0 = smallest/dimmest, layer 2 = largest/brightest, to sell the depth illusion.
+        const float brightness = 0.55f + 0.225f * layer;
+        for (int i = 0; i < sf.layerMaxStars[layer]; ++i) {
+            Star2D star; star.layer = layer;
+            star.r = star.g = star.b = brightness; star.a = 1.0f;
+            RespawnStarfield2DStar(star, direction, screenW, screenH, true);
+            sf.stars.push_back(star);
+        }
+    }
+
+    FX_LOCK();
+    static int nextID = 7000;
+    fx.fxID = nextID++;
+    AddEffect(fx);
+    return fx.fxID;
+}
+
+void FXManager::Set2DStarfieldDirection(int effectID, Star2DDirection direction)
+{
+    FX_LOCK();
+    for (auto& fx : effects) {
+        if (fx.type != FXType::Starfield2D || fx.fxID != effectID) continue;
+        fx.starfield2DData.direction = direction;                              // Positions untouched -> continuous-looking transition
+        return;
+    }
+}
+
+void FXManager::StopStarfield2D(int effectID)
+{
+    FX_LOCK();
+    effects.erase(std::remove_if(effects.begin(), effects.end(), [effectID](const FXItem& fx) {
+        return fx.type == FXType::Starfield2D && fx.fxID == effectID;
+    }), effects.end());
+}
+
+void FXManager::UpdateStarfield2D(FXItem& fx, float deltaTime)
+{
+    if (!renderer) return;
+    Starfield2DData& sf = fx.starfield2DData;
+    const float clampedDt = std::min(deltaTime, 0.1f);
+
+    float vx, vy;
+    GetStar2DVelocity(sf.direction, vx, vy);
+
+    const int screenW = renderer->iOrigWidth  > 0 ? renderer->iOrigWidth  : config.myConfig.resolutionWidth;
+    const int screenH = renderer->iOrigHeight > 0 ? renderer->iOrigHeight : config.myConfig.resolutionHeight;
+
+    for (auto& star : sf.stars) {
+        const float speed = sf.layerSpeed[std::clamp(star.layer, 0, 2)];
+        star.x += vx * speed * clampedDt;
+        star.y += vy * speed * clampedDt;
+
+        // Off-screen on the direction-of-travel side -> respawn at the origin edge(s)
+        if (star.x < -1.0f || star.x > screenW + 1.0f || star.y < -1.0f || star.y > screenH + 1.0f)
+            RespawnStarfield2DStar(star, sf.direction, screenW, screenH, false);
+    }
+}
+
+void FXManager::RenderStarfield2D(FXItem& fx)
+{
+    if (!renderer) return;
+    const Starfield2DData& sf = fx.starfield2DData;
+    for (const auto& star : sf.stars) {
+        const float pixelSize = 1.0f + 0.5f * std::clamp(star.layer, 0, 2);    // Larger pixels on faster/nearer layers
+        XMFLOAT4 color(star.r, star.g, star.b, star.a);
+        DrawFXPixel(static_cast<int>(star.x), static_cast<int>(star.y), pixelSize, color);
+    }
+}
+
 // Private unified starfield render -- gets viewProj from renderer->myCamera (DX12/OpenGL)
 void FXManager::RenderStarfield(FXItem& fxItem)
 {
@@ -1879,11 +2274,11 @@ void FXManager::RenderStarfield(FXItem& fxItem)
         float ndcX = clip.x / clip.w;
         float ndcY = clip.y / clip.w;
         float ndcZ = clip.z / clip.w;
-#if defined(__USE_VULKAN__)
-        if (ndcZ < 0.0f || ndcZ > 1.0f) continue;
-#else
-        if (ndcZ < -1.0f || ndcZ > 1.0f) continue;
-#endif
+        #if defined(__USE_VULKAN__)
+            if (ndcZ < 0.0f || ndcZ > 1.0f) continue;
+        #else
+            if (ndcZ < -1.0f || ndcZ > 1.0f) continue;
+        #endif
         if (ndcX < -1.0f || ndcX > 1.0f || ndcY < -1.0f || ndcY > 1.0f) continue;
 
         float sx = (ndcX + 1.0f) * halfW;

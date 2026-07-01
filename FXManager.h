@@ -89,6 +89,20 @@ enum class FXType {
     ZoomInOut,                                                                  // Pulsing zoom-in / zoom-out on 2D image and/or 3D scene
     Fireworks,                                                                  // Firework rockets that launch, travel, and burst into particles
     ImageFadeStrobe,                                                            // Alpha strobe on a 2D image: fades out to a % then fades back in, looping until stopped
+    TileMapScroller,                                                            // 2D tile map renderer/scroller sourced from a tileset atlas image + map-data buffer
+    Starfield2D,                                                                // Flat, screen-space 3-layer parallax starfield (see Star2DDirection)
+};
+
+// 8 compass-aligned scroll directions for the 2D Starfield (screen-space, not the 3D depth Starfield above)
+enum class Star2DDirection {
+    EastToWest,                                                                 // Stars travel from the East edge toward the West edge (leftward)
+    NorthEastToSouthWest,                                                       // Diagonal: down-left
+    NorthToSouth,                                                               // Top of screen down to bottom
+    NorthWestToSouthEast,                                                       // Diagonal: down-right
+    WestToEast,                                                                 // Stars travel from the West edge toward the East edge (rightward)
+    SouthWestToNorthEast,                                                       // Diagonal: up-right
+    SouthToNorth,                                                               // Bottom of screen up to top
+    SouthEastToNorthWest,                                                       // Diagonal: up-left
 };
 
 enum class FXSubType {
@@ -198,6 +212,52 @@ struct WarpTunnelData {
     static constexpr int   kGraySteps   = 8;
     static constexpr float kMaxXYRadius = 300.0f;
     std::vector<TunnelRing> rings;
+};
+
+// =========================================================================================
+// TileMapData — 2D Tile Map Scroller state
+//
+// Each cell is a uint32_t: LOWORD = tile index into the tileset atlas (row-major,
+// tiles-per-row derived from the atlas bitmap width / tileWidth), HIWORD = flag bits.
+// =========================================================================================
+namespace TileMapFlags {
+    constexpr uint16_t IsCollidable = 0x0001;
+    constexpr uint16_t DoesAnimate  = 0x0002;
+}
+
+inline uint16_t GetTileIndex(uint32_t cell)      { return static_cast<uint16_t>(cell & 0xFFFFu); }
+inline uint16_t GetTileFlags(uint32_t cell)       { return static_cast<uint16_t>((cell >> 16) & 0xFFFFu); }
+inline bool     IsTileCollidable(uint32_t cell)   { return (GetTileFlags(cell) & TileMapFlags::IsCollidable) != 0; }
+inline bool     TileAnimates(uint32_t cell)        { return (GetTileFlags(cell) & TileMapFlags::DoesAnimate) != 0; }
+
+struct TileMapData {
+    BlitObj2DIndexType     atlasIndex = BlitObj2DIndexType::NONE;
+    int                    tileWidth  = 0, tileHeight = 0;
+    int                    mapWidth   = 0, mapHeight  = 0;                     // Map size in tiles
+    std::vector<uint32_t>  mapData;                                            // Flat, row-major: mapData[y*mapWidth+x]
+    int                    scrollX    = 0, scrollY    = 0;                     // Top-left world pixel currently displayed, clamped to map bounds
+    float                  animTimer  = 0.0f;
+    int                    animFrame  = 0;                                     // Added to a tile's index when TileAnimates() is set
+
+    TileMapData() = default;
+};
+
+// =========================================================================================
+// Star2D / Starfield2DData — 3-Layer flat 2D screen-space starfield state
+// =========================================================================================
+struct Star2D {
+    float x = 0.0f, y = 0.0f;
+    float r = 1.0f, g = 1.0f, b = 1.0f, a = 1.0f;
+    int   layer = 0;                                                           // 0 = slowest/dimmest .. 2 = fastest/brightest
+};
+
+struct Starfield2DData {
+    Star2DDirection      direction        = Star2DDirection::EastToWest;
+    float                layerSpeed[3]    = { 20.0f, 45.0f, 90.0f };           // Pixels/sec per layer, layer0 slowest .. layer2 fastest
+    int                  layerMaxStars[3] = { 40, 30, 20 };
+    std::vector<Star2D>  stars;
+
+    Starfield2DData() = default;
 };
 
 struct TextScrollData {
@@ -389,6 +449,8 @@ struct FXItem {
     ZoomData             zoomData;
     FireworksData        fireworksData;
     ImageFadeStrobeData  imageFadeStrobeData;
+    TileMapData          tileMapData;
+    Starfield2DData      starfield2DData;
 };
 
 struct ScrollTween {
@@ -424,8 +486,19 @@ struct ActiveFXState {
     bool fadeEffectActive   = false;
     bool scrollEffectsActive = false;
     std::vector<BlitObj2DIndexType> activeScrollTextures;
+    bool zoomActive         = false;
+    int  zoomID             = 0;
+    bool imageFadeStrobeActive = false;
+    std::vector<BlitObj2DIndexType> activeStrobeImages;
+    bool tileMapActive      = false;
+    std::vector<int> tileMapIDs;
+    bool starfield2DActive  = false;
+    std::vector<int> starfield2DIDs;
 
-    ActiveFXState() { textScrollerIDs.reserve(20); activeScrollTextures.reserve(10); }
+    ActiveFXState() {
+        textScrollerIDs.reserve(20); activeScrollTextures.reserve(10); activeStrobeImages.reserve(10);
+        tileMapIDs.reserve(4); starfield2DIDs.reserve(4);
+    }
 
     ActiveFXState(const ActiveFXState& o)
         : starfieldActive(o.starfieldActive), starfieldID(o.starfieldID)
@@ -433,7 +506,11 @@ struct ActiveFXState {
         , fireworksActive(o.fireworksActive), fireworksID(o.fireworksID)
         , textScrollerActive(o.textScrollerActive), textScrollerIDs(o.textScrollerIDs)
         , fadeEffectActive(o.fadeEffectActive), scrollEffectsActive(o.scrollEffectsActive)
-        , activeScrollTextures(o.activeScrollTextures) {}
+        , activeScrollTextures(o.activeScrollTextures)
+        , zoomActive(o.zoomActive), zoomID(o.zoomID)
+        , imageFadeStrobeActive(o.imageFadeStrobeActive), activeStrobeImages(o.activeStrobeImages)
+        , tileMapActive(o.tileMapActive), tileMapIDs(o.tileMapIDs)
+        , starfield2DActive(o.starfield2DActive), starfield2DIDs(o.starfield2DIDs) {}
 
     ActiveFXState& operator=(const ActiveFXState& o) {
         if (this != &o) {
@@ -444,6 +521,11 @@ struct ActiveFXState {
             textScrollerIDs = o.textScrollerIDs;
             fadeEffectActive = o.fadeEffectActive; scrollEffectsActive = o.scrollEffectsActive;
             activeScrollTextures = o.activeScrollTextures;
+            zoomActive = o.zoomActive; zoomID = o.zoomID;
+            imageFadeStrobeActive = o.imageFadeStrobeActive;
+            activeStrobeImages = o.activeStrobeImages;
+            tileMapActive = o.tileMapActive; tileMapIDs = o.tileMapIDs;
+            starfield2DActive = o.starfield2DActive; starfield2DIDs = o.starfield2DIDs;
         }
         return *this;
     }
@@ -455,12 +537,20 @@ struct ActiveFXState {
         , textScrollerActive(o.textScrollerActive), textScrollerIDs(std::move(o.textScrollerIDs))
         , fadeEffectActive(o.fadeEffectActive), scrollEffectsActive(o.scrollEffectsActive)
         , activeScrollTextures(std::move(o.activeScrollTextures))
+        , zoomActive(o.zoomActive), zoomID(o.zoomID)
+        , imageFadeStrobeActive(o.imageFadeStrobeActive), activeStrobeImages(std::move(o.activeStrobeImages))
+        , tileMapActive(o.tileMapActive), tileMapIDs(std::move(o.tileMapIDs))
+        , starfield2DActive(o.starfield2DActive), starfield2DIDs(std::move(o.starfield2DIDs))
     {
         o.starfieldActive = false; o.starfieldID = 0;
         o.tunnelActive    = false; o.tunnelID    = 0;
         o.fireworksActive = false; o.fireworksID = 0;
         o.textScrollerActive = false;
         o.fadeEffectActive = false; o.scrollEffectsActive = false;
+        o.zoomActive = false; o.zoomID = 0;
+        o.imageFadeStrobeActive = false;
+        o.tileMapActive = false;
+        o.starfield2DActive = false;
     }
 
     ActiveFXState& operator=(ActiveFXState&& o) noexcept {
@@ -472,11 +562,20 @@ struct ActiveFXState {
             textScrollerIDs = std::move(o.textScrollerIDs);
             fadeEffectActive = o.fadeEffectActive; scrollEffectsActive = o.scrollEffectsActive;
             activeScrollTextures = std::move(o.activeScrollTextures);
+            zoomActive = o.zoomActive; zoomID = o.zoomID;
+            imageFadeStrobeActive = o.imageFadeStrobeActive;
+            activeStrobeImages = std::move(o.activeStrobeImages);
+            tileMapActive = o.tileMapActive; tileMapIDs = std::move(o.tileMapIDs);
+            starfield2DActive = o.starfield2DActive; starfield2DIDs = std::move(o.starfield2DIDs);
             o.starfieldActive = false; o.starfieldID = 0;
             o.tunnelActive    = false; o.tunnelID    = 0;
             o.fireworksActive = false; o.fireworksID = 0;
             o.textScrollerActive = false;
             o.fadeEffectActive = false; o.scrollEffectsActive = false;
+            o.zoomActive = false; o.zoomID = 0;
+            o.imageFadeStrobeActive = false;
+            o.tileMapActive = false;
+            o.starfield2DActive = false;
         }
         return *this;
     }
@@ -638,6 +737,25 @@ public:
     float GetImageFadeStrobeAlpha(BlitObj2DIndexType type) const;
     void  RenderImageFadeStrobe(BlitObj2DIndexType type, int x, int y, int w, int h);
 
+    // ---- 2D Tile Map Scroller ----
+    // mapData may be nullptr if filename is supplied (map is loaded from disk instead);
+    // exactly one of the two must be provided. Returns the new effect's fxID, or -1 on failure.
+    int  StartTileMapScroller(BlitObj2DIndexType atlasIndex, int tileWidth, int tileHeight,
+                              int mapWidth, int mapHeight,
+                              const uint32_t* mapData,
+                              const std::wstring& filename = L"");
+    void StopTileMapScroller(int effectID);
+    void ScrollTileMapBy(int effectID, int dx, int dy);                        // Relative move, clamped to map edges
+    void SetTileMapPosition(int effectID, int worldX, int worldY);            // Absolute set, clamped to map edges
+    uint32_t GetTileMapCell(int effectID, int tileX, int tileY) const;        // Raw cell value for collision/game-logic queries (see TileMapFlags)
+
+    // ---- 3-Layer 2D Starfield (flat, screen-space; distinct from the 3D depth Starfield above) ----
+    int  StartStarfield2D(int layer1Count, int layer2Count, int layer3Count,
+                         float layer1Speed, float layer2Speed, float layer3Speed,
+                         Star2DDirection direction);
+    void Set2DStarfieldDirection(int effectID, Star2DDirection direction);
+    void StopStarfield2D(int effectID);
+
     // ---- Text scroller ----
     void CreateTextScrollerLTOR(const std::wstring& text, const std::wstring& fontName,
         float fontSize, XMFLOAT4 textColor,
@@ -707,6 +825,11 @@ private:
     void UpdateFireworks(FXItem& fx);
     void DrawFireworksPixels(FXItem& fx);
     void UpdateImageFadeStrobe(FXItem& fx, float deltaTime);
+    bool LoadTileMapFromFile(const std::wstring& filename, int mapWidth, int mapHeight, std::vector<uint32_t>& outMapData);
+    void RenderTileMapScroller(FXItem& fx);
+    void UpdateStarfield2D(FXItem& fx, float deltaTime);
+    void RenderStarfield2D(FXItem& fx);
+    void RespawnStarfield2DStar(Star2D& star, Star2DDirection direction, int screenW, int screenH, bool initialSpawn);
 
     void ApplyColorFader(FXItem& fxItem);
     void ApplyScroller(FXItem& fxItem);
@@ -779,6 +902,8 @@ private:
     std::vector<FXItem> m_sceneSavedEffects;
     int                 m_sceneSavedStarfieldID = 0;
     int                 m_sceneSavedTunnelID    = 0;
+    int                 m_sceneSavedFireworksID = 0;
+    int                 m_sceneSavedZoomID      = -1;
 
     // ---- Zoom config (populated by ZoomInitialise, consumed by StartZoom) ----
     ZoomData m_zoomConfig;

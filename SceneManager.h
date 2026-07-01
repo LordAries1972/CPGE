@@ -9,7 +9,10 @@
     #include "OpenGLRenderer.h"
 #elif defined(__USE_VULKAN__)
     #include "VULKAN_Renderer.h"
+#elif defined(__USE_METAL__)
+    #include "METALRenderer.h"
 #endif
+
 #include "ModelAnimator.h"
 #include "BlenderImports.h"
 #include "FBXImport.h"
@@ -41,6 +44,7 @@ enum SceneType
 	SCENE_GAMETITLE,
 	SCENE_INTRO,
 	SCENE_INTRO_MOVIE,
+	SCENE_LEVEL_SETUP,
 	SCENE_GAMEPLAY,
 	SCENE_GAMEOVER,
 	SCENE_CREDITS,
@@ -49,6 +53,7 @@ enum SceneType
 	SCENE_LOAD_MP3,
 	#if defined(_DEBUG)
 		SCENE_EXPERIMENT,
+		SCENE_TESTING_ONLY,
 	#endif
 };
 

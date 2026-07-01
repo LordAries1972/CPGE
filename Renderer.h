@@ -99,6 +99,10 @@
     #include "OpenGLCamera.h"
 #elif defined(__USE_VULKAN__)
     #include "VulkanCamera.h"
+#elif defined(__USE_VULKAN__)
+    #include "VulkanCamera.h"
+#elif defined(__USE_METAL__)
+    #include "METALCamera.h"
 #endif
 
 // Uncomment this line if Renderer is to be a 
@@ -225,8 +229,34 @@ enum class BlitObj2DIndexType : int {
     // Game title image — always at index 19 in texFilename[] and for 
     // demonstration purposes only, not used in the real purpose of the 
     // engine itself. This is a TSOO project-only image and stops here!
-    IMG_TSOO = 19,   
+    IMG_TSOO = 19,
 
+    // Generic tileset atlas image for the 2D Tile Map Scroller (FXManager).
+    // A single image containing a grid of same-size tiles, indexed by
+    // Blit2DAtlasTile()'s tileIndex parameter (row-major, tiles-per-row
+    // derived from the atlas bitmap width / tile width).
+    IMG_TILESET1 = 20,
+
+    // Portrait indices — TSOO project only (guarded so CPGE
+    // engine never sees these as the project works side-by-side
+    // with the engine code base - Merging filters this out to
+    // the CPGE Base Project!)
+    #if defined(PROJECT_ONLY_CODE)
+        IMG_PM1 = 21,
+        IMG_PF1 = 22,
+        IMG_PM2 = 23,
+        IMG_PF2 = 24,
+        IMG_PM3 = 25,
+        IMG_PF3 = 26,
+        IMG_PM4 = 27,
+        IMG_PF4 = 28,
+        IMG_PM5 = 29,
+        IMG_PF5 = 30,
+        IMG_PM6 = 31,
+        IMG_PF6 = 32,
+        IMG_PM7 = 33,
+        IMG_PF7 = 34,
+    #endif
 };
 
 struct BlitObj2DDetails
@@ -559,6 +589,10 @@ public:
         virtual void Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, int iDestY, int iDestW, int iDestH, float zoomFactor) = 0;
         // Blit a 2D image scaled to the given rect with a custom opacity (0.0 = transparent, 1.0 = fully opaque).
         virtual void Blit2DObjectToSizeWithAlpha(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float alpha) = 0;
+        // Blit one tile from a tileset/atlas image (iIndex) selected by iTileIndex (0-based, row-major).
+        // Tiles-per-row is derived from the atlas bitmap width divided by iTileSizeX. Used by the
+        // FXManager 2D Tile Map Scroller to render individual tiles out of a shared tileset image.
+        virtual void Blit2DAtlasTile(BlitObj2DIndexType iIndex, int iTileIndex, int iTileSizeX, int iTileSizeY, int iDestX, int iDestY) = 0;
     #endif
     #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__) || (defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))
         virtual void Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 color) = 0;

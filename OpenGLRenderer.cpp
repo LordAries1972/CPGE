@@ -1463,6 +1463,31 @@ void OpenGLRenderer::Blit2DObjectToSize(BlitObj2DIndexType iIndex, int iX, int i
                  0, 0, tex.width, tex.height, MyColor(255,255,255,255), false);
 }
 
+// Blits one tile out of a tileset atlas image, selected by tileIndex (0-based, row-major).
+// Tiles-per-row is derived from the loaded atlas texture width / iTileSizeX.
+void OpenGLRenderer::Blit2DAtlasTile(BlitObj2DIndexType iIndex, int iTileIndex, int iTileSizeX, int iTileSizeY, int iDestX, int iDestY)
+{
+    int idx = static_cast<int>(iIndex);
+    if (idx < 0 || idx >= MAX_TEXTURE_BUFFERS) return;
+    if (iTileIndex < 0 || iTileSizeX <= 0 || iTileSizeY <= 0) return;
+    const auto& tex = m_2dTextures[idx];
+    if (!tex.isLoaded) return;
+
+    int tilesPerRow = tex.width  / iTileSizeX;
+    int tilesPerCol = tex.height / iTileSizeY;
+    if (tilesPerRow <= 0 || tilesPerCol <= 0) return;
+
+    int tileCol = iTileIndex % tilesPerRow;
+    int tileRow = iTileIndex / tilesPerRow;
+    if (tileRow >= tilesPerCol) return;                                       // Out-of-range index — guard against corrupt map data
+
+    int srcX = tileCol * iTileSizeX;
+    int srcY = tileRow * iTileSizeY;
+
+    Render2DQuad(tex.textureID, iDestX, iDestY, iTileSizeX, iTileSizeY,
+                 srcX, srcY, iTileSizeX, iTileSizeY, MyColor(255,255,255,255), false);
+}
+
 void OpenGLRenderer::Blit2DObjectToSizeWithAlpha(BlitObj2DIndexType iIndex, int iX, int iY, int iW, int iH, float alpha)
 {
     int idx = static_cast<int>(iIndex);

@@ -4076,6 +4076,46 @@ void DX12Renderer::Blit2DWrappedObjectAtOffset(BlitObj2DIndexType iIndex, int iB
 }
 
 //-----------------------------------------
+// Blit one tile out of a tileset atlas image, selected by tileIndex (0-based, row-major).
+// Tiles-per-row is derived from the atlas bitmap width / iTileSizeX.
+//-----------------------------------------
+void DX12Renderer::Blit2DAtlasTile(BlitObj2DIndexType iIndex, int iTileIndex, int iTileSizeX, int iTileSizeY, int iDestX, int iDestY) {
+    try {
+        if (int(iIndex) < 0 || int(iIndex) >= MAX_TEXTURE_BUFFERS) return;
+        if (iTileIndex < 0 || iTileSizeX <= 0 || iTileSizeY <= 0) return;
+        if (!IsDX11CompatibilityAvailable() || !m_d2dContext) return;
+        if (!m_d2dTextures[int(iIndex)]) return;
+
+        ID2D1Bitmap* bitmap = m_d2dTextures[int(iIndex)].Get();
+        D2D1_SIZE_F bmpSize = bitmap->GetSize();
+        int bmpW = static_cast<int>(bmpSize.width);
+        int bmpH = static_cast<int>(bmpSize.height);
+        if (bmpW <= 0 || bmpH <= 0) return;
+
+        int tilesPerRow = bmpW / iTileSizeX;
+        int tilesPerCol = bmpH / iTileSizeY;
+        if (tilesPerRow <= 0 || tilesPerCol <= 0) return;
+
+        int tileCol = iTileIndex % tilesPerRow;
+        int tileRow = iTileIndex / tilesPerRow;
+        if (tileRow >= tilesPerCol) return;                                    // Out-of-range index — guard against corrupt map data
+
+        int srcX = tileCol * iTileSizeX;
+        int srcY = tileRow * iTileSizeY;
+
+        D2D1_RECT_F src  = D2D1::RectF(static_cast<float>(srcX), static_cast<float>(srcY),
+                                        static_cast<float>(srcX + iTileSizeX), static_cast<float>(srcY + iTileSizeY));
+        D2D1_RECT_F dest = D2D1::RectF(static_cast<float>(iDestX), static_cast<float>(iDestY),
+                                        static_cast<float>(iDestX + iTileSizeX), static_cast<float>(iDestY + iTileSizeY));
+        m_d2dContext->DrawBitmap(bitmap, dest, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, src);
+    }
+    catch (const std::exception& e) {
+        std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
+        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"DX12Renderer: Exception in Blit2DAtlasTile: %s", errorMsg.c_str());
+    }
+}
+
+//-----------------------------------------
 // Blit 2D Object with Centered Zoom Crop
 //-----------------------------------------
 void DX12Renderer::Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, int iDestY, int iDestW, int iDestH, float zoomFactor) {

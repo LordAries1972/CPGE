@@ -247,6 +247,7 @@ public:
     void Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, int iDestY,
         int iDestW, int iDestH, float zoomFactor);                              // Blit 2D object with centered zoom crop
     void Blit2DObjectToSizeWithAlpha(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float alpha); // Blit with custom opacity
+    void Blit2DAtlasTile(BlitObj2DIndexType iIndex, int iTileIndex, int iTileSizeX, int iTileSizeY, int iDestX, int iDestY); // Blit one tile from a tileset atlas
     void Clear2DBlitQueue();                                                    // Clear 2D blit queue
 
     // Device access (base class interface)

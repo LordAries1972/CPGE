@@ -307,6 +307,7 @@ public:
     void Blit2DWrappedObjectAtOffset(BlitObj2DIndexType iIndex, int iBlitX, int iBlitY, int iXOffset, int iYOffset, int iTileSizeX, int iTileSizeY); // Render wrapped 2D object with offset
     void Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, int iDestY, int iDestW, int iDestH, float zoomFactor); // Render 2D object with centered zoom crop
     void Blit2DObjectToSizeWithAlpha(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float alpha);   // Render 2D object scaled to rect with custom opacity
+    void Blit2DAtlasTile(BlitObj2DIndexType iIndex, int iTileIndex, int iTileSizeX, int iTileSizeY, int iDestX, int iDestY); // Blit one tile from a tileset atlas image
     void Clear2DBlitQueue();                                                    // Clear all objects from 2D rendering queue
     void ResumeLoader(bool isResizing = false) override;                        // Resume asset loading thread
 
