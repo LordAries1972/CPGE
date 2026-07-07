@@ -229,6 +229,18 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
                     break;
                 }
 
+                case KeyCode::KEY_ARROW_LEFT:
+                {
+                    guiManager.HandleArrowLeft();
+                    break;
+                }
+
+                case KeyCode::KEY_ARROW_RIGHT:
+                {
+                    guiManager.HandleArrowRight();
+                    break;
+                }
+
                 case KeyCode::KEY_ENTER:
                 {
                     if (consoleWindow.bIsVisible)

@@ -44,6 +44,7 @@
 /* ----------------------------------------------------------------
    Common headers shared by all four pipelines.
 ---------------------------------------------------------------- */
+#include "Debug.h"
 #include "MathPrecalculation.h"
 #include "ExceptionHandler.h"
 #include "ThreadManager.h"
@@ -56,6 +57,37 @@
 #include "MoviePlayer.h"
 #include "Configuration.h"
 #include "GamePlayer.h"
+
+#if defined(__USE_MP3PLAYER__)
+    #include "WinMediaPlayer.h"
+#elif defined(__USE_XMPLAYER__)
+    #include "XMMODPlayer.h"
+#elif defined(__USE_S3MPLAYER__)
+    #include "S3MPlayer.h"
+#elif defined(__USE_MPTMPLAYER__)
+    #include "MPTMPlayer.h"
+#elif defined(__USE_ITPLAYER__)
+    #include "ITPlayer.h"
+#elif defined(__USE_MODPLAYER__)
+    #include "MODPlayer.h"
+#endif
+
+// Include our Music Playback system we are using.
+#if defined(__USE_MP3PLAYER__)
+    extern MediaPlayer player;
+#elif defined(__USE_XMPLAYER__)
+    extern XMMODPlayer modPlayer;
+#elif defined(__USE_S3MPLAYER__)
+    extern S3MPlayer modPlayer;
+#elif defined(__USE_MPTMPLAYER__)
+    extern MPTMPlayer modPlayer;
+#elif defined(__USE_ITPLAYER__)
+    extern ITPlayer modPlayer;
+#elif defined(__USE_MODPLAYER__)
+    extern MODPlayer modPlayer;
+#endif
+
+extern std::wstring g_currentMusicFile;  // Global variable to hold the current music file name
 
 using namespace SoundSystem;
 
@@ -202,8 +234,14 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
                 if (LoadAllKnownTextures())
                     threadManager.threadVars.b2DTexturesLoaded.store(true);
 
+                #if defined(__USE_OPENGL__)
+                    // Flush any outstanding GL commands so the render thread sees a clean state.
+                    glFlush();
+                #endif
+
                 threadManager.PauseThread(THREAD_LOADER);
                 threadManager.threadVars.bLoaderTaskFinished.store(true);
+
                 break;
             }
 
@@ -236,10 +274,40 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
             -------------------------------------------------------------- */
             case SceneType::SCENE_GAMETITLE:
             {
+                // Start the loader music track, this depends
+                // on the music play back system being initialized first.
+                #if defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
+                    modPlayer.Stop();
+                    #if defined(__USE_XMPLAYER__)
+                        std::wstring MyFilename = L"loader.xm";
+                    #elif defined(__USE_ITPLAYER__)
+                        std::wstring MyFilename = L"loader.it";
+                    #elif defined(__USE_MODPLAYER__)
+                        std::wstring MyFilename = L"loader.mod";
+                    #elif defined(__USE_S3MPLAYER__)
+                        std::wstring MyFilename = L"loader.s3m";
+                    #elif defined(__USE_MPTMPLAYER__)
+                        std::wstring MyFilename = L"loader.mptm";
+                    #else
+                        std::wstring MyFilename = L"loader.mp3";
+                    #endif
+
+                    auto fileName = AssetsDir / MyFilename;
+                    if (!modPlayer.Play(fileName))
+                    {
+                        threadManager.threadVars.bLoaderTaskFinished.store(true);
+                        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[LOADER]: Failed to Play the requested Module file.");
+                        return;
+                    }
+                    g_currentMusicFile = fileName.wstring();
+                    if (!config.myConfig.playMusic)
+                        modPlayer.Pause();
+                #endif
+
                 threadManager.threadVars.bLoaderTaskFinished.store(false);
-                fxManager.StopZooming();                                        // In case we are returning from somewhere where a zooming effect maybe active.
-                fxManager.StopFireworks();                                      // In case we are returning from somewhere where fireworks maybe active.
-                auto showStage = [](const wchar_t* msg) {
+                fxManager.StopAllFX();                                        // In case we are returning from somewhere where a zooming effect maybe active.
+
+                auto showStage = [this](const wchar_t* msg) {
                     TextRenderStyle s;
                     s.fontName = LoadingTextFX::kFontName;
                     s.fontSize = 20.0f;
@@ -273,6 +341,13 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
                     }
 
                     showStage(L"Loading audio...");
+                    // Fade out whatever the loader tune left playing, then fully reset the
+                    // playback system before Load_Music() starts the real track for this
+                    // scene -- Play() refuses to start a new track while one is still
+                    // playing, so this must happen first.
+                    #if defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
+                        modPlayer.FadeOutAndStop(1000);
+                    #endif
                     Load_Music();
 
                     // Camera setup:
@@ -330,21 +405,41 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
                     #endif  // !__USE_VULKAN__
 
                     showStage(L"Building interface...");
-                    guiManager.CreateGameMenuWindow(L"winGameMenu");
 
                     showStage(L"Almost ready...");
-                    // Reverse -- stars start spread near camera and converge toward the origin.
-                    fxManager.CreateStarfield(80, 800.0f, 1000.0f, gtStarOrigin, true);
+                    // Non-blocking pixel dissolve on the loading screen, then fade to black.
+                    // Nothing GameTitle-visible (menu window, starfield, zoom/fireworks/strobe,
+                    // bLoaderTaskFinished) may happen until that full sequence completes --
+                    // DXRenderFrame::RenderBackgroundImage() gates GameTitle vs. loading-screen
+                    // purely on bLoaderTaskFinished, so setting it early shows GameTitle underneath
+                    // the still-fading loader image.
+                    fxManager.StartPixelFader(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight,
+                        8, 3.0f, XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f),
+                        [this]()
+                        {
+                            guiManager.CreateGameMenuWindow(L"winGameMenu");
+                            fxManager.CreateStarfield(80, 800.0f, 1000.0f, gtStarOrigin, true);
+                            fxManager.StopLoadingText();
+                            fxManager.ZoomInitialise(ZoomFXFunction::Zoom2D, 0.20f, 0.15f, int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
+                            fxManager.StartZoom(0.015f);
+                            fxManager.StartFireworks(0.5f);
+                            // Gentle brightness pulse — only fades to 75% opacity, 2-second half-cycles
+                            fxManager.StartImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO, 25.0f, 3.0f);
 
-                    fxManager.StopLoadingText();
-                    fxManager.FadeToImage(1.0f, 0.08f);
-                    // Pulse the 2D Image Background with 20% depth
-                    fxManager.ZoomInitialise(ZoomFXFunction::Zoom2D, 0.20f, 0.15f, int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
-                    fxManager.StartZoom(0.015f);
-                    fxManager.StartFireworks(0.5f);
-                    // Gentle brightness pulse — only fades to 75% opacity, 2-second half-cycles
-                    fxManager.StartImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO, 25.0f, 3.0f);
+                            #if defined(__USE_OPENGL__)
+                                glFlush();
+                            #endif
+                            threadManager.threadVars.bLoaderTaskFinished.store(true);
+                        });
 
+                    // PauseThread must happen synchronously here (not deferred into the FX
+                    // callback above) -- the loader thread's dispatch loop only stops re-entering
+                    // this same switch case once GetThreadStatus(THREAD_LOADER) reports Paused.
+                    // Deferring it let the loop re-run this whole case (incl. Load_Music()) every
+                    // iteration until the ~3.5s fade sequence finished, causing double music-load
+                    // failures ("already playing"). bLoaderTaskFinished (render-thread scene gate)
+                    // still waits for the fade in the callback; only the pause itself is immediate.
+                    threadManager.PauseThread(THREAD_LOADER);
                 }
                 else
                 {
@@ -407,40 +502,41 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
                         }
                     #endif  // !__USE_VULKAN__
 
-                    // Close all open GUI windows and stop active title-screen FX so
-                    // they can be restarted cleanly at the new viewport dimensions.
-                    guiManager.CloseAllWindows();
-                    fxManager.StopFireworks();
-                    fxManager.StopZooming();
-                    fxManager.StopImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO);
+                    // Non-blocking pixel dissolve on the loading screen, then fade to black.
+                    // Nothing GameTitle-visible may happen until that full sequence completes --
+                    // see the matching comment in the first-load branch above.
+                    fxManager.StartPixelFader(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight,
+                        8, 3.0f, XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f),
+                        [this]()
+                        {
+                            // Reopen title-screen GUI and restart FX at the new dimensions.
+                            guiManager.CreateGameMenuWindow(L"winGameMenu");
+                            fxManager.CreateStarfield(80, 800.0f, 1000.0f, gtStarOrigin, true);
+                            fxManager.StopLoadingText();
+                            fxManager.ZoomInitialise(ZoomFXFunction::Zoom2D, 0.20f, 0.15f, int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
+                            fxManager.StartZoom(0.015f);
+                            fxManager.StartFireworks(0.5f);
+                            // Gentle brightness pulse — only fades to 75% opacity, 2-second half-cycles
+                            fxManager.StartImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO, 25.0f, 3.0f);
 
-                    // Starfield on resize
-                    fxManager.CreateStarfield(80, 800.0f, 1000.0f, gtStarOrigin, true);
-                    fxManager.StopLoadingText();
+                            /* OpenGL: flush pending GL commands before signalling the render thread. */
+                            #if defined(__USE_OPENGL__)
+                                glFlush();
+                            #endif
+                            threadManager.threadVars.bLoaderTaskFinished.store(true);
+                        });
 
-                    // Reopen title-screen GUI and restart FX at the new dimensions.
-                    guiManager.CreateGameMenuWindow(L"winGameMenu");
-                    fxManager.ZoomInitialise(ZoomFXFunction::Zoom2D, 0.20f, 0.15f, int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
-                    fxManager.StartZoom(0.015f);
-                    fxManager.StartFireworks(0.5f);
-                    // Gentle brightness pulse — only fades to 75% opacity, 2-second half-cycles
-                    fxManager.StartImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO, 25.0f, 3.0f);
+                    // See the matching comment in the first-load branch above: PauseThread must
+                    // be synchronous here, not deferred into the FX callback.
+                    threadManager.PauseThread(THREAD_LOADER);
                 }
 
-                /* OpenGL: flush pending GL commands before signalling the render thread. */
-                #if defined(__USE_OPENGL__)
-                    glFlush();
-                #endif
-
-                // This must go at the end so critical rendering can start.
-                threadManager.PauseThread(THREAD_LOADER);
-                threadManager.threadVars.bLoaderTaskFinished.store(true);
                 break;
             }
 
             /* ------------------------------------------------------------
                MP3 PLAYER SCENE
-               Simple MP3 playback scene.  XM tracker modules are the
+               Simple MP3 playback scene.  Tracker modules are the
                preferred format; MP3 is provided for those who need it.
                NOTE: COM initialisation is Windows-only; guard accordingly.
             -------------------------------------------------------------- */
@@ -487,6 +583,52 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
                 break;
             }
 
+            #if defined(_PROJECT_ONLY_CODE_)
+            /* ------------------------------------------------------------
+                LEVEL SETUP SCENE
+                Determines what game play mode we are going to be using 
+                and present a video / level instructions video or other
+                content that is required before starting the level.
+            ------------------------------------------------------------ */
+            case SceneType::SCENE_LEVEL_SETUP:
+            {
+                threadManager.threadVars.bLoaderTaskFinished.store(false);
+                fxManager.StopALLFX();                                        // In case we are returning from somewhere where a zooming effect maybe active.
+                threadManager.threadVars.b2DTexturesLoaded.store(false);
+                if (LoadAllKnownTextures())
+                    threadManager.threadVars.b2DTexturesLoaded.store(true);
+
+                auto showStage = [](const wchar_t* msg) {
+                    TextRenderStyle s;
+                    s.fontName = LoadingTextFX::kFontName;
+                    s.fontSize = 20.0f;
+                    s.centered = true;
+                    fxManager.ShowLoadingText(msg,
+                        XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f),
+                        0.2f, 0.05f,
+                        XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f),
+                        0.0f, -1.0f, &s);  // -1 = auto: renderer->iOrigHeight * LOADER_TEXT_Y_RATIO
+                };
+
+                // Loading and setup is now complete -- non-blocking pixel dissolve on the
+                // loading screen, then fade to black, then tell the render thread it can present.
+                fxManager.StartPixelFader(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight,
+                    5, 3.0f, XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f),
+                    []() {
+                        fxManager.FadeOutThenCallback(XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f), 0.5f, 0.0f, []() {
+                            threadManager.threadVars.bLoaderTaskFinished.store(true);
+                        });
+                    });
+
+                // PauseThread must be synchronous here, not deferred into the FX callback --
+                // see the detailed comment in the SCENE_GAMETITLE case above (double-dispatch
+                // of this whole case otherwise occurs while the ~3.5s fade sequence is pending).
+                threadManager.PauseThread(THREAD_LOADER);
+                break;
+            }
+
+            #endif // End of _PROJECT_ONLY_CODE_ for level setup
+
             /* ------------------------------------------------------------
                GAMEPLAY SCENE
                Loads all assets for the current game level.
@@ -496,6 +638,36 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
             case SceneType::SCENE_GAMEPLAY:
             {
                 threadManager.threadVars.bLoaderTaskFinished.store(false);
+                // Start the loader music track, this depends
+                // on the music play back system being initialized first.
+                #if defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
+                    modPlayer.Stop();
+                    #if defined(__USE_XMPLAYER__)
+                        std::wstring MyFilename = L"loader.xm";
+                    #elif defined(__USE_ITPLAYER__)
+                        std::wstring MyFilename = L"loader.it";
+                    #elif defined(__USE_MODPLAYER__)
+                        std::wstring MyFilename = L"loader.mod";
+                    #elif defined(__USE_S3MPLAYER__)
+                        std::wstring MyFilename = L"loader.s3m";
+                    #elif defined(__USE_MPTMPLAYER__)
+                        std::wstring MyFilename = L"loader.mptm";
+                    #else
+                        std::wstring MyFilename = L"loader.mp3";
+                    #endif
+
+                    auto fileName = AssetsDir / MyFilename;
+                    if (!modPlayer.Play(fileName))
+                    {
+                        threadManager.threadVars.bLoaderTaskFinished.store(true);
+                        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[LOADER]: Failed to Play the requested Module file.");
+                        return;
+                    }
+                    g_currentMusicFile = fileName.wstring();
+                    if (!config.myConfig.playMusic)
+                        modPlayer.Pause();
+                #endif
+
                 fxManager.StopZooming();                                        // In case we are returning from somewhere where a zooming effect maybe active.
                 fxManager.StopFireworks();                                      // In case we are returning from somewhere where fireworks maybe active.
                 fxManager.StopImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO);
@@ -554,6 +726,13 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
                     showStage(L"Loading audio...");
                     try
                     {
+                        // Fade out whatever the loader tune left playing, then fully reset the
+                        // playback system before Load_Music() starts the real track for this
+                        // scene -- Play() refuses to start a new track while one is still
+                        // playing, so this must happen first.
+                        #if defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
+                            modPlayer.FadeOutAndStop(1000);
+                        #endif
                         Load_Music();
                         // IMPORTANT: MediaPlayer needs to process messages before starting playback.
                         #if defined(PLATFORM_WINDOWS)
@@ -640,7 +819,19 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
                 fxManager.StartZoom(0.015f);
                 fxManager.StartFireworks(2.0f);
 
-                threadManager.threadVars.bLoaderTaskFinished.store(true);
+                // Non-blocking pixel dissolve on the loading screen, then fade to black,
+                // then tell the render thread it can present the GAMEPLAY scene.
+                fxManager.StartPixelFader(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight,
+                    5, 3.0f, XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f),
+                    []() {
+                        fxManager.FadeOutThenCallback(XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f), 0.5f, 0.0f, []() {
+                            threadManager.threadVars.bLoaderTaskFinished.store(true);
+                        });
+                    });
+
+                // PauseThread must be synchronous here, not deferred into the FX callback --
+                // see the detailed comment in the SCENE_GAMETITLE case above (double-dispatch
+                // of this whole case otherwise occurs while the ~3.5s fade sequence is pending).
                 threadManager.PauseThread(THREAD_LOADER);
                 break;
             }

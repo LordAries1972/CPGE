@@ -172,6 +172,8 @@ struct ITChannelVoice {
     uint8_t effectData = 0;
     uint8_t lastVolumeSlide = 0;
     uint8_t lastPortamento = 0;
+    uint8_t lastTonePortamento = 0; // separate Gxx/Lxx memory, used when the module's header
+                                     // requests unlinked Gxx memory (IT header flags bit 5 clear)
     uint8_t lastVibrato = 0;
     uint8_t lastTremolo = 0;
     uint8_t lastSampleOffsetHigh = 0;
@@ -204,6 +206,16 @@ struct ITChannelVoice {
     bool delayedNotePending = false;
     uint8_t delayTicks = 0;
     ITEvent delayedEvent{};
+
+    // Declick ramp: 0..1 multiplier applied on top of the computed volume in MixAudio.
+    // Starts at 0 on every fresh trigger so a voice landing mid-waveform (e.g. Oxx sample
+    // offset jumping into a non-zero-crossing sample) fades in over a handful of samples
+    // instead of jumping straight from silence, and ramps back to 0 before a hard cut
+    // (NNA cut, ^^^, SCx) actually silences the voice, instead of chopping the waveform
+    // off at an arbitrary point. Both are classic sources of audible clicks/scratchiness
+    // when a channel retriggers rapidly (e.g. Oxx-based scratch/chop patterns).
+    float declickGain = 0.0f;
+    bool stopping = false;
 };
 
 class Debug;
@@ -235,6 +247,16 @@ public:
     void SetFadeOut(uint32_t durationMs);
     void GotoSequenceID(uint16_t patternSeqID);
 
+    // Fades the currently playing module out to silence, then fully resets the
+    // playback system (Stop()) so a new module can be loaded with Play().
+    void FadeOutAndStop(uint32_t durationMs);
+
+    // Sets the OS scheduling priority applied to the playback thread (Windows
+    // THREAD_PRIORITY_* constants). Call before Play(); takes effect when
+    // PlaybackLoop() starts. Defaults to THREAD_PRIORITY_HIGHEST -- tracker
+    // playback must never be starved by other engine threads or the music slows down.
+    void SetPlaybackThreadPriority(int priority);
+
 private:
     bool bIsInitialized = false;
     uint16_t sequencePosition = 0;
@@ -252,6 +274,13 @@ private:
     bool orderJumpPending = false;
     bool patternLoopPending = false;  // SBx: replay from patternLoopRow without advancing
     bool inPatternDelay = false;      // SEx: guards against re-arming the delay every hold tick
+
+    // Derived from header.flags at load time -- previously never read, so every module was
+    // force-played as if it were Linear-slide / new-IT-effects / unlinked-Gxx-memory regardless
+    // of what it actually declared.
+    bool linearFrequencySlides = true; // flags bit3: On = linear slides, Off = Amiga (period) slides
+    bool oldEffectsMode = false;       // flags bit4: On = old Impulse Tracker effect quirks
+    bool linkGxxMemory = false;        // flags bit5: On = Gxx/Lxx share Exx/Fxx's slide memory
 
     ITHeader header{};
     std::vector<uint8_t> orders;
@@ -277,6 +306,11 @@ private:
     std::atomic<bool> fadeOutActive{ false };
 
     std::thread playbackThread;
+#if defined(PLATFORM_WINDOWS)
+    int playbackThreadPriority = THREAD_PRIORITY_HIGHEST;
+#else
+    int playbackThreadPriority = 0;
+#endif
     std::atomic<bool> isPlaying{ false };
     std::atomic<bool> isPaused{ false };
     std::atomic<bool> isTerminating{ false };

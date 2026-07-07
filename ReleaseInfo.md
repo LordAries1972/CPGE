@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.1.1945*
+*Current Build Version: v0.1.1946*
 
 ---
 
@@ -54,8 +54,8 @@ lets make this Engine great!
 
 #### 2026
 
-- [July 2026](#july-2026)
-  - [02](#july-02-2026)
+- [July 2026](#july-2026---screen-recorder--2d-systems)
+  - [02](#july-02-2026) · [03](#july-03-2026) · [07](#july-07-2026)
 - [June 2026](#june-2026---opengl-pipeline-fixes)
   - [01](#june-01-2026) · [02](#june-02-2026) · [03](#june-03-2026) · [04](#june-04-2026) · [05](#june-05-2026) · [06](#june-06-2026) · [07](#june-07-2026) · [08](#june-08-2026) · [11](#june-11-2026) · [12](#june-12-2026) · [13](#june-13-2026) · [14](#june-14-2026) · [15](#june-15-2026) · [16](#june-16-2026) · [17](#june-17-2026) · [18](#june-18-2026) · [21](#june-21-2026) · [23](#june-23-2026) · [24](#june-24-2026) · [25](#june-25-2026) · [27](#june-27-2026) · [28](#june-28-2026) · [29](#june-29-2026)
 - [May 2026](#may-2026---more-major-updates-and-fixes)
@@ -4254,6 +4254,8 @@ New Documents have been written up for these Two new music players as well can c
 
 *See: [`main.cpp`](main.cpp), [`ScreenRecorder.cpp`](ScreenRecorder.cpp), [`ScreenRecorder.h`](ScreenRecorder.h)*
 
+### July 2026 - Screen Recorder & 2D Systems
+
 #### July 02, 2026
 
 1. Renderer plumbing — added Blit2DAtlasTile(atlasIndex, tileIndex, tileW, tileH, destX, destY) to Renderer.h and implemented it in all four backends (DX11/DX12 via Direct2D sub-rect DrawBitmap, OpenGL via the existing Render2DQuad sub-rect support, Vulkan by delegating to the existing Blit2DObjectAtOffset). Registered a new IMG_TILESET1 atlas slot. DX11 build (the only one I compiled, before being told to stop) succeeded with no errors; the other three were verified by direct comparison against their already-compiling sibling functions rather than by building.
@@ -4262,7 +4264,60 @@ New Documents have been written up for these Two new music players as well can c
 
 3. 3-Layer 2D Starfield — StartStarfield2D/Set2DStarfieldDirection/StopStarfield2D with the 8-direction Star2DDirection enum, per-layer speed/star-cap, and edge-wrap respawn for continuous scrolling.
 
-Both are wired into Render2D(), ActiveFXState, and the resize/scene-save lifecycle, and documented in FXManager-Example-Usage.md with usage examples and stop instructions.
+Added a Pixel Fader FX to FXManager (FXManager.h/.cpp): it dissolves an image in randomized pixelSize × pixelSize blocks over a duration by blitting the source image normally each frame and overlaying solid-colour blocks (reusing the existing cross-platform Blit2DObjectToSizeWithAlpha + Blit2DColoredPixel primitives — no new per-backend texture code needed, since none of the 4 renderers retain CPU pixel buffers post-upload).
+
+StartPixelFader(imageType, x, y, w, h, pixelSize, duration, revealColor, onComplete) — non-blocking, returns an fxID; onComplete fires via the existing pendingCallbacks/CallbackEntry mechanism (same pattern as FadeOutThenCallback).
+StopPixelFader(effectID) delegates to the existing CancelEffect.
+Block shuffle order uses the project's MyRandomizer::GetShuffledSequence.
+
+#### July 03, 2026
+
+**ScreenRecorder.cpp** — Scored microphone endpoint selection (merged from TSOO; fixes wrong-device capture such as a Rocksmith USB Guitar Adapter being recorded instead of the actual microphone):
+
+- **Root cause:** `InitMicCapture` blindly preferred `GetDefaultAudioEndpoint(eCapture, eCommunications)`. When Windows assigns an instrument/line input (e.g. Rocksmith USB Guitar Adapter — a guitar/singing input, not a speech mic) as the default communications device, the recorder captured silence from it and the eConsole fallback never ran.
+- **New `ScoreMicEndpoint` helper:** rates every active capture endpoint — Headset form factor +100 (gaming headsets preferred), Microphone +60, Headphones +40, other +10; default eConsole device +20; default eCommunications +10; name-based disqualifiers (`guitar`, `rocksmith`, `instrument`, `line in`, `line-in`, `loopback`, `virtual`, `cable`, `stereo mix`, `what u hear`) −1000. The highest-scoring endpoint wins; a device must score > 0 to be eligible.
+- **`InitMicCapture` rewritten** to enumerate all active capture endpoints via `EnumAudioEndpoints`, log every candidate with its score, and activate the winner.
+- **Privacy check relocated:** the `E_ACCESSDENIED` → `ms-settings:privacy-microphone` deep-link now triggers on `Activate` (where Windows actually reports mic-privacy denial) instead of `GetDefaultAudioEndpoint`, which never returns that code.
+- **New warning:** when no suitable microphone can be established, recording proceeds without voice and logs *"Microphone Input is disabled during Screen Recordings"*.
+- Added `#include <functiondiscoverykeys_devpkey.h>` for `PKEY_Device_FriendlyName` / `PKEY_AudioEndpoint_FormFactor`.
+
+**ScreenRecorder.cpp / ScreenRecorder.h** — Second merge from TSOO the same day (mic investigation follow-ups, all verified working by the user after the root cause turned out to be a half-seated headset mic plug):
+
+- **Mic level diagnostic:** new `m_micDiagPeak` / `m_micDiagFrames` members track the pre-gain peak amplitude of the raw mic signal inside `MixMicInline`; logged every ~5 seconds as `"ScreenRecorder Mic: Level check - peak X (Y dB)"`. Distinguishes "voice reaching the endpoint" (peak > 0.05) from "noise floor only" (~0.001-0.01) and "digital silence / muted / privacy-blocked" (0.0000). This diagnostic identified the hardware fault (-61.5 dB noise floor) on the user's machine.
+- **WASAPI auto-convert mic capture:** when the mic's native format differs from the game loopback format (e.g. mic endpoint at 44100Hz vs render at 48000Hz), the mic client is now initialised with the GAME format plus `AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY`, letting WASAPI resample. Keeps mic, loopback and monitor rates locked so the inline blend stays 1:1 and mic monitoring can never be disabled by a sample-rate mismatch.
+- **ASCII-only output strings:** replaced the en-dash in the "Access denied" message and the stale monitor log text ("direct blend skipped" wording removed — the direct blend is always applied; the flag is diagnostic-only). New project rule: no non-ASCII characters in any debug/log/GUI output string (they render as mojibake in DebugLog.txt).
+- Added `#include <cmath>` for `log10f`.
+
+**Microphone volume range normalised to 0.0-1.0** (`GUIConfigWindow.cpp`, `main.cpp`; `Configuration.h`/`Configuration.cpp` already updated directly):
+
+- With device selection and capture now working correctly, the old 0-20 gain range (which existed to compensate for the broken path) is obsolete. Config window `t1_micvol` slider and clamp now 0.0-1.0.
+- NUMPAD+/- mic OSD: step 0.05 (was 0.1), clamp 1.0 (was 20.0); percentage label simplified to "(muted)" at 0% and "(max)" at 100% — removed the dead "(boosted)"/1900% thresholds from the 0-20 era.
+
+**ASCII-fied OSD/GUI labels** (`main.cpp`, `GUIConfigWindow.cpp`): music note, play, square, smiley and bullet symbols in the five volume OSD titles replaced with plain "*"; em-dash in the Key Mapping editor label replaced with "-".
+
+*See: [`ScreenRecorder.cpp`](ScreenRecorder.cpp), [`ScreenRecorder.h`](ScreenRecorder.h), [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp), [`main.cpp`](main.cpp)*
+
+**CMakeLists.txt — Fixed project-identity contamination:** `set(GAME_NAME "TSOO" ...)` corrected to `set(GAME_NAME "CPGE" ...)`. The wrong value was residue from an earlier merge accident and would have made CMake-configured CPGE builds output `DXTSOO.exe` instead of `DXCPGE.exe`. Verified consistent with `#define GAME_NAME "CPGE"` in `Includes.h` and `<GameName>CPGE</GameName>` in the vcxproj. NOTE: any existing CMake build cache still holds the old cached value; reconfigure with a fresh cache (or delete the build folder's CMakeCache.txt) for the correction to take effect.
+
+*See: [`CMakeLists.txt`](CMakeLists.txt)*
+
+#### July 07, 2026
+
+**Merged engine-level updates from TSOO** (renderer, audio, GUI and IO systems; TSOO's own `PROJECT_ONLY_CODE`-guarded game content excluded):
+
+- **Renderer.h / DX11Renderer, DX12Renderer, OpenGLRenderer, VULKAN_Renderer:** added `DrawCurve()` (quadratic bezier, Direct2D `ID2D1PathGeometry` on DX11/DX12/Vulkan-overlay, tessellated-rectangle rasterisation on OpenGL) and the default `DrawCornerCut()` helper built on it. `GetCharacterWidth()` on DX11/DX12 now returns `widthIncludingTrailingWhitespace` instead of `width`, fixing cursor-position drift whenever a measured character is a space. Removed a stray leftover `PROJECT_ONLY_CODE`-guarded portrait-image enum block from `Renderer.h`'s `BlitObj2DIndexType`.
+- **Intro-movie spacebar skip (DX11/DX12/OpenGL/Vulkan RenderFrame):** now fades out via `FXManager::FadeOutThenCallback` and stops the movie from the fade's own completion callback, instead of a hard `Stop()`-then-fade (DX11/DX12/OpenGL) or a guessed 50-frame counter (Vulkan, which also removed the now-unused `m_movieSkipFrames` member). The movie keeps playing through the fade instead of freeze-framing.
+- **GUITemplates.cpp/.h (new):** reusable `GUIWindowTemplateType` visual chrome (Tech1, QuitWindow, Swarve1, MultiSegment1, BasicCurved1) applied via `ApplyGUIWindowTemplate()` or a new optional `templateType`/`templateTitle` parameter pair on `GUIManager::CreateMyWindow()`. Wired into `CMakeLists.txt` / `Linux/CMakeLists.txt`, `GUIManager.h/.cpp`. `CreateQuitConfirmDialog()` now uses the `QuitWindow` template (removing its hand-rolled title bar) and fades in with `ApplyWindowFade`; the game menu's Quit button now opens this dialog instead of shutting down immediately.
+- **ConsoleWindow:** left/right arrow keys now move a command-line edit cursor (`OnArrowLeft`/`OnArrowRight`, wired through `GUIManager::HandleArrowLeft/HandleArrowRight` and `KBHandlersCode.cpp`'s new `KEY_ARROW_LEFT`/`KEY_ARROW_RIGHT` cases). All command-line mutation and the `RenderContent` read path now go through `m_mutex` to remove a render-thread/input-thread race. New debug-only console commands `test <template> window` / `close test window` open/close a scratch `GUIWindowTemplateType` preview window.
+- **Tracker players (ITPlayer, XMMODPlayer, S3MPlayer, MPTMPlayer, MODPlayer):** added `FadeOutAndStop(durationMs)` (fades to silence then fully resets via `Stop()`) and `SetPlaybackThreadPriority()` (defaults each playback thread to `THREAD_PRIORITY_HIGHEST` via the existing `ThreadUtils` helpers, naming each thread for profiling). `IOLoaderThread.cpp` now starts a `loader.*` track on `SCENE_GAMETITLE`/`SCENE_GAMEPLAY` entry and calls the new `FadeOutAndStop(1000)` before `Load_Music()` swaps in the scene's real track (`Play()` previously refused to start a track while one was still playing).
+- **ITPlayer specifically:** now reads the IT header's Linear/Amiga-slide, old-effects and Gxx-memory-link flags (previously hard-coded), adds a small declick fade-in/out ramp around hard note triggers/cuts, and tracks tone-portamento memory (`lastTonePortamento`) separately from portamento memory when the header requests unlinked Gxx.
+- **ScreenRecorder.cpp:** fixed two `if (cond) #if DEBUG ... #endif` statements that silently attached to the wrong following statement when `_DEBUG_SCREEN_RECORDER_` is undefined (now properly braced), moved a `wchar_t lvl[128]` declaration inside its debug-only guard, and added a missing `#endif` that had left the following `return true;` inside an unterminated debug block.
+- **Includes.h:** the "define exactly one music player" `#error` check now covers all six player defines (previously only checked XM/MP3); added the matching `+ !defined(__USE_METAL__)` arm to the default-renderer fallback; registered `tileset1.png` as `IMG_TILESET1` in `texFilename[]` to back the FXManager 2D Tile Map Scroller.
+- **main.cpp:** `g_currentMusicFile` is no longer `static` so `IOLoaderThread.cpp` can set it directly (needed by the loader-track wiring above).
+
+Excluded / preserved by design: TSOO's `GAME_NAME`/`GAME_NAME_W` ("TSOO"), `MY_WINDOW_CLASS_NAME`/`MY_WINDOW_TITLE`/`lpDEFAULT_NAME`, its active music-player selection (`__USE_XMPLAYER__`) and its `SCENE_GAMETITLE`/`SCENE_GAMEPLAY` test track filenames (`thevoid.xm`/`electro2.xm`) — CPGE keeps its own identity strings, `__USE_MODPLAYER__` selection, and placeholder `test1.mod`/`test2.mptm` filenames. `.cso` shader binaries and `Assets/`, `GameConfig.cfg`, `BuildInfo.h`, `Version.id`, `.vcxproj*`, `Except-CallStack.log` were left untouched per the standing merge rules.
+
+*See: [`Renderer.h`](Renderer.h), [`DX11Renderer.cpp`](DX11Renderer.cpp), [`DX12Renderer.cpp`](DX12Renderer.cpp), [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`GUITemplates.cpp`](GUITemplates.cpp), [`GUITemplates.h`](GUITemplates.h), [`GUIManager.cpp`](GUIManager.cpp), [`GUIWindows.cpp`](GUIWindows.cpp), [`ConsoleWindow.cpp`](ConsoleWindow.cpp), [`KBHandlersCode.cpp`](KBHandlersCode.cpp), [`ITPlayer.cpp`](ITPlayer.cpp), [`XMMODPlayer.cpp`](XMMODPlayer.cpp), [`S3MPlayer.cpp`](S3MPlayer.cpp), [`MPTMPlayer.cpp`](MPTMPlayer.cpp), [`MODPlayer.cpp`](MODPlayer.cpp), [`IOLoaderThread.cpp`](IOLoaderThread.cpp), [`ScreenRecorder.cpp`](ScreenRecorder.cpp), [`Includes.h`](Includes.h), [`main.cpp`](main.cpp)*
 
 ---
 

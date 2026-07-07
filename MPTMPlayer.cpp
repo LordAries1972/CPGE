@@ -2,6 +2,7 @@
 #include "MPTMPlayer.h"
 #include "Debug.h"
 #include "Configuration.h"
+#include "ThreadManager.h"
 
 #include <filesystem>
 #include <limits>
@@ -1044,6 +1045,25 @@ void MPTMPlayer::Shutdown() {
 
 void MPTMPlayer::Terminate() {
     isTerminating = true;
+    Stop();
+}
+
+void MPTMPlayer::FadeOutAndStop(uint32_t durationMs) {
+    if (!isPlaying) return;
+
+    SetFadeOut(durationMs);
+    auto fadeStartTime = std::chrono::high_resolution_clock::now();
+    while (fadeOutActive) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        fadeElapsedMs = static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::high_resolution_clock::now() - fadeStartTime).count());
+
+        if (fadeElapsedMs >= fadeDurationMs) {
+            fadeOutActive = false;
+            currentVolume = 0;
+        }
+    }
+
     Stop();
 }
 
@@ -2878,8 +2898,19 @@ void MPTMPlayer::GotoSequenceID(uint16_t patternSeqID) {
     SetFadeIn(1000);
 }
 
+void MPTMPlayer::SetPlaybackThreadPriority(int priority) {
+    playbackThreadPriority = priority;
+}
+
 void MPTMPlayer::PlaybackLoop() {
     using namespace std::chrono;
+
+    #if defined(PLATFORM_WINDOWS)
+        // Tracker playback must never lag; run this thread at the highest scheduling
+        // priority (or whatever the caller set via SetPlaybackThreadPriority()).
+        ThreadUtils::NameCurrentThread(L"MPTM-Playback-Thread");
+        ThreadUtils::SetPriority(playbackThreadPriority);
+    #endif
 
     // Tick advancement is now driven sample-accurately inside MixAudio (called from
     // FillAudioBuffer). This loop only needs to keep the DirectSound buffer filled and

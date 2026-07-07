@@ -254,6 +254,8 @@ public:
 
     void DrawRectangle(const Vector2& position, const Vector2& size, const MyColor& color, bool is2D) override;
     void DrawCircle(const Vector2& center, float radius, const MyColor& color, bool filled = true) override;
+    void DrawCurve(float startX, float startY, float ctrlX, float ctrlY, float endX, float endY,
+                    const MyColor& color, float thickness = 2.0f, bool is2D = true) override;
     void DrawMyText(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize) override;
     void DrawMyText(const std::wstring& text, const Vector2& position, const Vector2& size, const MyColor& color, const float FontSize) override;
     void DrawMyTextCentered(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize, float controlWidth, float controlHeight, bool bold = false) override;
@@ -431,10 +433,6 @@ private:
     // Index convention matches ModelInfo::uvWrapU/V (0=REPEAT 1=CLAMP 2=MIRROR).
     // [0][0] is unused — GetSamplerForWrap returns the default sampler for it.
     VkSampler         m_wrapSamplers[3][3] = {};
-
-    // Movie skip: spacebar triggers a fade-first, then stops playback after the fade completes.
-    // -1 = not skipping; >=0 = frame counter since fade started.
-    int               m_movieSkipFrames = -1;
 
     // ------------------------------------------
     // 2D overlay — D2D on Windows, WIC bitmap as CPU render target

@@ -159,6 +159,18 @@ struct ChannelVoice {
     uint8_t delayTicks = 0;                     // Delay countdown for EDx
     XMEvent delayedEvent{};                     // Stored delayed event
     uint8_t panning = 128;                      // Static pan value (0 = Left, 255 = Right)
+
+    // FT2 effect state (base values are what per-tick effects restore to each row)
+    float baseStep = 0.0f;                      // Base pitch step (vibrato/arpeggio restore point)
+    float targetStep = 0.0f;                    // Tone portamento (3xx/5xx) glide target
+    float fadeVolume = 32768.0f;                // Key-off fadeout level (FT2 scale 0-32768)
+    uint8_t envValue = 64;                      // Current volume envelope value (0-64)
+    uint8_t volCol = 0;                         // Volume column byte for per-tick processing
+    uint8_t portaUpMem = 0;                     // 1xx parameter memory
+    uint8_t portaDownMem = 0;                   // 2xx parameter memory
+    uint8_t portaSpeed = 0;                     // 3xx parameter memory (also volume column Fx)
+    uint8_t volSlideMem = 0;                    // Axy/5xy/6xy parameter memory
+    uint8_t vibratoMem = 0;                     // 4xy parameter memory (speed hi, depth lo)
 };
 
 struct Voice {
@@ -204,6 +216,16 @@ public:
     // this is very handy if you write multiple tunes within the one XM Module.
     void GotoSequenceID(uint16_t patternSeqID);
 
+    // Fades the currently playing module out to silence, then fully resets the
+    // playback system (Stop()) so a new module can be loaded with Play().
+    void FadeOutAndStop(uint32_t durationMs);
+
+    // Sets the OS scheduling priority applied to the playback thread (Windows
+    // THREAD_PRIORITY_* constants). Call before Play(); takes effect when
+    // PlaybackLoop() starts. Defaults to THREAD_PRIORITY_HIGHEST -- tracker
+    // playback must never be starved by other engine threads or the music slows down.
+    void SetPlaybackThreadPriority(int priority);
+
 private:
     bool bIsInitialized = false;
     // Playback position
@@ -237,6 +259,11 @@ private:
 
     // playback state, thread, etc.
     std::thread playbackThread;
+#if defined(PLATFORM_WINDOWS)
+    int playbackThreadPriority = THREAD_PRIORITY_HIGHEST;
+#else
+    int playbackThreadPriority = 0;
+#endif
     std::atomic<bool> isPlaying{ false };
     std::atomic<bool> isPaused{ false };
     std::atomic<bool> isTerminating{ false };
@@ -268,6 +295,9 @@ private:
     void ApplyTickEffects_VolumeSlide(ChannelVoice& voice);
     void ApplyTickEffects_TonePortamento(ChannelVoice& voice);
     void ApplyTickEffects_Vibrato(ChannelVoice& voice);
+    void TriggerNote(ChannelVoice& voice, const XMEvent& ev);
+    void ReleaseVoice(ChannelVoice& voice);
+    void UpdateEnvelopes();
 
 };
 

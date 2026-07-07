@@ -331,6 +331,8 @@ public:
     // Base class overrides
     void DrawRectangle(const Vector2& position, const Vector2& size, const MyColor& color, bool is2D) override; // Render filled rectangle
     void DrawCircle(const Vector2& center, float radius, const MyColor& color, bool filled = true) override;
+    void DrawCurve(float startX, float startY, float ctrlX, float ctrlY, float endX, float endY,
+                    const MyColor& color, float thickness = 2.0f, bool is2D = true) override;
     void DrawMyText(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize) override; // Render text string
     void DrawMyText(const std::wstring& text, const Vector2& position, const Vector2& size, const MyColor& color, const float FontSize) override; // Render text in bounds
     void DrawMyTextWithFont(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize, const std::wstring& fontName); // Render text with specific font

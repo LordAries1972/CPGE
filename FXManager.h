@@ -356,6 +356,15 @@ struct ZoomData {
     ZoomData() = default;
 };
 
+// =========================================================================================
+// PixelFaderData -- Pixel Fader FX state (overlay-block dissolve)
+// =========================================================================================
+struct PixelFaderData {
+    std::vector<int> dissolveOrder;                                            // Shuffled block indices, built once at FX start
+    int              gridCols = 0;
+    int              gridRows = 0;
+};
+
 struct ImageFadeStrobeData {
     BlitObj2DIndexType imageType      = BlitObj2DIndexType::NONE;
     float              fadeOutTarget  = 0.0f;
@@ -451,6 +460,7 @@ struct FXItem {
     ImageFadeStrobeData  imageFadeStrobeData;
     TileMapData          tileMapData;
     Starfield2DData      starfield2DData;
+    PixelFaderData       pixelFaderData;
 };
 
 struct ScrollTween {
@@ -737,6 +747,12 @@ public:
     float GetImageFadeStrobeAlpha(BlitObj2DIndexType type) const;
     void  RenderImageFadeStrobe(BlitObj2DIndexType type, int x, int y, int w, int h);
 
+    // ---- Pixel Fader (randomised pixel-block dissolve overlay) ----
+    int  StartPixelFader(BlitObj2DIndexType imageType, int x, int y, int width, int height,
+                         int pixelSize, float duration, XMFLOAT4 revealColor,
+                         std::function<void()> onComplete = nullptr);
+    void StopPixelFader(int effectID);
+
     // ---- 2D Tile Map Scroller ----
     // mapData may be nullptr if filename is supplied (map is loaded from disk instead);
     // exactly one of the two must be provided. Returns the new effect's fxID, or -1 on failure.
@@ -791,7 +807,8 @@ public:
                         int link2DImg = -1,
                         int destX = 0, int destY = 0, int destW = 0, int destH = 0);
     void StartZoom(float speed);
-    void StopZooming();
+    void StopZooming(bool immediate = false);
+    void StopZoomingImage(int imgID, bool immediate = false);
     bool  IsImageZoomActive(int imgID) const;
     void  RenderZoomedImage(int imgID, int destX, int destY, int destW, int destH);
     float GetCurrent3DZoomFactor() const;
@@ -825,6 +842,7 @@ private:
     void UpdateFireworks(FXItem& fx);
     void DrawFireworksPixels(FXItem& fx);
     void UpdateImageFadeStrobe(FXItem& fx, float deltaTime);
+    void UpdatePixelFader(FXItem& fx);
     bool LoadTileMapFromFile(const std::wstring& filename, int mapWidth, int mapHeight, std::vector<uint32_t>& outMapData);
     void RenderTileMapScroller(FXItem& fx);
     void UpdateStarfield2D(FXItem& fx, float deltaTime);

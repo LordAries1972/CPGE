@@ -915,8 +915,8 @@ static void CreateFileDialogImpl(GUIManager* mgr,
 
     // =======================================================================
     // KEYBOARD ROUTING
-    // Char input and backspace route to the focused TextInput (filename field).
-    // Enter key fires the Confirm action.
+    // Char input, backspace, and left/right arrow route to the focused
+    // TextInput (filename field). Enter key fires the Confirm action.
     // =======================================================================
     win->onCharInput = [weakWin](wchar_t ch) {
         auto win2 = weakWin.lock();
@@ -941,6 +941,28 @@ static void CreateFileDialogImpl(GUIManager* mgr,
                 --ctrl.cursorPos;
                 if (ctrl.onTextChanged) ctrl.onTextChanged(ctrl.inputText);
             }
+            return;
+        }
+    };
+
+    win->onArrowLeft = [weakWin]() {
+        auto win2 = weakWin.lock();
+        if (!win2) return;
+        for (auto& ctrl : win2->controls) {
+            if (ctrl.type != GUIControlType::TextInput || !ctrl.isFocused) continue;
+            if (ctrl.cursorPos > 0)
+                --ctrl.cursorPos;
+            return;
+        }
+    };
+
+    win->onArrowRight = [weakWin]() {
+        auto win2 = weakWin.lock();
+        if (!win2) return;
+        for (auto& ctrl : win2->controls) {
+            if (ctrl.type != GUIControlType::TextInput || !ctrl.isFocused) continue;
+            if (ctrl.cursorPos < static_cast<int>(ctrl.inputText.size()))
+                ++ctrl.cursorPos;
             return;
         }
     };

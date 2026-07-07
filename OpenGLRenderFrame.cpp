@@ -566,12 +566,17 @@ inline void OpenGLRenderer::RenderIntroMovie()
         }
     }
 
-    // Spacebar to skip movie — only active in SCENE_INTRO_MOVIE, not the splash SCENE_INTRO
-    if (scene.stSceneType == SceneType::SCENE_INTRO_MOVIE && (GetAsyncKeyState(' ') & 0x8000))
+    // Spacebar skip — identical across all four renderers: the movie keeps playing
+    // through the fade (no jarring freeze-frame cut) and is only stopped once
+    // FadeOutThenCallback's own completion callback fires, so the fade duration
+    // (1.0s) is the single source of truth instead of an immediate hard cut.
+    // Only active in SCENE_INTRO_MOVIE, not the splash SCENE_INTRO.
+    if (scene.stSceneType == SceneType::SCENE_INTRO_MOVIE && (GetAsyncKeyState(' ') & 0x8000) && !scene.bSceneSwitching)
     {
-        moviePlayer.Stop();
         scene.bSceneSwitching = true;
-        fxManager.FadeToBlack(1.0f, 0.06f);
+        fxManager.FadeOutThenCallback(XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f), 1.0f, 0.06f, []() {
+            moviePlayer.Stop();
+        });
     }
 #endif
 }

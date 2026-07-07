@@ -68,7 +68,8 @@ bool Configuration::loadConfig() {
         myConfig.moveSensitivity = j["moveSensitivity"];
         myConfig.joystickSensitivity = j.value("joystickSensitivity", 0.01);
         myConfig.joystickRotationSensitivity = j.value("joystickRotationSensitivity", 0.001);
-        myConfig.microphoneVolume = j.value("microphoneVolume", 10.0);
+        // Clamp to the 0.0 - 1.0 mic gain range (older configs stored up to 20.0)
+        myConfig.microphoneVolume = std::clamp(j.value("microphoneVolume", 0.8), 0.0, 1.0);
         myConfig.TTSVolume = j["TTSVolume"];
         myConfig.UseTTS = j["UseTTS"];
         myConfig.displayMode      = j.value("displayMode",      2);

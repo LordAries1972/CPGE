@@ -1668,9 +1668,13 @@ std::vector<int> MyRandomizer::GetShuffledSequence(int start, int end) {
             sequence.push_back(i);
         }
 
-        // Shuffle the sequence using Fisher-Yates algorithm
+        // Shuffle the sequence using Fisher-Yates algorithm.
+        // GetRandNum(int,int) enforces startRange >= 1 (ValidateIntegerRange), so a direct
+        // GetRandNum(0, i) call always fails validation and silently returns 0 -- every swap
+        // becomes swap(seq[i], seq[0]), a deterministic sweep rather than a real shuffle.
+        // Request the 1-based range [1, i+1] and shift back down to land in [0, i].
         for (int i = rangeSize - 1; i > 0; --i) {
-            int randomIndex = GetRandNum(0, i);
+            int randomIndex = GetRandNum(1, i + 1) - 1;
             std::swap(sequence[i], sequence[randomIndex]);
         }
 

@@ -1020,15 +1020,17 @@ inline void DX11Renderer::RenderIntroMovie()
                 Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - halfH, halfW, halfH);
         }
 
-        // Check for spacebar input to skip movie — only in SCENE_INTRO_MOVIE, not splash SCENE_INTRO
-        if (scene.stSceneType == SceneType::SCENE_INTRO_MOVIE && (GetAsyncKeyState(' ') & 0x8000))
+        // Spacebar skip — identical across all four renderers: the movie keeps playing
+        // through the fade (no jarring freeze-frame cut) and is only stopped once
+        // FadeOutThenCallback's own completion callback fires, so the fade duration
+        // (1.0s) is the single source of truth instead of an immediate hard cut.
+        // Only in SCENE_INTRO_MOVIE, not splash SCENE_INTRO.
+        if (scene.stSceneType == SceneType::SCENE_INTRO_MOVIE && (GetAsyncKeyState(' ') & 0x8000) && !scene.bSceneSwitching)
         {
-            // Stop movie playback to trigger scene transition
-            moviePlayer.Stop();
-            // Flag scene transition
             scene.bSceneSwitching = true;
-            // Start fade effect
-            fxManager.FadeToBlack(1.0f, 0.06f);
+            fxManager.FadeOutThenCallback(XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f), 1.0f, 0.06f, []() {
+                moviePlayer.Stop();
+            });
         }
     }
 }
@@ -1098,10 +1100,13 @@ void DX11Renderer::RenderBackgroundImage()
             else
             {
                 if (m_d2dTextures[int(BlitObj2DIndexType::IMG_LOADING)]) {
-                    if (threadManager.threadVars.bInitiateFader.load()) {
+                    // Consume (but no longer act on) the legacy black-fade-in trigger --
+                    // the end-of-load pixel fader (FXManager::StartPixelFader, started from
+                    // IOLoaderThread.cpp) now owns the loading-screen reveal/dissolve. Still
+                    // calling FadeToImage() here raced a competing black overlay on top of
+                    // (and hiding) the very start of the pixel dissolve.
+                    if (threadManager.threadVars.bInitiateFader.load())
                         threadManager.threadVars.bInitiateFader.store(false);
-                        fxManager.FadeToImage(1.0f, 0.1f);
-                    }
                     if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_LOADING)))
                         fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_LOADING), 0, 0, iOrigWidth, iOrigHeight);
                     else
@@ -1116,10 +1121,9 @@ void DX11Renderer::RenderBackgroundImage()
             if (!threadManager.threadVars.bLoaderTaskFinished.load())
             {
                 if (m_d2dTextures[int(BlitObj2DIndexType::IMG_LOADING)]) {
-                    if (threadManager.threadVars.bInitiateFader.load()) {
+                    // See the matching comment in the SCENE_GAMETITLE case above.
+                    if (threadManager.threadVars.bInitiateFader.load())
                         threadManager.threadVars.bInitiateFader.store(false);
-                        fxManager.FadeToImage(1.0f, 0.1f);
-                    }
                     if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_LOADING)))
                         fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_LOADING), 0, 0, iOrigWidth, iOrigHeight);
                     else

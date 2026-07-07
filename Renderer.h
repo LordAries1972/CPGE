@@ -236,27 +236,6 @@ enum class BlitObj2DIndexType : int {
     // Blit2DAtlasTile()'s tileIndex parameter (row-major, tiles-per-row
     // derived from the atlas bitmap width / tile width).
     IMG_TILESET1 = 20,
-
-    // Portrait indices — TSOO project only (guarded so CPGE
-    // engine never sees these as the project works side-by-side
-    // with the engine code base - Merging filters this out to
-    // the CPGE Base Project!)
-    #if defined(PROJECT_ONLY_CODE)
-        IMG_PM1 = 21,
-        IMG_PF1 = 22,
-        IMG_PM2 = 23,
-        IMG_PF2 = 24,
-        IMG_PM3 = 25,
-        IMG_PF3 = 26,
-        IMG_PM4 = 27,
-        IMG_PF4 = 28,
-        IMG_PM5 = 29,
-        IMG_PF5 = 30,
-        IMG_PM6 = 31,
-        IMG_PF6 = 32,
-        IMG_PM7 = 33,
-        IMG_PF7 = 34,
-    #endif
 };
 
 struct BlitObj2DDetails
@@ -568,6 +547,24 @@ public:
     // Primitive Drawing Functions
     virtual void DrawRectangle(const Vector2& position, const Vector2& size, const MyColor& color, bool is2D) = 0;
     virtual void DrawCircle(const Vector2& center, float radius, const MyColor& color, bool filled = true) = 0;
+    // Quadratic bezier curve from (startX,startY) to (endX,endY) bowed through (ctrlX,ctrlY).
+    virtual void DrawCurve(float startX, float startY, float ctrlX, float ctrlY, float endX, float endY,
+                           const MyColor& color, float thickness = 2.0f, bool is2D = true) = 0;
+
+    // Straight line between two points — GUITemplates use it to chamfer a square corner by
+    // 45 degrees (caller picks a start/end pair with equal x/y offsets from the corner for a
+    // true 45-degree cut; any other pair just draws a straight edge cut between the two points).
+    // Implemented once here rather than per-backend: a quadratic bezier whose control point
+    // lies exactly on the line between its endpoints degenerates back into that same straight
+    // line, so this can delegate to the already-backend-implemented DrawCurve with zero loss
+    // of accuracy — there's no approximation involved, unlike a general curve.
+    virtual void DrawCornerCut(float startX, float startY, float endX, float endY,
+                               const MyColor& color, float thickness = 2.0f, bool is2D = true)
+    {
+        const float midX = (startX + endX) * 0.5f;
+        const float midY = (startY + endY) * 0.5f;
+        DrawCurve(startX, startY, midX, midY, endX, endY, color, thickness, is2D);
+    }
     virtual void DrawMyText(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize) = 0;
     virtual void DrawMyText(const std::wstring& text, const Vector2& position, const Vector2& size, const MyColor& color, const float FontSize) = 0;
     virtual void DrawTexture(int textureId, const Vector2& position, const Vector2& size, const MyColor& tintColor, bool is2D) = 0;

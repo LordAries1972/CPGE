@@ -2833,6 +2833,45 @@ void VulkanRenderer::DrawCircle(const Vector2& center, float radius, const MyCol
 #endif
 }
 
+void VulkanRenderer::DrawCurve(float startX, float startY, float ctrlX, float ctrlY, float endX, float endY,
+                                const MyColor& color, float thickness, bool is2D) {
+#if defined(PLATFORM_WINDOWS)
+    if (!is2D || !m_d2dRenderTarget || !m_d2dFactory) return;
+
+    ComPtr<ID2D1PathGeometry> pathGeometry;
+    if (FAILED(m_d2dFactory->CreatePathGeometry(&pathGeometry)) || !pathGeometry) return;
+
+    ComPtr<ID2D1GeometrySink> sink;
+    if (FAILED(pathGeometry->Open(&sink)) || !sink) return;
+
+    // AddBezier only takes a cubic segment, so lift the quadratic control point to the
+    // equivalent cubic control points (standard degree-elevation formula).
+    const D2D1_POINT_2F p0 = D2D1::Point2F(startX, startY);
+    const D2D1_POINT_2F p2 = D2D1::Point2F(endX, endY);
+    const D2D1_POINT_2F c  = D2D1::Point2F(ctrlX, ctrlY);
+    D2D1_BEZIER_SEGMENT seg;
+    seg.point1 = D2D1::Point2F(p0.x + (2.0f / 3.0f) * (c.x - p0.x), p0.y + (2.0f / 3.0f) * (c.y - p0.y));
+    seg.point2 = D2D1::Point2F(p2.x + (2.0f / 3.0f) * (c.x - p2.x), p2.y + (2.0f / 3.0f) * (c.y - p2.y));
+    seg.point3 = p2;
+
+    sink->BeginFigure(p0, D2D1_FIGURE_BEGIN_HOLLOW);
+    sink->AddBezier(seg);
+    sink->EndFigure(D2D1_FIGURE_END_OPEN);
+    if (FAILED(sink->Close())) return;
+
+    float fr = color.r / 255.0f, fg = color.g / 255.0f, fb = color.b / 255.0f, fa = color.a / 255.0f;
+    ComPtr<ID2D1SolidColorBrush> brush;
+    m_d2dRenderTarget->CreateSolidColorBrush(D2D1::ColorF(fr, fg, fb, fa), &brush);
+    if (!brush) return;
+
+    m_d2dRenderTarget->DrawGeometry(pathGeometry.Get(), brush.Get(), thickness);
+    m_overlayDirty = true;
+#else
+    (void)startX; (void)startY; (void)ctrlX; (void)ctrlY; (void)endX; (void)endY;
+    (void)color; (void)thickness; (void)is2D;
+#endif
+}
+
 void VulkanRenderer::PushClipRect(float x, float y, float w, float h) {
 #if defined(PLATFORM_WINDOWS)
     if (!m_d2dRenderTarget) return;
@@ -3483,10 +3522,10 @@ void VulkanRenderer::RenderBackgroundImage()
                 // Loading screen: no 3D models render while the loader is in progress,
                 // so the fullscreen loading image can safely go through the D2D overlay.
                 if (m_d2dTextures[int(BlitObj2DIndexType::IMG_LOADING)]) {
-                    if (threadManager.threadVars.bInitiateFader.load()) {
+                    // Consume (but no longer act on) the legacy black-fade-in trigger --
+                    // the end-of-load pixel fader now owns the loading-screen reveal.
+                    if (threadManager.threadVars.bInitiateFader.load())
                         threadManager.threadVars.bInitiateFader.store(false);
-                        fxManager.FadeToImage(1.0f, 0.1f);
-                    }
                     Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
                 }
             }
@@ -3498,10 +3537,10 @@ void VulkanRenderer::RenderBackgroundImage()
             if (!threadManager.threadVars.bLoaderTaskFinished.load())
             {
                 if (m_d2dTextures[int(BlitObj2DIndexType::IMG_LOADING)]) {
-                    if (threadManager.threadVars.bInitiateFader.load()) {
+                    // Consume (but no longer act on) the legacy black-fade-in trigger --
+                    // the end-of-load pixel fader now owns the loading-screen reveal.
+                    if (threadManager.threadVars.bInitiateFader.load())
                         threadManager.threadVars.bInitiateFader.store(false);
-                        fxManager.FadeToImage(1.0f, 0.1f);
-                    }
                     Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
                 }
             }

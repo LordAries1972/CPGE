@@ -17,6 +17,27 @@ extern ThreadManager threadManager;
 // Global instance — referenced as extern ConsoleWindow consoleWindow in consuming files.
 ConsoleWindow consoleWindow;
 
+namespace {
+
+// Prefix used to name windows opened via "test <template> window" so
+// "close test window" can find and remove exactly those windows.
+const std::string TEST_WINDOW_NAME_PREFIX = "TestWindow_";
+
+// Maps a lowercased template name (as typed in "test <name> window") to its
+// GUIWindowTemplateType. Returns false when the name doesn't match any known template.
+bool ParseGUIWindowTemplateName(const std::wstring& lowerName, GUIWindowTemplateType& outType)
+{
+    if (lowerName == L"none")          { outType = GUIWindowTemplateType::None;          return true; }
+    if (lowerName == L"tech1")         { outType = GUIWindowTemplateType::Tech1;         return true; }
+    if (lowerName == L"quitwindow")    { outType = GUIWindowTemplateType::QuitWindow;    return true; }
+    if (lowerName == L"swarve1")       { outType = GUIWindowTemplateType::Swarve1;       return true; }
+    if (lowerName == L"multisegment1") { outType = GUIWindowTemplateType::MultiSegment1; return true; }
+    if (lowerName == L"basiccurved1")  { outType = GUIWindowTemplateType::BasicCurved1;  return true; }
+    return false;
+}
+
+} // anonymous namespace
+
 // ---------------------------------------------------------------------------
 // CreateInGUIManager
 // ---------------------------------------------------------------------------
@@ -66,6 +87,14 @@ void ConsoleWindow::CreateInGUIManager(GUIManager& gm)
 
     win->onEnter = [this]() {
         OnEnter();
+    };
+
+    win->onArrowLeft = [this]() {
+        OnArrowLeft();
+    };
+
+    win->onArrowRight = [this]() {
+        OnArrowRight();
     };
 
     win->onMouseWheel = [this](int delta) {
@@ -152,11 +181,17 @@ void ConsoleWindow::SetCommandCallback(std::function<void(const std::wstring&)> 
 // ---------------------------------------------------------------------------
 // Private keyboard / wheel callbacks
 // ---------------------------------------------------------------------------
+// m_cmdLine / m_cursorPos are read by RenderContent on the render thread while these
+// handlers mutate them on the input thread — all access goes through m_mutex (the same
+// lock RenderContent already takes for m_buffer) to avoid a torn read mid-mutation.
 void ConsoleWindow::OnCharInput(wchar_t c)
 {
     if (!bIsVisible) return;
     if (c >= 32 && c != 127) {
-        m_cmdLine       += c;
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_cursorPos = std::clamp(m_cursorPos, 0, static_cast<int>(m_cmdLine.size()));
+        m_cmdLine.insert(m_cmdLine.begin() + m_cursorPos, c);
+        ++m_cursorPos;
         // Keep cursor visible while the user is actively typing.
         m_cursorVisible  = true;
         m_lastCursorFlip = std::chrono::steady_clock::now();
@@ -165,8 +200,11 @@ void ConsoleWindow::OnCharInput(wchar_t c)
 
 void ConsoleWindow::OnBackspace()
 {
-    if (!bIsVisible || m_cmdLine.empty()) return;
-    m_cmdLine.pop_back();
+    if (!bIsVisible) return;
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_cmdLine.empty() || m_cursorPos <= 0) return;
+    m_cmdLine.erase(m_cmdLine.begin() + m_cursorPos - 1);
+    --m_cursorPos;
     // Keep cursor visible while the user is actively editing.
     m_cursorVisible  = true;
     m_lastCursorFlip = std::chrono::steady_clock::now();
@@ -174,10 +212,40 @@ void ConsoleWindow::OnBackspace()
 
 void ConsoleWindow::OnEnter()
 {
-    if (!bIsVisible || m_cmdLine.empty()) return;
-    AddLine(L"> " + m_cmdLine);
-    ProcessCommand(m_cmdLine);
-    m_cmdLine.clear();
+    // Snapshot-and-clear the command line before processing it: some commands (e.g.
+    // "test <template> window") do real work — creating windows, adding controls — which
+    // can take long enough for the render thread to read m_cmdLine/m_cursorPos mid-command
+    // if they're left holding the just-submitted text. Clearing first closes that window.
+    std::wstring submitted;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (!bIsVisible || m_cmdLine.empty()) return;
+        submitted = m_cmdLine;
+        m_cmdLine.clear();
+        m_cursorPos = 0;
+    }
+    AddLine(L"> " + submitted);
+    ProcessCommand(submitted);
+}
+
+void ConsoleWindow::OnArrowLeft()
+{
+    if (!bIsVisible) return;
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_cursorPos <= 0) return;
+    --m_cursorPos;
+    m_cursorVisible  = true;
+    m_lastCursorFlip = std::chrono::steady_clock::now();
+}
+
+void ConsoleWindow::OnArrowRight()
+{
+    if (!bIsVisible) return;
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_cursorPos >= static_cast<int>(m_cmdLine.size())) return;
+    ++m_cursorPos;
+    m_cursorVisible  = true;
+    m_lastCursorFlip = std::chrono::steady_clock::now();
 }
 
 void ConsoleWindow::OnMouseWheel(int delta)
@@ -230,6 +298,100 @@ void ConsoleWindow::ProcessCommand(const std::wstring& raw)
     // DEBUG-only built-in commands — stripped from Release builds entirely.
     // -----------------------------------------------------------------------
 #if defined(_DEBUG)
+    // --- Built-in (DEBUG): test <template> window ---
+    // Opens a GUIWindow using the named GUIWindowTemplateType so its chrome can be
+    // eyeballed without wiring it into real game UI. Re-running with the same
+    // template replaces the previously opened test window for that template.
+    if (lower.rfind(L"test ", 0) == 0 && lower.size() > 5 + 7 &&
+        lower.compare(lower.size() - 7, 7, L" window") == 0) {
+        const std::wstring templateNameLower = lower.substr(5, lower.size() - 5 - 7);
+
+        GUIWindowTemplateType templateType;
+        if (!ParseGUIWindowTemplateName(templateNameLower, templateType)) {
+            AddLine(L"test " + templateNameLower + L" window: unknown GUI template \"" + templateNameLower + L"\".",
+                    ConsoleLineColor::Warning);
+            return;
+        }
+        if (!m_guiMgr) {
+            AddLine(L"test window: GUIManager is not available.", ConsoleLineColor::Warning);
+            return;
+        }
+
+        const std::string windowName = TEST_WINDOW_NAME_PREFIX + std::string(templateNameLower.begin(), templateNameLower.end());
+        if (m_guiMgr->GetWindow(windowName))
+            m_guiMgr->RemoveWindow(windowName);
+
+        m_guiMgr->CreateMyWindow(
+            windowName,
+            GUIWindowType::Dialog,
+            Vector2(200.0f, 150.0f),
+            Vector2(400.0f, 300.0f),
+            MyColor(0, 0, 0, 0),
+            -1,
+            templateType,
+            templateNameLower);
+
+        // Close button, top-right — margin is larger than the codebase's usual 4px so it
+        // clears rounded-corner templates (e.g. BasicCurved1) and any title-bar caption text.
+        auto testWin = m_guiMgr->GetWindow(windowName);
+        if (testWin) {
+            constexpr float kCloseButtonMargin = 10.0f;
+
+            // Plain drawn button — no texture/image, just a solid-colour box with an "X" label.
+            GUIControl btnClose;
+            btnClose.type        = GUIControlType::Button;
+            btnClose.position    = Vector2((testWin->position.x + testWin->size.x) - (CLOSEWINBUTTON_SIZE + kCloseButtonMargin),
+                                            testWin->position.y + kCloseButtonMargin);
+            btnClose.size        = Vector2(CLOSEWINBUTTON_SIZE, CLOSEWINBUTTON_SIZE);
+            btnClose.bgColor     = MyColor(120, 0, 0, 255);
+            btnClose.hoverColor  = MyColor(180, 30, 30, 255);
+            btnClose.txtColor    = MyColor(240, 240, 240, 255);
+            btnClose.label       = L"X";
+            btnClose.lblFontSize = 10.0f;
+            btnClose.bold        = true;
+            btnClose.isVisible   = true;
+
+            GUIManager* guiMgr = m_guiMgr;
+            btnClose.onMouseBtnDown = [guiMgr, windowName]() {
+                if (guiMgr) guiMgr->RemoveWindow(windowName);
+            };
+            testWin->AddControl(btnClose);
+            testWin->isVisible = true;
+        }
+
+        AddLine(L"Opened test window for template \"" + templateNameLower + L"\".");
+        return;
+    }
+
+    // --- Built-in (DEBUG): test window (no template name given) ---
+    if (lower == L"test window") {
+        AddLine(L"test window: usage is \"test <template> window\", e.g. \"test Tech1 window\".",
+                ConsoleLineColor::Warning);
+        return;
+    }
+
+    // --- Built-in (DEBUG): close test window ---
+    // Closes every window previously opened via "test <template> window".
+    if (lower == L"close test window") {
+        if (!m_guiMgr) {
+            AddLine(L"close test window: GUIManager is not available.", ConsoleLineColor::Warning);
+            return;
+        }
+
+        std::vector<std::string> testWindowNames;
+        for (const auto& kv : m_guiMgr->windows) {
+            if (kv.first.rfind(TEST_WINDOW_NAME_PREFIX, 0) == 0)
+                testWindowNames.push_back(kv.first);
+        }
+        for (const auto& name : testWindowNames)
+            m_guiMgr->RemoveWindow(name);
+
+        AddLine(testWindowNames.empty()
+            ? L"close test window: no test windows were open."
+            : L"Closed " + std::to_wstring(testWindowNames.size()) + L" test window(s).");
+        return;
+    }
+
     // --- Built-in (DEBUG): test load dialog ---
     // Creates a GUIWindows Load Dialog and verifies it can be opened and closed.
     if (lower == L"test load dialog") {
@@ -658,8 +820,31 @@ void ConsoleWindow::RenderContent(Renderer* r)
     DrawRaisedPanel(contentX, cmdBarY, winW, cmdBarH, MyColor(16, 22, 42, 235));
 
     const float cmdTextY = cmdBarY + (cmdBarH - fontSize) * 0.5f - 1.0f;
-    r->DrawMyText(L"> " + m_cmdLine + (m_cursorVisible ? L"_" : L""),
-                  Vector2(contentX + CONSOLE_PADDING, cmdTextY),
+    const float cmdTextX = contentX + CONSOLE_PADDING;
+
+    // Snapshot under lock — OnCharInput/OnBackspace/OnEnter/etc. mutate m_cmdLine and
+    // m_cursorPos from the input thread, so reading the live members piecemeal here risked
+    // indexing a string that shrank between the size check and the character loop below.
+    std::wstring cmdLineSnapshot;
+    int cursorPosSnapshot = 0;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        cmdLineSnapshot   = m_cmdLine;
+        cursorPosSnapshot = m_cursorPos;
+    }
+
+    r->DrawMyText(L"> " + cmdLineSnapshot,
+                  Vector2(cmdTextX, cmdTextY),
                   MyColor(160, 220, 160, 255),
                   fontSize);
+
+    if (m_cursorVisible) {
+        // Sum character widths up to the cursor (prefixed by "> ") for precise placement.
+        float cursorOffX = r->GetCharacterWidth(L'>', fontSize) + r->GetCharacterWidth(L' ', fontSize);
+        const int limit = std::clamp(cursorPosSnapshot, 0, static_cast<int>(cmdLineSnapshot.size()));
+        for (int ci = 0; ci < limit; ++ci)
+            cursorOffX += r->GetCharacterWidth(cmdLineSnapshot[ci], fontSize);
+        r->DrawMyText(L"_", Vector2(cmdTextX + cursorOffX, cmdTextY),
+                      MyColor(160, 220, 160, 255), fontSize);
+    }
 }

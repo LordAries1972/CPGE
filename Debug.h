@@ -22,7 +22,8 @@
 //#define NO_DEBUGFILE_OUTPUT
 //#define _DEBUG_XMPlayer_                                                // Define this line, to show all debug output to runtime console for the XMMODPlayer class.
 //#define _DEBUG_CONFIGURATION_
-//#define _DEBUG_SOUNDMANAGER_
+#define _DEBUG_XMLPARSER_                                               // Define this line, to whow all debug output to runtime console for the XMLParser class.
+//#define _DEBUG_SOUNDMANAGER_                                          
 #define _DEBUG_SCENEMANAGER_                                            // Define this line, to show all debug output to runtime console for the SceneManager class.
 
 #if defined(_DEBUG_SCENEMANAGER_)
@@ -34,6 +35,7 @@
 
 //#define _DEBUG_NETWORKMANAGER_                                          // Define this line, to show all debug output to runtime console for the NetworkManager class.
 //#define _DEBUG_GAMINGAI_                                                // Define this line, to show all debug output for the GamingAI class.
+//#define _DEBUG_SCREEN_RECORDER_                                              // Define this line, to show all debug output for the ScreenRecorder class.
 //#define _DEBUG_PUNPACK_                                                 // Define this line, to show all debug output for the PUNPuck class.
 //#define _DEBUG_GAMEPLAYER_                                              // Define this line, to show all debug output for the GamePlayer class.
 //#define _DEBUG_PHYSICS_                                                 // Define this line, to show all debug output for the Physics class.
@@ -84,7 +86,7 @@
 // VULKAN Debug flags.
 // ----------------------------------------------------------------------------------------------
 #if defined(__USE_VULKAN__)
-    #define _DEBUG_VULKANRENDERER_                                          // Define this line, to show all debug output for the VulkanRenderer class.
+//    #define _DEBUG_VULKANRENDERER_                                          // Define this line, to show all debug output for the VulkanRenderer class.
 #endif // end of VULKAN Debug flags 
 
 // ----------------------------------------------------------------------------------------------

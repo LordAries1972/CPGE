@@ -15,8 +15,6 @@
 #include "Debug.h"
 #include <shellapi.h>
 #include <mmreg.h>
-#include <functiondiscoverykeys_devpkey.h>   // PKEY_Device_FriendlyName / PKEY_AudioEndpoint_FormFactor
-#include <cmath>                              // log10f - mic level diagnostic
 
 #pragma comment(lib, "shell32.lib")
 
@@ -55,7 +53,6 @@ ScreenRecorder::ScreenRecorder()
     , m_pMicAudioClient(nullptr), m_pMicCaptureClient(nullptr), m_pMicWaveFormat(nullptr)
     , m_micAccumRead(0)
     , m_micDataLogged(false)
-    , m_micDiagPeak(0.0f), m_micDiagFrames(0)
     , m_micStreamIndex(0), m_micAudioTimestamp(0)
     , m_pMonitorAudioClient(nullptr), m_pMonitorRenderClient(nullptr)
     , m_pMonitorFormat(nullptr), m_monitorBufferFrames(0)
@@ -88,10 +85,8 @@ bool ScreenRecorder::StartRecording(UINT width, UINT height,
     UINT32 fpsVal = static_cast<UINT32>(fps);
     if (fpsVal != 30 && fpsVal != 60 && fpsVal != 120)
     {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING,
-                L"ScreenRecorder: Unsupported fps " + std::to_wstring(fpsVal) + L" - defaulting to 60fps");
-        #endif
+        debug.logLevelMessage(LogLevel::LOG_WARNING,
+            L"ScreenRecorder: Unsupported fps " + std::to_wstring(fpsVal) + L" – defaulting to 60fps");
         fpsVal = 60; fps = RecordFPS::FPS_60;
     }
 
@@ -108,8 +103,6 @@ bool ScreenRecorder::StartRecording(UINT width, UINT height,
     m_micAccum.clear();
     m_micAccumRead        = 0;
     m_micDataLogged       = false;
-    m_micDiagPeak         = 0.0f;
-    m_micDiagFrames       = 0;
 
     // 1. Sink writer
     IMFAttributes* pAttribs = nullptr;
@@ -123,10 +116,8 @@ bool ScreenRecorder::StartRecording(UINT width, UINT height,
     if (pAttribs) { pAttribs->Release(); pAttribs = nullptr; }
     if (FAILED(hr))
     {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR,
-                L"ScreenRecorder: MFCreateSinkWriterFromURL failed (" + HRStr(hr) + L")");
-        #endif
+        debug.logLevelMessage(LogLevel::LOG_ERROR,
+            L"ScreenRecorder: MFCreateSinkWriterFromURL failed (" + HRStr(hr) + L")");
         return false;
     }
 
@@ -145,9 +136,7 @@ bool ScreenRecorder::StartRecording(UINT width, UINT height,
         if (pOut) pOut->Release();
         if (FAILED(hr))
         {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
             debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder: Failed to add H.264 stream (" + HRStr(hr) + L")");
-        #endif
             m_pSinkWriter->Release(); m_pSinkWriter = nullptr; return false;
         }
     }
@@ -166,9 +155,7 @@ bool ScreenRecorder::StartRecording(UINT width, UINT height,
         if (pIn) pIn->Release();
         if (FAILED(hr))
         {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
             debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder: Failed to set ARGB32 input (" + HRStr(hr) + L")");
-        #endif
             m_pSinkWriter->Release(); m_pSinkWriter = nullptr; return false;
         }
     }
@@ -176,11 +163,7 @@ bool ScreenRecorder::StartRecording(UINT width, UINT height,
     // 4. Game audio
     bool hasAudio = InitAudioCapture();
     if (!hasAudio)
-    {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"ScreenRecorder: Game audio unavailable");
-        #endif
-    }
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"ScreenRecorder: Game audio unavailable");
 
     // 5. Mic
     bool hasMic = false;
@@ -188,24 +171,18 @@ bool ScreenRecorder::StartRecording(UINT width, UINT height,
     {
         hasMic = InitMicCapture();
         if (!hasMic)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Microphone Input is disabled during Screen Recordings");
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"ScreenRecorder: Mic unavailable");
     }
 
-    // 6. Mic monitoring - render mic audio to speakers in real-time
+    // 6. Mic monitoring — render mic audio to speakers in real-time
     if (hasMic && !InitMonitor())
-    {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"ScreenRecorder: Mic monitoring unavailable");
-        #endif
-    }
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"ScreenRecorder: Mic monitoring unavailable");
 
     // 7. Begin writing
     hr = m_pSinkWriter->BeginWriting();
     if (FAILED(hr))
     {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder: BeginWriting failed (" + HRStr(hr) + L")");
-        #endif
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder: BeginWriting failed (" + HRStr(hr) + L")");
         CleanupAudio(); CleanupMic();
         m_pSinkWriter->Release(); m_pSinkWriter = nullptr; return false;
     }
@@ -218,7 +195,7 @@ bool ScreenRecorder::StartRecording(UINT width, UINT height,
     if (hasAudio)
     {
         m_pAudioClient->Start();
-        // Mixed mode: mic is polled inline inside AudioCaptureThread - start mic client here
+        // Mixed mode: mic is polled inline inside AudioCaptureThread — start mic client here
         if (hasMic && micMode == MicMode::Mixed)
             m_pMicAudioClient->Start();
 
@@ -232,15 +209,11 @@ bool ScreenRecorder::StartRecording(UINT width, UINT height,
         m_micThread = std::thread(&ScreenRecorder::MicCaptureThread, this);
     }
 
-    #if defined(_DEBUG_SCREEN_RECORDER_)
-        std::wstring micDesc = !hasMic ? L"" :
-            (micMode == MicMode::Mixed ? L" + mic(mixed)" : L" + mic(separate track)");
-
-        debug.logLevelMessage(LogLevel::LOG_INFO,
-            L"ScreenRecorder: Started " + std::to_wstring(fpsVal) + L"fps [" +
-            std::wstring(hasAudio ? L"game audio" : L"no audio") + micDesc + L"] -> " + outputPath);
-    #endif
-
+    std::wstring micDesc = !hasMic ? L"" :
+        (micMode == MicMode::Mixed ? L" + mic(mixed)" : L" + mic(separate track)");
+    debug.logLevelMessage(LogLevel::LOG_INFO,
+        L"ScreenRecorder: Started " + std::to_wstring(fpsVal) + L"fps [" +
+        std::wstring(hasAudio ? L"game audio" : L"no audio") + micDesc + L"] -> " + outputPath);
     return true;
 }
 
@@ -269,25 +242,22 @@ void ScreenRecorder::StopRecording()
     m_micMode = MicMode::Off;
     m_micAccum.clear();
     m_micAccumRead = 0;
-    #if defined(__USE_DIRECTX_12__)
-        CleanupDX12Capture();
-    #elif defined(__USE_DIRECTX_11__)
-        m_stagingTexture.Reset();
-    #elif defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS)
-        CleanupVulkanCapture();
-    #endif
-
+#if defined(__USE_DIRECTX_12__)
+    CleanupDX12Capture();
+#elif defined(__USE_DIRECTX_11__)
+    m_stagingTexture.Reset();
+#elif defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS)
+    CleanupVulkanCapture();
+#endif
     m_width = m_height = 0;
     m_videoFrameIndex.store(-1);
     m_qpcRecordingStart.QuadPart = 0;
 
-    #if defined(_DEBUG_SCREEN_RECORDER_)
-        debug.logLevelMessage(LogLevel::LOG_INFO, L"ScreenRecorder: Stopped");
-    #endif
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"ScreenRecorder: Stopped");
 }
 
 // ---------------------------------------------------------------------------
-// CaptureFrame - DirectX 12
+// CaptureFrame — DirectX 12
 // ---------------------------------------------------------------------------
 #if defined(__USE_DIRECTX_12__)
 void ScreenRecorder::CleanupDX12Capture()
@@ -348,9 +318,7 @@ void ScreenRecorder::CaptureFrame(ID3D12Device*       device,
             &bufDesc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
             IID_PPV_ARGS(&m_dx12ReadbackBuffer));
         if (FAILED(hr)) {
-            #if defined(_DEBUG_SCREEN_RECORDER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder: Failed to create DX12 readback buffer.");
-            #endif
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder: Failed to create DX12 readback buffer.");
             return;
         }
         m_dx12ReadbackRowPitch = rowPitch256;
@@ -447,7 +415,7 @@ void ScreenRecorder::CaptureFrame(ID3D12Device*       device,
 #endif // __USE_DIRECTX_12__
 
 // ---------------------------------------------------------------------------
-// CaptureFrame - DirectX 11
+// CaptureFrame — DirectX 11
 // ---------------------------------------------------------------------------
 #if defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__)
 void ScreenRecorder::CaptureFrame(ID3D11Device*        device,
@@ -477,13 +445,11 @@ void ScreenRecorder::CaptureFrame(ID3D11Device*        device,
     D3D11_TEXTURE2D_DESC bbDesc = {};
     backBuffer->GetDesc(&bbDesc);
 
-    // Skip if the back buffer is smaller than the encoder's frame - can't crop upward.
+    // Skip if the back buffer is smaller than the encoder's frame — can't crop upward.
     if (bbDesc.Width < m_width || bbDesc.Height < m_height)
     {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING,
-                L"ScreenRecorder: back buffer smaller than recording dimensions - frame skipped.");
-        #endif
+        debug.logLevelMessage(LogLevel::LOG_WARNING,
+            L"ScreenRecorder: back buffer smaller than recording dimensions — frame skipped.");
         return;
     }
 
@@ -503,11 +469,9 @@ void ScreenRecorder::CaptureFrame(ID3D11Device*        device,
 
         if (FAILED(device->CreateTexture2D(&desc, nullptr, m_stagingTexture.GetAddressOf())))
         {
-            #if defined(_DEBUG_SCREEN_RECORDER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR,
-                    L"ScreenRecorder: Failed to create staging texture (bbDesc.Format=" +
-                    std::to_wstring(bbDesc.Format) + L")");
-            #endif
+            debug.logLevelMessage(LogLevel::LOG_ERROR,
+                L"ScreenRecorder: Failed to create staging texture (bbDesc.Format=" +
+                std::to_wstring(bbDesc.Format) + L")");
             return;
         }
     }
@@ -607,7 +571,7 @@ void ScreenRecorder::CaptureFrame(VkDevice         device,
 {
     if (!m_isRecording.load() || !device || !swapchainImage) return;
 
-    // FPS throttle - same QPC clock as the DX11 path
+    // FPS throttle — same QPC clock as the DX11 path
     LARGE_INTEGER now;
     QueryPerformanceCounter(&now);
     {
@@ -813,14 +777,10 @@ void ScreenRecorder::WriteVideoFrame(const BYTE* pData, UINT rowPitch, LONGLONG 
     m_videoFrameIndex.fetch_add(1);
 
     if (FAILED(m_pSinkWriter->WriteSample(m_videoStreamIndex, pS)))
-    {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"ScreenRecorder: Video frame dropped");
-        #endif
-    }
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"ScreenRecorder: Video frame dropped");
     pS->Release();
 }
-    
+
 // ---------------------------------------------------------------------------
 // Silence helper
 // ---------------------------------------------------------------------------
@@ -847,13 +807,13 @@ static void WriteAudioSilence(IMFSinkWriter* pSW, DWORD idx,
 
 // ---------------------------------------------------------------------------
 // MixMicInline
-// Called from AudioCaptureThread only - no mutex needed.
+// Called from AudioCaptureThread only — no mutex needed.
 //
 // Monitor path: mic is always pushed to the render client so the user hears
 // themselves in real-time regardless of which mode is active.
 //
 // Recording blend: mic is ALWAYS blended directly into the game audio buffer.
-// The loopback "picking up" monitor audio is timing-dependent and unreliable -
+// The loopback "picking up" monitor audio is timing-dependent and unreliable —
 // by the time WriteMonitorSamples pushes mic audio to the render client, the
 // WASAPI capture buffer for this poll cycle is already closed. Direct blend is
 // the only guaranteed path. If m_monitorOnLoopbackDevice is true, the mic may
@@ -899,11 +859,9 @@ void ScreenRecorder::MixMicInline(BYTE* pDst, UINT32 gameFrames)
     if (!m_micDataLogged)
     {
         m_micDataLogged = true;
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_INFO,
-                L"ScreenRecorder Mic: First audio data received - " +
-                std::to_wstring(mixFrames) + L" frames");
-        #endif
+        debug.logLevelMessage(LogLevel::LOG_INFO,
+            L"ScreenRecorder Mic: First audio data received — " +
+            std::to_wstring(mixFrames) + L" frames");
     }
 
     const BYTE* pMicBase = m_micAccum.data() + m_micAccumRead;
@@ -911,24 +869,17 @@ void ScreenRecorder::MixMicInline(BYTE* pDst, UINT32 gameFrames)
     // Always push to monitor so the user hears themselves
     WriteMonitorSamples(pMicBase, mixFrames);
 
-    // Direct blend - always applied; loopback timing makes it unreliable otherwise.
+    // Direct blend — always applied; loopback timing makes it unreliable otherwise.
     {
         const float recGain = m_micRecordGain.load();
 
         for (UINT32 f = 0; f < mixFrames; ++f)
         {
-            float micRaw;
+            float micSample;
             if (micIsFloat)
-                micRaw = reinterpret_cast<const float*>(pMicBase)[f * micChannels];
+                micSample = reinterpret_cast<const float*>(pMicBase)[f * micChannels] * recGain;
             else
-                micRaw = reinterpret_cast<const int16_t*>(pMicBase)[f * micChannels] / 32768.0f;
-
-            // Diagnostic: track pre-gain peak so the periodic level log below can
-            // prove whether the endpoint is delivering voice or just noise floor
-            const float micAbs = micRaw < 0.0f ? -micRaw : micRaw;
-            if (micAbs > m_micDiagPeak) m_micDiagPeak = micAbs;
-
-            const float micSample = micRaw * recGain;
+                micSample = reinterpret_cast<const int16_t*>(pMicBase)[f * micChannels] / 32768.0f * recGain;
 
             if (gameIsFloat)
             {
@@ -959,26 +910,6 @@ void ScreenRecorder::MixMicInline(BYTE* pDst, UINT32 gameFrames)
     {
         m_micAccum.erase(m_micAccum.begin(), m_micAccum.begin() + m_micAccumRead);
         m_micAccumRead = 0;
-    }
-
-    // Periodic level log (~every 5 seconds of mic audio). Peak is pre-gain:
-    //   > 0.05  - voice is reaching the endpoint
-    //   ~ 0.001–0.01 steady - noise floor only (nothing spoken into this device,
-    //                         or Windows input level near zero)
-    //   0.0000  - digital silence (endpoint muted or privacy-blocked)
-    m_micDiagFrames += mixFrames;
-    if (m_micDiagFrames >= static_cast<UINT64>(m_pMicWaveFormat->nSamplesPerSec) * 5)
-    {
-        const float dB = m_micDiagPeak > 0.00001f
-                       ? 20.0f * log10f(m_micDiagPeak) : -100.0f;
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            wchar_t lvl[128];
-            swprintf_s(lvl, L"ScreenRecorder Mic: Level check - peak %.4f (%.1f dB)",
-                       m_micDiagPeak, dB);
-            debug.logLevelMessage(LogLevel::LOG_INFO, lvl);
-        #endif
-        m_micDiagPeak   = 0.0f;
-        m_micDiagFrames = 0;
     }
 }
 
@@ -1040,7 +971,7 @@ bool ScreenRecorder::InitAudioCapture()
 }
 
 // ---------------------------------------------------------------------------
-// AudioCaptureThread  - loopback + inline mic poll (Mixed mode)
+// AudioCaptureThread  — loopback + inline mic poll (Mixed mode)
 // ---------------------------------------------------------------------------
 void ScreenRecorder::AudioCaptureThread()
 {
@@ -1100,7 +1031,7 @@ void ScreenRecorder::AudioCaptureThread()
                     // Release WASAPI buffer before mixing so mic poll doesn't stall
                     m_pCaptureClient->ReleaseBuffer(numFrames);
 
-                    // Mixed mode: blend mic inline - same thread, no locks needed
+                    // Mixed mode: blend mic inline — same thread, no locks needed
                     if (m_micMode == MicMode::Mixed)
                         MixMicInline(pDst, numFrames);
 
@@ -1206,7 +1137,7 @@ void ScreenRecorder::AudioCaptureThread()
 }
 
 // ---------------------------------------------------------------------------
-// InitMonitor - opens the default render endpoint to feed mic audio back to
+// InitMonitor — opens the default render endpoint to feed mic audio back to
 // speakers so the user can hear themselves before the mix hits the recording.
 // ---------------------------------------------------------------------------
 bool ScreenRecorder::InitMonitor()
@@ -1240,7 +1171,7 @@ bool ScreenRecorder::InitMonitor()
 
         if (commsId && consoleId && wcscmp(commsId, consoleId) != 0)
         {
-            // Physically separate endpoints - monitor will NOT contaminate the loopback
+            // Physically separate endpoints — monitor will NOT contaminate the loopback
             pDevice = pCommsDevice;
             pCommsDevice = nullptr;   // ownership transferred
             m_monitorOnLoopbackDevice = false;
@@ -1270,13 +1201,11 @@ bool ScreenRecorder::InitMonitor()
 
     if (m_pMonitorFormat->nSamplesPerSec != m_pMicWaveFormat->nSamplesPerSec)
     {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING,
-                L"ScreenRecorder Monitor: Sample rate mismatch (mic=" +
-                std::to_wstring(m_pMicWaveFormat->nSamplesPerSec) +
-                L" render=" + std::to_wstring(m_pMonitorFormat->nSamplesPerSec) +
-                L") - monitoring disabled");
-        #endif
+        debug.logLevelMessage(LogLevel::LOG_WARNING,
+            L"ScreenRecorder Monitor: Sample rate mismatch (mic=" +
+            std::to_wstring(m_pMicWaveFormat->nSamplesPerSec) +
+            L" render=" + std::to_wstring(m_pMonitorFormat->nSamplesPerSec) +
+            L") — monitoring disabled");
         CleanupMonitor();
         return false;
     }
@@ -1290,19 +1219,17 @@ bool ScreenRecorder::InitMonitor()
     if (FAILED(m_pMonitorAudioClient->GetService(IID_PPV_ARGS(&m_pMonitorRenderClient)))) { CleanupMonitor(); return false; }
 
     m_pMonitorAudioClient->Start();
-    #if defined(_DEBUG_SCREEN_RECORDER_)
-        debug.logLevelMessage(LogLevel::LOG_INFO,
-            std::wstring(m_monitorOnLoopbackDevice
-                ? L"ScreenRecorder Monitor: shared eConsole endpoint (mic may also echo via loopback) -> "
-                : L"ScreenRecorder Monitor: separate eCommunications endpoint -> ") +
-            std::to_wstring(m_pMonitorFormat->nSamplesPerSec) + L"Hz " +
-            std::to_wstring(m_pMonitorFormat->nChannels) + L"ch");
-    #endif
+    debug.logLevelMessage(LogLevel::LOG_INFO,
+        std::wstring(m_monitorOnLoopbackDevice
+            ? L"ScreenRecorder Monitor: shared eConsole endpoint (loopback captures mic; direct blend skipped) -> "
+            : L"ScreenRecorder Monitor: separate eCommunications endpoint (direct blend active) -> ") +
+        std::to_wstring(m_pMonitorFormat->nSamplesPerSec) + L"Hz " +
+        std::to_wstring(m_pMonitorFormat->nChannels) + L"ch");
     return true;
 }
 
 // ---------------------------------------------------------------------------
-// WriteMonitorSamples - pushes raw mic PCM to the render client so the user
+// WriteMonitorSamples — pushes raw mic PCM to the render client so the user
 // hears the mic in real-time. Upmixes mono mic to however many channels the
 // render device uses. Both formats are assumed float32 (WASAPI shared mode).
 // ---------------------------------------------------------------------------
@@ -1340,7 +1267,7 @@ void ScreenRecorder::WriteMonitorSamples(const BYTE* pMicData, UINT32 micFrames)
     }
     else
     {
-        // Unsupported format combination - write silence rather than noise
+        // Unsupported format combination — write silence rather than noise
         memset(pBuf, 0, toWrite * m_pMonitorFormat->nBlockAlign);
     }
 
@@ -1370,75 +1297,7 @@ void ScreenRecorder::CleanupAudio()
 }
 
 // ---------------------------------------------------------------------------
-// ScoreMicEndpoint
-//
-// Rates a capture endpoint's suitability as the recording microphone.
-// The highest-scoring endpoint is the one used.
-//
-//   Headset      +100  gaming headsets are the preferred voice source
-//   Microphone    +60  desktop / built-in mic arrays
-//   Headphones    +40  may carry an inline mic
-//   anything else +10
-//   default (eConsole)        +20  user's chosen Windows default
-//   default (eCommunications) +10
-//
-// Instrument / line adapters (e.g. the Rocksmith USB Guitar Adapter - a cable
-// for guitars or a singing mic, not speech) are penalised -1000 by name so
-// they can never win against a real microphone. A device must score > 0 to be
-// eligible at all.
-// ---------------------------------------------------------------------------
-static int ScoreMicEndpoint(IMMDevice* pDevice, bool isDefaultConsole,
-                            bool isDefaultComms, std::wstring& nameOut)
-{
-    nameOut = L"<unknown>";
-
-    IPropertyStore* pProps = nullptr;
-    if (FAILED(pDevice->OpenPropertyStore(STGM_READ, &pProps))) return -1;
-
-    PROPVARIANT v;
-    PropVariantInit(&v);
-    if (SUCCEEDED(pProps->GetValue(PKEY_Device_FriendlyName, &v)) && v.vt == VT_LPWSTR)
-        nameOut = v.pwszVal;
-    PropVariantClear(&v);
-
-    UINT formFactor = UnknownFormFactor;
-    PropVariantInit(&v);
-    if (SUCCEEDED(pProps->GetValue(PKEY_AudioEndpoint_FormFactor, &v)) && v.vt == VT_UI4)
-        formFactor = v.ulVal;
-    PropVariantClear(&v);
-    pProps->Release();
-
-    int score = 0;
-    switch (formFactor)
-    {
-        case Headset:    score += 100; break;
-        case Microphone: score +=  60; break;
-        case Headphones: score +=  40; break;
-        default:         score +=  10; break;
-    }
-    if (isDefaultConsole) score += 20;
-    if (isDefaultComms)   score += 10;
-
-    // Name-based disqualifiers: instrument cables, line inputs and virtual
-    // loopback devices are not speech sources.
-    std::wstring lower = nameOut;
-    for (wchar_t& c : lower) c = towlower(c);
-    static const wchar_t* instrumentHints[] = {
-        L"guitar", L"rocksmith", L"instrument", L"line in", L"line-in",
-        L"loopback", L"virtual", L"cable", L"stereo mix", L"what u hear"
-    };
-    for (const wchar_t* hint : instrumentHints)
-        if (lower.find(hint) != std::wstring::npos) { score -= 1000; break; }
-
-    return score;
-}
-
-// ---------------------------------------------------------------------------
 // InitMicCapture
-//
-// Enumerates every active capture endpoint, scores each with ScoreMicEndpoint
-// and activates the highest-scoring one. If no endpoint scores above zero the
-// recording proceeds without a microphone and a warning is logged.
 // ---------------------------------------------------------------------------
 bool ScreenRecorder::InitMicCapture()
 {
@@ -1447,167 +1306,52 @@ bool ScreenRecorder::InitMicCapture()
     hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&pEnum));
     if (FAILED(hr))
     {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: MMDeviceEnumerator failed (" + HRStr(hr) + L")");
-        #endif
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: MMDeviceEnumerator failed (" + HRStr(hr) + L")");
         return false;
     }
 
-    // Resolve the two default endpoint IDs so the scorer can award their bonuses
-    auto defaultEndpointId = [pEnum](ERole role) -> std::wstring
+    // Prefer the communications capture endpoint (headset/gaming mic) over the console
+    // default. Windows typically assigns a headset mic to eCommunications while the
+    // built-in laptop or desktop mic stays as eConsole — without this preference the
+    // wrong microphone gets selected whenever headphones are plugged in.
+    IMMDevice* pDevice = nullptr;
+    bool usedComms = true;
+    hr = pEnum->GetDefaultAudioEndpoint(eCapture, eCommunications, &pDevice);
+    if (FAILED(hr))
     {
-        std::wstring id;
-        IMMDevice* pDev = nullptr;
-        if (SUCCEEDED(pEnum->GetDefaultAudioEndpoint(eCapture, role, &pDev)))
-        {
-            LPWSTR pId = nullptr;
-            if (SUCCEEDED(pDev->GetId(&pId)) && pId) { id = pId; CoTaskMemFree(pId); }
-            pDev->Release();
-        }
-        return id;
-    };
-    const std::wstring defConsoleId = defaultEndpointId(eConsole);
-    const std::wstring defCommsId   = defaultEndpointId(eCommunications);
-
-    IMMDeviceCollection* pColl = nullptr;
-    hr = pEnum->EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE, &pColl);
+        usedComms = false;
+        hr = pEnum->GetDefaultAudioEndpoint(eCapture, eConsole, &pDevice);
+    }
     pEnum->Release();
-    if (FAILED(hr) || !pColl)
-    {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: EnumAudioEndpoints failed (" + HRStr(hr) + L")");
-        #endif
-        return false;
-    }
-
-    UINT count = 0;
-    pColl->GetCount(&count);
-
-    IMMDevice*   pBestDevice = nullptr;
-    int          bestScore   = 0;      // require > 0 - disqualified devices never win
-    std::wstring bestName;
-
-    for (UINT i = 0; i < count; ++i)
-    {
-        IMMDevice* pDev = nullptr;
-        if (FAILED(pColl->Item(i, &pDev)) || !pDev) continue;
-
-        std::wstring devId;
-        LPWSTR pId = nullptr;
-        if (SUCCEEDED(pDev->GetId(&pId)) && pId) { devId = pId; CoTaskMemFree(pId); }
-
-        std::wstring name;
-        const int score = ScoreMicEndpoint(pDev,
-                                           !devId.empty() && devId == defConsoleId,
-                                           !devId.empty() && devId == defCommsId,
-                                           name);
-
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_INFO,
-                L"ScreenRecorder Mic: Candidate \"" + name + L"\" score " + std::to_wstring(score));
-        #endif
-
-        if (score > bestScore)
-        {
-            if (pBestDevice) pBestDevice->Release();
-            pBestDevice = pDev;          // keep the reference
-            bestScore   = score;
-            bestName    = name;
-        }
-        else
-        {
-            pDev->Release();
-        }
-    }
-    pColl->Release();
-
-    if (!pBestDevice)
-    {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING,
-                L"ScreenRecorder Mic: No suitable microphone endpoint found");
-        #endif
-        return false;
-    }
-
-    #if defined(_DEBUG_SCREEN_RECORDER_)
-        debug.logLevelMessage(LogLevel::LOG_INFO,
-            L"ScreenRecorder Mic: Selected \"" + bestName + L"\" (score " + std::to_wstring(bestScore) + L")");
-    #endif
-
-    hr = pBestDevice->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
-                               reinterpret_cast<void**>(&m_pMicAudioClient));
-    pBestDevice->Release();
     if (FAILED(hr))
     {
         if (hr == E_ACCESSDENIED || hr == HRESULT_FROM_WIN32(ERROR_ACCESS_DENIED))
         {
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"ScreenRecorder Mic: Access denied - opening privacy settings");
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"ScreenRecorder Mic: Access denied – opening privacy settings");
             ShellExecuteW(nullptr, L"open", L"ms-settings:privacy-microphone", nullptr, nullptr, SW_SHOW);
         }
         else
-        {
-            #if defined(_DEBUG_SCREEN_RECORDER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: Activate failed (" + HRStr(hr) + L")");
-            #endif
-        }
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: No capture endpoint (" + HRStr(hr) + L")");
         return false;
     }
+    debug.logLevelMessage(LogLevel::LOG_INFO,
+        usedComms ? L"ScreenRecorder Mic: Using Communications capture endpoint (headset/gaming mic)"
+                  : L"ScreenRecorder Mic: Using Console (default) capture endpoint");
+
+    hr = pDevice->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
+                           reinterpret_cast<void**>(&m_pMicAudioClient));
+    pDevice->Release();
+    if (FAILED(hr)) { debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: Activate failed (" + HRStr(hr) + L")"); return false; }
 
     if (FAILED(m_pMicAudioClient->GetMixFormat(&m_pMicWaveFormat)))
-    {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: GetMixFormat failed");
-        #endif
-        return false;
-    }
+    { debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: GetMixFormat failed"); return false; }
 
-    // If the mic's native format differs from the game loopback format (e.g. mic
-    // endpoint set to 44100Hz while the render device runs 48000Hz), capture the
-    // mic in the GAME format instead and let WASAPI resample via AUTOCONVERTPCM.
-    // This keeps mic, loopback and monitor sample rates locked so the inline
-    // blend stays 1:1 and mic monitoring can never fail on a rate mismatch.
-    DWORD micStreamFlags = 0;
-    if (m_pWaveFormat &&
-        (m_pMicWaveFormat->nSamplesPerSec != m_pWaveFormat->nSamplesPerSec ||
-         m_pMicWaveFormat->nChannels     != m_pWaveFormat->nChannels))
-    {
-        const UINT32 fmtSize = sizeof(WAVEFORMATEX) + m_pWaveFormat->cbSize;
-        WAVEFORMATEX* pClone = static_cast<WAVEFORMATEX*>(CoTaskMemAlloc(fmtSize));
-        if (pClone)
-        {
-            memcpy(pClone, m_pWaveFormat, fmtSize);
-            #if defined(_DEBUG_SCREEN_RECORDER_)
-                debug.logLevelMessage(LogLevel::LOG_INFO,
-                    L"ScreenRecorder Mic: Native format " +
-                    std::to_wstring(m_pMicWaveFormat->nSamplesPerSec) + L"Hz " +
-                    std::to_wstring(m_pMicWaveFormat->nChannels) + L"ch differs from game audio - capturing at " +
-                    std::to_wstring(pClone->nSamplesPerSec) + L"Hz " +
-                    std::to_wstring(pClone->nChannels) + L"ch via WASAPI auto-convert");
-            #endif
-            CoTaskMemFree(m_pMicWaveFormat);
-            m_pMicWaveFormat = pClone;
-            micStreamFlags   = AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
-                               AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
-        }
-    }
-
-    hr = m_pMicAudioClient->Initialize(AUDCLNT_SHAREMODE_SHARED, micStreamFlags,
+    hr = m_pMicAudioClient->Initialize(AUDCLNT_SHAREMODE_SHARED, 0,
                                         200 * 10000, 0, m_pMicWaveFormat, nullptr);
-    if (FAILED(hr)) {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: Initialize failed (" + HRStr(hr) + L")");
-        #endif
-        return false;
-    }
+    if (FAILED(hr)) { debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: Initialize failed (" + HRStr(hr) + L")"); return false; }
 
     if (FAILED(m_pMicAudioClient->GetService(IID_PPV_ARGS(&m_pMicCaptureClient))))
-    {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: GetService failed");
-        #endif
-        return false;
-    }
+    { debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: GetService failed"); return false; }
 
     // Separate mode: add a second AAC stream
     if (m_micMode == MicMode::Separate)
@@ -1638,28 +1382,24 @@ bool ScreenRecorder::InitMicCapture()
 
         if (FAILED(hr))
         {
-            #if defined(_DEBUG_SCREEN_RECORDER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: Failed to add separate stream (" + HRStr(hr) + L")");
-            #endif
+            debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: Failed to add separate stream (" + HRStr(hr) + L")");
             return false;
         }
     }
 
     const bool micFloat = IsIEEEFloat(m_pMicWaveFormat);
-    #if defined(_DEBUG_SCREEN_RECORDER_)
-        debug.logLevelMessage(LogLevel::LOG_INFO,
-            std::wstring(m_micMode == MicMode::Mixed
-                ? L"ScreenRecorder Mic: Ready (mixed inline) - "
-                : L"ScreenRecorder Mic: Ready (separate track) - ") +
-            std::to_wstring(m_pMicWaveFormat->nSamplesPerSec) + L"Hz " +
+    debug.logLevelMessage(LogLevel::LOG_INFO,
+        std::wstring(m_micMode == MicMode::Mixed
+            ? L"ScreenRecorder Mic: Ready (mixed inline) — "
+            : L"ScreenRecorder Mic: Ready (separate track) — ") +
+        std::to_wstring(m_pMicWaveFormat->nSamplesPerSec) + L"Hz " +
         std::to_wstring(m_pMicWaveFormat->nChannels) + L"ch " +
         (micFloat ? L"float32" : L"int16"));
-    #endif
     return true;
 }
 
 // ---------------------------------------------------------------------------
-// MicCaptureThread  - Separate mode only
+// MicCaptureThread  — Separate mode only
 // ---------------------------------------------------------------------------
 void ScreenRecorder::MicCaptureThread()
 {

@@ -1680,6 +1680,38 @@ void OpenGLRenderer::DrawCircle(const Vector2& center, float radius, const MyCol
     }
 }
 
+void OpenGLRenderer::DrawCurve(float startX, float startY, float ctrlX, float ctrlY, float endX, float endY,
+                                const MyColor& color, float thickness, bool is2D)
+{
+    (void)is2D; // OpenGL has no native path API — the curve is rasterised via DrawRectangle either way.
+
+    // No native line/path primitive here, so tessellate the quadratic bezier and stamp an
+    // overlapping bounding-box rectangle per segment via the already-working DrawRectangle —
+    // the same technique DrawCircle above uses for its scanline rasterisation.
+    const float chordLen = std::sqrt((endX - startX) * (endX - startX) + (endY - startY) * (endY - startY));
+    const float bulgeLen = std::sqrt((ctrlX - startX) * (ctrlX - startX) + (ctrlY - startY) * (ctrlY - startY))
+                          + std::sqrt((endX - ctrlX) * (endX - ctrlX) + (endY - ctrlY) * (endY - ctrlY));
+    const int steps = std::clamp(static_cast<int>((chordLen + bulgeLen) * 0.5f / 2.0f), 8, 256);
+    const float half = std::max(1.0f, thickness) * 0.5f;
+
+    float prevX = startX, prevY = startY;
+    for (int i = 1; i <= steps; ++i) {
+        const float t = static_cast<float>(i) / static_cast<float>(steps);
+        const float u = 1.0f - t;
+        const float px = u * u * startX + 2.0f * u * t * ctrlX + t * t * endX;
+        const float py = u * u * startY + 2.0f * u * t * ctrlY + t * t * endY;
+
+        const float minX = std::min(prevX, px) - half;
+        const float minY = std::min(prevY, py) - half;
+        const float w = std::abs(px - prevX) + thickness;
+        const float h = std::abs(py - prevY) + thickness;
+        DrawRectangle(Vector2(minX, minY), Vector2(w, h), color, true);
+
+        prevX = px;
+        prevY = py;
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // DrawTexture
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2336,10 +2368,10 @@ void OpenGLRenderer::RenderBackgroundImage()
             {
                 // Still loading: show loading screen background
                 if (m_2dTextures[int(BlitObj2DIndexType::IMG_LOADING)].isLoaded) {
-                    if (threadManager.threadVars.bInitiateFader.load()) {
+                    // Consume (but no longer act on) the legacy black-fade-in trigger --
+                    // the end-of-load pixel fader now owns the loading-screen reveal.
+                    if (threadManager.threadVars.bInitiateFader.load())
                         threadManager.threadVars.bInitiateFader.store(false);
-                        fxManager.FadeToImage(1.0f, 0.1f);
-                    }
                     Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
                 }
             }
@@ -2351,10 +2383,10 @@ void OpenGLRenderer::RenderBackgroundImage()
             if (!threadManager.threadVars.bLoaderTaskFinished.load())
             {
                 if (m_2dTextures[int(BlitObj2DIndexType::IMG_LOADING)].isLoaded) {
-                    if (threadManager.threadVars.bInitiateFader.load()) {
+                    // Consume (but no longer act on) the legacy black-fade-in trigger --
+                    // the end-of-load pixel fader now owns the loading-screen reveal.
+                    if (threadManager.threadVars.bInitiateFader.load())
                         threadManager.threadVars.bInitiateFader.store(false);
-                        fxManager.FadeToImage(1.0f, 0.1f);
-                    }
                     Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
                 }
             }

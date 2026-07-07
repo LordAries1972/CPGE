@@ -30,8 +30,10 @@ Dependencies: Includes.h, Renderer.h, DX11Renderer.h, DX12Renderer.h, VulkanRend
 
 #include "GUIManager.h"
 #include "SoundManager.h"
+#include "FXManager.h"
 #include "Debug.h"
 
+extern FXManager fxManager;
 extern SoundManager soundManager;
 extern HWND hwnd;
 extern Debug debug;
@@ -80,7 +82,8 @@ void GUIManager::AcquireClickLock() {
 }
 
 void GUIManager::CreateMyWindow(const std::string& name, GUIWindowType type, const Vector2& position, const Vector2& size,
-    const MyColor& backgroundColor, int backgroundTextureId) {
+    const MyColor& backgroundColor, int backgroundTextureId,
+    GUIWindowTemplateType templateType, const std::wstring& templateTitle) {
     std::lock_guard<std::timed_mutex> lock(mutex);
     if (windows.find(name) != windows.end()) {
         debug.LogError("Window with name '" + name + "' already exists.\n");
@@ -92,6 +95,9 @@ void GUIManager::CreateMyWindow(const std::string& name, GUIWindowType type, con
     window->zOrder     = m_nextZOrder++;
     window->myRenderer = this->myRenderer;
     windows[name] = window;
+
+    if (templateType != GUIWindowTemplateType::None)
+        ApplyGUIWindowTemplate(window, templateType, templateTitle);
 }
 
 void GUIManager::RemoveWindow(const std::string& name) {
@@ -496,6 +502,32 @@ void GUIManager::HandleDelete() {
     }
 }
 
+void GUIManager::HandleArrowLeft() {
+    auto focused = GetFocusedWindow();
+    if (!focused) return;
+    for (auto& ctrl : focused->controls) {
+        if (ctrl.type != GUIControlType::TextInput || !ctrl.isFocused) continue;
+        if (ctrl.cursorPos > 0)
+            --ctrl.cursorPos;
+        return;
+    }
+    if (focused->onArrowLeft)
+        focused->onArrowLeft();
+}
+
+void GUIManager::HandleArrowRight() {
+    auto focused = GetFocusedWindow();
+    if (!focused) return;
+    for (auto& ctrl : focused->controls) {
+        if (ctrl.type != GUIControlType::TextInput || !ctrl.isFocused) continue;
+        if (ctrl.cursorPos < static_cast<int>(ctrl.inputText.size()))
+            ++ctrl.cursorPos;
+        return;
+    }
+    if (focused->onArrowRight)
+        focused->onArrowRight();
+}
+
 void GUIManager::HandleEnter() {
     auto focused = GetFocusedWindow();
     if (focused && focused->onEnter)
@@ -566,7 +598,7 @@ void GUIWindow::HandleMouseMove(const Vector2& mousePosition, const std::unorder
 
             case GUIControlType::HSlider:
             {
-                if (control.isVisible && control.isPressed) {
+                if (control.isVisible && control.isPressed && !control.isReadOnly) {
                     const float knobW  = 14.0f;
                     float usableW = control.size.x - knobW;
                     if (usableW > 0.0f) {
@@ -750,7 +782,7 @@ void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick
 
         case GUIControlType::HSlider:
         {
-            if (!control.isVisible) break;
+            if (!control.isVisible || control.isReadOnly) break;
             if (isMouseOver && isLeftClick) {
                 if (!control.isPressed) {
                     control.isPressed = true;
@@ -1556,7 +1588,17 @@ void GUIWindow::Render() {
                 if (control.bgTextureId != -1) {
                     int texId = (control.isHovered && control.bgTextureHoverId != -1)
                                 ? control.bgTextureHoverId : control.bgTextureId;
-                    r->DrawTexture(texId, control.position, control.size, fc(MyColor(255, 255, 255, 255)), true);
+                    // A ZoomInOut FX linked to this texture takes over the draw.
+                    // RenderZoomedImage cannot apply window-fade alpha, so only
+                    // while the window is fully opaque.
+                    MyColor texTint = fc(MyColor(255, 255, 255, 255));
+                    if (texTint.a == 255 && fxManager.IsImageZoomActive(texId)) {
+                        fxManager.RenderZoomedImage(texId,
+                            static_cast<int>(control.position.x), static_cast<int>(control.position.y),
+                            static_cast<int>(control.size.x), static_cast<int>(control.size.y));
+                    } else {
+                        r->DrawTexture(texId, control.position, control.size, texTint, true);
+                    }
                 }
 
                 // Outer bevel edges

@@ -6,14 +6,6 @@
 #include <nlohmann/json.hpp>
 #include <functional>
 
-/* -------------------------------------------------------- */
-// Music Player Configuration
-/* -------------------------------------------------------- */
-// Ensure only ONE Music player type is defined only
-#if (defined(__USE_XMPLAYER__) + defined(__USE_MP3PLAYER__)) > 1 
-#error "Multiple Music Players are Defined for use. Please define only one if you are wanting Music Playback."
-#endif
-
 using json = nlohmann::json;
 
 extern const std::string lpCONFIG_FILENAME;
@@ -50,7 +42,7 @@ struct MyConfig {
     long double maxPitch = 89.0f;                                               // Degrees
     long double minPitch = -89.0f;                                              // Degrees
 
-    long double microphoneVolume = 15.0f;
+    long double microphoneVolume = 0.8f;    // Mic gain 0.0 - 1.0
 
     // Add more configuration parameters as needed
     bool UseTTS = true;

@@ -304,25 +304,17 @@ inline void VulkanRenderer::RenderIntroMovie()
             Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - halfH, halfW, halfH);
     }
 
-    // Spacebar: fade to black FIRST, then stop the movie once the screen is fully black.
-    // Only active in SCENE_INTRO_MOVIE — not the splash SCENE_INTRO.
-    // m_movieSkipFrames == -1 → not skipping; >= 0 → frame counter since fade started.
-    // FadeToBlack(1.0, 0.04) takes ~25 frames at 60fps to reach full black.
-    // We wait 50 frames before stopping to ensure the fade visually completes.
-    if (scene.stSceneType == SceneType::SCENE_INTRO_MOVIE && (GetAsyncKeyState(' ') & 0x8000) && m_movieSkipFrames < 0)
+    // Spacebar skip -- identical across all four renderers: the movie keeps playing
+    // through the fade (no jarring freeze-frame cut) and is only stopped once
+    // FadeOutThenCallback's own completion callback fires, so the fade duration
+    // (1.0s) is the single source of truth instead of a guessed frame count.
+    // Only active in SCENE_INTRO_MOVIE -- not the splash SCENE_INTRO.
+    if (scene.stSceneType == SceneType::SCENE_INTRO_MOVIE && (GetAsyncKeyState(' ') & 0x8000) && !scene.bSceneSwitching)
     {
-        fxManager.FadeToBlack(1.0f, 0.04f);
-        m_movieSkipFrames = 0;
-    }
-    if (m_movieSkipFrames >= 0)
-    {
-        m_movieSkipFrames++;
-        if (m_movieSkipFrames >= 50)
-        {
+        scene.bSceneSwitching = true;
+        fxManager.FadeOutThenCallback(XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f), 1.0f, 0.06f, []() {
             moviePlayer.Stop();
-            scene.bSceneSwitching = true;
-            m_movieSkipFrames = -1;
-        }
+        });
     }
 
 #elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
@@ -526,10 +518,10 @@ void VulkanRenderer::RenderFrame()
                         if (!threadManager.threadVars.bLoaderTaskFinished.load() &&
                             m_d2dTextures[int(BlitObj2DIndexType::IMG_LOADING)])
                         {
-                            if (threadManager.threadVars.bInitiateFader.load()) {
+                            // Consume (but no longer act on) the legacy black-fade-in trigger --
+                            // the end-of-load pixel fader now owns the loading-screen reveal.
+                            if (threadManager.threadVars.bInitiateFader.load())
                                 threadManager.threadVars.bInitiateFader.store(false);
-                                fxManager.FadeToImage(1.0f, 0.1f);
-                            }
                             if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_LOADING)))
                                 fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_LOADING), 0, 0, iOrigWidth, iOrigHeight);
                             else
@@ -544,10 +536,10 @@ void VulkanRenderer::RenderFrame()
                         if (!threadManager.threadVars.bLoaderTaskFinished.load() &&
                             m_d2dTextures[int(BlitObj2DIndexType::IMG_LOADING)])
                         {
-                            if (threadManager.threadVars.bInitiateFader.load()) {
+                            // Consume (but no longer act on) the legacy black-fade-in trigger --
+                            // the end-of-load pixel fader now owns the loading-screen reveal.
+                            if (threadManager.threadVars.bInitiateFader.load())
                                 threadManager.threadVars.bInitiateFader.store(false);
-                                fxManager.FadeToImage(1.0f, 0.1f);
-                            }
                             if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_LOADING)))
                                 fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_LOADING), 0, 0, iOrigWidth, iOrigHeight);
                             else
@@ -837,9 +829,7 @@ void VulkanRenderer::RenderFrame()
 
                 // Skip GPU blit when zoom is active — the D2D bg-overlay path handles it instead
                 bool bBgZoomActive = (bgIdx >= 0 && fxManager.IsImageZoomActive(bgIdx));
-                if (bgIdx >= 0 && bgIdx < MAX_TEXTURE_BUFFERS && m_textures2D[bgIdx].isValid &&
-                    m_textures2D[bgIdx].view    != VK_NULL_HANDLE &&
-                    m_textures2D[bgIdx].sampler != VK_NULL_HANDLE && !bBgZoomActive)
+                if (bgIdx >= 0 && bgIdx < MAX_TEXTURE_BUFFERS && m_textures2D[bgIdx].isValid && !bBgZoomActive)
                 {
                     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_2dPipeline);
 
@@ -890,8 +880,6 @@ void VulkanRenderer::RenderFrame()
             // matching the DX11 draw order where D2D writes to the backbuffer before 3D renders over it.
 #if defined(PLATFORM_WINDOWS)
             if (m_2dPipeline != VK_NULL_HANDLE && m_bgOverlayTexture.isValid &&
-                m_bgOverlayTexture.view    != VK_NULL_HANDLE &&
-                m_bgOverlayTexture.sampler != VK_NULL_HANDLE &&
                 scene.stSceneType == SceneType::SCENE_GAMETITLE &&
                 threadManager.threadVars.bLoaderTaskFinished.load())
             {
@@ -984,9 +972,7 @@ void VulkanRenderer::RenderFrame()
             // Compositing AFTER RenderGamePlay guarantees all UI elements appear on top of 3D
             // geometry.  The background image (IMG_GAMEINTRO1) is handled separately above via a
             // dedicated GPU-texture blit that executes before 3D.
-            if (m_2dPipeline != VK_NULL_HANDLE && m_overlayTexture.isValid &&
-                m_overlayTexture.view    != VK_NULL_HANDLE &&
-                m_overlayTexture.sampler != VK_NULL_HANDLE) {
+            if (m_2dPipeline != VK_NULL_HANDLE && m_overlayTexture.isValid) {
                 vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_2dPipeline);
 
                 VkDescriptorSetAllocateInfo dsai{};

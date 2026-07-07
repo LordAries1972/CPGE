@@ -105,6 +105,16 @@ public:
     void SetFadeOut(uint32_t durationMs);
     void GotoSequenceID(uint16_t patternSeqID);
 
+    // Fades the currently playing module out to silence, then fully resets the
+    // playback system (Stop()) so a new module can be loaded with Play().
+    void FadeOutAndStop(uint32_t durationMs);
+
+    // Sets the OS scheduling priority applied to the playback thread (Windows
+    // THREAD_PRIORITY_* constants). Call before Play(); takes effect when
+    // PlaybackLoop() starts. Defaults to THREAD_PRIORITY_HIGHEST -- tracker
+    // playback must never be starved by other engine threads or the music slows down.
+    void SetPlaybackThreadPriority(int priority);
+
 private:
     bool bIsInitialized = false;
     char songName[20] = {};
@@ -141,6 +151,11 @@ private:
     std::atomic<bool> fadeOutActive{ false };
 
     std::thread playbackThread;
+#if defined(PLATFORM_WINDOWS)
+    int playbackThreadPriority = THREAD_PRIORITY_HIGHEST;
+#else
+    int playbackThreadPriority = 0;
+#endif
     std::atomic<bool> isPlaying{ false };
     std::atomic<bool> isPaused{ false };
     std::atomic<bool> isTerminating{ false };

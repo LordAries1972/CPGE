@@ -633,10 +633,10 @@ void GUIManager::CreateConfigWindow()
         y += ROW;
 
         addSliderRow("t1_micvol", y, L"Microphone Volume:", false, 1,
-            0.0f, 1.0f, (float)config.myConfig.microphoneVolume,
+            0.0f, 20.0f, (float)config.myConfig.microphoneVolume,
             [](float v) { return CfgFmtFloat((long double)v, 2); },
             [](float v) {
-                config.myConfig.microphoneVolume = (long double)std::clamp(v, 0.0f, 1.0f);
+                config.myConfig.microphoneVolume = (long double)std::clamp(v, 0.0f, 20.0f);
                 config.applyLive();
             });
     }
@@ -910,7 +910,7 @@ void GUIManager::CreateConfigWindow()
     {
         float y = CY + 5.0f * ROW;
         addLabel("t4_info", CX + 50.0f, y, 560.0f, ROW_H,
-            L"Key Mapping editor - coming in a future update.", 14.0f, false);
+            L"Key Mapping editor — coming in a future update.", 14.0f, false);
     }
 
     // ===================================================================

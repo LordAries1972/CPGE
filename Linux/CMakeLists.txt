@@ -60,7 +60,9 @@ set(SOURCES
     ${SRC_DIR}/GLTFAnimator.cpp
     ${SRC_DIR}/ModelAnimator.cpp
     ${SRC_DIR}/GUIConfigWindow.cpp
+    ${SRC_DIR}/GUIFileDialog.cpp
     ${SRC_DIR}/GUIManager.cpp
+    ${SRC_DIR}/GUITemplates.cpp
     ${SRC_DIR}/GUIWindows.cpp
     ${SRC_DIR}/Joystick.cpp
     ${SRC_DIR}/KBHandlersCode.cpp

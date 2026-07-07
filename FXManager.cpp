@@ -36,10 +36,13 @@
     #include "METALRenderer.h"
 #endif
 
+#include "MyRandomizer.h"
+
 extern Configuration config;
 extern Debug         debug;
 extern ThreadManager threadManager;
 extern FileIO        fileIO;
+extern MyRandomizer  myRandomizer;
 
 #pragma warning(push)
 #pragma warning(disable: 4101 4267)
@@ -1261,6 +1264,9 @@ void FXManager::Render2D()
             RenderStarfield2D(fx);
             break;
         }
+        case FXType::PixelOut:
+            UpdatePixelFader(fx);
+            break;
         default:
             break;
         }
@@ -3082,7 +3088,9 @@ void FXManager::StartZoom(float speed)
         debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] StartZoom called before ZoomInitialise -- ignored");
         return;
     }
-    StopZooming();
+    // Only replace a zoom already linked to the same image — zooms on other
+    // images (e.g. a menu background) are left running.
+    StopZoomingImage(m_zoomConfig.link2DImg, true);
     if (speed > 0.0f) m_zoomConfig.speed = speed;
 
     FXItem fx{};
@@ -3094,11 +3102,27 @@ void FXManager::StartZoom(float speed)
     AddEffect(fx);
 }
 
-void FXManager::StopZooming() {
+void FXManager::StopZooming(bool immediate) {
     FX_LOCK();
     for (auto& fx : effects)
-        if (fx.type == FXType::ZoomInOut)
+        if (fx.type == FXType::ZoomInOut) {
             fx.zoomData.stopRequested = true;
+            if (immediate) { fx.zoomData.currentZoomLevel = 0.0f; fx.progress = 1.0f; }
+        }
+    if (immediate) zoomID = -1;
+}
+
+void FXManager::StopZoomingImage(int imgID, bool immediate) {
+    FX_LOCK();
+    for (auto& fx : effects) {
+        if (fx.type != FXType::ZoomInOut || fx.zoomData.link2DImg != imgID) continue;
+        fx.zoomData.stopRequested = true;
+        if (immediate) {
+            fx.zoomData.currentZoomLevel = 0.0f;
+            fx.progress = 1.0f;
+            if (zoomID == fx.fxID) zoomID = -1;
+        }
+    }
 }
 
 bool FXManager::IsImageZoomActive(int imgID) const {
@@ -3326,6 +3350,90 @@ void FXManager::RenderFireworks()
     for (auto& fx : effects)
         if (fx.type == FXType::Fireworks && fx.fxID == fireworksID)
             { DrawFireworksPixels(fx); break; }
+}
+
+// ===============================================================================================
+// PixelFader -- randomised pixel-block dissolve overlay
+//   Blits the source image every frame, then overlays solid revealColor blocks
+//   over an increasing (shuffled) subset of the pixelSize x pixelSize grid as
+//   progress advances. No per-backend texture work needed -- reuses the existing
+//   cross-platform Blit2DObjectToSizeWithAlpha + Blit2DColoredPixel (via DrawFXPixel).
+// ===============================================================================================
+
+int FXManager::StartPixelFader(BlitObj2DIndexType imageType, int x, int y, int width, int height,
+                               int pixelSize, float duration, XMFLOAT4 revealColor,
+                               std::function<void()> onComplete)
+{
+    if (!renderer || width <= 0 || height <= 0) return -1;
+
+    FX_LOCK();
+    FXItem fx;
+    fx.type         = FXType::PixelOut;
+    fx.textureIndex = imageType;
+    fx.x = x; fx.y = y; fx.width = width; fx.height = height;
+    fx.pixelSize    = std::max(1, pixelSize);
+    fx.duration     = std::max(0.01f, duration);
+    fx.timeout      = fx.duration + 2.0f;
+    fx.targetColor  = revealColor;
+    fx.progress     = 0.0f;
+    fx.startTime    = std::chrono::steady_clock::now(); fx.lastUpdate = fx.startTime;
+
+    // Same fxID generation + collision-check pattern as FadeOutThenCallback
+    fx.fxID = static_cast<int>(effects.size()) + 5000;
+    bool idExists = false;
+    for (const auto& e : effects)
+        if (e.fxID == fx.fxID) { idExists = true; break; }
+    if (idExists)
+        fx.fxID = static_cast<int>(effects.size()) + static_cast<int>(pendingCallbacks.size()) + 6000;
+
+    int newID = fx.fxID;
+    AddEffect(fx);
+    if (onComplete)
+        pendingCallbacks.push_back(CallbackEntry(newID, onComplete));
+    return newID;
+}
+
+void FXManager::StopPixelFader(int effectID)
+{
+    CancelEffect(effectID);
+}
+
+void FXManager::UpdatePixelFader(FXItem& fx)
+{
+    if (!renderer) return;
+
+    auto  now     = std::chrono::steady_clock::now();
+    float elapsed = std::chrono::duration<float>(now - fx.startTime).count();
+    fx.progress   = (fx.duration > 0.0f) ? std::clamp(elapsed / fx.duration, 0.0f, 1.0f) : 1.0f;
+    fx.lastUpdate = now;
+
+    PixelFaderData& d = fx.pixelFaderData;
+    if (d.dissolveOrder.empty() && fx.pixelSize > 0 && fx.width > 0 && fx.height > 0) {
+        d.gridCols = (fx.width  + fx.pixelSize - 1) / fx.pixelSize;
+        d.gridRows = (fx.height + fx.pixelSize - 1) / fx.pixelSize;
+        int total  = d.gridCols * d.gridRows;
+        if (total > 0) {
+            // MyRandomizer::GetShuffledSequence requires startRange >= 1 (ValidateIntegerRange,
+            // MyRandomizer.cpp:836) -- a 0-based range silently fails validation and returns an
+            // empty vector. Request a 1-based range and convert back to 0-based block indices.
+            d.dissolveOrder = myRandomizer.GetShuffledSequence(1, total);
+            for (int& blockID : d.dissolveOrder) blockID -= 1;
+        }
+    }
+
+    renderer->Blit2DObjectToSizeWithAlpha(fx.textureIndex, fx.x, fx.y, fx.width, fx.height, 1.0f);
+
+    if (!d.dissolveOrder.empty()) {
+        size_t numDissolved = static_cast<size_t>(fx.progress * static_cast<float>(d.dissolveOrder.size()));
+        for (size_t i = 0; i < numDissolved; ++i) {
+            int block = d.dissolveOrder[i];
+            int col   = block % d.gridCols;
+            int row   = block / d.gridCols;
+            int px    = fx.x + col * fx.pixelSize;
+            int py    = fx.y + row * fx.pixelSize;
+            DrawFXPixel(px, py, static_cast<float>(fx.pixelSize), fx.targetColor);
+        }
+    }
 }
 
 // ===============================================================================================

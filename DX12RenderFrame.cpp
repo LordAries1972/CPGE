@@ -641,11 +641,10 @@ void DX12Renderer::RenderFrame()
                             {
                                 if (m_d2dTextures[int(BlitObj2DIndexType::IMG_LOADING)])
                                 {
+                                    // Consume (but no longer act on) the legacy black-fade-in trigger --
+                                    // the end-of-load pixel fader now owns the loading-screen reveal.
                                     if (threadManager.threadVars.bInitiateFader.load())
-                                    {
                                         threadManager.threadVars.bInitiateFader.store(false);
-                                        fxManager.FadeToImage(1.0f, 0.1f);
-                                    }
                                     if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_LOADING)))
                                         fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_LOADING), 0, 0, iOrigWidth, iOrigHeight);
                                     else
@@ -660,11 +659,10 @@ void DX12Renderer::RenderFrame()
                             if (!bLoaderDone &&
                                 m_d2dTextures[int(BlitObj2DIndexType::IMG_LOADING)])
                             {
+                                // Consume (but no longer act on) the legacy black-fade-in trigger --
+                                // the end-of-load pixel fader now owns the loading-screen reveal.
                                 if (threadManager.threadVars.bInitiateFader.load())
-                                {
                                     threadManager.threadVars.bInitiateFader.store(false);
-                                    fxManager.FadeToImage(1.0f, 0.1f);
-                                }
                                 if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_LOADING)))
                                     fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_LOADING), 0, 0, iOrigWidth, iOrigHeight);
                                 else
@@ -1172,12 +1170,17 @@ inline void DX12Renderer::RenderIntroMovie()
             Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - halfH, halfW, halfH);
     }
 
-    // Spacebar to skip movie — only in SCENE_INTRO_MOVIE, not splash SCENE_INTRO
-    if (scene.stSceneType == SceneType::SCENE_INTRO_MOVIE && (GetAsyncKeyState(' ') & 0x8000))
+    // Spacebar skip — identical across all four renderers: the movie keeps playing
+    // through the fade (no jarring freeze-frame cut) and is only stopped once
+    // FadeOutThenCallback's own completion callback fires, so the fade duration
+    // (1.0s) is the single source of truth instead of an immediate hard cut.
+    // Only in SCENE_INTRO_MOVIE, not splash SCENE_INTRO.
+    if (scene.stSceneType == SceneType::SCENE_INTRO_MOVIE && (GetAsyncKeyState(' ') & 0x8000) && !scene.bSceneSwitching)
     {
-        moviePlayer.Stop();
         scene.bSceneSwitching = true;
-        fxManager.FadeToBlack(1.0f, 0.06f);
+        fxManager.FadeOutThenCallback(XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f), 1.0f, 0.06f, []() {
+            moviePlayer.Stop();
+        });
     }
 }
 
@@ -1231,11 +1234,10 @@ void DX12Renderer::RenderBackgroundImage()
             {
                 if (m_d2dTextures[int(BlitObj2DIndexType::IMG_LOADING)])
                 {
+                    // Consume (but no longer act on) the legacy black-fade-in trigger --
+                    // the end-of-load pixel fader now owns the loading-screen reveal.
                     if (threadManager.threadVars.bInitiateFader.load())
-                    {
                         threadManager.threadVars.bInitiateFader.store(false);
-                        fxManager.FadeToImage(1.0f, 0.1f);
-                    }
                     if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_LOADING)))
                         fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_LOADING), 0, 0, iOrigWidth, iOrigHeight);
                     else
@@ -1251,11 +1253,10 @@ void DX12Renderer::RenderBackgroundImage()
             {
                 if (m_d2dTextures[int(BlitObj2DIndexType::IMG_LOADING)])
                 {
+                    // Consume (but no longer act on) the legacy black-fade-in trigger --
+                    // the end-of-load pixel fader now owns the loading-screen reveal.
                     if (threadManager.threadVars.bInitiateFader.load())
-                    {
                         threadManager.threadVars.bInitiateFader.store(false);
-                        fxManager.FadeToImage(1.0f, 0.1f);
-                    }
                     if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_LOADING)))
                         fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_LOADING), 0, 0, iOrigWidth, iOrigHeight);
                     else

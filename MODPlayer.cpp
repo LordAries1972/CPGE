@@ -2,6 +2,7 @@
 #include "MODPlayer.h"
 #include "Debug.h"
 #include "Configuration.h"
+#include "ThreadManager.h"
 
 extern Debug debug;
 extern Configuration config;
@@ -274,6 +275,25 @@ void MODPlayer::Shutdown() {
 
 void MODPlayer::Terminate() {
     isTerminating = true;
+    Stop();
+}
+
+void MODPlayer::FadeOutAndStop(uint32_t durationMs) {
+    if (!isPlaying) return;
+
+    SetFadeOut(durationMs);
+    auto fadeStartTime = std::chrono::high_resolution_clock::now();
+    while (fadeOutActive) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        fadeElapsedMs = static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::high_resolution_clock::now() - fadeStartTime).count());
+
+        if (fadeElapsedMs >= fadeDurationMs) {
+            fadeOutActive = false;
+            currentVolume = 0;
+        }
+    }
+
     Stop();
 }
 
@@ -1079,10 +1099,19 @@ void MODPlayer::GotoSequenceID(uint16_t patternSeqID) {
     SetFadeIn(1000);
 }
 
+void MODPlayer::SetPlaybackThreadPriority(int priority) {
+    playbackThreadPriority = priority;
+}
+
 void MODPlayer::PlaybackLoop() {
     using namespace std::chrono;
 
 #if defined(PLATFORM_WINDOWS)
+    // Tracker playback must never lag; run this thread at the highest scheduling
+    // priority (or whatever the caller set via SetPlaybackThreadPriority()).
+    ThreadUtils::NameCurrentThread(L"MOD-Playback-Thread");
+    ThreadUtils::SetPriority(playbackThreadPriority);
+
     timeBeginPeriod(1);
 #endif
 

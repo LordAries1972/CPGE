@@ -70,6 +70,8 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
+// Music Player Configuration
+// ---------------------------------------------------------------------------
 // Music Play back system we are wanting to use.
 // ENSURE YOU DEFINE ONE OF THEM ONLY!
 // ---------------------------------------------------------------------------
@@ -79,8 +81,14 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 #define __USE_MODPLAYER__
 //#define __USE_MPTMPLAYER__
 //#define __USE_MP3PLAYER__
-// ---------------------------------------------------------------------------
 
+// Ensure only ONE Music player type is defined only
+#if (defined(__USE_XMPLAYER__) + defined(__USE_MP3PLAYER__) + defined(__USE_S3MPLAYER__) + \
+    defined(__USE_ITPLAYER__) + defined(__USE_MODPLAYER__) + defined(__USE_MPTMPLAYER__)) > 1
+    #error "Multiple Music Players are Defined for use. Please define only one if you are wanting Music Playback."
+#endif
+
+// ---------------------------------------------------------------------------
 #define __USING_JOYSTICKS__                                                             // Uncomment this line if you want to use Joysticks with this engine.
 #define __USE_NETWORKING__                                                              // Uncomment this line if you want to use Networking TCP/UDP Protocols with this engine.
 #define __USE_GAMINGAI__                                                                // Uncomment this line if you want to use Gaming AI with this engine.
@@ -157,7 +165,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
         // ------------------------------------------------------------------------------------
         #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__) && \
             !defined(__USE_OPENGL__)     && !defined(__USE_VULKAN__)      && \
-            !defined(__USE_RADEON__)
+            !defined(__USE_RADEON__) && !defined(__USE_METAL__)
             #define __USE_DIRECTX_11__  // Change this to switch the default for IDE-only builds
         #endif
 
@@ -799,7 +807,8 @@ inline const std::wstring texFilename[] = {
     L"winclosebut1up.png", L"bevel1.png", L"titlebar1a.png", L"titlebar1.png",
     L"splash1.png", L"gameintro1.png",
     L"titlebar2.png", L"winbody2.png", L"button2up.png", L"button2down.png", L"logo.png",
-    L"tab2red.png", L"tab1gmg.png", L"loading.png", L"tsoo.png"
+    L"tab2red.png", L"tab1gmg.png", L"loading.png", L"tsoo.png",
+    L"tileset1.png"
 
 };
 

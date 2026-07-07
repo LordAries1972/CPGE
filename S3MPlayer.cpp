@@ -2,6 +2,7 @@
 #include "S3MPlayer.h"
 #include "Debug.h"
 #include "Configuration.h"
+#include "ThreadManager.h"
 
 extern Debug debug;
 extern Configuration config;
@@ -539,6 +540,25 @@ void S3MPlayer::Shutdown() {
 
 void S3MPlayer::Terminate() {
     isTerminating = true;
+    Stop();
+}
+
+void S3MPlayer::FadeOutAndStop(uint32_t durationMs) {
+    if (!isPlaying) return;
+
+    SetFadeOut(durationMs);
+    auto fadeStartTime = std::chrono::high_resolution_clock::now();
+    while (fadeOutActive) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        fadeElapsedMs = static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::high_resolution_clock::now() - fadeStartTime).count());
+
+        if (fadeElapsedMs >= fadeDurationMs) {
+            fadeOutActive = false;
+            currentVolume = 0;
+        }
+    }
+
     Stop();
 }
 
@@ -1658,10 +1678,19 @@ void S3MPlayer::GotoSequenceID(uint16_t patternSeqID) {
     SetFadeIn(1000);
 }
 
+void S3MPlayer::SetPlaybackThreadPriority(int priority) {
+    playbackThreadPriority = priority;
+}
+
 void S3MPlayer::PlaybackLoop() {
     using namespace std::chrono;
 
 #if defined(PLATFORM_WINDOWS)
+    // Tracker playback must never lag; run this thread at the highest scheduling
+    // priority (or whatever the caller set via SetPlaybackThreadPriority()).
+    ThreadUtils::NameCurrentThread(L"S3M-Playback-Thread");
+    ThreadUtils::SetPriority(playbackThreadPriority);
+
     // Request 1 ms OS timer resolution so sleep_for(1ms) actually sleeps ~1 ms.
     // Without this, Windows defaults to ~15.6 ms, making ticks fire late and
     // causing audible tempo drift.

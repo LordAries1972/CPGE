@@ -102,6 +102,10 @@ private:
     // onEnter — submits the command line and fires m_commandCallback.
     void OnEnter();
 
+    // onArrowLeft / onArrowRight — move the command-line edit cursor.
+    void OnArrowLeft();
+    void OnArrowRight();
+
     // onMouseWheel — scrolls the buffer (delta > 0 → older, delta < 0 → newer).
     void OnMouseWheel(int delta);
 
@@ -125,6 +129,7 @@ private:
     float m_knobH = 0.0f;
 
     std::wstring                             m_cmdLine;
+    int                                       m_cursorPos = 0;    // index into m_cmdLine
     std::function<void(const std::wstring&)> m_commandCallback;
 
     // Cursor blink — toggles every 1 second in RenderContent.

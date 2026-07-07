@@ -2,6 +2,7 @@
 #include "ITPlayer.h"
 #include "Debug.h"
 #include "Configuration.h"
+#include "ThreadManager.h"
 
 #include <cmath>
 #include <limits>
@@ -100,6 +101,46 @@ namespace {
         }
 
         return static_cast<uint8_t>(std::min<int>(static_cast<int>(note) - 1, 119));
+    }
+
+    // Amiga (non-linear) slide support -- used only when the module's header requests it
+    // (flags bit3 clear). Amiga slides operate on a period value inversely proportional to
+    // frequency instead of directly on frequency, so the same slide parameter moves bass notes
+    // faster (in pitch-percentage terms) than treble notes -- the opposite feel of linear slides,
+    // and the reason modules authored for Amiga slides sound wrong if forced through the linear
+    // (semitone-log) formula. 8363*1712 is the standard IT/Amiga period<->frequency constant
+    // (period = refConst / frequency) used by IT-compatible engines for this conversion.
+    constexpr double kAmigaPeriodConst = 8363.0 * 1712.0;
+
+    double StepToAmigaPeriod(double step) {
+        if (step <= 0.0) {
+            return 0.0;
+        }
+        return kAmigaPeriodConst / (step * static_cast<double>(IT_SAMPLE_RATE));
+    }
+
+    double AmigaPeriodToStep(double period) {
+        if (period <= 0.0) {
+            return 0.0;
+        }
+        return (kAmigaPeriodConst / period) / static_cast<double>(IT_SAMPLE_RATE);
+    }
+
+    // Shifts `step` by one slide unit in the requested direction, honoring the module's
+    // Linear-vs-Amiga slide flag. `linearDivisor` is the existing linear (semitone-log) scale
+    // already used throughout this file (768 = regular/fine, 3072 = extra-fine). `periodScale`
+    // is the analogous per-unit period delta for Amiga mode (IT scales regular/fine Exx/Fxx/Gxx
+    // by 4 period units per slide unit, extra-fine by 1).
+    double SlideStep(bool linear, bool up, double step, uint8_t amount, double linearDivisor, double periodScale) {
+        if (linear) {
+            const double factor = std::pow(2.0, static_cast<double>(amount) / linearDivisor);
+            return up ? step * factor : step / factor;
+        }
+
+        double period = StepToAmigaPeriod(step);
+        period += up ? -(static_cast<double>(amount) * periodScale) : (static_cast<double>(amount) * periodScale);
+        period = std::max(1.0, period);
+        return AmigaPeriodToStep(period);
     }
 
     // Internal OpenMPT / IT effect byte values. These are enum indices, NOT ASCII display chars.
@@ -242,7 +283,14 @@ namespace {
                     }
                 }
                 else if ((value & (1U << (maxWidth - 1))) != 0) {
-                    width = static_cast<uint8_t>(std::clamp<uint32_t>((value + 1U) & 0xFFU, 1U, maxWidth));
+                    // Mask must span the full value width here: for 16-bit samples maxWidth is 17,
+                    // so value can carry bits above the 8th. Masking with 0xFF (correct only for
+                    // the 8-bit case, where maxWidth=9 already fits under it) truncated those bits
+                    // for 16-bit samples, corrupting the width and desyncing every sample decoded
+                    // after this escape fires -- audible as clean playback that suddenly turns to
+                    // noise partway through the sample.
+                    const uint32_t widthMask = is16Bit ? 0xFFFFU : 0xFFU;
+                    width = static_cast<uint8_t>(std::clamp<uint32_t>((value + 1U) & widthMask, 1U, maxWidth));
                     continue;
                 }
 
@@ -374,6 +422,12 @@ bool ITPlayer::LoadITFile(const std::wstring& filename) {
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"ITPlayer: Invalid signature. IT files must start with IMPM.");
         return false;
     }
+
+    // header.flags was previously never consulted, so every module was force-played as Linear
+    // slides / new IT effects / unlinked Gxx memory regardless of what it actually declared.
+    linearFrequencySlides = (header.flags & 0x0008) != 0;
+    oldEffectsMode        = (header.flags & 0x0010) != 0;
+    linkGxxMemory         = (header.flags & 0x0020) != 0;
 
     if (header.orderCount == 0 || header.orderCount > 256 ||
         header.instrumentCount > 4096 || header.sampleCount > 4096 ||
@@ -844,6 +898,25 @@ void ITPlayer::Terminate() {
     Stop();
 }
 
+void ITPlayer::FadeOutAndStop(uint32_t durationMs) {
+    if (!isPlaying) return;
+
+    SetFadeOut(durationMs);
+    auto fadeStartTime = std::chrono::high_resolution_clock::now();
+    while (fadeOutActive) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        fadeElapsedMs = static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::high_resolution_clock::now() - fadeStartTime).count());
+
+        if (fadeElapsedMs >= fadeDurationMs) {
+            fadeOutActive = false;
+            currentVolume = 0;
+        }
+    }
+
+    Stop();
+}
+
 void ITPlayer::Stop() {
     if (!isPlaying) {
         return;
@@ -1083,6 +1156,13 @@ void ITPlayer::MixAudio(int16_t* buffer, size_t samplesToMix) {
         return;
     }
 
+    // HardPause/HardResume run on whatever thread handles game/menu events and mutate
+    // voices/hostChannels under playbackMutex. Without taking the same lock here, the
+    // mixer could read a voice's position/sample/active fields while another thread is
+    // zeroing or resetting them mid-flight -- a data race that produces exactly the kind
+    // of audible scratch/glitch heard around pause/resume/track-change boundaries.
+    std::lock_guard<std::mutex> lock(playbackMutex);
+
     if (mixAccumulator.size() < stereoSampleCount) {
         mixAccumulator.resize(stereoSampleCount);
     }
@@ -1095,6 +1175,11 @@ void ITPlayer::MixAudio(int16_t* buffer, size_t samplesToMix) {
     const uint8_t rawMixVol = header.mixVolume > 0 ? header.mixVolume : 48;
     const float mixVolFactor = static_cast<float>(rawMixVol) / 128.0f;
     const float fadeVolFactor = static_cast<float>(currentVolume.load()) / 64.0f;
+    // Declick ramp step: 1/64 per sample means a full 0->1 or 1->0 sweep takes 64 samples
+    // (~1.45ms at 44.1kHz) -- inaudible as a fade, but long enough to remove the click that
+    // would otherwise occur when a voice starts mid-waveform (Oxx sample offset landing away
+    // from a zero crossing) or is hard-cut mid-waveform (NNA cut, ^^^, SCx).
+    constexpr float kDeclickStep = 1.0f / 64.0f;
 
     for (ITChannelVoice& voice : voices) {
         if (!voice.active || !voice.sample || voice.sample->pcm.empty()) {
@@ -1132,16 +1217,34 @@ void ITPlayer::MixAudio(int16_t* buffer, size_t samplesToMix) {
                 break;
             }
 
-            size_t nextIndex = index + 1;
-            // When approaching the loop end, wrap the interpolation look-ahead to loopStart so
-            // the interpolated output is continuous at the loop boundary. Without this, nextIndex
-            // reads the sample PAST loopEnd which will never be played, producing a click on every
-            // loop cycle.
-            if (looped && loopLength > 1.0 && static_cast<double>(nextIndex) >= loopEnd) {
-                nextIndex = static_cast<size_t>(loopStart);
+            // The interpolation neighbor must be the sample that comes NEXT in playback order,
+            // which is index-1 when running in reverse (S9B), not index+1. Always looking ahead
+            // to index+1 interpolated toward a sample the voice was moving away from, producing
+            // a jagged/scratchy waveform on every reverse-played voice.
+            size_t nextIndex;
+            if (voice.reversePlayback) {
+                if (looped && loopLength > 1.0 && static_cast<double>(index) <= loopStart) {
+                    nextIndex = static_cast<size_t>(loopEnd) > 0 ? static_cast<size_t>(loopEnd) - 1 : index;
+                }
+                else if (index == 0) {
+                    nextIndex = index;
+                }
+                else {
+                    nextIndex = index - 1;
+                }
             }
-            else if (nextIndex >= dataSize) {
-                nextIndex = (looped && loopLength > 1.0) ? static_cast<size_t>(loopStart) : index;
+            else {
+                nextIndex = index + 1;
+                // When approaching the loop end, wrap the interpolation look-ahead to loopStart so
+                // the interpolated output is continuous at the loop boundary. Without this, nextIndex
+                // reads the sample PAST loopEnd which will never be played, producing a click on every
+                // loop cycle.
+                if (looped && loopLength > 1.0 && static_cast<double>(nextIndex) >= loopEnd) {
+                    nextIndex = static_cast<size_t>(loopStart);
+                }
+                else if (nextIndex >= dataSize) {
+                    nextIndex = (looped && loopLength > 1.0) ? static_cast<size_t>(loopStart) : index;
+                }
             }
 
             const float fraction = static_cast<float>(samplePos - std::floor(samplePos));
@@ -1154,9 +1257,22 @@ void ITPlayer::MixAudio(int16_t* buffer, size_t samplesToMix) {
                 value = voice.filterState;
             }
 
+            value *= voice.declickGain;
+
             int32_t* out = &mixAccumulator[frame * 2];
             out[0] += static_cast<int32_t>(value * finalLeft);
             out[1] += static_cast<int32_t>(value * (voice.surround ? -finalRight : finalRight));
+
+            if (voice.stopping) {
+                voice.declickGain -= kDeclickStep;
+                if (voice.declickGain <= 0.0f) {
+                    voice.active = false;
+                    break;
+                }
+            }
+            else if (voice.declickGain < 1.0f) {
+                voice.declickGain = std::min(1.0f, voice.declickGain + kDeclickStep);
+            }
 
             samplePos += stepDirection;
             if (looped && loopLength > 1.0) {
@@ -1292,7 +1408,7 @@ ITChannelVoice* ITPlayer::ActiveVoiceForHost(size_t channel) {
 void ITPlayer::ApplyNewNoteAction(ITChannelVoice& voice, uint8_t nna) {
     switch (nna & 0x03) {
     case 0: // Cut
-        voice.active = false;
+        voice.stopping = true;
         break;
     case 1: // Continue
         voice.background = true;
@@ -1347,7 +1463,7 @@ void ITPlayer::ApplyDuplicateCheck(const ITInstrument& instrument, uint8_t note,
 
         switch (instrument.duplicateCheckAction) {
         case 1: // Cut
-            voice.active = false;
+            voice.stopping = true;
             break;
         case 2: // Note off
             voice.noteReleased = true;
@@ -1442,7 +1558,7 @@ void ITPlayer::TriggerEvent(size_t channel, const ITEvent& event, bool fromDelay
 
     if (event.note == IT_NOTE_CUT) {
         if (activeVoice) {
-            activeVoice->active = false;
+            activeVoice->stopping = true;
         }
         host.activeVoiceIndex = -1;
     }
@@ -1509,6 +1625,7 @@ void ITPlayer::TriggerEvent(size_t channel, const ITEvent& event, bool fromDelay
             newVoice.instrument = host.instrument;
             newVoice.lastVolumeSlide = host.lastVolumeSlide;
             newVoice.lastPortamento = host.lastPortamento;
+            newVoice.lastTonePortamento = host.lastTonePortamento;
             newVoice.lastVibrato = host.lastVibrato;
             newVoice.lastTremolo = host.lastTremolo;
             newVoice.lastSampleOffsetHigh = host.lastSampleOffsetHigh;
@@ -1617,30 +1734,41 @@ void ITPlayer::TriggerEvent(size_t channel, const ITEvent& event, bool fromDelay
         break;
     case 0x05:
     case 0x06:
-    case 0x07:
         if (data != 0) host.lastPortamento = data;
         voice.lastPortamento = host.lastPortamento;
-        if (effect == 0x07 && hasPlayableNote && voice.sample) {
-            voice.targetStep = NoteToFrequency(ITNoteToLinear(mappedNote), voice.sample->c5Speed) /
-                static_cast<double>(IT_SAMPLE_RATE);
-        }
         // Fine (EFy/FFy) and extra-fine (EEy/FEy) portamento fire once on tick 0.
         // Regular slides run per-tick inside ApplyTickEffects.
-        if ((effect == 0x05 || effect == 0x06) && voice.active) {
+        if (voice.active) {
             const uint8_t param = voice.lastPortamento;
-            double fineFactor = 0.0;
+            const bool up = effect == 0x06;
             if ((param & 0xF0) == 0xF0 && (param & 0x0F) != 0) {
-                // Fine portamento: EFy / FFy
-                fineFactor = std::pow(2.0, static_cast<double>(param & 0x0F) / 768.0);
-            }
-            else if ((param & 0xF0) == 0xE0 && (param & 0x0F) != 0) {
-                // Extra-fine portamento: EEy / FEy
-                fineFactor = std::pow(2.0, static_cast<double>(param & 0x0F) / 3072.0);
-            }
-            if (fineFactor != 0.0) {
-                voice.step     = (effect == 0x05) ? voice.step / fineFactor : voice.step * fineFactor;
+                // Fine portamento: EFy / FFy -- same SlideValue=4*EffectValue scale as regular
+                // (ITTECH.TXT), just applied once instead of every tick, so divisor = 192.
+                voice.step = SlideStep(linearFrequencySlides, up, voice.step, param & 0x0F, 192.0, 4.0);
                 voice.baseStep = voice.step;
             }
+            else if ((param & 0xF0) == 0xE0 && (param & 0x0F) != 0) {
+                // Extra-fine portamento: EEy / FEy -- SlideValue=EffectValue (ITTECH.TXT), i.e.
+                // 4x finer than the regular/fine rate, so divisor = 768.
+                voice.step = SlideStep(linearFrequencySlides, up, voice.step, param & 0x0F, 768.0, 1.0);
+                voice.baseStep = voice.step;
+            }
+        }
+        break;
+    case 0x07:
+        // Gxx tone portamento: separate memory from Exx/Fxx unless the module links them
+        // (header.flags bit5).
+        if (linkGxxMemory) {
+            if (data != 0) host.lastPortamento = data;
+            voice.lastPortamento = host.lastPortamento;
+        }
+        else {
+            if (data != 0) host.lastTonePortamento = data;
+            voice.lastTonePortamento = host.lastTonePortamento;
+        }
+        if (hasPlayableNote && voice.sample) {
+            voice.targetStep = NoteToFrequency(ITNoteToLinear(mappedNote), voice.sample->c5Speed) /
+                static_cast<double>(IT_SAMPLE_RATE);
         }
         break;
     case 0x08:
@@ -1665,7 +1793,12 @@ void ITPlayer::TriggerEvent(size_t channel, const ITEvent& event, bool fromDelay
         // Lxx = G00 + Dxx: portamento continues from last Gxx memory; xx param is the volume slide.
         if (data != 0) host.lastVolumeSlide = data;
         voice.lastVolumeSlide = host.lastVolumeSlide;
-        voice.lastPortamento = host.lastPortamento;
+        if (linkGxxMemory) {
+            voice.lastPortamento = host.lastPortamento;
+        }
+        else {
+            voice.lastTonePortamento = host.lastTonePortamento;
+        }
         if (hasPlayableNote && voice.sample) {
             voice.targetStep = NoteToFrequency(ITNoteToLinear(mappedNote), voice.sample->c5Speed) /
                 static_cast<double>(IT_SAMPLE_RATE);
@@ -1715,6 +1848,21 @@ void ITPlayer::TriggerEvent(size_t channel, const ITEvent& event, bool fromDelay
     case 0x10:
         if (data != 0) host.lastPanningSlide = data;
         voice.lastPanningSlide = host.lastPanningSlide;
+        // Fine panning slides (Px0F right / PFy0 left, i.e. one nibble == 0xF) fire once on
+        // tick 0, exactly like fine volume/channel-volume/global-volume slides above. The
+        // per-tick ApplyPanningSlide only runs on ticks 1..speed-1, so leaving this to a
+        // tick==1 check there (as a previous version did) skipped the slide entirely whenever
+        // speed==1 and applied it one tick late otherwise.
+        {
+            const uint8_t panRight = host.lastPanningSlide >> 4;
+            const uint8_t panLeft = host.lastPanningSlide & 0x0F;
+            if (panRight == 0x0F && panLeft != 0) {
+                voice.panning = static_cast<uint8_t>(std::clamp(static_cast<int>(voice.panning) - static_cast<int>(panLeft), 0, 255));
+            }
+            else if (panLeft == 0x0F && panRight != 0) {
+                voice.panning = static_cast<uint8_t>(std::clamp(static_cast<int>(voice.panning) + static_cast<int>(panRight), 0, 255));
+            }
+        }
         break;
     case 0x13:
         ApplySpecialCommand(voice, data, true);
@@ -1845,7 +1993,7 @@ void ITPlayer::ApplyTickEffects() {
 
         ITChannelVoice& voice = *activeVoice;
         if (voice.noteCutTick != 255 && tick == voice.noteCutTick) {
-            voice.active = false;
+            voice.stopping = true;
             voice.noteCutTick = 255;
             host.activeVoiceIndex = -1;
             continue;
@@ -1860,7 +2008,7 @@ void ITPlayer::ApplyTickEffects() {
             const uint8_t amount = voice.lastPortamento;
             // Fine (EFy) and extra-fine (EEy) already fired on tick 0 in TriggerEvent; skip here.
             if ((amount & 0xF0) != 0xF0 && (amount & 0xF0) != 0xE0) {
-                voice.step /= std::pow(2.0, static_cast<double>(amount) / 768.0);
+                voice.step = SlideStep(linearFrequencySlides, false, voice.step, amount, 192.0, 4.0);
                 voice.baseStep = voice.step;
             }
             break;
@@ -1870,7 +2018,7 @@ void ITPlayer::ApplyTickEffects() {
             const uint8_t amount = voice.lastPortamento;
             // Fine (FFy) and extra-fine (FEy) already fired on tick 0 in TriggerEvent; skip here.
             if ((amount & 0xF0) != 0xF0 && (amount & 0xF0) != 0xE0) {
-                voice.step *= std::pow(2.0, static_cast<double>(amount) / 768.0);
+                voice.step = SlideStep(linearFrequencySlides, true, voice.step, amount, 192.0, 4.0);
                 voice.baseStep = voice.step;
             }
             break;
@@ -1976,22 +2124,29 @@ void ITPlayer::ApplyVolumeColumnTick(ITChannelVoice& voice) {
         voice.baseVolume = voice.volume;
         break;
 
-    case VOLCMD_PITCHDOWN: // 'e' -- per-tick pitch slide down (IT scales the parameter by 4)
-        voice.step /= std::pow(2.0, (static_cast<double>(voice.volParam) * 4.0) / 768.0);
+    // ITTECH.TXT: "a Pitch slide up/down of x is equivalent to a normal slide by x*4" -- i.e.
+    // the volume-column value plugs into the regular Exx/Fxx SlideValue formula as
+    // EffectValue=x*4, so SlideValue=4*(x*4)=16x, giving factor=2^(16x/768)=2^(x/48). Using
+    // volParam*4/768 (divisor 192) here was 4x too slow, same class of error as the effect-
+    // column Gxx/Exx/Fxx divisors.
+    case VOLCMD_PITCHDOWN: // 'e' -- per-tick pitch slide down
+        voice.step /= std::pow(2.0, static_cast<double>(voice.volParam) / 48.0);
         voice.baseStep = voice.step;
         break;
 
     case VOLCMD_PITCHUP: // 'f' -- per-tick pitch slide up
-        voice.step *= std::pow(2.0, (static_cast<double>(voice.volParam) * 4.0) / 768.0);
+        voice.step *= std::pow(2.0, static_cast<double>(voice.volParam) / 48.0);
         voice.baseStep = voice.step;
         break;
 
     case VOLCMD_TONEPORTA: { // 'g' -- glide toward the target note at the table speed
         if (voice.targetStep > 0.0) {
-            // Same multiplicative semitone-space arithmetic as Gxx; the VolColumnPortaSpeed table
-            // provides the raw param value, which is 1/64-semitone units per tick.
+            // ITTECH.TXT: the VolColumnPortaSpeed table gives "the equivalent slide" as a Gxx
+            // effect-column parameter, i.e. plug it into the SAME SlideValue=4*param formula
+            // ApplyPortamento uses for regular Gxx (divisor 192, not 768 -- 768 is the rate for
+            // Gxx's own extra-fine variant, not the volume column's regular-rate table).
             const uint8_t rawSpeed = VolColumnPortaSpeed[std::min<uint8_t>(voice.volParam, 9)];
-            const double factor = std::pow(2.0, static_cast<double>(rawSpeed) / 768.0);
+            const double factor = std::pow(2.0, static_cast<double>(rawSpeed) / 192.0);
             if (voice.step < voice.targetStep) {
                 voice.step = std::min(voice.step * factor, voice.targetStep);
             }
@@ -2005,8 +2160,14 @@ void ITPlayer::ApplyVolumeColumnTick(ITChannelVoice& voice) {
 
     case VOLCMD_VIBRATO: { // 'h' -- depth from the volume column, speed from vibrato memory
         const uint8_t speedValue = voice.lastVibrato >> 4;
-        const double delta = Waveform(voice.vibratoPos, voice.vibratoWaveform) * static_cast<double>(voice.volParam) / 2048.0;
-        voice.step = std::max(0.0, voice.baseStep + delta);
+        // Same depth*4/768 scaling as regular Hxx (ITTECH.TXT: "if (y != 0) { depth = y*4; }"),
+        // since the volume-column depth behaves like Hxx's y nibble, not the fine (Uxx) rate.
+        // The previous "baseStep + delta" form added an absolute frequency offset independent
+        // of the note's own pitch (barely audible wobble on high notes, octave-plus swings on
+        // low notes) -- a harsh warble/scratch rather than musical vibrato -- and the divisor-
+        // only fix that replaced it was still missing this *4 depth scale.
+        const double exponent = Waveform(voice.vibratoPos, voice.vibratoWaveform) * static_cast<double>(voice.volParam) * 4.0 / 768.0;
+        voice.step = std::max(0.0, voice.baseStep * std::pow(2.0, exponent));
         voice.vibratoPos = static_cast<uint8_t>(voice.vibratoPos + speedValue);
         // Caller (ApplyTickEffects) syncs vibratoPos back to the host channel after this call.
         break;
@@ -2068,15 +2229,12 @@ void ITPlayer::ApplyPanningSlide(ITChannelVoice& voice) {
     const uint8_t left = data & 0x0F;
     int pan = voice.panning;
 
+    // Fine slides (0xF in either nibble) already fired once on tick 0 in TriggerEvent;
+    // no per-tick action here (matches ApplyVolumeSlide/ApplyChannelVolumeSlide/
+    // ApplyGlobalVolumeSlide's handling of their own fine variants).
     if (right == 0x0F && left != 0) {
-        if (tick == 1) {
-            pan -= left;
-        }
     }
     else if (left == 0x0F && right != 0) {
-        if (tick == 1) {
-            pan += right;
-        }
     }
     else if (right != 0 && left == 0) {
         pan += right * 4;
@@ -2114,16 +2272,38 @@ void ITPlayer::ApplyPortamento(ITChannelVoice& voice) {
         return;
     }
 
-    // IT linear-frequency slide: each unit = 1/64 of a semitone, so the per-tick factor is
-    // 2^(param/768). Additive step arithmetic is wrong here -- it produces pitch changes that
-    // vary with frequency (fast at low notes, imperceptibly slow at high notes).
-    const uint8_t param = voice.lastPortamento != 0 ? voice.lastPortamento : voice.effectData;
-    const double factor = std::pow(2.0, static_cast<double>(param) / 768.0);
-    if (voice.step < voice.targetStep) {
-        voice.step = std::min(voice.step * factor, voice.targetStep);
+    // Gxx/Lxx memory is separate from Exx/Fxx unless the module links them (header.flags bit5).
+    const uint8_t memoryParam = linkGxxMemory ? voice.lastPortamento : voice.lastTonePortamento;
+    const uint8_t param = memoryParam != 0 ? memoryParam : voice.effectData;
+
+    if (linearFrequencySlides) {
+        // IT linear-frequency slide, per ITTECH.TXT: "Final frequency = Original frequency *
+        // 2^(SlideValue/768)" where SlideValue = 4*EffectValue for regular Exx/Fxx/Gxx -- i.e.
+        // each unit = 1/16 of a semitone (divisor 192 = 768/4), NOT 1/64 (divisor 768). Using
+        // 768 directly here made every tone portamento glide 4x slower than real IT, so notes
+        // spent 4x longer audibly detuned between the old and target pitch.
+        const double factor = std::pow(2.0, static_cast<double>(param) / 192.0);
+        if (voice.step < voice.targetStep) {
+            voice.step = std::min(voice.step * factor, voice.targetStep);
+        }
+        else if (voice.step > voice.targetStep) {
+            voice.step = std::max(voice.step / factor, voice.targetStep);
+        }
     }
-    else if (voice.step > voice.targetStep) {
-        voice.step = std::max(voice.step / factor, voice.targetStep);
+    else {
+        // Amiga period-space glide: the period moves toward the target period by a fixed
+        // amount per tick (4 period units per slide unit, matching Exx/Fxx's Amiga-mode scale),
+        // rather than the target frequency moving by a fixed ratio.
+        double period = StepToAmigaPeriod(voice.step);
+        const double targetPeriod = StepToAmigaPeriod(voice.targetStep);
+        const double delta = static_cast<double>(param) * 4.0;
+        if (period > targetPeriod) {
+            period = std::max(targetPeriod, period - delta);
+        }
+        else if (period < targetPeriod) {
+            period = std::min(targetPeriod, period + delta);
+        }
+        voice.step = AmigaPeriodToStep(period);
     }
     if (voice.glissandoControl && voice.sample) {
         const double frequency = voice.step * static_cast<double>(IT_SAMPLE_RATE);
@@ -2138,9 +2318,16 @@ void ITPlayer::ApplyVibrato(ITChannelVoice& voice, bool fine) {
     const uint8_t data = voice.lastVibrato != 0 ? voice.lastVibrato : voice.effectData;
     const uint8_t speedValue = data >> 4;
     const uint8_t depth = data & 0x0F;
-    const double divisor = fine ? 8192.0 : 2048.0;
-    const double delta = Waveform(voice.vibratoPos, voice.vibratoWaveform) * static_cast<double>(depth) / divisor;
-    voice.step = std::max(0.0, voice.baseStep + delta);
+    // ITTECH.TXT: "if (y != 0) { depth = y*4; }" for regular Hxx, applied through the same
+    // frequency*2^(SlideValue/768) formula as portamento's extra-fine rate; Uxx (fine vibrato)
+    // uses depth = y directly (no *4), i.e. 4x subtler than Hxx at the same y. The previous
+    // "baseStep + delta" form added a fixed absolute frequency offset regardless of the note's
+    // own pitch (bass notes could swing an octave or more, treble notes were nearly inaudible)
+    // -- a harsh warble/scratch, not musical vibrato -- and separately used the wrong divisor
+    // pair (768/3072 instead of the depth*4-then-768 scaling documented above).
+    const double depthUnits = fine ? static_cast<double>(depth) : static_cast<double>(depth) * 4.0;
+    const double exponent = Waveform(voice.vibratoPos, voice.vibratoWaveform) * depthUnits / 768.0;
+    voice.step = std::max(0.0, voice.baseStep * std::pow(2.0, exponent));
     voice.vibratoPos = static_cast<uint8_t>(voice.vibratoPos + speedValue);
 }
 
@@ -2418,7 +2605,7 @@ void ITPlayer::ApplySpecialCommand(ITChannelVoice& voice, uint8_t data, bool row
         case 0xC: // SCx: note cut after x ticks.
             voice.noteCutTick = value;
             if (value == 0) {
-                voice.active = false;
+                voice.stopping = true;
             }
             break;
 
@@ -2440,7 +2627,7 @@ void ITPlayer::ApplySpecialCommand(ITChannelVoice& voice, uint8_t data, bool row
     }
 
     if (sub == 0xC && tick == value) {
-        voice.active = false;
+        voice.stopping = true;
         voice.noteCutTick = 255;
     }
 }
@@ -2509,8 +2696,13 @@ double ITPlayer::NoteToFrequency(uint8_t note, uint32_t c5Speed) const {
 double ITPlayer::Waveform(uint8_t pos, uint8_t type) const {
     const uint8_t phase = pos & 0x3F;
     switch (type & 0x03) {
-    case 1: // ramp down (sawtooth): +1 -> -1 across the cycle
-        return 1.0 - (static_cast<double>(phase) / 32.0);
+    case 1: { // ramp (sawtooth)
+        const double ramp = 1.0 - (static_cast<double>(phase) / 32.0);
+        // Old Impulse Tracker (header.flags bit4, "old effects") has a documented quirk where
+        // this waveform ramps in the opposite direction to the "new" IT effects behavior above;
+        // some modules authored/tested against old IT rely on it for the correct sound.
+        return oldEffectsMode ? -ramp : ramp;
+    }
     case 2: // square
         return phase < 32 ? 1.0 : -1.0;
     case 3: { // random
@@ -2576,8 +2768,19 @@ void ITPlayer::GotoSequenceID(uint16_t patternSeqID) {
     SetFadeIn(1000);
 }
 
+void ITPlayer::SetPlaybackThreadPriority(int priority) {
+    playbackThreadPriority = priority;
+}
+
 void ITPlayer::PlaybackLoop() {
     using namespace std::chrono;
+
+    #if defined(PLATFORM_WINDOWS)
+        // Tracker playback must never lag; run this thread at the highest scheduling
+        // priority (or whatever the caller set via SetPlaybackThreadPriority()).
+        ThreadUtils::NameCurrentThread(L"IT-Playback-Thread");
+        ThreadUtils::SetPriority(playbackThreadPriority);
+    #endif
 
     auto tickStart = high_resolution_clock::now();
     auto fadeClock = high_resolution_clock::now();

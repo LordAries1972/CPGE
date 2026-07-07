@@ -4481,6 +4481,39 @@ void DX12Renderer::DrawCircle(const Vector2& center, float radius, const MyColor
     else        m_d2dContext->DrawEllipse(ellipse, brush.Get());
 }
 
+void DX12Renderer::DrawCurve(float startX, float startY, float ctrlX, float ctrlY, float endX, float endY,
+                              const MyColor& color, float thickness, bool is2D) {
+    if (!is2D || !IsDX11CompatibilityAvailable() || !m_d2dContext || !m_d2dFactory) return;
+
+    ComPtr<ID2D1PathGeometry> pathGeometry;
+    if (FAILED(m_d2dFactory->CreatePathGeometry(&pathGeometry)) || !pathGeometry) return;
+
+    ComPtr<ID2D1GeometrySink> sink;
+    if (FAILED(pathGeometry->Open(&sink)) || !sink) return;
+
+    // AddBezier only takes a cubic segment, so lift the quadratic control point to the
+    // equivalent cubic control points (standard degree-elevation formula).
+    const D2D1_POINT_2F p0 = D2D1::Point2F(startX, startY);
+    const D2D1_POINT_2F p2 = D2D1::Point2F(endX, endY);
+    const D2D1_POINT_2F c  = D2D1::Point2F(ctrlX, ctrlY);
+    D2D1_BEZIER_SEGMENT seg;
+    seg.point1 = D2D1::Point2F(p0.x + (2.0f / 3.0f) * (c.x - p0.x), p0.y + (2.0f / 3.0f) * (c.y - p0.y));
+    seg.point2 = D2D1::Point2F(p2.x + (2.0f / 3.0f) * (c.x - p2.x), p2.y + (2.0f / 3.0f) * (c.y - p2.y));
+    seg.point3 = p2;
+
+    sink->BeginFigure(p0, D2D1_FIGURE_BEGIN_HOLLOW);
+    sink->AddBezier(seg);
+    sink->EndFigure(D2D1_FIGURE_END_OPEN);
+    if (FAILED(sink->Close())) return;
+
+    float fr = color.r / 255.0f, fg = color.g / 255.0f, fb = color.b / 255.0f, fa = color.a / 255.0f;
+    ComPtr<ID2D1SolidColorBrush> brush;
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(fr, fg, fb, fa), &brush);
+    if (!brush) return;
+
+    m_d2dContext->DrawGeometry(pathGeometry.Get(), brush.Get(), thickness);
+}
+
 //-----------------------------------------
 // 2D Clip Rect (D2D PushAxisAlignedClip)
 //-----------------------------------------
@@ -4901,8 +4934,11 @@ float DX12Renderer::GetCharacterWidth(wchar_t character, float FontSize) {
             return 0.0f;
         }
 
-        // Return the width of the character
-        float charWidth = textMetrics.width;
+        // Return the width of the character. widthIncludingTrailingWhitespace, not width —
+        // DWRITE_TEXT_METRICS::width excludes trailing whitespace, and since this layout
+        // holds exactly one character, a lone space is always "trailing" and would
+        // otherwise measure as ~0, throwing off cursor placement for every space typed.
+        float charWidth = textMetrics.widthIncludingTrailingWhitespace;
 
 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
         debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Character '%c' width: %.2f", character, charWidth);
@@ -4976,8 +5012,8 @@ float DX12Renderer::GetCharacterWidth(wchar_t character, float FontSize, const s
             return 0.0f;
         }
 
-        // Return the width of the character using the specified font
-        float charWidth = textMetrics.width;
+        // Return the width of the character using the specified font (see trailing-whitespace note above)
+        float charWidth = textMetrics.widthIncludingTrailingWhitespace;
 
 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
         debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Character '%c' width with font '%s': %.2f",
@@ -5007,7 +5043,7 @@ float DX12Renderer::GetCharacterWidth(wchar_t character, float FontSize, bool bo
         if (FAILED(hr) || !textLayout) return 0.0f;
         DWRITE_TEXT_METRICS textMetrics;
         if (FAILED(textLayout->GetMetrics(&textMetrics))) return 0.0f;
-        return textMetrics.width;
+        return textMetrics.widthIncludingTrailingWhitespace; // see trailing-whitespace note above
     }
     catch (...) { return 0.0f; }
 }

@@ -9,6 +9,7 @@
 #include "Color.h"
 #include "Renderer.h"
 #include "SoundManager.h"
+#include "GUITemplates.h"
 
 // Forward declarations — renderer-specific
 #if defined(__USE_DIRECTX_11__)
@@ -97,6 +98,7 @@ struct GUIControl {
     bool isHovered   = false;
     bool isPressed   = false;
     bool isActive    = false;                           // HSlider: active knob flag; ListBox: scrollbar drag in progress
+    bool isReadOnly  = false;                           // HSlider: renders normally but ignores clicks/drags (display-only gauge)
     bool lblCenterH  = true;                            // TitleBar: true=H+V centered, false=left-aligned+V centered
     bool clipContent = false;                           // true = this control is scissored to the window's m_clipRect
     bool bold           = false;                        // true = button label rendered bold
@@ -193,6 +195,8 @@ public:
     std::function<void(wchar_t)>          onCharInput;
     std::function<void()>                 onBackspace;
     std::function<void()>                 onEnter;
+    std::function<void()>                 onArrowLeft;
+    std::function<void()>                 onArrowRight;
     std::function<void(int)>              onMouseWheel;
 
     // Custom mouse hit-test extension — called when a left-click lands inside the
@@ -235,15 +239,15 @@ public:
     // No PROJECT_ONLY_CODE guard: this is a CPGE engine-level dialog.
     void CreateQuitConfirmDialog();
 
-#ifdef PROJECT_ONLY_CODE
-    // User profile window — commander selection, callsign editor, attribute display.
-    void CreateUserProfileWindow();
-#endif
-
+    // templateType — optional visual chrome (see GUITemplates.h). When not None, the template
+    //                overrides backgroundColor/backgroundTextureId and installs its own frame;
+    //                templateTitle is drawn as the template's title bar caption (if it has one).
     void CreateMyWindow(const std::string& name, GUIWindowType type,
         const Vector2& position, const Vector2& size,
         const MyColor& backgroundColor,
-        int backgroundTextureId);                                           // No longer needs Renderer parameter
+        int backgroundTextureId,
+        GUIWindowTemplateType templateType = GUIWindowTemplateType::None,
+        const std::wstring& templateTitle = L"");                           // No longer needs Renderer parameter
 
     // File dialogs — Windows 11-style Load and Save dialog boxes centered on screen.
     // filters  : list of { display label, glob pattern } pairs e.g. { L"Text Files", L"*.txt" }
@@ -277,6 +281,8 @@ public:
     void HandleBackspace();
     void HandleDelete();
     void HandleEnter();
+    void HandleArrowLeft();
+    void HandleArrowRight();
     void HandleMouseWheel(int delta);
 
     std::shared_ptr<GUIWindow> GetWindow(const std::string& name);
