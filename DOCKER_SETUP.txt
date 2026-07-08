@@ -1,0 +1,137 @@
+## Docker Containerization Setup
+
+Your Cross-Platform Game Engine has been containerized following Docker best practices. Below is a quick-start guide.
+
+### Files Generated
+
+1. **Dockerfile** — Multi-stage build optimized for layer caching
+   - Stage 1 (builder): Compiles the engine with OpenGL support on Ubuntu 22.04
+   - Stage 2 (runtime): Minimal image with only runtime dependencies
+   - Security: Runs as non-root user `gameuser`
+   - Health check: Verifies binary is executable on startup
+
+2. **docker-compose.yml** — Orchestration and service configuration
+   - Defines `game-engine` service with resource limits (2GB memory, 2 CPUs)
+   - Volume mounts for Assets (read-only in production)
+   - Network isolation with custom bridge network
+   - Optional X11 forwarding for GUI rendering (commented out)
+   - Logging configuration with size limits
+
+3. **.dockerignore** — Optimizes build context
+   - Excludes Git history, IDE files, build artifacts
+   - Excludes compiled .obj, .exe, .pdb files
+   - Preserves only necessary source files
+
+4. **docker-build.sh** — Helper script for common operations
+   - `./docker-build.sh build` — Build the image
+   - `./docker-build.sh run` — Build and run in container
+   - `./docker-build.sh compose-up` — Start with docker-compose
+   - `./docker-build.sh compose-down` — Stop services
+   - `./docker-build.sh shell` — Debug shell in container
+   - `./docker-build.sh clean` — Remove image and containers
+
+### Quick Start
+
+**Option 1: Direct Docker**
+```bash
+docker build -t cpge-game-engine:latest .
+docker run -it --rm \
+  -e LIBGL_ALWAYS_INDIRECT=1 \
+  -v $(pwd)/Assets:/app/Assets:ro \
+  cpge-game-engine:latest
+```
+
+**Option 2: Docker Compose (Recommended)**
+```bash
+docker compose up
+docker compose logs -f  # In another terminal
+docker compose down     # When done
+```
+
+**Option 3: Helper Script**
+```bash
+chmod +x docker-build.sh
+./docker-build.sh build
+./docker-build.sh run
+```
+
+### Build Optimization Details
+
+The Dockerfile implements layer caching best practices:
+
+- **Layer 1**: Base build tools (stable, rarely invalidated)
+- **Layer 2**: Development dependencies (stable, long-lived cache)
+- **Layer 3-4**: CMake configuration files (stable, cached)
+- **Layer 5**: Build configuration (cached if CMakeLists unchanged)
+- **Layer 6**: Source code (most likely to change, separate layer)
+- **Layer 7**: Compilation (only invalidated on source changes)
+
+This strategy minimizes rebuild time for iterative development.
+
+### Rendering Backend
+
+The containerized build uses **OpenGL** as the rendering backend, well-suited for headless and X11-forwarded environments. To build with Vulkan instead:
+
+```dockerfile
+-DRENDERER=Vulkan
+```
+
+Or modify the Dockerfile's Layer 5 CMake configuration line.
+
+### X11 Forwarding (Linux Hosts)
+
+To render the GUI on a Linux host, uncomment the X11 socket mounts in `docker-compose.yml`:
+
+```yaml
+volumes:
+  - /tmp/.X11-unix:/tmp/.X11-unix:rw
+  - ${HOME}/.Xauthority:/home/gameuser/.Xauthority:ro
+```
+
+Then run:
+```bash
+docker compose up
+```
+
+### Networking
+
+- Port **8080** is exposed for game server features
+- Custom bridge network `game-network` isolates services
+- To add additional services (multiplayer server, database), extend `docker-compose.yml`
+
+### Security Considerations
+
+✓ Multi-stage build reduces final image size and attack surface
+✓ Non-root user (`gameuser:1000`) prevents privilege escalation
+✓ Read-only Asset mounts in production
+✓ Health check ensures container readiness
+✓ Minimal runtime dependencies
+
+### Troubleshooting
+
+**Build fails with CMake errors:**
+- Check that all source files (.cpp, .h, .hpp) are present
+- Verify CMakeLists.txt syntax and dependencies
+
+**Container exits immediately:**
+- Run `docker logs <container_id>` to check startup errors
+- Try `./docker-build.sh shell` to open a debug shell
+
+**Slow builds:**
+- First build takes time (dependencies, compilation)
+- Subsequent builds use layer cache (seconds to minutes)
+- Use `docker system prune` to free unused layers if disk is full
+
+**X11 GUI not rendering:**
+- Ensure X server is running on host: `echo $DISPLAY`
+- For macOS, use XQuartz and enable X11 forwarding
+- For Windows, use WSL2 with X server (VcXsrv, Xming)
+
+### Next Steps
+
+- Push image to Docker Hub: `docker tag cpge-game-engine myrepo/cpge && docker push myrepo/cpge`
+- Set up CI/CD: Add GitHub Actions or GitLab CI to auto-build on commits
+- Add a healthcheck endpoint: Extend HEALTHCHECK to probe game server
+- Multi-replica deployment: Use Docker Swarm or Kubernetes for scaling
+- GPU support: Add `--gpus all` to docker-compose.yml for GPU rendering
+

@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  game-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cpge-game-engine
+    
+    # Resource limits
+    mem_limit: 2g
+    cpus: '2.0'
+    
+    # Environment variables
+    environment:
+      # OpenGL rendering
+      LIBGL_ALWAYS_INDIRECT: "1"  # Use indirect rendering for containerized X11
+    
+    # Volume mounts for development and asset management
+    volumes:
+      # Mount Assets directory for live development (read-only in production)
+      - ./Assets:/app/Assets:ro
+      
+      # X11 socket for GUI rendering (Linux only; optional)
+      # Uncomment these lines if you need GUI output on a Linux host
+      # - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # - ${HOME}/.Xauthority:/home/gameuser/.Xauthority:ro
+      
+      # Optional: mount build directory to cache rebuild artifacts
+      # - ./build:/build:cached
+    
+    # Network configuration
+    networks:
+      - game-network
+    
+    # Port mapping (adjust based on game server features)
+    ports:
+      - "8080:8080"  # Main game server port
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Enable interactive terminal for debugging
+    stdin_open: true
+    tty: true
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+    # Override the default entrypoint for development/debugging
+    # Uncomment the following to run a shell instead of the game:
+    # entrypoint: /bin/bash
+
+  # Optional: Add a game-server companion service for networking/testing
+  # game-server:
+  #   image: cpge-game-engine:latest
+  #   container_name: cpge-game-server
+  #   environment:
+  #     GAME_MODE: "server"
+  #   ports:
+  #     - "8081:8081"
+  #   depends_on:
+  #     - game-engine
+  #   networks:
+  #     - game-network
+
+networks:
+  game-network:
+    driver: bridge

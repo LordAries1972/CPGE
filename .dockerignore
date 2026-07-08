@@ -1,0 +1,85 @@
+# Git and version control
+.git
+.gitignore
+.gitattributes
+.github
+
+# IDE and editor files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+*.sublime-project
+.vs
+.vscode/
+*.code-workspace
+
+# Build artifacts (keep source, exclude intermediates)
+build/
+x64/
+Debug/
+Release/
+*.o
+*.obj
+*.a
+*.so
+*.dll
+*.exe
+*.pdb
+*.map
+*.ilk
+
+# CMake cache
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Temporary and log files
+*.log
+*.tmp
+*.dmp
+DebugLog.txt
+Except-CallStack.log
+/CrossPlatformGameEngine-report.txt
+
+# Documentation and notes (optional; remove if docs should be included)
+Docs/
+AGENTS.md
+
+# History/backup files
+History/
+*.bak
+
+# OS-specific
+.DS_Store
+Thumbs.db
+.directory
+
+# Development and test directories (optional)
+.agents
+.claude
+.codex
+
+# Compiled shaders (will be recompiled in container)
+*.cso
+*.spv
+
+# Video artifacts
+*.mp4
+recording.mp4
+
+# User-specific files
+*.user
+CrossPlatformGameEngine.vcxproj.user
+
+# Steam files (not needed in container)
+steam/
+
+# Node modules (if any package.json exists)
+node_modules/
+
+# Dependencies that should be installed in container, not copied
+lib/
+include/
