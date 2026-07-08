@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.1.1946*
+*Current Build Version: v0.1.1947*
 
 ---
 
@@ -55,7 +55,7 @@ lets make this Engine great!
 #### 2026
 
 - [July 2026](#july-2026---screen-recorder--2d-systems)
-  - [02](#july-02-2026) · [03](#july-03-2026) · [07](#july-07-2026)
+  - [02](#july-02-2026) · [03](#july-03-2026) · [07](#july-07-2026) · [08](#july-08-2026)
 - [June 2026](#june-2026---opengl-pipeline-fixes)
   - [01](#june-01-2026) · [02](#june-02-2026) · [03](#june-03-2026) · [04](#june-04-2026) · [05](#june-05-2026) · [06](#june-06-2026) · [07](#june-07-2026) · [08](#june-08-2026) · [11](#june-11-2026) · [12](#june-12-2026) · [13](#june-13-2026) · [14](#june-14-2026) · [15](#june-15-2026) · [16](#june-16-2026) · [17](#june-17-2026) · [18](#june-18-2026) · [21](#june-21-2026) · [23](#june-23-2026) · [24](#june-24-2026) · [25](#june-25-2026) · [27](#june-27-2026) · [28](#june-28-2026) · [29](#june-29-2026)
 - [May 2026](#may-2026---more-major-updates-and-fixes)
@@ -4318,6 +4318,20 @@ Block shuffle order uses the project's MyRandomizer::GetShuffledSequence.
 Excluded / preserved by design: TSOO's `GAME_NAME`/`GAME_NAME_W` ("TSOO"), `MY_WINDOW_CLASS_NAME`/`MY_WINDOW_TITLE`/`lpDEFAULT_NAME`, its active music-player selection (`__USE_XMPLAYER__`) and its `SCENE_GAMETITLE`/`SCENE_GAMEPLAY` test track filenames (`thevoid.xm`/`electro2.xm`) — CPGE keeps its own identity strings, `__USE_MODPLAYER__` selection, and placeholder `test1.mod`/`test2.mptm` filenames. `.cso` shader binaries and `Assets/`, `GameConfig.cfg`, `BuildInfo.h`, `Version.id`, `.vcxproj*`, `Except-CallStack.log` were left untouched per the standing merge rules.
 
 *See: [`Renderer.h`](Renderer.h), [`DX11Renderer.cpp`](DX11Renderer.cpp), [`DX12Renderer.cpp`](DX12Renderer.cpp), [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`GUITemplates.cpp`](GUITemplates.cpp), [`GUITemplates.h`](GUITemplates.h), [`GUIManager.cpp`](GUIManager.cpp), [`GUIWindows.cpp`](GUIWindows.cpp), [`ConsoleWindow.cpp`](ConsoleWindow.cpp), [`KBHandlersCode.cpp`](KBHandlersCode.cpp), [`ITPlayer.cpp`](ITPlayer.cpp), [`XMMODPlayer.cpp`](XMMODPlayer.cpp), [`S3MPlayer.cpp`](S3MPlayer.cpp), [`MPTMPlayer.cpp`](MPTMPlayer.cpp), [`MODPlayer.cpp`](MODPlayer.cpp), [`IOLoaderThread.cpp`](IOLoaderThread.cpp), [`ScreenRecorder.cpp`](ScreenRecorder.cpp), [`Includes.h`](Includes.h), [`main.cpp`](main.cpp)*
+
+#### July 08, 2026
+
+**Follow-up engine merge from TSOO** (continuation of the July 07 merge; renderer fast-path and GUI template work that landed in TSOO immediately after):
+
+- **DX12Renderer.h/.cpp, DX12RenderFrame.cpp:** added a native (non-D2D) 2D sprite pipeline used exclusively for the `SCENE_GAMETITLE` fast path — background image and company logo render as native D3D12 textured quads (`m_sprite2DImageRS`/`m_sprite2DImagePSO`, two dedicated SRV slots at `DX12_SPRITE2D_SRV_BASE`) instead of going through the Direct2D/D3D11-on-12 interop handoff. A companion native particle batch (`BeginNative2DBatch()`/`QueueNativeParticle()`/`EndNative2DBatch()`, `kMaxNative2DParticles = 512`, a persistently-mapped upload-heap `StructuredBuffer<ParticleInstance>`) is bracketed around `FXManager::Render(true)`/`RenderFireworks()` so the starfield and firework particles queue into the native buffer instead of per-pixel D2D calls; every other `DrawFXPixel` call site outside that bracket is unaffected. `DX11Renderer.cpp`, `OpenGLRenderer.cpp`, `VULKAN_Renderer.cpp`, `Models.cpp`, `DX12Models.cpp` and `FXManager.cpp` picked up the small interface/call-site adjustments needed to keep all four backends building against the same shared signatures. New `.cso` shader binaries (`DX12NativeModelPShader.cso`, `DX12NativeModelVShader.cso`, `ModelPShader.cso`, `ModelVShader.cso`, `PixelShader.cso`, `VertexShader.cso`) copied in as compiled from TSOO — no `.hlsl` source exists at top level in either project; they're compiled from embedded strings in `DX12Renderer.cpp`.
+- **Renderer.h:** a leftover `PROJECT_ONLY_CODE`-guarded portrait-image enum block (`IMG_PM1`..`IMG_PF7`) had been carried into CPGE2026 verbatim in an earlier partial merge pass; stripped out now — CPGE2026 must never contain this guard even inactive.
+- **GUITemplates.h/.cpp:** added a shared gradient title-bar family — `RedGradient`, `GreenGradient`, `GreyGradient`, `BlueGradient`, `BrownGradient`, `YellowGradient` (all share `QuitWindow`'s body/bevel-border shape, differing only in gradient stops and caption colour, plus a bold drop-shadow caption raised to align with a caller's close button) — and a new `News1` template (news-ticker look: 50% transparent black body, solid red bars on the left/right edges only via `NEWS1_BORDER_THICKNESS`, no captions/controls drawn, structure only). Also fixed a rendering-order bug: `Tech1`/`QuitWindow`-family chrome previously drew in `onCustomRender` (which fires *last*, after controls), hiding any close button a caller placed in the title bar; body fill + title bar now draw in `onPreRender` (fires *before* controls) with the window's own `backgroundColor` left fully transparent, so callers' controls render on top instead of being painted over. The bevel border alone stays in `onCustomRender` since it's confined to a thin outer edge strip that never reaches into a close button's area.
+- **ConsoleWindow.cpp:** added lowercase name mappings (`news1`, `redgradient`, `greengradient`, `greygradient`, `bluegradient`, `browngradient`, `yellowgradient`) for the new templates in the debug `test <template> window` command, plus close-button positioning fixes to match: extra right-clearance for `News1`'s side bar, a 3px caption-aligned raise and accent-matched colouring for the gradient family. No functional changes beyond this — the arrow-key/mutex work from July 07 was already in place.
+- **main.cpp:** added `fxManager.FadeToImage(0.5f, 0.06f)` in `SwitchToGameIntro()`, right after `threadManager.threadVars.bInitiateFader.store(true)`, intended to fix a loading-screen fade-in bug. **This change is fresh and UNVERIFIED (no build/run performed).** Known risk: `IOLoaderThread.cpp`'s `SCENE_GAMETITLE` case calls `fxManager.StopAllFX()` shortly afterward on a different thread, which could race-clear this same fade effect before it ever renders a frame. Flagging this explicitly since it was not exercised before merging.
+
+Excluded / preserved by design, same as July 07: TSOO's identity constants (`MY_WINDOW_CLASS_NAME`/`MY_WINDOW_TITLE`/`lpDEFAULT_NAME`) and its `thevoid.xm`/`electro2.xm` test track filenames — CPGE keeps its own values and `test1.mod`/`test2.mptm` placeholders. `GameConfig.cfg`, `BuildInfo.h`, `Version.id`, and TSOO's own `ReleaseInfo.md` were never read from or written to. `GAME_NAME` in `CMakeLists.txt`/`Includes.h` confirmed still `"CPGE"` (no drift).
+
+*See: [`DX12Renderer.h`](DX12Renderer.h), [`DX12Renderer.cpp`](DX12Renderer.cpp), [`DX12RenderFrame.cpp`](DX12RenderFrame.cpp), [`DX11Renderer.cpp`](DX11Renderer.cpp), [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`Models.cpp`](Models.cpp), [`DX12Models.cpp`](DX12Models.cpp), [`FXManager.cpp`](FXManager.cpp), [`Renderer.h`](Renderer.h), [`GUITemplates.h`](GUITemplates.h), [`GUITemplates.cpp`](GUITemplates.cpp), [`ConsoleWindow.cpp`](ConsoleWindow.cpp), [`main.cpp`](main.cpp)*
 
 ---
 
