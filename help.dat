@@ -10,6 +10,7 @@ CLOSE: Closes this console window.
 HELP: Shows this help information.
 TEST LOAD DIALOG: Opens a Load GUIWindows Modal Dialog for testing only!
 TEST SAVE DIALOG: Opens a Save GUIWindows Modal Dialog for testing only!
+TEST <GUITemplate> window
 TOP: Scroll the console to the very first line at the very top.
 
 ------------------------------------
