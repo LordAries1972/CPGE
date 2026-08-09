@@ -1,0 +1,4771 @@
+{
+  "capturedAtMs": 1785089695148,
+  "findings": [
+    {
+      "filePath": "Includes.h",
+      "functionName": "LookupAspectRatio",
+      "startLine": 831,
+      "endLine": 859,
+      "score": 47,
+      "signals": {
+        "complexity": 3,
+        "churn": 45,
+        "bugfixCommits": 14,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__parse_png_file",
+      "startLine": 5078,
+      "endLine": 5261,
+      "score": 47,
+      "signals": {
+        "complexity": 84,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": true,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "include/d3dx12_pipeline_state_stream.h",
+      "functionName": "D3DX12ParsePipelineStream",
+      "startLine": 1337,
+      "endLine": 1496,
+      "score": 37,
+      "signals": {
+        "complexity": 43,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__jpeg_decode_block_prog_ac",
+      "startLine": 2295,
+      "endLine": 2413,
+      "score": 37,
+      "signals": {
+        "complexity": 30,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__parse_entropy_coded_data",
+      "startLine": 2949,
+      "endLine": 3071,
+      "score": 37,
+      "signals": {
+        "complexity": 35,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__process_marker",
+      "startLine": 3099,
+      "endLine": 3200,
+      "score": 37,
+      "signals": {
+        "complexity": 35,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__process_scan_header",
+      "startLine": 3203,
+      "endLine": 3240,
+      "score": 37,
+      "signals": {
+        "complexity": 19,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__process_frame_header",
+      "startLine": 3264,
+      "endLine": 3354,
+      "score": 37,
+      "signals": {
+        "complexity": 31,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "load_jpeg_image",
+      "startLine": 3865,
+      "endLine": 4026,
+      "score": 37,
+      "signals": {
+        "complexity": 49,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__parse_huffman_block",
+      "startLine": 4309,
+      "endLine": 4357,
+      "score": 37,
+      "signals": {
+        "complexity": 21,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__create_png_image_raw",
+      "startLine": 4696,
+      "endLine": 4859,
+      "score": 37,
+      "signals": {
+        "complexity": 42,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__bmp_parse_header",
+      "startLine": 5448,
+      "endLine": 5528,
+      "score": 37,
+      "signals": {
+        "complexity": 31,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__bmp_load",
+      "startLine": 5531,
+      "endLine": 5732,
+      "score": 37,
+      "signals": {
+        "complexity": 69,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__tga_info",
+      "startLine": 5755,
+      "endLine": 5818,
+      "score": 37,
+      "signals": {
+        "complexity": 23,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__tga_test",
+      "startLine": 5820,
+      "endLine": 5849,
+      "score": 37,
+      "signals": {
+        "complexity": 23,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__tga_load",
+      "startLine": 5871,
+      "endLine": 6074,
+      "score": 37,
+      "signals": {
+        "complexity": 38,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__psd_load",
+      "startLine": 6126,
+      "endLine": 6325,
+      "score": 37,
+      "signals": {
+        "complexity": 44,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__pic_load_core",
+      "startLine": 6390,
+      "endLine": 6498,
+      "score": 37,
+      "signals": {
+        "complexity": 26,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__process_gif_raster",
+      "startLine": 6691,
+      "endLine": 6774,
+      "score": 37,
+      "signals": {
+        "complexity": 16,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__gif_load_next",
+      "startLine": 6778,
+      "endLine": 6950,
+      "score": 37,
+      "signals": {
+        "complexity": 35,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__load_gif_main",
+      "startLine": 6963,
+      "endLine": 7046,
+      "score": 37,
+      "signals": {
+        "complexity": 16,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__hdr_load",
+      "startLine": 7158,
+      "endLine": 7287,
+      "score": 37,
+      "signals": {
+        "complexity": 37,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "cmake-build.bat",
+      "functionName": "renderer_ok",
+      "startLine": 189,
+      "endLine": 189,
+      "score": 36,
+      "signals": {
+        "complexity": 0,
+        "churn": 16,
+        "bugfixCommits": 4,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "cmake-build.bat",
+      "functionName": "error",
+      "startLine": 275,
+      "endLine": 275,
+      "score": 36,
+      "signals": {
+        "complexity": 0,
+        "churn": 16,
+        "bugfixCommits": 4,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "cmake-build.bat",
+      "functionName": "end",
+      "startLine": 282,
+      "endLine": 282,
+      "score": 36,
+      "signals": {
+        "complexity": 0,
+        "churn": 16,
+        "bugfixCommits": 4,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "cmake-build.bat",
+      "functionName": "killcompiler",
+      "startLine": 291,
+      "endLine": 291,
+      "score": 36,
+      "signals": {
+        "complexity": 0,
+        "churn": 16,
+        "bugfixCommits": 4,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__compute_huffman_codes",
+      "startLine": 4359,
+      "endLine": 4407,
+      "score": 35,
+      "signals": {
+        "complexity": 14,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__decode_jpeg_image",
+      "startLine": 3412,
+      "endLine": 3447,
+      "score": 32,
+      "signals": {
+        "complexity": 13,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__jpeg_decode_block",
+      "startLine": 2210,
+      "endLine": 2263,
+      "score": 30,
+      "signals": {
+        "complexity": 12,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__gif_header",
+      "startLine": 6608,
+      "endLine": 6637,
+      "score": 30,
+      "signals": {
+        "complexity": 12,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__YCbCr_to_RGB_simd",
+      "startLine": 3686,
+      "endLine": 3817,
+      "score": 28,
+      "signals": {
+        "complexity": 11,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__parse_zlib",
+      "startLine": 4481,
+      "endLine": 4508,
+      "score": 28,
+      "signals": {
+        "complexity": 11,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__hdr_info",
+      "startLine": 7289,
+      "endLine": 7331,
+      "score": 28,
+      "signals": {
+        "complexity": 11,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__pic_info",
+      "startLine": 7423,
+      "endLine": 7478,
+      "score": 28,
+      "signals": {
+        "complexity": 11,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__pnm_load",
+      "startLine": 7506,
+      "endLine": 7541,
+      "score": 28,
+      "signals": {
+        "complexity": 11,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "assemble_ship",
+      "startLine": 1305,
+      "endLine": 1403,
+      "score": 25,
+      "signals": {
+        "complexity": 10,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__hdr_to_ldr",
+      "startLine": 1884,
+      "endLine": 1909,
+      "score": 25,
+      "signals": {
+        "complexity": 10,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__build_huffman",
+      "startLine": 2003,
+      "endLine": 2046,
+      "score": 25,
+      "signals": {
+        "complexity": 10,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__zbuild_huffman",
+      "startLine": 4124,
+      "endLine": 4169,
+      "score": 25,
+      "signals": {
+        "complexity": 10,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__do_png",
+      "startLine": 5263,
+      "endLine": 5293,
+      "score": 25,
+      "signals": {
+        "complexity": 10,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__psd_info",
+      "startLine": 7359,
+      "endLine": 7392,
+      "score": 25,
+      "signals": {
+        "complexity": 10,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__pnm_info",
+      "startLine": 7581,
+      "endLine": 7622,
+      "score": 25,
+      "signals": {
+        "complexity": 10,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "build_gun_barrels",
+      "startLine": 631,
+      "endLine": 681,
+      "score": 23,
+      "signals": {
+        "complexity": 9,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "bake_ship_textures",
+      "startLine": 1169,
+      "endLine": 1252,
+      "score": 23,
+      "signals": {
+        "complexity": 9,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__load_main",
+      "startLine": 1137,
+      "endLine": 1188,
+      "score": 23,
+      "signals": {
+        "complexity": 9,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__fopen",
+      "startLine": 1337,
+      "endLine": 1363,
+      "score": 23,
+      "signals": {
+        "complexity": 9,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__jpeg_huff_decode",
+      "startLine": 2097,
+      "endLine": 2146,
+      "score": 23,
+      "signals": {
+        "complexity": 9,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__idct_block",
+      "startLine": 2467,
+      "endLine": 2524,
+      "score": 23,
+      "signals": {
+        "complexity": 9,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__pic_load",
+      "startLine": 6500,
+      "endLine": 6539,
+      "score": 23,
+      "signals": {
+        "complexity": 9,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__info_main",
+      "startLine": 7632,
+      "endLine": 7672,
+      "score": 23,
+      "signals": {
+        "complexity": 9,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__jpeg_decode_block_prog_dc",
+      "startLine": 2265,
+      "endLine": 2291,
+      "score": 21,
+      "signals": {
+        "complexity": 8,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__parse_uncompressed_block",
+      "startLine": 4409,
+      "endLine": 4436,
+      "score": 21,
+      "signals": {
+        "complexity": 8,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__create_png_image",
+      "startLine": 4861,
+      "endLine": 4904,
+      "score": 21,
+      "signals": {
+        "complexity": 8,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__tga_get_comp",
+      "startLine": 5739,
+      "endLine": 5753,
+      "score": 21,
+      "signals": {
+        "complexity": 8,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__psd_decode_rle",
+      "startLine": 6088,
+      "endLine": 6124,
+      "score": 21,
+      "signals": {
+        "complexity": 8,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__hdr_convert",
+      "startLine": 7131,
+      "endLine": 7156,
+      "score": 21,
+      "signals": {
+        "complexity": 8,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__pnm_skip_whitespace",
+      "startLine": 7548,
+      "endLine": 7560,
+      "score": 21,
+      "signals": {
+        "complexity": 8,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "build_cockpit",
+      "startLine": 305,
+      "endLine": 353,
+      "score": 18,
+      "signals": {
+        "complexity": 7,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "add_greebles",
+      "startLine": 719,
+      "endLine": 749,
+      "score": 18,
+      "signals": {
+        "complexity": 7,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "create_animations",
+      "startLine": 1099,
+      "endLine": 1164,
+      "score": 18,
+      "signals": {
+        "complexity": 7,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__ldr_to_hdr",
+      "startLine": 1858,
+      "endLine": 1879,
+      "score": 18,
+      "signals": {
+        "complexity": 7,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__build_fast_ac",
+      "startLine": 2050,
+      "endLine": 2073,
+      "score": 18,
+      "signals": {
+        "complexity": 7,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__decode_jpeg_header",
+      "startLine": 3365,
+      "endLine": 3387,
+      "score": 18,
+      "signals": {
+        "complexity": 7,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__YCbCr_to_RGB_row",
+      "startLine": 3660,
+      "endLine": 3683,
+      "score": 18,
+      "signals": {
+        "complexity": 7,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__compute_transparency",
+      "startLine": 4906,
+      "endLine": 4929,
+      "score": 18,
+      "signals": {
+        "complexity": 7,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__compute_transparency16",
+      "startLine": 4931,
+      "endLine": 4954,
+      "score": 18,
+      "signals": {
+        "complexity": 7,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__gif_test_raw",
+      "startLine": 6580,
+      "endLine": 6588,
+      "score": 18,
+      "signals": {
+        "complexity": 7,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "export_ship_fbx",
+      "startLine": 1257,
+      "endLine": 1300,
+      "score": 16,
+      "signals": {
+        "complexity": 6,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__convert_format",
+      "startLine": 1755,
+      "endLine": 1797,
+      "score": 16,
+      "signals": {
+        "complexity": 6,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__convert_format16",
+      "startLine": 1812,
+      "endLine": 1854,
+      "score": 16,
+      "signals": {
+        "complexity": 6,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__de_iphone",
+      "startLine": 5033,
+      "endLine": 5074,
+      "score": 16,
+      "signals": {
+        "complexity": 6,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__bmp_test_raw",
+      "startLine": 5346,
+      "endLine": 5359,
+      "score": 16,
+      "signals": {
+        "complexity": 6,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__high_bit",
+      "startLine": 5370,
+      "endLine": 5380,
+      "score": 16,
+      "signals": {
+        "complexity": 6,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__out_gif_code",
+      "startLine": 6654,
+      "endLine": 6689,
+      "score": 16,
+      "signals": {
+        "complexity": 6,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__bmp_info",
+      "startLine": 7335,
+      "endLine": 7355,
+      "score": 16,
+      "signals": {
+        "complexity": 6,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "build_nose_cone",
+      "startLine": 263,
+      "endLine": 302,
+      "score": 14,
+      "signals": {
+        "complexity": 5,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "build_thruster",
+      "startLine": 511,
+      "endLine": 555,
+      "score": 14,
+      "signals": {
+        "complexity": 5,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "wire_baked_textures",
+      "startLine": 1074,
+      "endLine": 1094,
+      "score": 14,
+      "signals": {
+        "complexity": 5,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__skip_jpeg_junk_at_end",
+      "startLine": 3389,
+      "endLine": 3409,
+      "score": 14,
+      "signals": {
+        "complexity": 5,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__zhuffman_decode_slowpath",
+      "startLine": 4224,
+      "endLine": 4241,
+      "score": 14,
+      "signals": {
+        "complexity": 5,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__gif_load",
+      "startLine": 7048,
+      "endLine": 7075,
+      "score": 14,
+      "signals": {
+        "complexity": 5,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__hdr_gettoken",
+      "startLine": 7109,
+      "endLine": 7129,
+      "score": 14,
+      "signals": {
+        "complexity": 5,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__psd_is16",
+      "startLine": 7394,
+      "endLine": 7419,
+      "score": 14,
+      "signals": {
+        "complexity": 5,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__pnm_isspace",
+      "startLine": 7543,
+      "endLine": 7546,
+      "score": 14,
+      "signals": {
+        "complexity": 5,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__pnm_getinteger",
+      "startLine": 7567,
+      "endLine": 7579,
+      "score": 14,
+      "signals": {
+        "complexity": 5,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "ThreadLockHelper.h",
+      "functionName": "SomeFunction",
+      "startLine": 17,
+      "endLine": 30,
+      "score": 14,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": true,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "_extruded_profile",
+      "startLine": 211,
+      "endLine": 230,
+      "score": 11,
+      "signals": {
+        "complexity": 4,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "apply_surface_detail",
+      "startLine": 838,
+      "endLine": 857,
+      "score": 11,
+      "signals": {
+        "complexity": 4,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__mul2shorts_valid",
+      "startLine": 1078,
+      "endLine": 1084,
+      "score": 11,
+      "signals": {
+        "complexity": 4,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__load_and_postprocess_8bit",
+      "startLine": 1260,
+      "endLine": 1284,
+      "score": 11,
+      "signals": {
+        "complexity": 4,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__load_and_postprocess_16bit",
+      "startLine": 1286,
+      "endLine": 1311,
+      "score": 11,
+      "signals": {
+        "complexity": 4,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__skip",
+      "startLine": 1644,
+      "endLine": 1660,
+      "score": 11,
+      "signals": {
+        "complexity": 4,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__grow_buffer_unsafe",
+      "startLine": 2075,
+      "endLine": 2091,
+      "score": 11,
+      "signals": {
+        "complexity": 4,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__jpeg_finish",
+      "startLine": 3080,
+      "endLine": 3097,
+      "score": 11,
+      "signals": {
+        "complexity": 4,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__free_jpeg_components",
+      "startLine": 3242,
+      "endLine": 3262,
+      "score": 11,
+      "signals": {
+        "complexity": 4,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__resample_row_hv_2_simd",
+      "startLine": 3530,
+      "endLine": 3643,
+      "score": 11,
+      "signals": {
+        "complexity": 4,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__jpeg_info_raw",
+      "startLine": 4056,
+      "endLine": 4066,
+      "score": 11,
+      "signals": {
+        "complexity": 4,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__zhuffman_decode",
+      "startLine": 4243,
+      "endLine": 4271,
+      "score": 11,
+      "signals": {
+        "complexity": 4,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__parse_zlib_header",
+      "startLine": 4438,
+      "endLine": 4450,
+      "score": 11,
+      "signals": {
+        "complexity": 4,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__expand_png_palette",
+      "startLine": 4956,
+      "endLine": 4991,
+      "score": 11,
+      "signals": {
+        "complexity": 4,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__png_info_raw",
+      "startLine": 5310,
+      "endLine": 5320,
+      "score": 11,
+      "signals": {
+        "complexity": 4,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__bmp_set_mask_defaults",
+      "startLine": 5422,
+      "endLine": 5446,
+      "score": 11,
+      "signals": {
+        "complexity": 4,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__gif_info_raw",
+      "startLine": 6639,
+      "endLine": 6652,
+      "score": 11,
+      "signals": {
+        "complexity": 4,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "docker-build.sh",
+      "functionName": "clean",
+      "startLine": 86,
+      "endLine": 92,
+      "score": 9,
+      "signals": {
+        "complexity": 3,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "build_sensor_array",
+      "startLine": 605,
+      "endLine": 630,
+      "score": 9,
+      "signals": {
+        "complexity": 3,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "build_armor_cheeks",
+      "startLine": 682,
+      "endLine": 716,
+      "score": 9,
+      "signals": {
+        "complexity": 3,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "get_or_create_surface_detail_gn",
+      "startLine": 754,
+      "endLine": 837,
+      "score": 9,
+      "signals": {
+        "complexity": 3,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "execute",
+      "startLine": 1462,
+      "endLine": 1490,
+      "score": 9,
+      "signals": {
+        "complexity": 3,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__mul2sizes_valid",
+      "startLine": 1014,
+      "endLine": 1020,
+      "score": 9,
+      "signals": {
+        "complexity": 3,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__mad4sizes_valid",
+      "startLine": 1039,
+      "endLine": 1043,
+      "score": 9,
+      "signals": {
+        "complexity": 3,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__addints_valid",
+      "startLine": 1070,
+      "endLine": 1075,
+      "score": 9,
+      "signals": {
+        "complexity": 3,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__loadf_main",
+      "startLine": 1460,
+      "endLine": 1476,
+      "score": 9,
+      "signals": {
+        "complexity": 3,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__at_eof",
+      "startLine": 1628,
+      "endLine": 1638,
+      "score": 9,
+      "signals": {
+        "complexity": 3,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__getn",
+      "startLine": 1666,
+      "endLine": 1688,
+      "score": 9,
+      "signals": {
+        "complexity": 3,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__clamp",
+      "startLine": 2416,
+      "endLine": 2424,
+      "score": 9,
+      "signals": {
+        "complexity": 3,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__get_marker",
+      "startLine": 2919,
+      "endLine": 2928,
+      "score": 9,
+      "signals": {
+        "complexity": 3,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_zlib_decode_malloc_guesssize",
+      "startLine": 4520,
+      "endLine": 4534,
+      "score": 9,
+      "signals": {
+        "complexity": 3,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_zlib_decode_malloc_guesssize_headerflag",
+      "startLine": 4541,
+      "endLine": 4555,
+      "score": 9,
+      "signals": {
+        "complexity": 3,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_zlib_decode_noheader_malloc",
+      "startLine": 4568,
+      "endLine": 4582,
+      "score": 9,
+      "signals": {
+        "complexity": 3,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__create_png_alpha_expand8",
+      "startLine": 4675,
+      "endLine": 4693,
+      "score": 9,
+      "signals": {
+        "complexity": 3,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__pic_test_core",
+      "startLine": 6346,
+      "endLine": 6360,
+      "score": 9,
+      "signals": {
+        "complexity": 3,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__readval",
+      "startLine": 6367,
+      "endLine": 6379,
+      "score": 9,
+      "signals": {
+        "complexity": 3,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__load_gif_main_outofmem",
+      "startLine": 6952,
+      "endLine": 6961,
+      "score": 9,
+      "signals": {
+        "complexity": 3,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__pnm_test",
+      "startLine": 7494,
+      "endLine": 7504,
+      "score": 9,
+      "signals": {
+        "complexity": 3,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__is_16_main",
+      "startLine": 7674,
+      "endLine": 7688,
+      "score": 9,
+      "signals": {
+        "complexity": 3,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "steam/steamnetworkingtypes.h",
+      "functionName": "CalculateSteamNetworkingPOPIDFromString",
+      "startLine": 1815,
+      "endLine": 1837,
+      "score": 9,
+      "signals": {
+        "complexity": 3,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "build_wing",
+      "startLine": 356,
+      "endLine": 412,
+      "score": 7,
+      "signals": {
+        "complexity": 2,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "build_wing_tip",
+      "startLine": 415,
+      "endLine": 471,
+      "score": 7,
+      "signals": {
+        "complexity": 2,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "build_dorsal_fin",
+      "startLine": 474,
+      "endLine": 508,
+      "score": 7,
+      "signals": {
+        "complexity": 2,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "build_thruster_nozzle",
+      "startLine": 558,
+      "endLine": 602,
+      "score": 7,
+      "signals": {
+        "complexity": 2,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "create_hull_material",
+      "startLine": 868,
+      "endLine": 1025,
+      "score": 7,
+      "signals": {
+        "complexity": 2,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__mad3sizes_valid",
+      "startLine": 1031,
+      "endLine": 1035,
+      "score": 7,
+      "signals": {
+        "complexity": 2,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__convert_16_to_8",
+      "startLine": 1190,
+      "endLine": 1204,
+      "score": 7,
+      "signals": {
+        "complexity": 2,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__convert_8_to_16",
+      "startLine": 1206,
+      "endLine": 1220,
+      "score": 7,
+      "signals": {
+        "complexity": 2,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__vertical_flip",
+      "startLine": 1222,
+      "endLine": 1244,
+      "score": 7,
+      "signals": {
+        "complexity": 2,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__float_postprocess",
+      "startLine": 1314,
+      "endLine": 1320,
+      "score": 7,
+      "signals": {
+        "complexity": 2,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__get8",
+      "startLine": 1614,
+      "endLine": 1623,
+      "score": 7,
+      "signals": {
+        "complexity": 2,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__extend_receive",
+      "startLine": 2153,
+      "endLine": 2166,
+      "score": 7,
+      "signals": {
+        "complexity": 2,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__jpeg_get_bits",
+      "startLine": 2169,
+      "endLine": 2179,
+      "score": 7,
+      "signals": {
+        "complexity": 2,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__jpeg_get_bit",
+      "startLine": 2181,
+      "endLine": 2190,
+      "score": 7,
+      "signals": {
+        "complexity": 2,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__resample_row_h_2",
+      "startLine": 3475,
+      "endLine": 3501,
+      "score": 7,
+      "signals": {
+        "complexity": 2,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__resample_row_hv_2",
+      "startLine": 3505,
+      "endLine": 3527,
+      "score": 7,
+      "signals": {
+        "complexity": 2,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__resample_row_generic",
+      "startLine": 3646,
+      "endLine": 3655,
+      "score": 7,
+      "signals": {
+        "complexity": 2,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__fill_bits",
+      "startLine": 4202,
+      "endLine": 4212,
+      "score": 7,
+      "signals": {
+        "complexity": 2,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__check_png_header",
+      "startLine": 4621,
+      "endLine": 4628,
+      "score": 7,
+      "signals": {
+        "complexity": 2,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__png_is16",
+      "startLine": 5329,
+      "endLine": 5340,
+      "score": 7,
+      "signals": {
+        "complexity": 2,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__shiftsigned",
+      "startLine": 5395,
+      "endLine": 5413,
+      "score": 7,
+      "signals": {
+        "complexity": 2,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__pic_is4",
+      "startLine": 6336,
+      "endLine": 6344,
+      "score": 7,
+      "signals": {
+        "complexity": 2,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__copyval",
+      "startLine": 6381,
+      "endLine": 6388,
+      "score": 7,
+      "signals": {
+        "complexity": 2,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__hdr_test_core",
+      "startLine": 7087,
+      "endLine": 7095,
+      "score": 7,
+      "signals": {
+        "complexity": 2,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "docker-build.sh",
+      "functionName": "logs",
+      "startLine": 81,
+      "endLine": 84,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Metal/SingleHeader/MakeSingleHeader.py",
+      "functionName": "__get_commit_string",
+      "startLine": 77,
+      "endLine": 85,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Metal/SingleHeader/MakeSingleHeader.py",
+      "functionName": "__meta_data_string",
+      "startLine": 91,
+      "endLine": 98,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Metal/SingleHeader/MakeSingleHeader.py",
+      "functionName": "process",
+      "startLine": 113,
+      "endLine": 123,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Metal/SingleHeader/MakeSingleHeader.py",
+      "functionName": "__process_foundation_directives",
+      "startLine": 153,
+      "endLine": 159,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Metal/SingleHeader/MakeSingleHeader.py",
+      "functionName": "__process_header",
+      "startLine": 160,
+      "endLine": 182,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Metal/SingleHeader/MakeSingleHeader.py",
+      "functionName": "parse_arguments",
+      "startLine": 198,
+      "endLine": 208,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Metal/SingleHeader/MakeSingleHeader.py",
+      "functionName": "make_header",
+      "startLine": 211,
+      "endLine": 219,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Metal/SingleHeader/MakeSingleHeader.py",
+      "functionName": "make_dir",
+      "startLine": 222,
+      "endLine": 230,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "shade_smooth",
+      "startLine": 62,
+      "endLine": 66,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "hex_ring",
+      "startLine": 101,
+      "endLine": 105,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "oct_ring",
+      "startLine": 106,
+      "endLine": 110,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "circle_pts",
+      "startLine": 111,
+      "endLine": 116,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "build_hull_body",
+      "startLine": 233,
+      "endLine": 260,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "create_cockpit_material",
+      "startLine": 1026,
+      "endLine": 1051,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "register",
+      "startLine": 1644,
+      "endLine": 1650,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "unregister",
+      "startLine": 1651,
+      "endLine": 1659,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__stdio_skip",
+      "startLine": 855,
+      "endLine": 863,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__stdio_eof",
+      "startLine": 865,
+      "endLine": 868,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__addsizes_valid",
+      "startLine": 1002,
+      "endLine": 1010,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__mad2sizes_valid",
+      "startLine": 1024,
+      "endLine": 1027,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__malloc_mad2",
+      "startLine": 1048,
+      "endLine": 1052,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__malloc_mad3",
+      "startLine": 1055,
+      "endLine": 1059,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__malloc_mad4",
+      "startLine": 1062,
+      "endLine": 1066,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__vertical_flip_slices",
+      "startLine": 1247,
+      "endLine": 1257,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_load",
+      "startLine": 1366,
+      "endLine": 1374,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_load_from_file",
+      "startLine": 1376,
+      "endLine": 1387,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_load_from_file_16",
+      "startLine": 1389,
+      "endLine": 1400,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_load_16",
+      "startLine": 1402,
+      "endLine": 1410,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_load_gif_from_memory",
+      "startLine": 1444,
+      "endLine": 1456,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_loadf",
+      "startLine": 1493,
+      "endLine": 1501,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_is_hdr",
+      "startLine": 1531,
+      "endLine": 1540,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__refill_buffer",
+      "startLine": 1597,
+      "endLine": 1612,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__jpeg_dequantize",
+      "startLine": 3073,
+      "endLine": 3078,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__resample_row_v_2",
+      "startLine": 3465,
+      "endLine": 3473,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__setup_jpeg",
+      "startLine": 3821,
+      "endLine": 3840,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__jpeg_load",
+      "startLine": 4028,
+      "endLine": 4040,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__jpeg_test",
+      "startLine": 4042,
+      "endLine": 4054,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__jpeg_info",
+      "startLine": 4068,
+      "endLine": 4078,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__zreceive",
+      "startLine": 4214,
+      "endLine": 4222,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_zlib_decode_buffer",
+      "startLine": 4557,
+      "endLine": 4566,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_zlib_decode_noheader_buffer",
+      "startLine": 4584,
+      "endLine": 4593,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__gif_parse_colortable",
+      "startLine": 6597,
+      "endLine": 6606,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__hdr_test",
+      "startLine": 7097,
+      "endLine": 7106,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__pnm_isdigit",
+      "startLine": 7562,
+      "endLine": 7565,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__pnm_is16",
+      "startLine": 7624,
+      "endLine": 7629,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_info",
+      "startLine": 7691,
+      "endLine": 7699,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_is_16_bit",
+      "startLine": 7712,
+      "endLine": 7720,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "steam/steamhttpenums.h",
+      "functionName": "BIsHTTPStatusSuccess",
+      "startLine": 100,
+      "endLine": 103,
+      "score": 4,
+      "signals": {
+        "complexity": 1,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "docker-build.sh",
+      "functionName": "print_usage",
+      "startLine": 17,
+      "endLine": 35,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "docker-build.sh",
+      "functionName": "build",
+      "startLine": 37,
+      "endLine": 45,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "docker-build.sh",
+      "functionName": "run",
+      "startLine": 47,
+      "endLine": 56,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "docker-build.sh",
+      "functionName": "compose_up",
+      "startLine": 58,
+      "endLine": 63,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "docker-build.sh",
+      "functionName": "compose_down",
+      "startLine": 65,
+      "endLine": 69,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "docker-build.sh",
+      "functionName": "shell",
+      "startLine": 71,
+      "endLine": 79,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "include/d3dx12_resource_helpers.h",
+      "functionName": "D3DX12Align",
+      "startLine": 377,
+      "endLine": 386,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "include/d3dx12_resource_helpers.h",
+      "functionName": "D3DX12AlignAtLeast",
+      "startLine": 390,
+      "endLine": 394,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "include/d3dx12_resource_helpers.h",
+      "functionName": "D3DX12ResourceDesc0ToDesc1",
+      "startLine": 558,
+      "endLine": 576,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Metal/SingleHeader/MakeSingleHeader.py",
+      "functionName": "__init__",
+      "startLine": 58,
+      "endLine": 60,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Metal/SingleHeader/MakeSingleHeader.py",
+      "functionName": "__str__",
+      "startLine": 61,
+      "endLine": 63,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Metal/SingleHeader/MakeSingleHeader.py",
+      "functionName": "__get_commit_hash",
+      "startLine": 64,
+      "endLine": 76,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Metal/SingleHeader/MakeSingleHeader.py",
+      "functionName": "__get_date_string",
+      "startLine": 86,
+      "endLine": 90,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Metal/SingleHeader/MakeSingleHeader.py",
+      "functionName": "append",
+      "startLine": 110,
+      "endLine": 112,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Metal/SingleHeader/MakeSingleHeader.py",
+      "functionName": "__read_header",
+      "startLine": 124,
+      "endLine": 133,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Metal/SingleHeader/MakeSingleHeader.py",
+      "functionName": "__strip_pragma_once",
+      "startLine": 134,
+      "endLine": 136,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Metal/SingleHeader/MakeSingleHeader.py",
+      "functionName": "__strip_comments",
+      "startLine": 137,
+      "endLine": 139,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Metal/SingleHeader/MakeSingleHeader.py",
+      "functionName": "__strip_empty_lines",
+      "startLine": 140,
+      "endLine": 142,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Metal/SingleHeader/MakeSingleHeader.py",
+      "functionName": "__substitute_include_directive",
+      "startLine": 143,
+      "endLine": 149,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Metal/SingleHeader/MakeSingleHeader.py",
+      "functionName": "__process_include_directives",
+      "startLine": 150,
+      "endLine": 152,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Metal/SingleHeader/MakeSingleHeader.py",
+      "functionName": "create_argument_parser",
+      "startLine": 185,
+      "endLine": 195,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Metal/SingleHeader/MakeSingleHeader.py",
+      "functionName": "write_header",
+      "startLine": 233,
+      "endLine": 246,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "lerp",
+      "startLine": 48,
+      "endLine": 50,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "clamp",
+      "startLine": 51,
+      "endLine": 53,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "make_rng",
+      "startLine": 54,
+      "endLine": 56,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "activate",
+      "startLine": 57,
+      "endLine": 61,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "clean_geo",
+      "startLine": 67,
+      "endLine": 75,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "smart_uv",
+      "startLine": 76,
+      "endLine": 82,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "new_mesh_obj",
+      "startLine": 83,
+      "endLine": 88,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "write_bm",
+      "startLine": 89,
+      "endLine": 94,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "try_face",
+      "startLine": 95,
+      "endLine": 100,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "make_params",
+      "startLine": 121,
+      "endLine": 206,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "_n",
+      "startLine": 862,
+      "endLine": 867,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "create_glow_material",
+      "startLine": 1052,
+      "endLine": 1073,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "Python/ShipMaker.py",
+      "functionName": "draw",
+      "startLine": 1588,
+      "endLine": 1630,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__cpuid3",
+      "startLine": 732,
+      "endLine": 737,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__sse2_available",
+      "startLine": 754,
+      "endLine": 758,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__start_mem",
+      "startLine": 826,
+      "endLine": 833,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__start_callbacks",
+      "startLine": 836,
+      "endLine": 846,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__stdio_read",
+      "startLine": 850,
+      "endLine": 853,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__start_file",
+      "startLine": 877,
+      "endLine": 880,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__rewind",
+      "startLine": 886,
+      "endLine": 893,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_failure_reason",
+      "startLine": 972,
+      "endLine": 975,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__err",
+      "startLine": 978,
+      "endLine": 982,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__malloc",
+      "startLine": 985,
+      "endLine": 988,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_image_free",
+      "startLine": 1101,
+      "endLine": 1104,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_set_flip_vertically_on_load",
+      "startLine": 1116,
+      "endLine": 1119,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_set_flip_vertically_on_load_thread",
+      "startLine": 1126,
+      "endLine": 1130,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_convert_wchar_to_utf8",
+      "startLine": 1331,
+      "endLine": 1334,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_load_16_from_memory",
+      "startLine": 1415,
+      "endLine": 1420,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_load_16_from_callbacks",
+      "startLine": 1422,
+      "endLine": 1427,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_load_from_memory",
+      "startLine": 1429,
+      "endLine": 1434,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_load_from_callbacks",
+      "startLine": 1436,
+      "endLine": 1441,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_loadf_from_memory",
+      "startLine": 1478,
+      "endLine": 1483,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_loadf_from_callbacks",
+      "startLine": 1485,
+      "endLine": 1490,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_loadf_from_file",
+      "startLine": 1503,
+      "endLine": 1508,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_is_hdr_from_memory",
+      "startLine": 1517,
+      "endLine": 1528,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_is_hdr_from_file",
+      "startLine": 1542,
+      "endLine": 1556,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_is_hdr_from_callbacks",
+      "startLine": 1559,
+      "endLine": 1570,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__get16be",
+      "startLine": 1694,
+      "endLine": 1698,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__get32be",
+      "startLine": 1704,
+      "endLine": 1708,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__get16le",
+      "startLine": 1714,
+      "endLine": 1718,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__get32le",
+      "startLine": 1722,
+      "endLine": 1727,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__compute_y",
+      "startLine": 1746,
+      "endLine": 1749,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__compute_y_16",
+      "startLine": 1803,
+      "endLine": 1806,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__idct_simd",
+      "startLine": 2530,
+      "endLine": 2703,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__jpeg_reset",
+      "startLine": 2936,
+      "endLine": 2947,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "resample_row_1",
+      "startLine": 3456,
+      "endLine": 3463,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__cleanup_jpeg",
+      "startLine": 3843,
+      "endLine": 3846,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__blinn_8x8",
+      "startLine": 3859,
+      "endLine": 3863,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__bitreverse16",
+      "startLine": 4107,
+      "endLine": 4114,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__bit_reverse",
+      "startLine": 4116,
+      "endLine": 4122,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__zeof",
+      "startLine": 4192,
+      "endLine": 4195,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__zget8",
+      "startLine": 4197,
+      "endLine": 4200,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__do_zlib",
+      "startLine": 4510,
+      "endLine": 4518,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_zlib_decode_malloc",
+      "startLine": 4536,
+      "endLine": 4539,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__get_chunk_header",
+      "startLine": 4613,
+      "endLine": 4619,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__paeth",
+      "startLine": 4657,
+      "endLine": 4668,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_set_unpremultiply_on_load",
+      "startLine": 4996,
+      "endLine": 4999,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_convert_iphone_png_to_rgb",
+      "startLine": 5001,
+      "endLine": 5004,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_set_unpremultiply_on_load_thread",
+      "startLine": 5013,
+      "endLine": 5017,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_convert_iphone_png_to_rgb_thread",
+      "startLine": 5019,
+      "endLine": 5023,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__png_load",
+      "startLine": 5295,
+      "endLine": 5300,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__png_test",
+      "startLine": 5302,
+      "endLine": 5308,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__png_info",
+      "startLine": 5322,
+      "endLine": 5327,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__bmp_test",
+      "startLine": 5361,
+      "endLine": 5366,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__bitcount",
+      "startLine": 5382,
+      "endLine": 5390,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__tga_read_rgb16",
+      "startLine": 5852,
+      "endLine": 5869,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__psd_test",
+      "startLine": 6081,
+      "endLine": 6086,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__pic_test",
+      "startLine": 6541,
+      "endLine": 6546,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__gif_test",
+      "startLine": 6590,
+      "endLine": 6595,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi__gif_info",
+      "startLine": 7077,
+      "endLine": 7080,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_info_from_file",
+      "startLine": 7701,
+      "endLine": 7710,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_is_16_bit_from_file",
+      "startLine": 7722,
+      "endLine": 7731,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_info_from_memory",
+      "startLine": 7734,
+      "endLine": 7739,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_info_from_callbacks",
+      "startLine": 7741,
+      "endLine": 7746,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_is_16_bit_from_memory",
+      "startLine": 7748,
+      "endLine": 7753,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "stb_image.h",
+      "functionName": "stbi_is_16_bit_from_callbacks",
+      "startLine": 7755,
+      "endLine": 7760,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "steam/steam_api.h",
+      "functionName": "SteamAPI_Init",
+      "startLine": 97,
+      "endLine": 100,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "steam/steam_api.h",
+      "functionName": "SteamAPI_InitEx",
+      "startLine": 231,
+      "endLine": 264,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "steam/steam_gameserver.h",
+      "functionName": "SteamGameServer_Init",
+      "startLine": 58,
+      "endLine": 61,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "steam/steam_gameserver.h",
+      "functionName": "SteamGameServer_InitEx",
+      "startLine": 92,
+      "endLine": 108,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "steam/steam_gameserver.h",
+      "functionName": "SteamGameServer_ReleaseCurrentThreadMemory",
+      "startLine": 109,
+      "endLine": 112,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "steam/steamclientpublic.h",
+      "functionName": "SteamIDFromSteam2UserID",
+      "startLine": 860,
+      "endLine": 866,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "steam/steamclientpublic.h",
+      "functionName": "SteamIDToSteam2UserID",
+      "startLine": 874,
+      "endLine": 883,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    },
+    {
+      "filePath": "steam/steamnetworkingtypes.h",
+      "functionName": "GetSteamNetworkingLocationPOPStringFromID",
+      "startLine": 1843,
+      "endLine": 1851,
+      "score": 2,
+      "signals": {
+        "complexity": 0,
+        "churn": 1,
+        "bugfixCommits": 0,
+        "threadOrResourceHeuristic": false,
+        "unhandledPromiseHeuristic": false,
+        "hasTestCoverage": false
+      }
+    }
+  ],
+  "narratives": {
+    "Includes.h::LookupAspectRatio::831": {
+      "key": "Includes.h::LookupAspectRatio::831",
+      "narrative": "The function handles division-by-zero by checking h > 0 before the division and returning a safe default (16/9) when h <= 0, and correctly casts to float before dividing to avoid integer division errors. No concrete defect visible; the high score reflects code churn and moderate complexity rather than an identifiable bug.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "859|47|3|45|14|false|false|false"
+    },
+    "stb_image.h::stbi__parse_png_file::5078": {
+      "key": "stb_image.h::stbi__parse_png_file::5078",
+      "narrative": "The visible snippet shows proper PNG header and chunk validation with explicit bounds checks (STBI_MAX_DIMENSIONS, palette length limit, image dimension checks). Memory allocations (z->expanded, z->idata, z->out) are initialized to NULL. However, the source is truncated mid-function, preventing verification of whether all allocated resources are properly freed on error paths—a known risk pattern in resource-heavy parsing code, but cannot be confirmed from this excerpt alone.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "5261|47|84|1|0|true|false|false"
+    },
+    "include/d3dx12_pipeline_state_stream.h::D3DX12ParsePipelineStream::1337": {
+      "key": "include/d3dx12_pipeline_state_stream.h::D3DX12ParsePipelineStream::1337",
+      "narrative": "The function validates the pCallbacks pointer at entry and checks the stream descriptor for null/zero-size before dereferencing. The SubobjectType comparison uses `<0` on an enum cast to check bounds, which is defensive but redundant with the upper bound check. The code is truncated; no concrete defect is visible in the validated portion shown.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "1496|37|43|1|0|false|false|false"
+    },
+    "stb_image.h::stbi__jpeg_decode_block_prog_ac::2295": {
+      "key": "stb_image.h::stbi__jpeg_decode_block_prog_ac::2295",
+      "narrative": "The function handles Huffman decoding errors by checking for negative return values from stbi__jpeg_huff_decode and returning early on failure. Array accesses into stbi__jpeg_dezigzag are bounds-checked implicitly by k being constrained to spec_start/spec_end ranges validated by the caller. No concrete defect is visible in this snippet.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "2413|37|30|1|0|false|false|false"
+    },
+    "stb_image.h::stbi__parse_entropy_coded_data::2949": {
+      "key": "stb_image.h::stbi__parse_entropy_coded_data::2949",
+      "narrative": "The function initializes SIMD-aligned data arrays and consistently uses stbi__jpeg_decode_block with proper return-value checking (early exit on failure). Loop bounds (z->img_mcu_x, z->img_mcu_y, component h/v counts) are derived from previously parsed headers. The snippet is truncated at a progressive-mode branch; no concrete defect is visible in the non-progressive paths shown.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "3071|37|35|1|0|false|false|false"
+    },
+    "stb_image.h::stbi__process_marker::3099": {
+      "key": "stb_image.h::stbi__process_marker::3099",
+      "narrative": "The DHT (Huffman table) parsing loop accumulates L -= n after writing v[i] values, but there is no validation that the accumulated L subtraction will not underflow or cause L to become negative before the outer while(L > 0) condition checks it. The code does validate n <= 256 and L -= 17 upfront, but if a malformed JPEG specifies mismatched segment lengths, the loop could exit with L < 0, causing the function to return L==0 (false) when L is actually negative. However, the return statement L==0 only returns false for L≠0, so this is consistent defensive behavior. No concrete defect is visible in this snippet; the scoring is driven by complexity and lack of test coverage.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "3200|37|35|1|0|false|false|false"
+    },
+    "stb_image.h::stbi__process_scan_header::3203": {
+      "key": "stb_image.h::stbi__process_scan_header::3203",
+      "narrative": "The function performs bounds checking on z->spec_start, z->spec_end, z->succ_high, and z->succ_low for progressive JPEGs, and requires z->spec_start == 0 for non-progressive JPEGs. All input values are read directly via stbi__get8() with no explicit range guards before the conditional logic, but the validations catch out-of-spec values and return errors appropriately. No concrete defect is visible in this snippet; the moderate score appears driven by complexity and lack of test coverage.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "3240|37|19|1|0|false|false|false"
+    },
+    "stb_image.h::stbi__process_frame_header::3264": {
+      "key": "stb_image.h::stbi__process_frame_header::3264",
+      "narrative": "The function validates frame dimensions against STBI_MAX_DIMENSIONS and confirms component counts (1, 3, or 4), and uses stbi__mad3sizes_valid() to check for multiplication overflow before allocating. The subsampling factor validation ensures h_max and v_max are integer multiples of each component's h and v. No concrete defect is visible in the visible portion; the score reflects high complexity and lack of test coverage.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "3354|37|31|1|0|false|false|false"
+    },
+    "stb_image.h::load_jpeg_image::3865": {
+      "key": "stb_image.h::load_jpeg_image::3865",
+      "narrative": "The function allocates linebuf for each component and checks for allocation failure, returning early with cleanup on NULL. The output allocation also checks for failure. The resample function pointers are assigned based on hs and vs ratios, and the loop logic appears to track state consistently. The code is truncated, preventing full verification of the color-conversion and output-writing logic, but no concrete defect is visible in the visible portion.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "4026|37|49|1|0|false|false|false"
+    },
+    "stb_image.h::stbi__parse_huffman_block::4309": {
+      "key": "stb_image.h::stbi__parse_huffman_block::4309",
+      "narrative": "The function decodes Huffman-compressed data, validates huffman codes (rejecting z < 0, z >= 286 for length, z < 0 or z >= 30 for distance), checks zout bounds before writing, and ensures dist does not point before zout_start. The length-based buffer expansion and byte-copy logic with dist==1 optimization both appear sound. No concrete defect is visible in this snippet.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "4357|37|21|1|0|false|false|false"
+    },
+    "stb_image.h::stbi__create_png_image_raw::4696": {
+      "key": "stb_image.h::stbi__create_png_image_raw::4696",
+      "narrative": "The snippet is truncated mid-function, preventing full inspection of filter logic and buffer bounds handling. However, visible allocation of output buffer (a->out) and filter workspace (filter_buf) both check for null, and the loop structure validates filter type (filter > 4 check) and uses bounds-checked array access. No concrete defect is visible in the shown portion; the score reflects high complexity and lack of test coverage.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "4859|37|42|1|0|false|false|false"
+    },
+    "stb_image.h::stbi__bmp_parse_header::5448": {
+      "key": "stb_image.h::stbi__bmp_parse_header::5448",
+      "narrative": "The function validates header size (hsz) against a whitelist (12, 40, 56, 108, 124) and branches correctly for each. It returns early on invalid compress values and checks bpp constraints for bitfield modes. The truncation point occurs mid-function, but all visible error paths return properly via stbi__errpuc(). No concrete defect is visible in the shown code.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "5528|37|31|1|0|false|false|false"
+    },
+    "stb_image.h::stbi__bmp_load::5531": {
+      "key": "stb_image.h::stbi__bmp_load::5531",
+      "narrative": "The function validates image dimensions against STBI_MAX_DIMENSIONS, allocates output via stbi__malloc_mad3 with null check, and validates palette size (psize == 0 || psize > 256 rejection). Offset validation includes a two-condition check to prevent underflow: bytes_read_so_far is verified positive and sensible before being subtracted from info.offset. The snippet is truncated but all visible allocation and bounds checks appear sound.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "5732|37|69|1|0|false|false|false"
+    },
+    "stb_image.h::stbi__tga_info::5755": {
+      "key": "stb_image.h::stbi__tga_info::5755",
+      "narrative": "The function validates tga_colormap_type (must be 0 or 1), tga_image_type against allowed values per colormap mode, bits-per-pixel ranges (8, 15, 16, 24, 32), and dimensions (tga_w and tga_h must be >= 1). All validation failures trigger stbi__rewind() and return 0. No concrete defect is visible in this complete function.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "5818|37|23|1|0|false|false|false"
+    },
+    "stb_image.h::stbi__tga_test::5820": {
+      "key": "stb_image.h::stbi__tga_test::5820",
+      "narrative": "This test function mirrors stbi__tga_info validation: it checks tga_color_type, image type constraints, bits-per-pixel, and dimensions using goto-based error handling with explicit rewind on failure. All conditionals and skip amounts appear consistent with the colormap/non-colormap branches. No concrete defect is visible in this complete function.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "5849|37|23|1|0|false|false|false"
+    },
+    "stb_image.h::stbi__tga_load::5871": {
+      "key": "stb_image.h::stbi__tga_load::5871",
+      "narrative": "No concrete defect visible in this snippet. The function validates dimensions against STBI_MAX_DIMENSIONS before allocation, validates mad3 size calculation, and checks malloc success. Memory is allocated and will be freed by the caller. High complexity and single-commit history drove the score, not an identifiable bug in the visible code.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "6074|37|38|1|0|false|false|false"
+    },
+    "stb_image.h::stbi__psd_load::6126": {
+      "key": "stb_image.h::stbi__psd_load::6126",
+      "narrative": "No concrete defect visible in this snippet. The function checks channelCount range (0–16), validates dimensions, confirms bitdepth and color mode, validates mad3 sizes, and checks malloc success before proceeding. High complexity (44) is the primary score driver; no specific resource leak, null dereference, or logic error is evident in the visible code section.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "6325|37|44|1|0|false|false|false"
+    },
+    "stb_image.h::stbi__pic_load_core::6390": {
+      "key": "stb_image.h::stbi__pic_load_core::6390",
+      "narrative": "No concrete defect visible in this snippet. Packet count is bounded to 10 elements with an explicit check, EOF and format violations are caught, RLE counts are validated against available width, and buffer writes use channel masks to index into a 4-byte stride result buffer. The moderate complexity is not paired with an identifiable bug in the visible code.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "6498|37|26|1|0|false|false|false"
+    },
+    "stb_image.h::stbi__process_gif_raster::6691": {
+      "key": "stb_image.h::stbi__process_gif_raster::6691",
+      "narrative": "No concrete defect visible in this snippet. LZW code size is validated (lzw_cs ≤ 12), avail counter is checked against 8192 before increment, and error paths are taken for invalid or out-of-range codes. The loop structure and bit unpacking logic appear sound within the visible portion. Complexity and single-commit history drove the score, not a specific defect.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "6774|37|16|1|0|false|false|false"
+    },
+    "stb_image.h::stbi__gif_load_next::6778": {
+      "key": "stb_image.h::stbi__gif_load_next::6778",
+      "narrative": "No concrete defect visible in this snippet. The function checks mad3 size validity before allocation, validates three malloc results before use, and ensures dispose mode fallback (dispose = 2 when two_back is NULL) before using it. The visible code correctly handles multi-frame state transitions and history tracking. High complexity (35) is the primary score driver; no identifiable bug is evident before the truncation point.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "6950|37|35|1|0|false|false|false"
+    },
+    "stb_image.h::stbi__load_gif_main::6963": {
+      "key": "stb_image.h::stbi__load_gif_main::6963",
+      "narrative": "The variable `two_back` is computed as `out - 2 * stride` when `layers >= 2`, but on the first iteration when `layers == 1`, `two_back` remains its initialized null pointer and is passed to `stbi__gif_load_next`. If that function dereferences `two_back` without null-checking, undefined behavior could result. However, the code within this snippet does not show the implementation of `stbi__gif_load_next`, so the defect cannot be confirmed solely from what is visible here.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "7046|37|16|1|0|false|false|false"
+    },
+    "stb_image.h::stbi__hdr_load::7158": {
+      "key": "stb_image.h::stbi__hdr_load::7158",
+      "narrative": "The source block is truncated mid-statement, cutting off the call to `stbi__hdr_convert` after only the first two arguments are visible. No concrete defect can be identified in the partial code shown; the visible portion handles allocation, dimension checks, and error cases correctly. The truncation itself is not a defect—it is a token-budget limit, not actual code corruption.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "7287|37|37|1|0|false|false|false"
+    },
+    "cmake-build.bat::renderer_ok::189": {
+      "key": "cmake-build.bat::renderer_ok::189",
+      "narrative": "No source code is available—only a label marker `:renderer_ok` in a batch script. The high churn and bugfix commits suggest the build script has been revised multiple times, but without visibility into the actual logic or control flow, no concrete defect can be identified.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "189|36|0|16|4|false|false|false"
+    },
+    "cmake-build.bat::error::275": {
+      "key": "cmake-build.bat::error::275",
+      "narrative": "No source code is available—only a label marker `:error`. Build-script labels themselves contain no executable logic and cannot harbor a defect without surrounding context. Signals reflect historical churn, not an identifiable issue in this snippet.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "275|36|0|16|4|false|false|false"
+    },
+    "cmake-build.bat::end::282": {
+      "key": "cmake-build.bat::end::282",
+      "narrative": "No source code is available—only a label marker `:end`. A label in a batch script has no executable logic and cannot be defective in isolation.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "282|36|0|16|4|false|false|false"
+    },
+    "cmake-build.bat::killcompiler::291": {
+      "key": "cmake-build.bat::killcompiler::291",
+      "narrative": "The source block contains only a label ':killcompiler' with no actual executable code visible. Without the function body, signals (high churn: 16 commits, 4 bug-fix commits, no test coverage) suggest potential stability issues, but no concrete defect can be identified from the supplied snippet.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "291|36|0|16|4|false|false|false"
+    },
+    "stb_image.h::stbi__compute_huffman_codes::4359": {
+      "key": "stb_image.h::stbi__compute_huffman_codes::4359",
+      "narrative": "The code performs bounds checking on decoded values (c < 0 || c >= 19), validates against corrupt PNG markers, checks array bounds before accessing lencodes[n-1], and validates that (ntot - n < c) before memset. No concrete defect is visible in this snippet — the score appears driven by moderate cyclomatic complexity and lack of test coverage signal, not an identifiable bug.",
+      "confidence": "low",
+      "defectFound": false,
+      "signature": "4407|35|14|1|0|false|false|false"
+    }
+  }
+}

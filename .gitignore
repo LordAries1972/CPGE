@@ -5,6 +5,7 @@
 /.vs/CrossPlatformGameEngine
 /.vs
 /x64/Release
+.workspace
 *.bak
 *.ipch
 *.exe

@@ -1,0 +1,28 @@
+{
+  "claude:claude-opus-4-8": {
+    "provider": "claude",
+    "model": "claude-opus-4-8",
+    "structuredOutputValidCount": 7,
+    "structuredOutputInvalidCount": 0,
+    "totalLatencyMs": 333004,
+    "latencySampleCount": 14,
+    "patchAcceptedCount": 0,
+    "patchRejectedCount": 0,
+    "hallucinatedFileCount": 0,
+    "unsupportedApiCount": 0,
+    "invariantViolationCount": 0
+  },
+  "claude:claude-haiku-4-5-20251001": {
+    "provider": "claude",
+    "model": "claude-haiku-4-5-20251001",
+    "structuredOutputValidCount": 7,
+    "structuredOutputInvalidCount": 0,
+    "totalLatencyMs": 123007,
+    "latencySampleCount": 12,
+    "patchAcceptedCount": 0,
+    "patchRejectedCount": 0,
+    "hallucinatedFileCount": 0,
+    "unsupportedApiCount": 0,
+    "invariantViolationCount": 0
+  }
+}

@@ -1,0 +1,79 @@
+[
+  {
+    "relativePath": ".agent-coder.json",
+    "languageId": "json",
+    "contentHash": "8003bf160a6e10c94387d32a7995f6cda08113ea92ef8ea12767698cf81633ed",
+    "documentVersion": 6,
+    "timestampMs": 1785089240072,
+    "outcome": "valid",
+    "toolIdentity": "JSON.parse",
+    "durationMs": 3,
+    "diagnosticFingerprints": []
+  },
+  {
+    "relativePath": ".vscode/settings.json",
+    "languageId": "json",
+    "contentHash": "c53417902f1f519a49cb2fdad61e72cadce1571c8b3412ac6e732da51d9687d4",
+    "documentVersion": 9,
+    "timestampMs": 1785089939107,
+    "outcome": "valid",
+    "toolIdentity": "JSON.parse",
+    "durationMs": 1,
+    "diagnosticFingerprints": []
+  },
+  {
+    "relativePath": ".vscode/settings.json",
+    "languageId": "json",
+    "contentHash": "6f48c68abff43ab65e037cd98c6094265e1175ca0138c57571db56a6ac8abbc7",
+    "documentVersion": 11,
+    "timestampMs": 1785089955537,
+    "outcome": "valid",
+    "toolIdentity": "JSON.parse",
+    "durationMs": 1,
+    "diagnosticFingerprints": []
+  },
+  {
+    "relativePath": "DX12Renderer.cpp",
+    "languageId": "cpp",
+    "contentHash": "3dd58551278ac0080aa6574a36bf0c0a7f525cf14540657716baf81700ce3be1",
+    "documentVersion": 2,
+    "timestampMs": 1785090533265,
+    "outcome": "tool-unavailable",
+    "toolIdentity": "g++/clang++/cl",
+    "durationMs": 727,
+    "diagnosticFingerprints": []
+  },
+  {
+    "relativePath": "main.cpp",
+    "languageId": "cpp",
+    "contentHash": "50135de36cdf57edc5064aa292f4618455b94c10bc6719c2183246a1854a73f2",
+    "documentVersion": 2,
+    "timestampMs": 1785092321172,
+    "outcome": "tool-unavailable",
+    "toolIdentity": "g++/clang++/cl",
+    "durationMs": 0,
+    "diagnosticFingerprints": []
+  },
+  {
+    "relativePath": "main.cpp",
+    "languageId": "cpp",
+    "contentHash": "b3df13875353aa7cfa215de3fc83a561f83e9d4a48bf6462a82d729c2fe427a5",
+    "documentVersion": 3,
+    "timestampMs": 1785092383085,
+    "outcome": "tool-unavailable",
+    "toolIdentity": "g++/clang++/cl",
+    "durationMs": 0,
+    "diagnosticFingerprints": []
+  },
+  {
+    "relativePath": "main.cpp",
+    "languageId": "cpp",
+    "contentHash": "b3df13875353aa7cfa215de3fc83a561f83e9d4a48bf6462a82d729c2fe427a5",
+    "documentVersion": 3,
+    "timestampMs": 1785092391741,
+    "outcome": "tool-unavailable",
+    "toolIdentity": "g++/clang++/cl",
+    "durationMs": 0,
+    "diagnosticFingerprints": []
+  }
+]

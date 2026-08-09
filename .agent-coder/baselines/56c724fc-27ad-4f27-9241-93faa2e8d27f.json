@@ -1,0 +1,15 @@
+{
+  "id": "56c724fc-27ad-4f27-9241-93faa2e8d27f",
+  "capturedAtMs": 1784993846606,
+  "gitCommit": "7a08dcd59a64b7f348f22e9e9f5d9e6ab4afc6d5",
+  "gitBranch": "Phase2",
+  "workingTreeClean": false,
+  "languageId": "cpp",
+  "snapshot": {
+    "buildSucceeded": true,
+    "errorCount": 0,
+    "warningCount": 1,
+    "testsPassed": 0,
+    "testsFailed": 0
+  }
+}
