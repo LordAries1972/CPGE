@@ -75,5 +75,49 @@
     "toolIdentity": "g++/clang++/cl",
     "durationMs": 0,
     "diagnosticFingerprints": []
+  },
+  {
+    "relativePath": "IOLoaderThread.cpp",
+    "languageId": "cpp",
+    "contentHash": "d9e7446edc3add31e20f362e2007639437ba3cb80e00b32fab9785c9ad003282",
+    "documentVersion": 2,
+    "timestampMs": 1790173822950,
+    "outcome": "inconclusive",
+    "toolIdentity": "g++",
+    "durationMs": 1619,
+    "diagnosticFingerprints": []
+  },
+  {
+    "relativePath": "IOLoaderThread.cpp",
+    "languageId": "cpp",
+    "contentHash": "61a01e341183205426795bc2bbf7d1b0a0d1f8ca708a47a772416e32af305c0a",
+    "documentVersion": 3,
+    "timestampMs": 1790173835800,
+    "outcome": "inconclusive",
+    "toolIdentity": "g++",
+    "durationMs": 69,
+    "diagnosticFingerprints": []
+  },
+  {
+    "relativePath": "IOLoaderThread.cpp",
+    "languageId": "cpp",
+    "contentHash": "6405975c75be7d0885529d6204da4d4af1c46fb7e18549c4f8cc00143a3fb4ab",
+    "documentVersion": 4,
+    "timestampMs": 1790173852070,
+    "outcome": "inconclusive",
+    "toolIdentity": "g++",
+    "durationMs": 69,
+    "diagnosticFingerprints": []
+  },
+  {
+    "relativePath": "IOLoaderThread.cpp",
+    "languageId": "cpp",
+    "contentHash": "1e15136f574a0ac2ddf8672ea7322c233765d49cff11f6752d1989804a888a02",
+    "documentVersion": 5,
+    "timestampMs": 1790173861134,
+    "outcome": "inconclusive",
+    "toolIdentity": "g++",
+    "durationMs": 83,
+    "diagnosticFingerprints": []
   }
 ]

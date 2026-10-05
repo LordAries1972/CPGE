@@ -1,0 +1,1016 @@
+/* ----------------------------------------------------------------
+   DO NOT INCLUDE THIS FILE!!! THE PROJECT ITSELF SCOPES THIS FILE!
+/* ----------------------------------------------------------------
+   IOLoaderThread.cpp -- Unified I/O Loader Thread implementation.
+
+   Replaces the four per-pipeline source files:
+       IOStreamDX11Thread.cpp  / IOStreamDX12Thread.cpp
+       OpenGL_IOStreamThread.cpp / VULKAN_IOStreamThread.cpp
+
+   All four pipelines share ONE LoaderTaskThread() body.
+   Renderer-specific API calls are wrapped in inline
+   #if defined(__USE_<RENDERER>__) / #if defined(PLATFORM_WINDOWS)
+   guards so only the code for the active build is compiled.
+
+   This is where you load & initialise all necessary resources
+   for the given scene.
+----------------------------------------------------------------- */
+#include "Includes.h"
+
+/* ----------------------------------------------------------------
+   Per-renderer: renderer class and FX manager headers.
+   Only the block matching the active renderer define is compiled.
+---------------------------------------------------------------- */
+#if defined(__USE_DIRECTX_11__)
+    #include "DX11Renderer.h"
+#elif defined(__USE_DIRECTX_12__)
+    #include "DX12Renderer.h"
+#elif defined(__USE_OPENGL__)
+    #include "OpenGLRenderer.h"
+#elif defined(__USE_VULKAN__)
+    #include "VULKAN_Renderer.h"
+#endif
+
+/* ----------------------------------------------------------------
+   Platform-specific system headers.
+   DX11/DX12 are always Windows so these are always included;
+   OpenGL/Vulkan include them only when building on Windows.
+---------------------------------------------------------------- */
+#if defined(PLATFORM_WINDOWS)
+    #include "WinSystem.h"
+    #include "ShaderManager.h"
+#endif
+
+/* ----------------------------------------------------------------
+   Common headers shared by all four pipelines.
+---------------------------------------------------------------- */
+#include "Debug.h"
+#include "MathPrecalculation.h"
+#include "ExceptionHandler.h"
+#include "ThreadManager.h"
+#include "Models.h"
+#include "Lights.h"
+#include "FXManager.h"
+#include "SoundManager.h"
+#include "SceneManager.h"
+#include "GUIManager.h"
+#include "MoviePlayer.h"
+#include "Configuration.h"
+#include "GamePlayer.h"
+
+#if defined(__USE_MP3PLAYER__)
+    #include "WinMediaPlayer.h"
+#elif defined(__USE_XMPLAYER__)
+    #include "XMMODPlayer.h"
+#elif defined(__USE_S3MPLAYER__)
+    #include "S3MPlayer.h"
+#elif defined(__USE_MPTMPLAYER__)
+    #include "MPTMPlayer.h"
+#elif defined(__USE_ITPLAYER__)
+    #include "ITPlayer.h"
+#elif defined(__USE_MODPLAYER__)
+    #include "MODPlayer.h"
+#endif
+
+// Include our Music Playback system we are using.
+#if defined(__USE_MP3PLAYER__)
+    extern MediaPlayer player;
+#elif defined(__USE_XMPLAYER__)
+    extern XMMODPlayer modPlayer;
+#elif defined(__USE_S3MPLAYER__)
+    extern S3MPlayer modPlayer;
+#elif defined(__USE_MPTMPLAYER__)
+    extern MPTMPlayer modPlayer;
+#elif defined(__USE_ITPLAYER__)
+    extern ITPlayer modPlayer;
+#elif defined(__USE_MODPLAYER__)
+    extern MODPlayer modPlayer;
+#endif
+
+extern std::wstring g_currentMusicFile;  // Global variable to hold the current music file name
+
+using namespace SoundSystem;
+
+/* ----------------------------------------------------------------
+   External references -- common across all pipelines.
+---------------------------------------------------------------- */
+extern ExceptionHandler exceptionHandler;
+extern ThreadManager    threadManager;
+extern SceneManager     scene;
+extern SoundManager     soundManager;
+extern GUIManager       guiManager;
+extern MoviePlayer      moviePlayer;
+extern FXManager        fxManager;
+extern Model            models[MAX_MODELS];
+extern LightsManager    lightsManager;
+extern GamePlayer       gamePlayer;
+extern bool             bResizing;
+extern int              textScrollerEffectID;
+extern bool             Load_Music();                                               // Declared in main.cpp
+extern std::wstring     baseDir;
+
+/* Windows-only system references (DX builds are inherently Windows). */
+#if defined(PLATFORM_WINDOWS)
+    extern SystemUtils   sysUtils;
+    extern WindowMetrics winMetrics;
+    extern ShaderManager shaderManager;
+#endif
+
+/* ----------------------------------------------------------------
+   Static mutex definition.
+     DX11   : defined here (matches original old IOStreamDX11Thread.cpp).
+     DX12   : defined in DX12Renderer.cpp -- no redefinition needed.
+     OpenGL : defined in OpenGLRenderer.cpp -- no redefinition needed.
+     Vulkan : defined here (matches original old VULKAN_IOStreamThread.cpp).
+---------------------------------------------------------------- */
+#if defined(__USE_DIRECTX_11__)
+    std::mutex DX11Renderer::s_loaderMutex;
+#elif defined(__USE_VULKAN__)
+    std::mutex VulkanRenderer::s_loaderMutex;
+#endif
+
+// Forward Declarations
+PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, const Vector2& startPosition);
+
+/* ================================================================
+   LEVEL SETUP TABLE -- Levels 1 to 30 (SCENE_GAMEPLAY).
+
+   One entry per level, indexed by (level - 1).  The current level
+   comes from gamePlayer.GetGameStatus().GetCurrentLevel().
+
+     musicFile : tune loaded FIRST for this level, relative to AssetsDir.
+                 Use the extension that matches the active music player
+                 (.mp3 for __USE_MP3PLAYER__, .mod/.xm/.it/.s3m/.mptm
+                 for the tracker players).
+                 Empty = fall back to Load_Music() (the default
+                 SCENE_GAMEPLAY tune), so a gap never leaves a level
+                 silent.
+     sceneFile : scene parsed for this level, relative to AssetsDir
+                 (.gltf / .glb / .fbx -- auto-detected).
+                 Empty = no scene is parsed (a warning is logged).
+
+   Plain const wchar_t* literals: static storage, no heap allocation
+   and no static-initialisation-order issues.
+================================================================ */
+constexpr int MAX_GAME_LEVELS = 30;
+
+struct LevelSetupInfo
+{
+    const wchar_t* musicFile;                                               // Level tune (AssetsDir-relative); L"" = default tune
+    const wchar_t* sceneFile;                                               // Level scene (AssetsDir-relative); L"" = none
+};
+
+static const LevelSetupInfo kLevelSetups[MAX_GAME_LEVELS] =
+{
+    /* Level  1 */ { L"", L"level1.gltf" },                                // Original level 1 scene retained
+    /* Level  2 */ { L"", L"" },
+    /* Level  3 */ { L"", L"" },
+    /* Level  4 */ { L"", L"" },
+    /* Level  5 */ { L"", L"" },
+    /* Level  6 */ { L"", L"" },
+    /* Level  7 */ { L"", L"" },
+    /* Level  8 */ { L"", L"" },
+    /* Level  9 */ { L"", L"" },
+    /* Level 10 */ { L"", L"" },
+    /* Level 11 */ { L"", L"" },
+    /* Level 12 */ { L"", L"" },
+    /* Level 13 */ { L"", L"" },
+    /* Level 14 */ { L"", L"" },
+    /* Level 15 */ { L"", L"" },
+    /* Level 16 */ { L"", L"" },
+    /* Level 17 */ { L"", L"" },
+    /* Level 18 */ { L"", L"" },
+    /* Level 19 */ { L"", L"" },
+    /* Level 20 */ { L"", L"" },
+    /* Level 21 */ { L"", L"" },
+    /* Level 22 */ { L"", L"" },
+    /* Level 23 */ { L"", L"" },
+    /* Level 24 */ { L"", L"" },
+    /* Level 25 */ { L"", L"" },
+    /* Level 26 */ { L"", L"" },
+    /* Level 27 */ { L"", L"" },
+    /* Level 28 */ { L"", L"" },
+    /* Level 29 */ { L"", L"" },
+    /* Level 30 */ { L"", L"" },
+};
+
+/* ----------------------------------------------------------------
+   LoadLevelMusic -- starts the tune for the given level (1-based,
+   already clamped to 1..MAX_GAME_LEVELS by the caller).
+   Runs on the loader thread as the FIRST step of a SCENE_GAMEPLAY
+   first load.  SwitchToGamePlay() has already called
+   StopMusicPlayback(), so no previous tune is playing here.
+   Returns false if the tune could not be started; the caller logs
+   and carries on loading the level (music is not fatal).
+---------------------------------------------------------------- */
+static bool LoadLevelMusic(int level)
+{
+    const wchar_t* musicFile = kLevelSetups[level - 1].musicFile;
+
+    // No tune assigned to this level yet -- use the default SCENE_GAMEPLAY tune.
+    if ((musicFile == nullptr) || (musicFile[0] == L'\0'))
+    {
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[LOADER]: Level %d has no music assigned -- using default gameplay tune.", level);
+        #if defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
+            modPlayer.Stop();                                               // Play() refuses to start while a track is still playing
+        #endif
+        return Load_Music();
+    }
+
+    auto fileName = AssetsDir / musicFile;
+
+    #if defined(__USE_MP3PLAYER__)
+        // Same start sequence as Load_Music() for the MP3 player.
+        if (!player.loadFile(fileName))
+        {
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[LOADER]: Level %d -- failed to load MP3 file [%s].", level, fileName.c_str());
+            return false;
+        }
+        player.play();
+        player.fadeIn(5000);
+        g_currentMusicFile = fileName.wstring();
+    #elif defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
+        modPlayer.Stop();                                                   // Play() refuses to start while a track is still playing
+        if (!modPlayer.Play(fileName))
+        {
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[LOADER]: Level %d -- failed to play module file [%s].", level, fileName.c_str());
+            return false;
+        }
+        g_currentMusicFile = fileName.wstring();                            // Used by the config-apply callback to restart the tune
+        if (!config.myConfig.playMusic)
+            modPlayer.Pause();
+    #endif
+
+    return true;
+}
+
+/* ================================================================
+   UNIFIED LoaderTaskThread() -- one body covers all pipelines.
+
+   The function signature selects the correct renderer class via
+   a #if / #elif chain.  Inside the body the shared logic is
+   written once; inline #if guards appear only where pipelines
+   genuinely diverge (OpenGL context, glFlush, Vulkan camera path,
+   platform-only system calls, etc.).
+================================================================ */
+#if defined(__USE_DIRECTX_11__)
+    void DX11Renderer::LoaderTaskThread()
+#elif defined(__USE_DIRECTX_12__)
+    void DX12Renderer::LoaderTaskThread()
+#elif defined(__USE_OPENGL__)
+    void OpenGLRenderer::LoaderTaskThread()
+#elif defined(__USE_VULKAN__)
+    void VulkanRenderer::LoaderTaskThread()
+#endif
+
+{
+    exceptionHandler.RecordFunctionCall("LoaderTaskThread");
+    std::lock_guard<std::mutex> lock(s_loaderMutex);
+
+    /* OpenGL only: acquire the shared loader GL context so that
+       glGenTextures / glTexImage2D calls in LoadAllKnownTextures()
+       have a valid context on this thread.  Both contexts share the
+       same GL object namespace (textures, buffers, etc.). */
+    #if defined(__USE_OPENGL__) && defined(PLATFORM_WINDOWS)
+        if (m_loaderGLContext && m_glContext.deviceContext) {
+            if (!wglMakeCurrent(m_glContext.deviceContext, m_loaderGLContext)) {
+                debug.logLevelMessage(LogLevel::LOG_ERROR,
+                    L"[LOADER] wglMakeCurrent failed -- texture uploads will silently fail and screen will be blank");
+            }
+        }
+    #endif
+
+    // Check the status of the Loader thread and flag that we have loading to do.
+    ThreadStatus status = threadManager.GetThreadStatus(THREAD_LOADER);
+    threadManager.threadVars.bLoaderTaskFinished.store(false);
+
+    while (((status == ThreadStatus::Running) || (status == ThreadStatus::Paused)) &&
+           (status != ThreadStatus::Terminated) &&
+           (!threadManager.threadVars.bIsShuttingDown.load()) &&
+           (status != ThreadStatus::Stopped))
+    {
+        /* Be careful here! ProcessMessages() will initiate your message handler queue,
+           so make sure you don't do anything that could cause a crash and check all
+           status flags carefully before handling your messages! */
+        #if defined(PLATFORM_WINDOWS)
+            sysUtils.ProcessMessages();
+        #endif
+
+        // Re-read the thread status and yield if we are paused.
+        status = threadManager.GetThreadStatus(THREAD_LOADER);
+        if (status == ThreadStatus::Paused)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            continue;
+        }
+
+        // --- Scene I/O dispatch ---
+        switch (scene.stSceneType)
+        {
+            /* ------------------------------------------------------------
+               DEBUG EXPERIMENT SCENE
+               For rapid resource/FX iteration without loading the full
+               intro sequence.  Enable with #define _DEBUG.
+            -------------------------------------------------------------- */
+            #if defined(_DEBUG)
+                case SceneType::SCENE_EXPERIMENT:
+                {
+                    fxManager.StopZooming();                                        // In case we are returning from somewhere where a zooming effect maybe active.
+                    fxManager.StopFireworks();                                      // In case we are returning from somewhere where fireworks maybe active.
+                    threadManager.threadVars.bLoaderTaskFinished.store(false);
+                    threadManager.threadVars.b2DTexturesLoaded.store(false);
+                    if (LoadAllKnownTextures())
+                        threadManager.threadVars.b2DTexturesLoaded.store(true);
+
+                    // Screen is already black (button handler faded before ResumeLoader).
+                    // Suspend any prior FX then start the WarpDotTunnel before fade-in.
+                    fxManager.SaveAndSuspendFXForScene();
+                    fxManager.Init3DWarpDOTTunnel(0.0f, 0.0f, 1000.0f, 10.0f, 200.0f,
+                        TunnelSpinCycle::Clockwise, 100, false, 24, 100);
+
+                    threadManager.PauseThread(THREAD_LOADER);
+                    threadManager.threadVars.bLoaderTaskFinished.store(true);
+                    fxManager.FadeToImage(1.0f, 0.08f);
+                    break;
+                }
+            #endif
+
+            /* ------------------------------------------------------------
+               INTRO SCENE
+               Load 2D textures, then pause and wait for the render thread.
+            -------------------------------------------------------------- */
+            case SceneType::SCENE_INTRO:
+            {
+                threadManager.threadVars.bLoaderTaskFinished.store(false);
+                threadManager.threadVars.b2DTexturesLoaded.store(false);
+                if (LoadAllKnownTextures())
+                    threadManager.threadVars.b2DTexturesLoaded.store(true);
+
+                #if defined(__USE_OPENGL__)
+                    // Flush any outstanding GL commands so the render thread sees a clean state.
+                    glFlush();
+                #endif
+
+                threadManager.PauseThread(THREAD_LOADER);
+                threadManager.threadVars.bLoaderTaskFinished.store(true);
+
+                break;
+            }
+
+            /* ------------------------------------------------------------
+               INTRO MOVIE SCENE -- OpenGL pipeline only.
+               All 2D textures are already in VRAM from SCENE_INTRO.
+               The movie was opened by the timeout in main.cpp
+            -------------------------------------------------------------- */
+                case SceneType::SCENE_INTRO_MOVIE:
+                {
+                    fxManager.StopZooming();                                        // In case we are returning from somewhere where a zooming effect maybe active.
+                    fxManager.StopFireworks();                                      // In case we are returning from somewhere where fireworks maybe active.
+                    threadManager.threadVars.bLoaderTaskFinished.store(false);
+                    debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene Intro Movie.");
+
+                    #if defined(__USE_OPENGL__)
+                        // Flush any outstanding GL commands so the render thread sees a clean state.
+                        glFlush();
+                    #endif
+
+                    threadManager.threadVars.bLoaderTaskFinished.store(true);
+                    threadManager.PauseThread(THREAD_LOADER);
+                    break;
+                }
+
+            /* ------------------------------------------------------------
+               GAME TITLE SCENE
+               Loads textures, title-screen lighting, scene geometry,
+               audio, game menu and starfield.
+            -------------------------------------------------------------- */
+            case SceneType::SCENE_GAMETITLE:
+            {
+                // Start the loader music track, this depends
+                // on the music play back system being initialized first.
+                #if defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
+                    modPlayer.Stop();
+                    #if defined(__USE_XMPLAYER__)
+                        std::wstring MyFilename = L"loader.xm";
+                    #elif defined(__USE_ITPLAYER__)
+                        std::wstring MyFilename = L"loader.it";
+                    #elif defined(__USE_MODPLAYER__)
+                        std::wstring MyFilename = L"loader.mod";
+                    #elif defined(__USE_S3MPLAYER__)
+                        std::wstring MyFilename = L"loader.s3m";
+                    #elif defined(__USE_MPTMPLAYER__)
+                        std::wstring MyFilename = L"loader.mptm";
+                    #else
+                        std::wstring MyFilename = L"loader.mp3";
+                    #endif
+
+                    auto fileName = AssetsDir / MyFilename;
+                    if (!modPlayer.Play(fileName))
+                    {
+                        threadManager.threadVars.bLoaderTaskFinished.store(true);
+                        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[LOADER]: Failed to Play the requested Module file.");
+                        return;
+                    }
+                    g_currentMusicFile = fileName.wstring();
+                    if (!config.myConfig.playMusic)
+                        modPlayer.Pause();
+                #endif
+
+                threadManager.threadVars.bLoaderTaskFinished.store(false);
+                fxManager.StopAllFX();                                        // In case we are returning from somewhere where a zooming effect maybe active.
+
+                auto showStage = [this](const wchar_t* msg) {
+                    TextRenderStyle s;
+                    s.fontName = LoadingTextFX::kFontName;
+                    s.fontSize = 20.0f;
+                    s.centered = true;
+                    fxManager.ShowLoadingText(msg,
+                        XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f),
+                        0.2f, 0.05f,
+                        XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f),
+                        0.0f, -1.0f, &s);  // -1 = auto: renderer->iOrigHeight * LOADER_TEXT_Y_RATIO
+                };
+
+                threadManager.threadVars.b2DTexturesLoaded.store(false);
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene GameTitle.");
+                showStage(L"Loading textures...");
+                if (LoadAllKnownTextures())
+                    threadManager.threadVars.b2DTexturesLoaded.store(true);
+
+                if (!wasResizing.load())
+                {
+                    // ---- First load ---- //
+
+                    // Parse the splash / title scene.
+                    showStage(L"Parsing scene...");
+                    {
+                        ThreadLockHelper preAllocLock(threadManager, "SceneManager_PreAllocation", 2000);
+                        if (preAllocLock.IsLocked())
+                        {
+                            scene.ParseSceneAutoDetect(AssetsDir / L"splash-hover1.gltf");
+                            if (!scene.bGltfCameraParsed) scene.AutoFrameSceneToCamera();
+                        }
+                    }
+
+                    showStage(L"Loading audio...");
+                    // Fade out whatever the loader tune left playing, then fully reset the
+                    // playback system before Load_Music() starts the real track for this
+                    // scene -- Play() refuses to start a new track while one is still
+                    // playing, so this must happen first.
+                    #if defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
+                        modPlayer.FadeOutAndStop(1000);
+                    #endif
+                    Load_Music();
+
+                    // Camera setup:
+                    //   Vulkan uses iOrigWidth/iOrigHeight directly (original behaviour).
+                    //   DX11, DX12, OpenGL read displayMode and honour bCameraJumped.
+                    #if defined(__USE_VULKAN__)
+                        myCamera.SetupDefaultCamera(static_cast<float>(iOrigWidth),
+                                                    static_cast<float>(iOrigHeight));
+                        myCamera.SetPosition(gtCameraStart.x, gtCameraStart.y, gtCameraStart.z);
+                        myCamera.SetYawPitch(gtStartPY.x, gtStartPY.y);
+                    #else
+                        {
+                            float camW, camH;
+                            switch (config.myConfig.displayMode)
+                            {
+                                case 1: // Borderless -- use full monitor area
+                                    #if defined(PLATFORM_WINDOWS)
+                                        camW = static_cast<float>(winMetrics.monitorFullArea.right  - winMetrics.monitorFullArea.left);
+                                        camH = static_cast<float>(winMetrics.monitorFullArea.bottom - winMetrics.monitorFullArea.top);
+                                    #else
+                                        camW = static_cast<float>(config.myConfig.resolutionWidth);
+                                        camH = static_cast<float>(config.myConfig.resolutionHeight);
+                                    #endif
+                                    break;
+
+                                case 2: // Fullscreen -- use configured target resolution
+                                    camW = static_cast<float>(config.myConfig.resolutionWidth);
+                                    camH = static_cast<float>(config.myConfig.resolutionHeight);
+                                    break;
+
+                                default: // Windowed -- client area only (excludes title bar / borders)
+                                    #if defined(PLATFORM_WINDOWS)
+                                        camW = static_cast<float>(winMetrics.clientWidth);
+                                        camH = static_cast<float>(winMetrics.clientHeight);
+                                    #else
+                                        camW = static_cast<float>(config.myConfig.resolutionWidth);
+                                        camH = static_cast<float>(config.myConfig.resolutionHeight);
+                                    #endif
+                                    break;
+                            }
+                            // Only apply default camera if no scene camera was parsed.
+                            // If bCameraJumped is true a parsed camera already set position/projection.
+                            if (!myCamera.bCameraJumped)
+                                myCamera.SetupDefaultCamera(camW, camH);
+                        }
+
+                        if (!myCamera.bCameraJumped)
+                        {
+                            if (!scene.bGltfCameraParsed)
+                            {
+                                myCamera.SetPosition(gtCameraStart.x, gtCameraStart.y, gtCameraStart.z);
+                                myCamera.SetYawPitch(gtStartPY.x, gtStartPY.y);
+                            }
+                        }
+                    #endif  // !__USE_VULKAN__
+
+                    showStage(L"Building interface...");
+
+                    showStage(L"Almost ready...");
+                    // Non-blocking pixel dissolve on the loading screen, then fade to black.
+                    // Nothing GameTitle-visible (menu window, starfield, zoom/fireworks/strobe,
+                    // bLoaderTaskFinished) may happen until that full sequence completes --
+                    // DXRenderFrame::RenderBackgroundImage() gates GameTitle vs. loading-screen
+                    // purely on bLoaderTaskFinished, so setting it early shows GameTitle underneath
+                    // the still-fading loader image.
+                    fxManager.StartPixelFader(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight,
+                        8, 3.0f, XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f),
+                        [this]()
+                        {
+                            guiManager.CreateGameMenuWindow(L"winGameMenu");
+                            fxManager.CreateStarfield(80, 800.0f, 1000.0f, gtStarOrigin, true);
+                            fxManager.StopLoadingText();
+                            fxManager.ZoomInitialise(ZoomFXFunction::Zoom2D, 0.20f, 0.15f, int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
+                            fxManager.StartZoom(0.015f);
+                            fxManager.StartFireworks(0.5f);
+                            // Gentle brightness pulse — only fades to 75% opacity, 2-second half-cycles
+                            fxManager.StartImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO, 25.0f, 3.0f);
+
+                            #if defined(__USE_OPENGL__)
+                                glFlush();
+                            #endif
+                            threadManager.threadVars.bLoaderTaskFinished.store(true);
+                        });
+
+                    // PauseThread must happen synchronously here (not deferred into the FX
+                    // callback above) -- the loader thread's dispatch loop only stops re-entering
+                    // this same switch case once GetThreadStatus(THREAD_LOADER) reports Paused.
+                    // Deferring it let the loop re-run this whole case (incl. Load_Music()) every
+                    // iteration until the ~3.5s fade sequence finished, causing double music-load
+                    // failures ("already playing"). bLoaderTaskFinished (render-thread scene gate)
+                    // still waits for the fade in the callback; only the pause itself is immediate.
+                    threadManager.PauseThread(THREAD_LOADER);
+                }
+                else
+                {
+                    // ---- Resize path ---- //
+                    // winMetrics is refreshed by GetWindowMetrics() in main.cpp before the loader
+                    // runs, so it reflects the new window state for all display modes.
+                    showStage(L"Updating display...");
+
+                    // Camera on resize:
+                    //   Vulkan uses iOrigWidth/iOrigHeight directly (original behaviour).
+                    //   DX11, DX12, OpenGL read displayMode and honour bCameraJumped.
+                    #if defined(__USE_VULKAN__)
+                        myCamera.SetupDefaultCamera(static_cast<float>(iOrigWidth),
+                                                    static_cast<float>(iOrigHeight));
+                        myCamera.SetPosition(gtCameraStart.x, gtCameraStart.y, gtCameraStart.z);
+                        myCamera.SetYawPitch(gtStartPY.x, gtStartPY.y);
+                    #else
+                        {
+                            float camW, camH;
+                            switch (config.myConfig.displayMode)
+                            {
+                                case 1:
+                                    #if defined(PLATFORM_WINDOWS)
+                                        camW = static_cast<float>(winMetrics.monitorFullArea.right  - winMetrics.monitorFullArea.left);
+                                        camH = static_cast<float>(winMetrics.monitorFullArea.bottom - winMetrics.monitorFullArea.top);
+                                    #else
+                                        camW = static_cast<float>(iOrigWidth);
+                                        camH = static_cast<float>(iOrigHeight);
+                                    #endif
+                                    break;
+
+                                case 2:
+                                    camW = static_cast<float>(config.myConfig.resolutionWidth);
+                                    camH = static_cast<float>(config.myConfig.resolutionHeight);
+                                    break;
+
+                                default:
+                                    #if defined(PLATFORM_WINDOWS)
+                                        camW = static_cast<float>(winMetrics.clientWidth);
+                                        camH = static_cast<float>(winMetrics.clientHeight);
+                                    #else
+                                        camW = static_cast<float>(iOrigWidth);
+                                        camH = static_cast<float>(iOrigHeight);
+                                    #endif
+                                    break;
+                            }
+
+                            if (!myCamera.bCameraJumped)
+                                myCamera.SetupDefaultCamera(camW, camH);
+
+
+                            // Sync internal resolution/AR tracking regardless of camera mode
+                            myCamera.UpdateResolution(static_cast<uint32_t>(camW), static_cast<uint32_t>(camH), camW / std::max(camH, 1.0f));
+                        }
+
+                        if (!myCamera.bCameraJumped)
+                        {
+                            myCamera.SetPosition(gtCameraStart.x, gtCameraStart.y, gtCameraStart.z);
+                            myCamera.SetYawPitch(gtStartPY.x, gtStartPY.y);        // Restore title-screen orientation
+                        }
+                    #endif  // !__USE_VULKAN__
+
+                    // Non-blocking pixel dissolve on the loading screen, then fade to black.
+                    // Nothing GameTitle-visible may happen until that full sequence completes --
+                    // see the matching comment in the first-load branch above.
+                    fxManager.StartPixelFader(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight,
+                        8, 3.0f, XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f),
+                        [this]()
+                        {
+                            // Reopen title-screen GUI and restart FX at the new dimensions.
+                            guiManager.CreateGameMenuWindow(L"winGameMenu");
+                            fxManager.CreateStarfield(80, 800.0f, 1000.0f, gtStarOrigin, true);
+                            fxManager.StopLoadingText();
+                            fxManager.ZoomInitialise(ZoomFXFunction::Zoom2D, 0.20f, 0.15f, int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
+                            fxManager.StartZoom(0.015f);
+                            fxManager.StartFireworks(0.5f);
+                            // Gentle brightness pulse — only fades to 75% opacity, 2-second half-cycles
+                            fxManager.StartImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO, 25.0f, 3.0f);
+
+                            /* OpenGL: flush pending GL commands before signalling the render thread. */
+                            #if defined(__USE_OPENGL__)
+                                glFlush();
+                            #endif
+                            threadManager.threadVars.bLoaderTaskFinished.store(true);
+                        });
+
+                    // See the matching comment in the first-load branch above: PauseThread must
+                    // be synchronous here, not deferred into the FX callback.
+                    threadManager.PauseThread(THREAD_LOADER);
+                }
+
+                break;
+            }
+
+            /* ------------------------------------------------------------
+               MP3 PLAYER SCENE
+               Simple MP3 playback scene.  Tracker modules are the
+               preferred format; MP3 is provided for those who need it.
+               NOTE: COM initialisation is Windows-only; guard accordingly.
+            -------------------------------------------------------------- */
+            case SceneType::SCENE_LOAD_MP3:
+            {
+                try {
+                    #if defined(__USE_MP3PLAYER__) && defined(PLATFORM_WINDOWS)
+                        CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);             // Must initialise as STA (Single Threaded)
+
+                        /* DX11 and DX12 expose player.Initialize(hwnd) via the renderer class.
+                           OpenGL and Vulkan renderers do not carry this member. */
+                        #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+                            player.Initialize(hwnd);
+                        #endif
+
+                        auto fileName = AssetsDir / SingleMP3Filename;
+                        if (player.loadFile(fileName)) {
+                            debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: MP3 File Re-loaded successfully.");
+                            player.play();
+                            player.fadeIn(5000);
+                        }
+                        else {
+                            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[LOADER]: Failed to load MP3 file.");
+                        }
+                    #endif
+
+                    // IMPORTANT: The MediaPlayer needs to process messages before playing.
+                    #if defined(PLATFORM_WINDOWS)
+                        sysUtils.GetMessageAndProcess();
+                    #endif
+                }
+                catch (const std::exception& e) {
+                    exceptionHandler.LogException(e, "[LOADER THREAD] SceneType::SCENE_LOAD_MP3");
+                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"[LOADER]: Exception: " +
+                        std::wstring(e.what(), e.what() + strlen(e.what())));
+                }
+
+                threadManager.PauseThread(THREAD_LOADER);
+                threadManager.threadVars.bLoaderTaskFinished.store(true);
+
+                #if defined(__USE_MP3PLAYER__) && defined(PLATFORM_WINDOWS)
+                    CoUninitialize();                                                // Uninitialise COM -- must release regardless
+                #endif
+                break;
+            }
+
+            #if defined(_PROJECT_ONLY_CODE_)
+            /* ------------------------------------------------------------
+                LEVEL SETUP SCENE
+                Determines what game play mode we are going to be using 
+                and present a video / level instructions video or other
+                content that is required before starting the level.
+            ------------------------------------------------------------ */
+            case SceneType::SCENE_LEVEL_SETUP:
+            {
+                threadManager.threadVars.bLoaderTaskFinished.store(false);
+                fxManager.StopALLFX();                                        // In case we are returning from somewhere where a zooming effect maybe active.
+                threadManager.threadVars.b2DTexturesLoaded.store(false);
+                if (LoadAllKnownTextures())
+                    threadManager.threadVars.b2DTexturesLoaded.store(true);
+
+                auto showStage = [](const wchar_t* msg) {
+                    TextRenderStyle s;
+                    s.fontName = LoadingTextFX::kFontName;
+                    s.fontSize = 20.0f;
+                    s.centered = true;
+                    fxManager.ShowLoadingText(msg,
+                        XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f),
+                        0.2f, 0.05f,
+                        XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f),
+                        0.0f, -1.0f, &s);  // -1 = auto: renderer->iOrigHeight * LOADER_TEXT_Y_RATIO
+                };
+
+                // Loading and setup is now complete -- non-blocking pixel dissolve on the
+                // loading screen, then fade to black, then tell the render thread it can present.
+                fxManager.StartPixelFader(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight,
+                    5, 3.0f, XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f),
+                    []() {
+                        fxManager.FadeOutThenCallback(XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f), 0.5f, 0.0f, []() {
+                            threadManager.threadVars.bLoaderTaskFinished.store(true);
+                        });
+                    });
+
+                // PauseThread must be synchronous here, not deferred into the FX callback --
+                // see the detailed comment in the SCENE_GAMETITLE case above (double-dispatch
+                // of this whole case otherwise occurs while the ~3.5s fade sequence is pending).
+                threadManager.PauseThread(THREAD_LOADER);
+                break;
+            }
+
+            #endif // End of _PROJECT_ONLY_CODE_ for level setup
+
+            /* ------------------------------------------------------------
+               GAMEPLAY SCENE
+               Loads all assets for the current game level (1..30, see
+               kLevelSetups[] at the top of this file).
+                 First load : 1) level music  2) textures + lights
+                              3) parse level scene  4) level-specific setup.
+                 Resize     : reload 2D textures only (models/lights/music survive).
+            -------------------------------------------------------------- */
+            case SceneType::SCENE_GAMEPLAY:
+            {
+                threadManager.threadVars.bLoaderTaskFinished.store(false);
+
+                // Resolve the level being loaded (1..MAX_GAME_LEVELS).  Out-of-range
+                // values are clamped so kLevelSetups[] can never be indexed out of bounds.
+                int currentLevel = gamePlayer.GetGameStatus().GetCurrentLevel();
+                if ((currentLevel < 1) || (currentLevel > MAX_GAME_LEVELS))
+                {
+                    debug.logDebugMessage(LogLevel::LOG_WARNING, L"[LOADER]: Level %d out of range -- clamping to 1..%d.", currentLevel, MAX_GAME_LEVELS);
+                    currentLevel = std::clamp(currentLevel, 1, MAX_GAME_LEVELS);
+                }
+                const LevelSetupInfo& levelSetup = kLevelSetups[currentLevel - 1];
+
+                // STEP 1 -- Level music is ALWAYS the first thing loaded for a level.
+                // Skipped on the resize path: the level's tune is already playing and
+                // must not restart just because the window changed size.
+                if (!wasResizing.load())
+                {
+                    try
+                    {
+                        if (!LoadLevelMusic(currentLevel))
+                            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[LOADER]: Level %d music failed to start -- continuing level load.", currentLevel);
+
+                        // IMPORTANT: MediaPlayer needs to process messages before starting playback.
+                        #if defined(PLATFORM_WINDOWS)
+                            sysUtils.ProcessMessages();
+                        #endif
+                    }
+                    catch (const std::exception& e) {
+                        exceptionHandler.LogException(e, "[LOADER THREAD] SceneType::GAMEPLAY (level music)");
+                        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[LOADER]: Exception: " +
+                            std::wstring(e.what(), e.what() + strlen(e.what())));
+                    }
+                }
+
+                fxManager.StopZooming();                                       // In case we are returning from somewhere where a zooming effect maybe active.
+                fxManager.StopFireworks();                                      // In case we are returning from somewhere where fireworks maybe active.
+                fxManager.StopImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO);
+                auto showStage = [](const wchar_t* msg) {
+                    TextRenderStyle s;
+                    s.fontName = LoadingTextFX::kFontName;
+                    s.fontSize = 20.0f;
+                    s.centered = true;
+                    fxManager.ShowLoadingText(msg,
+                        XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f),
+                        0.2f, 0.05f,
+                        XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f),
+                        0.0f, -1.0f, &s);  // -1 = auto: renderer->iOrigHeight * LOADER_TEXT_Y_RATIO
+                };
+
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene GAMEPLAY Initialising.");
+                threadManager.threadVars.b2DTexturesLoaded.store(false);
+                showStage(L"Loading textures...");
+                if (LoadAllKnownTextures())
+                    threadManager.threadVars.b2DTexturesLoaded.store(true);
+
+                if (!wasResizing.load())
+                {
+                    // ---- First load only ---- //
+                    showStage(L"Initialising lighting...");
+                    LightStruct sunLight{};
+                    #if defined(PLATFORM_WINDOWS)
+                        SecureZeroMemory(&sunLight, sizeof(LightStruct));
+                    #endif
+                    sunLight.active        = true;
+                    sunLight.position      = XMFLOAT3(10.0f, -3.0f, -100.0f);
+                    sunLight.direction     = XMFLOAT3(0.0f, 1.0f, 0.0f);
+                    sunLight.color         = XMFLOAT3(1.0f, 1.0f, 1.0f);
+                    sunLight.ambient       = XMFLOAT3(0.2f, 0.2f, 0.2f);
+                    sunLight.intensity     = 0.5f;
+                    sunLight.baseIntensity = 0.1f;
+                    sunLight.Shiningness   = 0.0f;
+                    sunLight.Reflection    = 0.0f;
+                    sunLight.lightFalloff  = 0.1f;
+                    sunLight.innerCone     = 30.0f;
+                    sunLight.outerCone     = 60.0f;
+                    sunLight.range         = 1000.0f;
+                    sunLight.type          = int(LightType::DIRECTIONAL);
+                    lightsManager.CreateLight(L"Sun", sunLight);
+
+                    // STEP 2 -- Parse this level's scene (from kLevelSetups[]).
+                    showStage(L"Parsing scene...");
+                    if ((levelSetup.sceneFile != nullptr) && (levelSetup.sceneFile[0] != L'\0'))
+                    {
+                        ThreadLockHelper preAllocLock(threadManager, "SceneManager_PreAllocation", 2000);
+                        if (preAllocLock.IsLocked())
+                        {
+                            scene.ParseSceneAutoDetect(AssetsDir / levelSetup.sceneFile);
+                            if (!scene.bGltfCameraParsed) scene.AutoFrameSceneToCamera();
+                        }
+                    }
+                    else
+                    {
+                        debug.logDebugMessage(LogLevel::LOG_WARNING, L"[LOADER]: Level %d has no scene file assigned -- nothing parsed.", currentLevel);
+                    }
+
+                    // STEP 3 -- Level-specific scene setup and settings.
+                    // Runs after the scene is parsed, on the first load only (not on resize).
+                    // Place per-level lights, camera start, model placement (PutModelToScene),
+                    // FX, enemy/wave data, etc. in the matching case.
+                    showStage(L"Setting up level...");
+                    switch (currentLevel)
+                    {
+                        case 1:  { break; }
+                        case 2:  { break; }
+                        case 3:  { break; }
+                        case 4:  { break; }
+                        case 5:  { break; }
+                        case 6:  { break; }
+                        case 7:  { break; }
+                        case 8:  { break; }
+                        case 9:  { break; }
+                        case 10: { break; }
+                        case 11: { break; }
+                        case 12: { break; }
+                        case 13: { break; }
+                        case 14: { break; }
+                        case 15: { break; }
+                        case 16: { break; }
+                        case 17: { break; }
+                        case 18: { break; }
+                        case 19: { break; }
+                        case 20: { break; }
+                        case 21: { break; }
+                        case 22: { break; }
+                        case 23: { break; }
+                        case 24: { break; }
+                        case 25: { break; }
+                        case 26: { break; }
+                        case 27: { break; }
+                        case 28: { break; }
+                        case 29: { break; }
+                        case 30: { break; }
+                        default: { break; }                                 // Unreachable -- currentLevel is clamped above
+                    }
+                }
+                else
+                {
+                    // ---- Resize path ---- //
+                    showStage(L"Updating display...");
+
+                    /* OpenGL rebuilds the camera to the new viewport on resize.
+                       DX11/DX12 camera is updated by DX##Renderer::Resize().
+                       Vulkan camera is restored by RestoreCameraStateAfterResize() before the loader
+                       runs -- do NOT call SetupDefaultCamera here as it resets the in-game position. */
+                    #if defined(__USE_OPENGL__)
+                        {
+                            float camW, camH;
+                            switch (config.myConfig.displayMode)
+                            {
+                                case 1:
+                                    #if defined(PLATFORM_WINDOWS)
+                                        camW = static_cast<float>(winMetrics.monitorFullArea.right  - winMetrics.monitorFullArea.left);
+                                        camH = static_cast<float>(winMetrics.monitorFullArea.bottom - winMetrics.monitorFullArea.top);
+                                    #else
+                                        camW = static_cast<float>(iOrigWidth);
+                                        camH = static_cast<float>(iOrigHeight);
+                                    #endif
+                                    break;
+
+                                case 2:
+                                    camW = static_cast<float>(config.myConfig.resolutionWidth);
+                                    camH = static_cast<float>(config.myConfig.resolutionHeight);
+                                    break;
+
+                                default:
+                                    #if defined(PLATFORM_WINDOWS)
+                                        camW = static_cast<float>(winMetrics.clientWidth);
+                                        camH = static_cast<float>(winMetrics.clientHeight);
+                                    #else
+                                        camW = static_cast<float>(iOrigWidth);
+                                        camH = static_cast<float>(iOrigHeight);
+                                    #endif
+                                    break;
+                            }
+                            myCamera.SetupDefaultCamera(camW, camH);
+                            myCamera.UpdateResolution(static_cast<uint32_t>(camW), static_cast<uint32_t>(camH), camW / std::max(camH, 1.0f));
+                        }
+                    #endif  // __USE_OPENGL__
+
+                    // Same OpenGL coordinate-space fix as SCENE_GAMETITLE: use winMetrics
+                    // so the GameMenu is positioned against the same client width the renderer
+                    // will use for its ortho matrix (iOrigWidth is stale during bIsResizing).
+                    #if defined(__USE_OPENGL__) && defined(PLATFORM_WINDOWS)
+                        guiManager.OnWindowResize(winMetrics.clientWidth, winMetrics.clientHeight);
+                    #else
+                        guiManager.OnWindowResize(iOrigWidth, iOrigHeight);
+                    #endif
+
+                    // DX11/DX12/Vulkan trigger their fade-in here in the resize path.
+                    // OpenGL always triggers its fade-in after the if/else block below.
+                    #if !defined(__USE_OPENGL__)
+                        fxManager.FadeToImage(1.0f, 0.08f);
+                    #endif
+                }
+
+                /* OpenGL always triggers a fade-in after loading (first load or resize),
+                   then flushes pending GL commands before signalling the render thread. */
+                #if defined(__USE_OPENGL__)
+                    fxManager.FadeToImage(1.0f, 0.08f);
+                    glFlush();
+                #endif
+
+                fxManager.StopLoadingText();
+                fxManager.ZoomInitialise(ZoomFXFunction::Zoom2D, 0.20f, 0.15f, int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
+                fxManager.StartZoom(0.015f);
+                fxManager.StartFireworks(2.0f);
+
+                // Non-blocking pixel dissolve on the loading screen, then fade to black,
+                // then tell the render thread it can present the GAMEPLAY scene.
+                fxManager.StartPixelFader(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight,
+                    5, 3.0f, XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f),
+                    []() {
+                        fxManager.FadeOutThenCallback(XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f), 0.5f, 0.0f, []() {
+                            threadManager.threadVars.bLoaderTaskFinished.store(true);
+                        });
+                    });
+
+                // PauseThread must be synchronous here, not deferred into the FX callback --
+                // see the detailed comment in the SCENE_GAMETITLE case above (double-dispatch
+                // of this whole case otherwise occurs while the ~3.5s fade sequence is pending).
+                threadManager.PauseThread(THREAD_LOADER);
+                break;
+            }
+
+            /* ------------------------------------------------------------
+               GAME OVER SCENE
+            -------------------------------------------------------------- */
+            case SceneType::SCENE_GAMEOVER:
+            {
+                fxManager.StopFireworks();                                      // In case we are returning from somewhere where fireworks maybe active.
+                threadManager.threadVars.b2DTexturesLoaded.store(false);
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene Game Over.");
+                threadManager.threadVars.bLoaderTaskFinished.store(true);
+                break;
+            }
+
+            // Unhandled scene type -- mark loading complete so the engine does not stall.
+            default:
+            {
+                fxManager.StopFireworks();                                      // In case we are returning from somewhere where fireworks maybe active.
+                threadManager.threadVars.bLoaderTaskFinished.store(true);
+                break;
+            }
+
+        } // End switch (scene.stSceneType)
+    }
+
+    // Reset resize flag now that this loading pass is complete.
+    if (!threadManager.threadVars.bIsShuttingDown.load())
+        wasResizing.store(false);
+
+    /* OpenGL: flush pending upload commands and release the loader context so the
+       render thread can reclaim the GL context for its own use. */
+    #if defined(__USE_OPENGL__) && defined(PLATFORM_WINDOWS)
+        if (m_loaderGLContext) {
+            glFlush();
+            wglMakeCurrent(nullptr, nullptr);
+        }
+    #endif
+
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene Loading Complete - Pausing Thread");
+}
+
